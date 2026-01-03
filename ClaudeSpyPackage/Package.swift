@@ -8,6 +8,10 @@ extension Target.Dependency {
         .product(name: "SFSymbolsMacro", package: "SFSymbolsMacro")
     }
 
+    static var swiftTerm: Self {
+        .product(name: "SwiftTerm", package: "SwiftTerm")
+    }
+
     static var claudeSpyCommon: Self { "ClaudeSpyCommon" }
     static var claudeSpyFeature: Self { "ClaudeSpyFeature" }
     static var claudeSpyServerFeature: Self { "ClaudeSpyServerFeature" }
@@ -34,6 +38,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/nicklockwood/SwiftFormat", from: "0.53.0"),
         .package(url: "https://github.com/lukepistrol/SFSymbolsMacro.git", from: "0.5.4"),
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.2.0"),
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -54,6 +59,7 @@ let package = Package(
             name: "ClaudeSpyServerFeature",
             dependencies: [
                 .claudeSpyCommon,
+                .swiftTerm,
             ]
         ),
         .testTarget(

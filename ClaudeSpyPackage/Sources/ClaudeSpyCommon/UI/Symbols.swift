@@ -8,6 +8,15 @@ import SwiftUI
 @SFSymbol
 public enum Symbols: String {
     // swiftformat:sort:begin
+    case arrowClockwise = "arrow.clockwise"
+    case arrowDown = "arrow.down"
+    case arrowRight = "arrow.right"
     case chevronLeft = "chevron.left"
+    case exclamationmarkTriangle = "exclamationmark.triangle"
+    case gearshape
+    case pause
+    case play
+    case terminal
+    case xmarkCircle = "xmark.circle"
     // swiftformat:sort:end
 }
