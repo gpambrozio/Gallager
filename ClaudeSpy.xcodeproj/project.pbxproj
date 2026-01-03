@@ -12,6 +12,20 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		815F9E6A2F09BFF9003791F7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8B41F63D2DEDD0D5001A66F9 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 815F9E5C2F09BFF8003791F7;
+			remoteInfo = ClaudeSpyServer;
+		};
+		815F9E742F09BFF9003791F7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8B41F63D2DEDD0D5001A66F9 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 815F9E5C2F09BFF8003791F7;
+			remoteInfo = ClaudeSpyServer;
+		};
 		8B41F65D2DEDD0D6001A66F9 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 8B41F63D2DEDD0D5001A66F9 /* Project object */;
@@ -22,6 +36,9 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		815F9E5D2F09BFF8003791F7 /* ClaudeSpyServer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeSpyServer.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		815F9E692F09BFF9003791F7 /* ClaudeSpyServerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeSpyServerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		815F9E732F09BFF9003791F7 /* ClaudeSpyServerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeSpyServerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8B41F6452DEDD0D5001A66F9 /* ClaudeSpy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeSpy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8B41F65C2DEDD0D6001A66F9 /* ClaudeSpy.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeSpy.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -40,6 +57,21 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		815F9E5E2F09BFF8003791F7 /* ClaudeSpyServer */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ClaudeSpyServer;
+			sourceTree = "<group>";
+		};
+		815F9E6C2F09BFF9003791F7 /* ClaudeSpyServerTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ClaudeSpyServerTests;
+			sourceTree = "<group>";
+		};
+		815F9E762F09BFF9003791F7 /* ClaudeSpyServerUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ClaudeSpyServerUITests;
+			sourceTree = "<group>";
+		};
 		8B41F6472DEDD0D5001A66F9 /* ClaudeSpy */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = ClaudeSpy;
@@ -61,6 +93,27 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		815F9E5A2F09BFF8003791F7 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		815F9E662F09BFF9003791F7 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		815F9E702F09BFF9003791F7 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		8B41F6422DEDD0D5001A66F9 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -86,6 +139,9 @@
 				8BD71C052DEE41D800CEDD92 /* Config */,
 				8B41F6472DEDD0D5001A66F9 /* ClaudeSpy */,
 				8B41F65F2DEDD0D6001A66F9 /* ClaudeSpyUITests */,
+				815F9E5E2F09BFF8003791F7 /* ClaudeSpyServer */,
+				815F9E6C2F09BFF9003791F7 /* ClaudeSpyServerTests */,
+				815F9E762F09BFF9003791F7 /* ClaudeSpyServerUITests */,
 				8B41F6812DEDD23B001A66F9 /* Frameworks */,
 				8B41F6462DEDD0D5001A66F9 /* Products */,
 			);
@@ -96,6 +152,9 @@
 			children = (
 				8B41F6452DEDD0D5001A66F9 /* ClaudeSpy.app */,
 				8B41F65C2DEDD0D6001A66F9 /* ClaudeSpy.xctest */,
+				815F9E5D2F09BFF8003791F7 /* ClaudeSpyServer.app */,
+				815F9E692F09BFF9003791F7 /* ClaudeSpyServerTests.xctest */,
+				815F9E732F09BFF9003791F7 /* ClaudeSpyServerUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -110,6 +169,74 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		815F9E5C2F09BFF8003791F7 /* ClaudeSpyServer */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 815F9E812F09BFF9003791F7 /* Build configuration list for PBXNativeTarget "ClaudeSpyServer" */;
+			buildPhases = (
+				815F9E592F09BFF8003791F7 /* Sources */,
+				815F9E5A2F09BFF8003791F7 /* Frameworks */,
+				815F9E5B2F09BFF8003791F7 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				815F9E5E2F09BFF8003791F7 /* ClaudeSpyServer */,
+			);
+			name = ClaudeSpyServer;
+			packageProductDependencies = (
+			);
+			productName = ClaudeSpyServer;
+			productReference = 815F9E5D2F09BFF8003791F7 /* ClaudeSpyServer.app */;
+			productType = "com.apple.product-type.application";
+		};
+		815F9E682F09BFF9003791F7 /* ClaudeSpyServerTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 815F9E822F09BFF9003791F7 /* Build configuration list for PBXNativeTarget "ClaudeSpyServerTests" */;
+			buildPhases = (
+				815F9E652F09BFF9003791F7 /* Sources */,
+				815F9E662F09BFF9003791F7 /* Frameworks */,
+				815F9E672F09BFF9003791F7 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				815F9E6B2F09BFF9003791F7 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				815F9E6C2F09BFF9003791F7 /* ClaudeSpyServerTests */,
+			);
+			name = ClaudeSpyServerTests;
+			packageProductDependencies = (
+			);
+			productName = ClaudeSpyServerTests;
+			productReference = 815F9E692F09BFF9003791F7 /* ClaudeSpyServerTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		815F9E722F09BFF9003791F7 /* ClaudeSpyServerUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 815F9E832F09BFF9003791F7 /* Build configuration list for PBXNativeTarget "ClaudeSpyServerUITests" */;
+			buildPhases = (
+				815F9E6F2F09BFF9003791F7 /* Sources */,
+				815F9E702F09BFF9003791F7 /* Frameworks */,
+				815F9E712F09BFF9003791F7 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				815F9E752F09BFF9003791F7 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				815F9E762F09BFF9003791F7 /* ClaudeSpyServerUITests */,
+			);
+			name = ClaudeSpyServerUITests;
+			packageProductDependencies = (
+			);
+			productName = ClaudeSpyServerUITests;
+			productReference = 815F9E732F09BFF9003791F7 /* ClaudeSpyServerUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		8B41F6442DEDD0D5001A66F9 /* ClaudeSpy */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 8B41F6662DEDD0D6001A66F9 /* Build configuration list for PBXNativeTarget "ClaudeSpy" */;
@@ -165,9 +292,20 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1630;
+				LastSwiftUpdateCheck = 2620;
 				LastUpgradeCheck = 1630;
 				TargetAttributes = {
+					815F9E5C2F09BFF8003791F7 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					815F9E682F09BFF9003791F7 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 815F9E5C2F09BFF8003791F7;
+					};
+					815F9E722F09BFF9003791F7 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 815F9E5C2F09BFF8003791F7;
+					};
 					8B41F6442DEDD0D5001A66F9 = {
 						CreatedOnToolsVersion = 16.3;
 					};
@@ -193,11 +331,35 @@
 			targets = (
 				8B41F6442DEDD0D5001A66F9 /* ClaudeSpy */,
 				8B41F65B2DEDD0D6001A66F9 /* ClaudeSpyUITests */,
+				815F9E5C2F09BFF8003791F7 /* ClaudeSpyServer */,
+				815F9E682F09BFF9003791F7 /* ClaudeSpyServerTests */,
+				815F9E722F09BFF9003791F7 /* ClaudeSpyServerUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		815F9E5B2F09BFF8003791F7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		815F9E672F09BFF9003791F7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		815F9E712F09BFF9003791F7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		8B41F6432DEDD0D5001A66F9 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -215,6 +377,27 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		815F9E592F09BFF8003791F7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		815F9E652F09BFF9003791F7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		815F9E6F2F09BFF9003791F7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		8B41F6412DEDD0D5001A66F9 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -232,6 +415,16 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		815F9E6B2F09BFF9003791F7 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 815F9E5C2F09BFF8003791F7 /* ClaudeSpyServer */;
+			targetProxy = 815F9E6A2F09BFF9003791F7 /* PBXContainerItemProxy */;
+		};
+		815F9E752F09BFF9003791F7 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 815F9E5C2F09BFF8003791F7 /* ClaudeSpyServer */;
+			targetProxy = 815F9E742F09BFF9003791F7 /* PBXContainerItemProxy */;
+		};
 		8B41F65E2DEDD0D6001A66F9 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 8B41F6442DEDD0D5001A66F9 /* ClaudeSpy */;
@@ -240,6 +433,162 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		815F9E7B2F09BFF9003791F7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = XG2WG7U93U;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.ClaudeSpyServer;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		815F9E7C2F09BFF9003791F7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = XG2WG7U93U;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.ClaudeSpyServer;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		815F9E7D2F09BFF9003791F7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = XG2WG7U93U;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.1;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.ClaudeSpyServerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ClaudeSpyServer.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ClaudeSpyServer";
+			};
+			name = Debug;
+		};
+		815F9E7E2F09BFF9003791F7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = XG2WG7U93U;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.1;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.ClaudeSpyServerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ClaudeSpyServer.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ClaudeSpyServer";
+			};
+			name = Release;
+		};
+		815F9E7F2F09BFF9003791F7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = XG2WG7U93U;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.1;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.ClaudeSpyServerUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = ClaudeSpyServer;
+			};
+			name = Debug;
+		};
+		815F9E802F09BFF9003791F7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = XG2WG7U93U;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.1;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.ClaudeSpyServerUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = ClaudeSpyServer;
+			};
+			name = Release;
+		};
 		8B41F6642DEDD0D6001A66F9 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -371,10 +720,13 @@
 				CODE_SIGN_STYLE = Automatic;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "$(PRODUCT_DISPLAY_NAME)";
+				INFOPLIST_KEY_CFBundleDisplayName = ClaudeSpy;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait landscape-left landscape-right portrait portrait-upside-down";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown landscape-left landscape-right portrait portrait-upside-down";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -394,10 +746,13 @@
 				CODE_SIGN_STYLE = Automatic;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "$(PRODUCT_DISPLAY_NAME)";
+				INFOPLIST_KEY_CFBundleDisplayName = ClaudeSpy;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait landscape-left landscape-right portrait portrait-upside-down";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown landscape-left landscape-right portrait portrait-upside-down";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -438,6 +793,33 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		815F9E812F09BFF9003791F7 /* Build configuration list for PBXNativeTarget "ClaudeSpyServer" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				815F9E7B2F09BFF9003791F7 /* Debug */,
+				815F9E7C2F09BFF9003791F7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		815F9E822F09BFF9003791F7 /* Build configuration list for PBXNativeTarget "ClaudeSpyServerTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				815F9E7D2F09BFF9003791F7 /* Debug */,
+				815F9E7E2F09BFF9003791F7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		815F9E832F09BFF9003791F7 /* Build configuration list for PBXNativeTarget "ClaudeSpyServerUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				815F9E7F2F09BFF9003791F7 /* Debug */,
+				815F9E802F09BFF9003791F7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		8B41F6402DEDD0D5001A66F9 /* Build configuration list for PBXProject "ClaudeSpy" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
