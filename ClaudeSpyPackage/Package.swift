@@ -3,26 +3,75 @@
 
 import PackageDescription
 
+extension Target.Dependency {
+    static var sfSymbolsMacro: Self {
+        .product(name: "SFSymbolsMacro", package: "SFSymbolsMacro")
+    }
+
+    static var claudeSpyCommon: Self { "ClaudeSpyCommon" }
+    static var claudeSpyFeature: Self { "ClaudeSpyFeature" }
+    static var claudeSpyServerFeature: Self { "ClaudeSpyServerFeature" }
+}
+
 let package = Package(
-    name: "ClaudeSpyFeature",
-    platforms: [.iOS(.v18)],
+    name: "ClaudeSpyPackage",
+    platforms: [.iOS(.v18), .macOS(.v15)],
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
+        .library(
+            name: "ClaudeSpyCommon",
+            targets: ["ClaudeSpyCommon"]
+        ),
         .library(
             name: "ClaudeSpyFeature",
             targets: ["ClaudeSpyFeature"]
         ),
+        .library(
+            name: "ClaudeSpyServerFeature",
+            targets: ["ClaudeSpyServerFeature"]
+        ),
+    ],
+    dependencies: [
+        .package(url: "https://github.com/nicklockwood/SwiftFormat", from: "0.53.0"),
+        .package(url: "https://github.com/lukepistrol/SFSymbolsMacro.git", from: "0.5.4"),
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
-            name: "ClaudeSpyFeature"
+            name: "ClaudeSpyCommon",
+            dependencies: [
+                .sfSymbolsMacro,
+            ]
+        ),
+        .target(
+            name: "ClaudeSpyFeature",
+            dependencies: [
+                .claudeSpyCommon,
+            ]
+        ),
+        .target(
+            name: "ClaudeSpyServerFeature",
+            dependencies: [
+                .claudeSpyCommon,
+            ]
+        ),
+        .testTarget(
+            name: "ClaudeSpyCommonTests",
+            dependencies: [
+                "ClaudeSpyCommon"
+            ]
         ),
         .testTarget(
             name: "ClaudeSpyFeatureTests",
             dependencies: [
                 "ClaudeSpyFeature"
+            ]
+        ),
+        .testTarget(
+            name: "ClaudeSpyServerFeatureTests",
+            dependencies: [
+                "ClaudeSpyServerFeature"
             ]
         ),
     ]

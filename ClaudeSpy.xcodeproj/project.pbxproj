@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		817BF9BA2F09C7CC00BD1D53 /* ClaudeSpyServerFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 817BF9B92F09C7CC00BD1D53 /* ClaudeSpyServerFeature */; };
 		8B41F6832DEDD23B001A66F9 /* ClaudeSpyFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6822DEDD23B001A66F9 /* ClaudeSpyFeature */; };
 		8B41F6852DEDD25C001A66F9 /* ClaudeSpyFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6842DEDD25C001A66F9 /* ClaudeSpyFeature */; };
 /* End PBXBuildFile section */
@@ -97,6 +98,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				817BF9BA2F09C7CC00BD1D53 /* ClaudeSpyServerFeature in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -186,6 +188,7 @@
 			);
 			name = ClaudeSpyServer;
 			packageProductDependencies = (
+				817BF9B92F09C7CC00BD1D53 /* ClaudeSpyServerFeature */,
 			);
 			productName = ClaudeSpyServer;
 			productReference = 815F9E5D2F09BFF8003791F7 /* ClaudeSpyServer.app */;
@@ -858,6 +861,10 @@
 /* End XCConfigurationList section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		817BF9B92F09C7CC00BD1D53 /* ClaudeSpyServerFeature */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ClaudeSpyServerFeature;
+		};
 		8B41F6822DEDD23B001A66F9 /* ClaudeSpyFeature */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ClaudeSpyFeature;

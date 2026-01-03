@@ -45,6 +45,46 @@ YourApp/
 - **Enums:** Leverage Swift's powerful enums with associated values for state representation
 - **Early Returns:** Prefer early return pattern over nested conditionals to avoid pyramid of doom
 
+## SF Symbols Usage
+
+All SF Symbols used in the project must be defined in the `Symbols` enum located at `ClaudeSpyPackage/Sources/ClaudeSpyCommon/UI/Symbols.swift`. This is enforced by SwiftLint to ensure consistency and maintainability.
+
+### How to use SF Symbols:
+
+1. **Never use string literals**: Don't use `Image(systemName: "star.fill")` or `Label("Text", systemImage: "star.fill")`
+
+2. **Add missing symbols to the enum**: If you need a symbol that's not in the enum, add it in alphabetical order:
+   ```swift
+   @SFSymbol
+   public enum Symbols: String {
+       case calendar  // For simple names matching the SF Symbol name
+       case chartLineUptrendXyaxis = "chart.line.uptrend.xyaxis"  // For complex names
+       // ... other symbols in alphabetical order
+   }
+   ```
+
+3. **Using symbols in SwiftUI views**:
+   - **For Image views**: Use `Symbols.star.image` (the macro generates an `.image` property)
+     ```swift
+     Symbols.starFill.image
+     ```
+   
+   - **For systemImage parameters**: Use the extensions in `ImageExtensions.swift`
+     ```swift
+     Label("Favorite", symbol: .starFill)
+     ContentUnavailableView("No Data", symbol: .exclamationMarkTriangle, description: "No data available")
+     ```
+
+4. **Import requirement**: Files using the Symbols enum must import ClaudeSpyCommon:
+   ```swift
+   import ClaudeSpyCommon
+   ```
+
+5. **Naming conventions**:
+   - Use camelCase for enum cases
+   - For symbols with dots, convert to camelCase: `star.fill` → `starFill`
+   - For symbols with special characters, spell them out: `exclamationmark.triangle` → `exclamationMarkTriangle`
+
 ## Optionals & Error Handling
 
 - Use optionals with `if let`/`guard let` for nil handling
@@ -151,13 +191,6 @@ When targeting iOS 26+, consider using these new APIs:
 #### UIKit Integration
 - `UIHostingSceneDelegate` - Host and present SwiftUI scenes in UIKit
 - `NSGestureRecognizerRepresentable` - Incorporate gesture recognizers from AppKit
-
-#### Immersive Spaces (if applicable)
-- `manipulable(coordinateSpace:operations:inertia:isEnabled:onChanged:)` - Hand gesture manipulation
-- `SurfaceSnappingInfo` - Snap volumes and windows to surfaces
-- `RemoteImmersiveSpace` - Render stereo content from Mac to Apple Vision Pro
-- `SpatialContainer` - 3D layout container
-- Depth-based modifiers: `aspectRatio3D(_:contentMode:)`, `rotation3DLayout(_:)`, `depthAlignment(_:)`
 
 ## iOS 26 Usage Guidelines
 - **Only use when targeting iOS 26+**: Ensure your deployment target supports these APIs
