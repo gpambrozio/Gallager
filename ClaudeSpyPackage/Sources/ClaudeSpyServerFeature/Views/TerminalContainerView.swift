@@ -3,6 +3,11 @@ import CoreText
 import SwiftTerm
 import SwiftUI
 
+/// A flipped clip view that positions content at the top instead of bottom
+private final class FlippedClipView: NSClipView {
+    override var isFlipped: Bool { true }
+}
+
 /// A SwiftUI wrapper around SwiftTerm's TerminalView embedded in a scroll view
 struct TerminalContainerView: NSViewRepresentable {
     /// The terminal view controller that manages the underlying terminal
@@ -55,7 +60,12 @@ final class TerminalController: @unchecked Sendable {
 
         // Create scroll view to contain the terminal
         self.scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        scrollView.documentView = terminalView
+
+        // Use flipped clip view so content aligns to top instead of bottom
+        let flippedClipView = FlippedClipView()
+        flippedClipView.documentView = terminalView
+        scrollView.contentView = flippedClipView
+
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
