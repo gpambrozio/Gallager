@@ -159,6 +159,18 @@ struct MirrorWindowView: View {
         terminalController.fontSize = CGFloat(settings.fontSize)
         terminalController.applyTheme(settings.theme)
 
+        // Get pane dimensions first and resize terminal BEFORE feeding content
+        do {
+            let dims = try await tmuxService.getPaneDimensions(paneInfo.target)
+            terminalController.resize(columns: dims.width, rows: dims.height)
+        } catch {
+            // Fall back to pane info dimensions
+            terminalController.resize(columns: paneInfo.width, rows: paneInfo.height)
+        }
+
+        // Clear terminal and reset cursor position before receiving data
+        terminalController.clear()
+
         // Set up data handler
         stream.onData = { data in
             terminalController.feed(data)
@@ -166,6 +178,7 @@ struct MirrorWindowView: View {
 
         do {
             try await stream.connect()
+            // Update dimensions if they changed
             terminalController.resize(columns: stream.width, rows: stream.height)
         } catch {
             // Error is captured in stream state

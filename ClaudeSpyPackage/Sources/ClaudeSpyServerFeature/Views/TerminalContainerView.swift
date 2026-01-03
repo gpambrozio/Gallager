@@ -89,7 +89,8 @@ final class TerminalController: @unchecked Sendable {
 
     /// Feeds raw data (including ANSI escape sequences) to the terminal
     func feed(_ data: Data) {
-        terminalView.feed(byteArray: ArraySlice(data))
+        let bytes = [UInt8](data)
+        terminalView.feed(byteArray: bytes[...])
     }
 
     /// Feeds a string to the terminal

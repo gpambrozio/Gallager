@@ -72,12 +72,11 @@ final class PaneStream {
             width = dims.width
             height = dims.height
 
-            // Capture initial content
-            let initialContent = try await tmuxService.capturePane(target, scrollback: true)
-            scrollbackLines = initialContent.split(separator: UInt8(ascii: "\n")).count
+            // Capture initial content with cursor positioning for each line
+            let initialContent = try await tmuxService.capturePaneWithPositioning(target)
             onData?(initialContent)
 
-            // Start pipe-pane streaming
+            // Start pipe-pane streaming for live updates
             let fifoPath = try await tmuxService.startPipePipe(target)
             let reader = FIFOReader(path: fifoPath)
             fifoReader = reader
