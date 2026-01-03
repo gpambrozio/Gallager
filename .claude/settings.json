@@ -1,0 +1,15 @@
+{
+  "extraKnownMarketplaces": {
+    "ClaudeCodePlugins": {
+      "source": {
+        "ref": "main",
+        "repo": "gpambrozio/ClaudeCodePlugins",
+        "source": "github"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "swift-lsp@claude-plugins-official": true,
+    "XcodeBuildTools@ClaudeCodePlugins": true
+  }
+}
