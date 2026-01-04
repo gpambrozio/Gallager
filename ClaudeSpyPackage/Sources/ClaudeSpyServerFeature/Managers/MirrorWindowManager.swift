@@ -32,11 +32,9 @@ public final class MirrorWindowManager {
         case .sessionEnd:
             activePanes.removeValue(forKey: paneId)
             await closeMirrorForPane(paneId)
-        case .sessionStart:
+        default:
             activePanes[paneId] = Date()
             await openMirrorForPane(paneId)
-        case .preToolUse, .permissionRequest, .unknown:
-            activePanes[paneId] = Date()
         }
     }
 
