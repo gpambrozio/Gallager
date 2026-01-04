@@ -1,40 +1,57 @@
 # Project Overview
 
-This is a native **iOS application** built with **Swift 6.1+** and **SwiftUI**. The codebase targets **iOS 18.0 and later**, allowing full use of modern Swift and iOS APIs. All concurrency is handled with **Swift Concurrency** (async/await, actors, @MainActor isolation) ensuring thread-safe code.
+**ClaudeSpy** (Tmux Pane Mirror) is a native **macOS application** that displays real-time mirrors of tmux panes in native windows. Built with **Swift 6.1+** and **SwiftUI**, targeting **macOS 15.0+**. All concurrency is handled with **Swift Concurrency** (async/await, actors, @MainActor isolation).
 
-- **Frameworks & Tech:** SwiftUI for UI, Swift Concurrency with strict mode, Swift Package Manager for modular architecture
-- **Architecture:** Model-View (MV) pattern using pure SwiftUI state management. We avoid MVVM and instead leverage SwiftUI's built-in state mechanisms (@State, @Observable, @Environment, @Binding)
-- **Testing:** Swift Testing framework with modern @Test macros and #expect/#require assertions
-- **Platform:** iOS (Simulator and Device)
-- **Accessibility:** Full accessibility support using SwiftUI's accessibility modifiers
+## What This App Does
+
+Instead of attaching to a tmux session directly in the terminal, users can open dedicated windows that show live, read-only views of any tmux pane with full terminal rendering (colors, escape sequences, cursor positioning) via [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm).
+
+**Primary Use Cases:**
+- Monitor long-running processes without leaving your editor
+- Display build output or logs on secondary monitors
+- Observe remote session activity without attaching
+- Create dashboards from multiple tmux panes at once
+
+## Technology Stack
+
+- **Swift 6.1+** with strict concurrency
+- **SwiftUI** for UI (MV pattern, no ViewModels)
+- **AppKit** for window management (NSWindow, NSHostingController)
+- **SwiftTerm** for terminal emulation (renders ANSI escape codes)
+- **Swift Concurrency** (async/await, actors, tasks)
+- **Named pipes (FIFOs)** for streaming output from tmux
+- **CoreText** for precise font metrics calculation
+- **Testing:** Swift Testing framework with @Test macros
 
 ## Project Structure
 
-The project follows a **workspace + SPM package** architecture:
-
 ```
-YourApp/
-├── Config/                         # XCConfig build settings
+ClaudeSpy/
+├── Config/                              # XCConfig build settings
 │   ├── Debug.xcconfig
 │   ├── Release.xcconfig
 │   ├── Shared.xcconfig
 │   └── Tests.xcconfig
-├── YourApp.xcworkspace/            # Workspace container
-├── YourApp.xcodeproj/              # App shell (minimal wrapper)
-├── YourApp/                        # App target - just the entry point
-│   ├── Assets.xcassets/
-│   ├── YourAppApp.swift           # @main entry point only
-│   └── YourApp.xctestplan
-├── YourAppPackage/                 # All features and business logic
+├── ClaudeSpy.xcworkspace/               # Workspace container
+├── ClaudeSpy.xcodeproj/                 # App shell (minimal wrapper)
+├── ClaudeSpy/                           # iOS target (unused currently)
+├── ClaudeSpyServer/                     # macOS app target entry point
+│   ├── ClaudeSpyServerApp.swift         # @main entry point
+│   └── Assets.xcassets/
+├── ClaudeSpyPackage/                    # All features and business logic
 │   ├── Package.swift
 │   ├── Sources/
-│   │   └── YourAppFeature/        # Feature modules
+│   │   ├── ClaudeSpyCommon/             # Shared UI utilities (Symbols, extensions)
+│   │   ├── ClaudeSpyFeature/            # Generic features (less used)
+│   │   └── ClaudeSpyServerFeature/      # Main tmux mirroring implementation
 │   └── Tests/
-│       └── YourAppFeatureTests/   # Swift Testing tests
-└── YourAppUITests/                 # UI automation tests
+├── ClaudeSpyServerTests/                # Unit tests
+├── ClaudeSpyServerUITests/              # UI automation tests
+└── docs/                                # Documentation
+    └── known-issues.md
 ```
 
-**Important:** All development work should be done in the **YourAppPackage** Swift Package, not in the app project. The app project is merely a thin wrapper that imports and launches the package features.
+**Important:** All development work should be done in **ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/**. The app target is merely a thin wrapper.
 
 # Code Quality & Style Guidelines
 
@@ -140,81 +157,117 @@ All SF Symbols used in the project must be defined in the `Symbols` enum located
    - Pass state via bindings between views
    - Never reach for a ViewModel as the solution
 
-# iOS 26 Features (Optional)
+# Core Architecture
 
-**Note**: If your app targets iOS 26+, you can take advantage of these cutting-edge SwiftUI APIs introduced in June 2025. These features are optional and should only be used when your deployment target supports iOS 26.
+## Key Services
 
-## Available iOS 26 SwiftUI APIs
+### TmuxService (`Services/TmuxService.swift`)
+`@Observable @MainActor` class that abstracts all tmux CLI interactions.
 
-When targeting iOS 26+, consider using these new APIs:
+**Responsibilities:**
+- Execute tmux commands via `ProcessRunner` with proper socket path handling
+- Enumerate panes: `listPanes()` discovers all panes across sessions
+- Validate panes: `validatePane()` checks if a pane target exists
+- Capture content:
+  - `capturePane()` - captures full scrollback with ANSI escape sequences
+  - `capturePaneWithPositioning()` - captures with cursor positioning for proper alignment
+- Stream setup: `startPipePipe()` / `stopPipePipe()` manages FIFOs for live streaming
+- Track dimensions: `getPaneDimensions()` and `getPaneId()`
 
-#### Liquid Glass Effects
-- `glassEffect(_:in:isEnabled:)` - Apply Liquid Glass effects to views
-- `buttonStyle(.glass)` - Apply Liquid Glass styling to buttons
-- `ToolbarSpacer` - Create visual breaks in toolbars with Liquid Glass
+**Configuration:** Takes `tmuxPath` (default: `/opt/homebrew/bin/tmux`) and optional `socketPath`.
 
-#### Enhanced Scrolling
-- `scrollEdgeEffectStyle(_:for:)` - Configure scroll edge effects
-- `backgroundExtensionEffect()` - Duplicate, mirror, and blur views around edges
+### PaneStream (`Services/PaneStream.swift`)
+`@Observable @MainActor` class managing streaming connection to a single tmux pane.
 
-#### Tab Bar Enhancements
-- `tabBarMinimizeBehavior(_:)` - Control tab bar minimization behavior
-- Search role for tabs with search field replacing tab bar
-- `TabViewBottomAccessoryPlacement` - Adjust accessory view content based on placement
+**States:** `disconnected` → `connecting` → `connected` | `paused` | `error`
 
-#### Web Integration
-- `WebView` and `WebPage` - Full control over browsing experience
-
-#### Drag and Drop
-- `draggable(_:_:)` - Drag multiple items
-- `dragContainer(for:id:in:selection:_:)` - Container for draggable views
-
-#### Animation
-- `@Animatable` macro - SwiftUI synthesizes custom animatable data properties
-
-#### UI Components
-- `Slider` with automatic tick marks when using step parameter
-- `windowResizeAnchor(_:)` - Set window anchor point for resizing
-
-#### Text Enhancements
-- `TextEditor` now supports `AttributedString`
-- `AttributedTextSelection` - Handle text selection with attributed text
-- `AttributedTextFormattingDefinition` - Define text styling in specific contexts
-- `FindContext` - Create find navigator in text editing views
-
-#### Accessibility
-- `AssistiveAccess` - Support Assistive Access in iOS scenes
-
-#### HDR Support
-- `Color.ResolvedHDR` - RGBA values with HDR headroom information
-
-#### UIKit Integration
-- `UIHostingSceneDelegate` - Host and present SwiftUI scenes in UIKit
-- `NSGestureRecognizerRepresentable` - Incorporate gesture recognizers from AppKit
-
-## iOS 26 Usage Guidelines
-- **Only use when targeting iOS 26+**: Ensure your deployment target supports these APIs
-- **Progressive enhancement**: Use availability checks if supporting multiple iOS versions
-- **Feature detection**: Test on older simulators to ensure graceful fallbacks
-- **Modern aesthetics**: Leverage Liquid Glass effects for cutting-edge UI design
-
-```swift
-// Example: Using iOS 26 features with availability checks
-struct ModernButton: View {
-    var body: some View {
-        Button("Tap me") {
-            // Action
-        }
-        .buttonStyle({
-            if #available(iOS 26.0, *) {
-                .glass
-            } else {
-                .bordered
-            }
-        }())
-    }
-}
+**Data Flow:**
 ```
+TmuxService.startPipePipe() ──▶ FIFOReader ──▶ AsyncStream<Data>
+                                                     ║
+                                                     ▼
+                                     PaneStream buffers or yields
+                                                     ║
+                                                     ▼
+                                      TerminalController.feed(data)
+```
+
+**Features:**
+- Initial content delivery with cursor positioning on connect
+- Pause/resume with buffering (`pauseBuffer: [Data]`)
+- Dimension tracking for terminal sizing
+
+### MirrorWindowManager (`Managers/MirrorWindowManager.swift`)
+`@Observable @MainActor` class managing lifecycle of NSWindow instances.
+
+**Responsibilities:**
+- Create windows sized to pane dimensions (7.2pt/char width, 14pt height)
+- Track windows by pane target: `[String: NSWindow]`
+- Reuse existing windows (bring to front vs. duplicate)
+- Auto-save window frames per pane: `MirrorWindow-{target}`
+
+### TerminalController (`Views/TerminalContainerView.swift`)
+`@Observable @MainActor` class bridging SwiftTerm to SwiftUI.
+
+**Key Features:**
+- Wraps SwiftTerm's `TerminalView` (native terminal emulation)
+- Uses **FlippedClipView** to align content to top (not bottom)
+- Fixed terminal dimensions in character cells matching pane size
+- Precise cell size calculation via CoreText font metrics
+- Theme support (DefaultDark/Light, SolarizedDark/Light)
+- Scroll tracking for "Jump to Bottom" functionality
+
+## Utilities
+
+### FIFOReader (`Utilities/FIFOReader.swift`)
+Actor for managing named pipes (FIFOs) to receive streaming tmux output.
+
+- `createFIFO()` - Creates named pipe via `mkfifo()`
+- `startReading()` - Returns `AsyncStream<Data>` from FIFO
+- Handles EOF gracefully (tmux may reopen the pipe)
+
+**Why FIFOs?** Tmux's `pipe-pane` pipes output to a command. ClaudeSpy uses `cat > /tmp/tmux-mirror-{uuid}.fifo`, then reads that FIFO for continuous streaming.
+
+### ProcessRunner (`Utilities/ProcessRunner.swift`)
+Actor for executing external processes (tmux commands).
+
+- Runs processes asynchronously, collects stdout/stderr
+- Thread-safe `OutputCollector` using NSLock
+- Returns `ProcessResult` with exit code, stdout, stderr
+
+## Key Models
+
+### PaneInfo (`Models/PaneInfo.swift`)
+Represents a discovered tmux pane:
+- `id`, `target`, `sessionName`, `windowIndex`, `paneIndex`
+- `command`, `currentPath`, `width`, `height`, `isActive`
+
+### AppSettings (`Models/Settings.swift`)
+`@Observable @MainActor` with UserDefaults persistence:
+- **Terminal:** `fontName`, `fontSize`, `scrollbackLines`, `theme`
+- **Behavior:** `restoreWindowsOnLaunch`, `showStatusBar`, `autoReconnect`
+- **Tmux:** `tmuxPath`, `tmuxSocket`
+
+## Key Patterns
+
+### Cursor Positioning Strategy
+`capturePaneWithPositioning()` generates ANSI escape sequences to position each line:
+```swift
+positionedContent += "\u{1b}[H"  // Home
+for (index, line) in lines {
+    positionedContent += "\u{1b}[\(index + 1);1H"  // Row, column 1
+    positionedContent += "\u{1b}[2K"  // Clear line
+    positionedContent += line
+}
+positionedContent += "\u{1b}[\(cursorY + 1);\(cursorX + 1)H"  // Final cursor position
+```
+
+### FlippedClipView
+Custom `NSClipView` subclass with `isFlipped = true` to align terminal content to top instead of bottom (AppKit default is origin at bottom-left).
+
+### Actor-Based Concurrency
+- `TmuxService`, `PaneStream` - `@Observable @MainActor` (UI-bound)
+- `ProcessRunner`, `FIFOReader` - actors (background I/O)
 
 ## SwiftUI State Management (MV Pattern)
 
@@ -462,200 +515,37 @@ To add capabilities to your app, edit `Config/ClaudeSpy.entitlements`:
 | Contacts | `com.apple.developer.contacts.notes` | `<true/>` |
 | Camera | `com.apple.developer.avfoundation.audio` | `<true/>` |
 
-# XcodeBuildMCP Tool Usage
+# Building & Testing
 
-To work with this project, build, test, and development commands should use XcodeBuildMCP tools instead of raw command-line calls.
+Use the `XcodeBuildTools` skills for building and testing. The scheme is `ClaudeSpyServer` for the macOS app.
 
-## Project Discovery & Setup
+## Build Commands
 
-```javascript
-// Discover Xcode projects in the workspace
-discover_projs({
-    workspaceRoot: "/path/to/YourApp"
-})
+```bash
+# Build for macOS (via skill)
+/XcodeBuildTools:xcodebuild build --workspace ClaudeSpy.xcworkspace --scheme ClaudeSpyServer
 
-// List available schemes
-list_schems_ws({
-    workspacePath: "/path/to/YourApp.xcworkspace"
-})
+# Run tests
+/XcodeBuildTools:xcode-test --workspace ClaudeSpy.xcworkspace --scheme ClaudeSpyServer
+
+# Test Swift Package directly
+/XcodeBuildTools:swift-package test --path ClaudeSpyPackage
 ```
 
-## Building for Simulator
+## Running the App
 
-```javascript
-// Build for iPhone simulator by name
-build_sim_name_ws({
-    workspacePath: "/path/to/YourApp.xcworkspace",
-    scheme: "YourApp",
-    simulatorName: "iPhone 16",
-    configuration: "Debug"
-})
-
-// Build and run in one step
-build_run_sim_name_ws({
-    workspacePath: "/path/to/YourApp.xcworkspace",
-    scheme: "YourApp", 
-    simulatorName: "iPhone 16"
-})
-```
-
-## Building for Device
-
-```javascript
-// List connected devices first
-list_devices()
-
-// Build for physical device
-build_dev_ws({
-    workspacePath: "/path/to/YourApp.xcworkspace",
-    scheme: "YourApp",
-    configuration: "Debug"
-})
-```
-
-## Testing
-
-```javascript
-// Run tests on simulator
-test_sim_name_ws({
-    workspacePath: "/path/to/YourApp.xcworkspace",
-    scheme: "YourApp",
-    simulatorName: "iPhone 16"
-})
-
-// Run tests on device
-test_device_ws({
-    workspacePath: "/path/to/YourApp.xcworkspace",
-    scheme: "YourApp",
-    deviceId: "DEVICE_UUID_HERE"
-})
-
-// Test Swift Package
-swift_package_test({
-    packagePath: "/path/to/YourAppPackage"
-})
-```
-
-## Simulator Management
-
-```javascript
-// List available simulators
-list_sims({
-    enabled: true
-})
-
-// Boot simulator
-boot_sim({
-    simulatorUuid: "SIMULATOR_UUID"
-})
-
-// Install app
-install_app_sim({
-    simulatorUuid: "SIMULATOR_UUID",
-    appPath: "/path/to/YourApp.app"
-})
-
-// Launch app
-launch_app_sim({
-    simulatorUuid: "SIMULATOR_UUID",
-    bundleId: "com.example.YourApp"
-})
-```
-
-## Device Management
-
-```javascript
-// Install on device
-install_app_device({
-    deviceId: "DEVICE_UUID",
-    appPath: "/path/to/YourApp.app"
-})
-
-// Launch on device
-launch_app_device({
-    deviceId: "DEVICE_UUID",
-    bundleId: "com.example.YourApp"
-})
-```
-
-## UI Automation
-
-```javascript
-// Get UI hierarchy
-describe_ui({
-    simulatorUuid: "SIMULATOR_UUID"
-})
-
-// Tap element
-tap({
-    simulatorUuid: "SIMULATOR_UUID",
-    x: 100,
-    y: 200
-})
-
-// Type text
-type_text({
-    simulatorUuid: "SIMULATOR_UUID",
-    text: "Hello World"
-})
-
-// Take screenshot
-screenshot({
-    simulatorUuid: "SIMULATOR_UUID"
-})
-```
-
-## Log Capture
-
-```javascript
-// Start capturing simulator logs
-start_sim_log_cap({
-    simulatorUuid: "SIMULATOR_UUID",
-    bundleId: "com.example.YourApp"
-})
-
-// Stop and retrieve logs
-stop_sim_log_cap({
-    logSessionId: "SESSION_ID"
-})
-
-// Device logs
-start_device_log_cap({
-    deviceId: "DEVICE_UUID",
-    bundleId: "com.example.YourApp"
-})
-```
-
-## Utility Functions
-
-```javascript
-// Get bundle ID from app
-get_app_bundle_id({
-    appPath: "/path/to/YourApp.app"
-})
-
-// Clean build artifacts
-clean_ws({
-    workspacePath: "/path/to/YourApp.xcworkspace"
-})
-
-// Get app path for simulator
-get_sim_app_path_name_ws({
-    workspacePath: "/path/to/YourApp.xcworkspace",
-    scheme: "YourApp",
-    platform: "iOS Simulator",
-    simulatorName: "iPhone 16"
-})
+After building, the macOS app can be launched:
+```bash
+/XcodeBuildTools:macos-app launch --app-path /path/to/ClaudeSpyServer.app
 ```
 
 # Development Workflow
 
-1. **Make changes in the Package**: All feature development happens in YourAppPackage/Sources/
-2. **Write tests**: Add Swift Testing tests in YourAppPackage/Tests/
-3. **Build and test**: Use XcodeBuildMCP tools to build and run tests
-4. **Run on simulator**: Deploy to simulator for manual testing
-5. **UI automation**: Use describe_ui and automation tools for UI testing
-6. **Device testing**: Deploy to physical device when needed
+1. **Make changes in the Package**: All feature development happens in `ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/`
+2. **Write tests**: Add Swift Testing tests in `ClaudeSpyPackage/Tests/`
+3. **Build and test**: Use XcodeBuildTools skills to build and run tests
+4. **Run the app**: Build and launch to test against live tmux sessions
+5. **Check known issues**: See `docs/known-issues.md` for documented edge cases
 
 # Best Practices
 
@@ -677,90 +567,29 @@ get_sim_app_path_name_ws({
 - Profile with Instruments when needed
 - @Observable tracks only accessed properties, improving performance over @Published
 
-## Accessibility
+## AppKit Integration (macOS-Specific)
 
-- Always provide accessibilityLabel for interactive elements
-- Use accessibilityIdentifier for UI testing
-- Implement accessibilityHint where actions aren't obvious
-- Test with VoiceOver enabled
-- Support Dynamic Type
+- Use `NSHostingController` to embed SwiftUI views in NSWindow
+- Use `NSViewRepresentable` for wrapping AppKit views (like SwiftTerm's TerminalView)
+- Remember AppKit's coordinate system has origin at bottom-left (use `isFlipped` when needed)
+- Manage window lifecycle explicitly via NSWindowDelegate
+- Use `setFrameAutosaveName` for persistent window positions
 
-## Security & Privacy
+## Terminal Rendering
 
-- Never log sensitive information
-- Use Keychain for credential storage
-- All network calls must use HTTPS
-- Request minimal permissions
-- Follow App Store privacy guidelines
+- SwiftTerm handles ANSI escape sequence parsing and rendering
+- Feed raw Data directly - don't convert to String first (preserves encoding)
+- Match terminal dimensions to tmux pane dimensions in character cells
+- Use CoreText font metrics for precise cell size calculation
+- Always use cursor positioning commands when rendering initial content
 
-## Data Persistence
+## Settings & Persistence
 
-When data persistence is required, always prefer **SwiftData** over CoreData. However, carefully consider whether persistence is truly necessary - many apps can function well with in-memory state that loads on launch.
-
-### When to Use SwiftData
-
-- You have complex relational data that needs to persist across app launches
-- You need advanced querying capabilities with predicates and sorting
-- You're building a data-heavy app (note-taking, inventory, task management)
-- You need CloudKit sync with minimal configuration
-
-### When NOT to Use Data Persistence
-
-- Simple user preferences (use UserDefaults)
-- Temporary state that can be reloaded from network
-- Small configuration data (consider JSON files or plist)
-- Apps that primarily display remote data
-
-### SwiftData Best Practices
-
-```swift
-import SwiftData
-
-@Model
-final class Task {
-    var title: String
-    var isCompleted: Bool
-    var createdAt: Date
-    
-    init(title: String) {
-        self.title = title
-        self.isCompleted = false
-        self.createdAt = Date()
-    }
-}
-
-// In your app
-@main
-struct ClaudeSpyApp: App {
-    var body: some Scene {
-        WindowGroup {
-            ContentView()
-                .modelContainer(for: Task.self)
-        }
-    }
-}
-
-// In your views
-struct TaskListView: View {
-    @Query private var tasks: [Task]
-    @Environment(\.modelContext) private var context
-    
-    var body: some View {
-        List(tasks) { task in
-            Text(task.title)
-        }
-        .toolbar {
-            Button("Add") {
-                let newTask = Task(title: "New Task")
-                context.insert(newTask)
-            }
-        }
-    }
-}
-```
-
-**Important:** Never use CoreData for new projects. SwiftData provides a modern, type-safe API that's easier to work with and integrates seamlessly with SwiftUI.
+This app uses **UserDefaults** for settings persistence via the `AppSettings` class:
+- Settings are simple key-value pairs (fonts, paths, booleans)
+- Use `@Observable` with `@didSet` for reactive persistence
+- No SwiftData needed - all state is transient or UserDefaults-based
 
 ---
 
-Remember: This project prioritizes clean, simple SwiftUI code using the platform's native state management. Keep the app shell minimal and implement all features in the Swift Package.
+Remember: This is a macOS utility app. Keep the app shell minimal and implement all features in the Swift Package. The complexity lies in process management, I/O streaming, and terminal rendering - not in data persistence.
