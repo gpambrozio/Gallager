@@ -6,9 +6,7 @@ import Vapor
 ///
 /// The server listens on localhost:6111 and accepts POST requests at `/api/hooks`
 /// from the Claude Code plugin. Hook events are parsed and forwarded via callback.
-@MainActor
-@Observable
-public final class HookServerService: Sendable {
+public actor HookServerService {
     // MARK: - Properties
 
     private let logger = Logger(label: "com.claudespy.hookserver")
@@ -20,18 +18,25 @@ public final class HookServerService: Sendable {
     public private(set) var isRunning = false
 
     /// The port the server listens on (matches hook.py)
-    public let serverPort = 6111
+    public nonisolated let serverPort = 6111
 
     /// Last error message if server failed to start
     public private(set) var lastError: String?
 
     /// Unified callback for all hook events
-    /// Parameter: The complete HookEvent with action, project path, and tmux pane
-    public var onHookEvent: (@Sendable (HookEvent) async -> Void)?
+    private var onHookEvent: (@Sendable (HookEvent) async -> Void)?
 
     // MARK: - Initialization
 
     public init() {}
+
+    // MARK: - Configuration
+
+    /// Sets the event handler callback for hook events
+    /// - Parameter handler: Callback invoked when a hook event is received
+    public func setEventHandler(_ handler: @escaping @Sendable (HookEvent) async -> Void) {
+        onHookEvent = handler
+    }
 
     // MARK: - Server Lifecycle
 

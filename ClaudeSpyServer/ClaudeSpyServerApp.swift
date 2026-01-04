@@ -6,7 +6,7 @@ struct TmuxPaneMirrorApp: App {
     @State private var settings = AppSettings()
     @State private var tmuxService: TmuxService
     @State private var windowManager: MirrorWindowManager?
-    @State private var hookServer = HookServerService()
+    private let hookServer = HookServerService()
 
     init() {
         let initialSettings = AppSettings()
@@ -26,7 +26,6 @@ struct TmuxPaneMirrorApp: App {
                 .environment(settings)
                 .environment(tmuxService)
                 .environment(windowManager ?? createWindowManager())
-                .environment(hookServer)
                 .task {
                     await hookServer.startServer()
                 }
@@ -86,7 +85,7 @@ struct TmuxPaneMirrorApp: App {
             windowManager = manager
 
             // Forward hook events to window manager for handling
-            hookServer.onHookEvent = { [weak manager] event in
+            await hookServer.setEventHandler { [weak manager] event in
                 await manager?.handleHookEvent(event)
             }
         }
