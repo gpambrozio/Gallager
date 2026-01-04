@@ -16,6 +16,7 @@ struct MirrorWindowView: View {
             // Terminal view
             TerminalContainerView(terminalController: terminalController)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea(edges: .horizontal)
 
             // Jump to bottom button (shown when scrolled up)
             if showJumpToBottom {

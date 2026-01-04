@@ -1,0 +1,240 @@
+import Foundation
+import Logging
+import Vapor
+
+/// Service that runs a local HTTP server to receive Claude Code hook events.
+///
+/// The server listens on localhost:6111 and accepts POST requests at `/api/hooks`
+/// from the Claude Code plugin. Hook events are parsed and stored for observation.
+@MainActor
+@Observable
+public final class HookServerService: Sendable {
+    // MARK: - Properties
+
+    private let logger = Logger(label: "com.claudespy.hookserver")
+
+    /// The Vapor application instance
+    private var app: Application?
+
+    /// Whether the server is currently running
+    public private(set) var isRunning = false
+
+    /// The port the server listens on (matches hook.py)
+    public let serverPort = 6111
+
+    /// Last error message if server failed to start
+    public private(set) var lastError: String?
+
+    /// Recent hook events received (limited to last 100)
+    public private(set) var recentEvents: [HookEvent] = []
+
+    /// Maximum number of events to keep in memory
+    private let maxEvents = 100
+
+    /// Active Claude panes (pane ID -> last activity timestamp)
+    /// Example: ["%0": Date(), "%1": Date()]
+    public private(set) var activePanes: [String: Date] = [:]
+
+    /// Callback triggered when a SessionStart hook is received
+    /// Parameter: tmux pane ID (e.g., "%0")
+    public var onSessionStart: (@Sendable (String) async -> Void)?
+
+    /// Callback triggered when a Stop hook is received
+    /// Parameter: tmux pane ID (e.g., "%0")
+    public var onSessionStop: (@Sendable (String) async -> Void)?
+
+    // MARK: - Initialization
+
+    public init() {}
+
+    // MARK: - Server Lifecycle
+
+    /// Start the HTTP server
+    public func startServer() async {
+        guard !isRunning else {
+            logger.warning("Hook server is already running")
+            return
+        }
+
+        do {
+            let app = try await createApplication()
+            self.app = app
+
+            try await app.startup()
+
+            isRunning = true
+            lastError = nil
+
+            logger.info("Hook server started on port \(serverPort)")
+        } catch {
+            lastError = error.localizedDescription
+            isRunning = false
+            logger.error("Failed to start hook server: \(error)")
+        }
+    }
+
+    /// Stop the HTTP server
+    public func stopServer() async {
+        guard isRunning else {
+            logger.warning("Hook server is not running")
+            return
+        }
+
+        isRunning = false
+        app = nil
+        lastError = nil
+
+        logger.info("Hook server stopped")
+    }
+
+    // MARK: - Application Setup
+
+    private func createApplication() async throws -> Application {
+        let app = try await Application.make(.testing)
+        app.http.server.configuration.port = serverPort
+        app.http.server.configuration.hostname = "localhost"
+
+        configureRoutes(app)
+
+        return app
+    }
+
+    private func configureRoutes(_ app: Application) {
+        // Health check endpoint
+        app.get("health") { _ -> HTTPStatus in
+            .ok
+        }
+
+        // Main hook endpoint - receives all hook types
+        app.post("api", "hooks") { [weak self] req async throws -> Response in
+            guard let self else {
+                throw Abort(.internalServerError)
+            }
+
+            return try await self.handleHookRequest(req)
+        }
+    }
+
+    // MARK: - Request Handling
+
+    private func handleHookRequest(_ req: Request) async throws -> Response {
+        // Parse query parameters
+        let queryParams = try? req.query.decode(HookQueryParams.self)
+        let projectPath = queryParams?.projectPath
+        let tmuxPane = queryParams?.tmuxPane
+
+        // Read request body
+        guard let bodyBuffer = req.body.data else {
+            logger.error("Hook request with empty body")
+            throw Abort(.badRequest, reason: "Empty request body")
+        }
+
+        let bodyString = String(buffer: bodyBuffer)
+        logger.info("Hook request received", metadata: [
+            "projectPath": "\(projectPath ?? "nil")",
+            "tmuxPane": "\(tmuxPane ?? "nil")",
+            "bodyLength": "\(bodyString.count)",
+        ])
+
+        guard let bodyData = bodyString.data(using: .utf8) else {
+            throw Abort(.badRequest, reason: "Invalid body encoding")
+        }
+
+        // Parse the hook action
+        let hookAction: HookAction
+        do {
+            hookAction = try HookAction.from(jsonData: bodyData)
+        } catch {
+            logger.error("Failed to parse hook body: \(error)")
+            // Still accept the request but log the error
+            // Return approved to not block Claude
+            return try await HookResponse.approved.encodeResponse(for: req)
+        }
+
+        // Create and store the event
+        let event = HookEvent(
+            action: hookAction,
+            projectPath: projectPath,
+            tmuxPane: tmuxPane
+        )
+
+        await storeEvent(event)
+
+        // Track active pane based on event type
+        if let tmuxPane {
+            switch hookAction {
+            case .sessionEnd:
+                // Remove pane on session end
+                activePanes.removeValue(forKey: tmuxPane)
+                logger.debug("Removed Claude pane: \(tmuxPane)")
+
+                // Trigger stop callback to close mirror window
+                if let onSessionStop {
+                    await onSessionStop(tmuxPane)
+                }
+            case .sessionStart:
+                // Update activity timestamp
+                activePanes[tmuxPane] = Date()
+                logger.debug("Tracking active Claude pane: \(tmuxPane)")
+
+                // Trigger auto-mirror callback
+                if let onSessionStart {
+                    await onSessionStart(tmuxPane)
+                }
+            case .preToolUse:
+                // Update activity timestamp
+                activePanes[tmuxPane] = Date()
+                logger.debug("Tracking active Claude pane: \(tmuxPane)")
+            case .unknown:
+                // Still track unknown events as activity
+                activePanes[tmuxPane] = Date()
+            }
+        }
+
+        logger.info("Hook event processed", metadata: [
+            "eventName": "\(hookAction.eventName)",
+            "sessionId": "\(hookAction.sessionId)",
+        ])
+
+        // For now, always approve - we're just collecting data
+        return try await HookResponse.approved.encodeResponse(for: req)
+    }
+
+    // MARK: - Event Storage
+
+    private func storeEvent(_ event: HookEvent) async {
+        recentEvents.insert(event, at: 0)
+
+        // Trim to max events
+        if recentEvents.count > maxEvents {
+            recentEvents = Array(recentEvents.prefix(maxEvents))
+        }
+    }
+
+    /// Clear all stored events
+    public func clearEvents() {
+        recentEvents.removeAll()
+    }
+
+    // MARK: - Pane Management
+
+    /// Check if a tmux pane has an active Claude Code session
+    /// - Parameter paneId: The tmux pane ID (e.g., "%0", "%1")
+    public func hasActiveClaudePane(_ paneId: String) -> Bool {
+        guard let lastActivity = activePanes[paneId] else { return false }
+
+        // Consider a pane stale after 5 minutes of inactivity
+        let staleThreshold: TimeInterval = 5 * 60
+        return Date().timeIntervalSince(lastActivity) < staleThreshold
+    }
+
+    /// Clean up stale panes (called periodically)
+    public func cleanupStalePanes() {
+        let staleThreshold: TimeInterval = 5 * 60
+        let now = Date()
+
+        activePanes = activePanes.filter { _, lastActivity in
+            now.timeIntervalSince(lastActivity) < staleThreshold
+        }
+    }
+}

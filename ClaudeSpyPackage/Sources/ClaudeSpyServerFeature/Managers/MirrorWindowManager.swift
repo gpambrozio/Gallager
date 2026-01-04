@@ -35,15 +35,18 @@ public final class MirrorWindowManager {
         // Create hosting controller
         let hostingController = NSHostingController(rootView: mirrorView)
 
-        // Calculate window size based on pane dimensions
-        // Approximate character cell size for SF Mono at 12pt
-        let charWidth: CGFloat = 7.2
-        let charHeight: CGFloat = 14
-        let horizontalPadding: CGFloat = 20
-        let verticalPadding: CGFloat = 80 // For toolbar and status bar
+        // Calculate window size based on pane dimensions using actual font metrics
+        // Cell size calculation matches SwiftTerm's computeFontDimensions()
+        // See: docs/swiftterm-sizing.md for details
+        let cellSize = FontMetrics.calculateCellSize(
+            fontName: settings.fontName,
+            fontSize: CGFloat(settings.fontSize)
+        )
+        // Vertical padding: title bar (~28) + toolbar (~38) + status bar (~28) + buffer
+        let verticalPadding: CGFloat = 110
 
-        let contentWidth = CGFloat(paneInfo.width) * charWidth + horizontalPadding
-        let contentHeight = CGFloat(paneInfo.height) * charHeight + verticalPadding
+        let contentWidth = CGFloat(paneInfo.width) * cellSize.width + FontMetrics.horizontalBuffer
+        let contentHeight = CGFloat(paneInfo.height) * cellSize.height + verticalPadding
 
         // Ensure reasonable minimum size
         let width = max(700, contentWidth)
@@ -59,11 +62,13 @@ public final class MirrorWindowManager {
 
         window.contentViewController = hostingController
         window.title = "Mirror: \(paneInfo.id) (\(paneInfo.target))"
-        window.setFrameAutosaveName("MirrorWindow-\(paneInfo.target)")
         window.isReleasedWhenClosed = false
 
         // Set minimum size
         window.minSize = NSSize(width: 400, height: 300)
+
+        // Always use calculated size based on pane dimensions (no frame autosave)
+        window.setContentSize(NSSize(width: width, height: height))
 
         // Set up window delegate to handle closing
         let delegate = MirrorWindowDelegate(manager: self, target: paneInfo.target)
@@ -72,7 +77,7 @@ public final class MirrorWindowManager {
         // Store window
         openWindows[paneInfo.target] = window
 
-        // Show window
+        // Center and show window
         window.center()
         window.makeKeyAndOrderFront(nil)
 
@@ -84,6 +89,28 @@ public final class MirrorWindowManager {
         guard let window = openWindows[target] else { return }
         window.close()
         openWindows.removeValue(forKey: target)
+    }
+
+    /// Closes the mirror window for the specified pane ID
+    /// - Parameter paneId: The tmux pane ID (e.g., "%0", "%1")
+    public func closeMirrorForPane(_ paneId: String) async {
+        // Find the target for this pane ID
+        // The window is keyed by target (e.g., "session:0.0"), but we need to find
+        // which window corresponds to this pane ID
+        // Since we don't store the pane ID -> target mapping, we need to check all windows
+
+        // For now, we'll query tmux to get the pane info and build the target
+        do {
+            let allPanes = try await tmuxService.listPanes()
+            guard let pane = allPanes.first(where: { $0.id == paneId }) else {
+                return
+            }
+
+            closeMirror(for: pane.target)
+        } catch {
+            // Silently fail - this is a background operation
+            return
+        }
     }
 
     /// Closes all mirror windows
@@ -112,6 +139,25 @@ public final class MirrorWindowManager {
     /// List of currently mirrored pane targets
     public var mirroredTargets: [String] {
         Array(openWindows.keys).sorted()
+    }
+
+    /// Opens a mirror for the specified tmux pane by ID
+    /// - Parameter paneId: The tmux pane ID (e.g., "%0", "%1")
+    public func openMirrorForPane(_ paneId: String) async {
+        do {
+            // Get all panes
+            let allPanes = try await tmuxService.listPanes()
+
+            // Find the pane with this ID
+            guard let pane = allPanes.first(where: { $0.id == paneId }) else {
+                return
+            }
+
+            openMirror(for: pane)
+        } catch {
+            // Silently fail - this is a background operation
+            return
+        }
     }
 }
 

@@ -64,3 +64,5 @@ fastlane/test_output
 .claude/swiftScaffolding.json
 .claude/xcodeBuildTools.json
 .claude/marvinOutputStyle.json
+logs/
+default.profraw

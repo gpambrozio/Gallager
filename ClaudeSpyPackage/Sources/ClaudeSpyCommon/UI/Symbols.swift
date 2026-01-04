@@ -16,6 +16,7 @@ public enum Symbols: String {
     case gearshape
     case pause
     case play
+    case sparkles
     case terminal
     case xmarkCircle = "xmark.circle"
     // swiftformat:sort:end

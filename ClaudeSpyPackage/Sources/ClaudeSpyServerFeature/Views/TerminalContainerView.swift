@@ -1,5 +1,4 @@
 import AppKit
-import CoreText
 import SwiftTerm
 import SwiftUI
 
@@ -72,6 +71,13 @@ final class TerminalController: @unchecked Sendable {
         scrollView.borderType = .noBorder
         scrollView.backgroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0)
 
+        // Use overlay scrollers so they don't take up content space
+        scrollView.scrollerStyle = .overlay
+
+        // Ensure no automatic content insets
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+
         // Disable automatic content resizing - we want fixed terminal size
         scrollView.autoresizesSubviews = false
         terminalView.autoresizingMask = []
@@ -120,11 +126,13 @@ final class TerminalController: @unchecked Sendable {
 
     /// Updates the terminal frame size based on current font and dimensions
     private func updateTerminalFrameSize() {
-        // Calculate cell size from font metrics
+        // Calculate cell size from font metrics (matches SwiftTerm's computeFontDimensions)
         let cellSize = calculateCellSize()
 
         // Calculate required size
-        let width = CGFloat(columns) * cellSize.width
+        // Add buffer to compensate for SwiftTerm's internal scroller
+        // See: docs/swiftterm-sizing.md for details
+        let width = CGFloat(columns) * cellSize.width + FontMetrics.horizontalBuffer
         let height = CGFloat(rows) * cellSize.height
 
         terminalSize = NSSize(width: width, height: height)
@@ -134,23 +142,8 @@ final class TerminalController: @unchecked Sendable {
     }
 
     /// Calculates the cell size based on the current font
-    /// Matches SwiftTerm's internal computeFontDimensions() method exactly
-    /// See: https://github.com/migueldeicaza/SwiftTerm/blob/b14d7b0b666180ebcef8beda988e1865b83eb6f2/Sources/SwiftTerm/Apple/AppleTerminalView.swift#L156
     private func calculateCellSize() -> CGSize {
-        let font = terminalView.font
-        let ctFont = font as CTFont
-
-        // Width: use glyph advancement for "W" (macOS approach)
-        let glyph = font.glyph(withName: "W")
-        let cellWidth = font.advancement(forGlyph: glyph).width
-
-        // Height: sum of ascent, descent, and leading
-        let lineAscent = CTFontGetAscent(ctFont)
-        let lineDescent = CTFontGetDescent(ctFont)
-        let lineLeading = CTFontGetLeading(ctFont)
-        let cellHeight = ceil(lineAscent + lineDescent + lineLeading)
-
-        return CGSize(width: max(1, cellWidth), height: max(1, cellHeight))
+        FontMetrics.calculateCellSize(fontName: fontName, fontSize: fontSize)
     }
 
     /// Scrolls to the bottom of the terminal

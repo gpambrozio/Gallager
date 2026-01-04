@@ -8,6 +8,7 @@ struct PaneListView: View {
     let error: String?
     let onRefresh: () async -> Void
     let onOpenMirror: (PaneInfo) -> Void
+    let hasClaudePane: (String) -> Bool
 
     var body: some View {
         Group {
@@ -55,7 +56,10 @@ struct PaneListView: View {
         List {
             Section {
                 ForEach(panes) { pane in
-                    PaneRow(pane: pane) {
+                    PaneRow(
+                        pane: pane,
+                        hasClaude: hasClaudePane(pane.id)
+                    ) {
                         onOpenMirror(pane)
                     }
                 }
@@ -68,7 +72,7 @@ struct PaneListView: View {
                     Text("Directory")
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Text("")
-                        .frame(width: 30)
+                        .frame(width: 60)
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -84,6 +88,7 @@ struct PaneListView: View {
 /// A row displaying a single pane
 private struct PaneRow: View {
     let pane: PaneInfo
+    let hasClaude: Bool
     let onOpen: () -> Void
 
     var body: some View {
@@ -101,6 +106,12 @@ private struct PaneRow: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+            if hasClaude {
+                Symbols.sparkles.image
+                    .foregroundStyle(.purple)
+                    .help("Claude Code session active")
+            }
 
             Button(action: onOpen) {
                 Symbols.arrowRight.image
@@ -151,6 +162,7 @@ private struct PaneRow: View {
         isLoading: false,
         error: nil,
         onRefresh: {},
-        onOpenMirror: { _ in }
+        onOpenMirror: { _ in },
+        hasClaudePane: { _ in true }
     )
 }

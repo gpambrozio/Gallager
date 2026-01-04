@@ -6,6 +6,7 @@ struct TmuxPaneMirrorApp: App {
     @State private var settings = AppSettings()
     @State private var tmuxService: TmuxService
     @State private var windowManager: MirrorWindowManager?
+    @State private var hookServer = HookServerService()
 
     init() {
         let initialSettings = AppSettings()
@@ -25,6 +26,10 @@ struct TmuxPaneMirrorApp: App {
                 .environment(settings)
                 .environment(tmuxService)
                 .environment(windowManager ?? createWindowManager())
+                .environment(hookServer)
+                .task {
+                    await hookServer.startServer()
+                }
         }
         .commands {
             // File menu
@@ -79,6 +84,17 @@ struct TmuxPaneMirrorApp: App {
         let manager = MirrorWindowManager(settings: settings, tmuxService: tmuxService)
         Task { @MainActor in
             windowManager = manager
+
+            // Set up hook callbacks
+            // Auto-mirror when Claude session starts
+            hookServer.onSessionStart = { [weak manager] paneId in
+                await manager?.openMirrorForPane(paneId)
+            }
+
+            // Auto-close mirror when Claude session stops
+            hookServer.onSessionStop = { [weak manager] paneId in
+                await manager?.closeMirrorForPane(paneId)
+            }
         }
         return manager
     }
