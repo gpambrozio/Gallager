@@ -5,7 +5,7 @@ import Vapor
 /// Service that runs a local HTTP server to receive Claude Code hook events.
 ///
 /// The server listens on localhost:6111 and accepts POST requests at `/api/hooks`
-/// from the Claude Code plugin. Hook events are parsed and stored for observation.
+/// from the Claude Code plugin. Hook events are parsed and forwarded via callback.
 @MainActor
 @Observable
 public final class HookServerService: Sendable {
@@ -25,27 +25,9 @@ public final class HookServerService: Sendable {
     /// Last error message if server failed to start
     public private(set) var lastError: String?
 
-    /// Recent hook events received (limited to last 100)
-    public private(set) var recentEvents: [HookEvent] = []
-
-    /// Maximum number of events to keep in memory
-    private let maxEvents = 100
-
-    /// Active Claude panes (pane ID -> last activity timestamp)
-    /// Example: ["%0": Date(), "%1": Date()]
-    public private(set) var activePanes: [String: Date] = [:]
-
-    /// Callback triggered when a SessionStart hook is received
-    /// Parameter: tmux pane ID (e.g., "%0")
-    public var onSessionStart: (@Sendable (String) async -> Void)?
-
-    /// Callback triggered when a Stop hook is received
-    /// Parameter: tmux pane ID (e.g., "%0")
-    public var onSessionStop: (@Sendable (String) async -> Void)?
-
-    /// Callback triggered when a PermissionRequest hook is received
-    /// Parameters: tmux pane ID, permission request body with tool_input and permission_suggestions
-    public var onPermissionRequest: (@Sendable (String, PermissionRequestBody) async -> Void)?
+    /// Unified callback for all hook events
+    /// Parameter: The complete HookEvent with action, project path, and tmux pane
+    public var onHookEvent: (@Sendable (HookEvent) async -> Void)?
 
     // MARK: - Initialization
 
@@ -155,53 +137,15 @@ public final class HookServerService: Sendable {
             return try await HookResponse.approved.encodeResponse(for: req)
         }
 
-        // Create and store the event
+        // Create the event and notify caller
         let event = HookEvent(
             action: hookAction,
             projectPath: projectPath,
             tmuxPane: tmuxPane
         )
 
-        await storeEvent(event)
-
-        // Track active pane based on event type
-        if let tmuxPane {
-            switch hookAction {
-            case .sessionEnd:
-                // Remove pane on session end
-                activePanes.removeValue(forKey: tmuxPane)
-                logger.debug("Removed Claude pane: \(tmuxPane)")
-
-                // Trigger stop callback to close mirror window
-                if let onSessionStop {
-                    await onSessionStop(tmuxPane)
-                }
-            case .sessionStart:
-                // Update activity timestamp
-                activePanes[tmuxPane] = Date()
-                logger.debug("Tracking active Claude pane: \(tmuxPane)")
-
-                // Trigger auto-mirror callback
-                if let onSessionStart {
-                    await onSessionStart(tmuxPane)
-                }
-            case .preToolUse:
-                // Update activity timestamp
-                activePanes[tmuxPane] = Date()
-                logger.debug("Tracking active Claude pane: \(tmuxPane)")
-            case let .permissionRequest(body):
-                // Update activity timestamp
-                activePanes[tmuxPane] = Date()
-                logger.debug("Permission request for tool: \(body.toolName ?? "unknown")")
-
-                // Trigger permission request callback if set
-                if let onPermissionRequest {
-                    await onPermissionRequest(tmuxPane, body)
-                }
-            case .unknown:
-                // Still track unknown events as activity
-                activePanes[tmuxPane] = Date()
-            }
+        if let onHookEvent {
+            await onHookEvent(event)
         }
 
         logger.info("Hook event processed", metadata: [
@@ -211,43 +155,5 @@ public final class HookServerService: Sendable {
 
         // For now, always approve - we're just collecting data
         return try await HookResponse.approved.encodeResponse(for: req)
-    }
-
-    // MARK: - Event Storage
-
-    private func storeEvent(_ event: HookEvent) async {
-        recentEvents.insert(event, at: 0)
-
-        // Trim to max events
-        if recentEvents.count > maxEvents {
-            recentEvents = Array(recentEvents.prefix(maxEvents))
-        }
-    }
-
-    /// Clear all stored events
-    public func clearEvents() {
-        recentEvents.removeAll()
-    }
-
-    // MARK: - Pane Management
-
-    /// Check if a tmux pane has an active Claude Code session
-    /// - Parameter paneId: The tmux pane ID (e.g., "%0", "%1")
-    public func hasActiveClaudePane(_ paneId: String) -> Bool {
-        guard let lastActivity = activePanes[paneId] else { return false }
-
-        // Consider a pane stale after 5 minutes of inactivity
-        let staleThreshold: TimeInterval = 5 * 60
-        return Date().timeIntervalSince(lastActivity) < staleThreshold
-    }
-
-    /// Clean up stale panes (called periodically)
-    public func cleanupStalePanes() {
-        let staleThreshold: TimeInterval = 5 * 60
-        let now = Date()
-
-        activePanes = activePanes.filter { _, lastActivity in
-            now.timeIntervalSince(lastActivity) < staleThreshold
-        }
     }
 }

@@ -5,7 +5,6 @@ import SwiftUI
 public struct MainView: View {
     @Environment(TmuxService.self) private var tmuxService
     @Environment(MirrorWindowManager.self) private var windowManager
-    @Environment(HookServerService.self) private var hookServer
 
     @State private var panes: [PaneInfo] = []
     @State private var isLoading = false
@@ -23,7 +22,7 @@ public struct MainView: View {
                 windowManager.openMirror(for: pane)
             },
             hasClaudePane: { paneId in
-                hookServer.hasActiveClaudePane(paneId)
+                windowManager.hasActiveClaudePane(paneId)
             }
         )
         .navigationTitle("Available Panes")

@@ -85,15 +85,9 @@ struct TmuxPaneMirrorApp: App {
         Task { @MainActor in
             windowManager = manager
 
-            // Set up hook callbacks
-            // Auto-mirror when Claude session starts
-            hookServer.onSessionStart = { [weak manager] paneId in
-                await manager?.openMirrorForPane(paneId)
-            }
-
-            // Auto-close mirror when Claude session stops
-            hookServer.onSessionStop = { [weak manager] paneId in
-                await manager?.closeMirrorForPane(paneId)
+            // Forward hook events to window manager for handling
+            hookServer.onHookEvent = { [weak manager] event in
+                await manager?.handleHookEvent(event)
             }
         }
         return manager

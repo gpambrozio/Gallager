@@ -1,12 +1,16 @@
 import AppKit
 import SwiftUI
 
-/// Manages multiple mirror windows
+/// Manages multiple mirror windows and handles hook events
 @Observable
 @MainActor
 public final class MirrorWindowManager {
     /// Currently open mirror windows keyed by pane target
     public private(set) var openWindows: [String: NSWindow] = [:]
+
+    /// Active Claude panes (pane ID -> last activity timestamp)
+    /// Example: ["%0": Date(), "%1": Date()]
+    public private(set) var activePanes: [String: Date] = [:]
 
     private let settings: AppSettings
     private let tmuxService: TmuxService
@@ -14,6 +18,46 @@ public final class MirrorWindowManager {
     public init(settings: AppSettings, tmuxService: TmuxService) {
         self.settings = settings
         self.tmuxService = tmuxService
+    }
+
+    // MARK: - Hook Event Handling
+
+    /// Handles incoming hook events - tracks active panes and manages mirror windows
+    /// - Parameter event: The hook event to process
+    public func handleHookEvent(_ event: HookEvent) async {
+        guard let paneId = event.tmuxPane else { return }
+
+        // Track active pane based on event type
+        switch event.action {
+        case .sessionEnd:
+            activePanes.removeValue(forKey: paneId)
+            await closeMirrorForPane(paneId)
+        case .sessionStart:
+            activePanes[paneId] = Date()
+            await openMirrorForPane(paneId)
+        case .preToolUse, .permissionRequest, .unknown:
+            activePanes[paneId] = Date()
+        }
+    }
+
+    /// Check if a tmux pane has an active Claude Code session
+    /// - Parameter paneId: The tmux pane ID (e.g., "%0", "%1")
+    public func hasActiveClaudePane(_ paneId: String) -> Bool {
+        guard let lastActivity = activePanes[paneId] else { return false }
+
+        // Consider a pane stale after 5 minutes of inactivity
+        let staleThreshold: TimeInterval = 5 * 60
+        return Date().timeIntervalSince(lastActivity) < staleThreshold
+    }
+
+    /// Clean up stale panes (called periodically)
+    public func cleanupStalePanes() {
+        let staleThreshold: TimeInterval = 5 * 60
+        let now = Date()
+
+        activePanes = activePanes.filter { _, lastActivity in
+            now.timeIntervalSince(lastActivity) < staleThreshold
+        }
     }
 
     /// Opens a mirror window for the specified pane
