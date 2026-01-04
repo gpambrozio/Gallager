@@ -138,23 +138,14 @@ public final class MirrorWindowManager {
     /// Closes the mirror window for the specified pane ID
     /// - Parameter paneId: The tmux pane ID (e.g., "%0", "%1")
     public func closeMirrorForPane(_ paneId: String) async {
-        // Find the target for this pane ID
-        // The window is keyed by target (e.g., "session:0.0"), but we need to find
-        // which window corresponds to this pane ID
-        // Since we don't store the pane ID -> target mapping, we need to check all windows
+        // Refresh panes to get current state and find the target for this pane ID
+        let allPanes = await tmuxService.refreshPanes()
 
-        // For now, we'll query tmux to get the pane info and build the target
-        do {
-            let allPanes = try await tmuxService.listPanes()
-            guard let pane = allPanes.first(where: { $0.id == paneId }) else {
-                return
-            }
-
-            closeMirror(for: pane.target)
-        } catch {
-            // Silently fail - this is a background operation
+        guard let pane = allPanes.first(where: { $0.id == paneId }) else {
             return
         }
+
+        closeMirror(for: pane.target)
     }
 
     /// Closes all mirror windows
@@ -188,20 +179,15 @@ public final class MirrorWindowManager {
     /// Opens a mirror for the specified tmux pane by ID
     /// - Parameter paneId: The tmux pane ID (e.g., "%0", "%1")
     public func openMirrorForPane(_ paneId: String) async {
-        do {
-            // Get all panes
-            let allPanes = try await tmuxService.listPanes()
+        // Refresh panes to get current state
+        let allPanes = await tmuxService.refreshPanes()
 
-            // Find the pane with this ID
-            guard let pane = allPanes.first(where: { $0.id == paneId }) else {
-                return
-            }
-
-            openMirror(for: pane)
-        } catch {
-            // Silently fail - this is a background operation
+        // Find the pane with this ID
+        guard let pane = allPanes.first(where: { $0.id == paneId }) else {
             return
         }
+
+        openMirror(for: pane)
     }
 }
 

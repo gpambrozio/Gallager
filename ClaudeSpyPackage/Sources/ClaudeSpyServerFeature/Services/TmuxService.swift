@@ -38,6 +38,15 @@ public final class TmuxService {
     /// Active pipe-pane processes keyed by pane target
     private var activePipes: [String: String] = [:]
 
+    /// Current list of available panes (updated by refreshPanes)
+    public private(set) var panes: [PaneInfo] = []
+
+    /// Error from the last refresh attempt, if any
+    public private(set) var lastError: String?
+
+    /// Whether a refresh is currently in progress
+    public private(set) var isRefreshing = false
+
     public init(tmuxPath: String = "/opt/homebrew/bin/tmux", socketPath: String? = nil) {
         self.tmuxPath = tmuxPath
         self.socketPath = socketPath
@@ -71,27 +80,47 @@ public final class TmuxService {
         }
     }
 
-    /// Lists all available panes across all sessions
-    public func listPanes() async throws -> [PaneInfo] {
-        // Format: #{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}
-        let format = "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}"
+    /// Refreshes the list of available panes across all sessions
+    /// Updates the internal `panes` array and returns the result
+    /// - Returns: The refreshed list of panes
+    @discardableResult
+    public func refreshPanes() async -> [PaneInfo] {
+        guard !isRefreshing else { return panes }
 
-        let result = try await runTmuxCommand([
-            "list-panes",
-            "-a",
-            "-F", format,
-        ])
+        isRefreshing = true
+        lastError = nil
 
-        guard result.isSuccess else {
-            throw TmuxError.commandFailed(message: result.stderrString)
+        defer { isRefreshing = false }
+
+        do {
+            try await checkAvailability()
+
+            // Format: #{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}
+            let format = "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}"
+
+            let result = try await runTmuxCommand([
+                "list-panes",
+                "-a",
+                "-F", format,
+            ])
+
+            guard result.isSuccess else {
+                lastError = result.stderrString
+                return panes
+            }
+
+            let lines = result.stdoutString
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .split(separator: "\n")
+                .map(String.init)
+
+            panes = lines.compactMap { PaneInfo(fromTmuxOutput: $0) }
+        } catch {
+            lastError = error.localizedDescription
+            panes = []
         }
 
-        let lines = result.stdoutString
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(separator: "\n")
-            .map(String.init)
-
-        return lines.compactMap { PaneInfo(fromTmuxOutput: $0) }
+        return panes
     }
 
     /// Validates that a pane target exists

@@ -6,18 +6,17 @@ public struct MainView: View {
     @Environment(TmuxService.self) private var tmuxService
     @Environment(MirrorWindowManager.self) private var windowManager
 
-    @State private var panes: [PaneInfo] = []
-    @State private var isLoading = false
-    @State private var error: String?
+    /// Refresh interval in seconds
+    private let refreshInterval: TimeInterval = 5
 
     public init() {}
 
     public var body: some View {
         PaneListView(
-            panes: panes,
-            isLoading: isLoading,
-            error: error,
-            onRefresh: { await loadPanes() },
+            panes: tmuxService.panes,
+            isLoading: tmuxService.isRefreshing,
+            error: tmuxService.lastError,
+            onRefresh: { await tmuxService.refreshPanes() },
             onOpenMirror: { pane in
                 windowManager.openMirror(for: pane)
             },
@@ -30,35 +29,26 @@ public struct MainView: View {
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     Task {
-                        await loadPanes()
+                        await tmuxService.refreshPanes()
                     }
                 } label: {
                     Symbols.arrowClockwise.image
                 }
                 .help("Refresh pane list")
                 .keyboardShortcut("r", modifiers: .command)
-                .disabled(isLoading)
+                .disabled(tmuxService.isRefreshing)
             }
         }
         .task {
-            await loadPanes()
+            // Initial load
+            await tmuxService.refreshPanes()
+
+            // Auto-refresh every 5 seconds
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(refreshInterval))
+                guard !Task.isCancelled else { break }
+                await tmuxService.refreshPanes()
+            }
         }
-    }
-
-    private func loadPanes() async {
-        guard !isLoading else { return }
-
-        isLoading = true
-        error = nil
-
-        do {
-            try await tmuxService.checkAvailability()
-            panes = try await tmuxService.listPanes()
-        } catch {
-            self.error = error.localizedDescription
-            panes = []
-        }
-
-        isLoading = false
     }
 }
