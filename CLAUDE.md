@@ -21,6 +21,7 @@ Instead of attaching to a tmux session directly in the terminal, users can open 
 - **Swift Concurrency** (async/await, actors, tasks)
 - **Named pipes (FIFOs)** for streaming output from tmux
 - **CoreText** for precise font metrics calculation
+- **Vapor** for HTTP hook server (receives Claude Code events)
 - **Testing:** Swift Testing framework with @Test macros
 
 ## Project Structure
@@ -44,11 +45,18 @@ ClaudeSpy/
 │   │   ├── ClaudeSpyCommon/             # Shared UI utilities (Symbols, extensions)
 │   │   ├── ClaudeSpyFeature/            # Generic features (less used)
 │   │   └── ClaudeSpyServerFeature/      # Main tmux mirroring implementation
+│   │       ├── Hooks/                   # Claude Code hook server (Vapor)
+│   │       └── Utilities/               # FontMetrics, ProcessRunner, FIFOReader
 │   └── Tests/
 ├── ClaudeSpyServerTests/                # Unit tests
 ├── ClaudeSpyServerUITests/              # UI automation tests
+├── plugin/                              # Claude Code plugin configuration
+│   └── claude-spy/
+│       ├── hooks/hooks.json             # Hook event definitions
+│       └── scripts/hook.py              # Hook handler script
 └── docs/                                # Documentation
-    └── known-issues.md
+    ├── known-issues.md
+    └── swiftterm-sizing.md              # SwiftTerm sizing analysis
 ```
 
 **Important:** All development work should be done in **ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/**. The app target is merely a thin wrapper.
@@ -201,10 +209,10 @@ TmuxService.startPipePipe() ──▶ FIFOReader ──▶ AsyncStream<Data>
 `@Observable @MainActor` class managing lifecycle of NSWindow instances.
 
 **Responsibilities:**
-- Create windows sized to pane dimensions (7.2pt/char width, 14pt height)
+- Create windows sized to pane dimensions using `FontMetrics` for precise calculation
 - Track windows by pane target: `[String: NSWindow]`
 - Reuse existing windows (bring to front vs. duplicate)
-- Auto-save window frames per pane: `MirrorWindow-{target}`
+- Support programmatic open/close via `HookServerService`
 
 ### TerminalController (`Views/TerminalContainerView.swift`)
 `@Observable @MainActor` class bridging SwiftTerm to SwiftUI.
@@ -217,7 +225,29 @@ TmuxService.startPipePipe() ──▶ FIFOReader ──▶ AsyncStream<Data>
 - Theme support (DefaultDark/Light, SolarizedDark/Light)
 - Scroll tracking for "Jump to Bottom" functionality
 
+### HookServerService (`Hooks/HookServerService.swift`)
+`@Observable @MainActor` class running a Vapor HTTP server on port 6111.
+
+**Purpose:** Receives Claude Code hook events and automatically manages mirror windows.
+
+**Supported Events:**
+- `SessionStart` - Auto-opens mirror for the tmux pane where Claude Code started
+- `SessionEnd` - Auto-closes the corresponding mirror window
+- `NotificationSend` - Receives notification events (for future use)
+- `Stop` - Handles Claude Code stop events
+
+**Integration:** The Claude Code plugin (`plugin/claude-spy/`) sends HTTP POST requests to the hook server when events occur. See `hooks/hooks.json` for event configuration.
+
 ## Utilities
+
+### FontMetrics (`Utilities/FontMetrics.swift`)
+Utility enum for calculating terminal font metrics matching SwiftTerm's internal calculations.
+
+- `calculateCellSize(fontName:fontSize:)` - Returns cell dimensions using CoreText
+- `swiftTermScrollerWidth` - Dynamic calculation of SwiftTerm's internal scroller width
+- `horizontalBuffer` - Compensation for SwiftTerm's scroller (scroller width + 4px)
+
+See `docs/swiftterm-sizing.md` for detailed analysis of SwiftTerm's sizing behavior.
 
 ### FIFOReader (`Utilities/FIFOReader.swift`)
 Actor for managing named pipes (FIFOs) to receive streaming tmux output.
