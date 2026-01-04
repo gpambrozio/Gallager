@@ -153,7 +153,7 @@ let contentWidth = CGFloat(paneInfo.width) * cellSize.width + horizontalBuffer
 
 ## Alternative Approaches
 
-### 1. Dynamic Scroller Width Calculation
+### 1. Dynamic Scroller Width Calculation (Implemented)
 
 Instead of hardcoding 20px, calculate dynamically:
 
@@ -162,13 +162,113 @@ let scrollerWidth = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .lega
 let horizontalBuffer = scrollerWidth + 4 // rounding buffer
 ```
 
+This is the current implementation in `FontMetrics.horizontalBuffer`.
+
 ### 2. Disable SwiftTerm's Internal Scroller
 
 Would require modifications to SwiftTerm or using a custom subclass. Not recommended unless contributing upstream.
 
 ### 3. Use SwiftTerm's Native Scrolling
 
-Remove our NSScrollView wrapper and let SwiftTerm manage its own scrolling entirely. This would eliminate the double-scroller situation but reduce our control over scroll behavior.
+Remove our NSScrollView wrapper and let SwiftTerm manage its own scrolling entirely. **See analysis below** - this is not feasible without modifying SwiftTerm.
+
+## Feasibility Analysis: Removing the NSScrollView Wrapper
+
+We investigated whether ClaudeSpy could remove its `NSScrollView` wrapper and use SwiftTerm's native scrolling directly. This would potentially eliminate the horizontal buffer hack entirely.
+
+### Current ClaudeSpy Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ TerminalContainerView (NSViewRepresentable)             │
+│ ┌─────────────────────────────────────────────────────┐ │
+│ │ NSScrollView (overlay scrollers)                    │ │
+│ │ ┌─────────────────────────────────────────────────┐ │ │
+│ │ │ FlippedClipView (isFlipped = true)              │ │ │
+│ │ │ ┌─────────────────────────────────────────────┐ │ │ │
+│ │ │ │ SwiftTerm TerminalView                      │ │ │ │
+│ │ │ │ (with internal NSScroller)                  │ │ │ │
+│ │ │ └─────────────────────────────────────────────┘ │ │ │
+│ │ └─────────────────────────────────────────────────┘ │ │
+│ └─────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────┘
+```
+
+| Component | Purpose |
+|-----------|---------|
+| `NSScrollView` | Container with overlay scrollers |
+| `FlippedClipView` | Custom NSClipView with `isFlipped = true` for top-alignment |
+| `TerminalView` | SwiftTerm's terminal (has its own internal scroller) |
+
+### Why the Wrapper Exists
+
+1. **Top Alignment**: SwiftTerm renders content bottom-up (standard AppKit). ClaudeSpy needs top-alignment.
+2. **Overlay Scrollers**: Our NSScrollView uses overlay style (don't consume space).
+3. **Fixed Sizing**: Precise control over terminal dimensions matching tmux pane.
+
+### Blocking Issue #1: Bottom-Alignment is Hard-Coded
+
+SwiftTerm's drawing code explicitly calculates Y coordinates from the bottom:
+
+**File**: [`AppleTerminalView.swift` (line 603-604)](https://github.com/migueldeicaza/SwiftTerm/blob/0b8d99bd19b694df44e1ccaa3891309719d34330/Sources/SwiftTerm/Apple/AppleTerminalView.swift#L603-L604)
+
+```swift
+let lineOrigin = CGPoint(x: 0, y: frame.height - lineOffset)
+```
+
+**File**: [`MacTerminalView.swift` (line 895)](https://github.com/migueldeicaza/SwiftTerm/blob/0b8d99bd19b694df44e1ccaa3891309719d34330/Sources/SwiftTerm/Mac/MacTerminalView.swift#L895) (mouse hit calculation)
+
+```swift
+let row = Int((frame.height - point.y) / cellDimension.height) + terminal.buffer.yDisp
+```
+
+**Impact**: Without our `FlippedClipView`, all content would render at the bottom of the window and fill upward - completely unusable for a terminal mirror.
+
+There is **no configuration option** to change this behavior. It would require modifying SwiftTerm's source code.
+
+### Blocking Issue #2: Internal Scroller Always Present
+
+SwiftTerm's `MacTerminalView` always creates and reserves space for its internal `NSScroller`:
+
+- Scroller uses `.legacy` style (~15-16px wide)
+- `getEffectiveWidth()` always subtracts scroller width
+- No API to disable or hide the scroller
+
+Even without our wrapper, SwiftTerm would still reduce the effective content width.
+
+### SwiftTerm's Scroll APIs
+
+SwiftTerm does expose scroll functionality that works regardless of our wrapper:
+
+| Method | Description |
+|--------|-------------|
+| `scroll(toPosition: Double)` | Set position (0.0 = top, 1.0 = bottom) |
+| `scrollUp(lines: Int)` | Scroll up by line count |
+| `scrollDown(lines: Int)` | Scroll down by line count |
+| `scrollPosition` | Read current position |
+| `canScroll` | Check if scrollable |
+
+However, these don't help with the alignment or scroller space issues.
+
+### Conclusion: Not Feasible
+
+| Issue | Severity | Solution Required |
+|-------|----------|-------------------|
+| Bottom-alignment hard-coded | **Blocking** | Modify SwiftTerm source |
+| Internal scroller always present | **Blocking** | Modify SwiftTerm source |
+| Scroll state tracking | Medium | Refactor (doable) |
+
+**Recommendation**: Keep the current architecture. The `NSScrollView` wrapper with `FlippedClipView` and dynamic horizontal buffer is the pragmatic solution given SwiftTerm's design constraints.
+
+### Future Option: Contribute to SwiftTerm
+
+To truly eliminate the wrapper, one could contribute upstream to SwiftTerm:
+
+1. Add optional top-alignment mode (coordinate system flag)
+2. Add option to disable/externalize the internal scroller
+3. Expose scroller configuration
+
+This would be significant effort for marginal benefit, given the current solution works correctly.
 
 ## Vertical Sizing
 
