@@ -108,12 +108,56 @@ public struct SessionEndBody: HookBodyProtocol {
     }
 }
 
+public struct PermissionRequestBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let permissionMode: String?
+    public let toolName: String?
+    public let toolInput: AnyCodable?
+    public let permissionSuggestions: [PermissionSuggestion]?
+    public let timestamp: String?
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case permissionMode = "permission_mode"
+        case toolName = "tool_name"
+        case toolInput = "tool_input"
+        case permissionSuggestions = "permission_suggestions"
+        case timestamp
+    }
+}
+
+// MARK: - Permission Suggestion Types
+
+public struct PermissionSuggestion: Codable, Sendable {
+    public let type: String?
+    public let rules: [PermissionRule]?
+    public let behavior: String?
+    public let destination: String?
+}
+
+public struct PermissionRule: Codable, Sendable {
+    public let toolName: String?
+    public let ruleContent: String?
+
+    enum CodingKeys: String, CodingKey {
+        case toolName
+        case ruleContent
+    }
+}
+
 // MARK: - Hook Action Enum
 
 public enum HookAction: Sendable {
     case sessionStart(SessionStartBody)
     case preToolUse(PreToolUseBody)
     case sessionEnd(SessionEndBody)
+    case permissionRequest(PermissionRequestBody)
     case unknown(String, Data)
 
     public var eventName: String {
@@ -121,6 +165,7 @@ public enum HookAction: Sendable {
         case .sessionStart: "SessionStart"
         case .preToolUse: "PreToolUse"
         case .sessionEnd: "SessionEnd"
+        case .permissionRequest: "PermissionRequest"
         case let .unknown(name, _): name
         }
     }
@@ -130,6 +175,7 @@ public enum HookAction: Sendable {
         case let .sessionStart(body): body.sessionId
         case let .preToolUse(body): body.sessionId
         case let .sessionEnd(body): body.sessionId
+        case let .permissionRequest(body): body.sessionId
         case .unknown: "unknown"
         }
     }
@@ -151,6 +197,9 @@ public enum HookAction: Sendable {
         case "SessionEnd":
             let body = try decoder.decode(SessionEndBody.self, from: jsonData)
             return .sessionEnd(body)
+        case "PermissionRequest":
+            let body = try decoder.decode(PermissionRequestBody.self, from: jsonData)
+            return .permissionRequest(body)
         default:
             return .unknown(common.hookEventName, jsonData)
         }

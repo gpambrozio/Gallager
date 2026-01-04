@@ -43,6 +43,10 @@ public final class HookServerService: Sendable {
     /// Parameter: tmux pane ID (e.g., "%0")
     public var onSessionStop: (@Sendable (String) async -> Void)?
 
+    /// Callback triggered when a PermissionRequest hook is received
+    /// Parameters: tmux pane ID, permission request body with tool_input and permission_suggestions
+    public var onPermissionRequest: (@Sendable (String, PermissionRequestBody) async -> Void)?
+
     // MARK: - Initialization
 
     public init() {}
@@ -185,6 +189,15 @@ public final class HookServerService: Sendable {
                 // Update activity timestamp
                 activePanes[tmuxPane] = Date()
                 logger.debug("Tracking active Claude pane: \(tmuxPane)")
+            case let .permissionRequest(body):
+                // Update activity timestamp
+                activePanes[tmuxPane] = Date()
+                logger.debug("Permission request for tool: \(body.toolName ?? "unknown")")
+
+                // Trigger permission request callback if set
+                if let onPermissionRequest {
+                    await onPermissionRequest(tmuxPane, body)
+                }
             case .unknown:
                 // Still track unknown events as activity
                 activePanes[tmuxPane] = Date()
