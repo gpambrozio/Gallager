@@ -1,5 +1,19 @@
 # Known Issues
 
+## When a tmux window is resized it doesn't resize the mirror and the contents get messed up.
+
+### Solution
+
+We need to detect when a tmux session is resized and resize the terminal window on the mirror accordingly.
+
+## Sparkle is not being removed when a claude session ends.
+
+Neither the sparkle on the Avalilable Panes window go away or the window closes as expected when a claude session ends.
+
+## Available Panes window sometimes appears twice.
+
+Sometimes when starting the app the Available Panes window shows up twice.
+
 ## DEC Line Drawing Characters Display Incorrectly When Mirroring Already-Running Applications
 
 ### Description
