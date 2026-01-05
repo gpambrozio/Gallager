@@ -1,5 +1,6 @@
 import ClaudeSpyNetworking
 import Foundation
+import Logging
 
 /// Manages device pairing codes and paired device records
 actor PairingService {
@@ -11,6 +12,56 @@ actor PairingService {
 
     /// How long a pairing code remains valid (5 minutes)
     private let codeExpirySeconds: TimeInterval = 300
+
+    /// Directory where pairs.json is stored
+    private let dataDirectory: URL
+
+    /// Logger for persistence operations
+    private let logger = Logger(label: "pairing-service")
+
+    /// File URL for pairs.json
+    private var pairsFileURL: URL {
+        dataDirectory.appendingPathComponent("pairs.json")
+    }
+
+    // MARK: - Initialization
+
+    init(dataDirectory: URL? = nil) {
+        // Use provided directory, or fall back to environment variable, or current directory
+        let resolvedDirectory: URL
+        if let dir = dataDirectory {
+            resolvedDirectory = dir
+        } else if let envPath = ProcessInfo.processInfo.environment["DATA_DIRECTORY"] {
+            resolvedDirectory = URL(fileURLWithPath: envPath)
+        } else {
+            resolvedDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        }
+        self.dataDirectory = resolvedDirectory
+
+        // Compute file URL before actor isolation kicks in
+        let fileURL = resolvedDirectory.appendingPathComponent("pairs.json")
+
+        // Load pairs synchronously during init
+        self.activePairs = Self.loadPairsSync(from: fileURL, logger: self.logger)
+    }
+
+    /// Synchronous load for use during init (actors can't call async in init)
+    private static func loadPairsSync(from url: URL, logger: Logger) -> [String: Pair] {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            logger.info("No existing pairs file found at \(url.path)")
+            return [:]
+        }
+
+        do {
+            let data = try Data(contentsOf: url)
+            let pairs = try JSONDecoder().decode([String: Pair].self, from: data)
+            logger.info("Loaded \(pairs.count) pairs from disk")
+            return pairs
+        } catch {
+            logger.error("Failed to load pairs: \(error.localizedDescription)")
+            return [:]
+        }
+    }
 
     // MARK: - Public API
 
@@ -61,6 +112,7 @@ actor PairingService {
 
         activePairs[pending.pairId] = pair
         pendingCodes.removeValue(forKey: code)
+        savePairs()
 
         return .success(pairId: pending.pairId, partnerDeviceName: pending.macDeviceName)
     }
@@ -84,6 +136,7 @@ actor PairingService {
     /// Remove a pair
     func removePair(pairId: String) {
         activePairs.removeValue(forKey: pairId)
+        savePairs()
     }
 
     /// Get Mac device name for a pair
@@ -102,6 +155,25 @@ actor PairingService {
         let now = Date()
         pendingCodes = pendingCodes.filter { _, pending in
             now.timeIntervalSince(pending.createdAt) < codeExpirySeconds
+        }
+    }
+
+    /// Save pairs to disk
+    private func savePairs() {
+        do {
+            // Ensure directory exists
+            try FileManager.default.createDirectory(
+                at: dataDirectory,
+                withIntermediateDirectories: true
+            )
+
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(activePairs)
+            try data.write(to: pairsFileURL, options: .atomic)
+            logger.debug("Saved \(activePairs.count) pairs to disk")
+        } catch {
+            logger.error("Failed to save pairs: \(error.localizedDescription)")
         }
     }
 }

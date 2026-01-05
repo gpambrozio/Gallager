@@ -1,7 +1,7 @@
 import Foundation
 
 /// Represents a paired Mac and iOS device
-struct Pair: Sendable {
+struct Pair: Sendable, Codable {
     /// Unique identifier for this pairing
     let id: String
 
