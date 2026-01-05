@@ -66,20 +66,6 @@ deploy() {
         "$(dirname "$0")/" \
         "$REMOTE_HOST:$REMOTE_DIR/"
 
-    # Setup Caddy conf.d if it doesn't exist
-    info "Configuring Caddy..."
-    ssh "$REMOTE_HOST" << 'REMOTE_SCRIPT'
-        # Create conf.d directory if needed
-        mkdir -p /etc/caddy/conf.d
-
-        # Check if Caddyfile uses import
-        if ! grep -q "import /etc/caddy/conf.d/\*" /etc/caddy/Caddyfile 2>/dev/null; then
-            echo "Adding conf.d import to Caddyfile..."
-            # Add import directive at the end if not present
-            echo -e "\nimport /etc/caddy/conf.d/*" >> /etc/caddy/Caddyfile
-        fi
-REMOTE_SCRIPT
-
     # Copy Caddy config
     info "Installing Caddy configuration..."
     ssh "$REMOTE_HOST" "cp $REMOTE_DIR/caddy/claudespy.caddy $CADDY_CONF_D/"
