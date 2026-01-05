@@ -88,9 +88,9 @@ private struct PaneRow: View {
     let pane: PaneInfo
     let onOpen: () -> Void
 
-    /// Check if pane has active Claude session (accessing activePanes directly for observation)
+    /// Check if pane has active Claude session (accessing activeSessions directly for observation)
     private var hasClaude: Bool {
-        windowManager.activePanes.contains(pane.id)
+        windowManager.activeSessions[pane.id] != nil
     }
 
     var body: some View {

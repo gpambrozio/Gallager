@@ -1,4 +1,5 @@
 import AppKit
+import ClaudeSpyCommon
 import SwiftUI
 
 /// Manages multiple mirror windows and handles hook events
@@ -8,8 +9,8 @@ public final class MirrorWindowManager {
     /// Currently open mirror windows keyed by pane target
     public private(set) var openWindows: [String: NSWindow] = [:]
 
-    /// Active Claude pane IDs
-    public private(set) var activePanes: Set<String> = []
+    /// Active Claude sessions keyed by pane ID
+    public private(set) var activeSessions: [String: ClaudeSession] = [:]
 
     /// Pane IDs that the user has manually closed (don't auto-reopen until session ends)
     private var userClosedPanes: Set<String> = []
@@ -28,20 +29,37 @@ public final class MirrorWindowManager {
         self.tmuxService = tmuxService
     }
 
+    // MARK: - Session Management
+
+    /// Updates a session for the given pane ID, creating one if it doesn't exist.
+    /// Encapsulates the copy-mutate-reassign pattern for struct values in dictionaries.
+    /// - Parameters:
+    ///   - paneId: The tmux pane ID
+    ///   - update: A closure that mutates the session
+    private func updateSession(paneId: String, _ update: (inout ClaudeSession) -> Void) {
+        var session = activeSessions[paneId] ?? ClaudeSession(paneId: paneId)
+        update(&session)
+        activeSessions[paneId] = session
+    }
+
     // MARK: - Hook Event Handling
 
-    /// Handles incoming hook events - tracks active panes and manages mirror windows
+    /// Handles incoming hook events - tracks active sessions and manages mirror windows
     /// - Parameter event: The hook event to process
     public func handleHookEvent(_ event: HookEvent) async {
         guard let paneId = event.tmuxPane else { return }
 
-        // Track active pane based on event type
+        // Track active session based on event type
         switch event.action {
         case .sessionEnd:
-            activePanes.remove(paneId)
+            // Add the final event before removing the session
+            updateSession(paneId: paneId) { $0.addEvent(event) }
+            activeSessions.removeValue(forKey: paneId)
             await closeMirrorForPane(paneId)
         default:
-            activePanes.insert(paneId)
+            // Get or create session and add the event
+            updateSession(paneId: paneId) { $0.addEvent(event) }
+
             // Only auto-open if user hasn't manually closed this pane's window
             if !userClosedPanes.contains(paneId) {
                 await openMirrorForPane(paneId)
@@ -53,7 +71,7 @@ public final class MirrorWindowManager {
     /// Call this after refreshing the pane list
     public func cleanupInactiveSessions(currentPanes: [PaneInfo]) {
         let existingPaneIds = Set(currentPanes.map(\.id))
-        activePanes = activePanes.intersection(existingPaneIds)
+        activeSessions = activeSessions.filter { existingPaneIds.contains($0.key) }
     }
 
     /// Opens a mirror window for the specified pane
