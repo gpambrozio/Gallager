@@ -11,6 +11,15 @@ public final class MirrorWindowManager {
     /// Active Claude pane IDs
     public private(set) var activePanes: Set<String> = []
 
+    /// Pane IDs that the user has manually closed (don't auto-reopen until session ends)
+    private var userClosedPanes: Set<String> = []
+
+    /// Maps window target to pane ID for reverse lookup when window closes
+    private var windowPaneIds: [String: String] = [:]
+
+    /// Strong references to window delegates (NSWindow.delegate is weak)
+    private var windowDelegates: [String: MirrorWindowDelegate] = [:]
+
     private let settings: AppSettings
     private let tmuxService: TmuxService
 
@@ -33,7 +42,10 @@ public final class MirrorWindowManager {
             await closeMirrorForPane(paneId)
         default:
             activePanes.insert(paneId)
-            await openMirrorForPane(paneId)
+            // Only auto-open if user hasn't manually closed this pane's window
+            if !userClosedPanes.contains(paneId) {
+                await openMirrorForPane(paneId)
+            }
         }
     }
 
@@ -98,12 +110,14 @@ public final class MirrorWindowManager {
         // Always use calculated size based on pane dimensions (no frame autosave)
         window.setContentSize(NSSize(width: width, height: height))
 
-        // Set up window delegate to handle closing
+        // Set up window delegate to handle closing (must store strong reference)
         let delegate = MirrorWindowDelegate(manager: self, target: paneInfo.target)
         window.delegate = delegate
+        windowDelegates[paneInfo.target] = delegate
 
-        // Store window
+        // Store window and pane ID mapping
         openWindows[paneInfo.target] = window
+        windowPaneIds[paneInfo.target] = paneInfo.id
 
         // Center and show window
         window.center()
@@ -112,11 +126,14 @@ public final class MirrorWindowManager {
         return window
     }
 
-    /// Closes the mirror window for the specified pane target
+    /// Closes the mirror window for the specified pane target (programmatic close, not user-initiated)
     public func closeMirror(for target: String) {
         guard let window = openWindows[target] else { return }
-        window.close()
+        // Clear mappings BEFORE closing so windowWillClose delegate doesn't mark as user-closed
         openWindows.removeValue(forKey: target)
+        windowPaneIds.removeValue(forKey: target)
+        windowDelegates.removeValue(forKey: target)
+        window.close()
     }
 
     /// Closes the mirror window for the specified pane ID
@@ -132,17 +149,26 @@ public final class MirrorWindowManager {
         closeMirror(for: pane.target)
     }
 
-    /// Closes all mirror windows
+    /// Closes all mirror windows (programmatic, doesn't mark as user-closed)
     public func closeAll() {
-        for (target, window) in openWindows {
+        let windows = openWindows
+        openWindows.removeAll()
+        windowPaneIds.removeAll()
+        windowDelegates.removeAll()
+        for (_, window) in windows {
             window.close()
-            openWindows.removeValue(forKey: target)
         }
     }
 
     /// Called when a window is closed by the user
     fileprivate func windowWillClose(target: String) {
+        // Mark this pane as user-closed so we don't auto-reopen it
+        if let paneId = windowPaneIds[target] {
+            userClosedPanes.insert(paneId)
+        }
         openWindows.removeValue(forKey: target)
+        windowPaneIds.removeValue(forKey: target)
+        windowDelegates.removeValue(forKey: target)
     }
 
     /// Brings a mirror window to front if it exists
