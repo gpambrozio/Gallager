@@ -319,7 +319,14 @@ public final class ExternalServerClient: Sendable {
             // Send current session state to newly connected iOS
             if let onSessionStateRequest {
                 let state = await onSessionStateRequest()
+                logger.info("Sending session state to newly connected iOS", metadata: [
+                    "pairId": "\(state.pairId)",
+                    "sessionCount": "\(state.sessions.count)",
+                    "activePanes": "\(state.activePanes.count)"
+                ])
                 await send(.sessionState(state))
+            } else {
+                logger.warning("iOS connected but no session state handler is set!")
             }
 
         case .iosDisconnected:
@@ -331,7 +338,14 @@ public final class ExternalServerClient: Sendable {
             logger.info("iOS requested session state")
             if let onSessionStateRequest {
                 let state = await onSessionStateRequest()
+                logger.info("Sending session state", metadata: [
+                    "pairId": "\(state.pairId)",
+                    "sessionCount": "\(state.sessions.count)",
+                    "activePanes": "\(state.activePanes.count)"
+                ])
                 await send(.sessionState(state))
+            } else {
+                logger.warning("Session state requested but no handler is set!")
             }
 
         case .ping:

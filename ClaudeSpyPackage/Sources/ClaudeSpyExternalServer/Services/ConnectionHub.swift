@@ -1,11 +1,13 @@
 import ClaudeSpyNetworking
 import Foundation
+import Logging
 import Vapor
 
 /// Manages active WebSocket connections for paired devices
 actor ConnectionHub {
     /// Active connections indexed by pairId and deviceType
     private var connections: [String: [DeviceType: Connection]] = [:]
+    private let logger = Logger(label: "connection-hub")
 
     // MARK: - Connection Management
 
@@ -61,15 +63,31 @@ actor ConnectionHub {
 
     /// Send a message to a specific device
     func send(_ message: WebSocketMessage, to pairId: String, deviceType: DeviceType) async {
-        guard let connection = connections[pairId]?[deviceType] else { return }
+        guard let connection = connections[pairId]?[deviceType] else {
+            logger.warning("Cannot send message - no connection", metadata: [
+                "pairId": "\(pairId)",
+                "targetDevice": "\(deviceType)",
+                "messageType": "\(message.messageType)"
+            ])
+            return
+        }
 
         do {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(message)
             try await connection.webSocket.send(raw: data, opcode: .text)
+            logger.debug("Message sent", metadata: [
+                "pairId": "\(pairId)",
+                "targetDevice": "\(deviceType)",
+                "messageType": "\(message.messageType)"
+            ])
         } catch {
-            // Connection may have closed, will be cleaned up on disconnect
+            logger.error("Failed to send message", metadata: [
+                "pairId": "\(pairId)",
+                "targetDevice": "\(deviceType)",
+                "error": "\(error)"
+            ])
         }
     }
 

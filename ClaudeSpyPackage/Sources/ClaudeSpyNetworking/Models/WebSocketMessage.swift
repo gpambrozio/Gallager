@@ -219,4 +219,26 @@ extension WebSocketMessage {
             try container.encode(payload, forKey: .payload)
         }
     }
+
+    /// Human-readable message type for logging
+    public var messageType: String {
+        switch self {
+        case .registerMac: "registerMac"
+        case .hookEvent: "hookEvent"
+        case .commandResponse: "commandResponse"
+        case .sessionState: "sessionState"
+        case .macRegistered: "macRegistered"
+        case .command: "command"
+        case .iosConnected: "iosConnected"
+        case .iosDisconnected: "iosDisconnected"
+        case .registerIOS: "registerIOS"
+        case .requestSessionState: "requestSessionState"
+        case .iosRegistered: "iosRegistered"
+        case .macConnected: "macConnected"
+        case .macDisconnected: "macDisconnected"
+        case .ping: "ping"
+        case .pong: "pong"
+        case .error: "error"
+        }
+    }
 }

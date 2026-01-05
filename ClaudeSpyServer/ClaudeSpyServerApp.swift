@@ -94,13 +94,13 @@ struct TmuxPaneMirrorApp: App {
 
     private func createWindowManager() -> MirrorWindowManager {
         let manager = MirrorWindowManager(settings: settings, tmuxService: tmuxService)
+        windowManager = manager
+
+        // Set up session state handler synchronously to avoid race with autoConnectIfConfigured
+        setupSessionStateHandler(manager: manager)
+
+        // Forward hook events to window manager AND external server (async setup is fine here)
         Task { @MainActor in
-            windowManager = manager
-
-            // Set up session state handler now that we have the manager
-            setupSessionStateHandler(manager: manager)
-
-            // Forward hook events to window manager AND external server
             await hookServer.setEventHandler { [weak manager, weak externalServerClient] event in
                 // Handle locally
                 await manager?.handleHookEvent(event)

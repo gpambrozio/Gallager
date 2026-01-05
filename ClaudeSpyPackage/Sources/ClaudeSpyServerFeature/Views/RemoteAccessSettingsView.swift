@@ -47,6 +47,14 @@ public struct RemoteAccessSettingsView: View {
         .formStyle(.grouped)
         .frame(minWidth: 400, minHeight: 300)
         .navigationTitle("Remote Access")
+        .onChange(of: pairingManager.state) { oldState, newState in
+            // Auto-connect when pairing completes
+            if case .paired = newState, case .waitingForPairing = oldState {
+                Task {
+                    await connectToServer()
+                }
+            }
+        }
     }
 
     // MARK: - Connection Status Row
