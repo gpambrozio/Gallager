@@ -1,5 +1,17 @@
 # ClaudeSpy Distributed Architecture Plan
 
+## Current Status (Updated: January 2026)
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| Phase 1: Shared Models | ✅ **COMPLETE** | Implemented as `ClaudeSpyNetworking` module (not ClaudeSpyCommon) |
+| Phase 2: External Server | ✅ **COMPLETE** | Full Vapor relay server with pairing, WebSocket, Docker |
+| Docker & Deployment | ✅ **COMPLETE** | Deployed to Hetzner with Caddy reverse proxy |
+| Phase 3: Mac App Updates | ❌ Not Started | Needs ExternalServerClient, PairingManager, UI |
+| Phase 4: iOS App | ❌ Not Started | ClaudeSpyFeature is a stub ("Hello, World!") |
+
+---
+
 ## Overview
 
 Transform ClaudeSpy from a standalone Mac app into a distributed system with three components:
@@ -70,171 +82,77 @@ Transform ClaudeSpy from a standalone Mac app into a distributed system with thr
 
 ---
 
-## Phase 1: Shared Models & Infrastructure
+## Phase 1: Shared Models & Infrastructure ✅ COMPLETE
 
-### 1.1 Extend ClaudeSpyCommon with Networking Types
+> **Implementation Note:** Networking models were implemented in a dedicated `ClaudeSpyNetworking` module rather than extending `ClaudeSpyCommon`. This provides better separation of concerns and allows the networking models to be used by the Linux-based external server without pulling in macOS/iOS-specific dependencies.
 
-Add networking message types to the existing `ClaudeSpyCommon` module, which already contains all hook models. This keeps related types together and avoids unnecessary module proliferation.
+### 1.1 ClaudeSpyNetworking Module
 
-**New file: `Sources/ClaudeSpyCommon/Models/WebSocketMessage.swift`**
-```swift
-/// Wrapper for all WebSocket messages between Mac, External Server, and iOS
-public enum WebSocketMessage: Codable, Sendable {
-    // Mac → Server
-    case registerMac(RegisterMacMessage)
-    case hookEvent(HookEventMessage)
-    case commandResponse(CommandResponseMessage)
+**Actual location:** `Sources/ClaudeSpyNetworking/Models/`
 
-    // Server → Mac
-    case macRegistered(MacRegisteredMessage)
-    case command(CommandMessage)
-    case iosConnected
-    case iosDisconnected
+The networking module contains all shared message types for Mac ↔ Server ↔ iOS communication:
 
-    // iOS → Server
-    case registerIOS(RegisterIOSMessage)
-
-    // Server → iOS
-    case iosRegistered(IOSRegisteredMessage)
-    case macConnected
-    case macDisconnected
-    case sessionState(SessionStateMessage)
-}
+```
+Sources/ClaudeSpyNetworking/
+├── Models/
+│   ├── WebSocketMessage.swift   # 16+ message types with JSON serialization
+│   ├── PairingModels.swift      # Pairing flow models
+│   ├── CommandModels.swift      # Remote command protocol
+│   ├── HookModels.swift         # Claude Code hook event types (~530 lines)
+│   └── RelayMessages.swift      # Session state synchronization
+└── (exports all types publicly)
 ```
 
-**New file: `Sources/ClaudeSpyCommon/Models/PairingModels.swift`**
-```swift
-public struct PairingRequest: Codable, Sendable {
-    public let deviceId: String
-    public let deviceName: String
-    public let pairingCode: String
-}
+**Key implemented types:**
 
-public struct PairingResponse: Codable, Sendable {
-    public let success: Bool
-    public let pairId: String?
-    public let error: String?
-}
+- `WebSocketMessage` - Comprehensive enum with custom JSON encoding (type + payload pattern)
+- `PairingRegistration`, `PairingCompletion`, `PairingResponse` - HTTP pairing flow
+- `RegisterMacMessage`, `RegisterIOSMessage` - WebSocket registration after pairing
+- `CommandMessage`, `CommandResponseMessage` - Remote command protocol
+- `HookEvent`, `ClaudeSession`, `HookAction` - Full Claude Code integration
+- `SessionStateMessage`, `HookEventMessage` - State sync messages
+- `AnyCodable` - Type-erased wrapper for arbitrary JSON payloads
 
-public struct RegisterMacMessage: Codable, Sendable {
-    public let pairId: String
-    public let deviceId: String
-    public let deviceName: String
-}
+All types implement `Sendable` for Swift 6 strict concurrency.
 
-public struct RegisterIOSMessage: Codable, Sendable {
-    public let pairId: String
-    public let deviceId: String
-    public let deviceName: String
-}
+### 1.2 Package.swift Updates
 
-public struct MacRegisteredMessage: Codable, Sendable {
-    public let success: Bool
-}
+**Current module structure:**
+- `ClaudeSpyCommon` - Shared UI utilities (SF Symbols, extensions)
+- `ClaudeSpyNetworking` - **Platform-agnostic networking models** (NEW)
+- `ClaudeSpyFeature` - iOS feature module (placeholder)
+- `ClaudeSpyServerFeature` - macOS server feature
+- `ClaudeSpyExternalServer` - Linux-ready relay server executable
 
-public struct IOSRegisteredMessage: Codable, Sendable {
-    public let success: Bool
-    public let macDeviceName: String?
-}
-```
-
-**New file: `Sources/ClaudeSpyCommon/Models/CommandModels.swift`**
-```swift
-public enum CommandType: String, Codable, Sendable {
-    case sendKeystroke
-    case cancelOperation  // Future: send Ctrl+C
-    case pauseMirror
-    case resumeMirror
-}
-
-public struct CommandMessage: Codable, Sendable, Identifiable {
-    public let id: UUID
-    public let paneId: String
-    public let type: CommandType
-    public let payload: [String: AnyCodable]
-    public let timestamp: Date
-}
-
-public struct CommandResponseMessage: Codable, Sendable {
-    public let commandId: UUID
-    public let success: Bool
-    public let error: String?
-}
-```
-
-**New file: `Sources/ClaudeSpyCommon/Models/SessionMessages.swift`**
-```swift
-public struct HookEventMessage: Codable, Sendable {
-    public let pairId: String
-    public let event: HookEvent  // Reuse existing
-}
-
-public struct SessionStateMessage: Codable, Sendable {
-    public let pairId: String
-    public let sessions: [String: ClaudeSession]  // Reuse existing
-    public let activePanes: [String]
-}
-```
-
-### 1.2 Update Package.swift
-
-Add the external server executable target. Note that `ClaudeSpyFeature` already exists for iOS features.
-
-**Existing module structure:**
-- `ClaudeSpyCommon` - Shared models, SF Symbols, utilities (add networking types here)
-- `ClaudeSpyFeature` - iOS feature module (currently placeholder, will implement iOS UI)
-- `ClaudeSpyServerFeature` - macOS server feature (add WebSocket client here)
-- `ClaudeSpyExternalServer` - **NEW** executable for relay server
-
-```swift
-// Add to Package.swift
-
-// Add product
-.executable(
-    name: "ClaudeSpyExternalServer",
-    targets: ["ClaudeSpyExternalServer"]
-),
-
-// Add target
-.executableTarget(
-    name: "ClaudeSpyExternalServer",
-    dependencies: [
-        .claudeSpyCommon,
-        .vapor,
-    ]
-),
-
-// Add test target
-.testTarget(
-    name: "ClaudeSpyExternalServerTests",
-    dependencies: ["ClaudeSpyExternalServer"]
-),
-```
+The external server depends on `ClaudeSpyNetworking` (not `ClaudeSpyCommon`) to avoid pulling macOS/iOS dependencies into the Linux build.
 
 ---
 
-## Phase 2: External Server Implementation
+## Phase 2: External Server Implementation ✅ COMPLETE
 
-### 2.1 Server Structure
+### 2.1 Server Structure (Implemented)
 
 ```
 Sources/ClaudeSpyExternalServer/
-├── main.swift                    # Entry point, configure & run
-├── configure.swift               # Vapor app configuration
+├── main.swift                    # Vapor async/await entry point
+├── configure.swift               # Server config, service initialization
 ├── Routes/
 │   ├── routes.swift              # Route registration
 │   ├── PairingController.swift   # HTTP pairing endpoints
-│   └── WebSocketController.swift # WebSocket upgrade & handling
+│   └── WebSocketController.swift # WebSocket upgrade & message handling
 ├── Services/
-│   ├── PairingService.swift      # Pairing code management
-│   ├── ConnectionHub.swift       # Track connected clients
-│   └── RelayService.swift        # Message routing logic
-└── Models/
-    ├── Pair.swift                # Paired device record
-    └── Connection.swift          # Active connection metadata
+│   ├── PairingService.swift      # Actor: code management, pair storage
+│   ├── ConnectionHub.swift       # Actor: WebSocket connection tracking
+│   └── RelayService.swift        # Actor: message routing orchestration
+├── Models/
+│   ├── Pair.swift                # Paired device record (IDs, names, timestamp)
+│   ├── Connection.swift          # WebSocket + metadata wrapper
+│   └── PendingPairing.swift      # Temporary pairing code holder
+└── Extensions/
+    └── StorageKeys.swift         # Vapor storage type keys
 ```
 
-### 2.2 HTTP Endpoints
+### 2.2 HTTP Endpoints (Implemented)
 
 ```
 POST /api/pairing/register
@@ -258,10 +176,10 @@ GET /health
   Response: { status: "ok" }
 ```
 
-### 2.3 WebSocket Endpoint
+### 2.3 WebSocket Endpoint (Implemented)
 
 ```
-WS /ws?pairId=xxx&deviceType=mac|ios&deviceId=xxx
+WS /api/ws?pairId=xxx&deviceType=mac|ios&deviceId=xxx
 
 Connection flow:
 1. Client connects with pairId and deviceType
@@ -269,93 +187,56 @@ Connection flow:
 3. Server registers connection in ConnectionHub
 4. Server notifies paired device of connection
 5. Messages relayed between paired devices
+6. On disconnect: cleanup and notify paired device
 ```
 
-### 2.4 Core Services
+### 2.4 Core Services (Implemented)
 
-**ConnectionHub.swift**
-```swift
-actor ConnectionHub {
-    private var connections: [String: [String: WebSocket]] = [:]
-    // [pairId: [deviceType: WebSocket]]
+All services are implemented as Swift actors for thread-safe concurrent access:
 
-    func register(pairId: String, deviceType: String, socket: WebSocket)
-    func unregister(pairId: String, deviceType: String)
-    func send(to pairId: String, deviceType: String, message: WebSocketMessage)
-    func broadcast(to pairId: String, message: WebSocketMessage, excluding: String?)
-}
-```
+**PairingService** - Manages device pairing lifecycle
+- Pending codes with 5-minute expiry and auto-cleanup
+- Active pairs stored by UUID
+- Device name lookups for notifications
 
-**PairingService.swift**
-```swift
-actor PairingService {
-    private var pendingCodes: [String: PendingPairing] = [:]  // code → pending
-    private var activePairs: [String: Pair] = [:]             // pairId → pair
+**ConnectionHub** - WebSocket connection manager
+- Tracks `[pairId: [deviceType: Connection]]` hierarchy
+- Status checks: `isMacConnected()`, `isIOSConnected()`
+- Message sending with exclude filter for broadcasts
 
-    func generateCode(deviceId: String, deviceName: String) -> (code: String, expiresAt: Date)
-    func completePairing(code: String, deviceId: String, deviceName: String) -> PairingResponse
-    func validatePair(pairId: String) -> Bool
-    func getPair(pairId: String) -> Pair?
-    func removePair(pairId: String)
-}
-```
+**RelayService** - Message routing orchestration
+- Routes Mac messages to iOS (hook events, session state, command responses)
+- Routes iOS messages to Mac (commands, state requests)
+- Connection state notifications (macConnected, iosDisconnected, etc.)
+- Smart state sync: iOS gets session state on connect if Mac ready
 
-**RelayService.swift**
-```swift
-actor RelayService {
-    let hub: ConnectionHub
-    let pairingService: PairingService
+### 2.5 Docker Configuration (Implemented)
 
-    func handleMacMessage(_ message: WebSocketMessage, pairId: String)
-    func handleIOSMessage(_ message: WebSocketMessage, pairId: String)
-    func relayHookEvent(_ event: HookEventMessage) async
-    func relayCommand(_ command: CommandMessage) async
-}
-```
+**Dockerfile** - Multi-stage build for minimal image size:
+- Swift 6.0 builder stage with release optimization
+- Slim runtime image with non-root user
+- Health check support
+- Environment variable configuration
 
-### 2.5 Docker Configuration
+**docker-compose.yml** - Production orchestration:
+- Health check via curl to `/health`
+- Environment: `LOG_LEVEL`, `PAIRING_CODE_EXPIRY_SECONDS`
+- Restart policy: `unless-stopped`
 
-**Dockerfile**
-```dockerfile
-FROM swift:6.0-jammy as builder
+### 2.6 Deployment (Implemented)
 
-WORKDIR /app
-COPY ClaudeSpyPackage ./ClaudeSpyPackage
-
-WORKDIR /app/ClaudeSpyPackage
-RUN swift build -c release --target ClaudeSpyExternalServer
-
-FROM swift:6.0-jammy-slim
-WORKDIR /app
-COPY --from=builder /app/ClaudeSpyPackage/.build/release/ClaudeSpyExternalServer ./
-
-EXPOSE 8080
-ENV ENVIRONMENT=production
-
-CMD ["./ClaudeSpyExternalServer", "serve", "--env", "production", "--hostname", "0.0.0.0", "--port", "8080"]
-```
-
-**docker-compose.yml**
-```yaml
-version: '3.8'
-services:
-  claudespy-relay:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    ports:
-      - "8080:8080"
-    environment:
-      - LOG_LEVEL=info
-      - PAIRING_CODE_EXPIRY_SECONDS=300
-    restart: unless-stopped
-```
+The external server is deployed to **Hetzner** with:
+- Caddy reverse proxy for TLS termination (HTTPS/WSS)
+- Docker container running the Vapor server
+- Domain configured for secure WebSocket connections
 
 ---
 
-## Phase 3: Mac App Updates
+## Phase 3: Mac App Updates ❌ NOT STARTED
 
-### 3.1 New Components
+> **Next Steps:** This phase integrates the Mac app with the external server. The `ClaudeSpyServerFeature` module needs new networking components to connect to the relay server.
+
+### 3.1 New Components (TODO)
 
 **ExternalServerClient.swift**
 ```swift
@@ -439,9 +320,11 @@ var autoConnectToServer: Bool = true
 
 ---
 
-## Phase 4: iOS App Implementation
+## Phase 4: iOS App Implementation ❌ NOT STARTED
 
-### 4.1 App Structure
+> **Current State:** `ClaudeSpyFeature` contains only a stub `ContentView.swift` that displays "Hello, World!". The entire iOS implementation remains to be done.
+
+### 4.1 App Structure (TODO)
 
 Use the existing `ClaudeSpyFeature` module (currently a placeholder) for iOS-specific code:
 
@@ -554,21 +437,21 @@ final class SessionStore {
 
 ## Implementation Order
 
-### Week 1: Foundation
-- [ ] Add networking message types to `ClaudeSpyCommon` module
-- [ ] Update Package.swift with `ClaudeSpyExternalServer` executable target
-- [ ] Create `ClaudeSpyExternalServer` target skeleton
-- [ ] Implement basic Vapor app with health endpoint
+### Week 1: Foundation ✅ COMPLETE
+- [x] Add networking message types (created `ClaudeSpyNetworking` module)
+- [x] Update Package.swift with `ClaudeSpyExternalServer` executable target
+- [x] Create `ClaudeSpyExternalServer` target skeleton
+- [x] Implement basic Vapor app with health endpoint
 
-### Week 2: External Server Core
-- [ ] Implement PairingService
-- [ ] Implement ConnectionHub
-- [ ] Implement WebSocket endpoint
-- [ ] Implement RelayService
-- [ ] Add HTTP pairing endpoints
-- [ ] Write unit tests for services
+### Week 2: External Server Core ✅ COMPLETE
+- [x] Implement PairingService (actor with code expiry)
+- [x] Implement ConnectionHub (actor with WebSocket tracking)
+- [x] Implement WebSocket endpoint (`/api/ws`)
+- [x] Implement RelayService (message routing)
+- [x] Add HTTP pairing endpoints
+- [x] Write unit tests for services (`PairingServiceTests.swift`)
 
-### Week 3: Mac App Integration
+### Week 3: Mac App Integration ❌ NOT STARTED
 - [ ] Implement ExternalServerClient
 - [ ] Implement PairingManager
 - [ ] Add RemoteAccessSettingsView
@@ -576,7 +459,7 @@ final class SessionStore {
 - [ ] Implement TmuxCommandExecutor
 - [ ] Test Mac ↔ Server communication
 
-### Week 4: iOS App
+### Week 4: iOS App ❌ NOT STARTED
 - [ ] Implement RelayClient in `ClaudeSpyFeature`
 - [ ] Implement SessionStore in `ClaudeSpyFeature`
 - [ ] Replace placeholder ContentView with real implementation
@@ -585,19 +468,19 @@ final class SessionStore {
 - [ ] Update `ClaudeSpy` iOS target to use ClaudeSpyFeature
 - [ ] Test full end-to-end flow
 
-### Week 5: Docker & Deployment
-- [ ] Create Dockerfile
-- [ ] Create docker-compose.yml
-- [ ] Test containerized deployment
-- [ ] Document deployment process
-- [ ] Create production configuration
+### Week 5: Docker & Deployment ✅ COMPLETE
+- [x] Create Dockerfile (multi-stage, non-root user)
+- [x] Create docker-compose.yml (health checks, env config)
+- [x] Test containerized deployment
+- [x] Document deployment process
+- [x] Create production configuration (Hetzner + Caddy)
 
-### Week 6: Polish & Testing
+### Week 6: Polish & Testing ⏳ PARTIAL
 - [ ] End-to-end integration tests
 - [ ] Error handling improvements
 - [ ] Reconnection logic
 - [ ] UI polish
-- [ ] Documentation updates
+- [x] Documentation updates (this file)
 
 ---
 
@@ -643,12 +526,18 @@ final class SessionStore {
 
 ## Open Questions
 
-1. **Server hosting**: Where will the external server be deployed? (AWS, GCP, DigitalOcean, self-hosted?)
-2. **Domain/SSL**: What domain will be used? Need SSL certificate for WSS.
+1. ~~**Server hosting**: Where will the external server be deployed?~~ ✅ **RESOLVED**: Hetzner VPS with Docker
+2. ~~**Domain/SSL**: What domain will be used?~~ ✅ **RESOLVED**: Caddy handles TLS termination with automatic certificates
 3. **Tmux keystroke format**: What format should keystroke commands use? (raw keys, escape sequences, tmux key names?)
 4. **Session history limit**: How many events should iOS display? Currently Mac keeps 5.
 5. **Reconnection behavior**: Should iOS auto-reconnect on network recovery?
 
+### New Questions (from implementation)
+
+6. **Mac WebSocket client**: Should use URLSession's WebSocketTask or a third-party library?
+7. **iOS state persistence**: Should pairing info persist across app launches? (Currently server is in-memory only)
+8. **Error recovery UI**: How should the Mac/iOS apps surface connection errors to users?
+
 ---
 
-*This plan was generated with a heavy sigh. The universe tends toward entropy, and software tends toward complexity. At least this complexity serves a purpose—unlike most things.*
+*This plan was generated with a heavy sigh. The universe tends toward entropy, and software tends toward complexity. At least this complexity serves a purpose—unlike most things. Update: At least some progress has been made. The server works. The iOS app... exists, in the most charitable interpretation of that word.*
