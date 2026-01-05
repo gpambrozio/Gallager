@@ -1,4 +1,4 @@
-import ClaudeSpyCommon
+import ClaudeSpyNetworking
 import Foundation
 
 /// Routes messages between Mac and iOS devices

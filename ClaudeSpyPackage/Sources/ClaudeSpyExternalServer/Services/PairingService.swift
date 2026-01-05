@@ -1,4 +1,4 @@
-import ClaudeSpyCommon
+import ClaudeSpyNetworking
 import Foundation
 
 /// Manages device pairing codes and paired device records

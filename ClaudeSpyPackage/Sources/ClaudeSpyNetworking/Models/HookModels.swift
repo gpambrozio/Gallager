@@ -1,5 +1,23 @@
 import Foundation
 
+// MARK: - Date Parsing
+
+/// Private date formatter for parsing ISO8601 timestamps
+private enum ISO8601Parser {
+    /// ISO8601 formatter for parsing timestamps like "2026-01-03T19:00:56.425838"
+    /// Note: nonisolated(unsafe) is safe here because we never mutate the formatter after creation
+    nonisolated(unsafe) static let formatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    static func parse(_ string: String?) -> Date? {
+        guard let string else { return nil }
+        return formatter.date(from: string)
+    }
+}
+
 // MARK: - Claude Session
 
 /// Tracks a Claude Code session and its recent hook events
@@ -296,7 +314,7 @@ public enum HookAction: Codable, Sendable {
 
     /// The parsed timestamp as a Date, or nil if parsing fails
     public var timestamp: Date? {
-        DateFormatters.parseISO8601(timestampString)
+        ISO8601Parser.parse(timestampString)
     }
 
     /// Parse hook action from JSON data by reading hook_event_name

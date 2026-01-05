@@ -1,4 +1,4 @@
-import ClaudeSpyCommon
+import ClaudeSpyNetworking
 import Foundation
 import Vapor
 

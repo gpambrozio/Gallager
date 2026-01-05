@@ -1,4 +1,4 @@
-import ClaudeSpyCommon
+import ClaudeSpyNetworking
 import Vapor
 
 // MARK: - Vapor Content Conformance

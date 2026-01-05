@@ -1,4 +1,4 @@
-import ClaudeSpyCommon
+import ClaudeSpyNetworking
 import Vapor
 
 /// Handles HTTP endpoints for device pairing

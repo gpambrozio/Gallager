@@ -1,4 +1,4 @@
-import ClaudeSpyCommon
+import ClaudeSpyNetworking
 import Vapor
 
 /// Handles WebSocket connections for real-time communication

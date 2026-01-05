@@ -1,4 +1,4 @@
-// swift-tools-version: 6.1
+// swift-tools-version: 6.0
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -16,6 +16,7 @@ extension Target.Dependency {
         .product(name: "Vapor", package: "vapor")
     }
 
+    static var claudeSpyNetworking: Self { "ClaudeSpyNetworking" }
     static var claudeSpyCommon: Self { "ClaudeSpyCommon" }
     static var claudeSpyFeature: Self { "ClaudeSpyFeature" }
     static var claudeSpyServerFeature: Self { "ClaudeSpyServerFeature" }
@@ -27,6 +28,10 @@ let package = Package(
     platforms: [.iOS(.v18), .macOS(.v15)],
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
+        .library(
+            name: "ClaudeSpyNetworking",
+            targets: ["ClaudeSpyNetworking"]
+        ),
         .library(
             name: "ClaudeSpyCommon",
             targets: ["ClaudeSpyCommon"]
@@ -53,9 +58,17 @@ let package = Package(
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
+
+        // Platform-agnostic networking models (no SwiftUI dependencies)
+        // Used by external server on Linux and by Apple platform apps
+        .target(
+            name: "ClaudeSpyNetworking",
+            dependencies: []
+        ),
         .target(
             name: "ClaudeSpyCommon",
             dependencies: [
+                .claudeSpyNetworking,
                 .sfSymbolsMacro,
             ]
         ),
@@ -76,8 +89,14 @@ let package = Package(
         .executableTarget(
             name: "ClaudeSpyExternalServer",
             dependencies: [
-                .claudeSpyCommon,
+                .claudeSpyNetworking,
                 .vapor,
+            ]
+        ),
+        .testTarget(
+            name: "ClaudeSpyNetworkingTests",
+            dependencies: [
+                "ClaudeSpyNetworking"
             ]
         ),
         .testTarget(

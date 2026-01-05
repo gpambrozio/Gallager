@@ -7,8 +7,13 @@ WORKDIR /build
 COPY Package.swift Package.resolved ./
 COPY Sources ./Sources
 
-# Build release binary
-RUN swift build -c release --target ClaudeSpyExternalServer \
+# Create empty test directories to satisfy package structure
+# (tests are not needed for the release build)
+RUN mkdir -p Tests/ClaudeSpyNetworkingTests Tests/ClaudeSpyCommonTests Tests/ClaudeSpyFeatureTests Tests/ClaudeSpyServerFeatureTests Tests/ClaudeSpyExternalServerTests && \
+    touch Tests/ClaudeSpyNetworkingTests/.gitkeep Tests/ClaudeSpyCommonTests/.gitkeep Tests/ClaudeSpyFeatureTests/.gitkeep Tests/ClaudeSpyServerFeatureTests/.gitkeep Tests/ClaudeSpyExternalServerTests/.gitkeep
+
+# Build release binary (--product links the executable, --target only compiles)
+RUN swift build -c release --product ClaudeSpyExternalServer \
     -Xswiftc -cross-module-optimization
 
 # Runtime stage - use slim image
