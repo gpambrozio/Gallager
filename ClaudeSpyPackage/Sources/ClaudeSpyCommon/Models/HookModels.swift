@@ -47,7 +47,8 @@ public struct HookEvent: Identifiable, Sendable {
         tmuxPane: String?
     ) {
         self.id = UUID()
-        self.timestamp = Date()
+        // Use timestamp from action if available, otherwise fall back to current time
+        self.timestamp = action.timestamp ?? Date()
         self.action = action
         self.projectPath = projectPath
         self.tmuxPane = tmuxPane
@@ -59,22 +60,25 @@ public struct HookEvent: Identifiable, Sendable {
 public protocol HookBodyProtocol: Codable, Sendable {
     var sessionId: String { get }
     var hookEventName: String { get }
+    var timestamp: String? { get }
 }
 
 // MARK: - Common Hook Fields
 
 /// Fields common to all hook payloads from Claude Code
-public struct CommonHookFields: Codable, Sendable {
+public struct CommonHookFields: HookBodyProtocol {
     public let sessionId: String
     public let transcriptPath: String?
     public let cwd: String?
     public let hookEventName: String
+    public let timestamp: String?
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
         case transcriptPath = "transcript_path"
         case cwd
         case hookEventName = "hook_event_name"
+        case timestamp
     }
 }
 
@@ -85,6 +89,7 @@ public struct SessionStartBody: HookBodyProtocol {
     public let transcriptPath: String?
     public let cwd: String?
     public let hookEventName: String
+    public let timestamp: String?
     public let source: String?
 
     enum CodingKeys: String, CodingKey {
@@ -92,6 +97,7 @@ public struct SessionStartBody: HookBodyProtocol {
         case transcriptPath = "transcript_path"
         case cwd
         case hookEventName = "hook_event_name"
+        case timestamp
         case source
     }
 }
@@ -101,6 +107,7 @@ public struct PreToolUseBody: HookBodyProtocol {
     public let transcriptPath: String?
     public let cwd: String?
     public let hookEventName: String
+    public let timestamp: String?
     public let toolName: String?
     public let toolInput: ToolInput?
 
@@ -109,6 +116,7 @@ public struct PreToolUseBody: HookBodyProtocol {
         case transcriptPath = "transcript_path"
         case cwd
         case hookEventName = "hook_event_name"
+        case timestamp
         case toolName = "tool_name"
         case toolInput = "tool_input"
     }
@@ -119,6 +127,7 @@ public struct PreToolUseBody: HookBodyProtocol {
         transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
         cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
         hookEventName = try container.decode(String.self, forKey: .hookEventName)
+        timestamp = try container.decodeIfPresent(String.self, forKey: .timestamp)
         toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
 
         // Decode tool_input based on tool_name
@@ -138,6 +147,7 @@ public struct SessionEndBody: HookBodyProtocol {
     public let transcriptPath: String?
     public let cwd: String?
     public let hookEventName: String
+    public let timestamp: String?
     public let stopHookActive: Bool?
 
     enum CodingKeys: String, CodingKey {
@@ -145,6 +155,7 @@ public struct SessionEndBody: HookBodyProtocol {
         case transcriptPath = "transcript_path"
         case cwd
         case hookEventName = "hook_event_name"
+        case timestamp
         case stopHookActive = "stop_hook_active"
     }
 }
@@ -199,33 +210,42 @@ public enum HookAction: Sendable {
     case preToolUse(PreToolUseBody)
     case sessionEnd(SessionEndBody)
     case permissionRequest(PermissionRequestBody)
-    case unknown(String, Data)
+    case unknown(CommonHookFields)
 
-    public var eventName: String {
+    /// Returns the underlying hook body for accessing common fields
+    public var body: any HookBodyProtocol {
         switch self {
-        case .sessionStart: "SessionStart"
-        case .preToolUse: "PreToolUse"
-        case .sessionEnd: "SessionEnd"
-        case .permissionRequest: "PermissionRequest"
-        case let .unknown(name, _): name
+        case let .sessionStart(body): body
+        case let .preToolUse(body): body
+        case let .sessionEnd(body): body
+        case let .permissionRequest(body): body
+        case let .unknown(body): body
         }
     }
 
+    public var eventName: String {
+        body.hookEventName
+    }
+
     public var sessionId: String {
-        switch self {
-        case let .sessionStart(body): body.sessionId
-        case let .preToolUse(body): body.sessionId
-        case let .sessionEnd(body): body.sessionId
-        case let .permissionRequest(body): body.sessionId
-        case .unknown: "unknown"
-        }
+        body.sessionId
+    }
+
+    /// The raw timestamp string from the hook event
+    public var timestampString: String? {
+        body.timestamp
+    }
+
+    /// The parsed timestamp as a Date, or nil if parsing fails
+    public var timestamp: Date? {
+        DateFormatters.parseISO8601(timestampString)
     }
 
     /// Parse hook action from JSON data by reading hook_event_name
     public static func from(jsonData: Data) throws -> HookAction {
         let decoder = JSONDecoder()
 
-        // First, extract the hook_event_name to determine the type
+        // First, extract common fields to determine the type
         let common = try decoder.decode(CommonHookFields.self, from: jsonData)
 
         switch common.hookEventName {
@@ -242,7 +262,7 @@ public enum HookAction: Sendable {
             let body = try decoder.decode(PermissionRequestBody.self, from: jsonData)
             return .permissionRequest(body)
         default:
-            return .unknown(common.hookEventName, jsonData)
+            return .unknown(common)
         }
     }
 }

@@ -6,26 +6,39 @@ struct MirrorWindowView: View {
     let paneInfo: PaneInfo
     @Environment(AppSettings.self) private var settings
     @Environment(TmuxService.self) private var tmuxService
+    @Environment(MirrorWindowManager.self) private var windowManager
 
     @State private var paneStream: PaneStream?
     @State private var terminalController = TerminalController()
     @State private var showJumpToBottom = false
 
-    var body: some View {
-        VStack(spacing: 0) {
-            // Terminal view
-            TerminalContainerView(terminalController: terminalController)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .ignoresSafeArea(edges: .horizontal)
+    /// The active Claude session for this pane, if any
+    private var claudeSession: ClaudeSession? {
+        windowManager.activeSessions[paneInfo.id]
+    }
 
-            // Jump to bottom button (shown when scrolled up)
-            if showJumpToBottom {
-                jumpToBottomBar
+    var body: some View {
+        ZStack {
+            VStack(spacing: 0) {
+                // Terminal view
+                TerminalContainerView(terminalController: terminalController)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .ignoresSafeArea(edges: .horizontal)
+
+                // Jump to bottom button (shown when scrolled up)
+                if showJumpToBottom {
+                    jumpToBottomBar
+                }
+
+                // Status bar
+                if settings.showStatusBar {
+                    statusBar
+                }
             }
 
-            // Status bar
-            if settings.showStatusBar {
-                statusBar
+            // Claude session events overlay
+            if let session = claudeSession {
+                SessionEventsOverlay(session: session)
             }
         }
         .toolbar {

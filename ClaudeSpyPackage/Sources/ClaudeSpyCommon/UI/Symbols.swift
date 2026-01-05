@@ -11,13 +11,19 @@ public enum Symbols: String {
     case arrowClockwise = "arrow.clockwise"
     case arrowDown = "arrow.down"
     case arrowRight = "arrow.right"
+    case boltFill = "bolt.fill"
     case chevronLeft = "chevron.left"
     case exclamationmarkTriangle = "exclamationmark.triangle"
     case gearshape
+    case lockFill = "lock.fill"
     case pause
     case play
+    case playFill = "play.fill"
+    case questionmark
     case sparkles
+    case stopFill = "stop.fill"
     case terminal
+    case wrenchAndScrewdriver = "wrench.and.screwdriver"
     case xmarkCircle = "xmark.circle"
     // swiftformat:sort:end
 }
