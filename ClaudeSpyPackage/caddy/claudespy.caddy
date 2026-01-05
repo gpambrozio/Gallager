@@ -1,0 +1,26 @@
+# ClaudeSpy Relay Server
+# This file should be placed in /etc/caddy/conf.d/
+
+claudespy.gustavo.eng.br {
+    # Reverse proxy to the relay server
+    reverse_proxy localhost:8080
+
+    # WebSocket support is automatic in Caddy
+    # No special configuration needed
+
+    # Access logging
+    log {
+        output file /var/log/caddy/claudespy-access.log
+        format json
+    }
+
+    # Security headers
+    header {
+        # Prevent clickjacking
+        X-Frame-Options "DENY"
+        # Prevent MIME type sniffing
+        X-Content-Type-Options "nosniff"
+        # Enable XSS protection
+        X-XSS-Protection "1; mode=block"
+    }
+}
