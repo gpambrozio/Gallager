@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:ClaudeSpy}/ClaudeSpyPackage",
+            "name": "Debug ClaudeSpyExternalServer (ClaudeSpyPackage)",
+            "target": "ClaudeSpyExternalServer",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug ClaudeSpyExternalServer (ClaudeSpyPackage)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:ClaudeSpy}/ClaudeSpyPackage",
+            "name": "Release ClaudeSpyExternalServer (ClaudeSpyPackage)",
+            "target": "ClaudeSpyExternalServer",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release ClaudeSpyExternalServer (ClaudeSpyPackage)"
+        }
+    ]
+}
