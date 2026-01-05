@@ -8,7 +8,6 @@ struct PaneListView: View {
     let error: String?
     let onRefresh: () async -> Void
     let onOpenMirror: (PaneInfo) -> Void
-    let hasClaudePane: (String) -> Bool
 
     var body: some View {
         Group {
@@ -56,10 +55,7 @@ struct PaneListView: View {
         List {
             Section {
                 ForEach(panes) { pane in
-                    PaneRow(
-                        pane: pane,
-                        hasClaude: hasClaudePane(pane.id)
-                    ) {
+                    PaneRow(pane: pane) {
                         onOpenMirror(pane)
                     }
                 }
@@ -87,9 +83,15 @@ struct PaneListView: View {
 
 /// A row displaying a single pane
 private struct PaneRow: View {
+    @Environment(MirrorWindowManager.self) private var windowManager
+
     let pane: PaneInfo
-    let hasClaude: Bool
     let onOpen: () -> Void
+
+    /// Check if pane has active Claude session (accessing activePanes directly for observation)
+    private var hasClaude: Bool {
+        windowManager.activePanes.contains(pane.id)
+    }
 
     var body: some View {
         HStack {
@@ -131,38 +133,55 @@ private struct PaneRow: View {
     }
 }
 
+private struct PaneListPreview: View {
+    @State private var settings = AppSettings()
+    @State private var tmuxService = TmuxService()
+    @State private var windowManager: MirrorWindowManager?
+
+    var body: some View {
+        Group {
+            if let windowManager {
+                PaneListView(
+                    panes: [
+                        PaneInfo(
+                            id: "%0",
+                            target: "main:0.0",
+                            sessionName: "main",
+                            windowIndex: 0,
+                            paneIndex: 0,
+                            command: "vim",
+                            currentPath: "/Users/test/projects",
+                            width: 80,
+                            height: 24,
+                            isActive: true
+                        ),
+                        PaneInfo(
+                            id: "%1",
+                            target: "main:0.1",
+                            sessionName: "main",
+                            windowIndex: 0,
+                            paneIndex: 1,
+                            command: "node server.js",
+                            currentPath: "/Users/test/app",
+                            width: 80,
+                            height: 24,
+                            isActive: false
+                        ),
+                    ],
+                    isLoading: false,
+                    error: nil,
+                    onRefresh: {},
+                    onOpenMirror: { _ in }
+                )
+                .environment(windowManager)
+            }
+        }
+        .onAppear {
+            windowManager = MirrorWindowManager(settings: settings, tmuxService: tmuxService)
+        }
+    }
+}
+
 #Preview {
-    PaneListView(
-        panes: [
-            PaneInfo(
-                id: "%0",
-                target: "main:0.0",
-                sessionName: "main",
-                windowIndex: 0,
-                paneIndex: 0,
-                command: "vim",
-                currentPath: "/Users/test/projects",
-                width: 80,
-                height: 24,
-                isActive: true
-            ),
-            PaneInfo(
-                id: "%1",
-                target: "main:0.1",
-                sessionName: "main",
-                windowIndex: 0,
-                paneIndex: 1,
-                command: "node server.js",
-                currentPath: "/Users/test/app",
-                width: 80,
-                height: 24,
-                isActive: false
-            ),
-        ],
-        isLoading: false,
-        error: nil,
-        onRefresh: {},
-        onOpenMirror: { _ in },
-        hasClaudePane: { _ in true }
-    )
+    PaneListPreview()
 }

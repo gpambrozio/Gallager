@@ -8,9 +8,8 @@ public final class MirrorWindowManager {
     /// Currently open mirror windows keyed by pane target
     public private(set) var openWindows: [String: NSWindow] = [:]
 
-    /// Active Claude panes (pane ID -> last activity timestamp)
-    /// Example: ["%0": Date(), "%1": Date()]
-    public private(set) var activePanes: [String: Date] = [:]
+    /// Active Claude pane IDs
+    public private(set) var activePanes: Set<String> = []
 
     private let settings: AppSettings
     private let tmuxService: TmuxService
@@ -30,32 +29,19 @@ public final class MirrorWindowManager {
         // Track active pane based on event type
         switch event.action {
         case .sessionEnd:
-            activePanes.removeValue(forKey: paneId)
+            activePanes.remove(paneId)
             await closeMirrorForPane(paneId)
         default:
-            activePanes[paneId] = Date()
+            activePanes.insert(paneId)
             await openMirrorForPane(paneId)
         }
     }
 
-    /// Check if a tmux pane has an active Claude Code session
-    /// - Parameter paneId: The tmux pane ID (e.g., "%0", "%1")
-    public func hasActiveClaudePane(_ paneId: String) -> Bool {
-        guard let lastActivity = activePanes[paneId] else { return false }
-
-        // Consider a pane stale after 5 minutes of inactivity
-        let staleThreshold: TimeInterval = 5 * 60
-        return Date().timeIntervalSince(lastActivity) < staleThreshold
-    }
-
-    /// Clean up stale panes (called periodically)
-    public func cleanupStalePanes() {
-        let staleThreshold: TimeInterval = 5 * 60
-        let now = Date()
-
-        activePanes = activePanes.filter { _, lastActivity in
-            now.timeIntervalSince(lastActivity) < staleThreshold
-        }
+    /// Cleans up active Claude sessions for panes that no longer exist
+    /// Call this after refreshing the pane list
+    public func cleanupInactiveSessions(currentPanes: [PaneInfo]) {
+        let existingPaneIds = Set(currentPanes.map(\.id))
+        activePanes = activePanes.intersection(existingPaneIds)
     }
 
     /// Opens a mirror window for the specified pane

@@ -16,12 +16,9 @@ public struct MainView: View {
             panes: tmuxService.panes,
             isLoading: tmuxService.isRefreshing,
             error: tmuxService.lastError,
-            onRefresh: { await tmuxService.refreshPanes() },
+            onRefresh: { await refreshPanes() },
             onOpenMirror: { pane in
                 windowManager.openMirror(for: pane)
-            },
-            hasClaudePane: { paneId in
-                windowManager.hasActiveClaudePane(paneId)
             }
         )
         .navigationTitle("Available Panes")
@@ -29,7 +26,7 @@ public struct MainView: View {
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     Task {
-                        await tmuxService.refreshPanes()
+                        await refreshPanes()
                     }
                 } label: {
                     Symbols.arrowClockwise.image
@@ -41,14 +38,19 @@ public struct MainView: View {
         }
         .task {
             // Initial load
-            await tmuxService.refreshPanes()
+            await refreshPanes()
 
             // Auto-refresh every 5 seconds
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(refreshInterval))
                 guard !Task.isCancelled else { break }
-                await tmuxService.refreshPanes()
+                await refreshPanes()
             }
         }
+    }
+
+    private func refreshPanes() async {
+        let panes = await tmuxService.refreshPanes()
+        windowManager.cleanupInactiveSessions(currentPanes: panes)
     }
 }
