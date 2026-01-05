@@ -195,7 +195,20 @@ public final class ExternalServerClient: Sendable {
         await updateState(.connecting)
 
         // Build WebSocket URL with query parameters
+        // The server expects WebSocket connections at /api/ws
         var components = URLComponents(url: serverURL, resolvingAgainstBaseURL: false)
+
+        // Append /api/ws path if not already present
+        var path = components?.path ?? ""
+        if !path.hasSuffix("/api/ws") {
+            if path.hasSuffix("/") {
+                path += "api/ws"
+            } else {
+                path += "/api/ws"
+            }
+        }
+        components?.path = path
+
         components?.queryItems = [
             URLQueryItem(name: "pairId", value: pairId),
             URLQueryItem(name: "deviceType", value: "mac"),

@@ -155,7 +155,7 @@ public final class AppSettings: Sendable {
         static let tmuxPath = "/opt/homebrew/bin/tmux"
         static let tmuxSocket = ""
         // Remote Access
-        static let externalServerURL = "wss://claudespy.ambrozio.dev"
+        static let externalServerURL = "wss://claudespy.gustavo.eng.br"
         static let autoConnectToServer = true
     }
 
