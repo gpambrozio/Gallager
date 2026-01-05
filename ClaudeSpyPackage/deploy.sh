@@ -75,9 +75,9 @@ deploy() {
     ssh "$REMOTE_HOST" << REMOTE_SCRIPT
         cd $REMOTE_DIR
 
-        # Build the image
+        # Build the image (using cache for faster builds)
         echo "Building Docker image..."
-        docker compose build --no-cache
+        docker compose build
 
         # Stop existing container if running
         docker compose down 2>/dev/null || true

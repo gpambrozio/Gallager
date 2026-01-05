@@ -3,16 +3,27 @@ FROM swift:6.0-jammy AS builder
 
 WORKDIR /build
 
-# Copy package files first for better caching
+# Step 1: Copy ONLY dependency manifest files
 COPY Package.swift Package.resolved ./
+
+# Step 2: Create minimal directory structure for package resolution
+# This allows swift package resolve to work without the actual source code
+RUN mkdir -p Sources/ClaudeSpyNetworking Sources/ClaudeSpyExternalServer && \
+    echo 'public struct Placeholder {}' > Sources/ClaudeSpyNetworking/Placeholder.swift && \
+    echo '@main struct Main { static func main() {} }' > Sources/ClaudeSpyExternalServer/main.swift
+
+# Step 3: Resolve and fetch dependencies (CACHED unless Package.swift/resolved changes)
+RUN swift package resolve
+
+# Step 4: Copy the actual source code (changes here only invalidate build, not dependency fetch)
 COPY Sources ./Sources
 
-# Create empty test directories to satisfy package structure
+# Step 5: Create empty test directories to satisfy package structure
 # (tests are not needed for the release build)
 RUN mkdir -p Tests/ClaudeSpyNetworkingTests Tests/ClaudeSpyCommonTests Tests/ClaudeSpyFeatureTests Tests/ClaudeSpyServerFeatureTests Tests/ClaudeSpyExternalServerTests && \
     touch Tests/ClaudeSpyNetworkingTests/.gitkeep Tests/ClaudeSpyCommonTests/.gitkeep Tests/ClaudeSpyFeatureTests/.gitkeep Tests/ClaudeSpyServerFeatureTests/.gitkeep Tests/ClaudeSpyExternalServerTests/.gitkeep
 
-# Build release binary (--product links the executable, --target only compiles)
+# Step 6: Build release binary (--product links the executable, --target only compiles)
 RUN swift build -c release --product ClaudeSpyExternalServer \
     -Xswiftc -cross-module-optimization
 
