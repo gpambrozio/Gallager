@@ -260,6 +260,33 @@ public final class TmuxService {
         ])
     }
 
+    /// Sends keys to a pane
+    /// - Parameters:
+    ///   - target: The pane target
+    ///   - keys: The keys to send (can be literal text or tmux key names like "Enter", "C-c")
+    ///   - literal: If true, sends keys literally without interpreting special names
+    public func sendKeys(_ target: String, keys: String, literal: Bool = false) async throws {
+        var args = ["send-keys", "-t", target]
+        if literal {
+            args.append("-l")  // Disable key name lookup
+        }
+        args.append(keys)
+
+        let result = try await runTmuxCommand(args)
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+    }
+
+    /// Sends Ctrl+C to cancel the current operation in a pane
+    public func sendInterrupt(_ target: String) async throws {
+        _ = try await runTmuxCommand([
+            "send-keys",
+            "-t", target,
+            "C-c",
+        ])
+    }
+
     /// Stops pipe-pane for a target
     public func stopPipePipe(_ target: String) async throws {
         // Stop pipe-pane by running it with no command

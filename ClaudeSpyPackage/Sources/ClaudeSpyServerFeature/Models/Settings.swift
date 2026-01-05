@@ -61,6 +61,33 @@ public final class AppSettings: Sendable {
         didSet { UserDefaults.standard.set(tmuxSocket, forKey: Keys.tmuxSocket) }
     }
 
+    // MARK: - Remote Access Settings
+
+    /// URL of the external relay server
+    public var externalServerURL: String {
+        didSet { UserDefaults.standard.set(externalServerURL, forKey: Keys.externalServerURL) }
+    }
+
+    /// Pair ID from successful device pairing (nil if not paired)
+    public var pairId: String? {
+        didSet { UserDefaults.standard.set(pairId, forKey: Keys.pairId) }
+    }
+
+    /// Name of paired iOS device (nil if not paired)
+    public var pairedDeviceName: String? {
+        didSet { UserDefaults.standard.set(pairedDeviceName, forKey: Keys.pairedDeviceName) }
+    }
+
+    /// Whether to automatically connect to relay server on launch
+    public var autoConnectToServer: Bool {
+        didSet { UserDefaults.standard.set(autoConnectToServer, forKey: Keys.autoConnectToServer) }
+    }
+
+    /// Unique device identifier for this Mac (generated on first launch)
+    public var deviceId: String {
+        didSet { UserDefaults.standard.set(deviceId, forKey: Keys.deviceId) }
+    }
+
     // MARK: - Initialization
 
     public init() {
@@ -76,6 +103,21 @@ public final class AppSettings: Sendable {
         self.reconnectDelay = defaults.object(forKey: Keys.reconnectDelay) as? Int ?? Defaults.reconnectDelay
         self.tmuxPath = defaults.string(forKey: Keys.tmuxPath) ?? Defaults.tmuxPath
         self.tmuxSocket = defaults.string(forKey: Keys.tmuxSocket) ?? Defaults.tmuxSocket
+
+        // Remote Access
+        self.externalServerURL = defaults.string(forKey: Keys.externalServerURL) ?? Defaults.externalServerURL
+        self.pairId = defaults.string(forKey: Keys.pairId)
+        self.pairedDeviceName = defaults.string(forKey: Keys.pairedDeviceName)
+        self.autoConnectToServer = defaults.object(forKey: Keys.autoConnectToServer) as? Bool ?? Defaults.autoConnectToServer
+
+        // Generate device ID if not already set
+        if let existingDeviceId = defaults.string(forKey: Keys.deviceId) {
+            self.deviceId = existingDeviceId
+        } else {
+            let newDeviceId = UUID().uuidString
+            self.deviceId = newDeviceId
+            defaults.set(newDeviceId, forKey: Keys.deviceId)
+        }
     }
 
     // MARK: - Keys
@@ -91,6 +133,12 @@ public final class AppSettings: Sendable {
         static let reconnectDelay = "reconnectDelay"
         static let tmuxPath = "tmuxPath"
         static let tmuxSocket = "tmuxSocket"
+        // Remote Access
+        static let externalServerURL = "externalServerURL"
+        static let pairId = "pairId"
+        static let pairedDeviceName = "pairedDeviceName"
+        static let autoConnectToServer = "autoConnectToServer"
+        static let deviceId = "deviceId"
     }
 
     // MARK: - Defaults
@@ -106,6 +154,22 @@ public final class AppSettings: Sendable {
         static let reconnectDelay = 5
         static let tmuxPath = "/opt/homebrew/bin/tmux"
         static let tmuxSocket = ""
+        // Remote Access
+        static let externalServerURL = "wss://claudespy.ambrozio.dev"
+        static let autoConnectToServer = true
+    }
+
+    // MARK: - Computed Properties
+
+    /// Whether the device is paired with an iOS device
+    public var isPaired: Bool {
+        pairId != nil
+    }
+
+    /// Clear pairing data (for unpair operation)
+    public func clearPairing() {
+        pairId = nil
+        pairedDeviceName = nil
     }
 }
 

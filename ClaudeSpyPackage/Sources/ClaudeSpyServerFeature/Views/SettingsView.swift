@@ -1,4 +1,5 @@
 import AppKit
+import ClaudeSpyCommon
 import SwiftUI
 
 /// Settings view for configuring the application
@@ -8,6 +9,26 @@ public struct SettingsView: View {
     public init() {}
 
     public var body: some View {
+        TabView {
+            GeneralSettingsView()
+                .tabItem {
+                    Label("General", symbol: .gearshape)
+                }
+
+            RemoteAccessSettingsView()
+                .tabItem {
+                    Label("Remote Access", symbol: .iphone)
+                }
+        }
+        .frame(minWidth: 500, minHeight: 400)
+    }
+}
+
+/// General settings tab
+struct GeneralSettingsView: View {
+    @Environment(AppSettings.self) private var settings
+
+    var body: some View {
         @Bindable var settings = settings
 
         Form {
@@ -62,7 +83,7 @@ public struct SettingsView: View {
                     Text("Path")
                     TextField("Path to tmux", text: $settings.tmuxPath)
                     Button("Browse...") {
-                        browseForTmux()
+                        browseForTmux(settings: settings)
                     }
                 }
 
@@ -74,42 +95,43 @@ public struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(minWidth: 450, minHeight: 400)
-        .navigationTitle("Settings")
     }
 
-    // MARK: - Available Fonts
+}
 
-    private var availableFonts: [String] {
-        [
-            "SF Mono",
-            "Menlo",
-            "Monaco",
-            "Courier New",
-            "Andale Mono",
-            "Source Code Pro",
-            "Fira Code",
-            "JetBrains Mono",
-        ]
-    }
+// MARK: - Helpers
 
-    // MARK: - Actions
+private var availableFonts: [String] {
+    [
+        "SF Mono",
+        "Menlo",
+        "Monaco",
+        "Courier New",
+        "Andale Mono",
+        "Source Code Pro",
+        "Fira Code",
+        "JetBrains Mono",
+    ]
+}
 
-    private func browseForTmux() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.directoryURL = URL(fileURLWithPath: "/usr/local/bin")
-        panel.message = "Select the tmux executable"
+@MainActor
+private func browseForTmux(settings: AppSettings) {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = false
+    panel.allowsMultipleSelection = false
+    panel.directoryURL = URL(fileURLWithPath: "/usr/local/bin")
+    panel.message = "Select the tmux executable"
 
-        if panel.runModal() == .OK, let url = panel.url {
-            settings.tmuxPath = url.path
-        }
+    if panel.runModal() == .OK, let url = panel.url {
+        settings.tmuxPath = url.path
     }
 }
 
 #Preview {
-    SettingsView()
-        .environment(AppSettings())
+    let settings = AppSettings()
+    return SettingsView()
+        .environment(settings)
+        .environment(PairingManager(settings: settings))
+        .environment(ExternalServerClient())
 }

@@ -8,22 +8,31 @@ import SwiftUI
 @SFSymbol
 public enum Symbols: String {
     // swiftformat:sort:begin
+    case antenna2Bars = "antenna.radiowaves.left.and.right"
     case arrowClockwise = "arrow.clockwise"
     case arrowDown = "arrow.down"
     case arrowRight = "arrow.right"
     case boltFill = "bolt.fill"
+    case checkmarkCircleFill = "checkmark.circle.fill"
     case chevronLeft = "chevron.left"
+    case docOnClipboard = "doc.on.clipboard"
     case exclamationmarkTriangle = "exclamationmark.triangle"
     case gearshape
+    case iphone
+    case linkCircle = "link.circle"
     case lockFill = "lock.fill"
     case pause
     case play
     case playFill = "play.fill"
+    case qrcode
     case questionmark
     case sparkles
     case stopFill = "stop.fill"
     case terminal
+    case wifi
+    case wifiSlash = "wifi.slash"
     case wrenchAndScrewdriver = "wrench.and.screwdriver"
     case xmarkCircle = "xmark.circle"
+    case xmarkCircleFill = "xmark.circle.fill"
     // swiftformat:sort:end
 }
