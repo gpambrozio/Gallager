@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Claude Session
 
 /// Tracks a Claude Code session and its recent hook events
-public struct ClaudeSession: Sendable {
+public struct ClaudeSession: Codable, Sendable {
     /// Maximum number of events to retain per session
     private static let maxEvents = 5
 
@@ -34,7 +34,7 @@ public struct ClaudeSession: Sendable {
 // MARK: - Hook Event
 
 /// Represents a received hook event with metadata
-public struct HookEvent: Identifiable, Sendable {
+public struct HookEvent: Identifiable, Codable, Sendable {
     public let id: UUID
     public let timestamp: Date
     public let action: HookAction
@@ -205,12 +205,70 @@ public struct PermissionRule: Codable, Sendable {
 
 // MARK: - Hook Action Enum
 
-public enum HookAction: Sendable {
+public enum HookAction: Codable, Sendable {
     case sessionStart(SessionStartBody)
     case preToolUse(PreToolUseBody)
     case sessionEnd(SessionEndBody)
     case permissionRequest(PermissionRequestBody)
     case unknown(CommonHookFields)
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case body
+    }
+
+    private enum ActionType: String, Codable {
+        case sessionStart
+        case preToolUse
+        case sessionEnd
+        case permissionRequest
+        case unknown
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try container.decode(ActionType.self, forKey: .type)
+
+        switch type {
+        case .sessionStart:
+            let body = try container.decode(SessionStartBody.self, forKey: .body)
+            self = .sessionStart(body)
+        case .preToolUse:
+            let body = try container.decode(PreToolUseBody.self, forKey: .body)
+            self = .preToolUse(body)
+        case .sessionEnd:
+            let body = try container.decode(SessionEndBody.self, forKey: .body)
+            self = .sessionEnd(body)
+        case .permissionRequest:
+            let body = try container.decode(PermissionRequestBody.self, forKey: .body)
+            self = .permissionRequest(body)
+        case .unknown:
+            let body = try container.decode(CommonHookFields.self, forKey: .body)
+            self = .unknown(body)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+
+        switch self {
+        case let .sessionStart(body):
+            try container.encode(ActionType.sessionStart, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .preToolUse(body):
+            try container.encode(ActionType.preToolUse, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .sessionEnd(body):
+            try container.encode(ActionType.sessionEnd, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .permissionRequest(body):
+            try container.encode(ActionType.permissionRequest, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .unknown(body):
+            try container.encode(ActionType.unknown, forKey: .type)
+            try container.encode(body, forKey: .body)
+        }
+    }
 
     /// Returns the underlying hook body for accessing common fields
     public var body: any HookBodyProtocol {

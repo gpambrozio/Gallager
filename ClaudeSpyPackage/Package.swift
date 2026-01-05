@@ -19,6 +19,7 @@ extension Target.Dependency {
     static var claudeSpyCommon: Self { "ClaudeSpyCommon" }
     static var claudeSpyFeature: Self { "ClaudeSpyFeature" }
     static var claudeSpyServerFeature: Self { "ClaudeSpyServerFeature" }
+    static var claudeSpyExternalServer: Self { "ClaudeSpyExternalServer" }
 }
 
 let package = Package(
@@ -37,6 +38,10 @@ let package = Package(
         .library(
             name: "ClaudeSpyServerFeature",
             targets: ["ClaudeSpyServerFeature"]
+        ),
+        .executable(
+            name: "ClaudeSpyExternalServer",
+            targets: ["ClaudeSpyExternalServer"]
         ),
     ],
     dependencies: [
@@ -68,6 +73,13 @@ let package = Package(
                 .vapor,
             ]
         ),
+        .executableTarget(
+            name: "ClaudeSpyExternalServer",
+            dependencies: [
+                .claudeSpyCommon,
+                .vapor,
+            ]
+        ),
         .testTarget(
             name: "ClaudeSpyCommonTests",
             dependencies: [
@@ -84,6 +96,13 @@ let package = Package(
             name: "ClaudeSpyServerFeatureTests",
             dependencies: [
                 "ClaudeSpyServerFeature"
+            ]
+        ),
+        .testTarget(
+            name: "ClaudeSpyExternalServerTests",
+            dependencies: [
+                .claudeSpyExternalServer,
+                .product(name: "VaporTesting", package: "vapor"),
             ]
         ),
     ]
