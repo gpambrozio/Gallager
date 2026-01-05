@@ -52,11 +52,11 @@ deploy() {
 
     # Create remote directory if it doesn't exist
     info "Setting up remote directory..."
-    ssh "$REMOTE_HOST" "mkdir -p $REMOTE_DIR"
+    ssh -o LogLevel=ERROR "$REMOTE_HOST" "mkdir -p $REMOTE_DIR"
 
     # Sync files to server (only the package directory)
     info "Syncing files to server..."
-    rsync -avz --delete \
+    rsync -az --delete \
         --exclude='.build' \
         --exclude='.git' \
         --exclude='*.xcodeproj' \
@@ -68,23 +68,23 @@ deploy() {
 
     # Copy Caddy config
     info "Installing Caddy configuration..."
-    ssh "$REMOTE_HOST" "cp $REMOTE_DIR/caddy/claudespy.caddy $CADDY_CONF_D/"
+    ssh -o LogLevel=ERROR "$REMOTE_HOST" "cp $REMOTE_DIR/caddy/claudespy.caddy $CADDY_CONF_D/"
 
     # Build and start the container
     info "Building and starting container..."
-    ssh "$REMOTE_HOST" << REMOTE_SCRIPT
+    ssh -T -o LogLevel=ERROR "$REMOTE_HOST" << REMOTE_SCRIPT 2>&1 | grep -v -E '(^Welcome to|Documentation:|Management:|Support:|System (information|load)|Usage of|Memory usage|Swap usage|Processes:|Users logged|IPv[46] address|Expanded Security|update.*applied|additional updates|additional security|Learn more about|^$|^\s*$|ubuntu\.com|help\.ubuntu)'
         cd $REMOTE_DIR
 
-        # Build the image (using cache for faster builds)
+        # Build the image with filtered output (show progress without compilation spam)
         echo "Building Docker image..."
-        docker compose build
+        docker compose build --progress=plain 2>&1 | grep -E '(^#[0-9]+ \[|CACHED|DONE|ERROR|error:|Build of product|exporting to image|naming to)' | head -50
 
         # Stop existing container if running
         docker compose down 2>/dev/null || true
 
         # Start the new container
         echo "Starting container..."
-        docker compose up -d
+        docker compose up -d 2>&1 | grep -v "^$"
 
         # Reload Caddy to pick up new config
         echo "Reloading Caddy..."
@@ -93,7 +93,7 @@ deploy() {
         # Show container status
         echo ""
         echo "Container status:"
-        docker compose ps
+        docker compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || docker compose ps
 REMOTE_SCRIPT
 
     # Wait for health check
@@ -127,7 +127,7 @@ logs() {
     REMOTE_HOST="root@$SERVER_IP"
 
     info "Fetching logs from $SERVER_IP..."
-    ssh "$REMOTE_HOST" "cd $REMOTE_DIR && docker compose logs -f --tail=100"
+    ssh -o LogLevel=ERROR "$REMOTE_HOST" "cd $REMOTE_DIR && docker compose logs -f --tail=100"
 }
 
 # Stop the server
@@ -136,7 +136,7 @@ stop() {
     REMOTE_HOST="root@$SERVER_IP"
 
     info "Stopping ClaudeSpy relay server..."
-    ssh "$REMOTE_HOST" "cd $REMOTE_DIR && docker compose down"
+    ssh -o LogLevel=ERROR "$REMOTE_HOST" "cd $REMOTE_DIR && docker compose down"
     info "Server stopped."
 }
 
@@ -146,7 +146,7 @@ restart() {
     REMOTE_HOST="root@$SERVER_IP"
 
     info "Restarting ClaudeSpy relay server..."
-    ssh "$REMOTE_HOST" "cd $REMOTE_DIR && docker compose restart"
+    ssh -o LogLevel=ERROR "$REMOTE_HOST" "cd $REMOTE_DIR && docker compose restart"
     info "Server restarted."
 }
 
