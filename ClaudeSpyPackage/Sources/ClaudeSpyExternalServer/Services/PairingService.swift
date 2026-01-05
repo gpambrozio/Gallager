@@ -24,8 +24,12 @@ actor PairingService {
             return .failure("Pairing code already in use")
         }
 
+        // Generate the pairId upfront so Mac and iOS use the same ID
+        let pairId = UUID().uuidString
+
         let pending = PendingPairing(
             code: code,
+            pairId: pairId,
             macDeviceId: deviceId,
             macDeviceName: deviceName,
             createdAt: Date()
@@ -33,7 +37,7 @@ actor PairingService {
 
         pendingCodes[code] = pending
 
-        return .success(pairId: code) // Use code as temporary pairId until pairing completes
+        return .success(pairId: pairId)
     }
 
     /// Complete pairing from iOS
@@ -45,10 +49,9 @@ actor PairingService {
             return .failure("Invalid or expired pairing code")
         }
 
-        // Create the pair
-        let pairId = UUID().uuidString
+        // Create the pair using the pairId from registration
         let pair = Pair(
-            id: pairId,
+            id: pending.pairId,
             macDeviceId: pending.macDeviceId,
             macDeviceName: pending.macDeviceName,
             iosDeviceId: deviceId,
@@ -56,16 +59,21 @@ actor PairingService {
             createdAt: Date()
         )
 
-        activePairs[pairId] = pair
+        activePairs[pending.pairId] = pair
         pendingCodes.removeValue(forKey: code)
 
-        return .success(pairId: pairId, partnerDeviceName: pending.macDeviceName)
+        return .success(pairId: pending.pairId, partnerDeviceName: pending.macDeviceName)
     }
 
     /// Check if a pair ID is valid
     func isValidPair(pairId: String) -> Bool {
-        // Also accept pending codes as valid for initial connection
-        activePairs[pairId] != nil || pendingCodes[pairId] != nil
+        // Check active pairs first
+        if activePairs[pairId] != nil {
+            return true
+        }
+
+        // Also accept pending pairings (Mac registered but iOS hasn't completed yet)
+        return pendingCodes.values.contains { $0.pairId == pairId }
     }
 
     /// Get pair information
@@ -103,6 +111,7 @@ actor PairingService {
 /// A pending pairing waiting for iOS to complete
 struct PendingPairing {
     let code: String
+    let pairId: String
     let macDeviceId: String
     let macDeviceName: String
     let createdAt: Date

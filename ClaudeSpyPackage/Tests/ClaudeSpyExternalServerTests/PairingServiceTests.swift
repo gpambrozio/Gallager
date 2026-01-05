@@ -14,7 +14,8 @@ struct PairingServiceTests {
         )
 
         #expect(result.success)
-        #expect(result.pairId == "ABC123")
+        #expect(result.pairId != nil)
+        // pairId is now a UUID, not the code itself
     }
 
     @Test("Completing pairing with valid code succeeds")
@@ -22,7 +23,7 @@ struct PairingServiceTests {
         let service = PairingService()
 
         // First register the code
-        _ = await service.registerCode(
+        let registerResult = await service.registerCode(
             code: "XYZ789",
             deviceId: "mac-device-id",
             deviceName: "My Mac"
@@ -38,6 +39,8 @@ struct PairingServiceTests {
         #expect(result.success)
         #expect(result.pairId != nil)
         #expect(result.partnerDeviceName == "My Mac")
+        // Critical: both Mac and iOS should get the same pairId
+        #expect(result.pairId == registerResult.pairId)
     }
 
     @Test("Completing pairing with invalid code fails")

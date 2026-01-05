@@ -8,7 +8,7 @@
 | Phase 2: External Server | ✅ **COMPLETE** | Full Vapor relay server with pairing, WebSocket, Docker |
 | Docker & Deployment | ✅ **COMPLETE** | Deployed to Hetzner with Caddy reverse proxy |
 | Phase 3: Mac App Updates | ✅ **COMPLETE** | ExternalServerClient, PairingManager, TmuxCommandExecutor, UI |
-| Phase 4: iOS App | ❌ Not Started | ClaudeSpyFeature is a stub ("Hello, World!") |
+| Phase 4: iOS App | ✅ **COMPLETE** | RelayClient, SessionStore, PairingView, SessionListView, SessionDetailView |
 
 ---
 
@@ -320,36 +320,30 @@ var autoConnectToServer: Bool = true
 
 ---
 
-## Phase 4: iOS App Implementation ❌ NOT STARTED
+## Phase 4: iOS App Implementation ✅ COMPLETE
 
-> **Current State:** `ClaudeSpyFeature` contains only a stub `ContentView.swift` that displays "Hello, World!". The entire iOS implementation remains to be done.
+> **Implementation:** Full iOS app with pairing, session monitoring, and remote command capabilities.
 
-### 4.1 App Structure (TODO)
+### 4.1 App Structure (Implemented)
 
-Use the existing `ClaudeSpyFeature` module (currently a placeholder) for iOS-specific code:
+The `ClaudeSpyFeature` module contains all iOS-specific code:
 
 ```
 Sources/ClaudeSpyFeature/
 ├── Services/
-│   ├── RelayClient.swift         # WebSocket client to external server
-│   └── SessionStore.swift        # Local session state management
+│   ├── RelayClient.swift         # WebSocket client with reconnection, state management
+│   └── SessionStore.swift        # Observable session state, event handling
 ├── Views/
-│   ├── ContentView.swift         # Main view (replace placeholder)
-│   ├── MainView.swift            # Tab-based navigation
-│   ├── Pairing/
-│   │   ├── PairingView.swift     # Enter pairing code
-│   │   └── PairedStatusView.swift
-│   ├── Sessions/
-│   │   ├── SessionListView.swift # List active sessions
-│   │   ├── SessionDetailView.swift
-│   │   └── EventRow.swift
-│   └── Commands/
-│       └── CommandPaletteView.swift
+│   ├── ContentView.swift         # Main app entry point with state management
+│   ├── PairingView.swift         # 6-character code input, pairing flow
+│   ├── SessionListView.swift     # List active Claude sessions
+│   ├── SessionDetailView.swift   # Event history, command buttons
+│   └── EventRowView.swift        # Individual hook event display
 └── Models/
-    └── IOSSettings.swift         # Persisted settings
+    └── IOSSettings.swift         # UserDefaults-backed settings
 ```
 
-The iOS app entry point lives in `ClaudeSpy/` target (currently unused), which will import `ClaudeSpyFeature`.
+The iOS app entry point lives in `ClaudeSpy/ClaudeSpyApp.swift`, which imports `ClaudeSpyFeature`.
 
 ### 4.2 Core Views
 
@@ -459,14 +453,16 @@ final class SessionStore {
 - [x] Implement TmuxCommandExecutor (keystroke, cancel commands)
 - [x] Test Mac ↔ Server communication (builds and passes tests)
 
-### Week 4: iOS App ❌ NOT STARTED
-- [ ] Implement RelayClient in `ClaudeSpyFeature`
-- [ ] Implement SessionStore in `ClaudeSpyFeature`
-- [ ] Replace placeholder ContentView with real implementation
-- [ ] Create PairingView
-- [ ] Create SessionListView and SessionDetailView
-- [ ] Update `ClaudeSpy` iOS target to use ClaudeSpyFeature
-- [ ] Test full end-to-end flow
+### Week 4: iOS App ✅ COMPLETE
+- [x] Implement RelayClient in `ClaudeSpyFeature`
+- [x] Implement SessionStore in `ClaudeSpyFeature`
+- [x] Replace placeholder ContentView with real implementation
+- [x] Create PairingView
+- [x] Create SessionListView and SessionDetailView
+- [x] Create EventRowView for hook event display
+- [x] Create IOSSettings for UserDefaults persistence
+- [x] Platform conditionals for iOS/macOS compatibility
+- [ ] Test full end-to-end flow (requires device testing)
 
 ### Week 5: Docker & Deployment ✅ COMPLETE
 - [x] Create Dockerfile (multi-stage, non-root user)
@@ -540,4 +536,4 @@ final class SessionStore {
 
 ---
 
-*This plan was generated with a heavy sigh. The universe tends toward entropy, and software tends toward complexity. At least this complexity serves a purpose—unlike most things. Update: At least some progress has been made. The server works. The iOS app... exists, in the most charitable interpretation of that word.*
+*This plan was generated with a heavy sigh. The universe tends toward entropy, and software tends toward complexity. At least this complexity serves a purpose—unlike most things. Update: Against all odds, the entire distributed system is now implemented. The Mac app, external server, and iOS app all exist and compile. Whether they work together harmoniously remains to be seen through end-to-end testing. But for now, there is... hope? No, that's too strong. Let's call it cautious pessimism.*

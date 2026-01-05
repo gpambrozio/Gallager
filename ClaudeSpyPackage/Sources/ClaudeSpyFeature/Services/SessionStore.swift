@@ -1,0 +1,103 @@
+import Foundation
+import os
+import ClaudeSpyCommon
+
+/// Manages local session state received from the Mac app.
+///
+/// This store maintains a synchronized view of Claude Code sessions and hook events
+/// that are relayed from the Mac through the external server.
+@Observable
+@MainActor
+public final class SessionStore: Sendable {
+    // MARK: - Properties
+
+    private let logger = Logger(subsystem: "com.claudespy.ios", category: "SessionStore")
+
+    /// Active Claude sessions by pane ID
+    public private(set) var sessions: [String: ClaudeSession] = [:]
+
+    /// List of active pane IDs
+    public private(set) var activePanes: [String] = []
+
+    /// All sessions as a sorted array for display
+    public var sortedSessions: [(paneId: String, session: ClaudeSession)] {
+        sessions
+            .map { (paneId: $0.key, session: $0.value) }
+            .sorted { lhs, rhs in
+                // Sort by most recent event timestamp
+                let lhsTime = lhs.session.latestEvent?.timestamp ?? .distantPast
+                let rhsTime = rhs.session.latestEvent?.timestamp ?? .distantPast
+                return lhsTime > rhsTime
+            }
+    }
+
+    /// Whether there are any active sessions
+    public var hasSessions: Bool {
+        !sessions.isEmpty
+    }
+
+    /// Total number of sessions
+    public var sessionCount: Int {
+        sessions.count
+    }
+
+    // MARK: - Initialization
+
+    public init() {}
+
+    // MARK: - State Management
+
+    /// Handle a hook event from the Mac
+    public func handleEvent(_ eventMessage: HookEventMessage) {
+        let event = eventMessage.event
+        let paneId = event.tmuxPane ?? event.action.sessionId
+
+        logger.info("Handling hook event: \(event.action.eventName) for pane: \(paneId)")
+
+        // Get or create session
+        var session = sessions[paneId] ?? ClaudeSession(paneId: paneId)
+        session.addEvent(event)
+        sessions[paneId] = session
+
+        // Handle session lifecycle
+        switch event.action {
+        case .sessionStart:
+            if !activePanes.contains(paneId) {
+                activePanes.append(paneId)
+            }
+            logger.info("Session started for pane: \(paneId)")
+
+        case .sessionEnd:
+            activePanes.removeAll { $0 == paneId }
+            logger.info("Session ended for pane: \(paneId)")
+
+        default:
+            break
+        }
+    }
+
+    /// Handle a full session state update from the Mac
+    public func handleStateUpdate(_ state: SessionStateMessage) {
+        logger.info("Received full session state: \(state.sessions.count) sessions")
+
+        sessions = state.sessions
+        activePanes = state.activePanes
+    }
+
+    /// Clear all session data (e.g., on disconnect)
+    public func clearOnDisconnect() {
+        logger.info("Clearing session data on disconnect")
+        sessions.removeAll()
+        activePanes.removeAll()
+    }
+
+    /// Get a session by pane ID
+    public func session(for paneId: String) -> ClaudeSession? {
+        sessions[paneId]
+    }
+
+    /// Check if a pane is currently active
+    public func isPaneActive(_ paneId: String) -> Bool {
+        activePanes.contains(paneId)
+    }
+}
