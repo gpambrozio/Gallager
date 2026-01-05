@@ -7,7 +7,7 @@
 | Phase 1: Shared Models | ✅ **COMPLETE** | Implemented as `ClaudeSpyNetworking` module (not ClaudeSpyCommon) |
 | Phase 2: External Server | ✅ **COMPLETE** | Full Vapor relay server with pairing, WebSocket, Docker |
 | Docker & Deployment | ✅ **COMPLETE** | Deployed to Hetzner with Caddy reverse proxy |
-| Phase 3: Mac App Updates | ❌ Not Started | Needs ExternalServerClient, PairingManager, UI |
+| Phase 3: Mac App Updates | ✅ **COMPLETE** | ExternalServerClient, PairingManager, TmuxCommandExecutor, UI |
 | Phase 4: iOS App | ❌ Not Started | ClaudeSpyFeature is a stub ("Hello, World!") |
 
 ---
@@ -232,11 +232,11 @@ The external server is deployed to **Hetzner** with:
 
 ---
 
-## Phase 3: Mac App Updates ❌ NOT STARTED
+## Phase 3: Mac App Updates ✅ COMPLETE
 
-> **Next Steps:** This phase integrates the Mac app with the external server. The `ClaudeSpyServerFeature` module needs new networking components to connect to the relay server.
+> **Implementation:** All components have been implemented in `ClaudeSpyServerFeature`.
 
-### 3.1 New Components (TODO)
+### 3.1 New Components (Implemented)
 
 **ExternalServerClient.swift**
 ```swift
@@ -451,13 +451,13 @@ final class SessionStore {
 - [x] Add HTTP pairing endpoints
 - [x] Write unit tests for services (`PairingServiceTests.swift`)
 
-### Week 3: Mac App Integration ❌ NOT STARTED
-- [ ] Implement ExternalServerClient
-- [ ] Implement PairingManager
-- [ ] Add RemoteAccessSettingsView
-- [ ] Integrate with HookServerService to forward events
-- [ ] Implement TmuxCommandExecutor
-- [ ] Test Mac ↔ Server communication
+### Week 3: Mac App Integration ✅ COMPLETE
+- [x] Implement ExternalServerClient (WebSocket client with reconnection)
+- [x] Implement PairingManager (code generation, registration, polling)
+- [x] Add RemoteAccessSettingsView (pairing UI, connection status)
+- [x] Integrate with HookServerService to forward events
+- [x] Implement TmuxCommandExecutor (keystroke, cancel commands)
+- [x] Test Mac ↔ Server communication (builds and passes tests)
 
 ### Week 4: iOS App ❌ NOT STARTED
 - [ ] Implement RelayClient in `ClaudeSpyFeature`
