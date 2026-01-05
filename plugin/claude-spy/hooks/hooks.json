@@ -75,7 +75,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run \"/Users/gustavoambrozio/.claude/hooks/hook.py\""
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -85,7 +85,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run \"/Users/gustavoambrozio/.claude/hooks/hook.py\""
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -95,7 +95,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run \"/Users/gustavoambrozio/.claude/hooks/hook.py\""
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
