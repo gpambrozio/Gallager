@@ -1,27 +1,37 @@
 # Project Overview
 
-**ClaudeSpy** (Tmux Pane Mirror) is a native **macOS application** that displays real-time mirrors of tmux panes in native windows. Built with **Swift 6.1+** and **SwiftUI**, targeting **macOS 15.0+**. All concurrency is handled with **Swift Concurrency** (async/await, actors, @MainActor isolation).
+**ClaudeSpy** is a **distributed system** for monitoring Claude Code sessions across devices. It consists of three components:
+1. **Mac App** - Displays real-time mirrors of tmux panes, receives Claude Code hooks, forwards events to external server
+2. **External Server** - Vapor-based relay server handling device pairing and WebSocket communication (runs in Docker)
+3. **iOS App** - Remote session monitoring with command capabilities
 
-## What This App Does
+Built with **Swift 6.1+** and **SwiftUI**, targeting **macOS 15.0+** and **iOS 17.0+**. All concurrency is handled with **Swift Concurrency** (async/await, actors, @MainActor isolation).
 
-Instead of attaching to a tmux session directly in the terminal, users can open dedicated windows that show live, read-only views of any tmux pane with full terminal rendering (colors, escape sequences, cursor positioning) via [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm).
+## What This System Does
+
+The Mac app displays live, read-only views of any tmux pane with full terminal rendering (colors, escape sequences, cursor positioning) via [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm). Events are relayed to paired iOS devices for remote monitoring.
 
 **Primary Use Cases:**
 - Monitor long-running processes without leaving your editor
 - Display build output or logs on secondary monitors
 - Observe remote session activity without attaching
 - Create dashboards from multiple tmux panes at once
+- **Monitor Claude Code sessions remotely from iOS**
+- **Send commands to tmux panes from your iPhone**
 
 ## Technology Stack
 
 - **Swift 6.1+** with strict concurrency
 - **SwiftUI** for UI (MV pattern, no ViewModels)
-- **AppKit** for window management (NSWindow, NSHostingController)
-- **SwiftTerm** for terminal emulation (renders ANSI escape codes)
+- **AppKit** for window management (NSWindow, NSHostingController) - macOS
+- **SwiftTerm** for terminal emulation (renders ANSI escape codes) - macOS
 - **Swift Concurrency** (async/await, actors, tasks)
 - **Named pipes (FIFOs)** for streaming output from tmux
 - **CoreText** for precise font metrics calculation
-- **Vapor** for HTTP hook server (receives Claude Code events)
+- **Vapor** for HTTP hook server and external relay server
+- **WebSocket** for real-time Mac ↔ Server ↔ iOS communication
+- **Docker** for external server deployment
+- **Caddy** for reverse proxy and TLS termination (production)
 - **Testing:** Swift Testing framework with @Test macros
 
 ## Project Structure
@@ -35,31 +45,98 @@ ClaudeSpy/
 │   └── Tests.xcconfig
 ├── ClaudeSpy.xcworkspace/               # Workspace container
 ├── ClaudeSpy.xcodeproj/                 # App shell (minimal wrapper)
-├── ClaudeSpy/                           # iOS target (unused currently)
+├── ClaudeSpy/                           # iOS app target entry point
+│   └── ClaudeSpyApp.swift               # iOS @main entry point
 ├── ClaudeSpyServer/                     # macOS app target entry point
-│   ├── ClaudeSpyServerApp.swift         # @main entry point
+│   ├── ClaudeSpyServerApp.swift         # macOS @main entry point
 │   └── Assets.xcassets/
 ├── ClaudeSpyPackage/                    # All features and business logic
 │   ├── Package.swift
 │   ├── Sources/
 │   │   ├── ClaudeSpyCommon/             # Shared UI utilities (Symbols, extensions)
-│   │   ├── ClaudeSpyFeature/            # Generic features (less used)
-│   │   └── ClaudeSpyServerFeature/      # Main tmux mirroring implementation
-│   │       ├── Hooks/                   # Claude Code hook server (Vapor)
-│   │       └── Utilities/               # FontMetrics, ProcessRunner, FIFOReader
+│   │   ├── ClaudeSpyNetworking/         # Platform-agnostic networking models (Mac/Server/iOS)
+│   │   │   └── Models/
+│   │   │       ├── WebSocketMessage.swift
+│   │   │       ├── PairingModels.swift
+│   │   │       ├── CommandModels.swift
+│   │   │       ├── HookModels.swift
+│   │   │       └── RelayMessages.swift
+│   │   ├── ClaudeSpyFeature/            # iOS app feature module
+│   │   │   ├── Services/                # RelayClient, SessionStore
+│   │   │   ├── Views/                   # PairingView, SessionListView, etc.
+│   │   │   └── Models/                  # IOSSettings
+│   │   ├── ClaudeSpyServerFeature/      # macOS app feature module
+│   │   │   ├── Hooks/                   # HookServerService (Vapor)
+│   │   │   ├── Services/                # ExternalServerClient, PairingManager
+│   │   │   ├── Managers/                # MirrorWindowManager
+│   │   │   └── Utilities/               # FontMetrics, ProcessRunner, FIFOReader
+│   │   └── ClaudeSpyExternalServer/     # External relay server (Linux-ready)
+│   │       ├── main.swift               # Vapor entry point
+│   │       ├── Routes/                  # PairingController, WebSocketController
+│   │       └── Services/                # PairingService, ConnectionHub, RelayService
 │   └── Tests/
 ├── ClaudeSpyServerTests/                # Unit tests
 ├── ClaudeSpyServerUITests/              # UI automation tests
+├── Dockerfile                           # Multi-stage build for external server
+├── docker-compose.yml                   # Production orchestration
+├── deploy.sh                            # Deployment script (Hetzner)
 ├── plugin/                              # Claude Code plugin configuration
 │   └── claude-spy/
 │       ├── hooks/hooks.json             # Hook event definitions
 │       └── scripts/hook.py              # Hook handler script
 └── docs/                                # Documentation
     ├── known-issues.md
-    └── swiftterm-sizing.md              # SwiftTerm sizing analysis
+    ├── swiftterm-sizing.md              # SwiftTerm sizing analysis
+    └── distributed-architecture-plan.md # Full distributed system design
 ```
 
-**Important:** All development work should be done in **ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/**. The app target is merely a thin wrapper.
+**Module Responsibilities:**
+- **ClaudeSpyNetworking** - Shared message types for Mac ↔ Server ↔ iOS (platform-agnostic)
+- **ClaudeSpyServerFeature** - macOS tmux mirroring, hook server, external server client
+- **ClaudeSpyFeature** - iOS remote monitoring and command interface
+- **ClaudeSpyExternalServer** - Vapor relay server (runs in Docker on Linux)
+
+**Important:** Development by platform:
+- **macOS features**: `ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/`
+- **iOS features**: `ClaudeSpyPackage/Sources/ClaudeSpyFeature/`
+- **Shared networking**: `ClaudeSpyPackage/Sources/ClaudeSpyNetworking/`
+- **External server**: `ClaudeSpyPackage/Sources/ClaudeSpyExternalServer/`
+
+## Distributed Architecture
+
+### Data Flows
+
+**Event Flow (Mac → iOS):**
+1. Claude Code sends hook event to Mac app (HTTP POST localhost:6111)
+2. Mac app processes event locally and updates UI
+3. Mac app forwards event to external server via WebSocket
+4. External server relays to connected iOS client
+5. iOS app displays event in session monitor
+
+**Command Flow (iOS → Mac):**
+1. User initiates command in iOS app (e.g., send keystroke)
+2. iOS sends command via WebSocket to external server
+3. External server relays command to Mac
+4. Mac app executes command on appropriate tmux pane
+
+### Device Pairing
+
+Devices are paired using a 6-character code (no user accounts required):
+1. Mac app generates code and registers with external server
+2. User enters code in iOS app
+3. Server validates and creates pair record
+4. WebSocket connections established for both devices
+5. Code expires after 5 minutes or successful pairing
+
+### Deployment
+
+The external server runs in Docker on Hetzner with Caddy for TLS:
+- `deploy.sh` - Builds and deploys to production
+- Health endpoint at `/health`
+- WebSocket endpoint at `/api/ws`
+- Pairing endpoints at `/api/pairing/*`
+
+See `docs/distributed-architecture-plan.md` for full technical details.
 
 # Code Quality & Style Guidelines
 
@@ -237,6 +314,44 @@ TmuxService.startPipePipe() ──▶ FIFOReader ──▶ AsyncStream<Data>
 - `Stop` - Handles Claude Code stop events
 
 **Integration:** The Claude Code plugin (`plugin/claude-spy/`) sends HTTP POST requests to the hook server when events occur. See `hooks/hooks.json` for event configuration.
+
+### ExternalServerClient (`Services/ExternalServerClient.swift`) - macOS
+`@Observable @MainActor` class managing WebSocket connection to the external relay server.
+
+**Responsibilities:**
+- Connect/disconnect to external server with pairId
+- Send `WebSocketMessage` to server for relay to iOS
+- Handle incoming messages (commands from iOS, connection state)
+- Track iOS connection status
+
+### PairingManager (`Services/PairingManager.swift`) - macOS
+`@Observable @MainActor` class managing device pairing lifecycle.
+
+**States:** `unpaired` → `generatingCode` → `waitingForPairing` → `paired`
+
+**Responsibilities:**
+- Generate 6-character pairing codes
+- Register codes with external server
+- Poll for pairing completion
+- Persist pairing info to UserDefaults
+
+### RelayClient (`Services/RelayClient.swift`) - iOS
+`@Observable @MainActor` class managing WebSocket connection from iOS to server.
+
+**Responsibilities:**
+- Connect to server after pairing
+- Receive session state and hook events from Mac
+- Send commands (keystroke, cancel) to Mac
+- Auto-reconnection with exponential backoff
+
+### SessionStore (`Services/SessionStore.swift`) - iOS
+`@Observable @MainActor` class tracking Claude sessions received from Mac.
+
+**Responsibilities:**
+- Store active sessions by pane ID
+- Handle incoming hook events
+- Update session state on full sync
+- Clear state on disconnect
 
 ## Utilities
 
@@ -552,30 +667,54 @@ Use the `XcodeBuildTools` skills for building and testing. The scheme is `Claude
 ## Build Commands
 
 ```bash
-# Build for macOS (via skill)
+# Build macOS app (via skill)
 /XcodeBuildTools:xcodebuild build --workspace ClaudeSpy.xcworkspace --scheme ClaudeSpyServer
+
+# Build iOS app (via skill)
+/XcodeBuildTools:xcodebuild build --workspace ClaudeSpy.xcworkspace --scheme ClaudeSpy --destination 'platform=iOS Simulator,name=iPhone 16'
 
 # Run tests
 /XcodeBuildTools:xcode-test --workspace ClaudeSpy.xcworkspace --scheme ClaudeSpyServer
 
 # Test Swift Package directly
 /XcodeBuildTools:swift-package test --path ClaudeSpyPackage
+
+# Build external server (Docker)
+docker build -t claudespy-server .
+
+# Deploy external server to production
+./deploy.sh
 ```
 
-## Running the App
+## Running the Apps
 
-After building, the macOS app can be launched:
 ```bash
+# Launch macOS app
 /XcodeBuildTools:macos-app launch --app-path /path/to/ClaudeSpyServer.app
+
+# Run external server locally
+docker-compose up
+
+# Or run directly with Swift
+swift run --package-path ClaudeSpyPackage ClaudeSpyExternalServer
 ```
 
 # Development Workflow
 
-1. **Make changes in the Package**: All feature development happens in `ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/`
+1. **Choose the right module**:
+   - macOS features → `ClaudeSpyServerFeature`
+   - iOS features → `ClaudeSpyFeature`
+   - Shared networking → `ClaudeSpyNetworking`
+   - External server → `ClaudeSpyExternalServer`
 2. **Write tests**: Add Swift Testing tests in `ClaudeSpyPackage/Tests/`
 3. **Build and test**: Use XcodeBuildTools skills to build and run tests
-4. **Run the app**: Build and launch to test against live tmux sessions
-5. **Check known issues**: See `docs/known-issues.md` for documented edge cases
+4. **Test locally**:
+   - macOS app: Build and launch to test against live tmux sessions
+   - iOS app: Run in simulator, pair with Mac app
+   - External server: Run with `docker-compose up` or `swift run`
+5. **Deploy server changes**: Use `./deploy.sh` to push to production
+6. **Check known issues**: See `docs/known-issues.md` for documented edge cases
+7. **Architecture reference**: See `docs/distributed-architecture-plan.md` for system design
 
 # Best Practices
 
@@ -622,4 +761,9 @@ This app uses **UserDefaults** for settings persistence via the `AppSettings` cl
 
 ---
 
-Remember: This is a macOS utility app. Keep the app shell minimal and implement all features in the Swift Package. The complexity lies in process management, I/O streaming, and terminal rendering - not in data persistence.
+Remember: This is a distributed system across three platforms. Keep app shells minimal and implement all features in the Swift Package modules. The complexity lies in:
+- **macOS**: Process management, I/O streaming, terminal rendering
+- **External Server**: WebSocket relay, device pairing, connection tracking
+- **iOS**: Remote monitoring, command dispatch, state synchronization
+
+For full architectural details, see `docs/distributed-architecture-plan.md`.
