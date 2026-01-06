@@ -9,16 +9,20 @@ public struct SettingsView: View {
     public init() {}
 
     public var body: some View {
-        TabView {
+        @Bindable var settings = settings
+
+        TabView(selection: $settings.selectedSettingsTab) {
             GeneralSettingsView()
                 .tabItem {
                     Label("General", symbol: .gearshape)
                 }
+                .tag(SettingsTab.general)
 
             RemoteAccessSettingsView()
                 .tabItem {
                     Label("Remote Access", symbol: .iphone)
                 }
+                .tag(SettingsTab.remoteAccess)
         }
         .frame(minWidth: 500, minHeight: 400)
     }

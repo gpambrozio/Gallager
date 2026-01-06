@@ -1,10 +1,21 @@
 import Foundation
 import SwiftUI
 
+/// Settings tab for programmatic navigation
+public enum SettingsTab: String, Sendable {
+    case general
+    case remoteAccess
+}
+
 /// Application settings with persistent storage
 @Observable
 @MainActor
 public final class AppSettings: Sendable {
+    // MARK: - UI State (transient, not persisted)
+
+    /// Currently selected settings tab (for programmatic navigation)
+    public var selectedSettingsTab: SettingsTab = .general
+
     // MARK: - Terminal Settings
 
     /// Font name for terminal display
