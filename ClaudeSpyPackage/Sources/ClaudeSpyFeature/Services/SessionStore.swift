@@ -69,6 +69,7 @@ public final class SessionStore: Sendable {
 
         case .sessionEnd:
             activePanes.removeAll { $0 == paneId }
+            sessions.removeValue(forKey: paneId)
             logger.info("Session ended for pane: \(paneId)")
 
         default:

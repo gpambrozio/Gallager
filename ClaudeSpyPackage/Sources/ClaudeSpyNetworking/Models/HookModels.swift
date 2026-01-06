@@ -188,7 +188,7 @@ public struct SessionEndBody: HookBodyProtocol {
     public let hookEventName: String
     public let timestamp: String?
     public let reason: String?
-    public var shouldSendToServer: Bool { false }
+    public var shouldSendToServer: Bool { true }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
