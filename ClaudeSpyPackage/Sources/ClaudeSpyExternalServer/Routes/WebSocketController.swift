@@ -4,7 +4,8 @@ import Vapor
 /// Handles WebSocket connections for real-time communication
 struct WebSocketController: RouteCollection {
     func boot(routes: RoutesBuilder) throws {
-        routes.webSocket("ws", onUpgrade: handleWebSocketUpgrade)
+        // Configure WebSocket with larger frame size (1MB) to handle terminal snapshots
+        routes.webSocket("ws", maxFrameSize: .init(integerLiteral: 1 << 20), onUpgrade: handleWebSocketUpgrade)
     }
 
     /// Handle WebSocket upgrade

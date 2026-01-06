@@ -55,6 +55,11 @@ actor RelayService {
             logger.info("Relaying session state to iOS", metadata: ["sessions": "\(state.sessions.count)", "panes": "\(state.activePanes.count)"])
             await connectionHub.send(.sessionState(state), to: pairId, deviceType: .ios)
 
+        case let .terminalSnapshot(snapshot):
+            // Relay terminal snapshot to iOS
+            logger.info("Relaying terminal snapshot to iOS", metadata: ["paneId": "\(snapshot.paneId)", "size": "\(snapshot.contentBase64.count)"])
+            await connectionHub.send(.terminalSnapshot(snapshot), to: pairId, deviceType: .ios)
+
         case .ping:
             await connectionHub.send(.pong, to: pairId, deviceType: .mac)
 

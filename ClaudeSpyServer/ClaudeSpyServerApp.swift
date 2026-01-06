@@ -1,5 +1,6 @@
 import ClaudeSpyCommon
 import ClaudeSpyServerFeature
+import Logging
 import SwiftUI
 
 @main
@@ -132,13 +133,23 @@ struct TmuxPaneMirrorApp: App {
         commandExecutor = executor
 
         // Set up command handler - called when iOS sends a command
-        externalServerClient.setCommandHandler { [executor] command in
-            await executor.execute(command)
+        // Capture tmuxService and externalServerClient for snapshot handling
+        let service = tmuxService
+        let serverClient = externalServerClient
+        externalServerClient.setCommandHandler { [executor, service, serverClient] command in
+            // Handle snapshot commands specially - requires MainActor for tmuxService access
+            if command.type == .captureSnapshot {
+                // handleSnapshotCommand is @MainActor, so this call will hop to main actor
+                return await handleSnapshotCommand(command, tmuxService: service, serverClient: serverClient)
+            }
+            // Regular commands execute on the actor executor (background)
+            return await executor.execute(command)
         }
 
         // Session state handler needs to be set up after windowManager is created
         // It will be set up in createWindowManager instead
     }
+
 
     private func setupSessionStateHandler(manager: MirrorWindowManager) {
         externalServerClient.setSessionStateHandler { [settings, weak manager] in
@@ -172,6 +183,82 @@ struct TmuxPaneMirrorApp: App {
             deviceId: settings.deviceId,
             deviceName: Host.current().localizedName ?? "Mac"
         )
+    }
+}
+
+// MARK: - Snapshot Command Handler
+
+/// Handles snapshot capture commands from iOS devices.
+///
+/// Snapshot commands are handled specially because:
+/// 1. The captured terminal content is large and sent via a separate message
+/// 2. The command response is sent immediately for acknowledgment
+/// 3. The actual snapshot data follows asynchronously
+@MainActor
+private func handleSnapshotCommand(
+    _ command: CommandMessage,
+    tmuxService: TmuxService,
+    serverClient: ExternalServerClient
+) async -> CommandResponseMessage {
+    let logger = Logger(label: "com.claudespy.snapshot")
+    logger.info("handleSnapshotCommand started", metadata: ["paneId": "\(command.paneId)"])
+
+    do {
+        // Get pane dimensions first
+        let (width, height) = try await tmuxService.getPaneDimensions(command.paneId)
+
+        // Extract scrollback multiplier from command payload (default 3)
+        let scrollbackMultiplier: Int
+        if let multiplierValue = command.payload["scrollbackMultiplier"],
+           case let .int(value) = multiplierValue.value {
+            scrollbackMultiplier = value
+        } else {
+            scrollbackMultiplier = 3
+        }
+
+        let (rawContent, totalLines) = try await tmuxService.capturePaneWithScrollback(
+            command.paneId,
+            scrollbackMultiplier: scrollbackMultiplier
+        )
+
+        // Add cursor positioning to each line (like capturePaneWithPositioning)
+        let contentString = String(data: rawContent, encoding: .utf8) ?? ""
+        let lines = contentString.split(separator: "\n", omittingEmptySubsequences: false)
+
+        var positionedContent = "\u{1b}[H"  // Cursor home
+        for (index, line) in lines.enumerated() {
+            positionedContent += "\u{1b}[\(index + 1);1H"  // Move to row, col 1
+            positionedContent += "\u{1b}[2K"  // Clear line
+            positionedContent += line
+        }
+
+        let content = positionedContent.data(using: .utf8) ?? Data()
+
+        logger.info("Pane captured with scrollback", metadata: [
+            "width": "\(width)",
+            "height": "\(height)",
+            "totalLines": "\(totalLines)",
+            "contentBytes": "\(content.count)"
+        ])
+
+        // Create and send the snapshot
+        let snapshot = TerminalSnapshotMessage(
+            commandId: command.id,
+            paneId: command.paneId,
+            width: width,
+            height: height,
+            totalLines: totalLines,
+            content: content
+        )
+
+        logger.debug("Sending snapshot via WebSocket")
+        await serverClient.sendTerminalSnapshot(snapshot)
+        logger.info("Snapshot sent successfully")
+
+        return .success(for: command.id)
+    } catch {
+        logger.error("Snapshot capture failed: \(error.localizedDescription)")
+        return .failure(for: command.id, error: error.localizedDescription)
     }
 }
 

@@ -45,6 +45,10 @@ public actor TmuxCommandExecutor {
                 // Resume mirror is handled at a higher level (MirrorWindowManager)
                 // Just acknowledge it here
                 logger.info("Resume mirror command received")
+
+            case .captureSnapshot:
+                // Snapshot is handled specially - returns success here, data sent separately
+                logger.info("Capture snapshot command received (will be handled by caller)")
             }
 
             logger.info("Command executed successfully", metadata: ["commandId": "\(command.id)"])

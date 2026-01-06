@@ -84,7 +84,7 @@ public final class ExternalServerClient: Sendable {
     // MARK: - Callbacks
 
     /// Called when a command is received from iOS
-    private var onCommand: (@Sendable (CommandMessage) async -> CommandResponseMessage)?
+    private var onCommand: (@MainActor @Sendable (CommandMessage) async -> CommandResponseMessage)?
 
     /// Called when session state is requested by iOS
     private var onSessionStateRequest: (@Sendable () async -> SessionStateMessage)?
@@ -180,6 +180,24 @@ public final class ExternalServerClient: Sendable {
         let message = WebSocketMessage.sessionState(
             SessionStateMessage(pairId: pairId, sessions: sessions, activePanes: activePanes)
         )
+        await send(message)
+    }
+
+    /// Send a terminal snapshot to iOS
+    public func sendTerminalSnapshot(_ snapshot: TerminalSnapshotMessage) async {
+        guard state.isConnected else {
+            logger.debug("Not connected, cannot send terminal snapshot")
+            return
+        }
+
+        let contentSize = snapshot.contentBase64.count
+        logger.info("Sending terminal snapshot", metadata: [
+            "paneId": "\(snapshot.paneId)",
+            "dimensions": "\(snapshot.width)x\(snapshot.totalLines)",
+            "contentSize": "\(contentSize) bytes"
+        ])
+
+        let message = WebSocketMessage.terminalSnapshot(snapshot)
         await send(message)
     }
 
@@ -377,9 +395,17 @@ public final class ExternalServerClient: Sendable {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(message)
+            logger.debug("Sending WebSocket message", metadata: [
+                "type": "\(message.messageType)",
+                "size": "\(data.count) bytes"
+            ])
             try await task.send(.data(data))
+            logger.debug("WebSocket message sent successfully")
         } catch {
-            logger.error("Failed to send WebSocket message: \(error)")
+            logger.error("Failed to send WebSocket message", metadata: [
+                "type": "\(message.messageType)",
+                "error": "\(error)"
+            ])
         }
     }
 

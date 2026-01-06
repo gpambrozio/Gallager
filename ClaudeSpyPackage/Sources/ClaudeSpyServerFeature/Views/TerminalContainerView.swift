@@ -1,4 +1,5 @@
 import AppKit
+import ClaudeSpyCommon
 import SwiftTerm
 import SwiftUI
 

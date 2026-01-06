@@ -2,6 +2,24 @@ import Foundation
 import os
 import ClaudeSpyCommon
 
+/// Errors that can occur during relay communication
+public enum RelayClientError: Error, LocalizedError {
+    case notConnected
+    case timeout
+    case commandFailed(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .notConnected:
+            return "Not connected to relay server"
+        case .timeout:
+            return "Request timed out"
+        case .commandFailed(let message):
+            return "Command failed: \(message)"
+        }
+    }
+}
+
 /// Client for connecting to the external relay server via WebSocket.
 ///
 /// Handles bidirectional communication between the iOS app and the relay server,
@@ -81,6 +99,14 @@ public final class RelayClient: Sendable {
     /// Task for ping/pong keep-alive
     private var pingTask: Task<Void, Never>?
 
+    // MARK: - Pending Commands
+
+    /// Pending command continuations keyed by command ID
+    private var pendingCommands: [UUID: CheckedContinuation<Result<CommandResponseMessage, Error>, Never>] = [:]
+
+    /// Pending snapshot continuations keyed by command ID
+    private var pendingSnapshots: [UUID: CheckedContinuation<Result<TerminalSnapshotMessage, Error>, Never>] = [:]
+
     // MARK: - Callbacks
 
     /// Called when a hook event is received from Mac
@@ -91,6 +117,9 @@ public final class RelayClient: Sendable {
 
     /// Called when a command response is received from Mac
     public var onCommandResponse: (@Sendable (CommandResponseMessage) -> Void)?
+
+    /// Called when a terminal snapshot is received from Mac
+    public var onTerminalSnapshot: (@Sendable (TerminalSnapshotMessage) -> Void)?
 
     /// Called when Mac connection status changes
     public var onMacConnectionChange: (@Sendable (Bool) -> Void)?
@@ -137,7 +166,7 @@ public final class RelayClient: Sendable {
 
     // MARK: - Sending Messages
 
-    /// Send a command to be relayed to Mac
+    /// Send a command to be relayed to Mac (fire-and-forget)
     public func sendCommand(_ command: CommandMessage) async {
         guard state.isConnected else {
             logger.debug("Not connected, cannot send command")
@@ -146,6 +175,70 @@ public final class RelayClient: Sendable {
 
         let message = WebSocketMessage.command(command)
         await send(message)
+    }
+
+    /// Send a command and wait for response (with Result-based completion)
+    /// - Parameters:
+    ///   - command: The command to send
+    ///   - timeout: Maximum time to wait for response (default: 10 seconds)
+    /// - Returns: Result containing CommandResponseMessage or Error
+    public func sendCommandWithResponse(
+        _ command: CommandMessage,
+        timeout: TimeInterval = 10
+    ) async -> Result<CommandResponseMessage, Error> {
+        guard state.isConnected else {
+            return .failure(RelayClientError.notConnected)
+        }
+
+        return await withCheckedContinuation { continuation in
+            // Store continuation for this command ID
+            pendingCommands[command.id] = continuation
+
+            // Send the command
+            Task {
+                await send(.command(command))
+            }
+
+            // Set up timeout
+            Task {
+                try? await Task.sleep(for: .seconds(timeout))
+                if let pendingContinuation = pendingCommands.removeValue(forKey: command.id) {
+                    pendingContinuation.resume(returning: .failure(RelayClientError.timeout))
+                }
+            }
+        }
+    }
+
+    /// Send a snapshot command and wait for the snapshot data
+    /// - Parameters:
+    ///   - command: The capture snapshot command
+    ///   - timeout: Maximum time to wait for snapshot (default: 15 seconds)
+    /// - Returns: Result containing TerminalSnapshotMessage or Error
+    public func sendSnapshotCommand(
+        _ command: CommandMessage,
+        timeout: TimeInterval = 15
+    ) async -> Result<TerminalSnapshotMessage, Error> {
+        guard state.isConnected else {
+            return .failure(RelayClientError.notConnected)
+        }
+
+        return await withCheckedContinuation { continuation in
+            // Store continuation for this command ID
+            pendingSnapshots[command.id] = continuation
+
+            // Send the command
+            Task {
+                await send(.command(command))
+            }
+
+            // Set up timeout
+            Task {
+                try? await Task.sleep(for: .seconds(timeout))
+                if let pendingContinuation = pendingSnapshots.removeValue(forKey: command.id) {
+                    pendingContinuation.resume(returning: .failure(RelayClientError.timeout))
+                }
+            }
+        }
     }
 
     /// Request current session state from Mac
@@ -296,7 +389,25 @@ public final class RelayClient: Sendable {
 
         case let .commandResponse(response):
             logger.info("Received command response from Mac")
+            // Resume any pending continuation for this command
+            if let continuation = pendingCommands.removeValue(forKey: response.commandId) {
+                if response.success {
+                    continuation.resume(returning: .success(response))
+                } else {
+                    continuation.resume(returning: .failure(RelayClientError.commandFailed(response.error ?? "Unknown error")))
+                }
+            }
+            // Also call the legacy callback if set
             onCommandResponse?(response)
+
+        case let .terminalSnapshot(snapshot):
+            logger.info("Received terminal snapshot from Mac")
+            // Resume any pending continuation for this snapshot
+            if let continuation = pendingSnapshots.removeValue(forKey: snapshot.commandId) {
+                continuation.resume(returning: .success(snapshot))
+            }
+            // Also call the legacy callback if set
+            onTerminalSnapshot?(snapshot)
 
         case .macConnected:
             logger.info("Mac device connected")
@@ -393,5 +504,16 @@ public final class RelayClient: Sendable {
 
         urlSession?.invalidateAndCancel()
         urlSession = nil
+
+        // Fail all pending commands with not connected error
+        for (_, continuation) in pendingCommands {
+            continuation.resume(returning: .failure(RelayClientError.notConnected))
+        }
+        pendingCommands.removeAll()
+
+        for (_, continuation) in pendingSnapshots {
+            continuation.resume(returning: .failure(RelayClientError.notConnected))
+        }
+        pendingSnapshots.removeAll()
     }
 }

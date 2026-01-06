@@ -16,6 +16,9 @@ public enum WebSocketMessage: Codable, Sendable {
     /// Mac responds to a command from iOS
     case commandResponse(CommandResponseMessage)
 
+    /// Mac sends a terminal snapshot response
+    case terminalSnapshot(TerminalSnapshotMessage)
+
     /// Mac sends complete session state (on iOS connect or request)
     case sessionState(SessionStateMessage)
 
@@ -108,6 +111,7 @@ extension WebSocketMessage {
         case registerMac
         case hookEvent
         case commandResponse
+        case terminalSnapshot
         case sessionState
         case macRegistered
         case command
@@ -137,6 +141,9 @@ extension WebSocketMessage {
         case .commandResponse:
             let payload = try container.decode(CommandResponseMessage.self, forKey: .payload)
             self = .commandResponse(payload)
+        case .terminalSnapshot:
+            let payload = try container.decode(TerminalSnapshotMessage.self, forKey: .payload)
+            self = .terminalSnapshot(payload)
         case .sessionState:
             let payload = try container.decode(SessionStateMessage.self, forKey: .payload)
             self = .sessionState(payload)
@@ -185,6 +192,9 @@ extension WebSocketMessage {
         case let .commandResponse(payload):
             try container.encode(MessageType.commandResponse, forKey: .type)
             try container.encode(payload, forKey: .payload)
+        case let .terminalSnapshot(payload):
+            try container.encode(MessageType.terminalSnapshot, forKey: .type)
+            try container.encode(payload, forKey: .payload)
         case let .sessionState(payload):
             try container.encode(MessageType.sessionState, forKey: .type)
             try container.encode(payload, forKey: .payload)
@@ -223,22 +233,23 @@ extension WebSocketMessage {
     /// Human-readable message type for logging
     public var messageType: String {
         switch self {
-        case .registerMac: "registerMac"
-        case .hookEvent: "hookEvent"
-        case .commandResponse: "commandResponse"
-        case .sessionState: "sessionState"
-        case .macRegistered: "macRegistered"
-        case .command: "command"
-        case .iosConnected: "iosConnected"
-        case .iosDisconnected: "iosDisconnected"
-        case .registerIOS: "registerIOS"
-        case .requestSessionState: "requestSessionState"
-        case .iosRegistered: "iosRegistered"
-        case .macConnected: "macConnected"
-        case .macDisconnected: "macDisconnected"
-        case .ping: "ping"
-        case .pong: "pong"
-        case .error: "error"
+        case .registerMac: MessageType.registerMac.rawValue
+        case .hookEvent: MessageType.hookEvent.rawValue
+        case .commandResponse: MessageType.commandResponse.rawValue
+        case .terminalSnapshot: MessageType.terminalSnapshot.rawValue
+        case .sessionState: MessageType.sessionState.rawValue
+        case .macRegistered: MessageType.macRegistered.rawValue
+        case .command: MessageType.command.rawValue
+        case .iosConnected: MessageType.iosConnected.rawValue
+        case .iosDisconnected: MessageType.iosDisconnected.rawValue
+        case .registerIOS: MessageType.registerIOS.rawValue
+        case .requestSessionState: MessageType.requestSessionState.rawValue
+        case .iosRegistered: MessageType.iosRegistered.rawValue
+        case .macConnected: MessageType.macConnected.rawValue
+        case .macDisconnected: MessageType.macDisconnected.rawValue
+        case .ping: MessageType.ping.rawValue
+        case .pong: MessageType.pong.rawValue
+        case .error: MessageType.error.rawValue
         }
     }
 }
