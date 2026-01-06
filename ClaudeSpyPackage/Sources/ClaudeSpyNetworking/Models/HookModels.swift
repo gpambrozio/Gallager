@@ -185,7 +185,7 @@ public struct PermissionRequestBody: HookBodyProtocol {
     public let hookEventName: String
     public let permissionMode: String?
     public let toolName: String?
-    public let toolInput: AnyCodable?
+    public let toolInput: ClaudeCodeTool?
     public let permissionSuggestions: [PermissionSuggestion]?
     public let timestamp: String?
 
@@ -199,6 +199,27 @@ public struct PermissionRequestBody: HookBodyProtocol {
         case toolInput = "tool_input"
         case permissionSuggestions = "permission_suggestions"
         case timestamp
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sessionId = try container.decode(String.self, forKey: .sessionId)
+        transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
+        cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
+        hookEventName = try container.decode(String.self, forKey: .hookEventName)
+        permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
+        toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
+        permissionSuggestions = try container.decodeIfPresent([PermissionSuggestion].self, forKey: .permissionSuggestions)
+        timestamp = try container.decodeIfPresent(String.self, forKey: .timestamp)
+
+        if container.contains(.toolInput) {
+            toolInput = try ClaudeCodeTool.decode(
+                from: container.superDecoder(forKey: .toolInput),
+                toolName: toolName
+            )
+        } else {
+            toolInput = nil
+        }
     }
 }
 
