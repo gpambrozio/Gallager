@@ -76,6 +76,7 @@ let package = Package(
             name: "ClaudeSpyFeature",
             dependencies: [
                 .claudeSpyCommon,
+                .swiftTerm,
             ]
         ),
         .target(

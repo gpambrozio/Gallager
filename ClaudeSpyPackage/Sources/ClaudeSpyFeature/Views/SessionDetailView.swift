@@ -1,5 +1,6 @@
-import SwiftUI
 import ClaudeSpyCommon
+import ClaudeSpyNetworking
+import SwiftUI
 
 /// Detailed view of a single Claude session with event history and command controls.
 struct SessionDetailView: View {
@@ -8,12 +9,29 @@ struct SessionDetailView: View {
 
     @Environment(RelayClient.self) private var relayClient
     @Environment(SessionStore.self) private var sessionStore
+    @Environment(IOSSettings.self) private var settings
 
     @State private var showingCancelConfirmation = false
     @State private var lastCommandResult: CommandResult?
+    @State private var isLoadingSnapshot = false
+    @State private var terminalSnapshot: TerminalSnapshotMessage?
+    @State private var snapshotError: String?
 
     var body: some View {
         List {
+            // Terminal section
+            Section {
+                viewTerminalButton
+            } header: {
+                Text("Terminal")
+            } footer: {
+                if let error = snapshotError {
+                    Text(error)
+                        .foregroundStyle(.red)
+                        .font(.caption)
+                }
+            }
+
             // Command section
             Section {
                 commandButtons
@@ -77,6 +95,37 @@ struct SessionDetailView: View {
         } message: {
             Text("This will send Ctrl+C to interrupt the current Claude Code operation.")
         }
+        #if os(iOS)
+        .navigationDestination(item: $terminalSnapshot) { snapshot in
+            TerminalSnapshotView(snapshot: snapshot)
+        }
+        #endif
+    }
+
+    // MARK: - View Terminal Button
+
+    private var viewTerminalButton: some View {
+        Button {
+            Task {
+                await requestTerminalSnapshot()
+            }
+        } label: {
+            HStack {
+                if isLoadingSnapshot {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Symbols.terminal.image
+                }
+                Text("View Terminal")
+                Spacer()
+                if !isLoadingSnapshot {
+                    Symbols.arrowRight.image
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .disabled(!relayClient.isMacConnected || isLoadingSnapshot)
     }
 
     // MARK: - Command Buttons
@@ -153,6 +202,43 @@ struct SessionDetailView: View {
 
     // MARK: - Actions
 
+    private func requestTerminalSnapshot() async {
+        isLoadingSnapshot = true
+        snapshotError = nil
+
+        let command = CommandMessage.captureSnapshot(paneId: paneId)
+
+        relayClient.onTerminalSnapshot = { [command] snapshot in
+            if snapshot.commandId == command.id {
+                Task { @MainActor [self] in
+                    relayClient.onTerminalSnapshot = nil
+                    isLoadingSnapshot = false
+                    terminalSnapshot = snapshot
+                }
+            }
+        }
+
+        relayClient.onCommandResponse = { [command] response in
+            if response.commandId == command.id, !response.success {
+                Task { @MainActor [self] in
+                    relayClient.onTerminalSnapshot = nil
+                    isLoadingSnapshot = false
+                    snapshotError = response.error ?? "Failed to capture snapshot"
+                }
+            }
+        }
+
+        await relayClient.sendCommand(command)
+
+        // Timeout after 10 seconds if still loading
+        try? await Task.sleep(for: .seconds(10))
+        if isLoadingSnapshot {
+            relayClient.onTerminalSnapshot = nil
+            isLoadingSnapshot = false
+            snapshotError = "Request timed out"
+        }
+    }
+
     private func sendCancelCommand() async {
         let command = CommandMessage.cancel(paneId: paneId)
         await sendCommand(command)
@@ -208,4 +294,5 @@ private struct CommandResult {
     }
     .environment(RelayClient())
     .environment(SessionStore())
+    .environment(IOSSettings.shared)
 }

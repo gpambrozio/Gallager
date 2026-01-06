@@ -92,6 +92,9 @@ public final class RelayClient: Sendable {
     /// Called when a command response is received from Mac
     public var onCommandResponse: (@Sendable (CommandResponseMessage) -> Void)?
 
+    /// Called when a terminal snapshot is received from Mac
+    public var onTerminalSnapshot: (@Sendable (TerminalSnapshotMessage) -> Void)?
+
     /// Called when Mac connection status changes
     public var onMacConnectionChange: (@Sendable (Bool) -> Void)?
 
@@ -297,6 +300,10 @@ public final class RelayClient: Sendable {
         case let .commandResponse(response):
             logger.info("Received command response from Mac")
             onCommandResponse?(response)
+
+        case let .terminalSnapshot(snapshot):
+            logger.info("Received terminal snapshot from Mac")
+            onTerminalSnapshot?(snapshot)
 
         case .macConnected:
             logger.info("Mac device connected")

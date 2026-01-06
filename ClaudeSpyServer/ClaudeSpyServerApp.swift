@@ -132,13 +132,21 @@ struct TmuxPaneMirrorApp: App {
         commandExecutor = executor
 
         // Set up command handler - called when iOS sends a command
-        externalServerClient.setCommandHandler { [executor] command in
-            await executor.execute(command)
+        // Capture tmuxService and externalServerClient for snapshot handling
+        let service = tmuxService
+        let serverClient = externalServerClient
+        externalServerClient.setCommandHandler { [executor, service, serverClient] command in
+            // Handle snapshot commands specially
+            if command.type == .captureSnapshot {
+                return await handleSnapshotCommand(command, tmuxService: service, serverClient: serverClient)
+            }
+            return await executor.execute(command)
         }
 
         // Session state handler needs to be set up after windowManager is created
         // It will be set up in createWindowManager instead
     }
+
 
     private func setupSessionStateHandler(manager: MirrorWindowManager) {
         externalServerClient.setSessionStateHandler { [settings, weak manager] in
@@ -172,6 +180,54 @@ struct TmuxPaneMirrorApp: App {
             deviceId: settings.deviceId,
             deviceName: Host.current().localizedName ?? "Mac"
         )
+    }
+}
+
+// MARK: - Snapshot Command Handler
+
+/// Handles snapshot capture commands from iOS devices.
+///
+/// Snapshot commands are handled specially because:
+/// 1. The captured terminal content is large and sent via a separate message
+/// 2. The command response is sent immediately for acknowledgment
+/// 3. The actual snapshot data follows asynchronously
+@MainActor
+private func handleSnapshotCommand(
+    _ command: CommandMessage,
+    tmuxService: TmuxService,
+    serverClient: ExternalServerClient
+) async -> CommandResponseMessage {
+    // Get scrollback multiplier from payload (default: 3)
+    let scrollbackMultiplier: Int
+    if let value = command.payload["scrollbackMultiplier"],
+       case let .int(multiplier) = value.value {
+        scrollbackMultiplier = multiplier
+    } else {
+        scrollbackMultiplier = 3
+    }
+
+    do {
+        // Capture the pane with scrollback
+        let (content, width, height, totalLines) = try await tmuxService.capturePaneWithScrollback(
+            command.paneId,
+            scrollbackMultiplier: scrollbackMultiplier
+        )
+
+        // Create and send the snapshot
+        let snapshot = TerminalSnapshotMessage(
+            commandId: command.id,
+            paneId: command.paneId,
+            width: width,
+            height: height,
+            totalLines: totalLines,
+            content: content
+        )
+
+        await serverClient.sendTerminalSnapshot(snapshot)
+
+        return .success(for: command.id)
+    } catch {
+        return .failure(for: command.id, error: error.localizedDescription)
     }
 }
 

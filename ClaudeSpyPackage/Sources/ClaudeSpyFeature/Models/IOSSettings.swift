@@ -17,6 +17,8 @@ public final class IOSSettings: Sendable {
         static let pairedMacName = "pairedMacName"
         static let externalServerURL = "externalServerURL"
         static let autoReconnect = "autoReconnect"
+        static let terminalFontName = "terminalFontName"
+        static let terminalFontSize = "terminalFontSize"
     }
 
     // MARK: - Singleton
@@ -48,6 +50,16 @@ public final class IOSSettings: Sendable {
     /// Whether to automatically reconnect on app launch
     public var autoReconnect: Bool {
         didSet { UserDefaults.standard.set(autoReconnect, forKey: Keys.autoReconnect) }
+    }
+
+    /// Font name for terminal snapshot display
+    public var terminalFontName: String {
+        didSet { UserDefaults.standard.set(terminalFontName, forKey: Keys.terminalFontName) }
+    }
+
+    /// Font size for terminal snapshot display
+    public var terminalFontSize: Double {
+        didSet { UserDefaults.standard.set(terminalFontSize, forKey: Keys.terminalFontSize) }
     }
 
     // MARK: - Computed Properties
@@ -86,6 +98,10 @@ public final class IOSSettings: Sendable {
         externalServerURL = defaults.string(forKey: Keys.externalServerURL)
             ?? "wss://claudespy.gustavo.eng.br"
         autoReconnect = defaults.bool(forKey: Keys.autoReconnect)
+
+        // Terminal settings with iOS-appropriate defaults
+        terminalFontName = defaults.string(forKey: Keys.terminalFontName) ?? "Menlo"
+        terminalFontSize = defaults.object(forKey: Keys.terminalFontSize) as? Double ?? 10.0
     }
 
     // MARK: - Methods

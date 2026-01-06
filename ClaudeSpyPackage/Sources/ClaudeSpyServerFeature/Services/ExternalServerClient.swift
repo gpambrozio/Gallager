@@ -183,6 +183,17 @@ public final class ExternalServerClient: Sendable {
         await send(message)
     }
 
+    /// Send a terminal snapshot to iOS
+    public func sendTerminalSnapshot(_ snapshot: TerminalSnapshotMessage) async {
+        guard state.isConnected else {
+            logger.debug("Not connected, cannot send terminal snapshot")
+            return
+        }
+
+        let message = WebSocketMessage.terminalSnapshot(snapshot)
+        await send(message)
+    }
+
     // MARK: - Private Methods
 
     private func performConnect() async {

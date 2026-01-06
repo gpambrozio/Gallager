@@ -12,6 +12,8 @@ public enum CommandType: String, Codable, Sendable {
     case pauseMirror
     /// Resume mirror streaming
     case resumeMirror
+    /// Capture a terminal snapshot with scrollback
+    case captureSnapshot
 }
 
 // MARK: - Command Message
@@ -54,6 +56,18 @@ public struct CommandMessage: Codable, Sendable, Identifiable {
             type: .cancelOperation
         )
     }
+
+    /// Create a capture snapshot command
+    /// - Parameters:
+    ///   - paneId: The pane ID to capture
+    ///   - scrollbackMultiplier: How many times the visible height to capture as scrollback (default: 3)
+    public static func captureSnapshot(paneId: String, scrollbackMultiplier: Int = 3) -> CommandMessage {
+        CommandMessage(
+            paneId: paneId,
+            type: .captureSnapshot,
+            payload: ["scrollbackMultiplier": AnyCodable(scrollbackMultiplier)]
+        )
+    }
 }
 
 // MARK: - Command Response
@@ -76,5 +90,50 @@ public struct CommandResponseMessage: Codable, Sendable {
 
     public static func failure(for commandId: UUID, error: String) -> CommandResponseMessage {
         CommandResponseMessage(commandId: commandId, success: false, error: error)
+    }
+}
+
+// MARK: - Terminal Snapshot
+
+/// Response containing a terminal snapshot with content and dimensions
+public struct TerminalSnapshotMessage: Codable, Sendable, Identifiable, Hashable {
+    public var id: UUID { commandId }
+    /// The command ID this snapshot responds to
+    public let commandId: UUID
+
+    /// The pane ID that was captured
+    public let paneId: String
+
+    /// Terminal width in character columns
+    public let width: Int
+
+    /// Terminal height in character rows (visible area)
+    public let height: Int
+
+    /// Total number of lines including scrollback
+    public let totalLines: Int
+
+    /// The captured content as Base64-encoded data (raw bytes with ANSI escape sequences)
+    public let contentBase64: String
+
+    public init(
+        commandId: UUID,
+        paneId: String,
+        width: Int,
+        height: Int,
+        totalLines: Int,
+        content: Data
+    ) {
+        self.commandId = commandId
+        self.paneId = paneId
+        self.width = width
+        self.height = height
+        self.totalLines = totalLines
+        self.contentBase64 = content.base64EncodedString()
+    }
+
+    /// Decodes the content from Base64
+    public var content: Data? {
+        Data(base64Encoded: contentBase64)
     }
 }
