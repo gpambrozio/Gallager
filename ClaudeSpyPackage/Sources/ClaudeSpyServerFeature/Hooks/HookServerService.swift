@@ -138,8 +138,7 @@ public actor HookServerService {
         } catch {
             logger.error("Failed to parse hook body: \(error)")
             // Still accept the request but log the error
-            // Return approved to not block Claude
-            return try await HookResponse.approved.encodeResponse(for: req)
+            return emptyResponse()
         }
 
         // Create the event and notify caller
@@ -158,7 +157,10 @@ public actor HookServerService {
             "sessionId": "\(hookAction.sessionId)",
         ])
 
-        // For now, always approve - we're just collecting data
-        return try await HookResponse.approved.encodeResponse(for: req)
+        return emptyResponse()
+    }
+
+    private func emptyResponse() -> Response {
+        Response(status: .ok, body: .init(string: ""))
     }
 }
