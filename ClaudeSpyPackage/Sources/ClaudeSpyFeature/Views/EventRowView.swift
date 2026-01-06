@@ -1,5 +1,6 @@
-import SwiftUI
 import ClaudeSpyCommon
+import ClaudeSpyNetworking
+import SwiftUI
 
 /// A row view for displaying a single hook event.
 struct EventRowView: View {
@@ -114,15 +115,15 @@ struct EventRowView: View {
         }
     }
 
-    private func toolInputDescription(_ input: ToolInput?) -> String? {
+    private func toolInputDescription(_ input: ClaudeCodeTool?) -> String? {
         guard let input else { return nil }
 
         switch input {
-        case let .bash(bashInput):
-            return bashInput.command.truncated(to: 80)
-        case let .askUserQuestion(questionInput):
-            return questionInput.questions.first?.question.truncated(to: 80)
-        case .other:
+        case let .bash(params):
+            return params.command.truncated(to: 80)
+        case let .askUserQuestion(params):
+            return params.questions.first?.question.truncated(to: 80)
+        default:
             return nil
         }
     }

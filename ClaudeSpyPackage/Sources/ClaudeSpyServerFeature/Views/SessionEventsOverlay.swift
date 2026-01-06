@@ -1,4 +1,5 @@
 import ClaudeSpyCommon
+import ClaudeSpyNetworking
 import SwiftUI
 
 /// Overlay displaying recent Claude session events in the top-right corner
@@ -131,20 +132,20 @@ private struct EventRow: View {
         }
     }
 
-    private func toolInputSummary(_ input: ToolInput?) -> String? {
+    private func toolInputSummary(_ input: ClaudeCodeTool?) -> String? {
         guard let input else { return nil }
 
         switch input {
-        case let .bash(bashInput):
+        case let .bash(params):
             // Show first 50 chars of command
-            let command = bashInput.command
+            let command = params.command
             if command.count > 50 {
                 return String(command.prefix(47)) + "..."
             }
             return command
-        case let .askUserQuestion(questionInput):
-            return questionInput.questions.first?.question
-        case .other:
+        case let .askUserQuestion(params):
+            return params.questions.first?.question
+        default:
             return nil
         }
     }

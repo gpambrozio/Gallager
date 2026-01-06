@@ -127,7 +127,7 @@ public struct PreToolUseBody: HookBodyProtocol {
     public let hookEventName: String
     public let timestamp: String?
     public let toolName: String?
-    public let toolInput: ToolInput?
+    public let toolInput: ClaudeCodeTool?
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -150,7 +150,7 @@ public struct PreToolUseBody: HookBodyProtocol {
 
         // Decode tool_input based on tool_name
         if container.contains(.toolInput) {
-            toolInput = try ToolInput.decode(
+            toolInput = try ClaudeCodeTool.decode(
                 from: container.superDecoder(forKey: .toolInput),
                 toolName: toolName
             )
@@ -339,95 +339,6 @@ public enum HookAction: Codable, Sendable {
             return .permissionRequest(body)
         default:
             return .unknown(common)
-        }
-    }
-}
-
-// MARK: - Tool Input Types
-
-/// Input for the Bash tool
-public struct BashToolInput: Codable, Sendable, Equatable {
-    public let command: String
-    public let description: String?
-    public let timeout: Int?
-    public let runInBackground: Bool?
-    public let dangerouslyDisableSandbox: Bool?
-
-    enum CodingKeys: String, CodingKey {
-        case command
-        case description
-        case timeout
-        case runInBackground = "run_in_background"
-        case dangerouslyDisableSandbox
-    }
-}
-
-/// Option for an AskUserQuestion question
-public struct QuestionOption: Codable, Sendable, Equatable {
-    public let label: String
-    public let description: String?
-}
-
-/// A question in the AskUserQuestion tool
-public struct Question: Codable, Sendable, Equatable {
-    public let question: String
-    public let header: String
-    public let options: [QuestionOption]
-    public let multiSelect: Bool
-}
-
-/// Input for the AskUserQuestion tool
-public struct AskUserQuestionToolInput: Codable, Sendable, Equatable {
-    public let questions: [Question]
-    public let answers: [String: String]?
-}
-
-/// Strongly-typed tool input that varies based on tool_name
-public enum ToolInput: Sendable, Equatable {
-    case bash(BashToolInput)
-    case askUserQuestion(AskUserQuestionToolInput)
-    case other([String: AnyCodable])
-}
-
-extension ToolInput: Codable {
-    public init(from decoder: Decoder) throws {
-        // This will be called with context from PreToolUseBody
-        // Default to decoding as generic dictionary
-        let container = try decoder.singleValueContainer()
-        let dictionary = try container.decode([String: AnyCodable].self)
-        self = .other(dictionary)
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch self {
-        case let .bash(input):
-            try container.encode(input)
-        case let .askUserQuestion(input):
-            try container.encode(input)
-        case let .other(dictionary):
-            try container.encode(dictionary)
-        }
-    }
-
-    /// Decode tool input based on tool name
-    public static func decode(from decoder: Decoder, toolName: String?) throws -> ToolInput? {
-        let container = try decoder.singleValueContainer()
-
-        guard !container.decodeNil() else {
-            return nil
-        }
-
-        switch toolName {
-        case "Bash":
-            let input = try container.decode(BashToolInput.self)
-            return .bash(input)
-        case "AskUserQuestion":
-            let input = try container.decode(AskUserQuestionToolInput.self)
-            return .askUserQuestion(input)
-        default:
-            let dictionary = try container.decode([String: AnyCodable].self)
-            return .other(dictionary)
         }
     }
 }
