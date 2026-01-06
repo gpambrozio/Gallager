@@ -190,6 +190,13 @@ public final class ExternalServerClient: Sendable {
             return
         }
 
+        let contentSize = snapshot.contentBase64.count
+        logger.info("Sending terminal snapshot", metadata: [
+            "paneId": "\(snapshot.paneId)",
+            "dimensions": "\(snapshot.width)x\(snapshot.totalLines)",
+            "contentSize": "\(contentSize) bytes"
+        ])
+
         let message = WebSocketMessage.terminalSnapshot(snapshot)
         await send(message)
     }
@@ -391,9 +398,17 @@ public final class ExternalServerClient: Sendable {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(message)
+            logger.debug("Sending WebSocket message", metadata: [
+                "type": "\(message.messageType)",
+                "size": "\(data.count) bytes"
+            ])
             try await task.send(.data(data))
+            logger.debug("WebSocket message sent successfully")
         } catch {
-            logger.error("Failed to send WebSocket message: \(error)")
+            logger.error("Failed to send WebSocket message", metadata: [
+                "type": "\(message.messageType)",
+                "error": "\(error)"
+            ])
         }
     }
 
