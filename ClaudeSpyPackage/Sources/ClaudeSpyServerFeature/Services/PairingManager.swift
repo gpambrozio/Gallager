@@ -228,7 +228,7 @@ public final class PairingManager: Sendable {
             // Poll every 2 seconds until paired or timeout
             while !Task.isCancelled {
                 // Check if code has expired
-                if case let .waitingForPairing(_, expiresAt) = await self.state {
+                if case let .waitingForPairing(_, expiresAt) = self.state {
                     if Date() > expiresAt {
                         await MainActor.run {
                             self.state = .error("Pairing code expired")
