@@ -90,12 +90,24 @@ private struct EventRow: View {
             case .sessionEnd:
                 Symbols.stopFill.image
                     .foregroundStyle(.red)
-            case .preToolUse:
+            case .preToolUse, .postToolUse:
                 Symbols.wrenchAndScrewdriver.image
                     .foregroundStyle(.blue)
             case .permissionRequest:
                 Symbols.lockFill.image
                     .foregroundStyle(.orange)
+            case .notification:
+                Symbols.bellFill.image
+                    .foregroundStyle(.purple)
+            case .userPromptSubmit:
+                Symbols.textBubbleFill.image
+                    .foregroundStyle(.cyan)
+            case .stop, .subagentStop:
+                Symbols.stopCircleFill.image
+                    .foregroundStyle(.red)
+            case .preCompact:
+                Symbols.arrowDownRightAndArrowUpLeft.image
+                    .foregroundStyle(.indigo)
             case .unknown:
                 Symbols.questionmark.image
                     .foregroundStyle(.secondary)
@@ -112,8 +124,20 @@ private struct EventRow: View {
             return "Session Ended"
         case let .preToolUse(body):
             return body.toolName ?? "Tool Use"
+        case let .postToolUse(body):
+            return "Done: \(body.toolName ?? "Tool")"
         case .permissionRequest:
             return "Permission Request"
+        case let .notification(body):
+            return body.notificationType ?? "Notification"
+        case .userPromptSubmit:
+            return "Prompt Submitted"
+        case .stop:
+            return "Agent Stopped"
+        case .subagentStop:
+            return "Subagent Stopped"
+        case let .preCompact(body):
+            return "Compacting (\(body.trigger ?? "unknown"))"
         case let .unknown(body):
             return body.hookEventName
         }

@@ -53,10 +53,18 @@ struct EventRowView: View {
             "play.fill"
         case .sessionEnd:
             "stop.fill"
-        case .preToolUse:
+        case .preToolUse, .postToolUse:
             "wrench.and.screwdriver"
         case .permissionRequest:
             "lock.fill"
+        case .notification:
+            "bell.fill"
+        case .userPromptSubmit:
+            "text.bubble.fill"
+        case .stop, .subagentStop:
+            "stop.circle.fill"
+        case .preCompact:
+            "arrow.down.right.and.arrow.up.left"
         case .unknown:
             "questionmark"
         }
@@ -68,10 +76,18 @@ struct EventRowView: View {
             .green
         case .sessionEnd:
             .red
-        case .preToolUse:
+        case .preToolUse, .postToolUse:
             .blue
         case .permissionRequest:
             .orange
+        case .notification:
+            .purple
+        case .userPromptSubmit:
+            .cyan
+        case .stop, .subagentStop:
+            .red
+        case .preCompact:
+            .indigo
         case .unknown:
             .gray
         }
@@ -89,8 +105,20 @@ struct EventRowView: View {
             "Session Ended"
         case let .preToolUse(body):
             "Tool: \(body.toolName ?? "Unknown")"
+        case let .postToolUse(body):
+            "Completed: \(body.toolName ?? "Unknown")"
         case let .permissionRequest(body):
             "Permission: \(body.toolName ?? "Unknown")"
+        case let .notification(body):
+            "Notification: \(body.notificationType ?? "Unknown")"
+        case .userPromptSubmit:
+            "Prompt Submitted"
+        case .stop:
+            "Agent Stopped"
+        case .subagentStop:
+            "Subagent Stopped"
+        case let .preCompact(body):
+            "Compacting (\(body.trigger ?? "unknown"))"
         case let .unknown(body):
             body.hookEventName
         }
@@ -107,8 +135,23 @@ struct EventRowView: View {
         case let .preToolUse(body):
             toolInputDescription(body.toolInput)
 
+        case let .postToolUse(body):
+            toolInputDescription(body.toolInput)
+
         case let .permissionRequest(body):
             body.permissionMode.map { "Mode: \($0)" }
+
+        case let .notification(body):
+            body.message?.truncated(to: 80)
+
+        case let .userPromptSubmit(body):
+            body.prompt?.truncated(to: 80)
+
+        case .stop, .subagentStop:
+            nil
+
+        case let .preCompact(body):
+            body.customInstructions?.truncated(to: 80)
 
         case .unknown:
             nil

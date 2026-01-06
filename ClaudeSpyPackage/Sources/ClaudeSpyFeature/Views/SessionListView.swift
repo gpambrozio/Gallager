@@ -161,8 +161,20 @@ struct SessionRowView: View {
             return "Session ended"
         case let .preToolUse(body):
             return "Using \(body.toolName ?? "tool")"
+        case let .postToolUse(body):
+            return "Completed \(body.toolName ?? "tool")"
         case let .permissionRequest(body):
             return "Permission: \(body.toolName ?? "unknown")"
+        case let .notification(body):
+            return "Notification: \(body.notificationType ?? "unknown")"
+        case .userPromptSubmit:
+            return "Prompt submitted"
+        case .stop:
+            return "Agent stopped"
+        case .subagentStop:
+            return "Subagent stopped"
+        case let .preCompact(body):
+            return "Compacting (\(body.trigger ?? "unknown"))"
         case let .unknown(body):
             return body.hookEventName
         }

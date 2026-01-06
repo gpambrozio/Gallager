@@ -187,7 +187,7 @@ public struct SessionEndBody: HookBodyProtocol {
     public let cwd: String?
     public let hookEventName: String
     public let timestamp: String?
-    public let stopHookActive: Bool?
+    public let reason: String?
     public var shouldSendToServer: Bool { false }
 
     enum CodingKeys: String, CodingKey {
@@ -196,7 +196,7 @@ public struct SessionEndBody: HookBodyProtocol {
         case cwd
         case hookEventName = "hook_event_name"
         case timestamp
-        case stopHookActive = "stop_hook_active"
+        case reason
     }
 }
 
@@ -246,6 +246,151 @@ public struct PermissionRequestBody: HookBodyProtocol {
     }
 }
 
+public struct PostToolUseBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public let toolName: String?
+    public let toolInput: ClaudeCodeTool?
+    public let toolResponse: AnyCodable?
+    public let toolUseId: String?
+    public var shouldSendToServer: Bool { true }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+        case toolName = "tool_name"
+        case toolInput = "tool_input"
+        case toolResponse = "tool_response"
+        case toolUseId = "tool_use_id"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sessionId = try container.decode(String.self, forKey: .sessionId)
+        transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
+        cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
+        hookEventName = try container.decode(String.self, forKey: .hookEventName)
+        timestamp = try container.decodeIfPresent(String.self, forKey: .timestamp)
+        toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
+        toolUseId = try container.decodeIfPresent(String.self, forKey: .toolUseId)
+        toolResponse = try container.decodeIfPresent(AnyCodable.self, forKey: .toolResponse)
+
+        if container.contains(.toolInput) {
+            toolInput = try ClaudeCodeTool.decode(
+                from: container.superDecoder(forKey: .toolInput),
+                toolName: toolName
+            )
+        } else {
+            toolInput = nil
+        }
+    }
+}
+
+public struct NotificationBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public let message: String?
+    public let notificationType: String?
+    public var shouldSendToServer: Bool { true }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+        case message
+        case notificationType = "notification_type"
+    }
+}
+
+public struct UserPromptSubmitBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public let prompt: String?
+    public var shouldSendToServer: Bool { true }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+        case prompt
+    }
+}
+
+public struct StopBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public let stopHookActive: Bool?
+    public var shouldSendToServer: Bool { false }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+        case stopHookActive = "stop_hook_active"
+    }
+}
+
+public struct SubagentStopBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public let stopHookActive: Bool?
+    public var shouldSendToServer: Bool { false }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+        case stopHookActive = "stop_hook_active"
+    }
+}
+
+public struct PreCompactBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public let trigger: String?
+    public let customInstructions: String?
+    public var shouldSendToServer: Bool { false }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+        case trigger
+        case customInstructions = "custom_instructions"
+    }
+}
+
 // MARK: - Permission Suggestion Types
 
 public struct PermissionSuggestion: Codable, Sendable {
@@ -270,8 +415,14 @@ public struct PermissionRule: Codable, Sendable {
 public enum HookAction: Codable, Sendable {
     case sessionStart(SessionStartBody)
     case preToolUse(PreToolUseBody)
+    case postToolUse(PostToolUseBody)
     case sessionEnd(SessionEndBody)
     case permissionRequest(PermissionRequestBody)
+    case notification(NotificationBody)
+    case userPromptSubmit(UserPromptSubmitBody)
+    case stop(StopBody)
+    case subagentStop(SubagentStopBody)
+    case preCompact(PreCompactBody)
     case unknown(CommonHookFields)
 
     private enum CodingKeys: String, CodingKey {
@@ -282,8 +433,14 @@ public enum HookAction: Codable, Sendable {
     private enum ActionType: String, Codable {
         case sessionStart
         case preToolUse
+        case postToolUse
         case sessionEnd
         case permissionRequest
+        case notification
+        case userPromptSubmit
+        case stop
+        case subagentStop
+        case preCompact
         case unknown
     }
 
@@ -298,12 +455,30 @@ public enum HookAction: Codable, Sendable {
         case .preToolUse:
             let body = try container.decode(PreToolUseBody.self, forKey: .body)
             self = .preToolUse(body)
+        case .postToolUse:
+            let body = try container.decode(PostToolUseBody.self, forKey: .body)
+            self = .postToolUse(body)
         case .sessionEnd:
             let body = try container.decode(SessionEndBody.self, forKey: .body)
             self = .sessionEnd(body)
         case .permissionRequest:
             let body = try container.decode(PermissionRequestBody.self, forKey: .body)
             self = .permissionRequest(body)
+        case .notification:
+            let body = try container.decode(NotificationBody.self, forKey: .body)
+            self = .notification(body)
+        case .userPromptSubmit:
+            let body = try container.decode(UserPromptSubmitBody.self, forKey: .body)
+            self = .userPromptSubmit(body)
+        case .stop:
+            let body = try container.decode(StopBody.self, forKey: .body)
+            self = .stop(body)
+        case .subagentStop:
+            let body = try container.decode(SubagentStopBody.self, forKey: .body)
+            self = .subagentStop(body)
+        case .preCompact:
+            let body = try container.decode(PreCompactBody.self, forKey: .body)
+            self = .preCompact(body)
         case .unknown:
             let body = try container.decode(CommonHookFields.self, forKey: .body)
             self = .unknown(body)
@@ -320,11 +495,29 @@ public enum HookAction: Codable, Sendable {
         case let .preToolUse(body):
             try container.encode(ActionType.preToolUse, forKey: .type)
             try container.encode(body, forKey: .body)
+        case let .postToolUse(body):
+            try container.encode(ActionType.postToolUse, forKey: .type)
+            try container.encode(body, forKey: .body)
         case let .sessionEnd(body):
             try container.encode(ActionType.sessionEnd, forKey: .type)
             try container.encode(body, forKey: .body)
         case let .permissionRequest(body):
             try container.encode(ActionType.permissionRequest, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .notification(body):
+            try container.encode(ActionType.notification, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .userPromptSubmit(body):
+            try container.encode(ActionType.userPromptSubmit, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .stop(body):
+            try container.encode(ActionType.stop, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .subagentStop(body):
+            try container.encode(ActionType.subagentStop, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .preCompact(body):
+            try container.encode(ActionType.preCompact, forKey: .type)
             try container.encode(body, forKey: .body)
         case let .unknown(body):
             try container.encode(ActionType.unknown, forKey: .type)
@@ -337,8 +530,14 @@ public enum HookAction: Codable, Sendable {
         switch self {
         case let .sessionStart(body): body
         case let .preToolUse(body): body
+        case let .postToolUse(body): body
         case let .sessionEnd(body): body
         case let .permissionRequest(body): body
+        case let .notification(body): body
+        case let .userPromptSubmit(body): body
+        case let .stop(body): body
+        case let .subagentStop(body): body
+        case let .preCompact(body): body
         case let .unknown(body): body
         }
     }
@@ -375,12 +574,30 @@ public enum HookAction: Codable, Sendable {
         case "PreToolUse":
             let body = try decoder.decode(PreToolUseBody.self, from: jsonData)
             return .preToolUse(body)
+        case "PostToolUse":
+            let body = try decoder.decode(PostToolUseBody.self, from: jsonData)
+            return .postToolUse(body)
         case "SessionEnd":
             let body = try decoder.decode(SessionEndBody.self, from: jsonData)
             return .sessionEnd(body)
         case "PermissionRequest":
             let body = try decoder.decode(PermissionRequestBody.self, from: jsonData)
             return .permissionRequest(body)
+        case "Notification":
+            let body = try decoder.decode(NotificationBody.self, from: jsonData)
+            return .notification(body)
+        case "UserPromptSubmit":
+            let body = try decoder.decode(UserPromptSubmitBody.self, from: jsonData)
+            return .userPromptSubmit(body)
+        case "Stop":
+            let body = try decoder.decode(StopBody.self, from: jsonData)
+            return .stop(body)
+        case "SubagentStop":
+            let body = try decoder.decode(SubagentStopBody.self, from: jsonData)
+            return .subagentStop(body)
+        case "PreCompact":
+            let body = try decoder.decode(PreCompactBody.self, from: jsonData)
+            return .preCompact(body)
         default:
             return .unknown(common)
         }
