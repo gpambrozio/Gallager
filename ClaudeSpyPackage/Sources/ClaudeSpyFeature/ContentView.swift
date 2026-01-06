@@ -156,6 +156,15 @@ struct SettingsView: View {
 
     @State private var showingUnpairConfirmation = false
 
+    /// Available monospace fonts for terminal display
+    static let availableFonts = [
+        "Menlo",
+        "SF Mono",
+        "Courier New",
+        "Monaco",
+        "Courier",
+    ]
+
     var body: some View {
         List {
             // Connection Status Section
@@ -211,6 +220,34 @@ struct SettingsView: View {
                 Button("Unpair", role: .destructive) {
                     showingUnpairConfirmation = true
                 }
+            }
+
+            // Terminal Section
+            Section {
+                @Bindable var settings = settings
+
+                Picker("Font", selection: $settings.terminalFontName) {
+                    ForEach(Self.availableFonts, id: \.self) { font in
+                        Text(font).tag(font)
+                    }
+                }
+
+                HStack {
+                    Text("Font Size")
+                    Spacer()
+                    Text("\(Int(settings.terminalFontSize)) pt")
+                        .foregroundStyle(.secondary)
+                }
+
+                Slider(
+                    value: $settings.terminalFontSize,
+                    in: 6...20,
+                    step: 1
+                )
+            } header: {
+                Text("Terminal")
+            } footer: {
+                Text("Customize the font used in terminal snapshots.")
             }
 
             // Server Section
