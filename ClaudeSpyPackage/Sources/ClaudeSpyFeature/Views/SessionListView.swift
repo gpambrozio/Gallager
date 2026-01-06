@@ -124,8 +124,8 @@ struct SessionRowView: View {
                 .frame(width: 10, height: 10)
 
             VStack(alignment: .leading, spacing: 4) {
-                // Pane ID
-                Text(paneId)
+                // Project folder name (or pane ID as fallback)
+                Text(session.displayName)
                     .font(.headline)
 
                 // Latest event summary

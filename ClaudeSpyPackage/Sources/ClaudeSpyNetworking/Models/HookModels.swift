@@ -47,6 +47,22 @@ public struct ClaudeSession: Codable, Sendable {
     public var latestEvent: HookEvent? {
         events.first
     }
+
+    /// The project folder name extracted from the first event that has a projectPath.
+    /// Returns the last path component (e.g., "ClaudeSpy" from "/Users/user/Dev/ClaudeSpy").
+    public var projectFolderName: String? {
+        for event in events {
+            if let projectPath = event.projectPath, !projectPath.isEmpty {
+                return URL(fileURLWithPath: projectPath).lastPathComponent
+            }
+        }
+        return nil
+    }
+
+    /// Display name for the session: project folder name if available, otherwise pane ID.
+    public var displayName: String {
+        projectFolderName ?? paneId
+    }
 }
 
 // MARK: - Hook Event
