@@ -205,13 +205,30 @@ private func handleSnapshotCommand(
         // Get pane dimensions first
         let (width, height) = try await tmuxService.getPaneDimensions(command.paneId)
 
-        // Capture with cursor positioning (same as Mac mirror initial content)
-        logger.debug("Capturing pane with positioning")
-        let content = try await tmuxService.capturePaneWithPositioning(command.paneId)
+        // Capture with 3x scrollback for testing
+        let scrollbackMultiplier = 3
+        let (rawContent, _, _, totalLines) = try await tmuxService.capturePaneWithScrollback(
+            command.paneId,
+            scrollbackMultiplier: scrollbackMultiplier
+        )
 
-        logger.info("Pane captured", metadata: [
+        // Add cursor positioning to each line (like capturePaneWithPositioning)
+        let contentString = String(data: rawContent, encoding: .utf8) ?? ""
+        let lines = contentString.split(separator: "\n", omittingEmptySubsequences: false)
+
+        var positionedContent = "\u{1b}[H"  // Cursor home
+        for (index, line) in lines.enumerated() {
+            positionedContent += "\u{1b}[\(index + 1);1H"  // Move to row, col 1
+            positionedContent += "\u{1b}[2K"  // Clear line
+            positionedContent += line
+        }
+
+        let content = positionedContent.data(using: .utf8) ?? Data()
+
+        logger.info("Pane captured with scrollback", metadata: [
             "width": "\(width)",
             "height": "\(height)",
+            "totalLines": "\(totalLines)",
             "contentBytes": "\(content.count)"
         ])
 
@@ -221,7 +238,7 @@ private func handleSnapshotCommand(
             paneId: command.paneId,
             width: width,
             height: height,
-            totalLines: height,  // Just visible content
+            totalLines: totalLines,
             content: content
         )
 

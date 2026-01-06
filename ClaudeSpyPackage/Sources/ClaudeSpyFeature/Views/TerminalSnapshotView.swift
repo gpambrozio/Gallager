@@ -86,7 +86,6 @@ private struct TerminalContainerView: UIViewRepresentable {
         scrollView.backgroundColor = .black
         scrollView.addSubview(terminalView)
         scrollView.contentSize = exactFrame.size
-        scrollView.contentOffset = .zero  // Start at top-left corner
         scrollView.showsHorizontalScrollIndicator = true
         scrollView.showsVerticalScrollIndicator = true
         scrollView.alwaysBounceVertical = true
@@ -95,6 +94,13 @@ private struct TerminalContainerView: UIViewRepresentable {
         // Store references
         context.coordinator.terminalView = terminalView
         context.coordinator.scrollView = scrollView
+        context.coordinator.contentHeight = exactFrame.height
+
+        // Scroll to bottom after layout (show most recent content)
+        DispatchQueue.main.async {
+            let maxY = max(0, exactFrame.height - scrollView.bounds.height)
+            scrollView.contentOffset = CGPoint(x: 0, y: maxY)
+        }
 
         return scrollView
     }
@@ -111,6 +117,7 @@ private struct TerminalContainerView: UIViewRepresentable {
     class Coordinator {
         var terminalView: TerminalView?
         var scrollView: UIScrollView?
+        var contentHeight: CGFloat = 0
     }
 }
 
