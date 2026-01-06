@@ -2,10 +2,13 @@ import Foundation
 
 /// Information about a tmux pane
 public struct PaneInfo: Identifiable, Sendable, Hashable {
-    /// The unique pane ID (e.g., "%5")
-    public let id: String
-    /// The full target string (e.g., "mysession:0.1")
+    /// The tmux pane ID (e.g., "%5") - note: may not be unique across linked sessions
+    public let paneId: String
+    /// The full target string (e.g., "mysession:0.1") - used as unique identifier
     public let target: String
+
+    /// Unique identifier for Identifiable conformance (uses target since paneId can repeat in linked sessions)
+    public var id: String { target }
     /// The name of the session containing this pane
     public let sessionName: String
     /// The window index within the session
@@ -24,7 +27,7 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
     public let isActive: Bool
 
     public init(
-        id: String,
+        paneId: String,
         target: String,
         sessionName: String,
         windowIndex: Int,
@@ -35,7 +38,7 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
         height: Int,
         isActive: Bool
     ) {
-        self.id = id
+        self.paneId = paneId
         self.target = target
         self.sessionName = sessionName
         self.windowIndex = windowIndex
@@ -61,7 +64,7 @@ extension PaneInfo {
               let height = Int(components[7])
         else { return nil }
 
-        self.id = components[0]
+        self.paneId = components[0]
         self.sessionName = components[1]
         self.windowIndex = windowIndex
         self.paneIndex = paneIndex

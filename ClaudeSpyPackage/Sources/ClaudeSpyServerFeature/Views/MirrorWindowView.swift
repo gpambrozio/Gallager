@@ -14,7 +14,7 @@ struct MirrorWindowView: View {
 
     /// The active Claude session for this pane, if any
     private var claudeSession: ClaudeSession? {
-        windowManager.activeSessions[paneInfo.id]
+        windowManager.activeSessions[paneInfo.paneId]
     }
 
     var body: some View {
@@ -46,7 +46,7 @@ struct MirrorWindowView: View {
                 pauseResumeButton
             }
         }
-        .navigationTitle("Mirror: \(paneInfo.id) (\(paneInfo.target))")
+        .navigationTitle("Mirror: \(paneInfo.paneId) (\(paneInfo.target))")
         .task {
             await connectToPane()
         }

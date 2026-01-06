@@ -70,7 +70,7 @@ public final class MirrorWindowManager {
     /// Cleans up active Claude sessions for panes that no longer exist
     /// Call this after refreshing the pane list
     public func cleanupInactiveSessions(currentPanes: [PaneInfo]) {
-        let existingPaneIds = Set(currentPanes.map(\.id))
+        let existingPaneIds = Set(currentPanes.map(\.paneId))
         activeSessions = activeSessions.filter { existingPaneIds.contains($0.key) }
     }
 
@@ -120,7 +120,7 @@ public final class MirrorWindowManager {
         )
 
         window.contentViewController = hostingController
-        window.title = "Mirror: \(paneInfo.id) (\(paneInfo.target))"
+        window.title = "Mirror: \(paneInfo.paneId) (\(paneInfo.target))"
         window.isReleasedWhenClosed = false
 
         // Set minimum size
@@ -136,7 +136,7 @@ public final class MirrorWindowManager {
 
         // Store window and pane ID mapping
         openWindows[paneInfo.target] = window
-        windowPaneIds[paneInfo.target] = paneInfo.id
+        windowPaneIds[paneInfo.target] = paneInfo.paneId
 
         // Center and show window
         window.center()

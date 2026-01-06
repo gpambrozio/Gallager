@@ -90,7 +90,7 @@ private struct PaneRow: View {
 
     /// Check if pane has active Claude session (accessing activeSessions directly for observation)
     private var hasClaude: Bool {
-        windowManager.activeSessions[pane.id] != nil
+        windowManager.activeSessions[pane.paneId] != nil
     }
 
     var body: some View {
@@ -144,7 +144,7 @@ private struct PaneListPreview: View {
                 PaneListView(
                     panes: [
                         PaneInfo(
-                            id: "%0",
+                            paneId: "%0",
                             target: "main:0.0",
                             sessionName: "main",
                             windowIndex: 0,
@@ -156,7 +156,7 @@ private struct PaneListPreview: View {
                             isActive: true
                         ),
                         PaneInfo(
-                            id: "%1",
+                            paneId: "%1",
                             target: "main:0.1",
                             sessionName: "main",
                             windowIndex: 0,

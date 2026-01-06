@@ -114,7 +114,16 @@ public final class TmuxService {
                 .split(separator: "\n")
                 .map(String.init)
 
-            panes = lines.compactMap { PaneInfo(fromTmuxOutput: $0) }
+            // Parse panes and deduplicate by paneId (filters out grouped session duplicates)
+            let allPanes = lines.compactMap { PaneInfo(fromTmuxOutput: $0) }
+            var seen = Set<String>()
+            panes = allPanes.filter { pane in
+                if seen.contains(pane.paneId) {
+                    return false
+                }
+                seen.insert(pane.paneId)
+                return true
+            }
         } catch {
             lastError = error.localizedDescription
             panes = []
