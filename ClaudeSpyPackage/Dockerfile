@@ -36,7 +36,9 @@ WORKDIR /app
 COPY --from=builder /build/.build/release/ClaudeSpyExternalServer ./
 
 # Create non-root user for security
-RUN useradd --create-home --shell /bin/bash appuser
+RUN useradd --create-home --shell /bin/bash appuser && \
+    mkdir -p /data && \
+    chown appuser:appuser /data
 USER appuser
 
 # Expose the default port

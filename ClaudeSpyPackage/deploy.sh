@@ -62,6 +62,7 @@ deploy() {
         --exclude='*.xcodeproj' \
         --exclude='*.xcworkspace' \
         --exclude='Tests' \
+        --exclude='data' \
         -e ssh \
         "$(dirname "$0")/" \
         "$REMOTE_HOST:$REMOTE_DIR/"
@@ -69,6 +70,10 @@ deploy() {
     # Copy Caddy config
     info "Installing Caddy configuration..."
     ssh -o LogLevel=ERROR "$REMOTE_HOST" "cp $REMOTE_DIR/caddy/claudespy.caddy $CADDY_CONF_D/"
+
+    # Ensure data directory exists with correct permissions
+    info "Ensuring data directory permissions..."
+    ssh -o LogLevel=ERROR "$REMOTE_HOST" "mkdir -p $REMOTE_DIR/data && chmod 777 $REMOTE_DIR/data"
 
     # Build and start the container
     info "Building and starting container..."
