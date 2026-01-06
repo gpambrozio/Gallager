@@ -41,11 +41,6 @@ struct MirrorWindowView: View {
                 SessionEventsOverlay(session: session)
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                pauseResumeButton
-            }
-        }
         .navigationTitle("Mirror: \(paneInfo.paneId) (\(paneInfo.target))")
         .task {
             await connectToPane()
@@ -74,20 +69,6 @@ struct MirrorWindowView: View {
     }
 
     // MARK: - Subviews
-
-    private var pauseResumeButton: some View {
-        Button {
-            togglePause()
-        } label: {
-            if paneStream?.state == .paused {
-                Symbols.play.image
-            } else {
-                Symbols.pause.image
-            }
-        }
-        .help(paneStream?.state == .paused ? "Resume" : "Pause")
-        .disabled(paneStream?.state.isActive != true)
-    }
 
     private var jumpToBottomBar: some View {
         HStack {
@@ -143,8 +124,6 @@ struct MirrorWindowView: View {
         switch paneStream?.state ?? .disconnected {
         case .connected:
             return .green
-        case .paused:
-            return .yellow
         case .connecting:
             return .orange
         case .disconnected:
@@ -158,8 +137,6 @@ struct MirrorWindowView: View {
         switch paneStream?.state ?? .disconnected {
         case .connected:
             return "Connected"
-        case .paused:
-            return "Paused"
         case .connecting:
             return "Connecting..."
         case .disconnected:
@@ -219,15 +196,6 @@ struct MirrorWindowView: View {
     private func disconnect() async {
         await paneStream?.disconnect()
         paneStream = nil
-    }
-
-    private func togglePause() {
-        guard let stream = paneStream else { return }
-        if stream.state == .paused {
-            stream.resume()
-        } else if stream.state == .connected {
-            stream.pause()
-        }
     }
 
     private func formatNumber(_ number: Int) -> String {

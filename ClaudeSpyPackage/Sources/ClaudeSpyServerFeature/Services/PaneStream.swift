@@ -5,16 +5,10 @@ enum StreamState: Equatable, Sendable {
     case disconnected
     case connecting
     case connected
-    case paused
     case error(String)
 
     var isActive: Bool {
-        switch self {
-        case .connected, .paused:
-            return true
-        default:
-            return false
-        }
+        self == .connected
     }
 }
 
@@ -47,8 +41,6 @@ final class PaneStream {
     private let tmuxService: TmuxService
     private var fifoReader: FIFOReader?
     private var streamTask: Task<Void, Never>?
-    private var isPaused = false
-    private var pauseBuffer: [Data] = []
 
     init(target: String, tmuxService: TmuxService) {
         self.target = target
@@ -95,12 +87,8 @@ final class PaneStream {
                     guard let self, !Task.isCancelled else { break }
 
                     await MainActor.run {
-                        if self.isPaused {
-                            self.pauseBuffer.append(data)
-                        } else {
-                            self.scrollbackLines += data.split(separator: UInt8(ascii: "\n")).count
-                            self.onData?(data)
-                        }
+                        self.scrollbackLines += data.split(separator: UInt8(ascii: "\n")).count
+                        self.onData?(data)
                     }
                 }
 
@@ -131,29 +119,6 @@ final class PaneStream {
         try? await tmuxService.stopPipePipe(target)
 
         state = .disconnected
-        pauseBuffer.removeAll()
-        isPaused = false
-    }
-
-    /// Pauses the stream (buffers incoming data)
-    func pause() {
-        guard state == .connected else { return }
-        isPaused = true
-        state = .paused
-    }
-
-    /// Resumes the stream (flushes buffered data)
-    func resume() {
-        guard state == .paused else { return }
-        isPaused = false
-        state = .connected
-
-        // Flush buffered data
-        for data in pauseBuffer {
-            scrollbackLines += data.split(separator: UInt8(ascii: "\n")).count
-            onData?(data)
-        }
-        pauseBuffer.removeAll()
     }
 
     /// Refreshes the pane dimensions from external source (e.g., TmuxService.refreshPanes)
