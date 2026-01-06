@@ -81,7 +81,7 @@ actor RelayService {
         case let .command(command):
             // Relay commands to Mac
             if await connectionHub.isMacConnected(pairId: pairId) {
-                logger.info("Relaying command to Mac", metadata: ["type": "\(command.type)"])
+                logger.info("Relaying command to Mac", metadata: ["type": "\(command.command)"])
                 await connectionHub.send(.command(command), to: pairId, deviceType: .mac)
             } else {
                 // Mac not connected, send error back to iOS

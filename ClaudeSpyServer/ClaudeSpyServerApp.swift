@@ -138,9 +138,9 @@ struct TmuxPaneMirrorApp: App {
         let serverClient = externalServerClient
         externalServerClient.setCommandHandler { [executor, service, serverClient] command in
             // Handle snapshot commands specially - requires MainActor for tmuxService access
-            if command.type == .captureSnapshot {
+            if case let .captureSnapshot(scrollbackMultiplier) = command.command {
                 // handleSnapshotCommand is @MainActor, so this call will hop to main actor
-                return await handleSnapshotCommand(command, tmuxService: service, serverClient: serverClient)
+                return await handleSnapshotCommand(command, scrollbackMultiplier: scrollbackMultiplier, tmuxService: service, serverClient: serverClient)
             }
             // Regular commands execute on the actor executor (background)
             return await executor.execute(command)
@@ -197,6 +197,7 @@ struct TmuxPaneMirrorApp: App {
 @MainActor
 private func handleSnapshotCommand(
     _ command: CommandMessage,
+    scrollbackMultiplier: Int,
     tmuxService: TmuxService,
     serverClient: ExternalServerClient
 ) async -> CommandResponseMessage {
@@ -206,15 +207,6 @@ private func handleSnapshotCommand(
     do {
         // Get pane dimensions first
         let (width, height) = try await tmuxService.getPaneDimensions(command.paneId)
-
-        // Extract scrollback multiplier from command payload (default 3)
-        let scrollbackMultiplier: Int
-        if let multiplierValue = command.payload["scrollbackMultiplier"],
-           case let .int(value) = multiplierValue.value {
-            scrollbackMultiplier = value
-        } else {
-            scrollbackMultiplier = 3
-        }
 
         let (rawContent, totalLines) = try await tmuxService.capturePaneWithScrollback(
             command.paneId,

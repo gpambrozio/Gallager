@@ -1,19 +1,96 @@
 import Foundation
 
+// MARK: - Character Codable
+
+extension Character: @retroactive Codable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let string = try container.decode(String.self)
+        guard let char = string.first, string.count == 1 else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Expected single character"
+            )
+        }
+        self = char
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(String(self))
+    }
+}
+
+// MARK: - Tmux Key
+
+/// Represents a keystroke to send to tmux.
+/// Either literal text or a special key that tmux interprets.
+public enum TmuxKey: Codable, Sendable, Equatable {
+    /// Literal text to send as-is
+    case text(String)
+
+    /// Special keys that tmux interprets
+    case enter
+    case escape
+    case tab
+    case space
+    case backspace
+    case delete
+
+    /// Arrow keys
+    case up
+    case down
+    case left
+    case right
+
+    /// Navigation keys
+    case home
+    case end
+    case pageUp
+    case pageDown
+
+    /// Control key combinations (e.g., .ctrl("c") for Ctrl+C)
+    case ctrl(Character)
+
+    /// The tmux key name for special keys, or the literal text
+    public var tmuxKeyName: String {
+        switch self {
+        case .text(let string): string
+        case .enter: "Enter"
+        case .escape: "Escape"
+        case .tab: "Tab"
+        case .space: "Space"
+        case .backspace: "BSpace"
+        case .delete: "Delete"
+        case .up: "Up"
+        case .down: "Down"
+        case .left: "Left"
+        case .right: "Right"
+        case .home: "Home"
+        case .end: "End"
+        case .pageUp: "PageUp"
+        case .pageDown: "PageDown"
+        case .ctrl(let char): "C-\(char)"
+        }
+    }
+
+    /// Whether this key should be sent literally (without tmux interpretation)
+    public var isLiteral: Bool {
+        if case .text = self { return true }
+        return false
+    }
+}
+
 // MARK: - Command Types
 
-/// Types of commands that can be sent from iOS to Mac
-public enum CommandType: String, Codable, Sendable {
+/// Commands that can be sent from iOS to Mac, with their associated data.
+public enum CommandType: Codable, Sendable {
     /// Send keystrokes to a tmux pane
-    case sendKeystroke
+    case sendKeystroke([TmuxKey])
     /// Cancel current operation (Ctrl+C)
     case cancelOperation
-    /// Pause mirror streaming
-    case pauseMirror
-    /// Resume mirror streaming
-    case resumeMirror
-    /// Capture a terminal snapshot with scrollback
-    case captureSnapshot
+    /// Capture a terminal snapshot with scrollback (multiplier for visible height)
+    case captureSnapshot(scrollbackMultiplier: Int)
 }
 
 // MARK: - Command Message
@@ -22,51 +99,19 @@ public enum CommandType: String, Codable, Sendable {
 public struct CommandMessage: Codable, Sendable, Identifiable {
     public let id: UUID
     public let paneId: String
-    public let type: CommandType
-    public let payload: [String: AnyCodable]
+    public let command: CommandType
     public let timestamp: Date
 
     public init(
         id: UUID = UUID(),
         paneId: String,
-        type: CommandType,
-        payload: [String: AnyCodable] = [:],
+        command: CommandType,
         timestamp: Date = Date()
     ) {
         self.id = id
         self.paneId = paneId
-        self.type = type
-        self.payload = payload
+        self.command = command
         self.timestamp = timestamp
-    }
-
-    /// Create a keystroke command
-    public static func keystroke(paneId: String, keys: String) -> CommandMessage {
-        CommandMessage(
-            paneId: paneId,
-            type: .sendKeystroke,
-            payload: ["keys": AnyCodable(keys)]
-        )
-    }
-
-    /// Create a cancel operation command (Ctrl+C)
-    public static func cancel(paneId: String) -> CommandMessage {
-        CommandMessage(
-            paneId: paneId,
-            type: .cancelOperation
-        )
-    }
-
-    /// Create a capture snapshot command
-    /// - Parameters:
-    ///   - paneId: The pane ID to capture
-    ///   - scrollbackMultiplier: How many times the visible height to capture as scrollback (default: 3)
-    public static func captureSnapshot(paneId: String, scrollbackMultiplier: Int = 3) -> CommandMessage {
-        CommandMessage(
-            paneId: paneId,
-            type: .captureSnapshot,
-            payload: ["scrollbackMultiplier": AnyCodable(scrollbackMultiplier)]
-        )
     }
 }
 

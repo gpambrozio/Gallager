@@ -325,7 +325,7 @@ public final class ExternalServerClient: Sendable {
             }
 
         case let .command(command):
-            logger.info("Received command from iOS", metadata: ["type": "\(command.type)"])
+            logger.info("Received command from iOS", metadata: ["type": "\(command.command)"])
             if let onCommand {
                 let response = await onCommand(command)
                 await send(.commandResponse(response))
