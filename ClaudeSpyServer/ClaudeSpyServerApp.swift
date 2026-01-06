@@ -1,5 +1,6 @@
 import ClaudeSpyCommon
 import ClaudeSpyServerFeature
+import Logging
 import SwiftUI
 
 @main
@@ -197,21 +198,22 @@ private func handleSnapshotCommand(
     tmuxService: TmuxService,
     serverClient: ExternalServerClient
 ) async -> CommandResponseMessage {
-    // Get scrollback multiplier from payload (default: 3)
-    let scrollbackMultiplier: Int
-    if let value = command.payload["scrollbackMultiplier"],
-       case let .int(multiplier) = value.value {
-        scrollbackMultiplier = multiplier
-    } else {
-        scrollbackMultiplier = 3
-    }
+    let logger = Logger(label: "com.claudespy.snapshot")
+    logger.info("handleSnapshotCommand started", metadata: ["paneId": "\(command.paneId)"])
 
     do {
-        // Capture the pane with scrollback
-        let (content, width, height, totalLines) = try await tmuxService.capturePaneWithScrollback(
-            command.paneId,
-            scrollbackMultiplier: scrollbackMultiplier
-        )
+        // Get pane dimensions first
+        let (width, height) = try await tmuxService.getPaneDimensions(command.paneId)
+
+        // Capture with cursor positioning (same as Mac mirror initial content)
+        logger.debug("Capturing pane with positioning")
+        let content = try await tmuxService.capturePaneWithPositioning(command.paneId)
+
+        logger.info("Pane captured", metadata: [
+            "width": "\(width)",
+            "height": "\(height)",
+            "contentBytes": "\(content.count)"
+        ])
 
         // Create and send the snapshot
         let snapshot = TerminalSnapshotMessage(
@@ -219,14 +221,17 @@ private func handleSnapshotCommand(
             paneId: command.paneId,
             width: width,
             height: height,
-            totalLines: totalLines,
+            totalLines: height,  // Just visible content
             content: content
         )
 
+        logger.debug("Sending snapshot via WebSocket")
         await serverClient.sendTerminalSnapshot(snapshot)
+        logger.info("Snapshot sent successfully")
 
         return .success(for: command.id)
     } catch {
+        logger.error("Snapshot capture failed: \(error.localizedDescription)")
         return .failure(for: command.id, error: error.localizedDescription)
     }
 }

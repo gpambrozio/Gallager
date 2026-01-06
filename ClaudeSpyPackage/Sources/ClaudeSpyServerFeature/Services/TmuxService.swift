@@ -191,14 +191,16 @@ public final class TmuxService {
         // Get pane dimensions
         let (width, height) = try await getPaneDimensions(target)
 
-        // Calculate scrollback lines to capture (height * multiplier)
-        let scrollbackLines = height * scrollbackMultiplier
-
         // Capture with scrollback using -S flag (negative = lines before visible area)
-        // -E -1 means capture to the end of the visible content
         var args = ["capture-pane", "-t", target, "-p", "-e"]
-        args.append("-S")
-        args.append("-\(scrollbackLines)")
+
+        // Only add -S flag if we want scrollback (multiplier > 0)
+        // Without -S, tmux captures just the visible area
+        if scrollbackMultiplier > 0 {
+            let scrollbackLines = height * scrollbackMultiplier
+            args.append("-S")
+            args.append("-\(scrollbackLines)")
+        }
 
         let result = try await runTmuxCommand(args)
 

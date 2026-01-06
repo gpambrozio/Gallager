@@ -31,90 +31,80 @@ struct TerminalSnapshotView: View {
 }
 
 /// SwiftUI wrapper around SwiftTerm's TerminalView for iOS
+///
+/// SwiftTerm's iOS TerminalView is a UIScrollView subclass. However, SwiftUI's layout system
+/// will constrain the view to the available space, causing SwiftTerm to recalculate cols.
+///
+/// Solution: Wrap in our own UIScrollView to provide horizontal scrolling, and explicitly
+/// resize the terminal to our exact dimensions before feeding content.
 private struct TerminalContainerView: UIViewRepresentable {
     let snapshot: TerminalSnapshotMessage
     let fontName: String
     let fontSize: CGFloat
 
     func makeUIView(context: Context) -> UIScrollView {
+        // Check content validity first - return empty scroll view on error
+        guard let content = snapshot.content else {
+            let scrollView = UIScrollView()
+            let errorLabel = UILabel()
+            errorLabel.text = "Error: Failed to decode terminal content"
+            errorLabel.textColor = .white
+            errorLabel.frame = CGRect(x: 10, y: 10, width: 300, height: 30)
+            scrollView.addSubview(errorLabel)
+            scrollView.backgroundColor = .black
+            return scrollView
+        }
+
+        // Use FontMetrics to calculate cell size (matches SwiftTerm's internal calculation)
+        let cellSize = FontMetrics.calculateCellSize(fontName: fontName, fontSize: fontSize)
+
+        // Calculate the exact frame for our desired dimensions
+        let exactWidth = CGFloat(snapshot.width) * cellSize.width
+        let exactHeight = CGFloat(snapshot.totalLines) * cellSize.height
+        let exactFrame = CGRect(x: 0, y: 0, width: exactWidth, height: exactHeight)
+
+        // Create the terminal with the exact frame
+        let font = UIFont(name: fontName, size: fontSize)
+            ?? UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        let terminalView = TerminalView(frame: exactFrame, font: font)
+
+        // Set dark theme colors
+        terminalView.nativeForegroundColor = UIColor(white: 0.9, alpha: 1.0)
+        terminalView.nativeBackgroundColor = UIColor.black
+
+        // Feed the snapshot content
+        terminalView.feed(byteArray: ArraySlice(content))
+
+        // Disable TerminalView's own scrolling since we wrap it
+        terminalView.isScrollEnabled = false
+        terminalView.contentOffset = .zero  // Reset TerminalView's internal scroll position
+        terminalView.inputAssistantItem.leadingBarButtonGroups = []
+        terminalView.inputAssistantItem.trailingBarButtonGroups = []
+
+        // Create our own scroll view wrapper for both horizontal and vertical scrolling
         let scrollView = UIScrollView()
         scrollView.backgroundColor = .black
-        scrollView.alwaysBounceVertical = true
-        scrollView.alwaysBounceHorizontal = true
-        scrollView.showsVerticalScrollIndicator = true
-        scrollView.showsHorizontalScrollIndicator = true
-
-        let terminalView = createTerminalView()
-        terminalView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.addSubview(terminalView)
+        scrollView.contentSize = exactFrame.size
+        scrollView.contentOffset = .zero  // Start at top-left corner
+        scrollView.showsHorizontalScrollIndicator = true
+        scrollView.showsVerticalScrollIndicator = true
+        scrollView.alwaysBounceVertical = true
+        scrollView.alwaysBounceHorizontal = false
 
-        // Store reference for updates
+        // Store references
         context.coordinator.terminalView = terminalView
         context.coordinator.scrollView = scrollView
-
-        // Calculate terminal size based on dimensions and font
-        let cellSize = FontMetrics.calculateCellSize(fontName: fontName, fontSize: fontSize)
-        let terminalWidth = CGFloat(snapshot.width) * cellSize.width + FontMetrics.horizontalBuffer
-        let terminalHeight = CGFloat(snapshot.totalLines) * cellSize.height
-
-        NSLayoutConstraint.activate([
-            terminalView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
-            terminalView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
-            terminalView.widthAnchor.constraint(equalToConstant: terminalWidth),
-            terminalView.heightAnchor.constraint(equalToConstant: terminalHeight),
-        ])
-
-        scrollView.contentSize = CGSize(width: terminalWidth, height: terminalHeight)
-
-        // Feed the snapshot content to the terminal
-        if let content = snapshot.content {
-            terminalView.feed(byteArray: ArraySlice(content))
-        } else {
-            // Show error state if content decoding failed
-            let errorLabel = UILabel()
-            errorLabel.text = "Failed to decode terminal content"
-            errorLabel.textColor = .systemRed
-            errorLabel.textAlignment = .center
-            errorLabel.translatesAutoresizingMaskIntoConstraints = false
-            scrollView.addSubview(errorLabel)
-            NSLayoutConstraint.activate([
-                errorLabel.centerXAnchor.constraint(equalTo: scrollView.centerXAnchor),
-                errorLabel.centerYAnchor.constraint(equalTo: scrollView.centerYAnchor),
-            ])
-        }
 
         return scrollView
     }
 
     func updateUIView(_ scrollView: UIScrollView, context: Context) {
         // Font changes would require recreating the terminal view
-        // For now, we don't support dynamic font changes
     }
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
-    }
-
-    private func createTerminalView() -> TerminalView {
-        // Create terminal with fixed dimensions matching snapshot
-        let terminalView = TerminalView(frame: .zero)
-
-        // Configure font
-        let font = UIFont(name: fontName, size: fontSize)
-            ?? UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
-        terminalView.font = font
-
-        // Configure terminal dimensions
-        terminalView.getTerminal().resize(cols: snapshot.width, rows: snapshot.totalLines)
-
-        // Set dark theme colors
-        terminalView.nativeForegroundColor = UIColor(white: 0.9, alpha: 1.0)
-        terminalView.nativeBackgroundColor = UIColor.black
-
-        // Disable input - this is read-only
-        terminalView.isUserInteractionEnabled = false
-
-        return terminalView
     }
 
     @MainActor
