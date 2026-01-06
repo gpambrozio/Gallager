@@ -207,35 +207,15 @@ struct SessionDetailView: View {
         snapshotError = nil
 
         let command = CommandMessage.captureSnapshot(paneId: paneId)
+        let result = await relayClient.sendSnapshotCommand(command)
 
-        relayClient.onTerminalSnapshot = { [command] snapshot in
-            if snapshot.commandId == command.id {
-                Task { @MainActor [self] in
-                    relayClient.onTerminalSnapshot = nil
-                    isLoadingSnapshot = false
-                    terminalSnapshot = snapshot
-                }
-            }
-        }
+        isLoadingSnapshot = false
 
-        relayClient.onCommandResponse = { [command] response in
-            if response.commandId == command.id, !response.success {
-                Task { @MainActor [self] in
-                    relayClient.onTerminalSnapshot = nil
-                    isLoadingSnapshot = false
-                    snapshotError = response.error ?? "Failed to capture snapshot"
-                }
-            }
-        }
-
-        await relayClient.sendCommand(command)
-
-        // Timeout after 10 seconds if still loading
-        try? await Task.sleep(for: .seconds(10))
-        if isLoadingSnapshot {
-            relayClient.onTerminalSnapshot = nil
-            isLoadingSnapshot = false
-            snapshotError = "Request timed out"
+        switch result {
+        case .success(let snapshot):
+            terminalSnapshot = snapshot
+        case .failure(let error):
+            snapshotError = error.localizedDescription
         }
     }
 

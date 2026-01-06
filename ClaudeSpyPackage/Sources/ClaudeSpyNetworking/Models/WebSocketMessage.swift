@@ -233,23 +233,23 @@ extension WebSocketMessage {
     /// Human-readable message type for logging
     public var messageType: String {
         switch self {
-        case .registerMac: "registerMac"
-        case .hookEvent: "hookEvent"
-        case .commandResponse: "commandResponse"
-        case .terminalSnapshot: "terminalSnapshot"
-        case .sessionState: "sessionState"
-        case .macRegistered: "macRegistered"
-        case .command: "command"
-        case .iosConnected: "iosConnected"
-        case .iosDisconnected: "iosDisconnected"
-        case .registerIOS: "registerIOS"
-        case .requestSessionState: "requestSessionState"
-        case .iosRegistered: "iosRegistered"
-        case .macConnected: "macConnected"
-        case .macDisconnected: "macDisconnected"
-        case .ping: "ping"
-        case .pong: "pong"
-        case .error: "error"
+        case .registerMac: MessageType.registerMac.rawValue
+        case .hookEvent: MessageType.hookEvent.rawValue
+        case .commandResponse: MessageType.commandResponse.rawValue
+        case .terminalSnapshot: MessageType.terminalSnapshot.rawValue
+        case .sessionState: MessageType.sessionState.rawValue
+        case .macRegistered: MessageType.macRegistered.rawValue
+        case .command: MessageType.command.rawValue
+        case .iosConnected: MessageType.iosConnected.rawValue
+        case .iosDisconnected: MessageType.iosDisconnected.rawValue
+        case .registerIOS: MessageType.registerIOS.rawValue
+        case .requestSessionState: MessageType.requestSessionState.rawValue
+        case .iosRegistered: MessageType.iosRegistered.rawValue
+        case .macConnected: MessageType.macConnected.rawValue
+        case .macDisconnected: MessageType.macDisconnected.rawValue
+        case .ping: MessageType.ping.rawValue
+        case .pong: MessageType.pong.rawValue
+        case .error: MessageType.error.rawValue
         }
     }
 }

@@ -100,7 +100,7 @@ public final class ExternalServerClient: Sendable {
 
     /// Set the handler for commands from iOS
     public func setCommandHandler(
-        _ handler: @escaping @MainActor @Sendable (CommandMessage) async -> CommandResponseMessage
+        _ handler: @escaping @Sendable (CommandMessage) async -> CommandResponseMessage
     ) {
         onCommand = handler
     }
@@ -327,11 +327,8 @@ public final class ExternalServerClient: Sendable {
         case let .command(command):
             logger.info("Received command from iOS", metadata: ["type": "\(command.type)"])
             if let onCommand {
-                logger.debug("Calling command handler")
                 let response = await onCommand(command)
-                logger.debug("Command handler returned, sending response")
                 await send(.commandResponse(response))
-                logger.debug("Command response sent")
             }
 
         case .iosConnected:

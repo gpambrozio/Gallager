@@ -183,13 +183,13 @@ public final class TmuxService {
     /// - Parameters:
     ///   - target: The pane target
     ///   - scrollbackMultiplier: How many times the visible height to capture as scrollback
-    /// - Returns: Tuple containing the captured data, dimensions, and total line count
+    /// - Returns: Tuple containing the captured data and total line count
     public func capturePaneWithScrollback(
         _ target: String,
         scrollbackMultiplier: Int = 3
-    ) async throws -> (content: Data, width: Int, height: Int, totalLines: Int) {
+    ) async throws -> (content: Data, totalLines: Int) {
         // Get pane dimensions
-        let (width, height) = try await getPaneDimensions(target)
+        let (_, height) = try await getPaneDimensions(target)
 
         // Capture with scrollback using -S flag (negative = lines before visible area)
         var args = ["capture-pane", "-t", target, "-p", "-e"]
@@ -216,7 +216,7 @@ public final class TmuxService {
             }
         }
 
-        return (content: content, width: width, height: height, totalLines: max(lineCount, height))
+        return (content: content, totalLines: max(lineCount, height))
     }
 
     /// Captures the visible pane content with cursor positioning for each line

@@ -81,20 +81,14 @@ public enum FontMetrics {
     }
 
     private static func glyphAdvanceWidth(for font: CTFont, character: Character) -> CGFloat {
-        #if canImport(AppKit) && !targetEnvironment(macCatalyst)
-        // macOS: Use NSFont's glyph methods for precise measurement
-        let nsFont = font as NSFont
-        let glyph = nsFont.glyph(withName: String(character))
-        return nsFont.advancement(forGlyph: glyph).width
-        #else
-        // iOS: Use CTFont to get glyph advancement
+        // Use CTFont APIs on both platforms for consistency
+        // SwiftTerm uses CTFont internally, so this ensures exact sizing parity
         var unichars = [UniChar](String(character).utf16)
         var glyphs = [CGGlyph](repeating: 0, count: unichars.count)
         CTFontGetGlyphsForCharacters(font, &unichars, &glyphs, unichars.count)
 
         var advance = CGSize.zero
         CTFontGetAdvancesForGlyphs(font, .horizontal, glyphs, &advance, 1)
-        return advance.width
-        #endif
+        return ceil(advance.width)  // Match SwiftTerm's ceiling behavior
     }
 }
