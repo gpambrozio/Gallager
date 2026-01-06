@@ -37,6 +37,7 @@ public struct ClaudeSession: Codable, Sendable {
 
     /// Adds an event to the session, keeping only the last 5
     public mutating func addEvent(_ event: HookEvent) {
+        guard event.action.body.shouldSendToServer else { return }
         events.insert(event, at: 0)
         if events.count > Self.maxEvents {
             events.removeLast()
@@ -95,6 +96,7 @@ public protocol HookBodyProtocol: Codable, Sendable {
     var sessionId: String { get }
     var hookEventName: String { get }
     var timestamp: String? { get }
+    var shouldSendToServer: Bool { get }
 }
 
 // MARK: - Common Hook Fields
@@ -106,6 +108,7 @@ public struct CommonHookFields: HookBodyProtocol {
     public let cwd: String?
     public let hookEventName: String
     public let timestamp: String?
+    public var shouldSendToServer: Bool { true }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -125,6 +128,7 @@ public struct SessionStartBody: HookBodyProtocol {
     public let hookEventName: String
     public let timestamp: String?
     public let source: String?
+    public var shouldSendToServer: Bool { true }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -144,6 +148,7 @@ public struct PreToolUseBody: HookBodyProtocol {
     public let timestamp: String?
     public let toolName: String?
     public let toolInput: ClaudeCodeTool?
+    public var shouldSendToServer: Bool { true }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -183,6 +188,7 @@ public struct SessionEndBody: HookBodyProtocol {
     public let hookEventName: String
     public let timestamp: String?
     public let stopHookActive: Bool?
+    public var shouldSendToServer: Bool { false }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -204,6 +210,7 @@ public struct PermissionRequestBody: HookBodyProtocol {
     public let toolInput: ClaudeCodeTool?
     public let permissionSuggestions: [PermissionSuggestion]?
     public let timestamp: String?
+    public var shouldSendToServer: Bool { true }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"

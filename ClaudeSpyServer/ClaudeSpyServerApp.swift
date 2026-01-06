@@ -104,6 +104,8 @@ struct TmuxPaneMirrorApp: App {
             await hookServer.setEventHandler { [weak manager, weak externalServerClient] event in
                 // Handle locally
                 await manager?.handleHookEvent(event)
+
+                guard event.action.body.shouldSendToServer else { return }
                 // Forward to iOS via external server
                 await externalServerClient?.sendHookEvent(event)
             }
