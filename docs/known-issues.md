@@ -1,18 +1,30 @@
 # Known Issues
 
-## When a tmux window is resized it doesn't resize the mirror and the contents get messed up.
+## ~~When a tmux window is resized it doesn't resize the mirror and the contents get messed up.~~ FIXED
 
-### Solution
+**Status:** Fixed
 
-We need to detect when a tmux session is resized and resize the terminal window on the mirror accordingly.
+**Solution Implemented:**
+- Leverages the existing 5-second pane refresh in `MainView` (no additional polling)
+- `MirrorWindowView` observes `tmuxService.panes` changes and checks if its pane's dimensions changed
+- `PaneStream.updateDimensions()` triggers the `onDimensionChange` callback when dimensions differ
+- `MirrorWindowManager.resizeWindow()` updates the NSWindow size with animation
 
-## Sparkle is not being removed when a claude session ends.
+**Files Changed:**
+- `ClaudeSpyServerFeature/Services/PaneStream.swift` - Added `updateDimensions()` method
+- `ClaudeSpyServerFeature/Views/MirrorWindowView.swift` - Added `.onChange(of: tmuxService.panes)` observer
+- `ClaudeSpyServerFeature/Managers/MirrorWindowManager.swift` - Added `resizeWindow()` method
 
-Neither the sparkle on the Avalilable Panes window go away or the window closes as expected when a claude session ends.
+## ~~Available Panes window sometimes appears twice.~~ FIXED
 
-## Available Panes window sometimes appears twice.
+**Status:** Fixed
 
-Sometimes when starting the app the Available Panes window shows up twice.
+**Solution Implemented:**
+- Disabled macOS automatic window restoration via `NSQuitAlwaysKeepsWindows` UserDefaults key
+- Set in `TmuxPaneMirrorApp.init()` before any windows are created
+
+**Files Changed:**
+- `ClaudeSpyServer/ClaudeSpyServerApp.swift` - Added window restoration disable in init
 
 ## DEC Line Drawing Characters Display Incorrectly When Mirroring Already-Running Applications
 

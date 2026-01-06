@@ -38,6 +38,9 @@ final class PaneStream {
     /// Callback for incoming data
     var onData: (@MainActor (Data) -> Void)?
 
+    /// Callback for dimension changes (newWidth, newHeight)
+    var onDimensionChange: (@MainActor (Int, Int) -> Void)?
+
     /// Number of lines in scrollback
     private(set) var scrollbackLines: Int = 0
 
@@ -153,11 +156,15 @@ final class PaneStream {
         pauseBuffer.removeAll()
     }
 
-    /// Refreshes the pane dimensions
-    func refreshDimensions() async throws {
-        let dims = try await tmuxService.getPaneDimensions(target)
-        width = dims.width
-        height = dims.height
+    /// Refreshes the pane dimensions from external source (e.g., TmuxService.refreshPanes)
+    /// Returns true if dimensions changed
+    @discardableResult
+    func updateDimensions(width newWidth: Int, height newHeight: Int) -> Bool {
+        guard newWidth != width || newHeight != height else { return false }
+        width = newWidth
+        height = newHeight
+        onDimensionChange?(newWidth, newHeight)
+        return true
     }
 }
 

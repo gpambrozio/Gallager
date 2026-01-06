@@ -145,6 +145,37 @@ public final class MirrorWindowManager {
         return window
     }
 
+    /// Resizes an existing mirror window to match new pane dimensions
+    /// - Parameters:
+    ///   - target: The pane target
+    ///   - columns: New width in character columns
+    ///   - rows: New height in character rows
+    public func resizeWindow(target: String, columns: Int, rows: Int) {
+        guard let window = openWindows[target] else { return }
+
+        // Calculate new window size using the same logic as openMirror
+        let cellSize = FontMetrics.calculateCellSize(
+            fontName: settings.fontName,
+            fontSize: CGFloat(settings.fontSize)
+        )
+        let verticalPadding: CGFloat = 110
+
+        let contentWidth = CGFloat(columns) * cellSize.width + FontMetrics.horizontalBuffer
+        let contentHeight = CGFloat(rows) * cellSize.height + verticalPadding
+
+        // Apply minimum size constraints
+        let width = max(700, contentWidth)
+        let height = max(500, contentHeight)
+
+        // Resize the window, keeping the top-left corner in place
+        var frame = window.frame
+        let oldHeight = frame.height
+        frame.size = NSSize(width: width, height: height)
+        // Adjust origin to keep top-left corner fixed (since macOS origin is bottom-left)
+        frame.origin.y += oldHeight - height
+        window.setFrame(frame, display: true, animate: true)
+    }
+
     /// Closes the mirror window for the specified pane target (programmatic close, not user-initiated)
     public func closeMirror(for target: String) {
         guard let window = openWindows[target] else { return }

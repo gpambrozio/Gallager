@@ -64,6 +64,13 @@ struct MirrorWindowView: View {
         .onChange(of: settings.theme) { _, newValue in
             terminalController.applyTheme(newValue)
         }
+        .onChange(of: tmuxService.panes) { _, newPanes in
+            // Check if our pane's dimensions changed during global refresh
+            guard let updatedPane = newPanes.first(where: { $0.id == paneInfo.id }),
+                  let stream = paneStream else { return }
+            // updateDimensions will trigger onDimensionChange callback if dimensions changed
+            stream.updateDimensions(width: updatedPane.width, height: updatedPane.height)
+        }
     }
 
     // MARK: - Subviews
@@ -188,6 +195,16 @@ struct MirrorWindowView: View {
         // Set up data handler
         stream.onData = { data in
             terminalController.feed(data)
+        }
+
+        // Set up dimension change handler
+        stream.onDimensionChange = { [weak windowManager, weak terminalController] newWidth, newHeight in
+            // Safety check: don't resize if terminal is being torn down
+            guard let terminalController else { return }
+            // Resize the terminal to match new pane dimensions
+            terminalController.resize(columns: newWidth, rows: newHeight)
+            // Resize the window to match
+            windowManager?.resizeWindow(target: paneInfo.target, columns: newWidth, rows: newHeight)
         }
 
         do {

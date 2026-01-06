@@ -14,6 +14,9 @@ struct TmuxPaneMirrorApp: App {
     private let hookServer = HookServerService()
 
     init() {
+        // Disable macOS automatic window restoration to prevent duplicate windows on launch
+        UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
+
         let initialSettings = AppSettings()
         self._settings = State(initialValue: initialSettings)
 
