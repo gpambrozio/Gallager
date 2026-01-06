@@ -9,7 +9,7 @@ services:
       - PAIRING_CODE_EXPIRY_SECONDS=${PAIRING_CODE_EXPIRY_SECONDS:-300}
       - DATA_DIRECTORY=/data
     volumes:
-      - relay-data:/data
+      - ./data:/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
@@ -17,6 +17,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-
-volumes:
-  relay-data:
