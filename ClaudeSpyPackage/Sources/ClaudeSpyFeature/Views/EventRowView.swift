@@ -42,31 +42,31 @@ struct EventRowView: View {
     // MARK: - Event Display Properties
 
     private var eventIcon: some View {
-        Image(systemName: iconName)
+        icon.image
             .font(.system(size: 14, weight: .medium))
             .foregroundStyle(iconColor)
     }
 
-    private var iconName: String {
+    private var icon: Symbols {
         switch event.action {
         case .sessionStart:
-            "play.fill"
+            .playFill
         case .sessionEnd:
-            "stop.fill"
+            .stopFill
         case .preToolUse, .postToolUse:
-            "wrench.and.screwdriver"
+            .wrenchAndScrewdriver
         case .permissionRequest:
-            "lock.fill"
+            .lockFill
         case .notification:
-            "bell.fill"
+            .bellFill
         case .userPromptSubmit:
-            "text.bubble.fill"
+            .textBubbleFill
         case .stop, .subagentStop:
-            "stop.circle.fill"
+            .stopCircleFill
         case .preCompact:
-            "arrow.down.right.and.arrow.up.left"
+            .arrowDownRightAndArrowUpLeft
         case .unknown:
-            "questionmark"
+            .questionmark
         }
     }
 

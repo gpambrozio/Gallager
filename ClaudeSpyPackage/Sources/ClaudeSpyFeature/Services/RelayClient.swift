@@ -33,15 +33,6 @@ public final class RelayClient: Sendable {
             case let .error(message): "Error: \(message)"
             }
         }
-
-        public var statusIcon: String {
-            switch self {
-            case .disconnected: "wifi.slash"
-            case .connecting, .reconnecting: "wifi"
-            case .connected: "checkmark.circle.fill"
-            case .error: "exclamationmark.triangle"
-            }
-        }
     }
 
     // MARK: - Properties

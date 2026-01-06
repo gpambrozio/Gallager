@@ -101,7 +101,7 @@ struct PairingView: View {
 
     private var headerSection: some View {
         VStack(spacing: 16) {
-            Image(systemName: "link.circle.fill")
+            Symbols.linkCircleFill.image
                 .font(.system(size: 64))
                 .foregroundStyle(.blue)
 

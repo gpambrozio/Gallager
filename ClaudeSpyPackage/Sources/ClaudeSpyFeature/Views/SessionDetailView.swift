@@ -88,7 +88,7 @@ struct SessionDetailView: View {
                 showingCancelConfirmation = true
             } label: {
                 VStack(spacing: 8) {
-                    Image(systemName: "stop.fill")
+                    Symbols.stopFill.image
                         .font(.title2)
                     Text("Cancel")
                         .font(.caption)
@@ -107,7 +107,7 @@ struct SessionDetailView: View {
                 }
             } label: {
                 VStack(spacing: 8) {
-                    Image(systemName: "checkmark.circle.fill")
+                    Symbols.checkmarkCircleFill.image
                         .font(.title2)
                     Text("Accept")
                         .font(.caption)
@@ -126,7 +126,7 @@ struct SessionDetailView: View {
                 }
             } label: {
                 VStack(spacing: 8) {
-                    Image(systemName: "xmark.circle.fill")
+                    Symbols.xmarkCircleFill.image
                         .font(.title2)
                     Text("Reject")
                         .font(.caption)
@@ -144,7 +144,7 @@ struct SessionDetailView: View {
 
     private func commandResultView(_ result: CommandResult) -> some View {
         HStack {
-            Image(systemName: result.success ? "checkmark.circle" : "xmark.circle")
+            (result.success ? Symbols.checkmarkCircle : Symbols.xmarkCircle).image
             Text(result.message)
         }
         .font(.caption)

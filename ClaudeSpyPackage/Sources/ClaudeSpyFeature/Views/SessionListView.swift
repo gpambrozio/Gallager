@@ -56,7 +56,7 @@ struct SessionListView: View {
 
     private var emptyStateView: some View {
         ContentUnavailableView {
-            Label("No Sessions", systemImage: "terminal")
+            Label("No Sessions", symbol: .terminal)
         } description: {
             if relayClient.isMacConnected {
                 Text("No active Claude Code sessions on your Mac")

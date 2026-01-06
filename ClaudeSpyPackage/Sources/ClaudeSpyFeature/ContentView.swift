@@ -112,7 +112,7 @@ struct MainView: View {
                 SessionListView()
             }
             .tabItem {
-                Label("Sessions", systemImage: "terminal")
+                Label("Sessions", symbol: .terminal)
             }
             .tag(Tab.sessions)
 
@@ -120,7 +120,7 @@ struct MainView: View {
                 SettingsView()
             }
             .tabItem {
-                Label("Settings", systemImage: "gearshape")
+                Label("Settings", symbol: .gearshape)
             }
             .tag(Tab.settings)
         }
