@@ -116,11 +116,21 @@ struct SessionRowView: View {
     let session: ClaudeSession
     let isActive: Bool
 
+    private var indicatorColor: Color {
+        if session.latestEvent?.wouldTriggerNotification == true {
+            return .red
+        } else if isActive {
+            return .green
+        } else {
+            return .gray.opacity(0.3)
+        }
+    }
+
     var body: some View {
         HStack(spacing: 12) {
-            // Activity indicator
+            // Activity indicator - red for notification, green for active, gray for inactive
             Circle()
-                .fill(isActive ? Color.green : Color.gray.opacity(0.3))
+                .fill(indicatorColor)
                 .frame(width: 10, height: 10)
 
             VStack(alignment: .leading, spacing: 4) {

@@ -29,3 +29,10 @@ public extension HookEventMessage {
         return (title, body)
     }
 }
+
+public extension HookEvent {
+    /// Whether this event would trigger a notification
+    var wouldTriggerNotification: Bool {
+        HookEventMessage(pairId: "", event: self).buildNotification() != nil
+    }
+}
