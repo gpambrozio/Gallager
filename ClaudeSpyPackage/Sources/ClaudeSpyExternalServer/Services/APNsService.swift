@@ -1,11 +1,11 @@
-import APNS
-import APNSCore
+@preconcurrency import APNS
+@preconcurrency import APNSCore
 import ClaudeSpyNetworking
 import Foundation
 import Logging
 import NIOCore
 import NIOPosix
-import VaporAPNS
+@preconcurrency import VaporAPNS
 
 /// Sends push notifications to iOS devices via APNs
 actor APNsService {
