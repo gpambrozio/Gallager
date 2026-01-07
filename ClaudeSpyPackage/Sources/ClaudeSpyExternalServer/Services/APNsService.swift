@@ -108,7 +108,7 @@ actor APNsService {
         }
 
         do {
-            try await client.sendAlertNotification(
+            _ = try await client.sendAlertNotification(
                 notification,
                 deviceToken: deviceToken
             )
