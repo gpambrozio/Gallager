@@ -16,6 +16,8 @@ services:
       - APNS_KEY_ID=${APNS_KEY_ID:-}
       - APNS_TEAM_ID=${APNS_TEAM_ID:-}
       - APNS_BUNDLE_ID=${APNS_BUNDLE_ID:-}
+      # APNs environment: "development" for Xcode builds, "production" for App Store/TestFlight
+      - APNS_ENVIRONMENT=${APNS_ENVIRONMENT:-development}
     volumes:
       - ./data:/data
       # Mount secrets directory for APNs key (read-only)
