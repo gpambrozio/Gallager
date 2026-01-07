@@ -11,13 +11,16 @@ import UserNotifications
 /// - Shows pairing view if not paired
 /// - Shows main session view once paired
 /// - Handles WebSocket connection lifecycle
+/// - Manages background task to keep connection alive when backgrounded
 public struct ContentView: View {
     @State private var settings = IOSSettings.shared
     @State private var relayClient = RelayClient()
     @State private var sessionStore = SessionStore()
 
     #if os(iOS)
+    @Environment(\.scenePhase) private var scenePhase
     @State private var pushService = PushNotificationService.shared
+    @State private var backgroundTaskService = BackgroundTaskService.shared
     #endif
 
     public init() {}
@@ -39,7 +42,37 @@ public struct ContentView: View {
             setupRelayClientHandlers()
             await autoConnectIfNeeded()
         }
+        #if os(iOS)
+        .onChange(of: scenePhase) { _, newPhase in
+            handleScenePhaseChange(newPhase)
+        }
+        #endif
     }
+
+    #if os(iOS)
+    /// Handle scene phase changes to manage background task lifecycle.
+    ///
+    /// When the app enters the background, we start a background task to keep
+    /// the WebSocket connection alive for ~30 seconds. This allows receiving
+    /// any pending events before iOS suspends the app.
+    private func handleScenePhaseChange(_ phase: ScenePhase) {
+        switch phase {
+        case .background:
+            // Only start background task if we're connected
+            if relayClient.state.isConnected {
+                backgroundTaskService.startBackgroundTask()
+            }
+        case .active:
+            // End background task when returning to foreground
+            backgroundTaskService.endBackgroundTask()
+        case .inactive:
+            // Transitional state - no action needed
+            break
+        @unknown default:
+            break
+        }
+    }
+    #endif
 
     // MARK: - Setup
 

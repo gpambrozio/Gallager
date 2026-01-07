@@ -45,6 +45,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		8120FD262F0ED3B000BA9B94 /* Exceptions for "ClaudeSpy" folder in "ClaudeSpy" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 8B41F6442DEDD0D5001A66F9 /* ClaudeSpy */;
+		};
 		8BD71C0A2DEE41E000CEDD92 /* Exceptions for "Config" folder in "ClaudeSpy" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -75,6 +82,9 @@
 		};
 		8B41F6472DEDD0D5001A66F9 /* ClaudeSpy */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				8120FD262F0ED3B000BA9B94 /* Exceptions for "ClaudeSpy" folder in "ClaudeSpy" target */,
+			);
 			path = ClaudeSpy;
 			sourceTree = "<group>";
 		};
@@ -730,6 +740,7 @@
 				DEVELOPMENT_TEAM = XG2WG7U93U;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ClaudeSpy/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = ClaudeSpy;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -757,6 +768,7 @@
 				DEVELOPMENT_TEAM = XG2WG7U93U;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ClaudeSpy/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = ClaudeSpy;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
