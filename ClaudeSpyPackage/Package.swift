@@ -98,6 +98,10 @@ let package = Package(
                 .claudeSpyNetworking,
                 .vapor,
                 .vaporAPNS,
+            ],
+            swiftSettings: [
+                // Match Docker build flags to catch issues locally before deployment
+                .unsafeFlags(["-cross-module-optimization"], .when(configuration: .release)),
             ]
         ),
         .testTarget(
