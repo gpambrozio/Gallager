@@ -80,8 +80,13 @@ public struct ContentView: View {
             deviceName: settings.deviceName
         )
 
-        // Send push token if we have one and are now connected
         #if os(iOS)
+        // Request push permissions if not already authorized
+        if pushService.permissionStatus != .authorized {
+            await requestPushNotificationPermissions()
+        }
+
+        // Send push token if we have one and are now connected
         if let token = pushService.tokenString, relayClient.state.isConnected {
             await relayClient.sendPushToken(token)
         }
