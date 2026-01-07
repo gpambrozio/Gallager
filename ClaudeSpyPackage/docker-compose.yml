@@ -4,6 +4,8 @@ services:
     container_name: claudespy-relay
     ports:
       - "8080:8080"
+    env_file:
+      - .env
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - PAIRING_CODE_EXPIRY_SECONDS=${PAIRING_CODE_EXPIRY_SECONDS:-300}
