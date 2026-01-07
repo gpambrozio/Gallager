@@ -13,12 +13,9 @@ public extension HookEventMessage {
         case .sessionStart:
             title = "Session Started"
             body = "\(projectName): Claude Code session started"
-        case .sessionEnd:
-            title = "Session Ended"
-            body = "\(projectName): Claude Code session completed"
         case .stop:
-            title = "Session Stopped"
-            body = "\(projectName): Claude Code was stopped"
+            title = "Session Idle"
+            body = "\(projectName): Claude Code is waiting for your input"
         case let .notification(notifBody):
             if let message = notifBody.message {
                 title = "Notification"
