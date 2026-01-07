@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.4
+
 # Build stage
 FROM swift:6.0-jammy AS builder
 
@@ -23,17 +25,21 @@ COPY Sources ./Sources
 RUN mkdir -p Tests/ClaudeSpyNetworkingTests Tests/ClaudeSpyCommonTests Tests/ClaudeSpyFeatureTests Tests/ClaudeSpyServerFeatureTests Tests/ClaudeSpyExternalServerTests && \
     touch Tests/ClaudeSpyNetworkingTests/.gitkeep Tests/ClaudeSpyCommonTests/.gitkeep Tests/ClaudeSpyFeatureTests/.gitkeep Tests/ClaudeSpyServerFeatureTests/.gitkeep Tests/ClaudeSpyExternalServerTests/.gitkeep
 
-# Step 6: Build release binary (--product links the executable, --target only compiles)
-RUN swift build -c release --product ClaudeSpyExternalServer \
-    -Xswiftc -cross-module-optimization
+# Step 6: Build release binary with BuildKit cache mount for incremental builds
+# The cache mount persists .build across builds but isn't included in the layer,
+# so we copy the binary to /tmp/ within the same RUN instruction
+RUN --mount=type=cache,target=/build/.build \
+    swift build -c release --product ClaudeSpyExternalServer \
+    -Xswiftc -cross-module-optimization && \
+    cp .build/release/ClaudeSpyExternalServer /tmp/
 
 # Runtime stage - use slim image
 FROM swift:6.0-jammy-slim
 
 WORKDIR /app
 
-# Copy the built binary
-COPY --from=builder /build/.build/release/ClaudeSpyExternalServer ./
+# Copy the built binary (from /tmp/ where we placed it after build due to cache mount)
+COPY --from=builder /tmp/ClaudeSpyExternalServer ./
 
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash appuser && \

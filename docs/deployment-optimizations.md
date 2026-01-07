@@ -32,9 +32,9 @@ This ensures dependency resolution (~3 minutes) is cached for code-only changes.
 
 ## Potential Further Improvements
 
-### 1. BuildKit Cache Mounts (Medium Effort, High Impact)
+### ~~1. BuildKit Cache Mounts (Medium Effort, High Impact)~~ ✅ IMPLEMENTED
 
-Use BuildKit's cache mounts to persist Swift build artifacts across builds:
+~~Use BuildKit's cache mounts to persist Swift build artifacts across builds:~~
 
 ```dockerfile
 # syntax=docker/dockerfile:1.4
@@ -45,9 +45,11 @@ RUN --mount=type=cache,target=/build/.build \
     cp .build/release/ClaudeSpyExternalServer /tmp/
 ```
 
-Enable with: `DOCKER_BUILDKIT=1 docker compose build`
+~~Enable with: `DOCKER_BUILDKIT=1 docker compose build`~~
 
 **Expected improvement:** Incremental compilation for code changes could reduce build time from ~8-10 minutes to ~2-3 minutes.
+
+**Status:** Implemented in Dockerfile and deploy.sh. BuildKit is now enabled by default.
 
 ### 2. Pre-built Dependencies Image (High Effort, Very High Impact)
 
@@ -153,6 +155,6 @@ echo "Deployment completed in ${SECONDS} seconds"
 
 ## Priority Recommendations
 
-1. **Quick wins:** Already implemented (layer caching)
-2. **Next step:** BuildKit cache mounts for incremental builds
+1. **Quick wins:** ✅ Already implemented (layer caching)
+2. **Next step:** ✅ BuildKit cache mounts for incremental builds (DONE)
 3. **Long term:** Pre-built dependencies image + remote cache

@@ -80,9 +80,9 @@ deploy() {
     ssh -T -o LogLevel=ERROR "$REMOTE_HOST" << REMOTE_SCRIPT 2>&1 | grep -v -E '(^Welcome to|Documentation:|Management:|Support:|System (information|load)|Usage of|Memory usage|Swap usage|Processes:|Users logged|IPv[46] address|Expanded Security|update.*applied|additional updates|additional security|Learn more about|^$|^\s*$|ubuntu\.com|help\.ubuntu)'
         cd $REMOTE_DIR
 
-        # Build the image with filtered output (show progress without compilation spam)
-        echo "Building Docker image..."
-        docker compose build --progress=plain 2>&1 | grep -E '(^#[0-9]+ \[|CACHED|DONE|ERROR|error:|Build of product|exporting to image|naming to)' | head -50
+        # Build the image with BuildKit enabled for cache mounts (incremental Swift builds)
+        echo "Building Docker image with BuildKit..."
+        DOCKER_BUILDKIT=1 docker compose build --progress=plain 2>&1 | grep -E '(^#[0-9]+ \[|CACHED|DONE|ERROR|error:|Build of product|exporting to image|naming to)' | head -50
 
         # Stop existing container if running
         docker compose down 2>/dev/null || true
