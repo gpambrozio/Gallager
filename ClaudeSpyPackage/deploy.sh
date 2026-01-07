@@ -35,8 +35,38 @@ check_prerequisites() {
     fi
 }
 
+# Pre-deploy checks: compile and test locally before deploying
+pre_deploy_checks() {
+    info "Running pre-deploy checks..."
+
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+    # Build in release mode to catch cross-module optimization issues
+    info "Building server in release mode..."
+    if ! swift build -c release --product ClaudeSpyExternalServer --package-path "$SCRIPT_DIR" 2>&1; then
+        error "Release build failed! Fix compilation errors before deploying."
+        exit 1
+    fi
+    info "Release build successful."
+
+    # Run server tests
+    info "Running server tests..."
+    if ! swift test --package-path "$SCRIPT_DIR" --filter ClaudeSpyExternalServerTests 2>&1; then
+        error "Server tests failed! Fix test failures before deploying."
+        exit 1
+    fi
+    info "All tests passed."
+
+    echo ""
+    info "Pre-deploy checks completed successfully."
+    echo ""
+}
+
 # Main deployment
 deploy() {
+    # Run pre-deploy checks first
+    pre_deploy_checks
+
     info "Starting ClaudeSpy relay server deployment..."
 
     # Get server IP
