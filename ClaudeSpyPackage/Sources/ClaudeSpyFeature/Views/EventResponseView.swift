@@ -10,38 +10,24 @@ typealias CommandSender = @MainActor (CommandType) async -> Void
 
 extension HookEvent {
     /// Returns a contextual response view based on the event type, or nil if no response UI is needed.
-    @MainActor @ViewBuilder
+    @MainActor
     func responseView(
         isConnected: Bool,
         sendCommand: @escaping CommandSender
-    ) -> some View {
+    ) -> AnyView? {
         switch action {
         case .sessionStart, .stop:
-            PromptView(isConnected: isConnected, sendCommand: sendCommand)
+            AnyView(PromptView(isConnected: isConnected, sendCommand: sendCommand))
         case let .notification(body) where body.notificationType == "idle_prompt":
-            PromptView(isConnected: isConnected, sendCommand: sendCommand)
+            AnyView(PromptView(isConnected: isConnected, sendCommand: sendCommand))
         case let .permissionRequest(body):
-            PermissionRequestResponseView(
+            AnyView(PermissionRequestResponseView(
                 request: body,
                 isConnected: isConnected,
                 sendCommand: sendCommand
-            )
+            ))
         default:
-            EmptyView()
-        }
-    }
-
-    /// Whether this event type has a response view
-    var hasResponseView: Bool {
-        switch action {
-        case .sessionStart, .stop:
-            true
-        case let .notification(body):
-            body.notificationType == "idle_prompt"
-        case .permissionRequest:
-            true
-        default:
-            false
+            nil
         }
     }
 }

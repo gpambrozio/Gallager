@@ -31,12 +31,13 @@ struct SessionDetailView: View {
             }
 
             // Context-sensitive response section based on latest event
-            if let latestEvent = session.latestEvent, latestEvent.hasResponseView {
+            if let latestEvent = session.latestEvent,
+               let responseView = latestEvent.responseView(
+                   isConnected: relayClient.isMacConnected,
+                   sendCommand: sendCommand
+               ) {
                 Section("Response") {
-                    latestEvent.responseView(
-                        isConnected: relayClient.isMacConnected,
-                        sendCommand: sendCommand
-                    )
+                    responseView
                 }
             }
 
