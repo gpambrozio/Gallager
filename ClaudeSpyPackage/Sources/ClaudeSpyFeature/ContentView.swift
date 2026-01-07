@@ -1,4 +1,5 @@
 import ClaudeSpyCommon
+import ClaudeSpyNetworking
 import SwiftUI
 
 #if os(iOS)
@@ -80,6 +81,20 @@ public struct ContentView: View {
         relayClient.onHookEvent = { [sessionStore] event in
             Task { @MainActor in
                 sessionStore.handleEvent(event)
+
+                #if os(iOS)
+                // If app is backgrounded, show a local notification.
+                // The server won't send a push since we're "connected" via WebSocket,
+                // but the user can't see the app, so we need to alert them.
+                if scenePhase != .active {
+                    if let notification = event.buildNotification() {
+                        PushNotificationService.shared.scheduleLocalNotification(
+                            title: notification.title,
+                            body: notification.body
+                        )
+                    }
+                }
+                #endif
             }
         }
 
