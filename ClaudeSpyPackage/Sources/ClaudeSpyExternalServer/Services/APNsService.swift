@@ -152,7 +152,8 @@ actor APNsService {
             expiration: .immediately,
             priority: .immediately,
             topic: bundleId,
-            payload: payload
+            payload: payload,
+            badge: 1
         )
     }
 

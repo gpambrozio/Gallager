@@ -5,10 +5,16 @@ import UIKit
 @main
 struct ClaudeSpyApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             ContentView()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                PushNotificationService.shared.clearBadge()
+            }
         }
     }
 }

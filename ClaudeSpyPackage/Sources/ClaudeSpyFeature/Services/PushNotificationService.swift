@@ -77,6 +77,11 @@ public final class PushNotificationService: NSObject, Sendable {
         tokenString = nil
     }
 
+    /// Clear the app badge
+    public func clearBadge() {
+        UNUserNotificationCenter.current().setBadgeCount(0)
+    }
+
     // MARK: - Local Notifications
 
     /// Schedule a local notification immediately.
@@ -89,6 +94,7 @@ public final class PushNotificationService: NSObject, Sendable {
         content.title = title
         content.body = body
         content.sound = .default
+        content.badge = 1
 
         // Trigger immediately
         let request = UNNotificationRequest(
