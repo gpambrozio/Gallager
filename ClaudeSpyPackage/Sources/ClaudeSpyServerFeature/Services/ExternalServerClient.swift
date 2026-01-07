@@ -432,10 +432,16 @@ public final class ExternalServerClient: Sendable {
             let delay = min(60, Int(pow(2.0, Double(reconnectionAttempt - 1))))
             logger.info("Reconnecting in \(delay) seconds (attempt \(reconnectionAttempt))")
 
-            try? await Task.sleep(for: .seconds(delay))
+            // Spawn reconnection in a new task - the current task was cancelled by cleanupConnection()
+            // so we need a fresh task that won't have Task.isCancelled == true
+            Task { @MainActor [weak self] in
+                guard let self else { return }
 
-            if shouldReconnect, !Task.isCancelled {
-                await performConnect()
+                try? await Task.sleep(for: .seconds(delay))
+
+                if self.shouldReconnect {
+                    await self.performConnect()
+                }
             }
         } else if shouldReconnect {
             logger.error("Max reconnection attempts reached")
