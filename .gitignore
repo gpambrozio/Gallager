@@ -67,3 +67,4 @@ fastlane/test_output
 logs/
 default.profraw
 ClaudeSpyPackage/pairs.json
+ClaudeSpyPackage/secrets/
