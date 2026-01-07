@@ -130,8 +130,8 @@ public final class PairingManager: Sendable {
     // MARK: - Private Methods
 
     private func generateCode() -> String {
-        // Generate 6-character alphanumeric code (uppercase for readability)
-        let characters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // Excluded confusing chars: I, O, 0, 1
+        // Generate 6-character letter-only code (uppercase, excludes confusing I and O)
+        let characters = "ABCDEFGHJKLMNPQRSTUVWXYZ"
         return String((0 ..< 6).map { _ in characters.randomElement()! })
     }
 

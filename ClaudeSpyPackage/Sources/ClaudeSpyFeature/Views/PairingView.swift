@@ -27,25 +27,35 @@ struct PairingView: View {
     #if os(iOS)
     private var iOSBody: some View {
         NavigationStack {
-            VStack(spacing: 32) {
-                headerSection
+            ScrollView {
+                VStack(spacing: 24) {
+                    compactHeaderSection
 
-                codeInputSection
+                    codeInputSection
 
-                if let error = errorMessage {
-                    errorSection(error)
+                    if isLoading {
+                        ProgressView("Pairing...")
+                    }
+
+                    if let error = errorMessage {
+                        errorSection(error)
+                    }
+
+                    instructionsSection
                 }
-
-                pairButton
-
-                Spacer()
-
-                instructionsSection
+                .padding()
             }
-            .padding()
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Pair with Mac")
             .navigationBarTitleDisplayMode(.large)
         }
+    }
+
+    private var compactHeaderSection: some View {
+        Text("Enter the 6-character pairing code shown in the ClaudeSpy Mac app")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
     }
     #endif
 
@@ -85,7 +95,7 @@ struct PairingView: View {
                 .onChange(of: pairingCode) { _, newValue in
                     let filtered = newValue
                         .uppercased()
-                        .filter { $0.isLetter || $0.isNumber }
+                        .filter { $0.isLetter }
                         .prefix(codeLength)
                     pairingCode = String(filtered)
 
@@ -135,16 +145,23 @@ struct PairingView: View {
                 .frame(width: 1, height: 1)
                 .opacity(0.01)
                 .onChange(of: pairingCode) { _, newValue in
-                    // Filter to alphanumeric and limit length
+                    // Filter to letters only and limit length
                     let filtered = newValue
                         .uppercased()
-                        .filter { $0.isLetter || $0.isNumber }
+                        .filter { $0.isLetter }
                         .prefix(codeLength)
                     pairingCode = String(filtered)
 
                     // Clear error when typing
                     if errorMessage != nil {
                         errorMessage = nil
+                    }
+
+                    // Auto-pair when code is complete
+                    if pairingCode.count == codeLength, !isLoading {
+                        Task {
+                            await performPairing()
+                        }
                     }
                 }
         }
@@ -209,7 +226,7 @@ struct PairingView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 50)
+            .frame(height: 40)
         }
         .buttonStyle(.borderedProminent)
         .disabled(pairingCode.count != codeLength || isLoading)
@@ -266,9 +283,11 @@ struct PairingView: View {
                 onPaired?(pairId, response.partnerDeviceName)
             } else {
                 errorMessage = response.error ?? "Pairing failed"
+                pairingCode = ""
             }
         } catch {
             errorMessage = "Network error: \(error.localizedDescription)"
+            pairingCode = ""
         }
 
         isLoading = false
