@@ -138,6 +138,48 @@ The external server runs in Docker on Hetzner with Caddy for TLS:
 
 See `docs/distributed-architecture-plan.md` for full technical details.
 
+### Push Notifications
+
+Push notifications alert iOS users when Claude Code events occur and the iOS app is not connected via WebSocket.
+
+**Architecture:**
+- **APNs (Apple Push Notification service)** - Apple's push delivery infrastructure
+- **Token-based authentication** - Uses `.p8` key file from Apple Developer Portal
+- **VaporAPNS** - Server-side library for sending notifications
+
+**Flow:**
+1. iOS app requests notification permission on first launch/pairing
+2. iOS receives device token from APNs and sends to server via WebSocket (`registerPushToken`)
+3. Server stores token in `PushTokenStore` (persisted to `push-tokens.json`)
+4. When Mac sends hook event and iOS is **disconnected**, server sends push via `APNsService`
+5. iOS displays notification with event summary
+
+**Events that trigger push notifications:**
+- `sessionStart` - "Session Started"
+- `sessionEnd` - "Session Ended"
+- `permissionRequest` - "Permission Required"
+- `stop` - "Session Stopped"
+- `notification` (with message) - Custom notification
+
+**Configuration** (in `.env`):
+```bash
+APNS_KEY_PATH=/secrets/AuthKey.p8   # Path to .p8 key file
+APNS_KEY_ID=XXXXXXXXXX              # 10-char key ID from Apple
+APNS_TEAM_ID=XXXXXXXXXX             # 10-char team ID
+APNS_BUNDLE_ID=com.example.app      # iOS app bundle ID
+APNS_ENVIRONMENT=development        # "development" for Xcode, "production" for App Store
+```
+
+**Key files:**
+- `ClaudeSpyExternalServer/Services/APNsService.swift` - Sends push notifications
+- `ClaudeSpyExternalServer/Services/PushTokenStore.swift` - Persists device tokens
+- `ClaudeSpyFeature/Services/PushNotificationService.swift` - iOS permission/token handling
+- `Config/ClaudeSpy.entitlements` - Contains `aps-environment` entitlement
+
+**Important:** APNs environment must match iOS build type:
+- Xcode builds (development signing) → `APNS_ENVIRONMENT=development`
+- App Store/TestFlight → `APNS_ENVIRONMENT=production`
+
 # Code Quality & Style Guidelines
 
 ## Swift Style & Conventions
