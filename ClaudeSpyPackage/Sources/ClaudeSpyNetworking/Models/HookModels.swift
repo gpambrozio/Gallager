@@ -341,7 +341,7 @@ public struct StopBody: HookBodyProtocol {
     public let hookEventName: String
     public let timestamp: String?
     public let stopHookActive: Bool?
-    public var shouldSendToServer: Bool { false }
+    public var shouldSendToServer: Bool { true }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"

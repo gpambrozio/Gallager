@@ -16,8 +16,10 @@ extension HookEvent {
         sendCommand: @escaping CommandSender
     ) -> some View {
         switch action {
+        case .sessionStart, .stop:
+            PromptView(isConnected: isConnected, sendCommand: sendCommand)
         case let .notification(body) where body.notificationType == "idle_prompt":
-            IdleEventResponseView(isConnected: isConnected, sendCommand: sendCommand)
+            PromptView(isConnected: isConnected, sendCommand: sendCommand)
         case let .permissionRequest(body):
             PermissionRequestResponseView(
                 request: body,
@@ -32,6 +34,8 @@ extension HookEvent {
     /// Whether this event type has a response view
     var hasResponseView: Bool {
         switch action {
+        case .sessionStart, .stop:
+            true
         case let .notification(body):
             body.notificationType == "idle_prompt"
         case .permissionRequest:
@@ -42,10 +46,10 @@ extension HookEvent {
     }
 }
 
-// MARK: - Idle Event Response View
+// MARK: - Prompt View
 
-/// Text input view shown when Claude is idle, allowing the user to send a prompt.
-struct IdleEventResponseView: View {
+/// Text input view for sending messages to Claude.
+struct PromptView: View {
     let isConnected: Bool
     let sendCommand: CommandSender
 
@@ -144,7 +148,7 @@ struct PermissionRequestResponseView: View {
         if didRespond {
             EmptyView()
         } else if didReject {
-            IdleEventResponseView(isConnected: isConnected, sendCommand: sendCommand)
+            PromptView(isConnected: isConnected, sendCommand: sendCommand)
         } else {
             permissionContent
         }
@@ -320,10 +324,10 @@ struct PermissionRequestResponseView: View {
     }
 }
 
-#Preview("Idle Event") {
+#Preview("Prompt View") {
     List {
         Section("Response") {
-            IdleEventResponseView(
+            PromptView(
                 isConnected: true,
                 sendCommand: { _ in }
             )
