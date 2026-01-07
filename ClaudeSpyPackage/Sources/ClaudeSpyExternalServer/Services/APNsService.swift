@@ -133,43 +133,17 @@ actor APNsService {
 
     /// Build notification content based on event type
     private func buildNotification(for eventMessage: HookEventMessage) -> APNSAlertNotification<ClaudeSpyPayload>? {
-        let event = eventMessage.event
-        let projectName = eventMessage.projectName ?? "Claude Code"
-
-        let title: String
-        let body: String
-
-        switch event.action {
-        case .permissionRequest:
-            title = "Permission Required"
-            body = "\(projectName): Claude needs your approval"
-        case .sessionStart:
-            title = "Session Started"
-            body = "\(projectName): Claude Code session started"
-        case .sessionEnd:
-            title = "Session Ended"
-            body = "\(projectName): Claude Code session completed"
-        case .stop:
-            title = "Session Stopped"
-            body = "\(projectName): Claude Code was stopped"
-        case let .notification(notifBody):
-            if let message = notifBody.message {
-                title = "Notification"
-                body = "\(projectName): \(message)"
-            } else {
-                return nil
-            }
-        default:
+        guard let notification = eventMessage.buildNotification() else {
             return nil
         }
-
+    
         let alert = APNSAlertNotificationContent(
-            title: .raw(title),
-            body: .raw(body)
+            title: .raw(notification.title),
+            body: .raw(notification.body)
         )
 
         let payload = ClaudeSpyPayload(
-            eventType: event.action.eventName,
+            eventType: eventMessage.event.action.eventName,
             pairId: eventMessage.pairId
         )
 
