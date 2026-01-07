@@ -108,6 +108,40 @@ struct PromptView: View {
     }
 }
 
+// MARK: - Permission Response Type
+
+/// Represents the user's response to a permission request
+enum PermissionResponse {
+    case accepted
+    case acceptedWithSuggestion
+    case rejected
+    case customInstructions(String)
+
+    var feedbackMessage: String {
+        switch self {
+        case .accepted:
+            "Permission accepted"
+        case .acceptedWithSuggestion:
+            "Permission accepted with suggestion"
+        case .rejected:
+            "Permission rejected"
+        case let .customInstructions(text):
+            "Sent: \(text)"
+        }
+    }
+
+    var feedbackColor: Color {
+        switch self {
+        case .accepted, .acceptedWithSuggestion:
+            .green
+        case .rejected:
+            .red
+        case .customInstructions:
+            .blue
+        }
+    }
+}
+
 // MARK: - Permission Request Response View
 
 /// Accept/Reject buttons with permission suggestions for permission requests.
@@ -118,8 +152,7 @@ struct PermissionRequestResponseView: View {
 
     @State private var isSending = false
     @State private var customInstructions = ""
-    @State private var didReject = false
-    @State private var didRespond = false
+    @State private var response: PermissionResponse?
     @FocusState private var isTextFieldFocused: Bool
 
     private var suggestions: [PermissionSuggestion] {
@@ -131,13 +164,31 @@ struct PermissionRequestResponseView: View {
     }
 
     var body: some View {
-        if didRespond {
-            EmptyView()
-        } else if didReject {
-            PromptView(isConnected: isConnected, sendCommand: sendCommand)
+        if let response {
+            if case .rejected = response {
+                VStack(spacing: 12) {
+                    responseFeedback(response)
+                    PromptView(isConnected: isConnected, sendCommand: sendCommand)
+                }
+            } else {
+                responseFeedback(response)
+            }
         } else {
             permissionContent
         }
+    }
+
+    private func responseFeedback(_ response: PermissionResponse) -> some View {
+        HStack {
+            Image(systemName: response.feedbackColor == .green ? "checkmark.circle.fill" :
+                             response.feedbackColor == .red ? "xmark.circle.fill" : "arrow.up.circle.fill")
+                .foregroundStyle(response.feedbackColor)
+            Text(response.feedbackMessage)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .font(.subheadline)
+        .padding(.vertical, 4)
     }
 
     private var permissionContent: some View {
@@ -157,8 +208,8 @@ struct PermissionRequestResponseView: View {
             // Accept button
             Button {
                 Task {
-                    await sendResponse(.sendKeystroke([.text("1")]))
-                    didRespond = true
+                    await sendCommand(.sendKeystroke([.text("1")]))
+                    response = .accepted
                 }
             } label: {
                 Label("Accept", symbol: .checkmarkCircleFill)
@@ -177,8 +228,8 @@ struct PermissionRequestResponseView: View {
             // Reject button
             Button {
                 Task {
-                    await sendResponse(.sendKeystroke([.escape]))
-                    didReject = true
+                    await sendCommand(.sendKeystroke([.escape]))
+                    response = .rejected
                 }
             } label: {
                 Label("Reject", symbol: .xmarkCircleFill)
@@ -228,8 +279,8 @@ struct PermissionRequestResponseView: View {
         Button {
             Task {
                 // Send "2" to select the first suggestion option
-                await sendResponse(.sendKeystroke([.text("2")]))
-                didRespond = true
+                await sendCommand(.sendKeystroke([.text("2")]))
+                response = .acceptedWithSuggestion
             }
         } label: {
             VStack(alignment: .leading, spacing: 4) {
@@ -291,12 +342,6 @@ struct PermissionRequestResponseView: View {
             .stroke(Color.gray.opacity(0.3), lineWidth: 1)
     }
 
-    private func sendResponse(_ command: CommandType) async {
-        isSending = true
-        await sendCommand(command)
-        isSending = false
-    }
-
     private func sendCustomInstructions() async {
         let trimmed = customInstructions.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -304,9 +349,10 @@ struct PermissionRequestResponseView: View {
         let optionNumber = suggestions.isEmpty ? 2 : 3
         isSending = true
         await sendCommand(.sendKeystroke([.text("\(optionNumber)"), .text(trimmed), .enter]))
+        let sentText = customInstructions
         customInstructions = ""
         isSending = false
-        didRespond = true
+        response = .customInstructions(sentText)
     }
 }
 
