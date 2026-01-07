@@ -8,8 +8,17 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - PAIRING_CODE_EXPIRY_SECONDS=${PAIRING_CODE_EXPIRY_SECONDS:-300}
       - DATA_DIRECTORY=/data
+      # APNs configuration - set these for push notification support
+      # Get these values from your Apple Developer account
+      - APNS_KEY_PATH=${APNS_KEY_PATH:-/secrets/AuthKey.p8}
+      - APNS_KEY_ID=${APNS_KEY_ID:-}
+      - APNS_TEAM_ID=${APNS_TEAM_ID:-}
+      - APNS_BUNDLE_ID=${APNS_BUNDLE_ID:-}
     volumes:
       - ./data:/data
+      # Mount secrets directory for APNs key (read-only)
+      # Place your AuthKey_XXXXXXXXXX.p8 file in ./secrets/AuthKey.p8
+      - ./secrets:/secrets:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]

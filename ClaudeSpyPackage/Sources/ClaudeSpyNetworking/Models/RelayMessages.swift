@@ -11,6 +11,14 @@ public struct HookEventMessage: Codable, Sendable {
         self.pairId = pairId
         self.event = event
     }
+
+    /// Project name extracted from the event's project path
+    public var projectName: String? {
+        guard let projectPath = event.projectPath, !projectPath.isEmpty else {
+            return nil
+        }
+        return URL(fileURLWithPath: projectPath).lastPathComponent
+    }
 }
 
 // MARK: - Session State
@@ -65,5 +73,28 @@ public struct PaneInfoMessage: Codable, Sendable, Identifiable {
         self.width = width
         self.height = height
         self.isActive = isActive
+    }
+}
+
+// MARK: - Push Notification Token
+
+/// Message from iOS to register a push notification token
+public struct RegisterPushTokenMessage: Codable, Sendable {
+    /// The APNs device token as a hex string
+    public let deviceToken: String
+
+    public init(deviceToken: String) {
+        self.deviceToken = deviceToken
+    }
+}
+
+/// Server response to push token registration
+public struct PushTokenRegisteredMessage: Codable, Sendable {
+    public let success: Bool
+    public let error: String?
+
+    public init(success: Bool, error: String? = nil) {
+        self.success = success
+        self.error = error
     }
 }

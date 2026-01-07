@@ -1,5 +1,9 @@
-import SwiftUI
 import ClaudeSpyCommon
+import SwiftUI
+
+#if os(iOS)
+import UserNotifications
+#endif
 
 /// Main entry point for the ClaudeSpy iOS app.
 ///
@@ -11,6 +15,10 @@ public struct ContentView: View {
     @State private var settings = IOSSettings.shared
     @State private var relayClient = RelayClient()
     @State private var sessionStore = SessionStore()
+
+    #if os(iOS)
+    @State private var pushService = PushNotificationService.shared
+    #endif
 
     public init() {}
 
@@ -71,6 +79,13 @@ public struct ContentView: View {
             deviceId: settings.deviceId,
             deviceName: settings.deviceName
         )
+
+        // Send push token if we have one and are now connected
+        #if os(iOS)
+        if let token = pushService.tokenString, relayClient.state.isConnected {
+            await relayClient.sendPushToken(token)
+        }
+        #endif
     }
 
     // MARK: - Pairing
@@ -78,7 +93,7 @@ public struct ContentView: View {
     private func handlePairingComplete(pairId: String, macName: String?) {
         settings.savePairing(pairId: pairId, macName: macName)
 
-        // Connect to relay server
+        // Connect to relay server and set up push notifications
         Task {
             guard let serverURL = URL(string: settings.externalServerURL) else { return }
 
@@ -88,8 +103,33 @@ public struct ContentView: View {
                 deviceId: settings.deviceId,
                 deviceName: settings.deviceName
             )
+
+            // Request push notification permissions after successful pairing
+            #if os(iOS)
+            await requestPushNotificationPermissions()
+            #endif
         }
     }
+
+    #if os(iOS)
+    /// Request push notification permissions and register token with server
+    private func requestPushNotificationPermissions() async {
+        do {
+            try await pushService.requestAuthorization()
+
+            // Wait a brief moment for the token to be received from APNs
+            try? await Task.sleep(for: .milliseconds(500))
+
+            // If we have a token and are connected, send it to the server
+            if let token = pushService.tokenString, relayClient.state.isConnected {
+                await relayClient.sendPushToken(token)
+            }
+        } catch {
+            // Permission denied or error - not critical, app still works without push
+            print("Push notification authorization failed: \(error)")
+        }
+    }
+    #endif
 }
 
 // MARK: - Main View

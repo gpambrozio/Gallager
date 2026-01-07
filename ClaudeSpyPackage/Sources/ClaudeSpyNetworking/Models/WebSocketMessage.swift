@@ -47,10 +47,16 @@ public enum WebSocketMessage: Codable, Sendable {
     /// iOS requests current session state from Mac
     case requestSessionState
 
+    /// iOS sends push notification token to server
+    case registerPushToken(RegisterPushTokenMessage)
+
     // MARK: - Server → iOS
 
     /// Server confirms iOS registration
     case iosRegistered(IOSRegisteredMessage)
+
+    /// Server confirms push token registration
+    case pushTokenRegistered(PushTokenRegisteredMessage)
 
     /// Server notifies iOS that Mac has connected
     case macConnected
@@ -119,7 +125,9 @@ extension WebSocketMessage {
         case iosDisconnected
         case registerIOS
         case requestSessionState
+        case registerPushToken
         case iosRegistered
+        case pushTokenRegistered
         case macConnected
         case macDisconnected
         case ping
@@ -162,9 +170,15 @@ extension WebSocketMessage {
             self = .registerIOS(payload)
         case .requestSessionState:
             self = .requestSessionState
+        case .registerPushToken:
+            let payload = try container.decode(RegisterPushTokenMessage.self, forKey: .payload)
+            self = .registerPushToken(payload)
         case .iosRegistered:
             let payload = try container.decode(IOSRegisteredMessage.self, forKey: .payload)
             self = .iosRegistered(payload)
+        case .pushTokenRegistered:
+            let payload = try container.decode(PushTokenRegisteredMessage.self, forKey: .payload)
+            self = .pushTokenRegistered(payload)
         case .macConnected:
             self = .macConnected
         case .macDisconnected:
@@ -213,8 +227,14 @@ extension WebSocketMessage {
             try container.encode(payload, forKey: .payload)
         case .requestSessionState:
             try container.encode(MessageType.requestSessionState, forKey: .type)
+        case let .registerPushToken(payload):
+            try container.encode(MessageType.registerPushToken, forKey: .type)
+            try container.encode(payload, forKey: .payload)
         case let .iosRegistered(payload):
             try container.encode(MessageType.iosRegistered, forKey: .type)
+            try container.encode(payload, forKey: .payload)
+        case let .pushTokenRegistered(payload):
+            try container.encode(MessageType.pushTokenRegistered, forKey: .type)
             try container.encode(payload, forKey: .payload)
         case .macConnected:
             try container.encode(MessageType.macConnected, forKey: .type)
@@ -244,7 +264,9 @@ extension WebSocketMessage {
         case .iosDisconnected: MessageType.iosDisconnected.rawValue
         case .registerIOS: MessageType.registerIOS.rawValue
         case .requestSessionState: MessageType.requestSessionState.rawValue
+        case .registerPushToken: MessageType.registerPushToken.rawValue
         case .iosRegistered: MessageType.iosRegistered.rawValue
+        case .pushTokenRegistered: MessageType.pushTokenRegistered.rawValue
         case .macConnected: MessageType.macConnected.rawValue
         case .macDisconnected: MessageType.macDisconnected.rawValue
         case .ping: MessageType.ping.rawValue

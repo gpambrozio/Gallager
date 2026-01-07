@@ -16,6 +16,10 @@ extension Target.Dependency {
         .product(name: "Vapor", package: "vapor")
     }
 
+    static var vaporAPNS: Self {
+        .product(name: "VaporAPNS", package: "apns")
+    }
+
     static var claudeSpyNetworking: Self { "ClaudeSpyNetworking" }
     static var claudeSpyCommon: Self { "ClaudeSpyCommon" }
     static var claudeSpyFeature: Self { "ClaudeSpyFeature" }
@@ -54,6 +58,7 @@ let package = Package(
         .package(url: "https://github.com/lukepistrol/SFSymbolsMacro.git", from: "0.5.4"),
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.2.0"),
         .package(url: "https://github.com/vapor/vapor", from: "4.0.0"),
+        .package(url: "https://github.com/vapor/apns.git", from: "4.0.0"),
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -92,6 +97,7 @@ let package = Package(
             dependencies: [
                 .claudeSpyNetworking,
                 .vapor,
+                .vaporAPNS,
             ]
         ),
         .testTarget(

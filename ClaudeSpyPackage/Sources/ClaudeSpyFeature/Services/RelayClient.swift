@@ -251,6 +251,19 @@ public final class RelayClient: Sendable {
         await send(.requestSessionState)
     }
 
+    /// Send push notification token to the relay server
+    /// - Parameter token: The APNs device token as a hex string
+    public func sendPushToken(_ token: String) async {
+        guard state.isConnected else {
+            logger.debug("Not connected, cannot send push token")
+            return
+        }
+
+        logger.info("Sending push token to relay server")
+        let message = WebSocketMessage.registerPushToken(RegisterPushTokenMessage(deviceToken: token))
+        await send(message)
+    }
+
     // MARK: - Private Methods
 
     private func performConnect() async {
@@ -428,6 +441,13 @@ public final class RelayClient: Sendable {
         case .pong:
             // Expected response to our ping, no action needed
             break
+
+        case let .pushTokenRegistered(response):
+            if response.success {
+                logger.info("Push token registered successfully with server")
+            } else {
+                logger.error("Failed to register push token: \(response.error ?? "Unknown error")")
+            }
 
         case let .error(errorMessage):
             logger.error("Server error: \(errorMessage.message)")

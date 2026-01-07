@@ -6,11 +6,20 @@ import Logging
 actor RelayService {
     private let pairingService: PairingService
     private let connectionHub: ConnectionHub
+    private let pushTokenStore: PushTokenStore
+    private let apnsService: APNsService?
     private let logger = Logger(label: "relay-service")
 
-    init(pairingService: PairingService, connectionHub: ConnectionHub) {
+    init(
+        pairingService: PairingService,
+        connectionHub: ConnectionHub,
+        pushTokenStore: PushTokenStore,
+        apnsService: APNsService?
+    ) {
         self.pairingService = pairingService
         self.connectionHub = connectionHub
+        self.pushTokenStore = pushTokenStore
+        self.apnsService = apnsService
     }
 
     // MARK: - Connection Notifications
@@ -41,9 +50,12 @@ actor RelayService {
             await handleMacRegistration(registration, pairId: pairId)
 
         case let .hookEvent(event):
-            // Relay hook events to iOS
+            // Relay hook events to iOS via WebSocket
             logger.info("Relaying hook event to iOS", metadata: ["action": "\(event.event.action.eventName)"])
             await connectionHub.send(.hookEvent(event), to: pairId, deviceType: .ios)
+
+            // Also try to send push notification (will only send if iOS is disconnected)
+            await apnsService?.sendNotificationIfNeeded(for: event, pairId: pairId)
 
         case let .commandResponse(response):
             // Relay command responses to iOS
@@ -98,6 +110,13 @@ actor RelayService {
             let isMacConnected = await connectionHub.isMacConnected(pairId: pairId)
             logger.info("iOS requesting session state", metadata: ["macConnected": "\(isMacConnected)"])
             await connectionHub.send(.requestSessionState, to: pairId, deviceType: .mac)
+
+        case let .registerPushToken(tokenMessage):
+            // Store push token for this pair
+            logger.info("iOS registering push token", metadata: ["pairId": "\(pairId)"])
+            await pushTokenStore.registerToken(tokenMessage.deviceToken, for: pairId)
+            let response = PushTokenRegisteredMessage(success: true)
+            await connectionHub.send(.pushTokenRegistered(response), to: pairId, deviceType: .ios)
 
         case .ping:
             await connectionHub.send(.pong, to: pairId, deviceType: .ios)

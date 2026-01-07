@@ -1,7 +1,8 @@
+import APNSCore
 import Vapor
 
 /// Configures the Vapor application
-public func configure(_ app: Application) throws {
+public func configure(_ app: Application) async throws {
     // Configure server
     app.http.server.configuration.hostname = "0.0.0.0"
     app.http.server.configuration.port = 8080
@@ -15,14 +16,36 @@ public func configure(_ app: Application) throws {
     decoder.dateDecodingStrategy = .iso8601
     ContentConfiguration.global.use(decoder: decoder, for: .json)
 
-    // Initialize services
+    // Initialize core services
     let pairingService = PairingService()
     let connectionHub = ConnectionHub()
-    let relayService = RelayService(pairingService: pairingService, connectionHub: connectionHub)
+
+    // Initialize push notification services
+    let pushTokenStore = PushTokenStore()
+
+    // Determine APNs environment from app environment
+    let apnsEnvironment: APNSEnvironment =
+        app.environment == .production ? .production : .development
+
+    let apnsService = await APNsService(
+        pushTokenStore: pushTokenStore,
+        connectionHub: connectionHub,
+        environment: apnsEnvironment
+    )
+
+    // Initialize relay service with all dependencies
+    let relayService = RelayService(
+        pairingService: pairingService,
+        connectionHub: connectionHub,
+        pushTokenStore: pushTokenStore,
+        apnsService: apnsService
+    )
 
     // Store services in app storage
     app.storage[PairingServiceKey.self] = pairingService
     app.storage[ConnectionHubKey.self] = connectionHub
+    app.storage[PushTokenStoreKey.self] = pushTokenStore
+    app.storage[APNsServiceKey.self] = apnsService
     app.storage[RelayServiceKey.self] = relayService
 
     // Register routes
@@ -41,6 +64,14 @@ struct ConnectionHubKey: StorageKey {
 
 struct RelayServiceKey: StorageKey {
     typealias Value = RelayService
+}
+
+struct PushTokenStoreKey: StorageKey {
+    typealias Value = PushTokenStore
+}
+
+struct APNsServiceKey: StorageKey {
+    typealias Value = APNsService
 }
 
 // MARK: - Application Extensions
@@ -65,5 +96,16 @@ extension Application {
             fatalError("RelayService not configured. Call configure(_:) first.")
         }
         return service
+    }
+
+    var pushTokenStore: PushTokenStore {
+        guard let store = storage[PushTokenStoreKey.self] else {
+            fatalError("PushTokenStore not configured. Call configure(_:) first.")
+        }
+        return store
+    }
+
+    var apnsService: APNsService? {
+        storage[APNsServiceKey.self]
     }
 }

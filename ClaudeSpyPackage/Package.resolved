@@ -1,6 +1,24 @@
 {
-  "originHash" : "db77f2302d2e73ac044882a26bf560e8f4e93508d6b04018697fedeca5951104",
+  "originHash" : "97483e89018129ac9bf3ee52ecfd9a26eea21665e24613bee30316885564c5d3",
   "pins" : [
+    {
+      "identity" : "apns",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/vapor/apns.git",
+      "state" : {
+        "revision" : "dedccc1243efbfcaf86dd1810a3759c4ab36cdb4",
+        "version" : "4.2.0"
+      }
+    },
+    {
+      "identity" : "apnswift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swift-server-community/APNSwift.git",
+      "state" : {
+        "revision" : "36fec7e6ca5e99c6049771601770a5488021e19a",
+        "version" : "5.1.0"
+      }
+    },
     {
       "identity" : "async-http-client",
       "kind" : "remoteSourceControl",
@@ -123,8 +141,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-crypto.git",
       "state" : {
-        "revision" : "6f70fa9eab24c1fd982af18c281c4525d05e3095",
-        "version" : "4.2.0"
+        "revision" : "95ba0316a9b733e92bb6b071255ff46263bbe7dc",
+        "version" : "3.15.1"
       }
     },
     {
