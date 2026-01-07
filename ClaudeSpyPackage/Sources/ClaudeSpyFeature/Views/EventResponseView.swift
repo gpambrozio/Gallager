@@ -129,6 +129,7 @@ struct PermissionRequestResponseView: View {
     @State private var isSending = false
     @State private var customInstructions = ""
     @State private var didReject = false
+    @State private var didRespond = false
     @FocusState private var isTextFieldFocused: Bool
 
     private var suggestions: [PermissionSuggestion] {
@@ -140,7 +141,9 @@ struct PermissionRequestResponseView: View {
     }
 
     var body: some View {
-        if didReject {
+        if didRespond {
+            EmptyView()
+        } else if didReject {
             IdleEventResponseView(isConnected: isConnected, sendCommand: sendCommand)
         } else {
             permissionContent
@@ -165,6 +168,7 @@ struct PermissionRequestResponseView: View {
             Button {
                 Task {
                     await sendResponse(.sendKeystroke([.text("1")]))
+                    didRespond = true
                 }
             } label: {
                 Label("Accept", symbol: .checkmarkCircleFill)
@@ -235,6 +239,7 @@ struct PermissionRequestResponseView: View {
             Task {
                 // Send "2" to select the first suggestion option
                 await sendResponse(.sendKeystroke([.text("2")]))
+                didRespond = true
             }
         } label: {
             VStack(alignment: .leading, spacing: 4) {
@@ -311,6 +316,7 @@ struct PermissionRequestResponseView: View {
         await sendCommand(.sendKeystroke([.text("\(optionNumber)"), .text(trimmed), .enter]))
         customInstructions = ""
         isSending = false
+        didRespond = true
     }
 }
 
