@@ -300,7 +300,9 @@ public struct NotificationBody: HookBodyProtocol {
     public let timestamp: String?
     public let message: String?
     public let notificationType: String?
-    public var shouldSendToServer: Bool { true }
+    public var shouldSendToServer: Bool {
+        notificationType != "permission_prompt"
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"

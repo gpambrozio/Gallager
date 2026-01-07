@@ -128,6 +128,7 @@ struct PermissionRequestResponseView: View {
 
     @State private var isSending = false
     @State private var customInstructions = ""
+    @State private var didReject = false
     @FocusState private var isTextFieldFocused: Bool
 
     private var suggestions: [PermissionSuggestion] {
@@ -139,6 +140,14 @@ struct PermissionRequestResponseView: View {
     }
 
     var body: some View {
+        if didReject {
+            IdleEventResponseView(isConnected: isConnected, sendCommand: sendCommand)
+        } else {
+            permissionContent
+        }
+    }
+
+    private var permissionContent: some View {
         VStack(spacing: 12) {
             // Show what's being requested
             if let toolName = request.toolName {
@@ -155,31 +164,34 @@ struct PermissionRequestResponseView: View {
             // Accept button
             Button {
                 Task {
-                    await sendResponse("y")
+                    await sendResponse(.sendKeystroke([.text("1")]))
                 }
             } label: {
                 Label("Accept", symbol: .checkmarkCircleFill)
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.roundedRectangle(radius: 12))
             .tint(.green)
             .disabled(!isConnected || isSending)
 
-            // Permission suggestions (numbered options)
-            ForEach(Array(suggestions.enumerated()), id: \.offset) { index, suggestion in
-                suggestionButton(suggestion: suggestion, index: index + 1)
+            // Permission suggestions (single combined button)
+            if !suggestions.isEmpty {
+                combinedSuggestionsButton
             }
 
             // Reject button
             Button {
                 Task {
-                    await sendResponse("n")
+                    await sendResponse(.sendKeystroke([.escape]))
+                    didReject = true
                 }
             } label: {
                 Label("Reject", symbol: .xmarkCircleFill)
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
+            .buttonBorderShape(.roundedRectangle(radius: 12))
             .tint(.red)
             .disabled(!isConnected || isSending)
 
@@ -218,23 +230,30 @@ struct PermissionRequestResponseView: View {
         .padding(.vertical, 8)
     }
 
-    @ViewBuilder
-    private func suggestionButton(suggestion: PermissionSuggestion, index: Int) -> some View {
+    private var combinedSuggestionsButton: some View {
         Button {
             Task {
-                await sendResponse("\(index)")
+                // Send "2" to select the first suggestion option
+                await sendResponse(.sendKeystroke([.text("2")]))
             }
         } label: {
-            HStack {
-                Text("\(index).")
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Accept Suggestion:")
                     .fontWeight(.medium)
-                    .foregroundStyle(.secondary)
-                Text(suggestionLabel(for: suggestion))
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                ForEach(Array(suggestions.enumerated()), id: \.offset) { index, suggestion in
+                    HStack {
+                        Text("\(index + 2).")
+                            .fontWeight(.medium)
+                            .foregroundStyle(.secondary)
+                        Text(suggestionLabel(for: suggestion))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
             }
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
+        .buttonBorderShape(.roundedRectangle(radius: 12))
         .tint(.blue)
         .disabled(!isConnected || isSending)
     }
@@ -244,17 +263,12 @@ struct PermissionRequestResponseView: View {
         var parts: [String] = []
 
         if let type = suggestion.type {
-            parts.append(type.capitalized)
+            parts.append(type)
         }
 
         if let rules = suggestion.rules, !rules.isEmpty {
             let ruleDescriptions = rules.compactMap { rule -> String? in
-                if let content = rule.ruleContent {
-                    return content
-                } else if let toolName = rule.toolName {
-                    return toolName
-                }
-                return nil
+                rule.ruleContent ?? rule.toolName
             }
             if !ruleDescriptions.isEmpty {
                 parts.append(contentsOf: ruleDescriptions)
@@ -269,7 +283,7 @@ struct PermissionRequestResponseView: View {
             parts.append("→ \(destination)")
         }
 
-        return parts.isEmpty ? "Option \(suggestion.type ?? "unknown")" : parts.joined(separator: " ")
+        return parts.isEmpty ? (suggestion.type?.capitalized ?? "Option") : parts.joined(separator: " ")
     }
 
     private var textFieldBackground: some View {
@@ -282,9 +296,9 @@ struct PermissionRequestResponseView: View {
             .stroke(Color.gray.opacity(0.3), lineWidth: 1)
     }
 
-    private func sendResponse(_ text: String) async {
+    private func sendResponse(_ command: CommandType) async {
         isSending = true
-        await sendCommand(.sendKeystroke([.text(text), .enter]))
+        await sendCommand(command)
         isSending = false
     }
 
@@ -292,8 +306,9 @@ struct PermissionRequestResponseView: View {
         let trimmed = customInstructions.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
+        let optionNumber = suggestions.isEmpty ? 2 : 3
         isSending = true
-        await sendCommand(.sendKeystroke([.text(trimmed), .enter]))
+        await sendCommand(.sendKeystroke([.text("\(optionNumber)"), .text(trimmed), .enter]))
         customInstructions = ""
         isSending = false
     }
