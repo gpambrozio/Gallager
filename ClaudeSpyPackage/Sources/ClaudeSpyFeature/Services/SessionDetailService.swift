@@ -20,11 +20,31 @@ final public class SessionDetailService {
     /// Reference to the relay client for communication
     private let relayClient: RelayClient
 
+    // MARK: - Private State
+
+    /// Tracks the last event ID we processed for response state
+    private var lastProcessedEventId: UUID?
+
     // MARK: - Computed Properties
 
     /// Live session from store (always up-to-date, not a stale snapshot)
+    /// Automatically updates response state when latest event changes
     public var session: ClaudeSession? {
-        sessionStore.session(for: paneId)
+        let currentSession = sessionStore.session(for: paneId)
+
+        // Automatically update response state if latest event changed
+        if let latestEvent = currentSession?.latestEvent {
+            if latestEvent.id != lastProcessedEventId {
+                lastProcessedEventId = latestEvent.id
+                responseState = ResponseState(event: latestEvent)
+            }
+        } else if lastProcessedEventId != nil {
+            // Session has no events anymore, clear state
+            lastProcessedEventId = nil
+            responseState = nil
+        }
+
+        return currentSession
     }
 
     /// Whether the pane is currently active
@@ -57,25 +77,7 @@ final public class SessionDetailService {
         self.paneId = paneId
         self.sessionStore = sessionStore
         self.relayClient = relayClient
-        updateResponseState()
-    }
-
-    // MARK: - State Management
-
-    /// Update the response state based on the latest event in the session
-    public func updateResponseState() {
-        guard let session else {
-            responseState = nil
-            return
-        }
-
-        if let latestEvent = session.latestEvent {
-            if latestEvent.id != responseState?.event.id {
-                responseState = ResponseState(event: latestEvent)
-            }
-        } else {
-            responseState = nil
-        }
+        // Response state is automatically updated when session getter is accessed
     }
 
     // MARK: - Actions

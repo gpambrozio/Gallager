@@ -82,6 +82,9 @@ struct SessionDetailServiceTests {
             relayClient: relayClient
         )
 
+        // Access session to trigger automatic response state update
+        _ = service.session
+
         #expect(service.responseState != nil)
         #expect(service.responseState?.event.id == event.id)
     }
@@ -115,8 +118,8 @@ struct SessionDetailServiceTests {
         )
         sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event2))
 
-        // Manually trigger update (in real app, view onChange would do this)
-        service.updateResponseState()
+        // Access session to trigger automatic response state update
+        _ = service.session
 
         #expect(service.responseState?.event.id != firstEventId)
         #expect(service.responseState?.event.id == event2.id)

@@ -30,9 +30,6 @@ struct SessionDetailView: View {
     private var bodyContent: some View {
         if let service, let session = service.session {
             sessionContent(service: service, session: session)
-                .onChange(of: session.latestEvent) { _, _ in
-                    service.updateResponseState()
-                }
                 .navigationTitle("Session")
             #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
