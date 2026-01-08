@@ -56,6 +56,9 @@ public struct ContentView: View {
     /// When the app enters the background, we start a background task to keep
     /// the WebSocket connection alive for ~30 seconds. This allows receiving
     /// any pending events before iOS suspends the app.
+    ///
+    /// When returning to foreground, we immediately attempt reconnection to avoid
+    /// waiting for exponential backoff timers.
     private func handleScenePhaseChange(_ phase: ScenePhase) {
         switch phase {
         case .background:
@@ -66,6 +69,12 @@ public struct ContentView: View {
         case .active:
             // End background task when returning to foreground
             backgroundTaskService.endBackgroundTask()
+
+            // If we're in a reconnecting state or disconnected, immediately try to connect
+            // rather than waiting for exponential backoff
+            Task {
+                await relayClient.reconnectImmediately()
+            }
         case .inactive:
             // Transitional state - no action needed
             break

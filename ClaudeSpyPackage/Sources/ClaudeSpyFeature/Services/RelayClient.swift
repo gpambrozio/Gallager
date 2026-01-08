@@ -99,6 +99,9 @@ public final class RelayClient: Sendable {
     /// Task for ping/pong keep-alive
     private var pingTask: Task<Void, Never>?
 
+    /// Task for delayed reconnection (exponential backoff)
+    private var reconnectionTask: Task<Void, Never>?
+
     // MARK: - Pending Commands
 
     /// Pending command continuations keyed by command ID
@@ -162,6 +165,32 @@ public final class RelayClient: Sendable {
         shouldReconnect = false
         await cleanupConnection()
         state = .disconnected
+    }
+
+    /// Reset reconnection backoff and immediately attempt to reconnect.
+    ///
+    /// This is useful when the app comes to foreground from background - rather than
+    /// waiting for the exponential backoff timer, we reset the attempt counter and
+    /// immediately try to connect.
+    public func reconnectImmediately() async {
+        guard shouldReconnect else {
+            logger.debug("Not configured to reconnect, ignoring reconnectImmediately()")
+            return
+        }
+
+        guard !state.isConnected, state != .connecting else {
+            logger.debug("Already connected or connecting, ignoring reconnectImmediately()")
+            return
+        }
+
+        logger.info("Immediate reconnection requested, cancelling pending backoff and resetting")
+
+        // Cancel any pending reconnection task that's waiting on backoff timer
+        reconnectionTask?.cancel()
+        reconnectionTask = nil
+
+        reconnectionAttempt = 0
+        await performConnect()
     }
 
     // MARK: - Sending Messages
@@ -503,14 +532,15 @@ public final class RelayClient: Sendable {
 
             // Spawn reconnection in a new task - the current task was cancelled by cleanupConnection()
             // so we need a fresh task that won't have Task.isCancelled == true
-            Task { @MainActor [weak self] in
+            reconnectionTask = Task { @MainActor [weak self] in
                 guard let self else { return }
 
                 try? await Task.sleep(for: .seconds(delay))
 
-                if self.shouldReconnect {
-                    await self.performConnect()
-                }
+                // Only reconnect if we haven't been cancelled and still want to reconnect
+                guard !Task.isCancelled, self.shouldReconnect else { return }
+
+                await self.performConnect()
             }
         } else if shouldReconnect {
             logger.error("Max reconnection attempts reached")
@@ -524,6 +554,9 @@ public final class RelayClient: Sendable {
 
         pingTask?.cancel()
         pingTask = nil
+
+        reconnectionTask?.cancel()
+        reconnectionTask = nil
 
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
