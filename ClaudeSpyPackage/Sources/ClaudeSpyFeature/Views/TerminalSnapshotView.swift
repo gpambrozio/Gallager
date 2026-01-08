@@ -16,7 +16,7 @@
         @Environment(\.dismiss) private var dismiss
 
         var body: some View {
-            VStack(spacing: 8) {
+            VStack(spacing: 0) {
                 // Response view above terminal if available
                 if
                     let responseState,
