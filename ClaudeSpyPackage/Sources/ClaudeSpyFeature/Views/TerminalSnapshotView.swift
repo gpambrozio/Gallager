@@ -25,14 +25,8 @@
                         sendCommand: sendCommand,
                         state: responseState
                     ) {
-                    ScrollView {
-                        VStack {
-                            responseView
-                        }
-                        .padding()
-                    }
-                    .frame(maxHeight: 300)
-                    .background(Color(.systemGroupedBackground))
+                    responseView
+                        .background(Color(.systemGroupedBackground))
 
                     Divider()
                 }
