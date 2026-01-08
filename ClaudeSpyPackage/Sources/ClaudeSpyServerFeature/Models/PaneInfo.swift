@@ -51,17 +51,18 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
     }
 }
 
-extension PaneInfo {
+public extension PaneInfo {
     /// Creates a PaneInfo from tmux format output
     /// Expected format: id|session|window|pane|command|path|width|height|active
-    public init?(fromTmuxOutput line: String) {
+    init?(fromTmuxOutput line: String) {
         let components = line.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
         guard components.count >= 9 else { return nil }
 
-        guard let windowIndex = Int(components[2]),
-              let paneIndex = Int(components[3]),
-              let width = Int(components[6]),
-              let height = Int(components[7])
+        guard
+            let windowIndex = Int(components[2]),
+            let paneIndex = Int(components[3]),
+            let width = Int(components[6]),
+            let height = Int(components[7])
         else { return nil }
 
         self.paneId = components[0]

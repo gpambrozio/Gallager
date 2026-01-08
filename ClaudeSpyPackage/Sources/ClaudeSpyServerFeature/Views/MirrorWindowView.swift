@@ -61,8 +61,9 @@ struct MirrorWindowView: View {
         }
         .onChange(of: tmuxService.panes) { _, newPanes in
             // Check if our pane's dimensions changed during global refresh
-            guard let updatedPane = newPanes.first(where: { $0.id == paneInfo.id }),
-                  let stream = paneStream else { return }
+            guard
+                let updatedPane = newPanes.first(where: { $0.id == paneInfo.id }),
+                let stream = paneStream else { return }
             // updateDimensions will trigger onDimensionChange callback if dimensions changed
             stream.updateDimensions(width: updatedPane.width, height: updatedPane.height)
         }

@@ -2,13 +2,13 @@ import Foundation
 import SwiftUI
 
 #if os(iOS)
-import UIKit
+    import UIKit
 #endif
 
 /// Settings for the ClaudeSpy iOS app with UserDefaults persistence.
 @Observable
 @MainActor
-public final class IOSSettings: Sendable {
+final public class IOSSettings: Sendable {
     // MARK: - UserDefaults Keys
 
     private enum Keys {
@@ -72,9 +72,9 @@ public final class IOSSettings: Sendable {
     /// The display name for this iOS device
     public var deviceName: String {
         #if os(iOS)
-        UIDevice.current.name
+            UIDevice.current.name
         #else
-        Host.current().localizedName ?? "Device"
+            Host.current().localizedName ?? "Device"
         #endif
     }
 
@@ -85,23 +85,23 @@ public final class IOSSettings: Sendable {
 
         // Load or generate device ID
         if let savedDeviceId = defaults.string(forKey: Keys.deviceId) {
-            deviceId = savedDeviceId
+            self.deviceId = savedDeviceId
         } else {
             let newDeviceId = UUID().uuidString
             defaults.set(newDeviceId, forKey: Keys.deviceId)
-            deviceId = newDeviceId
+            self.deviceId = newDeviceId
         }
 
         // Load other settings
-        pairId = defaults.string(forKey: Keys.pairId)
-        pairedMacName = defaults.string(forKey: Keys.pairedMacName)
-        externalServerURL = defaults.string(forKey: Keys.externalServerURL)
+        self.pairId = defaults.string(forKey: Keys.pairId)
+        self.pairedMacName = defaults.string(forKey: Keys.pairedMacName)
+        self.externalServerURL = defaults.string(forKey: Keys.externalServerURL)
             ?? "wss://claudespy.gustavo.eng.br"
-        autoReconnect = defaults.bool(forKey: Keys.autoReconnect)
+        self.autoReconnect = defaults.bool(forKey: Keys.autoReconnect)
 
         // Terminal settings with iOS-appropriate defaults
-        terminalFontName = defaults.string(forKey: Keys.terminalFontName) ?? "Menlo"
-        terminalFontSize = defaults.object(forKey: Keys.terminalFontSize) as? Double ?? 10.0
+        self.terminalFontName = defaults.string(forKey: Keys.terminalFontName) ?? "Menlo"
+        self.terminalFontSize = defaults.object(forKey: Keys.terminalFontSize) as? Double ?? 10.0
     }
 
     // MARK: - Methods

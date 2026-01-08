@@ -5,7 +5,7 @@ public struct ContentView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(TmuxService.self) private var tmuxService
 
-    public init() {}
+    public init() { }
 
     public var body: some View {
         NavigationStack {

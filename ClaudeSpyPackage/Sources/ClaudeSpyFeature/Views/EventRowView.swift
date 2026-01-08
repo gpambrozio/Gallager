@@ -53,7 +53,8 @@ struct EventRowView: View {
             .playFill
         case .sessionEnd:
             .stopFill
-        case .preToolUse, .postToolUse:
+        case .preToolUse,
+             .postToolUse:
             .wrenchAndScrewdriver
         case .permissionRequest:
             .lockFill
@@ -61,7 +62,8 @@ struct EventRowView: View {
             .bellFill
         case .userPromptSubmit:
             .textBubbleFill
-        case .stop, .subagentStop:
+        case .stop,
+             .subagentStop:
             .stopCircleFill
         case .preCompact:
             .arrowDownRightAndArrowUpLeft
@@ -76,7 +78,8 @@ struct EventRowView: View {
             .green
         case .sessionEnd:
             .red
-        case .preToolUse, .postToolUse:
+        case .preToolUse,
+             .postToolUse:
             .blue
         case .permissionRequest:
             .orange
@@ -84,7 +87,8 @@ struct EventRowView: View {
             .purple
         case .userPromptSubmit:
             .cyan
-        case .stop, .subagentStop:
+        case .stop,
+             .subagentStop:
             .red
         case .preCompact:
             .indigo
@@ -147,7 +151,8 @@ struct EventRowView: View {
         case let .userPromptSubmit(body):
             body.prompt?.truncated(to: 80)
 
-        case .stop, .subagentStop:
+        case .stop,
+             .subagentStop:
             nil
 
         case let .preCompact(body):
@@ -215,8 +220,9 @@ private enum PreviewEvents {
     }()
 
     private static func createEvent(from json: String, pane: String) -> HookEvent? {
-        guard let data = json.data(using: .utf8),
-              let action = try? HookAction.from(jsonData: data)
+        guard
+            let data = json.data(using: .utf8),
+            let action = try? HookAction.from(jsonData: data)
         else {
             return nil
         }

@@ -5,7 +5,7 @@ import SwiftUI
 /// Manages multiple mirror windows and handles hook events
 @Observable
 @MainActor
-public final class MirrorWindowManager {
+final public class MirrorWindowManager {
     /// Currently open mirror windows keyed by pane target
     public private(set) var openWindows: [String: NSWindow] = [:]
 

@@ -4,7 +4,7 @@ import SwiftTerm
 import SwiftUI
 
 /// A flipped clip view that positions content at the top instead of bottom
-private final class FlippedClipView: NSClipView {
+final private class FlippedClipView: NSClipView {
     override var isFlipped: Bool { true }
 }
 
@@ -33,7 +33,7 @@ final class TerminalController: @unchecked Sendable {
     let terminalView: TerminalView
 
     /// Font name for the terminal
-    var fontName: String = "SF Mono" {
+    var fontName = "SF Mono" {
         didSet { updateFont() }
     }
 
@@ -43,16 +43,16 @@ final class TerminalController: @unchecked Sendable {
     }
 
     /// Number of columns (fixed to pane size)
-    private(set) var columns: Int = 80
+    private(set) var columns = 80
 
     /// Number of rows (fixed to pane size)
-    private(set) var rows: Int = 24
+    private(set) var rows = 24
 
     /// The fixed size of the terminal content
-    private var terminalSize: NSSize = NSSize(width: 800, height: 600)
+    private var terminalSize = NSSize(width: 800, height: 600)
 
     /// Whether the user has scrolled away from the bottom
-    private(set) var isScrolledUp: Bool = false
+    private(set) var isScrolledUp = false
 
     init() {
         // Create terminal view
@@ -177,9 +177,11 @@ final class TerminalController: @unchecked Sendable {
 
     func applyTheme(_ theme: TerminalTheme) {
         switch theme {
-        case .defaultDark, .solarizedDark:
+        case .defaultDark,
+             .solarizedDark:
             applyDarkTheme()
-        case .defaultLight, .solarizedLight:
+        case .defaultLight,
+             .solarizedLight:
             applyLightTheme()
         }
     }

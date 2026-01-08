@@ -67,7 +67,7 @@ actor ConnectionHub {
             logger.warning("Cannot send message - no connection", metadata: [
                 "pairId": "\(pairId)",
                 "targetDevice": "\(deviceType)",
-                "messageType": "\(message.messageType)"
+                "messageType": "\(message.messageType)",
             ])
             return
         }
@@ -80,13 +80,13 @@ actor ConnectionHub {
             logger.debug("Message sent", metadata: [
                 "pairId": "\(pairId)",
                 "targetDevice": "\(deviceType)",
-                "messageType": "\(message.messageType)"
+                "messageType": "\(message.messageType)",
             ])
         } catch {
             logger.error("Failed to send message", metadata: [
                 "pairId": "\(pairId)",
                 "targetDevice": "\(deviceType)",
-                "error": "\(error)"
+                "error": "\(error)",
             ])
         }
     }

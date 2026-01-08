@@ -12,7 +12,7 @@ public struct MainView: View {
     /// Refresh interval in seconds
     private let refreshInterval: TimeInterval = 5
 
-    public init() {}
+    public init() { }
 
     public var body: some View {
         PaneListView(
@@ -79,7 +79,7 @@ public struct MainView: View {
             ProgressView()
                 .controlSize(.small)
                 .help("Connecting...")
-        case .reconnecting(let attempt):
+        case let .reconnecting(attempt):
             ProgressView()
                 .controlSize(.small)
                 .help("Reconnecting (attempt \(attempt))...")
@@ -89,7 +89,7 @@ public struct MainView: View {
                 .help(serverClient.isIOSConnected
                     ? "Connected - iOS device online"
                     : "Connected - waiting for iOS")
-        case .error(let message):
+        case let .error(message):
             Symbols.exclamationmarkTriangle.image
                 .foregroundStyle(.red)
                 .help("Error: \(message)")
@@ -145,8 +145,9 @@ public struct MainView: View {
     }
 
     private func connectToServer() async {
-        guard let pairId = settings.pairId,
-              let serverURL = URL(string: settings.externalServerURL)
+        guard
+            let pairId = settings.pairId,
+            let serverURL = URL(string: settings.externalServerURL)
         else {
             return
         }

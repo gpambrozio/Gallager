@@ -1,5 +1,5 @@
-import SwiftUI
 import ClaudeSpyCommon
+import SwiftUI
 
 /// View displaying a list of active Claude sessions from the Mac.
 struct SessionListView: View {
@@ -17,13 +17,13 @@ struct SessionListView: View {
         .navigationTitle("Sessions")
         .toolbar {
             #if os(iOS)
-            ToolbarItem(placement: .topBarTrailing) {
-                connectionStatusView
-            }
+                ToolbarItem(placement: .topBarTrailing) {
+                    connectionStatusView
+                }
             #else
-            ToolbarItem(placement: .automatic) {
-                connectionStatusView
-            }
+                ToolbarItem(placement: .automatic) {
+                    connectionStatusView
+                }
             #endif
         }
     }

@@ -38,7 +38,7 @@ public enum DateFormatters {
             return "just now"
         } else if interval < 60 {
             return "\(Int(interval))s ago"
-        } else if interval < 3600 {
+        } else if interval < 3_600 {
             let minutes = Int(interval / 60)
             return "\(minutes)m ago"
         } else {

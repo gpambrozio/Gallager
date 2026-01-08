@@ -61,8 +61,8 @@ public enum ClaudeCodeTool: Sendable, Equatable {
         case .notebookEdit: "NotebookEdit"
         case .slashCommand: "SlashCommand"
         case .askUserQuestion: "AskUserQuestion"
-        case .mcp(let params): params.fullToolName
-        case .other(let name, _): name
+        case let .mcp(params): params.fullToolName
+        case let .other(name, _): name
         }
     }
 
@@ -75,42 +75,42 @@ public enum ClaudeCodeTool: Sendable, Equatable {
 
         switch toolName {
         case "Read":
-            return .read(try container.decode(ReadParameters.self))
+            return try .read(container.decode(ReadParameters.self))
         case "Edit":
-            return .edit(try container.decode(EditParameters.self))
+            return try .edit(container.decode(EditParameters.self))
         case "Write":
-            return .write(try container.decode(WriteParameters.self))
+            return try .write(container.decode(WriteParameters.self))
         case "MultiEdit":
-            return .multiEdit(try container.decode(MultiEditParameters.self))
+            return try .multiEdit(container.decode(MultiEditParameters.self))
         case "Grep":
-            return .grep(try container.decode(GrepParameters.self))
+            return try .grep(container.decode(GrepParameters.self))
         case "Glob":
-            return .glob(try container.decode(GlobParameters.self))
+            return try .glob(container.decode(GlobParameters.self))
         case "Bash":
-            return .bash(try container.decode(BashParameters.self))
+            return try .bash(container.decode(BashParameters.self))
         case "BashOutput":
-            return .bashOutput(try container.decode(BashOutputParameters.self))
+            return try .bashOutput(container.decode(BashOutputParameters.self))
         case "KillShell":
-            return .killShell(try container.decode(KillShellParameters.self))
+            return try .killShell(container.decode(KillShellParameters.self))
         case "Task":
-            return .task(try container.decode(TaskParameters.self))
+            return try .task(container.decode(TaskParameters.self))
         case "TodoWrite":
-            return .todoWrite(try container.decode(TodoWriteParameters.self))
+            return try .todoWrite(container.decode(TodoWriteParameters.self))
         case "ExitPlanMode":
-            return .exitPlanMode(try container.decode(ExitPlanModeParameters.self))
+            return try .exitPlanMode(container.decode(ExitPlanModeParameters.self))
         case "WebFetch":
-            return .webFetch(try container.decode(WebFetchParameters.self))
+            return try .webFetch(container.decode(WebFetchParameters.self))
         case "WebSearch":
-            return .webSearch(try container.decode(WebSearchParameters.self))
+            return try .webSearch(container.decode(WebSearchParameters.self))
         case "NotebookEdit":
-            return .notebookEdit(try container.decode(NotebookEditParameters.self))
+            return try .notebookEdit(container.decode(NotebookEditParameters.self))
         case "SlashCommand":
-            return .slashCommand(try container.decode(SlashCommandParameters.self))
+            return try .slashCommand(container.decode(SlashCommandParameters.self))
         case "AskUserQuestion":
-            return .askUserQuestion(try container.decode(AskUserQuestionParameters.self))
+            return try .askUserQuestion(container.decode(AskUserQuestionParameters.self))
         default:
             if let name = toolName, name.hasPrefix("mcp__") {
-                return .mcp(try container.decode(MCPToolParameters.self))
+                return try .mcp(container.decode(MCPToolParameters.self))
             }
             let dictionary = try container.decode([String: AnyCodable].self)
             return .other(toolName ?? "Unknown", dictionary)

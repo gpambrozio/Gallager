@@ -3,7 +3,7 @@ import ClaudeSpyNetworking
 import SwiftUI
 
 #if os(iOS)
-import UserNotifications
+    import UserNotifications
 #endif
 
 /// Main entry point for the ClaudeSpy iOS app.
@@ -19,12 +19,12 @@ public struct ContentView: View {
     @State private var sessionStore = SessionStore()
 
     #if os(iOS)
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var pushService = PushNotificationService.shared
-    @State private var backgroundTaskService = BackgroundTaskService.shared
+        @Environment(\.scenePhase) private var scenePhase
+        @State private var pushService = PushNotificationService.shared
+        @State private var backgroundTaskService = BackgroundTaskService.shared
     #endif
 
-    public init() {}
+    public init() { }
 
     public var body: some View {
         Group {
@@ -51,37 +51,37 @@ public struct ContentView: View {
     }
 
     #if os(iOS)
-    /// Handle scene phase changes to manage background task lifecycle.
-    ///
-    /// When the app enters the background, we start a background task to keep
-    /// the WebSocket connection alive for ~30 seconds. This allows receiving
-    /// any pending events before iOS suspends the app.
-    ///
-    /// When returning to foreground, we immediately attempt reconnection to avoid
-    /// waiting for exponential backoff timers.
-    private func handleScenePhaseChange(_ phase: ScenePhase) {
-        switch phase {
-        case .background:
-            // Only start background task if we're connected
-            if relayClient.state.isConnected {
-                backgroundTaskService.startBackgroundTask()
-            }
-        case .active:
-            // End background task when returning to foreground
-            backgroundTaskService.endBackgroundTask()
+        /// Handle scene phase changes to manage background task lifecycle.
+        ///
+        /// When the app enters the background, we start a background task to keep
+        /// the WebSocket connection alive for ~30 seconds. This allows receiving
+        /// any pending events before iOS suspends the app.
+        ///
+        /// When returning to foreground, we immediately attempt reconnection to avoid
+        /// waiting for exponential backoff timers.
+        private func handleScenePhaseChange(_ phase: ScenePhase) {
+            switch phase {
+            case .background:
+                // Only start background task if we're connected
+                if relayClient.state.isConnected {
+                    backgroundTaskService.startBackgroundTask()
+                }
+            case .active:
+                // End background task when returning to foreground
+                backgroundTaskService.endBackgroundTask()
 
-            // If we're in a reconnecting state or disconnected, immediately try to connect
-            // rather than waiting for exponential backoff
-            Task {
-                await relayClient.reconnectImmediately()
+                // If we're in a reconnecting state or disconnected, immediately try to connect
+                // rather than waiting for exponential backoff
+                Task {
+                    await relayClient.reconnectImmediately()
+                }
+            case .inactive:
+                // Transitional state - no action needed
+                break
+            @unknown default:
+                break
             }
-        case .inactive:
-            // Transitional state - no action needed
-            break
-        @unknown default:
-            break
         }
-    }
     #endif
 
     // MARK: - Setup
@@ -92,17 +92,17 @@ public struct ContentView: View {
                 sessionStore.handleEvent(event)
 
                 #if os(iOS)
-                // If app is backgrounded, show a local notification.
-                // The server won't send a push since we're "connected" via WebSocket,
-                // but the user can't see the app, so we need to alert them.
-                if scenePhase != .active {
-                    if let notification = event.buildNotification() {
-                        PushNotificationService.shared.scheduleLocalNotification(
-                            title: notification.title,
-                            body: notification.body
-                        )
+                    // If app is backgrounded, show a local notification.
+                    // The server won't send a push since we're "connected" via WebSocket,
+                    // but the user can't see the app, so we need to alert them.
+                    if scenePhase != .active {
+                        if let notification = event.buildNotification() {
+                            PushNotificationService.shared.scheduleLocalNotification(
+                                title: notification.title,
+                                body: notification.body
+                            )
+                        }
                     }
-                }
                 #endif
             }
         }
@@ -122,10 +122,11 @@ public struct ContentView: View {
     }
 
     private func autoConnectIfNeeded() async {
-        guard settings.isPaired,
-              settings.autoReconnect,
-              let pairId = settings.pairId,
-              let serverURL = URL(string: settings.externalServerURL)
+        guard
+            settings.isPaired,
+            settings.autoReconnect,
+            let pairId = settings.pairId,
+            let serverURL = URL(string: settings.externalServerURL)
         else {
             return
         }
@@ -138,15 +139,15 @@ public struct ContentView: View {
         )
 
         #if os(iOS)
-        // Request push permissions if not already authorized
-        if pushService.permissionStatus != .authorized {
-            await requestPushNotificationPermissions()
-        }
+            // Request push permissions if not already authorized
+            if pushService.permissionStatus != .authorized {
+                await requestPushNotificationPermissions()
+            }
 
-        // Send push token if we have one and are now connected
-        if let token = pushService.tokenString, relayClient.state.isConnected {
-            await relayClient.sendPushToken(token)
-        }
+            // Send push token if we have one and are now connected
+            if let token = pushService.tokenString, relayClient.state.isConnected {
+                await relayClient.sendPushToken(token)
+            }
         #endif
     }
 
@@ -168,29 +169,29 @@ public struct ContentView: View {
 
             // Request push notification permissions after successful pairing
             #if os(iOS)
-            await requestPushNotificationPermissions()
+                await requestPushNotificationPermissions()
             #endif
         }
     }
 
     #if os(iOS)
-    /// Request push notification permissions and register token with server
-    private func requestPushNotificationPermissions() async {
-        do {
-            try await pushService.requestAuthorization()
+        /// Request push notification permissions and register token with server
+        private func requestPushNotificationPermissions() async {
+            do {
+                try await pushService.requestAuthorization()
 
-            // Wait a brief moment for the token to be received from APNs
-            try? await Task.sleep(for: .milliseconds(500))
+                // Wait a brief moment for the token to be received from APNs
+                try? await Task.sleep(for: .milliseconds(500))
 
-            // If we have a token and are connected, send it to the server
-            if let token = pushService.tokenString, relayClient.state.isConnected {
-                await relayClient.sendPushToken(token)
+                // If we have a token and are connected, send it to the server
+                if let token = pushService.tokenString, relayClient.state.isConnected {
+                    await relayClient.sendPushToken(token)
+                }
+            } catch {
+                // Permission denied or error - not critical, app still works without push
+                print("Push notification authorization failed: \(error)")
             }
-        } catch {
-            // Permission denied or error - not critical, app still works without push
-            print("Push notification authorization failed: \(error)")
         }
-    }
     #endif
 }
 
@@ -233,10 +234,11 @@ struct MainView: View {
 
     private func connectIfNeeded() async {
         // Connect if paired but not already connected
-        guard !relayClient.state.isConnected,
-              relayClient.state != .connecting,
-              let pairId = settings.pairId,
-              let serverURL = URL(string: settings.externalServerURL)
+        guard
+            !relayClient.state.isConnected,
+            relayClient.state != .connecting,
+            let pairId = settings.pairId,
+            let serverURL = URL(string: settings.externalServerURL)
         else {
             return
         }
@@ -356,10 +358,10 @@ struct SettingsView: View {
             Section("Server") {
                 @Bindable var settings = settings
                 TextField("Server URL", text: $settings.externalServerURL)
-                    #if os(iOS)
+                #if os(iOS)
                     .textInputAutocapitalization(.never)
                     .keyboardType(.URL)
-                    #endif
+                #endif
                     .autocorrectionDisabled()
 
                 Toggle("Auto-connect on launch", isOn: $settings.autoReconnect)
@@ -388,7 +390,7 @@ struct SettingsView: View {
                     await unpair()
                 }
             }
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel) { }
         } message: {
             Text("You will need to pair again to reconnect.")
         }
@@ -398,7 +400,8 @@ struct SettingsView: View {
         switch relayClient.state {
         case .connected:
             return .green
-        case .connecting, .reconnecting:
+        case .connecting,
+             .reconnecting:
             return .yellow
         case .error:
             return .red
@@ -408,8 +411,9 @@ struct SettingsView: View {
     }
 
     private func connect() async {
-        guard let pairId = settings.pairId,
-              let serverURL = URL(string: settings.externalServerURL)
+        guard
+            let pairId = settings.pairId,
+            let serverURL = URL(string: settings.externalServerURL)
         else {
             return
         }

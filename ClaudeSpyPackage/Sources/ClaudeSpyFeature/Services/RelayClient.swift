@@ -1,6 +1,6 @@
+import ClaudeSpyCommon
 import Foundation
 import os
-import ClaudeSpyCommon
 
 /// Errors that can occur during relay communication
 public enum RelayClientError: Error, LocalizedError {
@@ -14,7 +14,7 @@ public enum RelayClientError: Error, LocalizedError {
             return "Not connected to relay server"
         case .timeout:
             return "Request timed out"
-        case .commandFailed(let message):
+        case let .commandFailed(message):
             return "Command failed: \(message)"
         }
     }
@@ -26,7 +26,7 @@ public enum RelayClientError: Error, LocalizedError {
 /// receiving hook events from Mac and sending commands to Mac.
 @Observable
 @MainActor
-public final class RelayClient: Sendable {
+final public class RelayClient: Sendable {
     // MARK: - Connection State
 
     /// Current connection state
@@ -61,7 +61,7 @@ public final class RelayClient: Sendable {
     public private(set) var state: ConnectionState = .disconnected
 
     /// Whether the Mac is currently connected to the relay
-    public private(set) var isMacConnected: Bool = false
+    public private(set) var isMacConnected = false
 
     /// Name of the connected Mac device (if known)
     public private(set) var connectedMacName: String?
@@ -85,10 +85,10 @@ public final class RelayClient: Sendable {
     private var serverURL: URL?
 
     /// Whether we should attempt reconnection
-    private var shouldReconnect: Bool = false
+    private var shouldReconnect = false
 
     /// Current reconnection attempt
-    private var reconnectionAttempt: Int = 0
+    private var reconnectionAttempt = 0
 
     /// Maximum reconnection attempts before giving up
     private let maxReconnectionAttempts = 10
@@ -129,7 +129,7 @@ public final class RelayClient: Sendable {
 
     // MARK: - Initialization
 
-    public init() {}
+    public init() { }
 
     // MARK: - Connection Management
 
@@ -154,8 +154,8 @@ public final class RelayClient: Sendable {
         self.pairId = pairId
         self.deviceId = deviceId
         self.deviceName = deviceName
-        self.shouldReconnect = true
-        self.reconnectionAttempt = 0
+        shouldReconnect = true
+        reconnectionAttempt = 0
 
         await performConnect()
     }
@@ -528,7 +528,7 @@ public final class RelayClient: Sendable {
 
             // Exponential backoff: 1s, 2s, 4s, 8s, etc. up to 60s
             let delay = min(60, Int(pow(2.0, Double(reconnectionAttempt - 1))))
-            logger.info("Reconnecting in \(delay) seconds (attempt \(self.reconnectionAttempt))")
+            logger.info("Reconnecting in \(delay) seconds (attempt \(reconnectionAttempt))")
 
             // Spawn reconnection in a new task - the current task was cancelled by cleanupConnection()
             // so we need a fresh task that won't have Task.isCancelled == true

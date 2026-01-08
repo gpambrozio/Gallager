@@ -18,7 +18,7 @@ public actor HookServerService {
     public private(set) var isRunning = false
 
     /// The port the server listens on (matches hook.py)
-    public nonisolated let serverPort = 6111
+    public nonisolated let serverPort = 6_111
 
     /// Last error message if server failed to start
     public private(set) var lastError: String?
@@ -28,7 +28,7 @@ public actor HookServerService {
 
     // MARK: - Initialization
 
-    public init() {}
+    public init() { }
 
     // MARK: - Configuration
 

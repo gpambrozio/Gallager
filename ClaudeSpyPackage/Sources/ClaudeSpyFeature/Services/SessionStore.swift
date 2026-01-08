@@ -1,6 +1,6 @@
+import ClaudeSpyCommon
 import Foundation
 import os
-import ClaudeSpyCommon
 
 /// Manages local session state received from the Mac app.
 ///
@@ -8,7 +8,7 @@ import ClaudeSpyCommon
 /// that are relayed from the Mac through the external server.
 @Observable
 @MainActor
-public final class SessionStore: Sendable {
+final public class SessionStore: Sendable {
     // MARK: - Properties
 
     private let logger = Logger(subsystem: "com.claudespy.ios", category: "SessionStore")
@@ -43,7 +43,7 @@ public final class SessionStore: Sendable {
 
     // MARK: - Initialization
 
-    public init() {}
+    public init() { }
 
     // MARK: - State Management
 

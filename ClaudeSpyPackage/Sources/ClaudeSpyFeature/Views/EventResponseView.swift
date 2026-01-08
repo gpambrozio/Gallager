@@ -16,7 +16,8 @@ extension HookEvent {
         sendCommand: @escaping CommandSender
     ) -> AnyView? {
         switch action {
-        case .sessionStart, .stop:
+        case .sessionStart,
+             .stop:
             AnyView(PromptView(isConnected: isConnected, sendCommand: sendCommand))
         case let .notification(body) where body.notificationType == "idle_prompt":
             AnyView(PromptView(isConnected: isConnected, sendCommand: sendCommand))
@@ -132,7 +133,8 @@ enum PermissionResponse {
 
     var feedbackColor: Color {
         switch self {
-        case .accepted, .acceptedWithSuggestion:
+        case .accepted,
+             .acceptedWithSuggestion:
             .green
         case .rejected:
             .red
@@ -181,7 +183,7 @@ struct PermissionRequestResponseView: View {
     private func responseFeedback(_ response: PermissionResponse) -> some View {
         HStack {
             Image(systemName: response.feedbackColor == .green ? "checkmark.circle.fill" :
-                             response.feedbackColor == .red ? "xmark.circle.fill" : "arrow.up.circle.fill")
+                response.feedbackColor == .red ? "xmark.circle.fill" : "arrow.up.circle.fill")
                 .foregroundStyle(response.feedbackColor)
             Text(response.feedbackMessage)
                 .foregroundStyle(.secondary)

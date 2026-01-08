@@ -170,7 +170,7 @@ private struct PaneListPreview: View {
                     ],
                     isLoading: false,
                     error: nil,
-                    onRefresh: {},
+                    onRefresh: { },
                     onOpenMirror: { _ in }
                 )
                 .environment(windowManager)

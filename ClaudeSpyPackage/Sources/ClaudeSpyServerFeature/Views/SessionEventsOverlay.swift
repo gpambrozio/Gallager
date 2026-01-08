@@ -90,7 +90,8 @@ private struct EventRow: View {
             case .sessionEnd:
                 Symbols.stopFill.image
                     .foregroundStyle(.red)
-            case .preToolUse, .postToolUse:
+            case .preToolUse,
+                 .postToolUse:
                 Symbols.wrenchAndScrewdriver.image
                     .foregroundStyle(.blue)
             case .permissionRequest:
@@ -102,7 +103,8 @@ private struct EventRow: View {
             case .userPromptSubmit:
                 Symbols.textBubbleFill.image
                     .foregroundStyle(.cyan)
-            case .stop, .subagentStop:
+            case .stop,
+                 .subagentStop:
                 Symbols.stopCircleFill.image
                     .foregroundStyle(.red)
             case .preCompact:

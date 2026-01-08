@@ -13,10 +13,11 @@ struct WebSocketController: RouteCollection {
     @Sendable
     func handleWebSocketUpgrade(req: Request, ws: WebSocket) async {
         // Extract query parameters
-        guard let pairId = req.query[String.self, at: "pairId"],
-              let deviceTypeString = req.query[String.self, at: "deviceType"],
-              let deviceType = DeviceType(rawValue: deviceTypeString),
-              let deviceId = req.query[String.self, at: "deviceId"]
+        guard
+            let pairId = req.query[String.self, at: "pairId"],
+            let deviceTypeString = req.query[String.self, at: "deviceType"],
+            let deviceType = DeviceType(rawValue: deviceTypeString),
+            let deviceId = req.query[String.self, at: "deviceId"]
         else {
             req.logger.warning("WebSocket connection rejected: missing parameters")
             try? await ws.close(code: .policyViolation)
@@ -53,7 +54,7 @@ struct WebSocketController: RouteCollection {
         await relayService.notifyConnection(pairId: pairId, deviceType: deviceType, connected: true)
 
         // Handle incoming messages
-        ws.onText { ws, text in
+        ws.onText { _, text in
             guard let data = text.data(using: .utf8) else { return }
             await handleIncomingMessage(
                 data: data,
@@ -64,7 +65,7 @@ struct WebSocketController: RouteCollection {
             )
         }
 
-        ws.onBinary { ws, buffer in
+        ws.onBinary { _, buffer in
             let data = Data(buffer: buffer)
             await handleIncomingMessage(
                 data: data,

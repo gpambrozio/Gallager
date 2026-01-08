@@ -1,13 +1,13 @@
+import ClaudeSpyCommon
 import Foundation
 import Logging
-import ClaudeSpyCommon
 
 /// Manages device pairing between the Mac app and iOS app via the external server.
 ///
 /// Handles pairing code generation, registration, and the overall pairing flow.
 @Observable
 @MainActor
-public final class PairingManager: Sendable {
+final public class PairingManager: Sendable {
     // MARK: - Pairing State
 
     /// Current state of the pairing process
@@ -53,7 +53,7 @@ public final class PairingManager: Sendable {
         // Restore state from settings
         if let pairId = settings.pairId {
             let deviceName = settings.pairedDeviceName ?? "iOS Device"
-            state = .paired(pairId: pairId, deviceName: deviceName)
+            self.state = .paired(pairId: pairId, deviceName: deviceName)
         }
     }
 
@@ -132,7 +132,7 @@ public final class PairingManager: Sendable {
     private func generateCode() -> String {
         // Generate 6-character letter-only code (uppercase, excludes confusing I and O)
         let characters = "ABCDEFGHJKLMNPQRSTUVWXYZ"
-        return String((0 ..< 6).map { _ in characters.randomElement()! })
+        return String((0..<6).map { _ in characters.randomElement()! })
     }
 
     private func registerCode(code: String, deviceId: String, deviceName: String) async throws -> PairingResponse {
