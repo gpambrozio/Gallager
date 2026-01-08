@@ -39,6 +39,7 @@ struct SessionDetailView: View {
                 ) {
                 Section("Response") {
                     responseView
+                        .id(latestEvent.id)
                 }
             }
 
