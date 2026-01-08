@@ -80,6 +80,7 @@ let package = Package(
         .target(
             name: "ClaudeSpyFeature",
             dependencies: [
+                .claudeSpyNetworking,
                 .claudeSpyCommon,
                 .swiftTerm,
             ]

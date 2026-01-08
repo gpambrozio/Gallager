@@ -69,7 +69,7 @@ public struct ClaudeSession: Codable, Sendable {
 // MARK: - Hook Event
 
 /// Represents a received hook event with metadata
-public struct HookEvent: Identifiable, Codable, Sendable {
+public struct HookEvent: Identifiable, Codable, Sendable, Equatable {
     public let id: UUID
     public let timestamp: Date
     public let action: HookAction
@@ -87,6 +87,10 @@ public struct HookEvent: Identifiable, Codable, Sendable {
         self.action = action
         self.projectPath = projectPath
         self.tmuxPane = tmuxPane
+    }
+
+    public static func == (lhs: HookEvent, rhs: HookEvent) -> Bool {
+        lhs.id == rhs.id
     }
 }
 

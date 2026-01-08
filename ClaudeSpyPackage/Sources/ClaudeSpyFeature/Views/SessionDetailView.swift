@@ -5,25 +5,69 @@ import SwiftUI
 /// Detailed view of a single Claude session with event history and terminal snapshot.
 struct SessionDetailView: View {
     let paneId: String
-    let session: ClaudeSession
 
     @Environment(RelayClient.self) private var relayClient
     @Environment(SessionStore.self) private var sessionStore
     @Environment(IOSSettings.self) private var settings
 
-    @State private var isLoadingSnapshot = false
-    @State private var terminalSnapshot: TerminalSnapshotMessage?
-    @State private var snapshotError: String?
+    // Note: Service is optional because we need @Environment values (sessionStore, relayClient)
+    // which aren't available at init time. We create the service in .task when view appears.
+    // This is the standard SwiftUI pattern when services depend on Environment values.
+    @State private var service: SessionDetailService?
 
     var body: some View {
+        bodyContent
+            .task {
+                if service == nil {
+                    service = SessionDetailService(
+                        paneId: paneId,
+                        sessionStore: sessionStore,
+                        relayClient: relayClient
+                    )
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var bodyContent: some View {
+        if let service, let session = service.session {
+            @Bindable var bindableService = service
+
+            sessionContent(service: service, session: session)
+                .navigationTitle("Session")
+            #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                .navigationDestination(item: $bindableService.terminalSnapshot) { snapshot in
+                    TerminalSnapshotView(
+                        snapshot: snapshot,
+                        responseState: $bindableService.responseState,
+                        isConnected: service.isMacConnected,
+                        sendCommand: { command in
+                            await service.sendCommand(command)
+                        }
+                    )
+                }
+            #endif
+        } else {
+            ContentUnavailableView(
+                "Session Not Found",
+                symbol: .exclamationmarkTriangle,
+                description: "This session may have ended or the pane no longer exists."
+            )
+            .navigationTitle("Session")
+        }
+    }
+
+    @ViewBuilder
+    private func sessionContent(service: SessionDetailService, session: ClaudeSession) -> some View {
         List {
             // Terminal section
             Section {
-                viewTerminalButton
+                viewTerminalButton(service: service)
             } header: {
                 Text("Terminal")
             } footer: {
-                if let error = snapshotError {
+                if let error = service.snapshotError {
                     Text(error)
                         .foregroundStyle(.red)
                         .font(.caption)
@@ -32,14 +76,16 @@ struct SessionDetailView: View {
 
             // Context-sensitive response section based on latest event
             if
-                let latestEvent = session.latestEvent,
-                let responseView = latestEvent.responseView(
-                    isConnected: relayClient.isMacConnected,
-                    sendCommand: sendCommand
+                let responseState = service.responseState,
+                let responseView = responseState.event.responseView(
+                    isConnected: service.isMacConnected,
+                    sendCommand: { command in
+                        await service.sendCommand(command)
+                    },
+                    state: responseState
                 ) {
                 Section("Response") {
                     responseView
-                        .id(latestEvent.id)
                 }
             }
 
@@ -70,32 +116,26 @@ struct SessionDetailView: View {
                 LabeledContent("Status") {
                     HStack {
                         Circle()
-                            .fill(sessionStore.isPaneActive(paneId) ? Color.green : Color.gray)
+                            .fill(service.isPaneActive ? Color.green : Color.gray)
                             .frame(width: 8, height: 8)
-                        Text(sessionStore.isPaneActive(paneId) ? "Active" : "Inactive")
+                        Text(service.isPaneActive ? "Active" : "Inactive")
                     }
                 }
             }
         }
-        .navigationTitle("Session")
-        #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(item: $terminalSnapshot) { snapshot in
-                TerminalSnapshotView(snapshot: snapshot)
-            }
-        #endif
     }
 
     // MARK: - View Terminal Button
 
-    private var viewTerminalButton: some View {
+    @ViewBuilder
+    private func viewTerminalButton(service: SessionDetailService) -> some View {
         Button {
             Task {
-                await requestTerminalSnapshot()
+                await service.requestTerminalSnapshot()
             }
         } label: {
             HStack {
-                if isLoadingSnapshot {
+                if service.isLoadingSnapshot {
                     ProgressView()
                         .controlSize(.small)
                 } else {
@@ -103,45 +143,19 @@ struct SessionDetailView: View {
                 }
                 Text("View Terminal")
                 Spacer()
-                if !isLoadingSnapshot {
+                if !service.isLoadingSnapshot {
                     Symbols.arrowRight.image
                         .foregroundStyle(.secondary)
                 }
             }
         }
-        .disabled(!relayClient.isMacConnected || isLoadingSnapshot)
-    }
-
-    // MARK: - Actions
-
-    private func sendCommand(_ command: CommandType) async {
-        await relayClient.sendCommand(CommandMessage(paneId: paneId, command: command))
-    }
-
-    private func requestTerminalSnapshot() async {
-        isLoadingSnapshot = true
-        snapshotError = nil
-
-        let command = CommandMessage(paneId: paneId, command: .captureSnapshot(scrollbackMultiplier: 3))
-        let result = await relayClient.sendSnapshotCommand(command)
-
-        isLoadingSnapshot = false
-
-        switch result {
-        case let .success(snapshot):
-            terminalSnapshot = snapshot
-        case let .failure(error):
-            snapshotError = error.localizedDescription
-        }
+        .disabled(!service.isMacConnected || service.isLoadingSnapshot)
     }
 }
 
 #Preview {
     NavigationStack {
-        SessionDetailView(
-            paneId: "%1",
-            session: ClaudeSession(paneId: "%1")
-        )
+        SessionDetailView(paneId: "%1")
     }
     .environment(RelayClient())
     .environment(SessionStore())

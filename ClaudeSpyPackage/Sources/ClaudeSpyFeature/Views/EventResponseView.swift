@@ -13,19 +13,21 @@ extension HookEvent {
     @MainActor
     func responseView(
         isConnected: Bool,
-        sendCommand: @escaping CommandSender
+        sendCommand: @escaping CommandSender,
+        state: ResponseState
     ) -> AnyView? {
         switch action {
         case .sessionStart,
              .stop:
-            AnyView(PromptView(isConnected: isConnected, sendCommand: sendCommand))
+            AnyView(PromptView(isConnected: isConnected, sendCommand: sendCommand, state: state))
         case let .notification(body) where body.notificationType == "idle_prompt":
-            AnyView(PromptView(isConnected: isConnected, sendCommand: sendCommand))
+            AnyView(PromptView(isConnected: isConnected, sendCommand: sendCommand, state: state))
         case let .permissionRequest(body):
             AnyView(PermissionRequestResponseView(
                 request: body,
                 isConnected: isConnected,
-                sendCommand: sendCommand
+                sendCommand: sendCommand,
+                state: state
             ))
         default:
             nil
@@ -39,9 +41,9 @@ extension HookEvent {
 struct PromptView: View {
     let isConnected: Bool
     let sendCommand: CommandSender
+    let state: ResponseState
 
     @State private var inputText = ""
-    @State private var isSending = false
     @FocusState private var isTextFieldFocused: Bool
 
     private var isInputEmpty: Bool {
@@ -64,7 +66,7 @@ struct PromptView: View {
             .background(textFieldBackground)
             .overlay(textFieldBorder)
             .focused($isTextFieldFocused)
-            .disabled(isSending || !isConnected)
+            .disabled(state.isSending || !isConnected)
     }
 
     private var textFieldBackground: some View {
@@ -83,7 +85,7 @@ struct PromptView: View {
             Button {
                 sendMessage()
             } label: {
-                if isSending {
+                if state.isSending {
                     ProgressView()
                         .controlSize(.small)
                 } else {
@@ -91,7 +93,7 @@ struct PromptView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(isInputEmpty || isSending || !isConnected)
+            .disabled(isInputEmpty || state.isSending || !isConnected)
         }
     }
 
@@ -99,47 +101,12 @@ struct PromptView: View {
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        isSending = true
+        state.isSending = true
 
         Task {
             await sendCommand(.sendKeystroke([.text(trimmed), .enter]))
             inputText = ""
-            isSending = false
-        }
-    }
-}
-
-// MARK: - Permission Response Type
-
-/// Represents the user's response to a permission request
-enum PermissionResponse {
-    case accepted
-    case acceptedWithSuggestion
-    case rejected
-    case customInstructions(String)
-
-    var feedbackMessage: String {
-        switch self {
-        case .accepted:
-            "Permission accepted"
-        case .acceptedWithSuggestion:
-            "Permission accepted with suggestion"
-        case .rejected:
-            "Permission rejected"
-        case let .customInstructions(text):
-            "Sent: \(text)"
-        }
-    }
-
-    var feedbackColor: Color {
-        switch self {
-        case .accepted,
-             .acceptedWithSuggestion:
-            .green
-        case .rejected:
-            .red
-        case .customInstructions:
-            .blue
+            state.isSending = false
         }
     }
 }
@@ -151,10 +118,9 @@ struct PermissionRequestResponseView: View {
     let request: PermissionRequestBody
     let isConnected: Bool
     let sendCommand: CommandSender
+    let state: ResponseState
 
-    @State private var isSending = false
     @State private var customInstructions = ""
-    @State private var response: PermissionResponse?
     @FocusState private var isTextFieldFocused: Bool
 
     private var suggestions: [PermissionSuggestion] {
@@ -166,11 +132,11 @@ struct PermissionRequestResponseView: View {
     }
 
     var body: some View {
-        if let response {
+        if let response = state.response {
             if case .rejected = response {
                 VStack(spacing: 12) {
                     responseFeedback(response)
-                    PromptView(isConnected: isConnected, sendCommand: sendCommand)
+                    PromptView(isConnected: isConnected, sendCommand: sendCommand, state: state)
                 }
             } else {
                 responseFeedback(response)
@@ -180,7 +146,7 @@ struct PermissionRequestResponseView: View {
         }
     }
 
-    private func responseFeedback(_ response: PermissionResponse) -> some View {
+    private func responseFeedback(_ response: ResponseType) -> some View {
         HStack {
             (response.feedbackColor == .green ? Symbols.checkmarkCircleFill.image :
                 response.feedbackColor == .red ? Symbols.xmarkCircleFill.image : Symbols.arrowUpCircleFill.image)
@@ -213,7 +179,7 @@ struct PermissionRequestResponseView: View {
             Button {
                 Task {
                     await sendCommand(.sendKeystroke([.text("1")]))
-                    response = .accepted
+                    state.response = .accepted
                 }
             } label: {
                 Label("Accept", symbol: .checkmarkCircleFill)
@@ -222,7 +188,7 @@ struct PermissionRequestResponseView: View {
             .buttonStyle(.borderedProminent)
             .buttonBorderShape(.roundedRectangle(radius: 12))
             .tint(.green)
-            .disabled(!isConnected || isSending)
+            .disabled(!isConnected || state.isSending)
 
             // Permission suggestions (single combined button)
             if !suggestions.isEmpty {
@@ -233,7 +199,7 @@ struct PermissionRequestResponseView: View {
             Button {
                 Task {
                     await sendCommand(.sendKeystroke([.escape]))
-                    response = .rejected
+                    state.response = .rejected
                 }
             } label: {
                 Label("Reject", symbol: .xmarkCircleFill)
@@ -242,7 +208,7 @@ struct PermissionRequestResponseView: View {
             .buttonStyle(.bordered)
             .buttonBorderShape(.roundedRectangle(radius: 12))
             .tint(.red)
-            .disabled(!isConnected || isSending)
+            .disabled(!isConnected || state.isSending)
 
             // Custom instructions text area
             VStack(spacing: 8) {
@@ -253,7 +219,7 @@ struct PermissionRequestResponseView: View {
                     .background(textFieldBackground)
                     .overlay(textFieldBorder)
                     .focused($isTextFieldFocused)
-                    .disabled(isSending || !isConnected)
+                    .disabled(state.isSending || !isConnected)
 
                 if !isInputEmpty {
                     HStack {
@@ -266,12 +232,12 @@ struct PermissionRequestResponseView: View {
                             Text("Send")
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(isInputEmpty || isSending || !isConnected)
+                        .disabled(isInputEmpty || state.isSending || !isConnected)
                     }
                 }
             }
 
-            if isSending {
+            if state.isSending {
                 ProgressView()
                     .controlSize(.small)
             }
@@ -284,7 +250,7 @@ struct PermissionRequestResponseView: View {
             Task {
                 // Send "2" to select the first suggestion option
                 await sendCommand(.sendKeystroke([.text("2")]))
-                response = .acceptedWithSuggestion
+                state.response = .acceptedWithSuggestion
             }
         } label: {
             VStack(alignment: .leading, spacing: 4) {
@@ -299,7 +265,7 @@ struct PermissionRequestResponseView: View {
         .buttonStyle(.bordered)
         .buttonBorderShape(.roundedRectangle(radius: 12))
         .tint(.blue)
-        .disabled(!isConnected || isSending)
+        .disabled(!isConnected || state.isSending)
     }
 
     private func suggestionLabel(for suggestion: PermissionSuggestion) -> some View {
@@ -319,7 +285,7 @@ struct PermissionRequestResponseView: View {
 
             if let rules = suggestion.rules {
                 ForEach(Array(rules.enumerated()), id: \.offset) { _, rule in
-                    HStack(spacing: 4) {
+                    HStack(alignment: .top, spacing: 4) {
                         if let toolName = rule.toolName {
                             Text(toolName)
                         }
@@ -352,12 +318,12 @@ struct PermissionRequestResponseView: View {
         guard !trimmed.isEmpty else { return }
 
         let optionNumber = suggestions.isEmpty ? 2 : 3
-        isSending = true
+        state.isSending = true
         await sendCommand(.sendKeystroke([.text("\(optionNumber)"), .text(trimmed), .enter]))
         let sentText = customInstructions
         customInstructions = ""
-        isSending = false
-        response = .customInstructions(sentText)
+        state.isSending = false
+        state.response = .customInstructions(sentText)
     }
 }
 
@@ -528,35 +494,59 @@ private struct ToolInputView: View {
 }
 
 #Preview("Prompt View") {
-    List {
+    let event = HookEvent(
+        action: .sessionStart(SessionStartBody(sessionId: "test", hookEventName: "SessionStart")),
+        projectPath: nil,
+        tmuxPane: nil
+    )
+    let state = ResponseState(event: event)
+
+    return List {
         Section("Response") {
             PromptView(
                 isConnected: true,
-                sendCommand: { _ in }
+                sendCommand: { _ in },
+                state: state
             )
         }
     }
 }
 
 #Preview("Permission Request") {
-    List {
+    let event = HookEvent(
+        action: .permissionRequest(PermissionRequestBody.preview),
+        projectPath: nil,
+        tmuxPane: nil
+    )
+    let state = ResponseState(event: event)
+
+    return List {
         Section("Response") {
             PermissionRequestResponseView(
                 request: PermissionRequestBody.preview,
                 isConnected: true,
-                sendCommand: { _ in }
+                sendCommand: { _ in },
+                state: state
             )
         }
     }
 }
 
 #Preview("Permission Request with Suggestions") {
-    List {
+    let event = HookEvent(
+        action: .permissionRequest(PermissionRequestBody.previewWithSuggestions),
+        projectPath: nil,
+        tmuxPane: nil
+    )
+    let state = ResponseState(event: event)
+
+    return List {
         Section("Response") {
             PermissionRequestResponseView(
                 request: PermissionRequestBody.previewWithSuggestions,
                 isConnected: true,
-                sendCommand: { _ in }
+                sendCommand: { _ in },
+                state: state
             )
         }
     }
