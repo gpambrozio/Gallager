@@ -19,13 +19,13 @@ struct TmuxPaneMirrorApp: App {
         UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
 
         let initialSettings = AppSettings()
-        self._settings = State(initialValue: initialSettings)
+        _settings = State(initialValue: initialSettings)
 
         let service = TmuxService(
             tmuxPath: initialSettings.tmuxPath,
             socketPath: initialSettings.tmuxSocket.isEmpty ? nil : initialSettings.tmuxSocket
         )
-        self._tmuxService = State(initialValue: service)
+        _tmuxService = State(initialValue: service)
     }
 
     var body: some Scene {
@@ -150,7 +150,6 @@ struct TmuxPaneMirrorApp: App {
         // It will be set up in createWindowManager instead
     }
 
-
     private func setupSessionStateHandler(manager: MirrorWindowManager) {
         externalServerClient.setSessionStateHandler { [settings, weak manager] in
             guard let manager else {
@@ -159,11 +158,12 @@ struct TmuxPaneMirrorApp: App {
             // Access @MainActor properties
             let pairId = await settings.pairId ?? ""
             let sessions = await manager.activeSessions
-            let targets = await Array(manager.mirroredTargets)
+            // Use active session pane IDs, not window targets
+            let activePaneIds = await Array(manager.activeSessions.keys)
             return SessionStateMessage(
                 pairId: pairId,
                 sessions: sessions,
-                activePanes: targets
+                activePanes: activePaneIds
             )
         }
     }
@@ -217,10 +217,10 @@ private func handleSnapshotCommand(
         let contentString = String(data: rawContent, encoding: .utf8) ?? ""
         let lines = contentString.split(separator: "\n", omittingEmptySubsequences: false)
 
-        var positionedContent = "\u{1b}[H"  // Cursor home
+        var positionedContent = "\u{1b}[H" // Cursor home
         for (index, line) in lines.enumerated() {
-            positionedContent += "\u{1b}[\(index + 1);1H"  // Move to row, col 1
-            positionedContent += "\u{1b}[2K"  // Clear line
+            positionedContent += "\u{1b}[\(index + 1);1H" // Move to row, col 1
+            positionedContent += "\u{1b}[2K" // Clear line
             positionedContent += line
         }
 
@@ -230,7 +230,7 @@ private func handleSnapshotCommand(
             "width": "\(width)",
             "height": "\(height)",
             "totalLines": "\(totalLines)",
-            "contentBytes": "\(content.count)"
+            "contentBytes": "\(content.count)",
         ])
 
         // Create and send the snapshot
