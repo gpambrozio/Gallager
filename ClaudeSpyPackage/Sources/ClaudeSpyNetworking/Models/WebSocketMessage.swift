@@ -41,7 +41,7 @@ public enum WebSocketMessage: Codable, Sendable {
     /// iOS registers with the relay server after connecting
     case registerIOS(RegisterIOSMessage)
 
-    /// iOS sends a command to be relayed to Mac
+    // iOS sends a command to be relayed to Mac
     // (Uses same `command` case as Server → Mac for symmetry)
 
     /// iOS requests current session state from Mac

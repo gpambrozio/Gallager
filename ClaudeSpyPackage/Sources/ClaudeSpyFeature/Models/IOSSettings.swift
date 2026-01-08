@@ -8,7 +8,7 @@ import SwiftUI
 /// Settings for the ClaudeSpy iOS app with UserDefaults persistence.
 @Observable
 @MainActor
-final public class IOSSettings: Sendable {
+final public class IOSSettings {
     // MARK: - UserDefaults Keys
 
     private enum Keys {
@@ -101,7 +101,7 @@ final public class IOSSettings: Sendable {
 
         // Terminal settings with iOS-appropriate defaults
         self.terminalFontName = defaults.string(forKey: Keys.terminalFontName) ?? "Menlo"
-        self.terminalFontSize = defaults.object(forKey: Keys.terminalFontSize) as? Double ?? 10.0
+        self.terminalFontSize = defaults.object(forKey: Keys.terminalFontSize) as? Double ?? 10
     }
 
     // MARK: - Methods

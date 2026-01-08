@@ -8,7 +8,7 @@ import os
 /// that are relayed from the Mac through the external server.
 @Observable
 @MainActor
-final public class SessionStore: Sendable {
+final public class SessionStore {
     // MARK: - Properties
 
     private let logger = Logger(subsystem: "com.claudespy.ios", category: "SessionStore")

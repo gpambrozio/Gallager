@@ -6,7 +6,7 @@
     /// Manages push notification registration and token handling
     @Observable
     @MainActor
-    final public class PushNotificationService: NSObject, Sendable {
+    final public class PushNotificationService: NSObject {
         // MARK: - Singleton
 
         public static let shared = PushNotificationService()

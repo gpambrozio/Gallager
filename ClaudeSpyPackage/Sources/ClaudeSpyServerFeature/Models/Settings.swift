@@ -10,7 +10,7 @@ public enum SettingsTab: String, Sendable {
 /// Application settings with persistent storage
 @Observable
 @MainActor
-final public class AppSettings: Sendable {
+final public class AppSettings {
     // MARK: - UI State (transient, not persisted)
 
     /// Currently selected settings tab (for programmatic navigation)
@@ -156,7 +156,7 @@ final public class AppSettings: Sendable {
 
     private enum Defaults {
         static let fontName = "SF Mono"
-        static let fontSize = 12.0
+        static let fontSize = 12
         static let scrollbackLines = 10_000
         static let theme = TerminalTheme.defaultDark
         static let restoreWindowsOnLaunch = true

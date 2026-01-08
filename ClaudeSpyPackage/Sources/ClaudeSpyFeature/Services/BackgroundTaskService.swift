@@ -12,7 +12,7 @@
     /// After suspension, push notifications handle alerting the user to new events.
     @Observable
     @MainActor
-    final public class BackgroundTaskService: Sendable {
+    final public class BackgroundTaskService {
         // MARK: - Singleton
 
         public static let shared = BackgroundTaskService()

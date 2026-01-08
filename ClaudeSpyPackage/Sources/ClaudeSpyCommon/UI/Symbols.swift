@@ -13,6 +13,7 @@ public enum Symbols: String {
     case arrowDown = "arrow.down"
     case arrowDownRightAndArrowUpLeft = "arrow.down.right.and.arrow.up.left"
     case arrowRight = "arrow.right"
+    case arrowUpCircleFill = "arrow.up.circle.fill"
     case bellFill = "bell.fill"
     case boltFill = "bolt.fill"
     case checkmarkCircle = "checkmark.circle"

@@ -69,7 +69,7 @@
             let terminalView = TerminalView(frame: exactFrame, font: font)
 
             // Set dark theme colors
-            terminalView.nativeForegroundColor = UIColor(white: 0.9, alpha: 1.0)
+            terminalView.nativeForegroundColor = UIColor(white: 0.9, alpha: 1)
             terminalView.nativeBackgroundColor = UIColor.black
 
             // Feed the snapshot content
@@ -130,7 +130,7 @@
                     width: 80,
                     height: 24,
                     totalLines: 72,
-                    content: "Hello, World!\nThis is a test terminal snapshot.\n".data(using: .utf8)!
+                    content: Data("Hello, World!\nThis is a test terminal snapshot.\n".utf8)
                 )
             )
         }

@@ -26,7 +26,7 @@ public enum RelayClientError: Error, LocalizedError {
 /// receiving hook events from Mac and sending commands to Mac.
 @Observable
 @MainActor
-final public class RelayClient: Sendable {
+final public class RelayClient {
     // MARK: - Connection State
 
     /// Current connection state
@@ -527,7 +527,7 @@ final public class RelayClient: Sendable {
             state = .reconnecting(attempt: reconnectionAttempt)
 
             // Exponential backoff: 1s, 2s, 4s, 8s, etc. up to 60s
-            let delay = min(60, Int(pow(2.0, Double(reconnectionAttempt - 1))))
+            let delay = min(60, Int(pow(2, Double(reconnectionAttempt - 1))))
             logger.info("Reconnecting in \(delay) seconds (attempt \(reconnectionAttempt))")
 
             // Spawn reconnection in a new task - the current task was cancelled by cleanupConnection()

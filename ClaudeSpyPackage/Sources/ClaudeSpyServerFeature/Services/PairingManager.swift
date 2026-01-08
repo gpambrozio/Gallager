@@ -7,7 +7,7 @@ import Logging
 /// Handles pairing code generation, registration, and the overall pairing flow.
 @Observable
 @MainActor
-final public class PairingManager: Sendable {
+final public class PairingManager {
     // MARK: - Pairing State
 
     /// Current state of the pairing process

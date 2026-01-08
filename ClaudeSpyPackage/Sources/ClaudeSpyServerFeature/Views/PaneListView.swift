@@ -145,6 +145,7 @@ private struct PaneListPreview: View {
                     panes: [
                         PaneInfo(
                             paneId: "%0",
+                            // swiftlint:disable:next custom_no_number_decimals
                             target: "main:0.0",
                             sessionName: "main",
                             windowIndex: 0,
