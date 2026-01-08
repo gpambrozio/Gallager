@@ -10,12 +10,14 @@ struct SessionDetailView: View {
     @Environment(SessionStore.self) private var sessionStore
     @Environment(IOSSettings.self) private var settings
 
+    // Note: Service is optional because we need @Environment values (sessionStore, relayClient)
+    // which aren't available at init time. We create the service in .task when view appears.
+    // This is the standard SwiftUI pattern when services depend on Environment values.
     @State private var service: SessionDetailService?
 
     var body: some View {
         bodyContent
             .task {
-                // Only create service if it doesn't exist yet
                 if service == nil {
                     service = SessionDetailService(
                         paneId: paneId,
@@ -29,20 +31,16 @@ struct SessionDetailView: View {
     @ViewBuilder
     private var bodyContent: some View {
         if let service, let session = service.session {
+            @Bindable var bindableService = service
+
             sessionContent(service: service, session: session)
                 .navigationTitle("Session")
             #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
-                .navigationDestination(item: Binding(
-                    get: { service.terminalSnapshot },
-                    set: { service.terminalSnapshot = $0 }
-                )) { snapshot in
+                .navigationDestination(item: $bindableService.terminalSnapshot) { snapshot in
                     TerminalSnapshotView(
                         snapshot: snapshot,
-                        responseState: Binding(
-                            get: { service.responseState },
-                            set: { service.responseState = $0 }
-                        ),
+                        responseState: $bindableService.responseState,
                         isConnected: service.isMacConnected,
                         sendCommand: { command in
                             await service.sendCommand(command)

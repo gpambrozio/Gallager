@@ -1,11 +1,15 @@
 import ClaudeSpyNetworking
 import Foundation
+import Observation
 
 /// Service managing state and logic for a single Claude session detail view.
 ///
 /// This service encapsulates business logic for displaying and interacting with a session,
 /// including terminal snapshots, response state management, and command sending.
 /// It provides a live view of the session data from SessionStore, avoiding staleness issues.
+///
+/// The service uses `withObservationTracking` to reactively observe changes in `SessionStore`
+/// and automatically update response state when the session's latest event changes.
 @Observable
 @MainActor
 final public class SessionDetailService {
@@ -25,26 +29,14 @@ final public class SessionDetailService {
     /// Tracks the last event ID we processed for response state
     private var lastProcessedEventId: UUID?
 
+    /// Task handling observation tracking (allows cancellation if needed)
+    private var observationTask: Task<Void, Never>?
+
     // MARK: - Computed Properties
 
-    /// Live session from store (always up-to-date, not a stale snapshot)
-    /// Automatically updates response state when latest event changes
+    /// Live session from store (always up-to-date via observation tracking)
     public var session: ClaudeSession? {
-        let currentSession = sessionStore.session(for: paneId)
-
-        // Automatically update response state if latest event changed
-        if let latestEvent = currentSession?.latestEvent {
-            if latestEvent.id != lastProcessedEventId {
-                lastProcessedEventId = latestEvent.id
-                responseState = ResponseState(event: latestEvent)
-            }
-        } else if lastProcessedEventId != nil {
-            // Session has no events anymore, clear state
-            lastProcessedEventId = nil
-            responseState = nil
-        }
-
-        return currentSession
+        sessionStore.session(for: paneId)
     }
 
     /// Whether the pane is currently active
@@ -77,7 +69,51 @@ final public class SessionDetailService {
         self.paneId = paneId
         self.sessionStore = sessionStore
         self.relayClient = relayClient
-        // Response state is automatically updated when session getter is accessed
+
+        // Perform initial update and start observation
+        updateResponseState()
+        startObservingSessionStore()
+    }
+
+    // MARK: - Observation
+
+    /// Starts observing SessionStore for changes using withObservationTracking
+    private func startObservingSessionStore() {
+        // Cancel any existing observation task
+        observationTask?.cancel()
+
+        observationTask = Task { [weak self] in
+            guard let self else { return }
+
+            withObservationTracking {
+                // Access the properties we want to observe
+                _ = self.sessionStore.session(for: self.paneId)
+            } onChange: {
+                // Schedule update on main actor when store changes
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.updateResponseState()
+                    // Re-register for next change (withObservationTracking is single-shot)
+                    self.startObservingSessionStore()
+                }
+            }
+        }
+    }
+
+    /// Updates response state based on current session's latest event
+    private func updateResponseState() {
+        let currentSession = sessionStore.session(for: paneId)
+
+        if let latestEvent = currentSession?.latestEvent {
+            if latestEvent.id != lastProcessedEventId {
+                lastProcessedEventId = latestEvent.id
+                responseState = ResponseState(event: latestEvent)
+            }
+        } else if lastProcessedEventId != nil {
+            // Session has no events anymore, clear state
+            lastProcessedEventId = nil
+            responseState = nil
+        }
     }
 
     // MARK: - Actions

@@ -82,15 +82,13 @@ struct SessionDetailServiceTests {
             relayClient: relayClient
         )
 
-        // Access session to trigger automatic response state update
-        _ = service.session
-
+        // Response state is now automatically updated during init via withObservationTracking
         #expect(service.responseState != nil)
         #expect(service.responseState?.event.id == event.id)
     }
 
     @Test("Response state updates when latest event changes")
-    func responseStateUpdatesWithNewEvent() {
+    func responseStateUpdatesWithNewEvent() async throws {
         let sessionStore = SessionStore()
         let relayClient = RelayClient()
 
@@ -118,9 +116,10 @@ struct SessionDetailServiceTests {
         )
         sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event2))
 
-        // Access session to trigger automatic response state update
-        _ = service.session
+        // Allow observation tracking callback to fire
+        try await Task.sleep(for: .milliseconds(50))
 
+        // Response state should be automatically updated via withObservationTracking
         #expect(service.responseState?.event.id != firstEventId)
         #expect(service.responseState?.event.id == event2.id)
     }
