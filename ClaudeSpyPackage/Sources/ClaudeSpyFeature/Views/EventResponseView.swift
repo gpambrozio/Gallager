@@ -291,13 +291,8 @@ struct PermissionRequestResponseView: View {
                 Text("Accept Suggestion:")
                     .fontWeight(.medium)
                 ForEach(Array(suggestions.enumerated()), id: \.offset) { index, suggestion in
-                    HStack {
-                        Text("\(index + 2).")
-                            .fontWeight(.medium)
-                            .foregroundStyle(.secondary)
-                        Text(suggestionLabel(for: suggestion))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+                    Text(suggestionLabel(for: suggestion))
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .frame(maxWidth: .infinity)
