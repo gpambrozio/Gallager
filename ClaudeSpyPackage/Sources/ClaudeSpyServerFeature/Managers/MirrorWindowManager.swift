@@ -67,13 +67,6 @@ public final class MirrorWindowManager {
         }
     }
 
-    /// Cleans up active Claude sessions for panes that no longer exist
-    /// Call this after refreshing the pane list
-    public func cleanupInactiveSessions(currentPanes: [PaneInfo]) {
-        let existingPaneIds = Set(currentPanes.map(\.paneId))
-        activeSessions = activeSessions.filter { existingPaneIds.contains($0.key) }
-    }
-
     /// Opens a mirror window for the specified pane
     /// - Parameter paneInfo: The pane to mirror
     /// - Returns: The created or existing window

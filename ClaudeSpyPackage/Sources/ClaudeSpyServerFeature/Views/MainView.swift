@@ -141,8 +141,7 @@ public struct MainView: View {
     // MARK: - Actions
 
     private func refreshPanes() async {
-        let panes = await tmuxService.refreshPanes()
-        windowManager.cleanupInactiveSessions(currentPanes: panes)
+        await tmuxService.refreshPanes()
     }
 
     private func connectToServer() async {
