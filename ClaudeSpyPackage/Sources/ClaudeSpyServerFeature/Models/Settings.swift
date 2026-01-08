@@ -156,7 +156,8 @@ final public class AppSettings {
 
     private enum Defaults {
         static let fontName = "SF Mono"
-        static let fontSize = 12
+        // swiftlint:disable:next custom_no_number_decimals
+        static let fontSize = 12.0
         static let scrollbackLines = 10_000
         static let theme = TerminalTheme.defaultDark
         static let restoreWindowsOnLaunch = true

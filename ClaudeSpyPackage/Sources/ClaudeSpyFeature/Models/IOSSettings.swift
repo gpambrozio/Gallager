@@ -101,7 +101,8 @@ final public class IOSSettings {
 
         // Terminal settings with iOS-appropriate defaults
         self.terminalFontName = defaults.string(forKey: Keys.terminalFontName) ?? "Menlo"
-        self.terminalFontSize = defaults.object(forKey: Keys.terminalFontSize) as? Double ?? 10
+        // swiftlint:disable:next custom_no_number_decimals
+        self.terminalFontSize = defaults.object(forKey: Keys.terminalFontSize) as? Double ?? 10.0
     }
 
     // MARK: - Methods

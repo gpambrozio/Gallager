@@ -527,8 +527,8 @@ final public class RelayClient {
             state = .reconnecting(attempt: reconnectionAttempt)
 
             // Exponential backoff: 1s, 2s, 4s, 8s, etc. up to 60s
-            let delay = min(60, Int(pow(2, Double(reconnectionAttempt - 1))))
-            logger.info("Reconnecting in \(delay) seconds (attempt \(reconnectionAttempt))")
+            let delay = min(60, Int(pow(2, Double(self.reconnectionAttempt - 1))))
+            logger.info("Reconnecting in \(delay) seconds (attempt \(self.reconnectionAttempt))")
 
             // Spawn reconnection in a new task - the current task was cancelled by cleanupConnection()
             // so we need a fresh task that won't have Task.isCancelled == true

@@ -404,9 +404,8 @@ extension PermissionRequestBody {
                 "tool_name": "Bash"
             }
             """
-        guard let data = Data(jsonString.utf8),
-              let decoded = try? JSONDecoder().decode(PermissionRequestBody.self, from: data)
-        else {
+        let data = Data(jsonString.utf8)
+        guard let decoded = try? JSONDecoder().decode(PermissionRequestBody.self, from: data) else {
             fatalError("Failed to decode preview data")
         }
         return decoded
@@ -446,9 +445,8 @@ extension PermissionRequestBody {
                 ]
             }
             """
-        guard let data = Data(jsonString.utf8),
-              let decoded = try? JSONDecoder().decode(PermissionRequestBody.self, from: data)
-        else {
+        let data = Data(jsonString.utf8)
+        guard let decoded = try? JSONDecoder().decode(PermissionRequestBody.self, from: data) else {
             fatalError("Failed to decode preview data")
         }
         return decoded
