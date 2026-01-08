@@ -6,17 +6,17 @@ import SwiftUI
 /// This allows response state to be shared between SessionDetailView and TerminalSnapshotView
 @MainActor
 @Observable
-final class ResponseState {
+final public class ResponseState {
     /// The event this response is for
-    let event: HookEvent
+    public let event: HookEvent
 
     /// Whether a command is currently being sent
-    var isSending = false
+    public var isSending = false
 
     /// The user's response, if they've responded
-    var response: ResponseType?
+    public var response: ResponseType?
 
-    init(event: HookEvent) {
+    public init(event: HookEvent) {
         self.event = event
     }
 }
@@ -28,7 +28,7 @@ public enum ResponseType {
     case rejected
     case customInstructions(String)
 
-    var feedbackMessage: String {
+    public var feedbackMessage: String {
         switch self {
         case .accepted:
             "Permission accepted"
@@ -41,7 +41,7 @@ public enum ResponseType {
         }
     }
 
-    var feedbackColor: Color {
+    public var feedbackColor: Color {
         switch self {
         case .accepted,
              .acceptedWithSuggestion:

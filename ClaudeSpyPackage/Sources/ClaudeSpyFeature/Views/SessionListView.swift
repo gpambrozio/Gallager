@@ -43,9 +43,7 @@ struct SessionListView: View {
             }
         }
         .navigationDestination(for: String.self) { paneId in
-            if let session = sessionStore.session(for: paneId) {
-                SessionDetailView(paneId: paneId, session: session)
-            }
+            SessionDetailView(paneId: paneId)
         }
         .refreshable {
             await relayClient.requestSessionState()
