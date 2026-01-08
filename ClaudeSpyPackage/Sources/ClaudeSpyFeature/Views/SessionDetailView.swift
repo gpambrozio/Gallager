@@ -15,11 +15,14 @@ struct SessionDetailView: View {
     var body: some View {
         bodyContent
             .task {
-                service = SessionDetailService(
-                    paneId: paneId,
-                    sessionStore: sessionStore,
-                    relayClient: relayClient
-                )
+                // Only create service if it doesn't exist yet
+                if service == nil {
+                    service = SessionDetailService(
+                        paneId: paneId,
+                        sessionStore: sessionStore,
+                        relayClient: relayClient
+                    )
+                }
             }
     }
 

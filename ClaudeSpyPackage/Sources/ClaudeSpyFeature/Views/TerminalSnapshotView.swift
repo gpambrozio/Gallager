@@ -26,6 +26,7 @@
                         state: responseState
                     ) {
                     responseView
+                        .padding()
                         .background(Color(.systemGroupedBackground))
 
                     Divider()
