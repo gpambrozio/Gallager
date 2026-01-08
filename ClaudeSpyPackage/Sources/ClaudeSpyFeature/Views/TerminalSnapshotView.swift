@@ -8,16 +8,42 @@
     /// Displays a read-only terminal snapshot from the Mac app
     struct TerminalSnapshotView: View {
         let snapshot: TerminalSnapshotMessage
+        @Binding var responseState: ResponseState?
+        let isConnected: Bool
+        let sendCommand: CommandSender
 
         @Environment(IOSSettings.self) private var settings
         @Environment(\.dismiss) private var dismiss
 
         var body: some View {
-            TerminalContainerView(
-                snapshot: snapshot,
-                fontName: settings.terminalFontName,
-                fontSize: CGFloat(settings.terminalFontSize)
-            )
+            VStack(spacing: 8) {
+                // Response view above terminal if available
+                if
+                    let responseState,
+                    let responseView = responseState.event.responseView(
+                        isConnected: isConnected,
+                        sendCommand: sendCommand,
+                        state: responseState
+                    ) {
+                    ScrollView {
+                        VStack {
+                            responseView
+                        }
+                        .padding()
+                    }
+                    .frame(maxHeight: 300)
+                    .background(Color(.systemGroupedBackground))
+
+                    Divider()
+                }
+
+                // Terminal snapshot
+                TerminalContainerView(
+                    snapshot: snapshot,
+                    fontName: settings.terminalFontName,
+                    fontSize: CGFloat(settings.terminalFontSize)
+                )
+            }
             .navigationTitle("Terminal Snapshot")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -121,7 +147,7 @@
         }
     }
 
-    #Preview {
+    #Preview("Terminal Only") {
         NavigationStack {
             TerminalSnapshotView(
                 snapshot: TerminalSnapshotMessage(
@@ -131,7 +157,36 @@
                     height: 24,
                     totalLines: 72,
                     content: Data("Hello, World!\nThis is a test terminal snapshot.\n".utf8)
-                )
+                ),
+                responseState: .constant(nil),
+                isConnected: true,
+                sendCommand: { _ in }
+            )
+        }
+        .environment(IOSSettings.shared)
+    }
+
+    #Preview("With Permission Request") {
+        let event = HookEvent(
+            action: .permissionRequest(PermissionRequestBody.preview),
+            projectPath: "/Users/test/Projects/TestProject",
+            tmuxPane: "%1"
+        )
+        var responseState: ResponseState? = ResponseState(event: event)
+
+        NavigationStack {
+            TerminalSnapshotView(
+                snapshot: TerminalSnapshotMessage(
+                    commandId: UUID(),
+                    paneId: "%1",
+                    width: 80,
+                    height: 24,
+                    totalLines: 72,
+                    content: Data("Hello, World!\nThis is a test terminal snapshot.\n".utf8)
+                ),
+                responseState: Binding(get: { responseState }, set: { responseState = $0 }),
+                isConnected: true,
+                sendCommand: { _ in }
             )
         }
         .environment(IOSSettings.shared)

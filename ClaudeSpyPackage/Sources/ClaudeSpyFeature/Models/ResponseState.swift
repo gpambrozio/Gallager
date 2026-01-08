@@ -1,0 +1,55 @@
+import ClaudeSpyNetworking
+import Foundation
+import SwiftUI
+
+/// Manages the state of an event response (permission request, prompt, etc.)
+/// This allows response state to be shared between SessionDetailView and TerminalSnapshotView
+@MainActor
+@Observable
+final class ResponseState {
+    /// The event this response is for
+    let event: HookEvent
+
+    /// Whether a command is currently being sent
+    var isSending = false
+
+    /// The user's response, if they've responded
+    var response: ResponseType?
+
+    init(event: HookEvent) {
+        self.event = event
+    }
+}
+
+/// Represents the type of response given
+public enum ResponseType {
+    case accepted
+    case acceptedWithSuggestion
+    case rejected
+    case customInstructions(String)
+
+    var feedbackMessage: String {
+        switch self {
+        case .accepted:
+            "Permission accepted"
+        case .acceptedWithSuggestion:
+            "Permission accepted with suggestion"
+        case .rejected:
+            "Permission rejected"
+        case let .customInstructions(text):
+            "Sent: \(text)"
+        }
+    }
+
+    var feedbackColor: Color {
+        switch self {
+        case .accepted,
+             .acceptedWithSuggestion:
+            .green
+        case .rejected:
+            .red
+        case .customInstructions:
+            .blue
+        }
+    }
+}

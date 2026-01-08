@@ -15,6 +15,8 @@ struct SessionDetailView: View {
     @State private var terminalSnapshot: TerminalSnapshotMessage?
     @State private var snapshotError: String?
 
+    @State private var responseState: ResponseState?
+
     var body: some View {
         List {
             // Terminal section
@@ -32,14 +34,14 @@ struct SessionDetailView: View {
 
             // Context-sensitive response section based on latest event
             if
-                let latestEvent = session.latestEvent,
-                let responseView = latestEvent.responseView(
+                let responseState,
+                let responseView = responseState.event.responseView(
                     isConnected: relayClient.isMacConnected,
-                    sendCommand: sendCommand
+                    sendCommand: sendCommand,
+                    state: responseState
                 ) {
                 Section("Response") {
                     responseView
-                        .id(latestEvent.id)
                 }
             }
 
@@ -77,13 +79,34 @@ struct SessionDetailView: View {
                 }
             }
         }
+        .onChange(of: session.latestEvent) { _, _ in
+            updateResponseState()
+        }
+        .task {
+            updateResponseState()
+        }
         .navigationTitle("Session")
         #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(item: $terminalSnapshot) { snapshot in
-                TerminalSnapshotView(snapshot: snapshot)
+                TerminalSnapshotView(
+                    snapshot: snapshot,
+                    responseState: $responseState,
+                    isConnected: relayClient.isMacConnected,
+                    sendCommand: sendCommand
+                )
             }
         #endif
+    }
+
+    private func updateResponseState() {
+        if let latestEvent = session.latestEvent {
+            if latestEvent.id != responseState?.event.id {
+                responseState = ResponseState(event: latestEvent)
+            }
+        } else {
+            responseState = nil
+        }
     }
 
     // MARK: - View Terminal Button
