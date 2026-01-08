@@ -290,9 +290,8 @@ struct PermissionRequestResponseView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Accept Suggestion:")
                     .fontWeight(.medium)
-                ForEach(Array(suggestions.enumerated()), id: \.offset) { index, suggestion in
-                    Text(suggestionLabel(for: suggestion))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                ForEach(Array(suggestions.enumerated()), id: \.offset) { _, suggestion in
+                    suggestionLabel(for: suggestion)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -303,32 +302,39 @@ struct PermissionRequestResponseView: View {
         .disabled(!isConnected || isSending)
     }
 
-    private func suggestionLabel(for suggestion: PermissionSuggestion) -> String {
-        // Build a descriptive label from the suggestion
-        var parts: [String] = []
+    private func suggestionLabel(for suggestion: PermissionSuggestion) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // Build a descriptive label from the suggestion
+            let parts: [String?] = [
+                suggestion.type?.stringValue,
+                suggestion.behavior?.stringValue,
+                "to",
+                suggestion.destination?.stringValue,
+            ]
 
-        if let type = suggestion.type {
-            parts.append(type)
-        }
-
-        if let rules = suggestion.rules, !rules.isEmpty {
-            let ruleDescriptions = rules.compactMap { rule -> String? in
-                rule.ruleContent ?? rule.toolName
+            HStack(spacing: 4) {
+                Text(parts.compactMap(\.self).joined(separator: " "))
+                Spacer()
             }
-            if !ruleDescriptions.isEmpty {
-                parts.append(contentsOf: ruleDescriptions)
+
+            if let rules = suggestion.rules {
+                ForEach(Array(rules.enumerated()), id: \.offset) { _, rule in
+                    HStack(spacing: 4) {
+                        if let toolName = rule.toolName {
+                            Text(toolName)
+                        }
+
+                        if let ruleContent = rule.ruleContent {
+                            Text(ruleContent)
+                        }
+
+                        Spacer()
+                    }
+                    .padding(.leading, 12)
+                }
             }
         }
-
-        if let behavior = suggestion.behavior {
-            parts.append(behavior)
-        }
-
-        if let destination = suggestion.destination {
-            parts.append("→ \(destination)")
-        }
-
-        return parts.isEmpty ? (suggestion.type?.capitalized ?? "Option") : parts.joined(separator: " ")
+        .frame(maxWidth: .infinity)
     }
 
     private var textFieldBackground: some View {
@@ -580,22 +586,25 @@ extension PermissionRequestBody {
             toolName: "Bash",
             permissionSuggestions: [
                 PermissionSuggestion(
-                    type: "allow_once",
-                    behavior: "Allow this command once"
+                    type: .addRules,
+                    behavior: .allow,
+                    destination: .session
                 ),
                 PermissionSuggestion(
-                    type: "allow_session",
+                    type: .addRules,
                     rules: [
                         PermissionRule(toolName: "Bash", ruleContent: "git status"),
                     ],
-                    behavior: "Allow for this session"
+                    behavior: .allow,
+                    destination: .session
                 ),
                 PermissionSuggestion(
-                    type: "allow_always",
+                    type: .addRules,
                     rules: [
                         PermissionRule(toolName: "Bash", ruleContent: "git *"),
                     ],
-                    destination: "project"
+                    behavior: .allow,
+                    destination: .localSettings
                 ),
             ]
         )

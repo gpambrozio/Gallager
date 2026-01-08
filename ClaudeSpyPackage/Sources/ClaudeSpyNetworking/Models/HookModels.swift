@@ -467,17 +467,130 @@ public struct PreCompactBody: HookBodyProtocol {
 
 // MARK: - Permission Suggestion Types
 
+/// The type of permission suggestion
+public enum PermissionSuggestionType: Codable, Sendable {
+    case addRules
+    case addDirectories
+    case setMode
+    case other(String)
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+
+        switch value {
+        case "addRules": self = .addRules
+        case "addDirectories": self = .addDirectories
+        case "setMode": self = .setMode
+        default: self = .other(value)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .addRules: try container.encode("addRules")
+        case .addDirectories: try container.encode("addDirectories")
+        case .setMode: try container.encode("setMode")
+        case let .other(value): try container.encode(value)
+        }
+    }
+
+    /// Returns the raw string value for display purposes
+    public var stringValue: String {
+        switch self {
+        case .addRules: "Add Rule"
+        case .addDirectories: "Add Directory"
+        case .setMode: "Set Mode"
+        case let .other(value): value
+        }
+    }
+
+    /// Returns a capitalized display name
+    public var displayName: String {
+        stringValue.prefix(1).uppercased() + stringValue.dropFirst()
+    }
+}
+
+/// The behavior for a permission rule
+public enum PermissionBehavior: Codable, Sendable {
+    case allow
+    case other(String)
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+
+        switch value {
+        case "allow": self = .allow
+        default: self = .other(value)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .allow: try container.encode("allow")
+        case let .other(value): try container.encode(value)
+        }
+    }
+
+    /// Returns the raw string value for display purposes
+    public var stringValue: String {
+        switch self {
+        case .allow: "Allow"
+        case let .other(value): value
+        }
+    }
+}
+
+/// The destination for where the permission should be saved
+public enum PermissionDestination: Codable, Sendable {
+    case session
+    case localSettings
+    case other(String)
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+
+        switch value {
+        case "session": self = .session
+        case "localSettings": self = .localSettings
+        default: self = .other(value)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .session: try container.encode("session")
+        case .localSettings: try container.encode("localSettings")
+        case let .other(value): try container.encode(value)
+        }
+    }
+
+    /// Returns the raw string value for display purposes
+    public var stringValue: String {
+        switch self {
+        case .session: "Session"
+        case .localSettings: "Local Settings"
+        case let .other(value): value
+        }
+    }
+}
+
 public struct PermissionSuggestion: Codable, Sendable {
-    public let type: String?
+    public let type: PermissionSuggestionType?
     public let rules: [PermissionRule]?
-    public let behavior: String?
-    public let destination: String?
+    public let behavior: PermissionBehavior?
+    public let destination: PermissionDestination?
 
     public init(
-        type: String?,
+        type: PermissionSuggestionType?,
         rules: [PermissionRule]? = nil,
-        behavior: String? = nil,
-        destination: String? = nil
+        behavior: PermissionBehavior? = nil,
+        destination: PermissionDestination? = nil
     ) {
         self.type = type
         self.rules = rules
