@@ -319,7 +319,7 @@ struct PermissionRequestResponseView: View {
 
             if let rules = suggestion.rules {
                 ForEach(Array(rules.enumerated()), id: \.offset) { _, rule in
-                    HStack(spacing: 4) {
+                    HStack(alignment: .top, spacing: 4) {
                         if let toolName = rule.toolName {
                             Text(toolName)
                         }
