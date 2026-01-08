@@ -42,7 +42,7 @@ actor PairingService {
         let fileURL = resolvedDirectory.appendingPathComponent("pairs.json")
 
         // Load pairs synchronously during init
-        self.activePairs = Self.loadPairsSync(from: fileURL, logger: self.logger)
+        self.activePairs = Self.loadPairsSync(from: fileURL, logger: logger)
     }
 
     /// Synchronous load for use during init (actors can't call async in init)

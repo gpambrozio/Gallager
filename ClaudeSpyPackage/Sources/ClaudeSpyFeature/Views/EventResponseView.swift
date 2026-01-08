@@ -16,7 +16,8 @@ extension HookEvent {
         sendCommand: @escaping CommandSender
     ) -> AnyView? {
         switch action {
-        case .sessionStart, .stop:
+        case .sessionStart,
+             .stop:
             AnyView(PromptView(isConnected: isConnected, sendCommand: sendCommand))
         case let .notification(body) where body.notificationType == "idle_prompt":
             AnyView(PromptView(isConnected: isConnected, sendCommand: sendCommand))
@@ -132,7 +133,8 @@ enum PermissionResponse {
 
     var feedbackColor: Color {
         switch self {
-        case .accepted, .acceptedWithSuggestion:
+        case .accepted,
+             .acceptedWithSuggestion:
             .green
         case .rejected:
             .red
@@ -180,8 +182,8 @@ struct PermissionRequestResponseView: View {
 
     private func responseFeedback(_ response: PermissionResponse) -> some View {
         HStack {
-            Image(systemName: response.feedbackColor == .green ? "checkmark.circle.fill" :
-                             response.feedbackColor == .red ? "xmark.circle.fill" : "arrow.up.circle.fill")
+            (response.feedbackColor == .green ? Symbols.checkmarkCircleFill.image :
+                response.feedbackColor == .red ? Symbols.xmarkCircleFill.image : Symbols.arrowUpCircleFill.image)
                 .foregroundStyle(response.feedbackColor)
             Text(response.feedbackMessage)
                 .foregroundStyle(.secondary)
@@ -395,22 +397,22 @@ struct PermissionRequestResponseView: View {
 
 extension PermissionRequestBody {
     static var preview: PermissionRequestBody {
-        try! JSONDecoder().decode(
-            PermissionRequestBody.self,
-            from: """
+        let jsonString = """
             {
                 "session_id": "test-session",
                 "hook_event_name": "PermissionRequest",
                 "tool_name": "Bash"
             }
-            """.data(using: .utf8)!
-        )
+            """
+        let data = Data(jsonString.utf8)
+        guard let decoded = try? JSONDecoder().decode(PermissionRequestBody.self, from: data) else {
+            fatalError("Failed to decode preview data")
+        }
+        return decoded
     }
 
     static var previewWithSuggestions: PermissionRequestBody {
-        try! JSONDecoder().decode(
-            PermissionRequestBody.self,
-            from: """
+        let jsonString = """
             {
                 "session_id": "test-session",
                 "hook_event_name": "PermissionRequest",
@@ -442,7 +444,11 @@ extension PermissionRequestBody {
                     }
                 ]
             }
-            """.data(using: .utf8)!
-        )
+            """
+        let data = Data(jsonString.utf8)
+        guard let decoded = try? JSONDecoder().decode(PermissionRequestBody.self, from: data) else {
+            fatalError("Failed to decode preview data")
+        }
+        return decoded
     }
 }

@@ -1,113 +1,113 @@
 #if os(iOS)
-import Foundation
-import UIKit
-import UserNotifications
+    import Foundation
+    import UIKit
+    import UserNotifications
 
-/// Manages push notification registration and token handling
-@Observable
-@MainActor
-public final class PushNotificationService: NSObject, Sendable {
-    // MARK: - Singleton
+    /// Manages push notification registration and token handling
+    @Observable
+    @MainActor
+    final public class PushNotificationService: NSObject {
+        // MARK: - Singleton
 
-    public static let shared = PushNotificationService()
+        public static let shared = PushNotificationService()
 
-    // MARK: - Properties
+        // MARK: - Properties
 
-    /// The raw device token data from APNs
-    public private(set) var deviceToken: Data?
+        /// The raw device token data from APNs
+        public private(set) var deviceToken: Data?
 
-    /// The device token as a hex string, suitable for sending to server
-    public private(set) var tokenString: String?
+        /// The device token as a hex string, suitable for sending to server
+        public private(set) var tokenString: String?
 
-    /// Current notification permission status
-    public private(set) var permissionStatus: UNAuthorizationStatus = .notDetermined
+        /// Current notification permission status
+        public private(set) var permissionStatus: UNAuthorizationStatus = .notDetermined
 
-    /// Whether we've successfully registered for remote notifications
-    public var isRegistered: Bool {
-        tokenString != nil
-    }
-
-    // MARK: - Initialization
-
-    private override init() {
-        super.init()
-    }
-
-    // MARK: - Public API
-
-    /// Request notification permissions and register for remote notifications
-    /// Call this after the user has paired their device
-    public func requestAuthorization() async throws {
-        let center = UNUserNotificationCenter.current()
-
-        // Request permission
-        let granted = try await center.requestAuthorization(options: [.alert, .badge, .sound])
-
-        // Update status
-        await updatePermissionStatus()
-
-        if granted {
-            // Register for remote notifications
-            UIApplication.shared.registerForRemoteNotifications()
+        /// Whether we've successfully registered for remote notifications
+        public var isRegistered: Bool {
+            tokenString != nil
         }
-    }
 
-    /// Check and update current permission status
-    public func updatePermissionStatus() async {
-        let settings = await UNUserNotificationCenter.current().notificationSettings()
-        self.permissionStatus = settings.authorizationStatus
-    }
+        // MARK: - Initialization
 
-    /// Called from AppDelegate when device token is received
-    public func didRegisterForRemoteNotifications(deviceToken: Data) {
-        self.deviceToken = deviceToken
-        self.tokenString = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
-    }
+        private override init() {
+            super.init()
+        }
 
-    /// Called from AppDelegate on registration failure
-    public func didFailToRegisterForRemoteNotifications(error: Error) {
-        print("Failed to register for remote notifications: \(error.localizedDescription)")
-        self.deviceToken = nil
-        self.tokenString = nil
-    }
+        // MARK: - Public API
 
-    /// Clear token data (e.g., on unpair)
-    public func clearToken() {
-        deviceToken = nil
-        tokenString = nil
-    }
+        /// Request notification permissions and register for remote notifications
+        /// Call this after the user has paired their device
+        public func requestAuthorization() async throws {
+            let center = UNUserNotificationCenter.current()
 
-    /// Clear the app badge
-    public func clearBadge() {
-        UNUserNotificationCenter.current().setBadgeCount(0)
-    }
+            // Request permission
+            let granted = try await center.requestAuthorization(options: [.alert, .badge, .sound])
 
-    // MARK: - Local Notifications
+            // Update status
+            await updatePermissionStatus()
 
-    /// Schedule a local notification immediately.
-    /// Used when app receives WebSocket events while backgrounded - the server
-    /// won't send a push (since we're "connected"), so we show a local notification instead.
-    public func scheduleLocalNotification(title: String, body: String) {
-        guard permissionStatus == .authorized else { return }
+            if granted {
+                // Register for remote notifications
+                UIApplication.shared.registerForRemoteNotifications()
+            }
+        }
 
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-        content.badge = 1
+        /// Check and update current permission status
+        public func updatePermissionStatus() async {
+            let settings = await UNUserNotificationCenter.current().notificationSettings()
+            permissionStatus = settings.authorizationStatus
+        }
 
-        // Trigger immediately
-        let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
-            content: content,
-            trigger: nil
-        )
+        /// Called from AppDelegate when device token is received
+        public func didRegisterForRemoteNotifications(deviceToken: Data) {
+            self.deviceToken = deviceToken
+            tokenString = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
+        }
 
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error {
-                print("Failed to schedule local notification: \(error)")
+        /// Called from AppDelegate on registration failure
+        public func didFailToRegisterForRemoteNotifications(error: Error) {
+            print("Failed to register for remote notifications: \(error.localizedDescription)")
+            deviceToken = nil
+            tokenString = nil
+        }
+
+        /// Clear token data (e.g., on unpair)
+        public func clearToken() {
+            deviceToken = nil
+            tokenString = nil
+        }
+
+        /// Clear the app badge
+        public func clearBadge() {
+            UNUserNotificationCenter.current().setBadgeCount(0)
+        }
+
+        // MARK: - Local Notifications
+
+        /// Schedule a local notification immediately.
+        /// Used when app receives WebSocket events while backgrounded - the server
+        /// won't send a push (since we're "connected"), so we show a local notification instead.
+        public func scheduleLocalNotification(title: String, body: String) {
+            guard permissionStatus == .authorized else { return }
+
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            content.sound = .default
+            content.badge = 1
+
+            // Trigger immediately
+            let request = UNNotificationRequest(
+                identifier: UUID().uuidString,
+                content: content,
+                trigger: nil
+            )
+
+            UNUserNotificationCenter.current().add(request) { error in
+                if let error {
+                    print("Failed to schedule local notification: \(error)")
+                }
             }
         }
     }
-}
 #endif

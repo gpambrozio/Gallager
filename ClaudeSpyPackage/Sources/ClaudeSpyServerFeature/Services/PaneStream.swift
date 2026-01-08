@@ -20,14 +20,14 @@ final class PaneStream {
     let target: String
 
     /// The pane ID (e.g., "%5")
-    private(set) var paneId: String = ""
+    private(set) var paneId = ""
 
     /// Current connection state
     private(set) var state: StreamState = .disconnected
 
     /// Pane dimensions
-    private(set) var width: Int = 80
-    private(set) var height: Int = 24
+    private(set) var width = 80
+    private(set) var height = 24
 
     /// Callback for incoming data
     var onData: (@MainActor (Data) -> Void)?
@@ -36,7 +36,7 @@ final class PaneStream {
     var onDimensionChange: (@MainActor (Int, Int) -> Void)?
 
     /// Number of lines in scrollback
-    private(set) var scrollbackLines: Int = 0
+    private(set) var scrollbackLines = 0
 
     private let tmuxService: TmuxService
     private var fifoReader: FIFOReader?

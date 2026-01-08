@@ -77,7 +77,6 @@ actor RelayService {
 
         default:
             logger.debug("Unhandled Mac message type")
-            break
         }
     }
 
@@ -123,7 +122,6 @@ actor RelayService {
 
         default:
             logger.debug("Unhandled iOS message type")
-            break
         }
     }
 
@@ -136,7 +134,7 @@ actor RelayService {
         logger.info("Mac registration complete", metadata: [
             "pairId": "\(pairId)",
             "iosConnected": "\(isIOSConnected)",
-            "iosDeviceName": "\(iosDeviceName ?? "none")"
+            "iosDeviceName": "\(iosDeviceName ?? "none")",
         ])
 
         let response = MacRegisteredMessage(
@@ -160,7 +158,7 @@ actor RelayService {
         logger.info("iOS registration complete", metadata: [
             "pairId": "\(pairId)",
             "macConnected": "\(isMacConnected)",
-            "macDeviceName": "\(macDeviceName ?? "none")"
+            "macDeviceName": "\(macDeviceName ?? "none")",
         ])
 
         let response = IOSRegisteredMessage(

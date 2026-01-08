@@ -10,7 +10,7 @@ public extension Label where Title == Text, Icon == Image {
     }
 }
 
-public extension ContentUnavailableView where Label == SwiftUI.Label<Text, Image>, Description == Text, Actions == EmptyView  {
+public extension ContentUnavailableView where Label == SwiftUI.Label<Text, Image>, Description == Text, Actions == EmptyView {
     init(
         _ title: any StringProtocol,
         symbol: Symbols,

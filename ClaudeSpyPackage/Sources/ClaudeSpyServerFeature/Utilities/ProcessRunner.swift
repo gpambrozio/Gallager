@@ -163,7 +163,7 @@ actor ProcessRunner {
 }
 
 /// Thread-safe output collector for process output
-private final class OutputCollector: @unchecked Sendable {
+final private class OutputCollector: @unchecked Sendable {
     private let lock = NSLock()
     private var _stdout = Data()
     private var _stderr = Data()

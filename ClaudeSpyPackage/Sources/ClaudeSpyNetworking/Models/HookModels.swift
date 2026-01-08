@@ -162,21 +162,21 @@ public struct PreToolUseBody: HookBodyProtocol {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        sessionId = try container.decode(String.self, forKey: .sessionId)
-        transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
-        cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
-        hookEventName = try container.decode(String.self, forKey: .hookEventName)
-        timestamp = try container.decodeIfPresent(String.self, forKey: .timestamp)
-        toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
+        self.sessionId = try container.decode(String.self, forKey: .sessionId)
+        self.transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
+        self.cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
+        self.hookEventName = try container.decode(String.self, forKey: .hookEventName)
+        self.timestamp = try container.decodeIfPresent(String.self, forKey: .timestamp)
+        self.toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
 
         // Decode tool_input based on tool_name
         if container.contains(.toolInput) {
-            toolInput = try ClaudeCodeTool.decode(
+            self.toolInput = try ClaudeCodeTool.decode(
                 from: container.superDecoder(forKey: .toolInput),
                 toolName: toolName
             )
         } else {
-            toolInput = nil
+            self.toolInput = nil
         }
     }
 }
@@ -226,22 +226,22 @@ public struct PermissionRequestBody: HookBodyProtocol {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        sessionId = try container.decode(String.self, forKey: .sessionId)
-        transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
-        cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
-        hookEventName = try container.decode(String.self, forKey: .hookEventName)
-        permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
-        toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
-        permissionSuggestions = try container.decodeIfPresent([PermissionSuggestion].self, forKey: .permissionSuggestions)
-        timestamp = try container.decodeIfPresent(String.self, forKey: .timestamp)
+        self.sessionId = try container.decode(String.self, forKey: .sessionId)
+        self.transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
+        self.cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
+        self.hookEventName = try container.decode(String.self, forKey: .hookEventName)
+        self.permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
+        self.toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
+        self.permissionSuggestions = try container.decodeIfPresent([PermissionSuggestion].self, forKey: .permissionSuggestions)
+        self.timestamp = try container.decodeIfPresent(String.self, forKey: .timestamp)
 
         if container.contains(.toolInput) {
-            toolInput = try ClaudeCodeTool.decode(
+            self.toolInput = try ClaudeCodeTool.decode(
                 from: container.superDecoder(forKey: .toolInput),
                 toolName: toolName
             )
         } else {
-            toolInput = nil
+            self.toolInput = nil
         }
     }
 }
@@ -272,22 +272,22 @@ public struct PostToolUseBody: HookBodyProtocol {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        sessionId = try container.decode(String.self, forKey: .sessionId)
-        transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
-        cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
-        hookEventName = try container.decode(String.self, forKey: .hookEventName)
-        timestamp = try container.decodeIfPresent(String.self, forKey: .timestamp)
-        toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
-        toolUseId = try container.decodeIfPresent(String.self, forKey: .toolUseId)
-        toolResponse = try container.decodeIfPresent(AnyCodable.self, forKey: .toolResponse)
+        self.sessionId = try container.decode(String.self, forKey: .sessionId)
+        self.transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
+        self.cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
+        self.hookEventName = try container.decode(String.self, forKey: .hookEventName)
+        self.timestamp = try container.decodeIfPresent(String.self, forKey: .timestamp)
+        self.toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
+        self.toolUseId = try container.decodeIfPresent(String.self, forKey: .toolUseId)
+        self.toolResponse = try container.decodeIfPresent(AnyCodable.self, forKey: .toolResponse)
 
         if container.contains(.toolInput) {
-            toolInput = try ClaudeCodeTool.decode(
+            self.toolInput = try ClaudeCodeTool.decode(
                 from: container.superDecoder(forKey: .toolInput),
                 toolName: toolName
             )
         } else {
-            toolInput = nil
+            self.toolInput = nil
         }
     }
 }
@@ -620,19 +620,19 @@ public struct AnyCodable: Codable, Sendable, Equatable {
         let container = try decoder.singleValueContainer()
 
         if let bool = try? container.decode(Bool.self) {
-            value = .bool(bool)
+            self.value = .bool(bool)
         } else if let int = try? container.decode(Int.self) {
-            value = .int(int)
+            self.value = .int(int)
         } else if let double = try? container.decode(Double.self) {
-            value = .double(double)
+            self.value = .double(double)
         } else if let string = try? container.decode(String.self) {
-            value = .string(string)
+            self.value = .string(string)
         } else if let array = try? container.decode([AnyCodable].self) {
-            value = .array(array.map(\.value))
+            self.value = .array(array.map(\.value))
         } else if let dictionary = try? container.decode([String: AnyCodable].self) {
-            value = .dictionary(dictionary.mapValues { $0.value })
+            self.value = .dictionary(dictionary.mapValues { $0.value })
         } else if container.decodeNil() {
-            value = .null
+            self.value = .null
         } else {
             throw DecodingError.dataCorruptedError(
                 in: container,
@@ -696,8 +696,8 @@ public enum AnyCodableValue: Sendable, Equatable {
     }
 }
 
-extension AnyCodable {
-    fileprivate init(wrapping value: AnyCodableValue) {
+private extension AnyCodable {
+    init(wrapping value: AnyCodableValue) {
         self.value = value
     }
 }

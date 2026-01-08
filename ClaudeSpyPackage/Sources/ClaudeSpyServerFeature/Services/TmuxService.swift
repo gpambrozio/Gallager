@@ -30,7 +30,7 @@ enum TmuxError: Error, LocalizedError {
 /// Service for interacting with tmux via CLI
 @Observable
 @MainActor
-public final class TmuxService {
+final public class TmuxService {
     private let processRunner = ProcessRunner()
     private var tmuxPath: String
     private var socketPath: String?
@@ -156,9 +156,10 @@ public final class TmuxService {
         }
 
         let parts = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: " ")
-        guard parts.count == 2,
-              let width = Int(parts[0]),
-              let height = Int(parts[1])
+        guard
+            parts.count == 2,
+            let width = Int(parts[0]),
+            let height = Int(parts[1])
         else {
             throw TmuxError.invalidPane(target: target)
         }
@@ -254,7 +255,7 @@ public final class TmuxService {
         var positionedContent = ""
 
         // Start with cursor home
-        positionedContent += "\u{1b}[H"  // Cursor to home position (1,1)
+        positionedContent += "\u{1b}[H" // Cursor to home position (1,1)
 
         for (index, line) in lines.enumerated() {
             // Move cursor to row (index+1), column 1
@@ -317,7 +318,7 @@ public final class TmuxService {
     public func sendKeys(_ target: String, keys: String, literal: Bool = false) async throws {
         var args = ["send-keys", "-t", target]
         if literal {
-            args.append("-l")  // Disable key name lookup
+            args.append("-l") // Disable key name lookup
         }
         args.append(keys)
 

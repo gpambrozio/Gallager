@@ -10,7 +10,7 @@ public struct RemoteAccessSettingsView: View {
 
     @State private var showCopiedFeedback = false
 
-    public init() {}
+    public init() { }
 
     public var body: some View {
         @Bindable var settings = settings
@@ -93,7 +93,8 @@ public struct RemoteAccessSettingsView: View {
         case .disconnected:
             Symbols.wifiSlash.image
                 .foregroundStyle(.secondary)
-        case .connecting, .reconnecting:
+        case .connecting,
+             .reconnecting:
             ProgressView()
                 .controlSize(.small)
         case .connected:
@@ -289,8 +290,9 @@ public struct RemoteAccessSettingsView: View {
     }
 
     private func connectToServer() async {
-        guard let pairId = settings.pairId,
-              let serverURL = URL(string: settings.externalServerURL)
+        guard
+            let pairId = settings.pairId,
+            let serverURL = URL(string: settings.externalServerURL)
         else {
             return
         }

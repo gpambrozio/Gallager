@@ -4,7 +4,7 @@ import SwiftTerm
 import SwiftUI
 
 /// A flipped clip view that positions content at the top instead of bottom
-private final class FlippedClipView: NSClipView {
+final private class FlippedClipView: NSClipView {
     override var isFlipped: Bool { true }
 }
 
@@ -33,7 +33,7 @@ final class TerminalController: @unchecked Sendable {
     let terminalView: TerminalView
 
     /// Font name for the terminal
-    var fontName: String = "SF Mono" {
+    var fontName = "SF Mono" {
         didSet { updateFont() }
     }
 
@@ -43,16 +43,16 @@ final class TerminalController: @unchecked Sendable {
     }
 
     /// Number of columns (fixed to pane size)
-    private(set) var columns: Int = 80
+    private(set) var columns = 80
 
     /// Number of rows (fixed to pane size)
-    private(set) var rows: Int = 24
+    private(set) var rows = 24
 
     /// The fixed size of the terminal content
-    private var terminalSize: NSSize = NSSize(width: 800, height: 600)
+    private var terminalSize = NSSize(width: 800, height: 600)
 
     /// Whether the user has scrolled away from the bottom
-    private(set) var isScrolledUp: Bool = false
+    private(set) var isScrolledUp = false
 
     init() {
         // Create terminal view
@@ -70,7 +70,7 @@ final class TerminalController: @unchecked Sendable {
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
-        scrollView.backgroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0)
+        scrollView.backgroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
 
         // Use overlay scrollers so they don't take up content space
         scrollView.scrollerStyle = .overlay
@@ -149,7 +149,7 @@ final class TerminalController: @unchecked Sendable {
 
     /// Scrolls to the bottom of the terminal
     func scrollToBottom() {
-        terminalView.scroll(toPosition: 1.0)
+        terminalView.scroll(toPosition: 1)
         isScrolledUp = false
     }
 
@@ -162,24 +162,26 @@ final class TerminalController: @unchecked Sendable {
 
     func applyDarkTheme() {
         // Default dark theme colors
-        let bgColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0)
-        terminalView.nativeForegroundColor = NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1.0)
+        let bgColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
+        terminalView.nativeForegroundColor = NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1)
         terminalView.nativeBackgroundColor = bgColor
         scrollView.backgroundColor = bgColor
     }
 
     func applyLightTheme() {
-        let bgColor = NSColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1.0)
-        terminalView.nativeForegroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0)
+        let bgColor = NSColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1)
+        terminalView.nativeForegroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
         terminalView.nativeBackgroundColor = bgColor
         scrollView.backgroundColor = bgColor
     }
 
     func applyTheme(_ theme: TerminalTheme) {
         switch theme {
-        case .defaultDark, .solarizedDark:
+        case .defaultDark,
+             .solarizedDark:
             applyDarkTheme()
-        case .defaultLight, .solarizedLight:
+        case .defaultLight,
+             .solarizedLight:
             applyLightTheme()
         }
     }

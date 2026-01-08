@@ -55,7 +55,7 @@ public enum TmuxKey: Codable, Sendable, Equatable {
     /// The tmux key name for special keys, or the literal text
     public var tmuxKeyName: String {
         switch self {
-        case .text(let string): string
+        case let .text(string): string
         case .enter: "Enter"
         case .escape: "Escape"
         case .tab: "Tab"
@@ -70,7 +70,7 @@ public enum TmuxKey: Codable, Sendable, Equatable {
         case .end: "End"
         case .pageUp: "PageUp"
         case .pageDown: "PageDown"
-        case .ctrl(let char): "C-\(char)"
+        case let .ctrl(char): "C-\(char)"
         }
     }
 

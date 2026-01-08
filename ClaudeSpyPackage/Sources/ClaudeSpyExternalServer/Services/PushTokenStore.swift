@@ -34,7 +34,7 @@ actor PushTokenStore {
         let fileURL = resolvedDirectory.appendingPathComponent("push-tokens.json")
 
         // Load tokens synchronously during init
-        self.tokens = Self.loadTokensSync(from: fileURL, logger: self.logger)
+        self.tokens = Self.loadTokensSync(from: fileURL, logger: logger)
     }
 
     /// Synchronous load for use during init

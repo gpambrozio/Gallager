@@ -107,25 +107,25 @@ let package = Package(
         .testTarget(
             name: "ClaudeSpyNetworkingTests",
             dependencies: [
-                "ClaudeSpyNetworking"
+                "ClaudeSpyNetworking",
             ]
         ),
         .testTarget(
             name: "ClaudeSpyCommonTests",
             dependencies: [
-                "ClaudeSpyCommon"
+                "ClaudeSpyCommon",
             ]
         ),
         .testTarget(
             name: "ClaudeSpyFeatureTests",
             dependencies: [
-                "ClaudeSpyFeature"
+                "ClaudeSpyFeature",
             ]
         ),
         .testTarget(
             name: "ClaudeSpyServerFeatureTests",
             dependencies: [
-                "ClaudeSpyServerFeature"
+                "ClaudeSpyServerFeature",
             ]
         ),
         .testTarget(

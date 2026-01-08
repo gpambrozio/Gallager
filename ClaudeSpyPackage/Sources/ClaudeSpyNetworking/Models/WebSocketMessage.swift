@@ -41,7 +41,7 @@ public enum WebSocketMessage: Codable, Sendable {
     /// iOS registers with the relay server after connecting
     case registerIOS(RegisterIOSMessage)
 
-    /// iOS sends a command to be relayed to Mac
+    // iOS sends a command to be relayed to Mac
     // (Uses same `command` case as Server → Mac for symmetry)
 
     /// iOS requests current session state from Mac
@@ -107,7 +107,7 @@ public struct ErrorMessage: Codable, Sendable {
 
 // MARK: - Codable Implementation
 
-extension WebSocketMessage {
+public extension WebSocketMessage {
     private enum CodingKeys: String, CodingKey {
         case type
         case payload
@@ -135,7 +135,7 @@ extension WebSocketMessage {
         case error
     }
 
-    public init(from decoder: Decoder) throws {
+    init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let type = try container.decode(MessageType.self, forKey: .type)
 
@@ -193,7 +193,7 @@ extension WebSocketMessage {
         }
     }
 
-    public func encode(to encoder: Encoder) throws {
+    func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
 
         switch self {
@@ -251,7 +251,7 @@ extension WebSocketMessage {
     }
 
     /// Human-readable message type for logging
-    public var messageType: String {
+    var messageType: String {
         switch self {
         case .registerMac: MessageType.registerMac.rawValue
         case .hookEvent: MessageType.hookEvent.rawValue

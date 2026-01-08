@@ -37,9 +37,10 @@ actor APNsService {
         let resolvedKeyId = keyId ?? ProcessInfo.processInfo.environment["APNS_KEY_ID"]
         let resolvedTeamId = teamId ?? ProcessInfo.processInfo.environment["APNS_TEAM_ID"]
 
-        guard let keyPath = resolvedKeyPath,
-              let keyId = resolvedKeyId,
-              let teamId = resolvedTeamId
+        guard
+            let keyPath = resolvedKeyPath,
+            let keyId = resolvedKeyId,
+            let teamId = resolvedTeamId
         else {
             logger.warning("APNs not configured - missing APNS_KEY_PATH, APNS_KEY_ID, or APNS_TEAM_ID environment variables")
             self.client = nil
@@ -49,9 +50,9 @@ actor APNsService {
         do {
             let keyData = try String(contentsOfFile: keyPath, encoding: .utf8)
 
-            let configuration = APNSClientConfiguration(
+            let configuration = try APNSClientConfiguration(
                 authenticationMethod: .jwt(
-                    privateKey: try .loadFrom(string: keyData),
+                    privateKey: .loadFrom(string: keyData),
                     keyIdentifier: keyId,
                     teamIdentifier: teamId
                 ),
@@ -66,7 +67,7 @@ actor APNsService {
             )
             logger.info("APNs client initialized successfully", metadata: [
                 "environment": "\(environment)",
-                "bundleId": "\(self.bundleId)"
+                "bundleId": "\(self.bundleId)",
             ])
         } catch {
             logger.error("Failed to initialize APNs client: \(error)")
@@ -114,7 +115,7 @@ actor APNsService {
             )
             logger.info("Push notification sent", metadata: [
                 "pairId": "\(pairId)",
-                "eventType": "\(event.event.action.eventName)"
+                "eventType": "\(event.event.action.eventName)",
             ])
         } catch let error as APNSError {
             handleAPNsError(error, pairId: pairId, deviceToken: deviceToken)
@@ -136,7 +137,7 @@ actor APNsService {
         guard let notification = eventMessage.buildNotification() else {
             return nil
         }
-    
+
         let alert = APNSAlertNotificationContent(
             title: .raw(notification.title),
             body: .raw(notification.body)
@@ -161,7 +162,7 @@ actor APNsService {
     private func handleAPNsError(_ error: APNSError, pairId: String, deviceToken: String) {
         logger.error("APNs error: \(error)", metadata: [
             "pairId": "\(pairId)",
-            "responseStatus": "\(error.responseStatus)"
+            "responseStatus": "\(error.responseStatus)",
         ])
 
         // Check for errors that indicate the token is invalid

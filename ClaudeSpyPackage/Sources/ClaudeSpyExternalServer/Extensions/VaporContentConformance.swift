@@ -7,7 +7,7 @@ import Vapor
 // This keeps ClaudeSpyCommon free of Vapor dependencies while allowing
 // these types to be used as HTTP request/response bodies.
 
-extension PairingResponse: Content {}
-extension PairingStatus: Content {}
-extension PairingRegistration: Content {}
-extension PairingCompletion: Content {}
+extension PairingResponse: Content { }
+extension PairingStatus: Content { }
+extension PairingRegistration: Content { }
+extension PairingCompletion: Content { }

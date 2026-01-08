@@ -2,11 +2,11 @@ import CoreText
 import Foundation
 
 #if canImport(AppKit)
-import AppKit
+    import AppKit
 #endif
 
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 #endif
 
 /// Utility for calculating terminal font metrics.
@@ -50,9 +50,9 @@ public enum FontMetrics {
     /// - Returns: The scroller width in points (macOS) or 0 (iOS)
     public static var swiftTermScrollerWidth: CGFloat {
         #if canImport(AppKit) && !targetEnvironment(macCatalyst)
-        return NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
+            return NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
         #else
-        return 0
+            return 0
         #endif
     }
 
@@ -68,15 +68,15 @@ public enum FontMetrics {
 
     private static func createFont(name: String, size: CGFloat) -> CTFont {
         #if canImport(AppKit) && !targetEnvironment(macCatalyst)
-        // macOS: Use NSFont for better font name resolution, then convert to CTFont
-        let nsFont = NSFont(name: name, size: size)
-            ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
-        return nsFont as CTFont
+            // macOS: Use NSFont for better font name resolution, then convert to CTFont
+            let nsFont = NSFont(name: name, size: size)
+                ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+            return nsFont as CTFont
         #else
-        // iOS: Use UIFont for better font name resolution, then convert to CTFont
-        let uiFont = UIFont(name: name, size: size)
-            ?? UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
-        return uiFont as CTFont
+            // iOS: Use UIFont for better font name resolution, then convert to CTFont
+            let uiFont = UIFont(name: name, size: size)
+                ?? UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
+            return uiFont as CTFont
         #endif
     }
 
@@ -89,6 +89,6 @@ public enum FontMetrics {
 
         var advance = CGSize.zero
         CTFontGetAdvancesForGlyphs(font, .horizontal, glyphs, &advance, 1)
-        return ceil(advance.width)  // Match SwiftTerm's ceiling behavior
+        return ceil(advance.width) // Match SwiftTerm's ceiling behavior
     }
 }

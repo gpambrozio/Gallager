@@ -1,13 +1,13 @@
-import SwiftUI
 import ClaudeSpyCommon
+import SwiftUI
 
 /// View for entering a pairing code to connect with a Mac.
 struct PairingView: View {
     @Environment(IOSSettings.self) private var settings
     @Environment(RelayClient.self) private var relayClient
 
-    @State private var pairingCode: String = ""
-    @State private var isLoading: Bool = false
+    @State private var pairingCode = ""
+    @State private var isLoading = false
     @State private var errorMessage: String?
     @FocusState private var isInputFocused: Bool
 
@@ -18,93 +18,93 @@ struct PairingView: View {
 
     var body: some View {
         #if os(iOS)
-        iOSBody
+            iOSBody
         #else
-        macOSBody
+            macOSBody
         #endif
     }
 
     #if os(iOS)
-    private var iOSBody: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    compactHeaderSection
+        private var iOSBody: some View {
+            NavigationStack {
+                ScrollView {
+                    VStack(spacing: 24) {
+                        compactHeaderSection
 
-                    codeInputSection
+                        codeInputSection
 
-                    if isLoading {
-                        ProgressView("Pairing...")
+                        if isLoading {
+                            ProgressView("Pairing...")
+                        }
+
+                        if let error = errorMessage {
+                            errorSection(error)
+                        }
+
+                        instructionsSection
                     }
-
-                    if let error = errorMessage {
-                        errorSection(error)
-                    }
-
-                    instructionsSection
+                    .padding()
                 }
-                .padding()
+                .scrollDismissesKeyboard(.interactively)
+                .navigationTitle("Pair with Mac")
+                .navigationBarTitleDisplayMode(.large)
             }
-            .scrollDismissesKeyboard(.interactively)
-            .navigationTitle("Pair with Mac")
-            .navigationBarTitleDisplayMode(.large)
         }
-    }
 
-    private var compactHeaderSection: some View {
-        Text("Enter the 6-character pairing code shown in the ClaudeSpy Mac app")
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-            .multilineTextAlignment(.center)
-    }
+        private var compactHeaderSection: some View {
+            Text("Enter the 6-character pairing code shown in the ClaudeSpy Mac app")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
     #endif
 
     #if os(macOS)
-    private var macOSBody: some View {
-        VStack(spacing: 24) {
-            headerSection
+        private var macOSBody: some View {
+            VStack(spacing: 24) {
+                headerSection
 
-            macOSCodeInputSection
+                macOSCodeInputSection
 
-            if let error = errorMessage {
-                errorSection(error)
-            }
-
-            pairButton
-
-            Spacer()
-
-            instructionsSection
-        }
-        .padding()
-        .frame(minWidth: 400, minHeight: 500)
-    }
-
-    private var macOSCodeInputSection: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 8) {
-                ForEach(0 ..< codeLength, id: \.self) { index in
-                    codeDigitView(at: index)
+                if let error = errorMessage {
+                    errorSection(error)
                 }
+
+                pairButton
+
+                Spacer()
+
+                instructionsSection
             }
+            .padding()
+            .frame(minWidth: 400, minHeight: 500)
+        }
 
-            TextField("Pairing Code", text: $pairingCode)
-                .textFieldStyle(.roundedBorder)
-                .autocorrectionDisabled()
-                .frame(width: 200)
-                .onChange(of: pairingCode) { _, newValue in
-                    let filtered = newValue
-                        .uppercased()
-                        .filter { $0.isLetter }
-                        .prefix(codeLength)
-                    pairingCode = String(filtered)
-
-                    if errorMessage != nil {
-                        errorMessage = nil
+        private var macOSCodeInputSection: some View {
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    ForEach(0..<codeLength, id: \.self) { index in
+                        codeDigitView(at: index)
                     }
                 }
+
+                TextField("Pairing Code", text: $pairingCode)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                    .frame(width: 200)
+                    .onChange(of: pairingCode) { _, newValue in
+                        let filtered = newValue
+                            .uppercased()
+                            .filter { $0.isLetter }
+                            .prefix(codeLength)
+                        pairingCode = String(filtered)
+
+                        if errorMessage != nil {
+                            errorMessage = nil
+                        }
+                    }
+            }
         }
-    }
     #endif
 
     // MARK: - Sections
@@ -128,54 +128,54 @@ struct PairingView: View {
     }
 
     #if os(iOS)
-    private var codeInputSection: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 8) {
-                ForEach(0 ..< codeLength, id: \.self) { index in
-                    codeDigitView(at: index)
-                }
-            }
-
-            // Hidden text field for input
-            TextField("", text: $pairingCode)
-                .keyboardType(.asciiCapable)
-                .textInputAutocapitalization(.characters)
-                .autocorrectionDisabled()
-                .focused($isInputFocused)
-                .frame(width: 1, height: 1)
-                .opacity(0.01)
-                .onChange(of: pairingCode) { _, newValue in
-                    // Filter to letters only and limit length
-                    let filtered = newValue
-                        .uppercased()
-                        .filter { $0.isLetter }
-                        .prefix(codeLength)
-                    pairingCode = String(filtered)
-
-                    // Clear error when typing
-                    if errorMessage != nil {
-                        errorMessage = nil
+        private var codeInputSection: some View {
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    ForEach(0..<codeLength, id: \.self) { index in
+                        codeDigitView(at: index)
                     }
+                }
 
-                    // Auto-pair when code is complete
-                    if pairingCode.count == codeLength, !isLoading {
-                        Task {
-                            await performPairing()
+                // Hidden text field for input
+                TextField("", text: $pairingCode)
+                    .keyboardType(.asciiCapable)
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+                    .focused($isInputFocused)
+                    .frame(width: 1, height: 1)
+                    .opacity(0.01)
+                    .onChange(of: pairingCode) { _, newValue in
+                        // Filter to letters only and limit length
+                        let filtered = newValue
+                            .uppercased()
+                            .filter { $0.isLetter }
+                            .prefix(codeLength)
+                        pairingCode = String(filtered)
+
+                        // Clear error when typing
+                        if errorMessage != nil {
+                            errorMessage = nil
+                        }
+
+                        // Auto-pair when code is complete
+                        if pairingCode.count == codeLength, !isLoading {
+                            Task {
+                                await performPairing()
+                            }
                         }
                     }
-                }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            isInputFocused = true
-        }
-        .onAppear {
-            // Auto-focus on appear
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
                 isInputFocused = true
             }
+            .onAppear {
+                // Auto-focus on appear
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    isInputFocused = true
+                }
+            }
         }
-    }
     #endif
 
     private func codeDigitView(at index: Int) -> some View {
@@ -218,9 +218,9 @@ struct PairingView: View {
             HStack {
                 if isLoading {
                     ProgressView()
-                        #if os(iOS)
+                    #if os(iOS)
                         .tint(.white)
-                        #endif
+                    #endif
                 } else {
                     Text("Pair")
                 }

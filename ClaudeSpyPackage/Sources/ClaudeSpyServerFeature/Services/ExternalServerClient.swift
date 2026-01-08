@@ -1,6 +1,6 @@
+import ClaudeSpyCommon
 import Foundation
 import Logging
-import ClaudeSpyCommon
 
 /// Client for connecting to the external relay server via WebSocket.
 ///
@@ -8,7 +8,7 @@ import ClaudeSpyCommon
 /// forwarding hook events to iOS and receiving commands from iOS.
 @Observable
 @MainActor
-public final class ExternalServerClient: Sendable {
+final public class ExternalServerClient {
     // MARK: - Connection State
 
     /// Current connection state
@@ -43,7 +43,7 @@ public final class ExternalServerClient: Sendable {
     public private(set) var state: ConnectionState = .disconnected
 
     /// Whether an iOS device is currently connected to the relay
-    public private(set) var isIOSConnected: Bool = false
+    public private(set) var isIOSConnected = false
 
     /// Name of the connected iOS device (if known)
     public private(set) var connectedIOSDeviceName: String?
@@ -67,10 +67,10 @@ public final class ExternalServerClient: Sendable {
     private var serverURL: URL?
 
     /// Whether we should attempt reconnection
-    private var shouldReconnect: Bool = false
+    private var shouldReconnect = false
 
     /// Current reconnection attempt
-    private var reconnectionAttempt: Int = 0
+    private var reconnectionAttempt = 0
 
     /// Maximum reconnection attempts before giving up
     private let maxReconnectionAttempts = 10
@@ -94,7 +94,7 @@ public final class ExternalServerClient: Sendable {
 
     // MARK: - Initialization
 
-    public init() {}
+    public init() { }
 
     // MARK: - Configuration
 
@@ -142,8 +142,8 @@ public final class ExternalServerClient: Sendable {
         self.pairId = pairId
         self.deviceId = deviceId
         self.deviceName = deviceName
-        self.shouldReconnect = true
-        self.reconnectionAttempt = 0
+        shouldReconnect = true
+        reconnectionAttempt = 0
 
         await performConnect()
     }
@@ -194,7 +194,7 @@ public final class ExternalServerClient: Sendable {
         logger.info("Sending terminal snapshot", metadata: [
             "paneId": "\(snapshot.paneId)",
             "dimensions": "\(snapshot.width)x\(snapshot.totalLines)",
-            "contentSize": "\(contentSize) bytes"
+            "contentSize": "\(contentSize) bytes",
         ])
 
         let message = WebSocketMessage.terminalSnapshot(snapshot)
@@ -340,7 +340,7 @@ public final class ExternalServerClient: Sendable {
                 logger.info("Sending session state to newly connected iOS", metadata: [
                     "pairId": "\(state.pairId)",
                     "sessionCount": "\(state.sessions.count)",
-                    "activePanes": "\(state.activePanes.count)"
+                    "activePanes": "\(state.activePanes.count)",
                 ])
                 await send(.sessionState(state))
             } else {
@@ -359,7 +359,7 @@ public final class ExternalServerClient: Sendable {
                 logger.info("Sending session state", metadata: [
                     "pairId": "\(state.pairId)",
                     "sessionCount": "\(state.sessions.count)",
-                    "activePanes": "\(state.activePanes.count)"
+                    "activePanes": "\(state.activePanes.count)",
                 ])
                 await send(.sessionState(state))
             } else {
@@ -397,14 +397,14 @@ public final class ExternalServerClient: Sendable {
             let data = try encoder.encode(message)
             logger.debug("Sending WebSocket message", metadata: [
                 "type": "\(message.messageType)",
-                "size": "\(data.count) bytes"
+                "size": "\(data.count) bytes",
             ])
             try await task.send(.data(data))
             logger.debug("WebSocket message sent successfully")
         } catch {
             logger.error("Failed to send WebSocket message", metadata: [
                 "type": "\(message.messageType)",
-                "error": "\(error)"
+                "error": "\(error)",
             ])
         }
     }
@@ -429,7 +429,7 @@ public final class ExternalServerClient: Sendable {
             await updateState(.reconnecting(attempt: reconnectionAttempt))
 
             // Exponential backoff: 1s, 2s, 4s, 8s, etc. up to 60s
-            let delay = min(60, Int(pow(2.0, Double(reconnectionAttempt - 1))))
+            let delay = min(60, Int(pow(2, Double(reconnectionAttempt - 1))))
             logger.info("Reconnecting in \(delay) seconds (attempt \(reconnectionAttempt))")
 
             // Spawn reconnection in a new task - the current task was cancelled by cleanupConnection()

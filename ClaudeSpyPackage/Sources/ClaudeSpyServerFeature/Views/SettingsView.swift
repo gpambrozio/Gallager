@@ -6,7 +6,7 @@ import SwiftUI
 public struct SettingsView: View {
     @Environment(AppSettings.self) private var settings
 
-    public init() {}
+    public init() { }
 
     public var body: some View {
         @Bindable var settings = settings
@@ -45,7 +45,7 @@ struct GeneralSettingsView: View {
 
                 HStack {
                     Text("Size")
-                    Slider(value: $settings.fontSize, in: 8 ... 24, step: 1)
+                    Slider(value: $settings.fontSize, in: 8...24, step: 1)
                     Text("\(Int(settings.fontSize)) pt")
                         .monospacedDigit()
                         .frame(width: 40)
@@ -100,7 +100,6 @@ struct GeneralSettingsView: View {
         }
         .formStyle(.grouped)
     }
-
 }
 
 // MARK: - Helpers

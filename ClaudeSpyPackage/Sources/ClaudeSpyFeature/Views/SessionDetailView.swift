@@ -31,11 +31,12 @@ struct SessionDetailView: View {
             }
 
             // Context-sensitive response section based on latest event
-            if let latestEvent = session.latestEvent,
-               let responseView = latestEvent.responseView(
-                   isConnected: relayClient.isMacConnected,
-                   sendCommand: sendCommand
-               ) {
+            if
+                let latestEvent = session.latestEvent,
+                let responseView = latestEvent.responseView(
+                    isConnected: relayClient.isMacConnected,
+                    sendCommand: sendCommand
+                ) {
                 Section("Response") {
                     responseView
                 }
@@ -77,10 +78,10 @@ struct SessionDetailView: View {
         }
         .navigationTitle("Session")
         #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(item: $terminalSnapshot) { snapshot in
-            TerminalSnapshotView(snapshot: snapshot)
-        }
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(item: $terminalSnapshot) { snapshot in
+                TerminalSnapshotView(snapshot: snapshot)
+            }
         #endif
     }
 
@@ -126,13 +127,12 @@ struct SessionDetailView: View {
         isLoadingSnapshot = false
 
         switch result {
-        case .success(let snapshot):
+        case let .success(snapshot):
             terminalSnapshot = snapshot
-        case .failure(let error):
+        case let .failure(error):
             snapshotError = error.localizedDescription
         }
     }
-
 }
 
 #Preview {
