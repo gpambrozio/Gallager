@@ -47,7 +47,7 @@ final public class RelayClient {
             case .disconnected: "Disconnected"
             case .connecting: "Connecting..."
             case .connected: "Connected"
-            case let .reconnecting(attempt): "Reconnecting (\(attempt))..."
+            case let .reconnecting(attempt): "Backoff (\(attempt))..."
             case let .error(message): "Error: \(message)"
             }
         }
@@ -533,12 +533,14 @@ final public class RelayClient {
             // Spawn reconnection in a new task - the current task was cancelled by cleanupConnection()
             // so we need a fresh task that won't have Task.isCancelled == true
             reconnectionTask = Task { @MainActor [weak self] in
-                guard let self else { return }
-
                 try? await Task.sleep(for: .seconds(delay))
 
                 // Only reconnect if we haven't been cancelled and still want to reconnect
-                guard !Task.isCancelled, self.shouldReconnect else { return }
+                guard
+                    !Task.isCancelled,
+                    let self,
+                    self.shouldReconnect
+                else { return }
 
                 await self.performConnect()
             }
