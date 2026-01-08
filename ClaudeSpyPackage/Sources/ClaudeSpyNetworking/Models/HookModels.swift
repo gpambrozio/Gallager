@@ -377,7 +377,7 @@ public struct NotificationBody: HookBodyProtocol {
     public let message: String?
     public let notificationType: String?
     public var shouldSendToServer: Bool {
-        notificationType != "permission_prompt"
+        notificationType != "permission_prompt" && notificationType != "idle_prompt"
     }
 
     enum CodingKeys: String, CodingKey {

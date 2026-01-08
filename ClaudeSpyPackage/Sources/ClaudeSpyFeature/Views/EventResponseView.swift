@@ -20,8 +20,6 @@ extension HookEvent {
         case .sessionStart,
              .stop:
             AnyView(PromptView(isConnected: isConnected, sendCommand: sendCommand, state: state))
-        case let .notification(body) where body.notificationType == "idle_prompt":
-            AnyView(PromptView(isConnected: isConnected, sendCommand: sendCommand, state: state))
         case let .permissionRequest(body):
             AnyView(PermissionRequestResponseView(
                 request: body,
