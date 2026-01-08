@@ -196,7 +196,9 @@ struct PermissionRequestResponseView: View {
     private var permissionContent: some View {
         VStack(spacing: 12) {
             // Show what's being requested
-            if let toolName = request.toolName {
+            if let tool = request.toolInput {
+                ToolInputView(tool: tool)
+            } else if let toolName = request.toolName {
                 HStack {
                     Text("Tool:")
                         .foregroundStyle(.secondary)
@@ -274,7 +276,7 @@ struct PermissionRequestResponseView: View {
                     .controlSize(.small)
             }
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 4)
     }
 
     private var combinedSuggestionsButton: some View {
@@ -358,6 +360,172 @@ struct PermissionRequestResponseView: View {
     }
 }
 
+private struct ToolInputView: View {
+    let tool: ClaudeCodeTool
+
+    var body: some View {
+        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 8, verticalSpacing: 6) {
+            switch tool {
+            case let .read(params):
+                headerRow("Read File")
+                detailRow("File:", params.filePath)
+                if let offset = params.offset {
+                    detailRow("Starting at line:", "\(offset)")
+                }
+                if let limit = params.limit {
+                    detailRow("Reading:", "\(limit) lines")
+                }
+
+            case let .edit(params):
+                headerRow("Edit File")
+                detailRow("File:", params.filePath)
+                detailRow("Replacing:", params.oldString, maxLines: 2)
+                detailRow("With:", params.newString, maxLines: 2)
+                if let replaceAll = params.replaceAll, replaceAll {
+                    detailRow("Mode:", "Replace all occurrences")
+                }
+
+            case let .write(params):
+                headerRow("Write File")
+                detailRow("File:", params.filePath)
+                detailRow("Content length:", "\(params.content.count) characters")
+
+            case let .multiEdit(params):
+                headerRow("Multi-Edit File")
+                detailRow("File:", params.filePath)
+                detailRow("Number of edits:", "\(params.edits.count)")
+
+            case let .grep(params):
+                headerRow("Search with Grep")
+                detailRow("Pattern:", params.pattern)
+                if let path = params.path {
+                    detailRow("In:", path)
+                }
+                if let glob = params.glob {
+                    detailRow("Files:", glob)
+                }
+                if let mode = params.outputMode {
+                    detailRow("Mode:", mode.rawValue.replacingOccurrences(of: "_", with: " "))
+                }
+
+            case let .glob(params):
+                headerRow("Find Files")
+                detailRow("Pattern:", params.pattern)
+                if let path = params.path {
+                    detailRow("In:", path)
+                }
+
+            case let .bash(params):
+                headerRow("Execute Command")
+                detailRow("Command:", params.command, maxLines: 3)
+                if let desc = params.description {
+                    detailRow("Description:", desc, maxLines: 2)
+                }
+                if let timeout = params.timeout {
+                    detailRow("Timeout:", "\(timeout / 1_000)s")
+                }
+                if params.runInBackground == true {
+                    detailRow("Mode:", "Background execution")
+                }
+
+            case let .bashOutput(params):
+                headerRow("Read Command Output")
+                detailRow("Bash ID:", params.bashId)
+                if let filter = params.filter {
+                    detailRow("Filter:", filter)
+                }
+
+            case let .killShell(params):
+                headerRow("Kill Shell")
+                detailRow("Shell ID:", params.shellId)
+
+            case let .task(params):
+                headerRow("Run Subagent Task")
+                detailRow("Subagent:", params.subagentType.rawValue)
+                detailRow("Task:", params.description)
+
+            case let .todoWrite(params):
+                headerRow("Manage Todo List")
+                detailRow("Managing:", "\(params.todos.count) todo items")
+
+            case .exitPlanMode:
+                headerRow("Exit Plan Mode")
+
+            case let .webFetch(params):
+                headerRow("Fetch Web Page")
+                detailRow("URL:", params.url)
+                detailRow("Purpose:", params.prompt, maxLines: 2)
+
+            case let .webSearch(params):
+                headerRow("Search the Web")
+                detailRow("Query:", params.query)
+                if let allowed = params.allowedDomains, !allowed.isEmpty {
+                    detailRow("Allowed domains:", allowed.joined(separator: ", "))
+                }
+                if let blocked = params.blockedDomains, !blocked.isEmpty {
+                    detailRow("Blocked domains:", blocked.joined(separator: ", "))
+                }
+
+            case let .notebookEdit(params):
+                headerRow("Edit Jupyter Notebook")
+                detailRow("Notebook:", params.notebookPath)
+                if let cellId = params.cellId {
+                    detailRow("Cell ID:", cellId)
+                }
+                if let cellType = params.cellType {
+                    detailRow("Cell type:", cellType.rawValue)
+                }
+                if let mode = params.editMode {
+                    detailRow("Mode:", mode.rawValue)
+                }
+
+            case let .slashCommand(params):
+                headerRow("Run Slash Command")
+                detailRow("Command:", params.command)
+
+            case let .askUserQuestion(params):
+                headerRow("Ask User Questions")
+                detailRow("Questions:", "\(params.questions.count)")
+                ForEach(Array(params.questions.enumerated()), id: \.offset) { index, question in
+                    detailRow("\(index + 1).", question.question, maxLines: 2)
+                }
+
+            case let .mcp(params):
+                headerRow("MCP Tool")
+                detailRow("Server:", params.server)
+                detailRow("Tool:", params.tool)
+
+            case let .other(name, _):
+                headerRow(name)
+            }
+        }
+        .font(.headline)
+    }
+
+    private func headerRow(_ text: String) -> some View {
+        GridRow {
+            Text(text)
+                .fontWeight(.semibold)
+                .foregroundStyle(.primary)
+                .gridCellColumns(2)
+                .frame(maxWidth: .infinity, alignment: .center)
+        }
+    }
+
+    private func detailRow(_ label: String, _ value: String, maxLines: Int = 1) -> some View {
+        GridRow {
+            Text(label)
+                .foregroundStyle(.secondary)
+                .gridColumnAlignment(.trailing)
+            Text(value)
+                .fontWeight(.medium)
+                .lineLimit(maxLines)
+                .truncationMode(.tail)
+                .gridColumnAlignment(.leading)
+        }
+    }
+}
+
 #Preview("Prompt View") {
     List {
         Section("Response") {
@@ -400,7 +568,13 @@ extension PermissionRequestBody {
         PermissionRequestBody(
             sessionId: "test-session",
             hookEventName: "PermissionRequest",
-            toolName: "Bash"
+            toolName: "Bash",
+            toolInput: .bash(
+                .init(
+                    command: "swift compile --verbose --enable-testing",
+                    description: "Compile your code"
+                )
+            )
         )
     }
 
