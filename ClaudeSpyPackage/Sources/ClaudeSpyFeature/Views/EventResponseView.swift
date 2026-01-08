@@ -397,58 +397,38 @@ struct PermissionRequestResponseView: View {
 
 extension PermissionRequestBody {
     static var preview: PermissionRequestBody {
-        let jsonString = """
-            {
-                "session_id": "test-session",
-                "hook_event_name": "PermissionRequest",
-                "tool_name": "Bash"
-            }
-            """
-        let data = Data(jsonString.utf8)
-        guard let decoded = try? JSONDecoder().decode(PermissionRequestBody.self, from: data) else {
-            fatalError("Failed to decode preview data")
-        }
-        return decoded
+        PermissionRequestBody(
+            sessionId: "test-session",
+            hookEventName: "PermissionRequest",
+            toolName: "Bash"
+        )
     }
 
     static var previewWithSuggestions: PermissionRequestBody {
-        let jsonString = """
-            {
-                "session_id": "test-session",
-                "hook_event_name": "PermissionRequest",
-                "tool_name": "Bash",
-                "permission_suggestions": [
-                    {
-                        "type": "allow_once",
-                        "behavior": "Allow this command once"
-                    },
-                    {
-                        "type": "allow_session",
-                        "rules": [
-                            {
-                                "toolName": "Bash",
-                                "ruleContent": "git status"
-                            }
-                        ],
-                        "behavior": "Allow for this session"
-                    },
-                    {
-                        "type": "allow_always",
-                        "rules": [
-                            {
-                                "toolName": "Bash",
-                                "ruleContent": "git *"
-                            }
-                        ],
-                        "destination": "project"
-                    }
-                ]
-            }
-            """
-        let data = Data(jsonString.utf8)
-        guard let decoded = try? JSONDecoder().decode(PermissionRequestBody.self, from: data) else {
-            fatalError("Failed to decode preview data")
-        }
-        return decoded
+        PermissionRequestBody(
+            sessionId: "test-session",
+            hookEventName: "PermissionRequest",
+            toolName: "Bash",
+            permissionSuggestions: [
+                PermissionSuggestion(
+                    type: "allow_once",
+                    behavior: "Allow this command once"
+                ),
+                PermissionSuggestion(
+                    type: "allow_session",
+                    rules: [
+                        PermissionRule(toolName: "Bash", ruleContent: "git status"),
+                    ],
+                    behavior: "Allow for this session"
+                ),
+                PermissionSuggestion(
+                    type: "allow_always",
+                    rules: [
+                        PermissionRule(toolName: "Bash", ruleContent: "git *"),
+                    ],
+                    destination: "project"
+                ),
+            ]
+        )
     }
 }

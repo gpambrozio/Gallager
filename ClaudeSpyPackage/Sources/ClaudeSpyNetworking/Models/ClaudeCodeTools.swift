@@ -232,6 +232,20 @@ public struct BashParameters: Codable, Sendable, Equatable {
         case runInBackground = "run_in_background"
         case dangerouslyDisableSandbox
     }
+
+    public init(
+        command: String,
+        description: String? = nil,
+        timeout: Int? = nil,
+        runInBackground: Bool? = nil,
+        dangerouslyDisableSandbox: Bool? = nil
+    ) {
+        self.command = command
+        self.description = description
+        self.timeout = timeout
+        self.runInBackground = runInBackground
+        self.dangerouslyDisableSandbox = dangerouslyDisableSandbox
+    }
 }
 
 public struct BashOutputParameters: Codable, Sendable, Equatable {

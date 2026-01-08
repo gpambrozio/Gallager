@@ -138,6 +138,22 @@ public struct SessionStartBody: HookBodyProtocol {
         case timestamp
         case source
     }
+
+    public init(
+        sessionId: String,
+        transcriptPath: String? = nil,
+        cwd: String? = nil,
+        hookEventName: String,
+        timestamp: String? = nil,
+        source: String? = nil
+    ) {
+        self.sessionId = sessionId
+        self.transcriptPath = transcriptPath
+        self.cwd = cwd
+        self.hookEventName = hookEventName
+        self.timestamp = timestamp
+        self.source = source
+    }
 }
 
 public struct PreToolUseBody: HookBodyProtocol {
@@ -158,6 +174,24 @@ public struct PreToolUseBody: HookBodyProtocol {
         case timestamp
         case toolName = "tool_name"
         case toolInput = "tool_input"
+    }
+
+    public init(
+        sessionId: String,
+        transcriptPath: String? = nil,
+        cwd: String? = nil,
+        hookEventName: String,
+        timestamp: String? = nil,
+        toolName: String? = nil,
+        toolInput: ClaudeCodeTool? = nil
+    ) {
+        self.sessionId = sessionId
+        self.transcriptPath = transcriptPath
+        self.cwd = cwd
+        self.hookEventName = hookEventName
+        self.timestamp = timestamp
+        self.toolName = toolName
+        self.toolInput = toolInput
     }
 
     public init(from decoder: Decoder) throws {
@@ -198,6 +232,22 @@ public struct SessionEndBody: HookBodyProtocol {
         case timestamp
         case reason
     }
+
+    public init(
+        sessionId: String,
+        transcriptPath: String? = nil,
+        cwd: String? = nil,
+        hookEventName: String,
+        timestamp: String? = nil,
+        reason: String? = nil
+    ) {
+        self.sessionId = sessionId
+        self.transcriptPath = transcriptPath
+        self.cwd = cwd
+        self.hookEventName = hookEventName
+        self.timestamp = timestamp
+        self.reason = reason
+    }
 }
 
 public struct PermissionRequestBody: HookBodyProtocol {
@@ -222,6 +272,28 @@ public struct PermissionRequestBody: HookBodyProtocol {
         case toolInput = "tool_input"
         case permissionSuggestions = "permission_suggestions"
         case timestamp
+    }
+
+    public init(
+        sessionId: String,
+        transcriptPath: String? = nil,
+        cwd: String? = nil,
+        hookEventName: String,
+        permissionMode: String? = nil,
+        toolName: String? = nil,
+        toolInput: ClaudeCodeTool? = nil,
+        permissionSuggestions: [PermissionSuggestion]? = nil,
+        timestamp: String? = nil
+    ) {
+        self.sessionId = sessionId
+        self.transcriptPath = transcriptPath
+        self.cwd = cwd
+        self.hookEventName = hookEventName
+        self.permissionMode = permissionMode
+        self.toolName = toolName
+        self.toolInput = toolInput
+        self.permissionSuggestions = permissionSuggestions
+        self.timestamp = timestamp
     }
 
     public init(from decoder: Decoder) throws {
@@ -400,6 +472,18 @@ public struct PermissionSuggestion: Codable, Sendable {
     public let rules: [PermissionRule]?
     public let behavior: String?
     public let destination: String?
+
+    public init(
+        type: String?,
+        rules: [PermissionRule]? = nil,
+        behavior: String? = nil,
+        destination: String? = nil
+    ) {
+        self.type = type
+        self.rules = rules
+        self.behavior = behavior
+        self.destination = destination
+    }
 }
 
 public struct PermissionRule: Codable, Sendable {
@@ -409,6 +493,11 @@ public struct PermissionRule: Codable, Sendable {
     enum CodingKeys: String, CodingKey {
         case toolName
         case ruleContent
+    }
+
+    public init(toolName: String?, ruleContent: String?) {
+        self.toolName = toolName
+        self.ruleContent = ruleContent
     }
 }
 

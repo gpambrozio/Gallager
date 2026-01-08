@@ -201,31 +201,37 @@ private extension String {
 
 /// Helper to create sample events for previews
 private enum PreviewEvents {
-    static let samples: [HookEvent] = {
-        let sessionStartJSON = """
-        {"session_id":"123","cwd":"/Users/user/project","hook_event_name":"SessionStart","source":"cli"}
-        """
-        let preToolUseJSON = """
-        {"session_id":"123","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls -la","description":"List files"}}
-        """
-        let sessionEndJSON = """
-        {"session_id":"123","hook_event_name":"SessionEnd"}
-        """
-
-        return [
-            createEvent(from: sessionStartJSON, pane: "%1"),
-            createEvent(from: preToolUseJSON, pane: "%1"),
-            createEvent(from: sessionEndJSON, pane: "%1"),
-        ].compactMap { $0 }
-    }()
-
-    private static func createEvent(from json: String, pane: String) -> HookEvent? {
-        guard
-            let data = json.data(using: .utf8),
-            let action = try? HookAction.from(jsonData: data)
-        else {
-            return nil
-        }
-        return HookEvent(action: action, projectPath: nil, tmuxPane: pane)
-    }
+    static let samples: [HookEvent] = [
+        HookEvent(
+            action: .sessionStart(SessionStartBody(
+                sessionId: "123",
+                cwd: "/Users/user/project",
+                hookEventName: "SessionStart",
+                source: "cli"
+            )),
+            projectPath: nil,
+            tmuxPane: "%1"
+        ),
+        HookEvent(
+            action: .preToolUse(PreToolUseBody(
+                sessionId: "123",
+                hookEventName: "PreToolUse",
+                toolName: "Bash",
+                toolInput: .bash(BashParameters(
+                    command: "ls -la",
+                    description: "List files"
+                ))
+            )),
+            projectPath: nil,
+            tmuxPane: "%1"
+        ),
+        HookEvent(
+            action: .sessionEnd(SessionEndBody(
+                sessionId: "123",
+                hookEventName: "SessionEnd"
+            )),
+            projectPath: nil,
+            tmuxPane: "%1"
+        ),
+    ]
 }
