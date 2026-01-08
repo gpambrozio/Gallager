@@ -22,7 +22,10 @@
                     let responseState,
                     let responseView = responseState.event.responseView(
                         isConnected: isConnected,
-                        sendCommand: sendCommand,
+                        sendCommand: {
+                            await sendCommand($0)
+                            dismiss()
+                        },
                         state: responseState
                     ) {
                     responseView
