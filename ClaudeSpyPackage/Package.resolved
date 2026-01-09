@@ -1,5 +1,5 @@
 {
-  "originHash" : "97483e89018129ac9bf3ee52ecfd9a26eea21665e24613bee30316885564c5d3",
+  "originHash" : "08598ba28d4651e44f6d7c240623b31388faa4ecb9be1c69e04e898791d891c3",
   "pins" : [
     {
       "identity" : "apns",
@@ -67,10 +67,10 @@
     {
       "identity" : "sfsymbolsmacro",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/lukepistrol/SFSymbolsMacro.git",
+      "location" : "https://github.com/gpambrozio/SFSymbolsMacro",
       "state" : {
-        "revision" : "b858ef2d14bb75537635644a38c47f5dce6f32ab",
-        "version" : "0.5.4"
+        "branch" : "swift-syntax-602",
+        "revision" : "2d2f6d8527502dd18f6f433850291e3d67a413d3"
       }
     },
     {
@@ -267,8 +267,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/swiftlang/swift-syntax",
       "state" : {
-        "revision" : "0687f71944021d616d34d922343dcef086855920",
-        "version" : "600.0.1"
+        "revision" : "4799286537280063c85a32f09884cfbca301b1a1",
+        "version" : "602.0.0"
       }
     },
     {
