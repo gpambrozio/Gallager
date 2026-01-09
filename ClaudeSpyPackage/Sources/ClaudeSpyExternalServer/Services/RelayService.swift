@@ -28,11 +28,28 @@ actor RelayService {
     func notifyConnection(pairId: String, deviceType: DeviceType, connected: Bool) async {
         let targetDevice: DeviceType = deviceType == .mac ? .ios : .mac
 
-        let message: WebSocketMessage = switch (deviceType, connected) {
-        case (.mac, true): .macConnected
-        case (.mac, false): .macDisconnected
-        case (.ios, true): .iosConnected
-        case (.ios, false): .iosDisconnected
+        let message: WebSocketMessage
+        switch (deviceType, connected) {
+        case (.mac, true):
+            // Mac connected - notify iOS with Mac's public key
+            let macKeyInfo = await pairingService.getMacPublicKey(pairId: pairId)
+            let connectedMessage = DeviceConnectedMessage(
+                publicKey: macKeyInfo?.key,
+                publicKeyId: macKeyInfo?.keyId
+            )
+            message = .macConnected(connectedMessage)
+        case (.mac, false):
+            message = .macDisconnected
+        case (.ios, true):
+            // iOS connected - notify Mac with iOS's public key
+            let iosKeyInfo = await pairingService.getIOSPublicKey(pairId: pairId)
+            let connectedMessage = DeviceConnectedMessage(
+                publicKey: iosKeyInfo?.key,
+                publicKeyId: iosKeyInfo?.keyId
+            )
+            message = .iosConnected(connectedMessage)
+        case (.ios, false):
+            message = .iosDisconnected
         }
 
         await connectionHub.send(message, to: pairId, deviceType: targetDevice)
@@ -182,7 +199,11 @@ actor RelayService {
         // Notify Mac if iOS is already connected
         if isIOSConnected {
             logger.info("Notifying Mac that iOS is connected")
-            await connectionHub.send(.iosConnected, to: pairId, deviceType: .mac)
+            let connectedMessage = DeviceConnectedMessage(
+                publicKey: iosKeyInfo?.key,
+                publicKeyId: iosKeyInfo?.keyId
+            )
+            await connectionHub.send(.iosConnected(connectedMessage), to: pairId, deviceType: .mac)
         }
     }
 
@@ -219,7 +240,11 @@ actor RelayService {
         // Notify iOS if Mac is already connected
         if isMacConnected {
             logger.info("Notifying iOS that Mac is connected, requesting session state")
-            await connectionHub.send(.macConnected, to: pairId, deviceType: .ios)
+            let connectedMessage = DeviceConnectedMessage(
+                publicKey: macKeyInfo?.key,
+                publicKeyId: macKeyInfo?.keyId
+            )
+            await connectionHub.send(.macConnected(connectedMessage), to: pairId, deviceType: .ios)
             // Also request current session state from Mac
             await connectionHub.send(.requestSessionState, to: pairId, deviceType: .mac)
         }

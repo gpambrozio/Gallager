@@ -98,3 +98,19 @@ public struct PushTokenRegisteredMessage: Codable, Sendable {
         self.error = error
     }
 }
+
+// MARK: - Device Connection Notifications
+
+/// Message sent when a paired device connects, includes public key for E2EE session establishment
+public struct DeviceConnectedMessage: Codable, Sendable {
+    /// Base64-encoded public key of the connecting device
+    public let publicKey: String?
+
+    /// Unique identifier for the public key
+    public let publicKeyId: String?
+
+    public init(publicKey: String? = nil, publicKeyId: String? = nil) {
+        self.publicKey = publicKey
+        self.publicKeyId = publicKeyId
+    }
+}

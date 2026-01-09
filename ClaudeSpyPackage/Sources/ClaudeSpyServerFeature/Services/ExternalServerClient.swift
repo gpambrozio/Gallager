@@ -510,9 +510,36 @@ final public class ExternalServerClient {
                 await sendEncrypted(.commandResponse(response))
             }
 
-        case .iosConnected:
+        case let .iosConnected(connectedMessage):
             logger.info("iOS device connected")
             isIOSConnected = true
+
+            // Establish E2EE session if we have iOS's public key
+            if
+                let iosPublicKey = connectedMessage.publicKey,
+                let iosPublicKeyId = connectedMessage.publicKeyId,
+                let keyData = Data(base64Encoded: iosPublicKey),
+                let e2eeService,
+                let pairId {
+                do {
+                    try await e2eeService.establishSession(
+                        partnerPublicKey: keyData,
+                        partnerKeyId: iosPublicKeyId,
+                        pairId: pairId
+                    )
+                    partnerPublicKey = iosPublicKey
+                    partnerPublicKeyId = iosPublicKeyId
+                    logger.info("E2EE session established with iOS on connect notification")
+
+                    // Notify app to persist partner's public key
+                    if let onPartnerKeyReceived {
+                        await onPartnerKeyReceived(iosPublicKey, iosPublicKeyId)
+                    }
+                } catch {
+                    logger.error("Failed to establish E2EE session: \(error)")
+                }
+            }
+
             // Send current session state to newly connected iOS
             if let onSessionStateRequest {
                 let state = await onSessionStateRequest()

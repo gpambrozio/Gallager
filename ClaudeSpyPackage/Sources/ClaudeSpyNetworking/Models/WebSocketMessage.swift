@@ -31,8 +31,8 @@ public enum WebSocketMessage: Codable, Sendable {
     /// Server relays a command from iOS
     case command(CommandMessage)
 
-    /// Server notifies Mac that iOS has connected
-    case iosConnected
+    /// Server notifies Mac that iOS has connected (includes public key for E2EE)
+    case iosConnected(DeviceConnectedMessage)
 
     /// Server notifies Mac that iOS has disconnected
     case iosDisconnected
@@ -59,8 +59,8 @@ public enum WebSocketMessage: Codable, Sendable {
     /// Server confirms push token registration
     case pushTokenRegistered(PushTokenRegisteredMessage)
 
-    /// Server notifies iOS that Mac has connected
-    case macConnected
+    /// Server notifies iOS that Mac has connected (includes public key for E2EE)
+    case macConnected(DeviceConnectedMessage)
 
     /// Server notifies iOS that Mac has disconnected
     case macDisconnected
@@ -214,7 +214,8 @@ public extension WebSocketMessage {
             let payload = try container.decode(CommandMessage.self, forKey: .payload)
             self = .command(payload)
         case .iosConnected:
-            self = .iosConnected
+            let payload = try container.decodeIfPresent(DeviceConnectedMessage.self, forKey: .payload)
+            self = .iosConnected(payload ?? DeviceConnectedMessage())
         case .iosDisconnected:
             self = .iosDisconnected
         case .registerIOS:
@@ -232,7 +233,8 @@ public extension WebSocketMessage {
             let payload = try container.decode(PushTokenRegisteredMessage.self, forKey: .payload)
             self = .pushTokenRegistered(payload)
         case .macConnected:
-            self = .macConnected
+            let payload = try container.decodeIfPresent(DeviceConnectedMessage.self, forKey: .payload)
+            self = .macConnected(payload ?? DeviceConnectedMessage())
         case .macDisconnected:
             self = .macDisconnected
         case .ping:
@@ -276,8 +278,9 @@ public extension WebSocketMessage {
         case let .command(payload):
             try container.encode(MessageType.command, forKey: .type)
             try container.encode(payload, forKey: .payload)
-        case .iosConnected:
+        case let .iosConnected(payload):
             try container.encode(MessageType.iosConnected, forKey: .type)
+            try container.encode(payload, forKey: .payload)
         case .iosDisconnected:
             try container.encode(MessageType.iosDisconnected, forKey: .type)
         case let .registerIOS(payload):
@@ -294,8 +297,9 @@ public extension WebSocketMessage {
         case let .pushTokenRegistered(payload):
             try container.encode(MessageType.pushTokenRegistered, forKey: .type)
             try container.encode(payload, forKey: .payload)
-        case .macConnected:
+        case let .macConnected(payload):
             try container.encode(MessageType.macConnected, forKey: .type)
+            try container.encode(payload, forKey: .payload)
         case .macDisconnected:
             try container.encode(MessageType.macDisconnected, forKey: .type)
         case .ping:

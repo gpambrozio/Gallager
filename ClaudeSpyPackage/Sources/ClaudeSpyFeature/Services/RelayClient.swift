@@ -574,10 +574,37 @@ final public class RelayClient {
             // Also call the legacy callback if set
             onTerminalSnapshot?(snapshot)
 
-        case .macConnected:
+        case let .macConnected(connectedMessage):
             logger.info("Mac device connected")
             isMacConnected = true
             onMacConnectionChange?(true)
+
+            // Establish E2EE session if we have Mac's public key
+            if
+                let macPublicKey = connectedMessage.publicKey,
+                let macPublicKeyId = connectedMessage.publicKeyId,
+                let keyData = Data(base64Encoded: macPublicKey),
+                let e2eeService,
+                let pairId {
+                do {
+                    try await e2eeService.establishSession(
+                        partnerPublicKey: keyData,
+                        partnerKeyId: macPublicKeyId,
+                        pairId: pairId
+                    )
+                    partnerPublicKey = macPublicKey
+                    partnerPublicKeyId = macPublicKeyId
+                    logger.info("E2EE session established with Mac on connect notification")
+
+                    // Notify app to persist partner's public key
+                    if let onPartnerKeyReceived {
+                        await onPartnerKeyReceived(macPublicKey, macPublicKeyId)
+                    }
+                } catch {
+                    logger.error("Failed to establish E2EE session: \(error)")
+                }
+            }
+
             // Request session state from newly connected Mac
             await requestSessionState()
 
