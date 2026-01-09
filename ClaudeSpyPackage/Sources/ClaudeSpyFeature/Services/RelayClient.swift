@@ -207,9 +207,9 @@ final public class RelayClient {
         // Establish E2EE session if we have partner's public key from pairing
         if let partnerKey = partnerPublicKey, let partnerKeyId = partnerPublicKeyId {
             guard let keyData = Data(base64Encoded: partnerKey) else {
-                logger.error("Failed to decode partner public key from base64 - key may be malformed")
-                // Continue without session - will be established when partner connects
-                await performConnect()
+                let errorMessage = "Failed to decode partner public key - encryption setup failed"
+                logger.error("\(errorMessage)")
+                state = .error(errorMessage)
                 return
             }
             do {
@@ -220,7 +220,10 @@ final public class RelayClient {
                 )
                 logger.info("E2EE session established with partner from pairing info")
             } catch {
-                logger.error("Failed to establish E2EE session: \(error)")
+                let errorMessage = "Failed to establish E2EE session: \(error.localizedDescription)"
+                logger.error("\(errorMessage)")
+                state = .error(errorMessage)
+                return
             }
         }
 
