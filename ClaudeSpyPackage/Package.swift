@@ -64,7 +64,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/nicklockwood/SwiftFormat", from: "0.53.0"),
-        .package(url: "https://github.com/lukepistrol/SFSymbolsMacro.git", from: "0.5.4"),
+        .package(url: "https://github.com/gpambrozio/SFSymbolsMacro", branch: "swift-syntax-602"),
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.2.0"),
         .package(url: "https://github.com/vapor/vapor", from: "4.0.0"),
         .package(url: "https://github.com/vapor/apns.git", from: "4.0.0"),
