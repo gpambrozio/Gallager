@@ -332,7 +332,7 @@ public struct PostToolUseBody: HookBodyProtocol {
     public let toolInput: ClaudeCodeTool?
     public let toolResponse: AnyCodable?
     public let toolUseId: String?
-    public var shouldSendToServer: Bool { true }
+    public var shouldSendToServer: Bool { false }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
