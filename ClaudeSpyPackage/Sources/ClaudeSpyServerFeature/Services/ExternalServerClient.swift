@@ -1,5 +1,6 @@
 import ClaudeSpyCommon
 import ClaudeSpyEncryption
+import ClaudeSpyNetworking
 import Foundation
 import Logging
 
@@ -88,6 +89,17 @@ final public class ExternalServerClient {
     /// Task for ping/pong keep-alive
     private var pingTask: Task<Void, Never>?
 
+    // MARK: - E2EE Properties
+
+    /// E2EE service for encrypting/decrypting messages
+    private var e2eeService: E2EEService?
+
+    /// Partner's public key received during registration or connection (Base64-encoded)
+    private var partnerPublicKey: String?
+
+    /// Partner's public key ID
+    private var partnerPublicKeyId: String?
+
     // MARK: - Callbacks
 
     /// Called when a command is received from iOS
@@ -98,6 +110,9 @@ final public class ExternalServerClient {
 
     /// Called when connection state changes
     private var onConnectionStateChange: (@Sendable (ConnectionState) async -> Void)?
+
+    /// Called when partner's public key is received (for persisting to settings)
+    private var onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)?
 
     // MARK: - Initialization
 
@@ -126,6 +141,14 @@ final public class ExternalServerClient {
         onConnectionStateChange = handler
     }
 
+    /// Set the handler for when partner's public key is received.
+    /// Parameters are (publicKey: Base64, publicKeyId: String).
+    public func setPartnerKeyHandler(
+        _ handler: @escaping @MainActor @Sendable (String, String) async -> Void
+    ) {
+        onPartnerKeyReceived = handler
+    }
+
     // MARK: - Connection Management
 
     /// Connect to the external relay server
@@ -136,13 +159,19 @@ final public class ExternalServerClient {
     ///   - deviceName: Display name for this Mac
     ///   - publicKey: Base64-encoded public key for E2EE
     ///   - publicKeyId: Unique identifier for the public key
+    ///   - e2eeService: E2EE service for encrypting/decrypting messages
+    ///   - partnerPublicKey: Base64-encoded public key of the iOS device (from pairing)
+    ///   - partnerPublicKeyId: Unique identifier for the iOS device's public key
     public func connect(
         serverURL: URL,
         pairId: String,
         deviceId: String,
         deviceName: String,
         publicKey: String,
-        publicKeyId: String
+        publicKeyId: String,
+        e2eeService: E2EEService,
+        partnerPublicKey: String? = nil,
+        partnerPublicKeyId: String? = nil
     ) async {
         guard state != .connecting, !state.isConnected else {
             logger.warning("Already connected or connecting")
@@ -155,8 +184,28 @@ final public class ExternalServerClient {
         self.deviceName = deviceName
         self.publicKey = publicKey
         self.publicKeyId = publicKeyId
+        self.e2eeService = e2eeService
+        self.partnerPublicKey = partnerPublicKey
+        self.partnerPublicKeyId = partnerPublicKeyId
         shouldReconnect = true
         reconnectionAttempt = 0
+
+        // Establish E2EE session if we have partner's public key from pairing
+        if
+            let partnerKey = partnerPublicKey,
+            let partnerKeyId = partnerPublicKeyId,
+            let keyData = Data(base64Encoded: partnerKey) {
+            do {
+                try await e2eeService.establishSession(
+                    partnerPublicKey: keyData,
+                    partnerKeyId: partnerKeyId,
+                    pairId: pairId
+                )
+                logger.info("E2EE session established with partner from pairing info")
+            } catch {
+                logger.error("Failed to establish E2EE session: \(error)")
+            }
+        }
 
         await performConnect()
     }
@@ -170,7 +219,7 @@ final public class ExternalServerClient {
 
     // MARK: - Sending Messages
 
-    /// Send a hook event to be relayed to iOS
+    /// Send a hook event to be relayed to iOS (encrypted)
     public func sendHookEvent(_ event: HookEvent) async {
         guard state.isConnected, let pairId else {
             logger.debug("Not connected, cannot send hook event")
@@ -180,10 +229,10 @@ final public class ExternalServerClient {
         let message = WebSocketMessage.hookEvent(
             HookEventMessage(pairId: pairId, event: event)
         )
-        await send(message)
+        await sendEncrypted(message)
     }
 
-    /// Send session state to iOS
+    /// Send session state to iOS (encrypted)
     public func sendSessionState(_ sessions: [String: ClaudeSession], activePanes: [String]) async {
         guard state.isConnected, let pairId else {
             logger.debug("Not connected, cannot send session state")
@@ -193,10 +242,10 @@ final public class ExternalServerClient {
         let message = WebSocketMessage.sessionState(
             SessionStateMessage(pairId: pairId, sessions: sessions, activePanes: activePanes)
         )
-        await send(message)
+        await sendEncrypted(message)
     }
 
-    /// Send a terminal snapshot to iOS
+    /// Send a terminal snapshot to iOS (encrypted)
     public func sendTerminalSnapshot(_ snapshot: TerminalSnapshotMessage) async {
         guard state.isConnected else {
             logger.debug("Not connected, cannot send terminal snapshot")
@@ -211,7 +260,7 @@ final public class ExternalServerClient {
         ])
 
         let message = WebSocketMessage.terminalSnapshot(snapshot)
-        await send(message)
+        await sendEncrypted(message)
     }
 
     // MARK: - Private Methods
@@ -333,13 +382,57 @@ final public class ExternalServerClient {
     }
 
     private func handleWebSocketMessage(_ message: WebSocketMessage) async {
-        switch message {
+        // Decrypt encrypted messages first
+        let decryptedMessage: WebSocketMessage
+        if case .encrypted = message {
+            guard let e2eeService else {
+                logger.error("Received encrypted message but E2EE service not configured")
+                return
+            }
+            do {
+                decryptedMessage = try await message.decrypt(using: e2eeService)
+                logger.debug("Decrypted message", metadata: ["innerType": "\(decryptedMessage.messageType)"])
+            } catch {
+                logger.error("Failed to decrypt message: \(error)")
+                return
+            }
+        } else {
+            decryptedMessage = message
+        }
+
+        switch decryptedMessage {
         case let .macRegistered(response):
             if response.success {
                 logger.info("Successfully registered with relay server")
                 await updateState(.connected)
                 connectedIOSDeviceName = response.iosDeviceName
                 isIOSConnected = response.iosDeviceName != nil
+
+                // Establish E2EE session if iOS is connected and we have their public key
+                if
+                    let iosPublicKey = response.iosPublicKey,
+                    let iosPublicKeyId = response.iosPublicKeyId,
+                    let keyData = Data(base64Encoded: iosPublicKey),
+                    let e2eeService,
+                    let pairId {
+                    do {
+                        try await e2eeService.establishSession(
+                            partnerPublicKey: keyData,
+                            partnerKeyId: iosPublicKeyId,
+                            pairId: pairId
+                        )
+                        partnerPublicKey = iosPublicKey
+                        partnerPublicKeyId = iosPublicKeyId
+                        logger.info("E2EE session established with iOS")
+
+                        // Notify app to persist partner's public key
+                        if let onPartnerKeyReceived {
+                            await onPartnerKeyReceived(iosPublicKey, iosPublicKeyId)
+                        }
+                    } catch {
+                        logger.error("Failed to establish E2EE session: \(error)")
+                    }
+                }
             } else {
                 logger.error("Registration failed: \(response.error ?? "Unknown error")")
                 await updateState(.error(response.error ?? "Registration failed"))
@@ -350,7 +443,7 @@ final public class ExternalServerClient {
             logger.info("Received command from iOS", metadata: ["type": "\(command.command)"])
             if let onCommand {
                 let response = await onCommand(command)
-                await send(.commandResponse(response))
+                await sendEncrypted(.commandResponse(response))
             }
 
         case .iosConnected:
@@ -364,7 +457,7 @@ final public class ExternalServerClient {
                     "sessionCount": "\(state.sessions.count)",
                     "activePanes": "\(state.activePanes.count)",
                 ])
-                await send(.sessionState(state))
+                await sendEncrypted(.sessionState(state))
             } else {
                 logger.warning("iOS connected but no session state handler is set!")
             }
@@ -383,7 +476,7 @@ final public class ExternalServerClient {
                     "sessionCount": "\(state.sessions.count)",
                     "activePanes": "\(state.activePanes.count)",
                 ])
-                await send(.sessionState(state))
+                await sendEncrypted(.sessionState(state))
             } else {
                 logger.warning("Session state requested but no handler is set!")
             }
@@ -428,6 +521,24 @@ final public class ExternalServerClient {
                 "type": "\(message.messageType)",
                 "error": "\(error)",
             ])
+        }
+    }
+
+    /// Encrypts and sends a message that should be encrypted
+    private func sendEncrypted(_ message: WebSocketMessage) async {
+        // Only encrypt if we have an E2EE service and session is established
+        guard let e2eeService, await e2eeService.isSessionEstablished else {
+            logger.warning("E2EE session not established, sending unencrypted message")
+            await send(message)
+            return
+        }
+
+        do {
+            let encryptedMessage = try await message.encrypt(using: e2eeService)
+            await send(encryptedMessage)
+        } catch {
+            logger.error("Failed to encrypt message: \(error)")
+            // Don't send unencrypted as fallback - this would be a security issue
         }
     }
 

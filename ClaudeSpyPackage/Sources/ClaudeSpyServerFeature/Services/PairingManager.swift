@@ -275,10 +275,14 @@ final public class PairingManager {
     private func completePairing(pairId: String) async {
         guard let settings else { return }
 
-        // Save to settings
-        settings.pairId = pairId
-        // We'll get the device name when they connect via WebSocket
-        settings.pairedDeviceName = "iOS Device"
+        // Save pairing info. Partner's public key will be obtained via WebSocket
+        // when both devices connect and exchange keys during registration.
+        settings.savePairing(
+            pairId: pairId,
+            partnerDeviceName: "iOS Device",
+            partnerPublicKey: nil,
+            partnerPublicKeyId: nil
+        )
 
         state = .paired(pairId: pairId, deviceName: "iOS Device")
 
@@ -286,6 +290,15 @@ final public class PairingManager {
         pollingTask = nil
 
         logger.info("Pairing completed", metadata: ["pairId": "\(pairId)"])
+    }
+
+    /// Update partner's public key info after receiving it via WebSocket.
+    /// Called by ExternalServerClient when iOS connects and sends its key.
+    public func updatePartnerPublicKey(publicKey: String, publicKeyId: String) {
+        guard let settings else { return }
+        settings.partnerPublicKey = publicKey
+        settings.partnerPublicKeyId = publicKeyId
+        logger.info("Partner public key updated for E2EE")
     }
 }
 

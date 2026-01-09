@@ -186,6 +186,26 @@ actor PairingService {
         return (pair.iosPublicKey, pair.iosPublicKeyId)
     }
 
+    /// Update Mac public key for a pair (called when Mac reconnects)
+    func updateMacPublicKey(pairId: String, publicKey: String, publicKeyId: String) {
+        guard var pair = activePairs[pairId] else { return }
+        pair.macPublicKey = publicKey
+        pair.macPublicKeyId = publicKeyId
+        activePairs[pairId] = pair
+        savePairs()
+        logger.debug("Updated Mac public key for pair", metadata: ["pairId": "\(pairId)"])
+    }
+
+    /// Update iOS public key for a pair (called when iOS reconnects)
+    func updateIOSPublicKey(pairId: String, publicKey: String, publicKeyId: String) {
+        guard var pair = activePairs[pairId] else { return }
+        pair.iosPublicKey = publicKey
+        pair.iosPublicKeyId = publicKeyId
+        activePairs[pairId] = pair
+        savePairs()
+        logger.debug("Updated iOS public key for pair", metadata: ["pairId": "\(pairId)"])
+    }
+
     // MARK: - Private Helpers
 
     private func cleanupExpiredCodes() {

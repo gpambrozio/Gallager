@@ -1,3 +1,4 @@
+import ClaudeSpyEncryption
 import Foundation
 
 // MARK: - WebSocket Message
@@ -76,6 +77,49 @@ public enum WebSocketMessage: Codable, Sendable {
 
     /// Error message
     case error(ErrorMessage)
+
+    // MARK: - End-to-End Encrypted
+
+    /// An encrypted message that the server cannot decrypt.
+    /// Contains the encrypted payload and metadata about the inner message type.
+    case encrypted(EncryptedWebSocketMessage)
+}
+
+// MARK: - Encrypted Message Wrapper
+
+/// Wraps an encrypted payload for WebSocket transmission.
+/// The server passes this through without decryption.
+public struct EncryptedWebSocketMessage: Codable, Sendable {
+    /// The type of message contained in the encrypted payload.
+    /// Allows routing without decryption.
+    public let innerType: EncryptedMessageType
+
+    /// The encrypted payload (ciphertext + sender key ID + version)
+    public let payload: EncryptedPayload
+
+    public init(innerType: EncryptedMessageType, payload: EncryptedPayload) {
+        self.innerType = innerType
+        self.payload = payload
+    }
+}
+
+/// Types of messages that can be encrypted.
+/// Server uses this for routing without seeing content.
+public enum EncryptedMessageType: String, Codable, Sendable {
+    /// Hook event from Mac to iOS
+    case hookEvent
+
+    /// Session state from Mac to iOS
+    case sessionState
+
+    /// Command from iOS to Mac
+    case command
+
+    /// Command response from Mac to iOS
+    case commandResponse
+
+    /// Terminal snapshot from Mac to iOS
+    case terminalSnapshot
 }
 
 // MARK: - Error Message
@@ -133,6 +177,7 @@ public extension WebSocketMessage {
         case ping
         case pong
         case error
+        case encrypted
     }
 
     init(from decoder: Decoder) throws {
@@ -190,6 +235,9 @@ public extension WebSocketMessage {
         case .error:
             let payload = try container.decode(ErrorMessage.self, forKey: .payload)
             self = .error(payload)
+        case .encrypted:
+            let payload = try container.decode(EncryptedWebSocketMessage.self, forKey: .payload)
+            self = .encrypted(payload)
         }
     }
 
@@ -247,6 +295,9 @@ public extension WebSocketMessage {
         case let .error(payload):
             try container.encode(MessageType.error, forKey: .type)
             try container.encode(payload, forKey: .payload)
+        case let .encrypted(payload):
+            try container.encode(MessageType.encrypted, forKey: .type)
+            try container.encode(payload, forKey: .payload)
         }
     }
 
@@ -272,6 +323,82 @@ public extension WebSocketMessage {
         case .ping: MessageType.ping.rawValue
         case .pong: MessageType.pong.rawValue
         case .error: MessageType.error.rawValue
+        case .encrypted: MessageType.encrypted.rawValue
         }
+    }
+}
+
+// MARK: - Encryption Extensions
+
+public extension WebSocketMessage {
+    /// Whether this message type should be encrypted for E2EE.
+    var shouldEncrypt: Bool {
+        switch self {
+        case .hookEvent,
+             .sessionState,
+             .command,
+             .commandResponse,
+             .terminalSnapshot:
+            true
+        default:
+            false
+        }
+    }
+
+    /// The encrypted message type for this message.
+    /// Returns nil for messages that shouldn't be encrypted.
+    var encryptedType: EncryptedMessageType? {
+        switch self {
+        case .hookEvent: .hookEvent
+        case .sessionState: .sessionState
+        case .command: .command
+        case .commandResponse: .commandResponse
+        case .terminalSnapshot: .terminalSnapshot
+        default: nil
+        }
+    }
+
+    /// Encrypts this message using the provided E2EE service.
+    /// - Parameter e2eeService: The E2EE service to use for encryption
+    /// - Returns: An encrypted WebSocket message wrapper
+    /// - Throws: Encryption or encoding errors
+    func encrypt(using e2eeService: E2EEService) async throws -> WebSocketMessage {
+        guard let innerType = encryptedType else {
+            // Non-encryptable messages are returned as-is
+            return self
+        }
+
+        // Encode the inner payload to JSON
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let innerData = try encoder.encode(self)
+
+        // Encrypt the inner payload
+        let encryptedPayload = try await e2eeService.encrypt(innerData)
+
+        // Wrap in encrypted message
+        return .encrypted(EncryptedWebSocketMessage(
+            innerType: innerType,
+            payload: encryptedPayload
+        ))
+    }
+
+    /// Decrypts an encrypted message using the provided E2EE service.
+    /// - Parameter e2eeService: The E2EE service to use for decryption
+    /// - Returns: The decrypted WebSocket message
+    /// - Throws: Decryption or decoding errors
+    func decrypt(using e2eeService: E2EEService) async throws -> WebSocketMessage {
+        guard case let .encrypted(encryptedMessage) = self else {
+            // Non-encrypted messages are returned as-is
+            return self
+        }
+
+        // Decrypt the payload
+        let decryptedData = try await e2eeService.decrypt(encryptedMessage.payload)
+
+        // Decode the inner message
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(WebSocketMessage.self, from: decryptedData)
     }
 }

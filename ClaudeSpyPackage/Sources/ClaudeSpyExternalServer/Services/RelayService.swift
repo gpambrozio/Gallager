@@ -72,6 +72,11 @@ actor RelayService {
             logger.info("Relaying terminal snapshot to iOS", metadata: ["paneId": "\(snapshot.paneId)", "size": "\(snapshot.contentBase64.count)"])
             await connectionHub.send(.terminalSnapshot(snapshot), to: pairId, deviceType: .ios)
 
+        case let .encrypted(encryptedMessage):
+            // Pass through encrypted messages - server cannot decrypt
+            logger.info("Relaying encrypted message to iOS", metadata: ["innerType": "\(encryptedMessage.innerType.rawValue)"])
+            await connectionHub.send(.encrypted(encryptedMessage), to: pairId, deviceType: .ios)
+
         case .ping:
             await connectionHub.send(.pong, to: pairId, deviceType: .mac)
 
@@ -117,6 +122,18 @@ actor RelayService {
             let response = PushTokenRegisteredMessage(success: true)
             await connectionHub.send(.pushTokenRegistered(response), to: pairId, deviceType: .ios)
 
+        case let .encrypted(encryptedMessage):
+            // Pass through encrypted messages to Mac - server cannot decrypt
+            if await connectionHub.isMacConnected(pairId: pairId) {
+                logger.info("Relaying encrypted message to Mac", metadata: ["innerType": "\(encryptedMessage.innerType.rawValue)"])
+                await connectionHub.send(.encrypted(encryptedMessage), to: pairId, deviceType: .mac)
+            } else {
+                // Mac not connected - encrypted commands will fail
+                logger.warning("Mac not connected, cannot relay encrypted command")
+                // Note: We can't send a proper error response since we don't know the command ID
+                // The iOS client will timeout and handle this case
+            }
+
         case .ping:
             await connectionHub.send(.pong, to: pairId, deviceType: .ios)
 
@@ -128,18 +145,31 @@ actor RelayService {
     // MARK: - Registration Handlers
 
     private func handleMacRegistration(_ registration: RegisterMacMessage, pairId: String) async {
+        // Store Mac's public key for the pair
+        await pairingService.updateMacPublicKey(
+            pairId: pairId,
+            publicKey: registration.publicKey,
+            publicKeyId: registration.publicKeyId
+        )
+
         let iosDeviceName = await pairingService.getIOSDeviceName(pairId: pairId)
         let isIOSConnected = await connectionHub.isIOSConnected(pairId: pairId)
+
+        // Get iOS public key if available
+        let iosKeyInfo = await pairingService.getIOSPublicKey(pairId: pairId)
 
         logger.info("Mac registration complete", metadata: [
             "pairId": "\(pairId)",
             "iosConnected": "\(isIOSConnected)",
             "iosDeviceName": "\(iosDeviceName ?? "none")",
+            "hasIOSPublicKey": "\(iosKeyInfo != nil)",
         ])
 
         let response = MacRegisteredMessage(
             success: true,
-            iosDeviceName: iosDeviceName
+            iosDeviceName: iosDeviceName,
+            iosPublicKey: iosKeyInfo?.key,
+            iosPublicKeyId: iosKeyInfo?.keyId
         )
 
         await connectionHub.send(.macRegistered(response), to: pairId, deviceType: .mac)
@@ -152,18 +182,31 @@ actor RelayService {
     }
 
     private func handleIOSRegistration(_ registration: RegisterIOSMessage, pairId: String) async {
+        // Store iOS's public key for the pair
+        await pairingService.updateIOSPublicKey(
+            pairId: pairId,
+            publicKey: registration.publicKey,
+            publicKeyId: registration.publicKeyId
+        )
+
         let macDeviceName = await pairingService.getMacDeviceName(pairId: pairId)
         let isMacConnected = await connectionHub.isMacConnected(pairId: pairId)
+
+        // Get Mac public key if available
+        let macKeyInfo = await pairingService.getMacPublicKey(pairId: pairId)
 
         logger.info("iOS registration complete", metadata: [
             "pairId": "\(pairId)",
             "macConnected": "\(isMacConnected)",
             "macDeviceName": "\(macDeviceName ?? "none")",
+            "hasMacPublicKey": "\(macKeyInfo != nil)",
         ])
 
         let response = IOSRegisteredMessage(
             success: true,
-            macDeviceName: macDeviceName
+            macDeviceName: macDeviceName,
+            macPublicKey: macKeyInfo?.key,
+            macPublicKeyId: macKeyInfo?.keyId
         )
 
         await connectionHub.send(.iosRegistered(response), to: pairId, deviceType: .ios)

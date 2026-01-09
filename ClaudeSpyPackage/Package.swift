@@ -78,7 +78,9 @@ let package = Package(
         // Used by external server on Linux and by Apple platform apps
         .target(
             name: "ClaudeSpyNetworking",
-            dependencies: []
+            dependencies: [
+                .claudeSpyEncryption,
+            ]
         ),
         .target(
             name: "ClaudeSpyCommon",
@@ -116,6 +118,7 @@ let package = Package(
             name: "ClaudeSpyExternalServer",
             dependencies: [
                 .claudeSpyNetworking,
+                .claudeSpyEncryption,
                 .vapor,
                 .vaporAPNS,
             ],

@@ -180,6 +180,12 @@ struct TmuxPaneMirrorApp: App {
 
         // Session state handler needs to be set up after windowManager is created
         // It will be set up in createWindowManager instead
+
+        // Set up partner key handler to persist keys to settings
+        externalServerClient.setPartnerKeyHandler { [settings] publicKey, publicKeyId in
+            settings.partnerPublicKey = publicKey
+            settings.partnerPublicKeyId = publicKeyId
+        }
     }
 
     private func setupSessionStateHandler(manager: MirrorWindowManager) {
@@ -205,7 +211,8 @@ struct TmuxPaneMirrorApp: App {
         guard settings.autoConnectToServer,
               let pairId = settings.pairId,
               let serverURL = URL(string: settings.externalServerURL),
-              let manager = pairingManager
+              let manager = pairingManager,
+              let e2eeService
         else {
             return
         }
@@ -217,7 +224,10 @@ struct TmuxPaneMirrorApp: App {
             deviceId: settings.deviceId,
             deviceName: Host.current().localizedName ?? "Mac",
             publicKey: keyInfo.publicKey.base64EncodedString(),
-            publicKeyId: keyInfo.keyId
+            publicKeyId: keyInfo.keyId,
+            e2eeService: e2eeService,
+            partnerPublicKey: settings.partnerPublicKey,
+            partnerPublicKeyId: settings.partnerPublicKeyId
         )
     }
 }

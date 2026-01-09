@@ -10,6 +10,7 @@ public struct MainView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(ExternalServerClient.self) private var serverClient
     @Environment(PairingManager.self) private var pairingManager
+    @Environment(\.e2eeService) private var e2eeService: E2EEService?
 
     /// Refresh interval in seconds
     private let refreshInterval: TimeInterval = 5
@@ -149,7 +150,8 @@ public struct MainView: View {
     private func connectToServer() async {
         guard
             let pairId = settings.pairId,
-            let serverURL = URL(string: settings.externalServerURL)
+            let serverURL = URL(string: settings.externalServerURL),
+            let e2eeService
         else {
             return
         }
@@ -161,7 +163,10 @@ public struct MainView: View {
             deviceId: settings.deviceId,
             deviceName: Host.current().localizedName ?? "Mac",
             publicKey: keyInfo.publicKey.base64EncodedString(),
-            publicKeyId: keyInfo.keyId
+            publicKeyId: keyInfo.keyId,
+            e2eeService: e2eeService,
+            partnerPublicKey: settings.partnerPublicKey,
+            partnerPublicKeyId: settings.partnerPublicKeyId
         )
     }
 

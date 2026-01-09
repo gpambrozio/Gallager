@@ -123,6 +123,12 @@ public struct ContentView: View {
             // sessionStore.clearOnDisconnect()
             _ = connected
         }
+
+        // Set up partner key handler to persist Mac's public key for reconnection
+        relayClient.setPartnerKeyHandler { [settings] publicKey, publicKeyId in
+            settings.partnerPublicKey = publicKey
+            settings.partnerPublicKeyId = publicKeyId
+        }
     }
 
     private func autoConnectIfNeeded() async {
@@ -131,7 +137,8 @@ public struct ContentView: View {
             settings.autoReconnect,
             let pairId = settings.pairId,
             let serverURL = URL(string: settings.externalServerURL),
-            let keyInfo = publicKeyInfo
+            let keyInfo = publicKeyInfo,
+            let service = e2eeService
         else {
             return
         }
@@ -142,7 +149,10 @@ public struct ContentView: View {
             deviceId: settings.deviceId,
             deviceName: settings.deviceName,
             publicKey: keyInfo.key,
-            publicKeyId: keyInfo.keyId
+            publicKeyId: keyInfo.keyId,
+            e2eeService: service,
+            partnerPublicKey: settings.partnerPublicKey,
+            partnerPublicKeyId: settings.partnerPublicKeyId
         )
 
         #if os(iOS)
@@ -190,7 +200,8 @@ public struct ContentView: View {
         Task {
             guard
                 let serverURL = URL(string: settings.externalServerURL),
-                let keyInfo = publicKeyInfo
+                let keyInfo = publicKeyInfo,
+                let service = e2eeService
             else { return }
 
             await relayClient.connect(
@@ -199,7 +210,9 @@ public struct ContentView: View {
                 deviceId: settings.deviceId,
                 deviceName: settings.deviceName,
                 publicKey: keyInfo.key,
-                publicKeyId: keyInfo.keyId
+                publicKeyId: keyInfo.keyId,
+                e2eeService: service
+                // Note: No partner keys yet - will be received via WebSocket
             )
 
             // Request push notification permissions after successful pairing
@@ -286,7 +299,10 @@ struct MainView: View {
             deviceId: settings.deviceId,
             deviceName: settings.deviceName,
             publicKey: service.publicKey.base64EncodedString(),
-            publicKeyId: service.keyId
+            publicKeyId: service.keyId,
+            e2eeService: service,
+            partnerPublicKey: settings.partnerPublicKey,
+            partnerPublicKeyId: settings.partnerPublicKeyId
         )
     }
 }
@@ -465,7 +481,10 @@ struct SettingsView: View {
             deviceId: settings.deviceId,
             deviceName: settings.deviceName,
             publicKey: service.publicKey.base64EncodedString(),
-            publicKeyId: service.keyId
+            publicKeyId: service.keyId,
+            e2eeService: service,
+            partnerPublicKey: settings.partnerPublicKey,
+            partnerPublicKeyId: settings.partnerPublicKeyId
         )
     }
 

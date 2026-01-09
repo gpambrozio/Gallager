@@ -280,8 +280,13 @@ struct PairingView: View {
             let response = try await completePairing(code: pairingCode)
 
             if response.success, let pairId = response.pairId {
-                // Save pairing
-                settings.savePairing(pairId: pairId, macName: response.partnerDeviceName)
+                // Save pairing with partner's public key for E2EE
+                settings.savePairing(
+                    pairId: pairId,
+                    macName: response.partnerDeviceName,
+                    partnerPublicKey: response.partnerPublicKey,
+                    partnerPublicKeyId: response.partnerPublicKeyId
+                )
                 onPaired?(pairId, response.partnerDeviceName)
             } else {
                 errorMessage = response.error ?? "Pairing failed"
