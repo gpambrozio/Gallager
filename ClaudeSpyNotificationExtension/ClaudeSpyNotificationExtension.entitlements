@@ -2,17 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Push Notifications -->
-	<key>aps-environment</key>
-	<string>development</string>
-
-	<!-- App Groups - enables sharing data between main app and extensions -->
+	<!-- App Groups - must match main app for shared data access -->
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.br.eng.gustavo.claudespy</string>
 	</array>
 
-	<!-- Keychain Sharing - enables sharing Keychain items with extensions -->
+	<!-- Keychain Sharing - must match main app for E2EE key access -->
 	<key>keychain-access-groups</key>
 	<array>
 		<string>$(AppIdentifierPrefix)br.eng.gustavo.claudespy.shared</string>

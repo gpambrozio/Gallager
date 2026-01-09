@@ -7,12 +7,22 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		81581B512F11B9BF005EA7FD /* ClaudeSpyNotificationExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 81581B4A2F11B9BF005EA7FD /* ClaudeSpyNotificationExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		81581B592F11B9DC005EA7FD /* ClaudeSpyEncryption in Frameworks */ = {isa = PBXBuildFile; productRef = 81581B582F11B9DC005EA7FD /* ClaudeSpyEncryption */; };
+		81581B5B2F11B9DC005EA7FD /* ClaudeSpyNetworking in Frameworks */ = {isa = PBXBuildFile; productRef = 81581B5A2F11B9DC005EA7FD /* ClaudeSpyNetworking */; };
 		817BF9BA2F09C7CC00BD1D53 /* ClaudeSpyServerFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 817BF9B92F09C7CC00BD1D53 /* ClaudeSpyServerFeature */; };
 		8B41F6832DEDD23B001A66F9 /* ClaudeSpyFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6822DEDD23B001A66F9 /* ClaudeSpyFeature */; };
 		8B41F6852DEDD25C001A66F9 /* ClaudeSpyFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6842DEDD25C001A66F9 /* ClaudeSpyFeature */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		81581B4F2F11B9BF005EA7FD /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8B41F63D2DEDD0D5001A66F9 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 81581B492F11B9BF005EA7FD;
+			remoteInfo = ClaudeSpyNotificationExtension;
+		};
 		815F9E6A2F09BFF9003791F7 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 8B41F63D2DEDD0D5001A66F9 /* Project object */;
@@ -36,7 +46,22 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		81581B522F11B9BF005EA7FD /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				81581B512F11B9BF005EA7FD /* ClaudeSpyNotificationExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		81581B4A2F11B9BF005EA7FD /* ClaudeSpyNotificationExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ClaudeSpyNotificationExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		815F9E5D2F09BFF8003791F7 /* ClaudeSpyServer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeSpyServer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		815F9E692F09BFF9003791F7 /* ClaudeSpyServerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeSpyServerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		815F9E732F09BFF9003791F7 /* ClaudeSpyServerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeSpyServerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -52,6 +77,13 @@
 			);
 			target = 8B41F6442DEDD0D5001A66F9 /* ClaudeSpy */;
 		};
+		81581B562F11B9BF005EA7FD /* Exceptions for "ClaudeSpyNotificationExtension" folder in "ClaudeSpyNotificationExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 81581B492F11B9BF005EA7FD /* ClaudeSpyNotificationExtension */;
+		};
 		8BD71C0A2DEE41E000CEDD92 /* Exceptions for "Config" folder in "ClaudeSpy" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -65,6 +97,14 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		81581B4B2F11B9BF005EA7FD /* ClaudeSpyNotificationExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				81581B562F11B9BF005EA7FD /* Exceptions for "ClaudeSpyNotificationExtension" folder in "ClaudeSpyNotificationExtension" target */,
+			);
+			path = ClaudeSpyNotificationExtension;
+			sourceTree = "<group>";
+		};
 		815F9E5E2F09BFF8003791F7 /* ClaudeSpyServer */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = ClaudeSpyServer;
@@ -104,6 +144,15 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		81581B472F11B9BF005EA7FD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				81581B592F11B9DC005EA7FD /* ClaudeSpyEncryption in Frameworks */,
+				81581B5B2F11B9DC005EA7FD /* ClaudeSpyNetworking in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		815F9E5A2F09BFF8003791F7 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -154,6 +203,7 @@
 				815F9E5E2F09BFF8003791F7 /* ClaudeSpyServer */,
 				815F9E6C2F09BFF9003791F7 /* ClaudeSpyServerTests */,
 				815F9E762F09BFF9003791F7 /* ClaudeSpyServerUITests */,
+				81581B4B2F11B9BF005EA7FD /* ClaudeSpyNotificationExtension */,
 				8B41F6812DEDD23B001A66F9 /* Frameworks */,
 				8B41F6462DEDD0D5001A66F9 /* Products */,
 			);
@@ -167,6 +217,7 @@
 				815F9E5D2F09BFF8003791F7 /* ClaudeSpyServer.app */,
 				815F9E692F09BFF9003791F7 /* ClaudeSpyServerTests.xctest */,
 				815F9E732F09BFF9003791F7 /* ClaudeSpyServerUITests.xctest */,
+				81581B4A2F11B9BF005EA7FD /* ClaudeSpyNotificationExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -181,6 +232,30 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		81581B492F11B9BF005EA7FD /* ClaudeSpyNotificationExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 81581B552F11B9BF005EA7FD /* Build configuration list for PBXNativeTarget "ClaudeSpyNotificationExtension" */;
+			buildPhases = (
+				81581B462F11B9BF005EA7FD /* Sources */,
+				81581B472F11B9BF005EA7FD /* Frameworks */,
+				81581B482F11B9BF005EA7FD /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				81581B4B2F11B9BF005EA7FD /* ClaudeSpyNotificationExtension */,
+			);
+			name = ClaudeSpyNotificationExtension;
+			packageProductDependencies = (
+				81581B582F11B9DC005EA7FD /* ClaudeSpyEncryption */,
+				81581B5A2F11B9DC005EA7FD /* ClaudeSpyNetworking */,
+			);
+			productName = ClaudeSpyNotificationExtension;
+			productReference = 81581B4A2F11B9BF005EA7FD /* ClaudeSpyNotificationExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		815F9E5C2F09BFF8003791F7 /* ClaudeSpyServer */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 815F9E812F09BFF9003791F7 /* Build configuration list for PBXNativeTarget "ClaudeSpyServer" */;
@@ -259,10 +334,12 @@
 				8B41F6422DEDD0D5001A66F9 /* Frameworks */,
 				8B41F6432DEDD0D5001A66F9 /* Resources */,
 				817BF9C12F0ED00100BD1D53 /* SwiftLint */,
+				81581B522F11B9BF005EA7FD /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				81581B502F11B9BF005EA7FD /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				8B41F6472DEDD0D5001A66F9 /* ClaudeSpy */,
@@ -310,6 +387,9 @@
 				LastSwiftUpdateCheck = 2620;
 				LastUpgradeCheck = 2620;
 				TargetAttributes = {
+					81581B492F11B9BF005EA7FD = {
+						CreatedOnToolsVersion = 26.2;
+					};
 					815F9E5C2F09BFF8003791F7 = {
 						CreatedOnToolsVersion = 26.2;
 					};
@@ -349,11 +429,19 @@
 				815F9E5C2F09BFF8003791F7 /* ClaudeSpyServer */,
 				815F9E682F09BFF9003791F7 /* ClaudeSpyServerTests */,
 				815F9E722F09BFF9003791F7 /* ClaudeSpyServerUITests */,
+				81581B492F11B9BF005EA7FD /* ClaudeSpyNotificationExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		81581B482F11B9BF005EA7FD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		815F9E5B2F09BFF8003791F7 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -413,6 +501,7 @@
 		};
 		817BF9C12F0ED00100BD1D53 /* SwiftLint */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
@@ -426,7 +515,6 @@
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
-			alwaysOutOfDate = 1;
 			shellPath = /bin/sh;
 			shellScript = "\"${SRCROOT}/scripts/swiftlint.sh\"\n";
 			showEnvVarsInLog = 0;
@@ -434,6 +522,13 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		81581B462F11B9BF005EA7FD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		815F9E592F09BFF8003791F7 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -472,6 +567,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		81581B502F11B9BF005EA7FD /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 81581B492F11B9BF005EA7FD /* ClaudeSpyNotificationExtension */;
+			targetProxy = 81581B4F2F11B9BF005EA7FD /* PBXContainerItemProxy */;
+		};
 		815F9E6B2F09BFF9003791F7 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 815F9E5C2F09BFF8003791F7 /* ClaudeSpyServer */;
@@ -490,10 +590,69 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		81581B532F11B9BF005EA7FD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ClaudeSpyNotificationExtension/ClaudeSpyNotificationExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = XG2WG7U93U;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ClaudeSpyNotificationExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ClaudeSpyNotificationExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.claudespy.ClaudeSpyNotificationExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		81581B542F11B9BF005EA7FD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ClaudeSpyNotificationExtension/ClaudeSpyNotificationExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = XG2WG7U93U;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ClaudeSpyNotificationExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ClaudeSpyNotificationExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.claudespy.ClaudeSpyNotificationExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		815F9E7B2F09BFF9003791F7 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
@@ -504,6 +663,7 @@
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -529,7 +689,6 @@
 		815F9E7C2F09BFF9003791F7 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
@@ -540,6 +699,7 @@
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -780,12 +940,12 @@
 			baseConfigurationReferenceAnchor = 8BD71C052DEE41D800CEDD92 /* Config */;
 			baseConfigurationReferenceRelativePath = Debug.xcconfig;
 			buildSettings = {
-				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = XG2WG7U93U;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ClaudeSpy/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = ClaudeSpy;
@@ -809,12 +969,12 @@
 			baseConfigurationReferenceAnchor = 8BD71C052DEE41D800CEDD92 /* Config */;
 			baseConfigurationReferenceRelativePath = Release.xcconfig;
 			buildSettings = {
-				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = XG2WG7U93U;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ClaudeSpy/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = ClaudeSpy;
@@ -864,6 +1024,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		81581B552F11B9BF005EA7FD /* Build configuration list for PBXNativeTarget "ClaudeSpyNotificationExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				81581B532F11B9BF005EA7FD /* Debug */,
+				81581B542F11B9BF005EA7FD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		815F9E812F09BFF9003791F7 /* Build configuration list for PBXNativeTarget "ClaudeSpyServer" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -921,6 +1090,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		81581B582F11B9DC005EA7FD /* ClaudeSpyEncryption */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ClaudeSpyEncryption;
+		};
+		81581B5A2F11B9DC005EA7FD /* ClaudeSpyNetworking */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ClaudeSpyNetworking;
+		};
 		817BF9B92F09C7CC00BD1D53 /* ClaudeSpyServerFeature */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ClaudeSpyServerFeature;

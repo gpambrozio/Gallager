@@ -83,6 +83,12 @@ public enum WebSocketMessage: Codable, Sendable {
     /// An encrypted message that the server cannot decrypt.
     /// Contains the encrypted payload and metadata about the inner message type.
     case encrypted(EncryptedWebSocketMessage)
+
+    // MARK: - Encrypted Push Notifications
+
+    /// Mac sends encrypted push notification payload to be relayed via APNs.
+    /// Server forwards to APNs with generic placeholder text; iOS extension decrypts.
+    case encryptedPush(EncryptedPushPayload)
 }
 
 // MARK: - Encrypted Message Wrapper
@@ -178,6 +184,7 @@ public extension WebSocketMessage {
         case pong
         case error
         case encrypted
+        case encryptedPush
     }
 
     init(from decoder: Decoder) throws {
@@ -238,6 +245,9 @@ public extension WebSocketMessage {
         case .encrypted:
             let payload = try container.decode(EncryptedWebSocketMessage.self, forKey: .payload)
             self = .encrypted(payload)
+        case .encryptedPush:
+            let payload = try container.decode(EncryptedPushPayload.self, forKey: .payload)
+            self = .encryptedPush(payload)
         }
     }
 
@@ -298,6 +308,9 @@ public extension WebSocketMessage {
         case let .encrypted(payload):
             try container.encode(MessageType.encrypted, forKey: .type)
             try container.encode(payload, forKey: .payload)
+        case let .encryptedPush(payload):
+            try container.encode(MessageType.encryptedPush, forKey: .type)
+            try container.encode(payload, forKey: .payload)
         }
     }
 
@@ -324,6 +337,7 @@ public extension WebSocketMessage {
         case .pong: MessageType.pong.rawValue
         case .error: MessageType.error.rawValue
         case .encrypted: MessageType.encrypted.rawValue
+        case .encryptedPush: MessageType.encryptedPush.rawValue
         }
     }
 }

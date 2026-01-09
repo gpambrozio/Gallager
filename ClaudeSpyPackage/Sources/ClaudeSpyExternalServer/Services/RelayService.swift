@@ -77,6 +77,11 @@ actor RelayService {
             logger.info("Relaying encrypted message to iOS", metadata: ["innerType": "\(encryptedMessage.innerType.rawValue)"])
             await connectionHub.send(.encrypted(encryptedMessage), to: pairId, deviceType: .ios)
 
+        case let .encryptedPush(payload):
+            // Encrypted push notification - forward to APNs if iOS is not connected
+            logger.info("Received encrypted push payload")
+            await apnsService?.sendEncryptedNotificationIfNeeded(payload: payload, pairId: pairId)
+
         case .ping:
             await connectionHub.send(.pong, to: pairId, deviceType: .mac)
 

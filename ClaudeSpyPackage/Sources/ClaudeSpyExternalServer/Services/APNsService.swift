@@ -124,6 +124,81 @@ actor APNsService {
         }
     }
 
+    /// Send an encrypted push notification.
+    /// Only sends if iOS is not currently connected via WebSocket.
+    ///
+    /// The notification is sent with `mutable-content: 1` so the iOS Notification
+    /// Service Extension can intercept it, decrypt the payload, and update the
+    /// notification with the decrypted title/body.
+    ///
+    /// - Parameters:
+    ///   - payload: The encrypted push payload from Mac
+    ///   - pairId: The pair ID for token lookup
+    func sendEncryptedNotificationIfNeeded(payload: EncryptedPushPayload, pairId: String) async {
+        // Only send if iOS is not connected via WebSocket
+        let isIOSConnected = await connectionHub.isIOSConnected(pairId: pairId)
+        if isIOSConnected {
+            logger.debug("iOS is connected via WebSocket, skipping encrypted push notification")
+            return
+        }
+
+        guard let deviceToken = await pushTokenStore.getToken(for: pairId) else {
+            logger.debug("No push token for pair", metadata: ["pairId": "\(pairId)"])
+            return
+        }
+
+        guard let client else {
+            logger.warning("APNs client not configured, cannot send notification")
+            return
+        }
+
+        // Build notification with generic placeholder text
+        // The iOS Notification Service Extension will decrypt and replace with actual content
+        let alert = APNSAlertNotificationContent(
+            title: .raw("Claude Code"),
+            body: .raw("New activity") // Placeholder - extension replaces this
+        )
+
+        // Encode the encrypted content for the payload
+        let encryptedPayload: EncryptedClaudeSpyPayload
+        do {
+            let encoder = JSONEncoder()
+            let encryptedData = try encoder.encode(payload.encryptedContent)
+            encryptedPayload = EncryptedClaudeSpyPayload(
+                encrypted: encryptedData.base64EncodedString(),
+                pairId: pairId
+            )
+        } catch {
+            logger.error("Failed to encode encrypted payload: \(error)")
+            return
+        }
+
+        // Create notification with mutable-content flag for extension processing
+        let notification = APNSAlertNotification(
+            alert: alert,
+            expiration: .immediately,
+            priority: .immediately,
+            topic: bundleId,
+            payload: encryptedPayload,
+            badge: 1,
+            mutableContent: 1 // Triggers Notification Service Extension
+        )
+
+        do {
+            _ = try await client.sendAlertNotification(
+                notification,
+                deviceToken: deviceToken
+            )
+            logger.info("Encrypted push notification sent", metadata: [
+                "pairId": "\(pairId)",
+            ])
+        } catch let error as APNSError {
+            handleAPNsError(error, pairId: pairId, deviceToken: deviceToken)
+        } catch {
+            logger.error("Failed to send encrypted push notification: \(error)")
+        }
+    }
+
     /// Graceful shutdown
     func shutdown() async {
         // APNSClient handles its own cleanup
@@ -179,10 +254,23 @@ actor APNsService {
     }
 }
 
-// MARK: - Custom Payload
+// MARK: - Custom Payloads
 
-/// Custom payload for ClaudeSpy push notifications
+/// Custom payload for unencrypted ClaudeSpy push notifications (legacy)
 struct ClaudeSpyPayload: Codable, Sendable {
     let eventType: String
+    let pairId: String
+}
+
+/// Custom payload for encrypted ClaudeSpy push notifications.
+///
+/// The `encrypted` field contains a Base64-encoded JSON representation of
+/// `EncryptedPayload` from ClaudeSpyEncryption. The iOS Notification Service
+/// Extension decodes and decrypts this to get the actual notification content.
+struct EncryptedClaudeSpyPayload: Codable, Sendable {
+    /// Base64-encoded JSON of EncryptedPayload
+    let encrypted: String
+
+    /// Pair ID for reference (also in encrypted content)
     let pairId: String
 }

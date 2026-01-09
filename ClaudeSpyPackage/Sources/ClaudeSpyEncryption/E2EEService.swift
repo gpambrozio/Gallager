@@ -37,6 +37,9 @@ final public class E2EEService: Sendable {
     /// Our key pair loaded from storage
     private let keyPair: StoredKeyPair
 
+    /// Key manager for persisting session keys (for extension access)
+    private let keyManager: KeyManager?
+
     /// The derived symmetric key for this session (nonisolated access requires lock)
     private let sessionState: SessionState
 
@@ -94,13 +97,19 @@ final public class E2EEService: Sendable {
             self.keyPair = try await keyManager.generateKeyPair()
         }
 
+        self.keyManager = keyManager
         self.sessionState = SessionState()
     }
 
     /// Creates a service with a pre-existing key pair.
     /// Useful for testing or when keys are managed externally.
-    public init(keyPair: StoredKeyPair) {
+    ///
+    /// - Parameters:
+    ///   - keyPair: The key pair to use
+    ///   - keyManager: Optional key manager for persisting session keys (for extension access)
+    public init(keyPair: StoredKeyPair, keyManager: KeyManager? = nil) {
         self.keyPair = keyPair
+        self.keyManager = keyManager
         self.sessionState = SessionState()
     }
 
@@ -179,12 +188,29 @@ final public class E2EEService: Sendable {
             partnerKeyId: partnerKeyId,
             pairId: pairId
         )
+
+        // Persist session key to Keychain for Notification Service Extension access
+        if let keyManager {
+            do {
+                // Convert SymmetricKey to Data
+                let keyData = symmetricKey.withUnsafeBytes { Data($0) }
+                try await keyManager.storeSessionKey(keyData)
+            } catch {
+                // Log but don't fail - session still works, just no extension decryption
+                // In production, you might want to handle this more gracefully
+            }
+        }
     }
 
     /// Clears the current session, removing the derived key.
     /// Call this when disconnecting or unpairing.
     public func clearSession() async {
         await sessionState.clear()
+
+        // Also clear persisted session key from Keychain
+        if let keyManager {
+            try? await keyManager.deleteSessionKey()
+        }
     }
 
     /// Whether a session is currently established.
