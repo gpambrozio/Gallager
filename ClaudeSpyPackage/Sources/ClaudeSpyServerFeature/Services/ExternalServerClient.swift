@@ -191,10 +191,13 @@ final public class ExternalServerClient {
         reconnectionAttempt = 0
 
         // Establish E2EE session if we have partner's public key from pairing
-        if
-            let partnerKey = partnerPublicKey,
-            let partnerKeyId = partnerPublicKeyId,
-            let keyData = Data(base64Encoded: partnerKey) {
+        if let partnerKey = partnerPublicKey, let partnerKeyId = partnerPublicKeyId {
+            guard let keyData = Data(base64Encoded: partnerKey) else {
+                logger.error("Failed to decode partner public key from base64 - key may be malformed")
+                // Continue without session - will be established when partner connects
+                await performConnect()
+                return
+            }
             do {
                 try await e2eeService.establishSession(
                     partnerPublicKey: keyData,
@@ -524,12 +527,12 @@ final public class ExternalServerClient {
         }
     }
 
-    /// Encrypts and sends a message that should be encrypted
+    /// Encrypts and sends a message that should be encrypted.
+    /// Fails closed if E2EE session is not established - will not send unencrypted.
     private func sendEncrypted(_ message: WebSocketMessage) async {
-        // Only encrypt if we have an E2EE service and session is established
+        // Fail closed: refuse to send if E2EE session is not established
         guard let e2eeService, await e2eeService.isSessionEstablished else {
-            logger.warning("E2EE session not established, sending unencrypted message")
-            await send(message)
+            logger.error("E2EE session not established, refusing to send sensitive message")
             return
         }
 
