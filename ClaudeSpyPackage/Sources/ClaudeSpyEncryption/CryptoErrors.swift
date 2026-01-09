@@ -23,8 +23,10 @@ public enum CryptoError: Error, Sendable, LocalizedError {
     /// Invalid private key data format
     case invalidPrivateKey
 
-    /// Keychain operation failed
-    case keychainError(status: OSStatus)
+    #if canImport(Security)
+        /// Keychain operation failed (Apple platforms only)
+        case keychainError(status: OSStatus)
+    #endif
 
     /// Key not found in Keychain
     case keyNotFound
@@ -48,8 +50,10 @@ public enum CryptoError: Error, Sendable, LocalizedError {
             return "Invalid public key data format"
         case .invalidPrivateKey:
             return "Invalid private key data format"
-        case let .keychainError(status):
-            return "Keychain operation failed with status: \(status)"
+        #if canImport(Security)
+            case let .keychainError(status):
+                return "Keychain operation failed with status: \(status)"
+        #endif
         case .keyNotFound:
             return "Encryption key not found in Keychain"
         case let .unsupportedVersion(received, supported):

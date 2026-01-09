@@ -376,47 +376,49 @@ public extension WebSocketMessage {
         }
     }
 
-    /// Encrypts this message using the provided E2EE service.
-    /// - Parameter e2eeService: The E2EE service to use for encryption
-    /// - Returns: An encrypted WebSocket message wrapper
-    /// - Throws: Encryption or encoding errors
-    func encrypt(using e2eeService: E2EEService) async throws -> WebSocketMessage {
-        guard let innerType = encryptedType else {
-            // Non-encryptable messages are returned as-is
-            return self
+    #if canImport(Security)
+        /// Encrypts this message using the provided E2EE service.
+        /// - Parameter e2eeService: The E2EE service to use for encryption
+        /// - Returns: An encrypted WebSocket message wrapper
+        /// - Throws: Encryption or encoding errors
+        func encrypt(using e2eeService: E2EEService) async throws -> WebSocketMessage {
+            guard let innerType = encryptedType else {
+                // Non-encryptable messages are returned as-is
+                return self
+            }
+
+            // Encode the inner payload to JSON
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            let innerData = try encoder.encode(self)
+
+            // Encrypt the inner payload
+            let encryptedPayload = try await e2eeService.encrypt(innerData)
+
+            // Wrap in encrypted message
+            return .encrypted(EncryptedWebSocketMessage(
+                innerType: innerType,
+                payload: encryptedPayload
+            ))
         }
 
-        // Encode the inner payload to JSON
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        let innerData = try encoder.encode(self)
+        /// Decrypts an encrypted message using the provided E2EE service.
+        /// - Parameter e2eeService: The E2EE service to use for decryption
+        /// - Returns: The decrypted WebSocket message
+        /// - Throws: Decryption or decoding errors
+        func decrypt(using e2eeService: E2EEService) async throws -> WebSocketMessage {
+            guard case let .encrypted(encryptedMessage) = self else {
+                // Non-encrypted messages are returned as-is
+                return self
+            }
 
-        // Encrypt the inner payload
-        let encryptedPayload = try await e2eeService.encrypt(innerData)
+            // Decrypt the payload
+            let decryptedData = try await e2eeService.decrypt(encryptedMessage.payload)
 
-        // Wrap in encrypted message
-        return .encrypted(EncryptedWebSocketMessage(
-            innerType: innerType,
-            payload: encryptedPayload
-        ))
-    }
-
-    /// Decrypts an encrypted message using the provided E2EE service.
-    /// - Parameter e2eeService: The E2EE service to use for decryption
-    /// - Returns: The decrypted WebSocket message
-    /// - Throws: Decryption or decoding errors
-    func decrypt(using e2eeService: E2EEService) async throws -> WebSocketMessage {
-        guard case let .encrypted(encryptedMessage) = self else {
-            // Non-encrypted messages are returned as-is
-            return self
+            // Decode the inner message
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return try decoder.decode(WebSocketMessage.self, from: decryptedData)
         }
-
-        // Decrypt the payload
-        let decryptedData = try await e2eeService.decrypt(encryptedMessage.payload)
-
-        // Decode the inner message
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(WebSocketMessage.self, from: decryptedData)
-    }
+    #endif
 }
