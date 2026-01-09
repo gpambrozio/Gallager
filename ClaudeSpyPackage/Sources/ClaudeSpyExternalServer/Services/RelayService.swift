@@ -196,6 +196,16 @@ actor RelayService {
 
         await connectionHub.send(.macRegistered(response), to: pairId, deviceType: .mac)
 
+        // Always notify iOS that Mac has connected (with public key for E2EE)
+        // This is needed because the initial notifyConnection is called before registration
+        // when we don't have the public key yet
+        let macConnectedMessage = DeviceConnectedMessage(
+            publicKey: registration.publicKey,
+            publicKeyId: registration.publicKeyId
+        )
+        logger.info("Notifying iOS that Mac registered with public key")
+        await connectionHub.send(.macConnected(macConnectedMessage), to: pairId, deviceType: .ios)
+
         // Notify Mac if iOS is already connected
         if isIOSConnected {
             logger.info("Notifying Mac that iOS is connected")
@@ -236,6 +246,16 @@ actor RelayService {
         )
 
         await connectionHub.send(.iosRegistered(response), to: pairId, deviceType: .ios)
+
+        // Always notify Mac that iOS has connected (with public key for E2EE)
+        // This is needed because the initial notifyConnection is called before registration
+        // when we don't have the public key yet
+        let iosConnectedMessage = DeviceConnectedMessage(
+            publicKey: registration.publicKey,
+            publicKeyId: registration.publicKeyId
+        )
+        logger.info("Notifying Mac that iOS registered with public key")
+        await connectionHub.send(.iosConnected(iosConnectedMessage), to: pairId, deviceType: .mac)
 
         // Notify iOS if Mac is already connected
         if isMacConnected {
