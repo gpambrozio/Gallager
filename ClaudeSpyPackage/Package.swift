@@ -20,8 +20,13 @@ extension Target.Dependency {
         .product(name: "VaporAPNS", package: "apns")
     }
 
+    static var crypto: Self {
+        .product(name: "Crypto", package: "swift-crypto")
+    }
+
     static var claudeSpyNetworking: Self { "ClaudeSpyNetworking" }
     static var claudeSpyCommon: Self { "ClaudeSpyCommon" }
+    static var claudeSpyEncryption: Self { "ClaudeSpyEncryption" }
     static var claudeSpyFeature: Self { "ClaudeSpyFeature" }
     static var claudeSpyServerFeature: Self { "ClaudeSpyServerFeature" }
     static var claudeSpyExternalServer: Self { "ClaudeSpyExternalServer" }
@@ -39,6 +44,10 @@ let package = Package(
         .library(
             name: "ClaudeSpyCommon",
             targets: ["ClaudeSpyCommon"]
+        ),
+        .library(
+            name: "ClaudeSpyEncryption",
+            targets: ["ClaudeSpyEncryption"]
         ),
         .library(
             name: "ClaudeSpyFeature",
@@ -59,6 +68,7 @@ let package = Package(
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.2.0"),
         .package(url: "https://github.com/vapor/vapor", from: "4.0.0"),
         .package(url: "https://github.com/vapor/apns.git", from: "4.0.0"),
+        .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -75,6 +85,13 @@ let package = Package(
             dependencies: [
                 .claudeSpyNetworking,
                 .sfSymbolsMacro,
+            ]
+        ),
+        // End-to-end encryption module using CryptoKit (Apple) / Swift Crypto (Linux)
+        .target(
+            name: "ClaudeSpyEncryption",
+            dependencies: [
+                .crypto,
             ]
         ),
         .target(
@@ -115,6 +132,12 @@ let package = Package(
             name: "ClaudeSpyCommonTests",
             dependencies: [
                 "ClaudeSpyCommon",
+            ]
+        ),
+        .testTarget(
+            name: "ClaudeSpyEncryptionTests",
+            dependencies: [
+                "ClaudeSpyEncryption",
             ]
         ),
         .testTarget(

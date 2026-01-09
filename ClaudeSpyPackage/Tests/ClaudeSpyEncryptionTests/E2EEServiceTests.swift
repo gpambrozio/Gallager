@@ -1,0 +1,313 @@
+import ClaudeSpyEncryption
+import Crypto
+import Foundation
+import Testing
+
+@Suite("E2EE Service Tests")
+struct E2EEServiceTests {
+    // MARK: - Key Generation Tests
+
+    @Test("Service generates valid key pair on init")
+    func serviceGeneratesKeyPair() async throws {
+        let keyManager = InMemoryKeyManager()
+        let service = try await E2EEService(keyManager: keyManager)
+
+        // Public key should be 32 bytes (Curve25519)
+        #expect(service.publicKey.count == 32)
+        #expect(!service.keyId.isEmpty)
+    }
+
+    @Test("Service reuses existing key pair")
+    func serviceReusesKeyPair() async throws {
+        let keyManager = InMemoryKeyManager()
+
+        // First service generates a key
+        let service1 = try await E2EEService(keyManager: keyManager)
+        let publicKey1 = service1.publicKey
+        let keyId1 = service1.keyId
+
+        // Second service should reuse the same key
+        let service2 = try await E2EEService(keyManager: keyManager)
+        let publicKey2 = service2.publicKey
+        let keyId2 = service2.keyId
+
+        #expect(publicKey1 == publicKey2)
+        #expect(keyId1 == keyId2)
+    }
+
+    // MARK: - Session Establishment Tests
+
+    @Test("Two services can establish a session")
+    func sessionEstablishment() async throws {
+        let (service1, service2) = try await createPairedServices()
+
+        // Both should now have sessions established
+        let isEstablished1 = await service1.isSessionEstablished
+        let isEstablished2 = await service2.isSessionEstablished
+
+        #expect(isEstablished1)
+        #expect(isEstablished2)
+    }
+
+    @Test("Session establishment fails with invalid public key")
+    func invalidPublicKeyFails() async throws {
+        let service = try await createService()
+
+        await #expect(throws: CryptoError.self) {
+            try await service.establishSession(
+                partnerPublicKey: Data(repeating: 0xFF, count: 10), // Invalid length
+                partnerKeyId: "invalid",
+                pairId: "test"
+            )
+        }
+    }
+
+    // MARK: - Encryption/Decryption Tests
+
+    @Test("Encrypt and decrypt round trip")
+    func encryptDecryptRoundTrip() async throws {
+        let (service1, service2) = try await createPairedServices()
+
+        let plaintext = "Hello, encrypted world!".data(using: .utf8)!
+
+        // Service 1 encrypts
+        let encrypted = try await service1.encrypt(plaintext)
+
+        // Service 2 decrypts
+        let decrypted = try await service2.decrypt(encrypted)
+
+        #expect(decrypted == plaintext)
+    }
+
+    @Test("Encrypt and decrypt Codable types")
+    func encryptDecryptCodable() async throws {
+        let (service1, service2) = try await createPairedServices()
+
+        let message = TestMessage(id: UUID(), content: "Secret message", timestamp: Date())
+
+        // Encrypt
+        let encrypted = try await service1.encrypt(message)
+
+        // Decrypt
+        let decrypted: TestMessage = try await service2.decrypt(encrypted, as: TestMessage.self)
+
+        #expect(decrypted.id == message.id)
+        #expect(decrypted.content == message.content)
+    }
+
+    @Test("Bidirectional encryption works")
+    func bidirectionalEncryption() async throws {
+        let (service1, service2) = try await createPairedServices()
+
+        // Service 1 -> Service 2
+        let message1 = "From service 1".data(using: .utf8)!
+        let encrypted1 = try await service1.encrypt(message1)
+        let decrypted1 = try await service2.decrypt(encrypted1)
+        #expect(decrypted1 == message1)
+
+        // Service 2 -> Service 1
+        let message2 = "From service 2".data(using: .utf8)!
+        let encrypted2 = try await service2.encrypt(message2)
+        let decrypted2 = try await service1.decrypt(encrypted2)
+        #expect(decrypted2 == message2)
+    }
+
+    @Test("Encryption without session fails")
+    func encryptWithoutSessionFails() async throws {
+        let service = try await createService()
+
+        await #expect(throws: CryptoError.self) {
+            _ = try await service.encrypt("test".data(using: .utf8)!)
+        }
+    }
+
+    @Test("Decryption without session fails")
+    func decryptWithoutSessionFails() async throws {
+        let service = try await createService()
+
+        let payload = EncryptedPayload(
+            ciphertext: Data(repeating: 0, count: 32),
+            senderKeyId: "test"
+        )
+
+        await #expect(throws: CryptoError.self) {
+            _ = try await service.decrypt(payload)
+        }
+    }
+
+    @Test("Third party cannot decrypt messages")
+    func thirdPartyCannotDecrypt() async throws {
+        let (service1, service2) = try await createPairedServices()
+        let service3 = try await createService()
+
+        // Service 3 "intercepts" the conversation by establishing with service 1
+        try await service3.establishSession(
+            partnerPublicKey: service1.publicKey,
+            partnerKeyId: service1.keyId,
+            pairId: "test-pair"
+        )
+
+        // Service 1 sends to service 2
+        let message = "Secret message".data(using: .utf8)!
+        let encrypted = try await service1.encrypt(message)
+
+        // Service 2 can decrypt
+        let decrypted = try await service2.decrypt(encrypted)
+        #expect(decrypted == message)
+
+        // Service 3 cannot decrypt (different shared secret)
+        await #expect(throws: CryptoError.self) {
+            _ = try await service3.decrypt(encrypted)
+        }
+    }
+
+    @Test("Tampering with ciphertext is detected")
+    func tamperingDetected() async throws {
+        let (service1, service2) = try await createPairedServices()
+
+        let message = "Original message".data(using: .utf8)!
+        let encrypted = try await service1.encrypt(message)
+
+        // Tamper with the ciphertext
+        var tamperedCiphertext = encrypted.ciphertext
+        if tamperedCiphertext.count > 20 {
+            tamperedCiphertext[20] ^= 0xFF // Flip bits
+        }
+
+        let tamperedPayload = EncryptedPayload(
+            ciphertext: tamperedCiphertext,
+            senderKeyId: encrypted.senderKeyId
+        )
+
+        // Decryption should fail due to authentication
+        await #expect(throws: CryptoError.self) {
+            _ = try await service2.decrypt(tamperedPayload)
+        }
+    }
+
+    @Test("Version mismatch is rejected")
+    func versionMismatch() async throws {
+        let (service1, service2) = try await createPairedServices()
+
+        let message = "Test".data(using: .utf8)!
+        let encrypted = try await service1.encrypt(message)
+
+        // Create payload with wrong version
+        let wrongVersionPayload = EncryptedPayload(
+            ciphertext: encrypted.ciphertext,
+            senderKeyId: encrypted.senderKeyId,
+            version: 999
+        )
+
+        await #expect(throws: CryptoError.self) {
+            _ = try await service2.decrypt(wrongVersionPayload)
+        }
+    }
+
+    // MARK: - Session Clear Tests
+
+    @Test("Clear session prevents encryption")
+    func clearSessionPreventsEncryption() async throws {
+        let (service1, _) = try await createPairedServices()
+
+        // Clear the session
+        await service1.clearSession()
+
+        // Should not be established anymore
+        let isEstablished = await service1.isSessionEstablished
+        #expect(!isEstablished)
+
+        // Should fail to encrypt
+        await #expect(throws: CryptoError.self) {
+            _ = try await service1.encrypt("test".data(using: .utf8)!)
+        }
+    }
+
+    // MARK: - Payload Encoding Tests
+
+    @Test("EncryptedPayload encodes to JSON correctly")
+    func payloadJsonEncoding() throws {
+        let ciphertext = Data([0x01, 0x02, 0x03, 0x04])
+        let payload = EncryptedPayload(ciphertext: ciphertext, senderKeyId: "test-key", version: 1)
+
+        let encoder = JSONEncoder()
+        let jsonData = try encoder.encode(payload)
+        let jsonString = String(data: jsonData, encoding: .utf8)!
+
+        // Should contain base64 encoded ciphertext
+        #expect(jsonString.contains("AQIDBA==")) // Base64 of 0x01020304
+        #expect(jsonString.contains("test-key"))
+    }
+
+    @Test("EncryptedPayload decodes from JSON correctly")
+    func payloadJsonDecoding() throws {
+        let json = """
+        {"ciphertext":"AQIDBA==","senderKeyId":"test-key","version":1}
+        """
+
+        let decoder = JSONDecoder()
+        let payload = try decoder.decode(EncryptedPayload.self, from: json.data(using: .utf8)!)
+
+        #expect(payload.ciphertext == Data([0x01, 0x02, 0x03, 0x04]))
+        #expect(payload.senderKeyId == "test-key")
+        #expect(payload.version == 1)
+    }
+
+    // MARK: - Helpers
+
+    private func createService() async throws -> E2EEService {
+        let keyManager = InMemoryKeyManager()
+        return try await E2EEService(keyManager: keyManager)
+    }
+
+    private func createPairedServices() async throws -> (E2EEService, E2EEService) {
+        let keyManager1 = InMemoryKeyManager()
+        let keyManager2 = InMemoryKeyManager()
+
+        let service1 = try await E2EEService(keyManager: keyManager1)
+        let service2 = try await E2EEService(keyManager: keyManager2)
+
+        let pairId = "test-pair"
+
+        // Exchange public keys and establish sessions
+        try await service1.establishSession(
+            partnerPublicKey: service2.publicKey,
+            partnerKeyId: service2.keyId,
+            pairId: pairId
+        )
+
+        try await service2.establishSession(
+            partnerPublicKey: service1.publicKey,
+            partnerKeyId: service1.keyId,
+            pairId: pairId
+        )
+
+        return (service1, service2)
+    }
+}
+
+// MARK: - Test Helpers
+
+private struct TestMessage: Codable, Equatable {
+    let id: UUID
+    let content: String
+    let timestamp: Date
+}
+
+// MARK: - InMemoryKeyManager Extension for Testing
+
+/// Extension to allow E2EEService to use InMemoryKeyManager
+extension E2EEService {
+    /// Creates a service using an in-memory key manager for testing.
+    convenience init(keyManager: InMemoryKeyManager) async throws {
+        // Load or generate key pair
+        let keyPair: StoredKeyPair
+        if let existing = await keyManager.loadKeyPair() {
+            keyPair = existing
+        } else {
+            keyPair = try await keyManager.generateKeyPair()
+        }
+
+        self.init(keyPair: keyPair)
+    }
+}
