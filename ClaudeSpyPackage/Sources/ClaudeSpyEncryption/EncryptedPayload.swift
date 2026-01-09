@@ -1,3 +1,4 @@
+import Crypto
 import Foundation
 
 /// Current encryption protocol version
@@ -82,6 +83,21 @@ public struct StoredKeyPair: Codable, Sendable {
         self.publicKeyData = publicKeyData
         self.keyId = keyId
         self.createdAt = createdAt
+    }
+
+    /// Generates a new key pair synchronously.
+    ///
+    /// This creates a fresh Curve25519 key pair with a new UUID as the key ID.
+    /// Note: This does not persist the key to storage - use KeyManager for persistence.
+    public static func generateNew() -> StoredKeyPair {
+        let privateKey = Curve25519.KeyAgreement.PrivateKey()
+        let keyId = UUID().uuidString
+
+        return StoredKeyPair(
+            privateKeyData: privateKey.rawRepresentation,
+            publicKeyData: privateKey.publicKey.rawRepresentation,
+            keyId: keyId
+        )
     }
 }
 

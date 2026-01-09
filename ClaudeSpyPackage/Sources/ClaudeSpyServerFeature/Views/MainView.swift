@@ -1,5 +1,6 @@
 import AppKit
 import ClaudeSpyCommon
+import ClaudeSpyEncryption
 import SwiftUI
 
 /// The main application view showing available tmux panes
@@ -8,6 +9,7 @@ public struct MainView: View {
     @Environment(MirrorWindowManager.self) private var windowManager
     @Environment(AppSettings.self) private var settings
     @Environment(ExternalServerClient.self) private var serverClient
+    @Environment(PairingManager.self) private var pairingManager
 
     /// Refresh interval in seconds
     private let refreshInterval: TimeInterval = 5
@@ -152,11 +154,14 @@ public struct MainView: View {
             return
         }
 
+        let keyInfo = pairingManager.publicKeyInfo
         await serverClient.connect(
             serverURL: serverURL,
             pairId: pairId,
             deviceId: settings.deviceId,
-            deviceName: Host.current().localizedName ?? "Mac"
+            deviceName: Host.current().localizedName ?? "Mac",
+            publicKey: keyInfo.publicKey.base64EncodedString(),
+            publicKeyId: keyInfo.keyId
         )
     }
 

@@ -7,17 +7,17 @@ public struct PairingRegistration: Codable, Sendable {
     public let deviceId: String
     public let deviceName: String
     public let pairingCode: String
-    /// Base64-encoded public key for E2EE (optional for backward compatibility)
-    public let publicKey: String?
+    /// Base64-encoded public key for E2EE
+    public let publicKey: String
     /// Unique identifier for the public key
-    public let publicKeyId: String?
+    public let publicKeyId: String
 
     public init(
         deviceId: String,
         deviceName: String,
         pairingCode: String,
-        publicKey: String? = nil,
-        publicKeyId: String? = nil
+        publicKey: String,
+        publicKeyId: String
     ) {
         self.deviceId = deviceId
         self.deviceName = deviceName
@@ -32,17 +32,17 @@ public struct PairingCompletion: Codable, Sendable {
     public let pairingCode: String
     public let deviceId: String
     public let deviceName: String
-    /// Base64-encoded public key for E2EE (optional for backward compatibility)
-    public let publicKey: String?
+    /// Base64-encoded public key for E2EE
+    public let publicKey: String
     /// Unique identifier for the public key
-    public let publicKeyId: String?
+    public let publicKeyId: String
 
     public init(
         pairingCode: String,
         deviceId: String,
         deviceName: String,
-        publicKey: String? = nil,
-        publicKeyId: String? = nil
+        publicKey: String,
+        publicKeyId: String
     ) {
         self.pairingCode = pairingCode
         self.deviceId = deviceId
@@ -57,9 +57,9 @@ public struct PairingResponse: Codable, Sendable {
     public let success: Bool
     public let pairId: String?
     public let partnerDeviceName: String?
-    /// Base64-encoded public key of the partner device for E2EE
+    /// Base64-encoded public key of the partner device for E2EE (nil on failure)
     public let partnerPublicKey: String?
-    /// Unique identifier for the partner's public key
+    /// Unique identifier for the partner's public key (nil on failure)
     public let partnerPublicKeyId: String?
     public let error: String?
 
@@ -81,9 +81,9 @@ public struct PairingResponse: Codable, Sendable {
 
     public static func success(
         pairId: String,
-        partnerDeviceName: String? = nil,
-        partnerPublicKey: String? = nil,
-        partnerPublicKeyId: String? = nil
+        partnerDeviceName: String,
+        partnerPublicKey: String,
+        partnerPublicKeyId: String
     ) -> PairingResponse {
         PairingResponse(
             success: true,
@@ -106,17 +106,17 @@ public struct RegisterMacMessage: Codable, Sendable {
     public let pairId: String
     public let deviceId: String
     public let deviceName: String
-    /// Base64-encoded public key for E2EE (optional for backward compatibility)
-    public let publicKey: String?
+    /// Base64-encoded public key for E2EE
+    public let publicKey: String
     /// Unique identifier for the public key
-    public let publicKeyId: String?
+    public let publicKeyId: String
 
     public init(
         pairId: String,
         deviceId: String,
         deviceName: String,
-        publicKey: String? = nil,
-        publicKeyId: String? = nil
+        publicKey: String,
+        publicKeyId: String
     ) {
         self.pairId = pairId
         self.deviceId = deviceId
@@ -131,17 +131,17 @@ public struct RegisterIOSMessage: Codable, Sendable {
     public let pairId: String
     public let deviceId: String
     public let deviceName: String
-    /// Base64-encoded public key for E2EE (optional for backward compatibility)
-    public let publicKey: String?
+    /// Base64-encoded public key for E2EE
+    public let publicKey: String
     /// Unique identifier for the public key
-    public let publicKeyId: String?
+    public let publicKeyId: String
 
     public init(
         pairId: String,
         deviceId: String,
         deviceName: String,
-        publicKey: String? = nil,
-        publicKeyId: String? = nil
+        publicKey: String,
+        publicKeyId: String
     ) {
         self.pairId = pairId
         self.deviceId = deviceId
@@ -154,10 +154,11 @@ public struct RegisterIOSMessage: Codable, Sendable {
 /// Response confirming Mac registration
 public struct MacRegisteredMessage: Codable, Sendable {
     public let success: Bool
+    /// Name of paired iOS device (nil if iOS not connected yet)
     public let iosDeviceName: String?
-    /// Base64-encoded public key of the iOS device for E2EE
+    /// Base64-encoded public key of the iOS device for E2EE (nil if iOS not connected yet)
     public let iosPublicKey: String?
-    /// Unique identifier for the iOS device's public key
+    /// Unique identifier for the iOS device's public key (nil if iOS not connected yet)
     public let iosPublicKeyId: String?
     public let error: String?
 
@@ -179,10 +180,11 @@ public struct MacRegisteredMessage: Codable, Sendable {
 /// Response confirming iOS registration
 public struct IOSRegisteredMessage: Codable, Sendable {
     public let success: Bool
+    /// Name of paired Mac device (nil if Mac not connected yet)
     public let macDeviceName: String?
-    /// Base64-encoded public key of the Mac device for E2EE
+    /// Base64-encoded public key of the Mac device for E2EE (nil if Mac not connected yet)
     public let macPublicKey: String?
-    /// Unique identifier for the Mac device's public key
+    /// Unique identifier for the Mac device's public key (nil if Mac not connected yet)
     public let macPublicKeyId: String?
     public let error: String?
 

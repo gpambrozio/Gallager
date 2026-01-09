@@ -2,7 +2,7 @@ import Crypto
 import Foundation
 
 /// Salt used for HKDF key derivation. This is a protocol constant.
-private let protocolSalt = "ClaudeSpy-E2EE-v1".data(using: .utf8)!
+private let protocolSalt = Data("ClaudeSpy-E2EE-v1".utf8)
 
 /// End-to-end encryption service for secure communication between paired devices.
 ///
@@ -288,3 +288,29 @@ public extension E2EEService {
         )
     }
 }
+
+// MARK: - SwiftUI Environment Support
+
+#if canImport(SwiftUI)
+    import SwiftUI
+
+    /// Environment key for E2EEService
+    private struct E2EEServiceKey: EnvironmentKey {
+        static let defaultValue: E2EEService? = nil
+    }
+
+    public extension EnvironmentValues {
+        /// The E2EE service for encryption operations
+        var e2eeService: E2EEService? {
+            get { self[E2EEServiceKey.self] }
+            set { self[E2EEServiceKey.self] = newValue }
+        }
+    }
+
+    public extension View {
+        /// Sets the E2EE service for this view hierarchy
+        func e2eeService(_ service: E2EEService) -> some View {
+            environment(\.e2eeService, service)
+        }
+    }
+#endif

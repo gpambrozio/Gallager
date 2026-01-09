@@ -1,4 +1,5 @@
 import ClaudeSpyCommon
+import ClaudeSpyEncryption
 import ClaudeSpyNetworking
 import SwiftUI
 
@@ -17,6 +18,7 @@ public struct ContentView: View {
     @State private var settings = IOSSettings.shared
     @State private var relayClient = RelayClient()
     @State private var sessionStore = SessionStore()
+    @State private var e2eeService: E2EEService?
 
     #if os(iOS)
         @Environment(\.scenePhase) private var scenePhase
@@ -39,7 +41,9 @@ public struct ContentView: View {
         .environment(settings)
         .environment(relayClient)
         .environment(sessionStore)
+        .environment(\.e2eeService, e2eeService)
         .task {
+            await initializeE2EEService()
             setupRelayClientHandlers()
             await autoConnectIfNeeded()
         }
@@ -126,7 +130,8 @@ public struct ContentView: View {
             settings.isPaired,
             settings.autoReconnect,
             let pairId = settings.pairId,
-            let serverURL = URL(string: settings.externalServerURL)
+            let serverURL = URL(string: settings.externalServerURL),
+            let keyInfo = publicKeyInfo
         else {
             return
         }
@@ -135,7 +140,9 @@ public struct ContentView: View {
             serverURL: serverURL,
             pairId: pairId,
             deviceId: settings.deviceId,
-            deviceName: settings.deviceName
+            deviceName: settings.deviceName,
+            publicKey: keyInfo.key,
+            publicKeyId: keyInfo.keyId
         )
 
         #if os(iOS)
@@ -151,6 +158,29 @@ public struct ContentView: View {
         #endif
     }
 
+    // MARK: - E2EE Initialization
+
+    private func initializeE2EEService() async {
+        guard e2eeService == nil else { return }
+
+        do {
+            e2eeService = try await E2EEService()
+        } catch {
+            // Log error but continue - encryption won't work
+            // In production, might want to show an error to the user
+            print("Failed to initialize E2EEService: \(error)")
+        }
+    }
+
+    /// Helper to get public key info for connection.
+    private var publicKeyInfo: (key: String, keyId: String)? {
+        guard let service = e2eeService else { return nil }
+        return (
+            key: service.publicKey.base64EncodedString(),
+            keyId: service.keyId
+        )
+    }
+
     // MARK: - Pairing
 
     private func handlePairingComplete(pairId: String, macName: String?) {
@@ -158,13 +188,18 @@ public struct ContentView: View {
 
         // Connect to relay server and set up push notifications
         Task {
-            guard let serverURL = URL(string: settings.externalServerURL) else { return }
+            guard
+                let serverURL = URL(string: settings.externalServerURL),
+                let keyInfo = publicKeyInfo
+            else { return }
 
             await relayClient.connect(
                 serverURL: serverURL,
                 pairId: pairId,
                 deviceId: settings.deviceId,
-                deviceName: settings.deviceName
+                deviceName: settings.deviceName,
+                publicKey: keyInfo.key,
+                publicKeyId: keyInfo.keyId
             )
 
             // Request push notification permissions after successful pairing
@@ -201,6 +236,7 @@ public struct ContentView: View {
 struct MainView: View {
     @Environment(IOSSettings.self) private var settings
     @Environment(RelayClient.self) private var relayClient
+    @Environment(\.e2eeService) private var e2eeService
 
     @State private var selectedTab: Tab = .sessions
 
@@ -238,7 +274,8 @@ struct MainView: View {
             !relayClient.state.isConnected,
             relayClient.state != .connecting,
             let pairId = settings.pairId,
-            let serverURL = URL(string: settings.externalServerURL)
+            let serverURL = URL(string: settings.externalServerURL),
+            let service = e2eeService
         else {
             return
         }
@@ -247,7 +284,9 @@ struct MainView: View {
             serverURL: serverURL,
             pairId: pairId,
             deviceId: settings.deviceId,
-            deviceName: settings.deviceName
+            deviceName: settings.deviceName,
+            publicKey: service.publicKey.base64EncodedString(),
+            publicKeyId: service.keyId
         )
     }
 }
@@ -257,6 +296,7 @@ struct MainView: View {
 struct SettingsView: View {
     @Environment(IOSSettings.self) private var settings
     @Environment(RelayClient.self) private var relayClient
+    @Environment(\.e2eeService) private var e2eeService
 
     @State private var showingUnpairConfirmation = false
 
@@ -413,7 +453,8 @@ struct SettingsView: View {
     private func connect() async {
         guard
             let pairId = settings.pairId,
-            let serverURL = URL(string: settings.externalServerURL)
+            let serverURL = URL(string: settings.externalServerURL),
+            let service = e2eeService
         else {
             return
         }
@@ -422,7 +463,9 @@ struct SettingsView: View {
             serverURL: serverURL,
             pairId: pairId,
             deviceId: settings.deviceId,
-            deviceName: settings.deviceName
+            deviceName: settings.deviceName,
+            publicKey: service.publicKey.base64EncodedString(),
+            publicKeyId: service.keyId
         )
     }
 

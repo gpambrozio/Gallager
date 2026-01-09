@@ -1,4 +1,5 @@
 import ClaudeSpyCommon
+import ClaudeSpyEncryption
 import Foundation
 import os
 
@@ -81,6 +82,12 @@ final public class RelayClient {
     /// Device name for registration
     private var deviceName: String?
 
+    /// Public key for E2EE (Base64-encoded)
+    private var publicKey: String?
+
+    /// Public key ID for E2EE
+    private var publicKeyId: String?
+
     /// Server URL for reconnection
     private var serverURL: URL?
 
@@ -139,11 +146,15 @@ final public class RelayClient {
     ///   - pairId: The pair ID from device pairing
     ///   - deviceId: Unique identifier for this iOS device
     ///   - deviceName: Display name for this iOS device
+    ///   - publicKey: Base64-encoded public key for E2EE
+    ///   - publicKeyId: Unique identifier for the public key
     public func connect(
         serverURL: URL,
         pairId: String,
         deviceId: String,
-        deviceName: String
+        deviceName: String,
+        publicKey: String,
+        publicKeyId: String
     ) async {
         guard state != .connecting, !state.isConnected else {
             logger.warning("Already connected or connecting")
@@ -154,6 +165,8 @@ final public class RelayClient {
         self.pairId = pairId
         self.deviceId = deviceId
         self.deviceName = deviceName
+        self.publicKey = publicKey
+        self.publicKeyId = publicKeyId
         shouldReconnect = true
         reconnectionAttempt = 0
 
@@ -296,7 +309,10 @@ final public class RelayClient {
     // MARK: - Private Methods
 
     private func performConnect() async {
-        guard let serverURL, let pairId, let deviceId, let deviceName else {
+        guard
+            let serverURL, let pairId, let deviceId, let deviceName,
+            let publicKey, let publicKeyId
+        else {
             logger.error("Missing connection parameters")
             state = .error("Missing connection parameters")
             return
@@ -348,7 +364,13 @@ final public class RelayClient {
 
         // Send registration message
         let registerMessage = WebSocketMessage.registerIOS(
-            RegisterIOSMessage(pairId: pairId, deviceId: deviceId, deviceName: deviceName)
+            RegisterIOSMessage(
+                pairId: pairId,
+                deviceId: deviceId,
+                deviceName: deviceName,
+                publicKey: publicKey,
+                publicKeyId: publicKeyId
+            )
         )
         await send(registerMessage)
 
@@ -524,11 +546,12 @@ final public class RelayClient {
 
         if shouldReconnect, reconnectionAttempt < maxReconnectionAttempts {
             reconnectionAttempt += 1
-            state = .reconnecting(attempt: reconnectionAttempt)
+            let currentAttempt = reconnectionAttempt
+            state = .reconnecting(attempt: currentAttempt)
 
             // Exponential backoff: 1s, 2s, 4s, 8s, etc. up to 60s
-            let delay = min(60, Int(pow(2, Double(self.reconnectionAttempt - 1))))
-            logger.info("Reconnecting in \(delay) seconds (attempt \(self.reconnectionAttempt))")
+            let delay = min(60, Int(pow(2, Double(currentAttempt - 1))))
+            logger.info("Reconnecting in \(delay) seconds (attempt \(currentAttempt))")
 
             // Spawn reconnection in a new task - the current task was cancelled by cleanupConnection()
             // so we need a fresh task that won't have Task.isCancelled == true

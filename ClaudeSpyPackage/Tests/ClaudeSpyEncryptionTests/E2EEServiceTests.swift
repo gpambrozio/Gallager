@@ -68,7 +68,7 @@ struct E2EEServiceTests {
     func encryptDecryptRoundTrip() async throws {
         let (service1, service2) = try await createPairedServices()
 
-        let plaintext = "Hello, encrypted world!".data(using: .utf8)!
+        let plaintext = Data("Hello, encrypted world!".utf8)
 
         // Service 1 encrypts
         let encrypted = try await service1.encrypt(plaintext)
@@ -100,13 +100,13 @@ struct E2EEServiceTests {
         let (service1, service2) = try await createPairedServices()
 
         // Service 1 -> Service 2
-        let message1 = "From service 1".data(using: .utf8)!
+        let message1 = Data("From service 1".utf8)
         let encrypted1 = try await service1.encrypt(message1)
         let decrypted1 = try await service2.decrypt(encrypted1)
         #expect(decrypted1 == message1)
 
         // Service 2 -> Service 1
-        let message2 = "From service 2".data(using: .utf8)!
+        let message2 = Data("From service 2".utf8)
         let encrypted2 = try await service2.encrypt(message2)
         let decrypted2 = try await service1.decrypt(encrypted2)
         #expect(decrypted2 == message2)
@@ -117,7 +117,7 @@ struct E2EEServiceTests {
         let service = try await createService()
 
         await #expect(throws: CryptoError.self) {
-            _ = try await service.encrypt("test".data(using: .utf8)!)
+            _ = try await service.encrypt(Data("test".utf8))
         }
     }
 
@@ -148,7 +148,7 @@ struct E2EEServiceTests {
         )
 
         // Service 1 sends to service 2
-        let message = "Secret message".data(using: .utf8)!
+        let message = Data("Secret message".utf8)
         let encrypted = try await service1.encrypt(message)
 
         // Service 2 can decrypt
@@ -165,7 +165,7 @@ struct E2EEServiceTests {
     func tamperingDetected() async throws {
         let (service1, service2) = try await createPairedServices()
 
-        let message = "Original message".data(using: .utf8)!
+        let message = Data("Original message".utf8)
         let encrypted = try await service1.encrypt(message)
 
         // Tamper with the ciphertext
@@ -189,7 +189,7 @@ struct E2EEServiceTests {
     func versionMismatch() async throws {
         let (service1, service2) = try await createPairedServices()
 
-        let message = "Test".data(using: .utf8)!
+        let message = Data("Test".utf8)
         let encrypted = try await service1.encrypt(message)
 
         // Create payload with wrong version
@@ -219,7 +219,7 @@ struct E2EEServiceTests {
 
         // Should fail to encrypt
         await #expect(throws: CryptoError.self) {
-            _ = try await service1.encrypt("test".data(using: .utf8)!)
+            _ = try await service1.encrypt(Data("test".utf8))
         }
     }
 
@@ -246,7 +246,7 @@ struct E2EEServiceTests {
         """
 
         let decoder = JSONDecoder()
-        let payload = try decoder.decode(EncryptedPayload.self, from: json.data(using: .utf8)!)
+        let payload = try decoder.decode(EncryptedPayload.self, from: Data(json.utf8))
 
         #expect(payload.ciphertext == Data([0x01, 0x02, 0x03, 0x04]))
         #expect(payload.senderKeyId == "test-key")

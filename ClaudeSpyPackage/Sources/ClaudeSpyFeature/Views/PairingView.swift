@@ -1,10 +1,12 @@
 import ClaudeSpyCommon
+import ClaudeSpyEncryption
 import SwiftUI
 
 /// View for entering a pairing code to connect with a Mac.
 struct PairingView: View {
     @Environment(IOSSettings.self) private var settings
     @Environment(RelayClient.self) private var relayClient
+    @Environment(\.e2eeService) private var e2eeService
 
     @State private var pairingCode = ""
     @State private var isLoading = false
@@ -306,10 +308,16 @@ struct PairingView: View {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
+        guard let e2eeService else {
+            throw PairingError.encryptionNotAvailable
+        }
+
         let completion = PairingCompletion(
             pairingCode: code,
             deviceId: settings.deviceId,
-            deviceName: settings.deviceName
+            deviceName: settings.deviceName,
+            publicKey: e2eeService.publicKey.base64EncodedString(),
+            publicKeyId: e2eeService.keyId
         )
 
         let encoder = JSONEncoder()
@@ -336,6 +344,7 @@ enum PairingError: LocalizedError {
     case invalidURL
     case invalidResponse
     case serverError(statusCode: Int)
+    case encryptionNotAvailable
 
     var errorDescription: String? {
         switch self {
@@ -345,6 +354,8 @@ enum PairingError: LocalizedError {
             "Invalid server response"
         case let .serverError(statusCode):
             "Server error (status \(statusCode))"
+        case .encryptionNotAvailable:
+            "Encryption service not available"
         }
     }
 }

@@ -1,4 +1,5 @@
 import ClaudeSpyCommon
+import ClaudeSpyEncryption
 import Foundation
 import Logging
 
@@ -39,6 +40,9 @@ final public class PairingManager {
     /// The app settings for storing pairing data
     private weak var settings: AppSettings?
 
+    /// E2EE service for encryption key management
+    private let e2eeService: E2EEService
+
     /// Task for polling pairing completion
     private var pollingTask: Task<Void, Never>?
 
@@ -47,14 +51,22 @@ final public class PairingManager {
 
     // MARK: - Initialization
 
-    public init(settings: AppSettings) {
+    public init(settings: AppSettings, e2eeService: E2EEService) {
         self.settings = settings
+        self.e2eeService = e2eeService
 
         // Restore state from settings
         if let pairId = settings.pairId {
             let deviceName = settings.pairedDeviceName ?? "iOS Device"
             self.state = .paired(pairId: pairId, deviceName: deviceName)
         }
+    }
+
+    // MARK: - Public Properties
+
+    /// Our public key info for E2EE
+    public var publicKeyInfo: PublicKeyInfo {
+        e2eeService.publicKeyInfo
     }
 
     // MARK: - Pairing Flow
@@ -120,6 +132,9 @@ final public class PairingManager {
             try? await deletePairing(pairId: pairId)
         }
 
+        // Clear E2EE session
+        await e2eeService.clearSession()
+
         // Clear local state
         settings.clearPairing()
         state = .unpaired
@@ -155,7 +170,9 @@ final public class PairingManager {
         let registration = PairingRegistration(
             deviceId: deviceId,
             deviceName: deviceName,
-            pairingCode: code
+            pairingCode: code,
+            publicKey: e2eeService.publicKey.base64EncodedString(),
+            publicKeyId: e2eeService.keyId
         )
 
         let encoder = JSONEncoder()

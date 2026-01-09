@@ -131,10 +131,11 @@ private func browseForTmux(settings: AppSettings) {
     }
 }
 
-#Preview {
-    let settings = AppSettings()
-    return SettingsView()
-        .environment(settings)
-        .environment(PairingManager(settings: settings))
-        .environment(ExternalServerClient())
-}
+// Preview disabled - E2EEService requires async initialization
+// #Preview {
+//     let settings = AppSettings()
+//     SettingsView()
+//         .environment(settings)
+//         .environment(PairingManager(settings: settings, e2eeService: ...))
+//         .environment(ExternalServerClient())
+// }

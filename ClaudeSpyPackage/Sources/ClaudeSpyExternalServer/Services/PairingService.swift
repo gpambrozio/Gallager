@@ -66,7 +66,13 @@ actor PairingService {
     // MARK: - Public API
 
     /// Register a new pairing code from Mac
-    func registerCode(code: String, deviceId: String, deviceName: String) -> PairingResponse {
+    func registerCode(
+        code: String,
+        deviceId: String,
+        deviceName: String,
+        publicKey: String,
+        publicKeyId: String
+    ) -> PairingResponse {
         // Clean up expired codes first
         cleanupExpiredCodes()
 
@@ -83,16 +89,25 @@ actor PairingService {
             pairId: pairId,
             macDeviceId: deviceId,
             macDeviceName: deviceName,
+            macPublicKey: publicKey,
+            macPublicKeyId: publicKeyId,
             createdAt: Date()
         )
 
         pendingCodes[code] = pending
 
-        return .success(pairId: pairId)
+        // Mac doesn't get partner key yet (iOS hasn't paired)
+        return PairingResponse(success: true, pairId: pairId)
     }
 
     /// Complete pairing from iOS
-    func completePairing(code: String, deviceId: String, deviceName: String) -> PairingResponse {
+    func completePairing(
+        code: String,
+        deviceId: String,
+        deviceName: String,
+        publicKey: String,
+        publicKeyId: String
+    ) -> PairingResponse {
         // Clean up expired codes first
         cleanupExpiredCodes()
 
@@ -105,8 +120,12 @@ actor PairingService {
             id: pending.pairId,
             macDeviceId: pending.macDeviceId,
             macDeviceName: pending.macDeviceName,
+            macPublicKey: pending.macPublicKey,
+            macPublicKeyId: pending.macPublicKeyId,
             iosDeviceId: deviceId,
             iosDeviceName: deviceName,
+            iosPublicKey: publicKey,
+            iosPublicKeyId: publicKeyId,
             createdAt: Date()
         )
 
@@ -114,7 +133,13 @@ actor PairingService {
         pendingCodes.removeValue(forKey: code)
         savePairs()
 
-        return .success(pairId: pending.pairId, partnerDeviceName: pending.macDeviceName)
+        // iOS gets Mac's public key in response
+        return .success(
+            pairId: pending.pairId,
+            partnerDeviceName: pending.macDeviceName,
+            partnerPublicKey: pending.macPublicKey,
+            partnerPublicKeyId: pending.macPublicKeyId
+        )
     }
 
     /// Check if a pair ID is valid
@@ -147,6 +172,18 @@ actor PairingService {
     /// Get iOS device name for a pair
     func getIOSDeviceName(pairId: String) -> String? {
         activePairs[pairId]?.iosDeviceName
+    }
+
+    /// Get Mac public key info for a pair
+    func getMacPublicKey(pairId: String) -> (key: String, keyId: String)? {
+        guard let pair = activePairs[pairId] else { return nil }
+        return (pair.macPublicKey, pair.macPublicKeyId)
+    }
+
+    /// Get iOS public key info for a pair
+    func getIOSPublicKey(pairId: String) -> (key: String, keyId: String)? {
+        guard let pair = activePairs[pairId] else { return nil }
+        return (pair.iosPublicKey, pair.iosPublicKeyId)
     }
 
     // MARK: - Private Helpers
@@ -186,5 +223,7 @@ struct PendingPairing {
     let pairId: String
     let macDeviceId: String
     let macDeviceName: String
+    let macPublicKey: String
+    let macPublicKeyId: String
     let createdAt: Date
 }

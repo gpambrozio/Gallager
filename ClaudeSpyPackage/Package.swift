@@ -99,6 +99,7 @@ let package = Package(
             dependencies: [
                 .claudeSpyNetworking,
                 .claudeSpyCommon,
+                .claudeSpyEncryption,
                 .swiftTerm,
             ]
         ),
@@ -106,6 +107,7 @@ let package = Package(
             name: "ClaudeSpyServerFeature",
             dependencies: [
                 .claudeSpyCommon,
+                .claudeSpyEncryption,
                 .swiftTerm,
                 .vapor,
             ]

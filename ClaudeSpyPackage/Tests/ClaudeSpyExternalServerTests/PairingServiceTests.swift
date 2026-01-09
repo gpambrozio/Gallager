@@ -3,6 +3,12 @@ import Testing
 
 @Suite("PairingService Tests")
 struct PairingServiceTests {
+    // Test public keys (32-byte base64 encoded)
+    private let testMacPublicKey = "dGVzdC1tYWMtcHVibGljLWtleS0wMTIzNDU2Nzg5MDEyMw=="
+    private let testMacKeyId = "mac-key-id-1"
+    private let testIOSPublicKey = "dGVzdC1pb3MtcHVibGljLWtleS0wMTIzNDU2Nzg5MDEyMw=="
+    private let testIOSKeyId = "ios-key-id-1"
+
     @Test("Registering a pairing code succeeds")
     func registerPairingCode() async throws {
         let service = PairingService()
@@ -10,7 +16,9 @@ struct PairingServiceTests {
         let result = await service.registerCode(
             code: "ABC123",
             deviceId: "mac-device-id",
-            deviceName: "My Mac"
+            deviceName: "My Mac",
+            publicKey: testMacPublicKey,
+            publicKeyId: testMacKeyId
         )
 
         #expect(result.success)
@@ -26,14 +34,18 @@ struct PairingServiceTests {
         let registerResult = await service.registerCode(
             code: "XYZ789",
             deviceId: "mac-device-id",
-            deviceName: "My Mac"
+            deviceName: "My Mac",
+            publicKey: testMacPublicKey,
+            publicKeyId: testMacKeyId
         )
 
         // Then complete pairing from iOS
         let result = await service.completePairing(
             code: "XYZ789",
             deviceId: "ios-device-id",
-            deviceName: "My iPhone"
+            deviceName: "My iPhone",
+            publicKey: testIOSPublicKey,
+            publicKeyId: testIOSKeyId
         )
 
         #expect(result.success)
@@ -41,6 +53,9 @@ struct PairingServiceTests {
         #expect(result.partnerDeviceName == "My Mac")
         // Critical: both Mac and iOS should get the same pairId
         #expect(result.pairId == registerResult.pairId)
+        // Verify partner's public key is returned
+        #expect(result.partnerPublicKey == testMacPublicKey)
+        #expect(result.partnerPublicKeyId == testMacKeyId)
     }
 
     @Test("Completing pairing with invalid code fails")
@@ -50,7 +65,9 @@ struct PairingServiceTests {
         let result = await service.completePairing(
             code: "INVALID",
             deviceId: "ios-device-id",
-            deviceName: "My iPhone"
+            deviceName: "My iPhone",
+            publicKey: testIOSPublicKey,
+            publicKeyId: testIOSKeyId
         )
 
         #expect(!result.success)
@@ -65,7 +82,9 @@ struct PairingServiceTests {
         let first = await service.registerCode(
             code: "SAME01",
             deviceId: "mac-1",
-            deviceName: "Mac 1"
+            deviceName: "Mac 1",
+            publicKey: testMacPublicKey,
+            publicKeyId: testMacKeyId
         )
         #expect(first.success)
 
@@ -73,7 +92,9 @@ struct PairingServiceTests {
         let second = await service.registerCode(
             code: "SAME01",
             deviceId: "mac-2",
-            deviceName: "Mac 2"
+            deviceName: "Mac 2",
+            publicKey: "other-public-key",
+            publicKeyId: "other-key-id"
         )
         #expect(!second.success)
     }

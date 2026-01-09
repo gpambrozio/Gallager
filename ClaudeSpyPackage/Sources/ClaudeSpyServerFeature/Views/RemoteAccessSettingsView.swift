@@ -1,5 +1,6 @@
 import AppKit
 import ClaudeSpyCommon
+import ClaudeSpyEncryption
 import SwiftUI
 
 /// Settings view for configuring remote access via iOS
@@ -297,18 +298,22 @@ public struct RemoteAccessSettingsView: View {
             return
         }
 
+        let keyInfo = pairingManager.publicKeyInfo
         await serverClient.connect(
             serverURL: serverURL,
             pairId: pairId,
             deviceId: settings.deviceId,
-            deviceName: Host.current().localizedName ?? "Mac"
+            deviceName: Host.current().localizedName ?? "Mac",
+            publicKey: keyInfo.publicKey.base64EncodedString(),
+            publicKeyId: keyInfo.keyId
         )
     }
 }
 
-#Preview {
-    RemoteAccessSettingsView()
-        .environment(AppSettings())
-        .environment(PairingManager(settings: AppSettings()))
-        .environment(ExternalServerClient())
-}
+// Preview disabled - E2EEService requires async initialization
+// #Preview {
+//     RemoteAccessSettingsView()
+//         .environment(AppSettings())
+//         .environment(PairingManager(settings: AppSettings(), e2eeService: ...))
+//         .environment(ExternalServerClient())
+// }
