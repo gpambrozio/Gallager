@@ -22,7 +22,6 @@
     }
   },
   "enabledPlugins": {
-    "swift-lsp@claude-plugins-official": true,
     "XcodeBuildTools@ClaudeCodePlugins": true
   }
 }
