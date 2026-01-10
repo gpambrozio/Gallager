@@ -1,4 +1,5 @@
 import ClaudeSpyCommon
+import ClaudeSpyEncryption
 import ClaudeSpyServerFeature
 import Logging
 import SwiftUI
@@ -8,6 +9,7 @@ struct TmuxPaneMirrorApp: App {
     @State private var settings = AppSettings()
     @State private var tmuxService: TmuxService
     @State private var windowManager: MirrorWindowManager?
+    @State private var e2eeService: E2EEService?
     @State private var pairingManager: PairingManager?
     @State private var externalServerClient = ExternalServerClient()
     @State private var commandExecutor: TmuxCommandExecutor?
@@ -37,7 +39,9 @@ struct TmuxPaneMirrorApp: App {
                 .environment(windowManager ?? createWindowManager())
                 .environment(pairingManager ?? createPairingManager())
                 .environment(externalServerClient)
+                .environment(\.e2eeService, e2eeService)
                 .task {
+                    await initializeServices()
                     await hookServer.startServer()
                     await setupExternalServerClient()
                     await autoConnectIfConfigured()
@@ -91,10 +95,28 @@ struct TmuxPaneMirrorApp: App {
                 .environment(settings)
                 .environment(pairingManager ?? createPairingManager())
                 .environment(externalServerClient)
+                .environment(\.e2eeService, e2eeService)
         }
     }
 
     // MARK: - Service Creation
+
+    private func initializeServices() async {
+        // Create E2EEService if not already created
+        if e2eeService == nil {
+            do {
+                e2eeService = try await E2EEService()
+            } catch {
+                // Log error but continue - encryption won't work
+                Logger(label: "com.claudespy.app").error("Failed to create E2EEService: \(error)")
+            }
+        }
+
+        // Ensure PairingManager has the E2EEService
+        if let service = e2eeService, pairingManager == nil {
+            pairingManager = PairingManager(settings: settings, e2eeService: service)
+        }
+    }
 
     private func createWindowManager() -> MirrorWindowManager {
         let manager = MirrorWindowManager(settings: settings, tmuxService: tmuxService)
@@ -118,7 +140,19 @@ struct TmuxPaneMirrorApp: App {
     }
 
     private func createPairingManager() -> PairingManager {
-        let manager = PairingManager(settings: settings)
+        // Create E2EEService synchronously with a generated key pair
+        // This will be properly initialized with keychain persistence in initializeServices()
+        let service: E2EEService
+        if let existingService = e2eeService {
+            service = existingService
+        } else {
+            // Generate a temporary key pair for initial setup
+            let keyPair = StoredKeyPair.generateNew()
+            service = E2EEService(keyPair: keyPair)
+            e2eeService = service
+        }
+
+        let manager = PairingManager(settings: settings, e2eeService: service)
         Task { @MainActor in
             pairingManager = manager
         }
@@ -148,6 +182,12 @@ struct TmuxPaneMirrorApp: App {
 
         // Session state handler needs to be set up after windowManager is created
         // It will be set up in createWindowManager instead
+
+        // Set up partner key handler to persist keys to settings
+        externalServerClient.setPartnerKeyHandler { [settings] publicKey, publicKeyId in
+            settings.partnerPublicKey = publicKey
+            settings.partnerPublicKeyId = publicKeyId
+        }
     }
 
     private func setupSessionStateHandler(manager: MirrorWindowManager) {
@@ -172,16 +212,24 @@ struct TmuxPaneMirrorApp: App {
         // Auto-connect to relay server if configured and paired
         guard settings.autoConnectToServer,
               let pairId = settings.pairId,
-              let serverURL = URL(string: settings.externalServerURL)
+              let serverURL = URL(string: settings.externalServerURL),
+              let manager = pairingManager,
+              let e2eeService
         else {
             return
         }
 
+        let keyInfo = manager.publicKeyInfo
         await externalServerClient.connect(
             serverURL: serverURL,
             pairId: pairId,
             deviceId: settings.deviceId,
-            deviceName: Host.current().localizedName ?? "Mac"
+            deviceName: Host.current().localizedName ?? "Mac",
+            publicKey: keyInfo.publicKey.base64EncodedString(),
+            publicKeyId: keyInfo.keyId,
+            e2eeService: e2eeService,
+            partnerPublicKey: settings.partnerPublicKey,
+            partnerPublicKeyId: settings.partnerPublicKeyId
         )
     }
 }

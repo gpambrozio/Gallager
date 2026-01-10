@@ -15,6 +15,8 @@ final public class IOSSettings {
         static let deviceId = "deviceId"
         static let pairId = "pairId"
         static let pairedMacName = "pairedMacName"
+        static let partnerPublicKey = "partnerPublicKey"
+        static let partnerPublicKeyId = "partnerPublicKeyId"
         static let externalServerURL = "externalServerURL"
         static let autoReconnect = "autoReconnect"
         static let terminalFontName = "terminalFontName"
@@ -40,6 +42,16 @@ final public class IOSSettings {
     /// Name of the paired Mac device
     public var pairedMacName: String? {
         didSet { UserDefaults.standard.set(pairedMacName, forKey: Keys.pairedMacName) }
+    }
+
+    /// Partner's (Mac's) public key for E2EE (Base64-encoded)
+    public var partnerPublicKey: String? {
+        didSet { UserDefaults.standard.set(partnerPublicKey, forKey: Keys.partnerPublicKey) }
+    }
+
+    /// Partner's (Mac's) public key ID for E2EE
+    public var partnerPublicKeyId: String? {
+        didSet { UserDefaults.standard.set(partnerPublicKeyId, forKey: Keys.partnerPublicKeyId) }
     }
 
     /// External relay server URL
@@ -95,6 +107,8 @@ final public class IOSSettings {
         // Load other settings
         self.pairId = defaults.string(forKey: Keys.pairId)
         self.pairedMacName = defaults.string(forKey: Keys.pairedMacName)
+        self.partnerPublicKey = defaults.string(forKey: Keys.partnerPublicKey)
+        self.partnerPublicKeyId = defaults.string(forKey: Keys.partnerPublicKeyId)
         self.externalServerURL = defaults.string(forKey: Keys.externalServerURL)
             ?? "wss://claudespy.gustavo.eng.br"
         self.autoReconnect = defaults.bool(forKey: Keys.autoReconnect)
@@ -111,11 +125,20 @@ final public class IOSSettings {
     public func clearPairing() {
         pairId = nil
         pairedMacName = nil
+        partnerPublicKey = nil
+        partnerPublicKeyId = nil
     }
 
     /// Save pairing information
-    public func savePairing(pairId: String, macName: String?) {
+    public func savePairing(
+        pairId: String,
+        macName: String?,
+        partnerPublicKey: String? = nil,
+        partnerPublicKeyId: String? = nil
+    ) {
         self.pairId = pairId
         pairedMacName = macName
+        self.partnerPublicKey = partnerPublicKey
+        self.partnerPublicKeyId = partnerPublicKeyId
     }
 }

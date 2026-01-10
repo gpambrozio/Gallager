@@ -11,11 +11,25 @@ struct Pair: Sendable, Codable {
     /// Mac device display name
     let macDeviceName: String
 
+    /// Mac public key for E2EE (Base64-encoded)
+    /// Mutable to allow key updates on reconnection
+    var macPublicKey: String
+
+    /// Mac public key identifier
+    var macPublicKeyId: String
+
     /// iOS device identifier
     let iosDeviceId: String
 
     /// iOS device display name
     let iosDeviceName: String
+
+    /// iOS public key for E2EE (Base64-encoded)
+    /// Mutable to allow key updates on reconnection
+    var iosPublicKey: String
+
+    /// iOS public key identifier
+    var iosPublicKeyId: String
 
     /// When the pairing was created
     let createdAt: Date

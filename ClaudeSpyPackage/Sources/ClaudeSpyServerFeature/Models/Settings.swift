@@ -89,6 +89,16 @@ final public class AppSettings {
         didSet { UserDefaults.standard.set(pairedDeviceName, forKey: Keys.pairedDeviceName) }
     }
 
+    /// Base64-encoded public key of paired iOS device for E2EE (nil if not paired)
+    public var partnerPublicKey: String? {
+        didSet { UserDefaults.standard.set(partnerPublicKey, forKey: Keys.partnerPublicKey) }
+    }
+
+    /// Public key ID of paired iOS device for E2EE (nil if not paired)
+    public var partnerPublicKeyId: String? {
+        didSet { UserDefaults.standard.set(partnerPublicKeyId, forKey: Keys.partnerPublicKeyId) }
+    }
+
     /// Whether to automatically connect to relay server on launch
     public var autoConnectToServer: Bool {
         didSet { UserDefaults.standard.set(autoConnectToServer, forKey: Keys.autoConnectToServer) }
@@ -119,6 +129,8 @@ final public class AppSettings {
         self.externalServerURL = defaults.string(forKey: Keys.externalServerURL) ?? Defaults.externalServerURL
         self.pairId = defaults.string(forKey: Keys.pairId)
         self.pairedDeviceName = defaults.string(forKey: Keys.pairedDeviceName)
+        self.partnerPublicKey = defaults.string(forKey: Keys.partnerPublicKey)
+        self.partnerPublicKeyId = defaults.string(forKey: Keys.partnerPublicKeyId)
         self.autoConnectToServer = defaults.object(forKey: Keys.autoConnectToServer) as? Bool ?? Defaults.autoConnectToServer
 
         // Generate device ID if not already set
@@ -148,6 +160,8 @@ final public class AppSettings {
         static let externalServerURL = "externalServerURL"
         static let pairId = "pairId"
         static let pairedDeviceName = "pairedDeviceName"
+        static let partnerPublicKey = "partnerPublicKey"
+        static let partnerPublicKeyId = "partnerPublicKeyId"
         static let autoConnectToServer = "autoConnectToServer"
         static let deviceId = "deviceId"
     }
@@ -182,6 +196,21 @@ final public class AppSettings {
     public func clearPairing() {
         pairId = nil
         pairedDeviceName = nil
+        partnerPublicKey = nil
+        partnerPublicKeyId = nil
+    }
+
+    /// Save pairing data including partner's public key for E2EE
+    public func savePairing(
+        pairId: String,
+        partnerDeviceName: String?,
+        partnerPublicKey: String?,
+        partnerPublicKeyId: String?
+    ) {
+        self.pairId = pairId
+        pairedDeviceName = partnerDeviceName
+        self.partnerPublicKey = partnerPublicKey
+        self.partnerPublicKeyId = partnerPublicKeyId
     }
 }
 

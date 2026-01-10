@@ -21,7 +21,9 @@ struct PairingController: RouteCollection {
         let result = await req.application.pairingService.registerCode(
             code: registration.pairingCode,
             deviceId: registration.deviceId,
-            deviceName: registration.deviceName
+            deviceName: registration.deviceName,
+            publicKey: registration.publicKey,
+            publicKeyId: registration.publicKeyId
         )
 
         return result
@@ -36,7 +38,9 @@ struct PairingController: RouteCollection {
         let result = await req.application.pairingService.completePairing(
             code: completion.pairingCode,
             deviceId: completion.deviceId,
-            deviceName: completion.deviceName
+            deviceName: completion.deviceName,
+            publicKey: completion.publicKey,
+            publicKeyId: completion.publicKeyId
         )
 
         return result
