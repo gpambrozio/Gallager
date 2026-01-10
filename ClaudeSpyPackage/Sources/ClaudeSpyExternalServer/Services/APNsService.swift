@@ -82,48 +82,6 @@ actor APNsService {
         client != nil
     }
 
-    /// Send a push notification for a hook event
-    /// Only sends if iOS is not currently connected via WebSocket
-    func sendNotificationIfNeeded(for event: HookEventMessage, pairId: String) async {
-        // Only send if iOS is not connected via WebSocket
-        let isIOSConnected = await connectionHub.isIOSConnected(pairId: pairId)
-        if isIOSConnected {
-            logger.debug("iOS is connected via WebSocket, skipping push notification")
-            return
-        }
-
-        guard let deviceToken = await pushTokenStore.getToken(for: pairId) else {
-            logger.debug("No push token for pair", metadata: ["pairId": "\(pairId)"])
-            return
-        }
-
-        guard let client else {
-            logger.warning("APNs client not configured, cannot send notification")
-            return
-        }
-
-        // Build notification content based on event type
-        guard let notification = buildNotification(for: event) else {
-            logger.debug("Event type does not trigger push notification")
-            return
-        }
-
-        do {
-            _ = try await client.sendAlertNotification(
-                notification,
-                deviceToken: deviceToken
-            )
-            logger.info("Push notification sent", metadata: [
-                "pairId": "\(pairId)",
-                "eventType": "\(event.event.action.eventName)",
-            ])
-        } catch let error as APNSError {
-            handleAPNsError(error, pairId: pairId, deviceToken: deviceToken)
-        } catch {
-            logger.error("Failed to send push notification: \(error)")
-        }
-    }
-
     /// Send an encrypted push notification.
     /// Only sends if iOS is not currently connected via WebSocket.
     ///
@@ -207,32 +165,6 @@ actor APNsService {
 
     // MARK: - Private Helpers
 
-    /// Build notification content based on event type
-    private func buildNotification(for eventMessage: HookEventMessage) -> APNSAlertNotification<ClaudeSpyPayload>? {
-        guard let notification = eventMessage.buildNotification() else {
-            return nil
-        }
-
-        let alert = APNSAlertNotificationContent(
-            title: .raw(notification.title),
-            body: .raw(notification.body)
-        )
-
-        let payload = ClaudeSpyPayload(
-            eventType: eventMessage.event.action.eventName,
-            pairId: eventMessage.pairId
-        )
-
-        return APNSAlertNotification(
-            alert: alert,
-            expiration: .immediately,
-            priority: .immediately,
-            topic: bundleId,
-            payload: payload,
-            badge: 1
-        )
-    }
-
     /// Handle APNs-specific errors
     private func handleAPNsError(_ error: APNSError, pairId: String, deviceToken: String) {
         logger.error("APNs error: \(error)", metadata: [
@@ -255,12 +187,6 @@ actor APNsService {
 }
 
 // MARK: - Custom Payloads
-
-/// Custom payload for unencrypted ClaudeSpy push notifications (legacy)
-struct ClaudeSpyPayload: Codable, Sendable {
-    let eventType: String
-    let pairId: String
-}
 
 /// Custom payload for encrypted ClaudeSpy push notifications.
 ///

@@ -71,9 +71,6 @@ actor RelayService {
             logger.info("Relaying hook event to iOS", metadata: ["action": "\(event.event.action.eventName)"])
             await connectionHub.send(.hookEvent(event), to: pairId, deviceType: .ios)
 
-            // Also try to send push notification (will only send if iOS is disconnected)
-            await apnsService?.sendNotificationIfNeeded(for: event, pairId: pairId)
-
         case let .commandResponse(response):
             // Relay command responses to iOS
             logger.info("Relaying command response to iOS")
