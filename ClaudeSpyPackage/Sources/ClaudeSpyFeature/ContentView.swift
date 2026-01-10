@@ -170,17 +170,12 @@ public struct ContentView: View {
 
     // MARK: - E2EE Initialization
 
-    /// Keychain access group for sharing E2EE keys with Notification Service Extension.
-    /// Format: $(AppIdentifierPrefix)bundle.id.shared = TeamID.bundle.id.shared
-    /// Must match the group used in ClaudeSpyNotificationExtension and entitlements.
-    private static let keychainAccessGroup = "XG2WG7U93U.br.eng.gustavo.claudespy.shared"
-
     private func initializeE2EEService() async {
         guard e2eeService == nil else { return }
 
         do {
             // Use shared keychain access group so Notification Service Extension can decrypt
-            let keyManager = KeyManager(accessGroup: Self.keychainAccessGroup)
+            let keyManager = KeyManager(accessGroup: sharedKeychainAccessGroup)
             e2eeService = try await E2EEService(keyManager: keyManager)
         } catch {
             // Log error but continue - encryption won't work

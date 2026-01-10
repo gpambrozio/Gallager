@@ -20,11 +20,6 @@ class NotificationService: UNNotificationServiceExtension {
     /// The mutable copy of the notification content
     var bestAttemptContent: UNMutableNotificationContent?
 
-    /// Keychain access group for sharing E2EE keys with main app.
-    /// Format: $(AppIdentifierPrefix)bundle.id.shared = TeamID.bundle.id.shared
-    /// Must match the group used in main app's ContentView and entitlements.
-    private let accessGroup = "XG2WG7U93U.br.eng.gustavo.claudespy.shared"
-
     // MARK: - UNNotificationServiceExtension
 
     override func didReceive(
@@ -77,7 +72,7 @@ class NotificationService: UNNotificationServiceExtension {
         }
 
         // Load session key from Keychain
-        let keyManager = KeyManager(accessGroup: accessGroup)
+        let keyManager = KeyManager(accessGroup: sharedKeychainAccessGroup)
         let sessionKeyData: Data?
         do {
             sessionKeyData = try await keyManager.loadSessionKey()

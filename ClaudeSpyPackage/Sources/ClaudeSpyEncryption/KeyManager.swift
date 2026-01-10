@@ -4,6 +4,11 @@ import Foundation
 #if canImport(Security)
     import Security
 
+    /// Shared keychain access group for ClaudeSpy app and extensions.
+    /// Format: $(AppIdentifierPrefix)bundle.id.shared = TeamID.bundle.id.shared
+    /// Must match the keychain-access-groups entitlement in both main app and extensions.
+    public let sharedKeychainAccessGroup = "XG2WG7U93U.br.eng.gustavo.claudespy.shared"
+
     /// Manages cryptographic key storage and retrieval.
     ///
     /// On Apple platforms, keys are stored in the Keychain for security.
