@@ -46,20 +46,20 @@ class NotificationService: UNNotificationServiceExtension {
 
     private func decryptAndUpdateNotification(request: UNNotificationRequest) async {
         guard let content = bestAttemptContent else {
-            deliverBestAttempt()
+            deliverWithFailure(reason: .noContent)
             return
         }
 
         // Extract encrypted payload from notification userInfo
         guard let encryptedBase64 = request.content.userInfo["encrypted"] as? String else {
-            // No encrypted payload, deliver original notification
-            deliverBestAttempt()
+            // Server should always send encrypted payloads - this is unexpected
+            deliverWithFailure(reason: .missingEncryptedPayload)
             return
         }
 
         // Decode the encrypted payload
         guard let encryptedData = Data(base64Encoded: encryptedBase64) else {
-            deliverBestAttempt()
+            deliverWithFailure(reason: .base64DecodeFailed)
             return
         }
 
@@ -67,7 +67,7 @@ class NotificationService: UNNotificationServiceExtension {
         do {
             encryptedPayload = try JSONDecoder().decode(EncryptedPayload.self, from: encryptedData)
         } catch {
-            deliverBestAttempt()
+            deliverWithFailure(reason: .payloadDecodeFailed)
             return
         }
 
@@ -77,12 +77,12 @@ class NotificationService: UNNotificationServiceExtension {
         do {
             sessionKeyData = try await keyManager.loadSessionKey()
         } catch {
-            deliverBestAttempt()
+            deliverWithFailure(reason: .keychainError)
             return
         }
 
         guard let sessionKeyData else {
-            deliverBestAttempt()
+            deliverWithFailure(reason: .noSessionKey)
             return
         }
 
@@ -103,8 +103,15 @@ class NotificationService: UNNotificationServiceExtension {
             content.userInfo["decrypted"] = true
 
             contentHandler?(content)
+        } catch let error as DecryptionError {
+            switch error {
+            case .versionMismatch:
+                deliverWithFailure(reason: .versionMismatch)
+            case .invalidPayload:
+                deliverWithFailure(reason: .decryptionFailed)
+            }
         } catch {
-            deliverBestAttempt()
+            deliverWithFailure(reason: .decryptionFailed)
         }
     }
 
@@ -119,10 +126,17 @@ class NotificationService: UNNotificationServiceExtension {
         return try ChaChaPoly.open(sealedBox, using: symmetricKey)
     }
 
-    private func deliverBestAttempt() {
-        if let contentHandler, let content = bestAttemptContent {
-            contentHandler(content)
+    private func deliverWithFailure(reason: DecryptionFailureReason) {
+        guard let contentHandler, let content = bestAttemptContent else {
+            return
         }
+
+        content.title = "Encrypted Message"
+        content.body = reason.userMessage
+        content.userInfo["decrypted"] = false
+        content.userInfo["failureReason"] = reason.rawValue
+
+        contentHandler(content)
     }
 }
 
@@ -131,4 +145,37 @@ class NotificationService: UNNotificationServiceExtension {
 private enum DecryptionError: Error {
     case versionMismatch
     case invalidPayload
+}
+
+/// Reasons why decryption failed, with user-facing messages for debugging
+private enum DecryptionFailureReason: String {
+    case noContent = "no_content"
+    case missingEncryptedPayload = "missing_encrypted_payload"
+    case base64DecodeFailed = "base64_decode_failed"
+    case payloadDecodeFailed = "payload_decode_failed"
+    case keychainError = "keychain_error"
+    case noSessionKey = "no_session_key"
+    case versionMismatch = "version_mismatch"
+    case decryptionFailed = "decryption_failed"
+
+    var userMessage: String {
+        switch self {
+        case .noContent:
+            return "Unable to process notification"
+        case .missingEncryptedPayload:
+            return "Missing encrypted payload"
+        case .base64DecodeFailed:
+            return "Corrupted payload (base64)"
+        case .payloadDecodeFailed:
+            return "Corrupted payload (format)"
+        case .keychainError:
+            return "Keychain access failed"
+        case .noSessionKey:
+            return "No encryption session - re-pair devices"
+        case .versionMismatch:
+            return "Protocol version mismatch - update app"
+        case .decryptionFailed:
+            return "Decryption failed - re-pair devices"
+        }
+    }
 }
