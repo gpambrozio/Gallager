@@ -28,8 +28,9 @@ The Mac app displays live, read-only views of any tmux pane with full terminal r
 - **Swift Concurrency** (async/await, actors, tasks)
 - **Named pipes (FIFOs)** for streaming output from tmux
 - **CoreText** for precise font metrics calculation
+- **CryptoKit** for end-to-end encryption (X25519 ECDH + ChaChaPoly)
 - **Vapor** for HTTP hook server and external relay server
-- **WebSocket** for real-time Mac ↔ Server ↔ iOS communication
+- **WebSocket** for real-time Mac ↔ Server ↔ iOS communication (E2EE encrypted)
 - **Docker** for external server deployment
 - **Caddy** for reverse proxy and TLS termination (production)
 - **Testing:** Swift Testing framework with @Test macros
@@ -50,10 +51,17 @@ ClaudeSpy/
 ├── ClaudeSpyServer/                     # macOS app target entry point
 │   ├── ClaudeSpyServerApp.swift         # macOS @main entry point
 │   └── Assets.xcassets/
+├── ClaudeSpyNotificationExtension/      # iOS Notification Service Extension (E2EE decryption)
+│   ├── NotificationService.swift        # Decrypts push notification content on-device
+│   └── Info.plist
 ├── ClaudeSpyPackage/                    # All features and business logic
 │   ├── Package.swift
 │   ├── Sources/
 │   │   ├── ClaudeSpyCommon/             # Shared UI utilities (Symbols, extensions)
+│   │   ├── ClaudeSpyEncryption/         # E2EE encryption module (Mac/iOS only, not server)
+│   │   │   ├── E2EEService.swift        # Key exchange and encrypt/decrypt operations
+│   │   │   ├── KeyManager.swift         # Keychain persistence with access group sharing
+│   │   │   └── EncryptedPayload.swift   # Encrypted message wrapper
 │   │   ├── ClaudeSpyNetworking/         # Platform-agnostic networking models (Mac/Server/iOS)
 │   │   │   └── Models/
 │   │   │       ├── WebSocketMessage.swift
@@ -87,19 +95,22 @@ ClaudeSpy/
 └── docs/                                # Documentation
     ├── known-issues.md
     ├── swiftterm-sizing.md              # SwiftTerm sizing analysis
-    └── distributed-architecture-plan.md # Full distributed system design
+    ├── distributed-architecture-plan.md # Full distributed system design
+    └── e2ee-encryption-plan.md          # End-to-end encryption design
 ```
 
 **Module Responsibilities:**
+- **ClaudeSpyEncryption** - E2EE cryptographic operations, key management, Keychain persistence (Mac/iOS only)
 - **ClaudeSpyNetworking** - Shared message types for Mac ↔ Server ↔ iOS (platform-agnostic)
 - **ClaudeSpyServerFeature** - macOS tmux mirroring, hook server, external server client
 - **ClaudeSpyFeature** - iOS remote monitoring and command interface
-- **ClaudeSpyExternalServer** - Vapor relay server (runs in Docker on Linux)
+- **ClaudeSpyExternalServer** - Vapor relay server (runs in Docker on Linux, cannot decrypt messages)
 
 **Important:** Development by platform:
 - **macOS features**: `ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/`
 - **iOS features**: `ClaudeSpyPackage/Sources/ClaudeSpyFeature/`
 - **Shared networking**: `ClaudeSpyPackage/Sources/ClaudeSpyNetworking/`
+- **Encryption (Mac/iOS)**: `ClaudeSpyPackage/Sources/ClaudeSpyEncryption/`
 - **External server**: `ClaudeSpyPackage/Sources/ClaudeSpyExternalServer/`
 
 ## Distributed Architecture
@@ -179,6 +190,52 @@ APNS_ENVIRONMENT=development        # "development" for Xcode, "production" for 
 **Important:** APNs environment must match iOS build type:
 - Xcode builds (development signing) → `APNS_ENVIRONMENT=development`
 - App Store/TestFlight → `APNS_ENVIRONMENT=production`
+
+### End-to-End Encryption (E2EE)
+
+All sensitive messages between Mac and iOS are end-to-end encrypted. The relay server cannot decrypt message contents - it only routes encrypted payloads.
+
+**Cryptographic Primitives:**
+- **Key Exchange:** X25519 ECDH (Elliptic Curve Diffie-Hellman)
+- **Symmetric Encryption:** ChaChaPoly (ChaCha20-Poly1305 AEAD)
+- **Key Storage:** Keychain with shared access group for Notification Service Extension
+
+**Architecture:**
+- `E2EEService` - Handles key pair management, session establishment, encrypt/decrypt
+- `KeyManager` - Persists key pairs to Keychain with access group support
+- `EncryptedPayload` - Wrapper for ciphertext with sender key ID and version
+
+**Session Establishment Flow:**
+1. Mac and iOS generate X25519 key pairs on first launch (persisted to Keychain)
+2. Public keys are exchanged during device pairing via the server
+3. Each device derives a shared secret using ECDH with partner's public key
+4. Session keys are stored in Keychain (shared access group for extension)
+
+**Encrypted Message Types:**
+- `hookEvent` - Claude Code session events
+- `sessionState` - Active sessions and pane state
+- `command` / `commandResponse` - iOS → Mac commands
+- `terminalSnapshot` - Terminal content captures
+
+**Unencrypted Message Types** (server needs to process these):
+- `registerMac` / `registerIOS` - Device registration with public keys
+- `ping` / `pong` - Keep-alive
+- `iosConnected` / `iosDisconnected` - Connection state notifications
+- `encryptedPush` - Encrypted push payload (server routes, doesn't decrypt)
+
+**Security Properties:**
+- **Fail closed:** Clients refuse to send sensitive data if E2EE session not established
+- **Server enforcement:** Server rejects unencrypted sensitive message types
+- **No fallback:** Encryption failures are logged and messages dropped, never sent plaintext
+- **Push encryption:** Push notifications are encrypted; iOS Notification Service Extension decrypts on-device
+
+**Key Files:**
+- `ClaudeSpyEncryption/E2EEService.swift` - Core encryption service
+- `ClaudeSpyEncryption/KeyManager.swift` - Keychain key persistence
+- `ClaudeSpyNotificationExtension/NotificationService.swift` - Push decryption
+- `ClaudeSpyNetworking/Models/WebSocketMessage.swift` - `encrypted()` message type
+
+See `docs/e2ee-encryption-plan.md` for full design details.
 
 # Code Quality & Style Guidelines
 
@@ -747,6 +804,7 @@ swift run --package-path ClaudeSpyPackage ClaudeSpyExternalServer
    - macOS features → `ClaudeSpyServerFeature`
    - iOS features → `ClaudeSpyFeature`
    - Shared networking → `ClaudeSpyNetworking`
+   - Encryption (Mac/iOS) → `ClaudeSpyEncryption`
    - External server → `ClaudeSpyExternalServer`
 2. **Write tests**: Add Swift Testing tests in `ClaudeSpyPackage/Tests/`
 3. **Build and test**: Use XcodeBuildTools skills to build and run tests
@@ -804,8 +862,8 @@ This app uses **UserDefaults** for settings persistence via the `AppSettings` cl
 ---
 
 Remember: This is a distributed system across three platforms. Keep app shells minimal and implement all features in the Swift Package modules. The complexity lies in:
-- **macOS**: Process management, I/O streaming, terminal rendering
-- **External Server**: WebSocket relay, device pairing, connection tracking
-- **iOS**: Remote monitoring, command dispatch, state synchronization
+- **macOS**: Process management, I/O streaming, terminal rendering, E2EE encryption
+- **External Server**: WebSocket relay, device pairing, connection tracking (blind to message content)
+- **iOS**: Remote monitoring, command dispatch, state synchronization, E2EE decryption
 
-For full architectural details, see `docs/distributed-architecture-plan.md`.
+For full architectural details, see `docs/distributed-architecture-plan.md` and `docs/e2ee-encryption-plan.md`.
