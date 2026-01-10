@@ -39,6 +39,7 @@ struct TmuxPaneMirrorApp: App {
                 .environment(windowManager ?? createWindowManager())
                 .environment(pairingManager ?? createPairingManager())
                 .environment(externalServerClient)
+                .environment(\.e2eeService, e2eeService)
                 .task {
                     await initializeServices()
                     await hookServer.startServer()
@@ -94,6 +95,7 @@ struct TmuxPaneMirrorApp: App {
                 .environment(settings)
                 .environment(pairingManager ?? createPairingManager())
                 .environment(externalServerClient)
+                .environment(\.e2eeService, e2eeService)
         }
     }
 
