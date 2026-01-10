@@ -41,7 +41,7 @@ import Foundation
         let tempAccount = "br.eng.gustavo.claudespy.accessgroup.discovery"
         let tempService = "br.eng.gustavo.claudespy.accessgroup"
 
-        // First, try to query any existing item we may have stored
+        // Query attributes including accessibility to check if migration is needed
         let queryExisting: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: tempService,
@@ -52,13 +52,33 @@ import Foundation
         var result: AnyObject?
         var status = SecItemCopyMatching(queryExisting as CFDictionary, &result)
 
-        // If not found, store a temporary item to discover the access group
+        // Check if existing item needs migration (wrong accessibility level)
+        if
+            status == errSecSuccess,
+            let attributes = result as? [String: Any],
+            let existingAccessibility = attributes[kSecAttrAccessible as String] as? String,
+            existingAccessibility != (kSecAttrAccessibleAfterFirstUnlock as String) {
+            // Delete item with wrong accessibility so we can re-add with correct level
+            let deleteQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: tempService,
+                kSecAttrAccount as String: tempAccount,
+            ]
+            SecItemDelete(deleteQuery as CFDictionary)
+            status = errSecItemNotFound
+            result = nil
+        }
+
+        // If not found (or deleted for migration), store with correct accessibility
         if status == errSecItemNotFound {
+            // Use AfterFirstUnlock so Notification Service Extension can access
+            // when device is locked (but has been unlocked at least once since boot)
             let addQuery: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: tempService,
                 kSecAttrAccount as String: tempAccount,
                 kSecValueData as String: Data("accessgroup-probe".utf8),
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
             ]
 
             status = SecItemAdd(addQuery as CFDictionary, nil)
