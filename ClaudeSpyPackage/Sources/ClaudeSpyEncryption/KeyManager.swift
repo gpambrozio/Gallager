@@ -4,10 +4,101 @@ import Foundation
 #if canImport(Security)
     import Security
 
+    // MARK: - Dynamic Keychain Access Group Discovery
+
+    /// Thread-safe cache for the discovered access group.
+    final private class AccessGroupCache: @unchecked Sendable {
+        private var cachedValue: String?
+        private let lock = NSLock()
+
+        func get() -> String? {
+            lock.withLock { cachedValue }
+        }
+
+        func set(_ value: String) {
+            lock.withLock { cachedValue = value }
+        }
+    }
+
+    /// Cache for the discovered access group to avoid repeated keychain queries.
+    private let accessGroupCache = AccessGroupCache()
+
+    /// Returns the shared keychain access group for ClaudeSpy app and extensions.
+    ///
+    /// This dynamically discovers the access group at runtime by storing a temporary
+    /// keychain item and reading back its access group attribute. The keychain automatically
+    /// assigns the app's default access group (first entry in keychain-access-groups entitlement)
+    /// which includes the team ID prefix.
+    ///
+    /// - Returns: The full access group (e.g., "XG2WG7U93U.br.eng.gustavo.claudespy.shared"),
+    ///   or nil if discovery fails
+    public func getSharedKeychainAccessGroup() -> String? {
+        // Return cached value if available
+        if let cached = accessGroupCache.get() {
+            return cached
+        }
+
+        let tempAccount = "br.eng.gustavo.claudespy.accessgroup.discovery"
+        let tempService = "br.eng.gustavo.claudespy.accessgroup"
+
+        // First, try to query any existing item we may have stored
+        let queryExisting: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: tempService,
+            kSecAttrAccount as String: tempAccount,
+            kSecReturnAttributes as String: true,
+        ]
+
+        var result: AnyObject?
+        var status = SecItemCopyMatching(queryExisting as CFDictionary, &result)
+
+        // If not found, store a temporary item to discover the access group
+        if status == errSecItemNotFound {
+            let addQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: tempService,
+                kSecAttrAccount as String: tempAccount,
+                kSecValueData as String: Data("accessgroup-probe".utf8),
+            ]
+
+            status = SecItemAdd(addQuery as CFDictionary, nil)
+            guard status == errSecSuccess || status == errSecDuplicateItem else {
+                return nil
+            }
+
+            // Now query it back to get attributes
+            status = SecItemCopyMatching(queryExisting as CFDictionary, &result)
+        }
+
+        guard
+            status == errSecSuccess,
+            let attributes = result as? [String: Any],
+            let accessGroup = attributes[kSecAttrAccessGroup as String] as? String
+        else {
+            return nil
+        }
+
+        // Cache the full access group (e.g., "XG2WG7U93U.br.eng.gustavo.claudespy.shared")
+        accessGroupCache.set(accessGroup)
+        return accessGroup
+    }
+
     /// Shared keychain access group for ClaudeSpy app and extensions.
-    /// Format: $(AppIdentifierPrefix)bundle.id.shared = TeamID.bundle.id.shared
-    /// Must match the keychain-access-groups entitlement in both main app and extensions.
-    public let sharedKeychainAccessGroup = "XG2WG7U93U.br.eng.gustavo.claudespy.shared"
+    ///
+    /// This is a convenience property that returns the discovered access group.
+    /// The access group is discovered at runtime by querying the keychain.
+    ///
+    /// - Warning: Will crash if access group discovery fails. Use `getSharedKeychainAccessGroup()`
+    ///   for graceful handling.
+    public var sharedKeychainAccessGroup: String {
+        guard let accessGroup = getSharedKeychainAccessGroup() else {
+            fatalError(
+                "Failed to discover keychain access group. " +
+                    "Ensure the app has keychain-access-groups entitlement configured."
+            )
+        }
+        return accessGroup
+    }
 
     /// Manages cryptographic key storage and retrieval.
     ///
