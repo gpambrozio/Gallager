@@ -761,42 +761,7 @@ To add capabilities to your app, edit `Config/ClaudeSpy.entitlements`:
 
 # Building & Testing
 
-Use the `XcodeBuildTools` skills for building and testing. The scheme is `ClaudeSpyServer` for the macOS app.
-
-## Build Commands
-
-```bash
-# Build macOS app (via skill)
-/XcodeBuildTools:xcodebuild build --workspace ClaudeSpy.xcworkspace --scheme ClaudeSpyServer
-
-# Build iOS app (via skill)
-/XcodeBuildTools:xcodebuild build --workspace ClaudeSpy.xcworkspace --scheme ClaudeSpy --destination 'platform=iOS Simulator,name=iPhone 16'
-
-# Run tests
-/XcodeBuildTools:xcode-test --workspace ClaudeSpy.xcworkspace --scheme ClaudeSpyServer
-
-# Test Swift Package directly
-/XcodeBuildTools:swift-package test --path ClaudeSpyPackage
-
-# Build external server (Docker)
-docker build -t claudespy-server .
-
-# Deploy external server to production
-./deploy.sh
-```
-
-## Running the Apps
-
-```bash
-# Launch macOS app
-/XcodeBuildTools:macos-app launch --app-path /path/to/ClaudeSpyServer.app
-
-# Run external server locally
-docker-compose up
-
-# Or run directly with Swift
-swift run --package-path ClaudeSpyPackage ClaudeSpyExternalServer
-```
+Use the `XcodeBuildTools` skills for building and testing.
 
 # Development Workflow
 
