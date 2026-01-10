@@ -579,10 +579,10 @@ final public class RelayClient {
             isMacConnected = true
             onMacConnectionChange?(true)
 
-            // Establish E2EE session if we have Mac's public key
+            // Establish E2EE session with Mac's public key
+            let macPublicKey = connectedMessage.publicKey
+            let macPublicKeyId = connectedMessage.publicKeyId
             if
-                let macPublicKey = connectedMessage.publicKey,
-                let macPublicKeyId = connectedMessage.publicKeyId,
                 let keyData = Data(base64Encoded: macPublicKey),
                 let e2eeService,
                 let pairId {

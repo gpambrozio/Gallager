@@ -214,8 +214,8 @@ public extension WebSocketMessage {
             let payload = try container.decode(CommandMessage.self, forKey: .payload)
             self = .command(payload)
         case .iosConnected:
-            let payload = try container.decodeIfPresent(DeviceConnectedMessage.self, forKey: .payload)
-            self = .iosConnected(payload ?? DeviceConnectedMessage())
+            let payload = try container.decode(DeviceConnectedMessage.self, forKey: .payload)
+            self = .iosConnected(payload)
         case .iosDisconnected:
             self = .iosDisconnected
         case .registerIOS:
@@ -233,8 +233,8 @@ public extension WebSocketMessage {
             let payload = try container.decode(PushTokenRegisteredMessage.self, forKey: .payload)
             self = .pushTokenRegistered(payload)
         case .macConnected:
-            let payload = try container.decodeIfPresent(DeviceConnectedMessage.self, forKey: .payload)
-            self = .macConnected(payload ?? DeviceConnectedMessage())
+            let payload = try container.decode(DeviceConnectedMessage.self, forKey: .payload)
+            self = .macConnected(payload)
         case .macDisconnected:
             self = .macDisconnected
         case .ping:

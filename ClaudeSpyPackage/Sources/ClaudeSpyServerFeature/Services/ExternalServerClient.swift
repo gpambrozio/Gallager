@@ -514,10 +514,10 @@ final public class ExternalServerClient {
             logger.info("iOS device connected")
             isIOSConnected = true
 
-            // Establish E2EE session if we have iOS's public key
+            // Establish E2EE session with iOS's public key
+            let iosPublicKey = connectedMessage.publicKey
+            let iosPublicKeyId = connectedMessage.publicKeyId
             if
-                let iosPublicKey = connectedMessage.publicKey,
-                let iosPublicKeyId = connectedMessage.publicKeyId,
                 let keyData = Data(base64Encoded: iosPublicKey),
                 let e2eeService,
                 let pairId {
