@@ -481,10 +481,8 @@ final public class RelayClient {
     }
 
     private func handleWebSocketMessage(_ message: WebSocketMessage) async {
-        // Decrypt encrypted messages first, tracking whether decryption occurred
+        // Decrypt encrypted messages first
         let decryptedMessage: WebSocketMessage
-        let wasDecrypted: Bool
-
         if case .encrypted = message {
             guard let e2eeService else {
                 logger.error("Received encrypted message but E2EE service not configured")
@@ -492,7 +490,6 @@ final public class RelayClient {
             }
             do {
                 decryptedMessage = try await message.decrypt(using: e2eeService)
-                wasDecrypted = true
                 logger.debug("Decrypted message: \(decryptedMessage.messageType)")
             } catch {
                 logger.error("Failed to decrypt message: \(error)")
@@ -500,21 +497,6 @@ final public class RelayClient {
             }
         } else {
             decryptedMessage = message
-            wasDecrypted = false
-        }
-
-        // Defense-in-depth: Reject sensitive message types that weren't encrypted
-        switch decryptedMessage {
-        case .hookEvent,
-             .sessionState,
-             .commandResponse,
-             .terminalSnapshot:
-            guard wasDecrypted else {
-                logger.warning("Rejected unencrypted sensitive message: \(decryptedMessage.messageType)")
-                return
-            }
-        default:
-            break
         }
 
         switch decryptedMessage {

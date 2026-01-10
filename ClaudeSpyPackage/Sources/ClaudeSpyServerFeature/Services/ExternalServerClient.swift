@@ -446,10 +446,8 @@ final public class ExternalServerClient {
     }
 
     private func handleWebSocketMessage(_ message: WebSocketMessage) async {
-        // Decrypt encrypted messages first, tracking whether decryption occurred
+        // Decrypt encrypted messages first
         let decryptedMessage: WebSocketMessage
-        let wasDecrypted: Bool
-
         if case .encrypted = message {
             guard let e2eeService else {
                 logger.error("Received encrypted message but E2EE service not configured")
@@ -457,7 +455,6 @@ final public class ExternalServerClient {
             }
             do {
                 decryptedMessage = try await message.decrypt(using: e2eeService)
-                wasDecrypted = true
                 logger.debug("Decrypted message", metadata: ["innerType": "\(decryptedMessage.messageType)"])
             } catch {
                 logger.error("Failed to decrypt message: \(error)")
@@ -465,20 +462,6 @@ final public class ExternalServerClient {
             }
         } else {
             decryptedMessage = message
-            wasDecrypted = false
-        }
-
-        // Defense-in-depth: Reject sensitive message types that weren't encrypted
-        switch decryptedMessage {
-        case .command:
-            guard wasDecrypted else {
-                logger.warning("Rejected unencrypted sensitive message", metadata: [
-                    "type": "\(decryptedMessage.messageType)",
-                ])
-                return
-            }
-        default:
-            break
         }
 
         switch decryptedMessage {
