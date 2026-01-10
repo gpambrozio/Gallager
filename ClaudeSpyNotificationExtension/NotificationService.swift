@@ -20,8 +20,10 @@ class NotificationService: UNNotificationServiceExtension {
     /// The mutable copy of the notification content
     var bestAttemptContent: UNMutableNotificationContent?
 
-    /// KeyManager with shared access group for Keychain access
-    private let accessGroup = "group.br.eng.gustavo.claudespy"
+    /// Keychain access group for sharing E2EE keys with main app.
+    /// Format: $(AppIdentifierPrefix)bundle.id.shared = TeamID.bundle.id.shared
+    /// Must match the group used in main app's ContentView and entitlements.
+    private let accessGroup = "XG2WG7U93U.br.eng.gustavo.claudespy.shared"
 
     // MARK: - UNNotificationServiceExtension
 
@@ -61,19 +63,30 @@ class NotificationService: UNNotificationServiceExtension {
         }
 
         // Decode the encrypted payload
-        guard
-            let encryptedData = Data(base64Encoded: encryptedBase64),
-            let encryptedPayload = try? JSONDecoder().decode(EncryptedPayload.self, from: encryptedData)
-        else {
-            // Failed to decode encrypted payload
+        guard let encryptedData = Data(base64Encoded: encryptedBase64) else {
+            deliverBestAttempt()
+            return
+        }
+
+        let encryptedPayload: EncryptedPayload
+        do {
+            encryptedPayload = try JSONDecoder().decode(EncryptedPayload.self, from: encryptedData)
+        } catch {
             deliverBestAttempt()
             return
         }
 
         // Load session key from Keychain
         let keyManager = KeyManager(accessGroup: accessGroup)
-        guard let sessionKeyData = try? await keyManager.loadSessionKey() else {
-            // No session key available, deliver generic notification
+        let sessionKeyData: Data?
+        do {
+            sessionKeyData = try await keyManager.loadSessionKey()
+        } catch {
+            deliverBestAttempt()
+            return
+        }
+
+        guard let sessionKeyData else {
             deliverBestAttempt()
             return
         }
@@ -84,9 +97,7 @@ class NotificationService: UNNotificationServiceExtension {
             let decryptedData = try decryptPayload(encryptedPayload, using: symmetricKey)
 
             // Decode the notification content
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            let notificationContent = try decoder.decode(NotificationContent.self, from: decryptedData)
+            let notificationContent = try JSONDecoder().decode(NotificationContent.self, from: decryptedData)
 
             // Update the notification with decrypted content
             content.title = notificationContent.title
@@ -98,7 +109,6 @@ class NotificationService: UNNotificationServiceExtension {
 
             contentHandler?(content)
         } catch {
-            // Decryption failed, deliver generic notification
             deliverBestAttempt()
         }
     }
