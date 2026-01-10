@@ -174,12 +174,28 @@
                 throw CryptoError.keyAgreementFailed(underlying: error)
             }
 
-            // Derive symmetric key using HKDF
-            // Include pairId in sharedInfo for domain separation
+            // Derive symmetric key using HKDF with strong domain separation
+            // Include pairId and both public keys in sharedInfo
+            // Sort public keys lexicographically to ensure both sides derive the same key
+            guard let pairIdData = pairId.data(using: .utf8), !pairIdData.isEmpty else {
+                throw CryptoError.invalidPairId
+            }
+
+            let ourKey = keyPair.publicKeyData
+            let theirKey = partnerKey.rawRepresentation
+            let (firstKey, secondKey) = ourKey.lexicographicallyPrecedes(theirKey)
+                ? (ourKey, theirKey)
+                : (theirKey, ourKey)
+
+            var sharedInfo = Data()
+            sharedInfo.append(pairIdData)
+            sharedInfo.append(firstKey)
+            sharedInfo.append(secondKey)
+
             let symmetricKey = sharedSecret.hkdfDerivedSymmetricKey(
                 using: SHA256.self,
                 salt: protocolSalt,
-                sharedInfo: pairId.data(using: .utf8) ?? Data(),
+                sharedInfo: sharedInfo,
                 outputByteCount: 32
             )
 
@@ -197,8 +213,9 @@
                     let keyData = symmetricKey.withUnsafeBytes { Data($0) }
                     try await keyManager.storeSessionKey(keyData)
                 } catch {
-                    // Log but don't fail - session still works, just no extension decryption
-                    // In production, you might want to handle this more gracefully
+                    // Log the error - session still works but push notification decryption will fail
+                    print("WARNING: Failed to persist session key to Keychain: \(error)")
+                    print("Push notifications will not decrypt until devices re-pair")
                 }
             }
         }

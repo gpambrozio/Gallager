@@ -1,4 +1,4 @@
-import ClaudeSpyEncryption
+@_spi(Testing) import ClaudeSpyEncryption
 import Crypto
 import Foundation
 import Testing

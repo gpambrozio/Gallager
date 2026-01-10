@@ -23,6 +23,9 @@ public enum CryptoError: Error, Sendable, LocalizedError {
     /// Invalid private key data format
     case invalidPrivateKey
 
+    /// Invalid or empty pair ID for key derivation
+    case invalidPairId
+
     #if canImport(Security)
         /// Keychain operation failed (Apple platforms only)
         case keychainError(status: OSStatus)
@@ -50,6 +53,8 @@ public enum CryptoError: Error, Sendable, LocalizedError {
             return "Invalid public key data format"
         case .invalidPrivateKey:
             return "Invalid private key data format"
+        case .invalidPairId:
+            return "Invalid or empty pair ID for key derivation"
         #if canImport(Security)
             case let .keychainError(status):
                 return "Keychain operation failed with status: \(status)"

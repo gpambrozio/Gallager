@@ -6,17 +6,23 @@ import Foundation
 
     // MARK: - Dynamic Keychain Access Group Discovery
 
-    /// Thread-safe cache for the discovered access group.
+    /// Thread-safe cache for the discovered access group with atomic get-or-compute.
     final private class AccessGroupCache: @unchecked Sendable {
         private var cachedValue: String?
         private let lock = NSLock()
 
-        func get() -> String? {
-            lock.withLock { cachedValue }
-        }
-
-        func set(_ value: String) {
-            lock.withLock { cachedValue = value }
+        /// Atomically get cached value or compute and cache a new one.
+        /// This prevents race conditions where multiple threads could perform
+        /// the expensive keychain discovery operation simultaneously.
+        func getOrCompute(_ compute: () -> String?) -> String? {
+            lock.withLock {
+                if let cached = cachedValue {
+                    return cached
+                }
+                let value = compute()
+                cachedValue = value
+                return value
+            }
         }
     }
 
@@ -33,11 +39,13 @@ import Foundation
     /// - Returns: The full access group (e.g., "XG2WG7U93U.br.eng.gustavo.claudespy.shared"),
     ///   or nil if discovery fails
     public func getSharedKeychainAccessGroup() -> String? {
-        // Return cached value if available
-        if let cached = accessGroupCache.get() {
-            return cached
+        accessGroupCache.getOrCompute {
+            discoverKeychainAccessGroup()
         }
+    }
 
+    /// Performs the actual keychain access group discovery.
+    private func discoverKeychainAccessGroup() -> String? {
         let tempAccount = "br.eng.gustavo.claudespy.accessgroup.discovery"
         let tempService = "br.eng.gustavo.claudespy.accessgroup"
 
@@ -98,8 +106,6 @@ import Foundation
             return nil
         }
 
-        // Cache the full access group (e.g., "XG2WG7U93U.br.eng.gustavo.claudespy.shared")
-        accessGroupCache.set(accessGroup)
         return accessGroup
     }
 
@@ -393,7 +399,11 @@ import Foundation
 // MARK: - In-Memory Key Manager for Testing
 
 /// A key manager that stores keys in memory instead of Keychain.
-/// Use this for testing or platforms without Keychain support.
+///
+/// - Warning: **TESTING ONLY** - This manager provides NO SECURITY.
+///   Keys are lost when the process terminates and are not protected from memory dumps.
+///   Never use this in production code.
+@_spi(Testing)
 public actor InMemoryKeyManager {
     private var storedKeyPair: StoredKeyPair?
     private var storedSessionKey: Data?
