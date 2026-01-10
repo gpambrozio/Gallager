@@ -66,26 +66,6 @@ actor RelayService {
             logger.info("Mac registering", metadata: ["deviceId": "\(registration.deviceId)"])
             await handleMacRegistration(registration, pairId: pairId)
 
-        case let .hookEvent(event):
-            // Relay hook events to iOS via WebSocket
-            logger.info("Relaying hook event to iOS", metadata: ["action": "\(event.event.action.eventName)"])
-            await connectionHub.send(.hookEvent(event), to: pairId, deviceType: .ios)
-
-        case let .commandResponse(response):
-            // Relay command responses to iOS
-            logger.info("Relaying command response to iOS")
-            await connectionHub.send(.commandResponse(response), to: pairId, deviceType: .ios)
-
-        case let .sessionState(state):
-            // Relay session state to iOS
-            logger.info("Relaying session state to iOS", metadata: ["sessions": "\(state.sessions.count)", "panes": "\(state.activePanes.count)"])
-            await connectionHub.send(.sessionState(state), to: pairId, deviceType: .ios)
-
-        case let .terminalSnapshot(snapshot):
-            // Relay terminal snapshot to iOS
-            logger.info("Relaying terminal snapshot to iOS", metadata: ["paneId": "\(snapshot.paneId)", "size": "\(snapshot.contentBase64.count)"])
-            await connectionHub.send(.terminalSnapshot(snapshot), to: pairId, deviceType: .ios)
-
         case let .encrypted(encryptedMessage):
             // Pass through encrypted messages - server cannot decrypt
             logger.info("Relaying encrypted message to iOS", metadata: ["innerType": "\(encryptedMessage.innerType.rawValue)"])
@@ -100,7 +80,9 @@ actor RelayService {
             await connectionHub.send(.pong, to: pairId, deviceType: .mac)
 
         default:
-            logger.debug("Unhandled Mac message type")
+            // All sensitive messages (hookEvent, sessionState, commandResponse, terminalSnapshot)
+            // must be sent encrypted. Reject unencrypted versions.
+            logger.warning("Rejected unencrypted message that should be encrypted", metadata: ["type": "\(message.messageType)"])
         }
     }
 
@@ -113,23 +95,8 @@ actor RelayService {
             logger.info("iOS registering", metadata: ["deviceId": "\(registration.deviceId)"])
             await handleIOSRegistration(registration, pairId: pairId)
 
-        case let .command(command):
-            // Relay commands to Mac
-            if await connectionHub.isMacConnected(pairId: pairId) {
-                logger.info("Relaying command to Mac", metadata: ["type": "\(command.command)"])
-                await connectionHub.send(.command(command), to: pairId, deviceType: .mac)
-            } else {
-                // Mac not connected, send error back to iOS
-                logger.warning("Mac not connected, cannot relay command")
-                let errorResponse = CommandResponseMessage.failure(
-                    for: command.id,
-                    error: "Mac is not connected"
-                )
-                await connectionHub.send(.commandResponse(errorResponse), to: pairId, deviceType: .ios)
-            }
-
         case .requestSessionState:
-            // Forward request to Mac
+            // Forward request to Mac (this is a control message, not sensitive)
             let isMacConnected = await connectionHub.isMacConnected(pairId: pairId)
             logger.info("iOS requesting session state", metadata: ["macConnected": "\(isMacConnected)"])
             await connectionHub.send(.requestSessionState, to: pairId, deviceType: .mac)
@@ -150,14 +117,16 @@ actor RelayService {
                 // Mac not connected - encrypted commands will fail
                 logger.warning("Mac not connected, cannot relay encrypted command")
                 // Note: We can't send a proper error response since we don't know the command ID
-                // The iOS client will timeout and handle this case
+                // and can't encrypt the response. The iOS client will timeout and handle this case.
             }
 
         case .ping:
             await connectionHub.send(.pong, to: pairId, deviceType: .ios)
 
         default:
-            logger.debug("Unhandled iOS message type")
+            // All sensitive messages (command) must be sent encrypted.
+            // Reject unencrypted versions.
+            logger.warning("Rejected unencrypted message that should be encrypted", metadata: ["type": "\(message.messageType)"])
         }
     }
 
