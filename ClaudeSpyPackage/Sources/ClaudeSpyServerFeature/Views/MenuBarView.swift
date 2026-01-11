@@ -80,10 +80,12 @@ public struct MenuBarView: View {
 
 /// The menu bar extra icon with optional badge
 public struct MenuBarIcon: View {
-    let pendingCount: Int
+    @Environment(MirrorWindowManager.self) private var windowManager
 
-    public init(pendingCount: Int) {
-        self.pendingCount = pendingCount
+    public init() { }
+
+    private var pendingCount: Int {
+        windowManager.activeSessions.values.filter(\.needsAttention).count
     }
 
     public var body: some View {

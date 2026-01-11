@@ -34,11 +34,6 @@ struct TmuxPaneMirrorApp: App {
         _windowManager = State(initialValue: manager)
     }
 
-    /// Number of sessions that need user attention
-    private var pendingSessionCount: Int {
-        windowManager.activeSessions.values.filter(\.needsAttention).count
-    }
-
     var body: some Scene {
         // Menu bar extra - primary interface, always visible
         MenuBarExtra {
@@ -53,7 +48,8 @@ struct TmuxPaneMirrorApp: App {
                     await autoConnectIfConfigured()
                 }
         } label: {
-            MenuBarIcon(pendingCount: pendingSessionCount)
+            MenuBarIcon()
+                .environment(windowManager)
         }
 
         // Main window - hidden by default, opened from menu bar
