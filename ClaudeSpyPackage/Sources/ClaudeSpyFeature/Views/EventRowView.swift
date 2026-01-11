@@ -29,7 +29,7 @@ struct EventRowView: View {
                 }
 
                 if let subtitle = event.action.subtitle {
-                    Text(subtitle.truncated(to: 80))
+                    Text(subtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
@@ -49,17 +49,6 @@ struct EventRowView: View {
 
     private var iconBackgroundColor: Color {
         event.action.symbolColor
-    }
-}
-
-// MARK: - String Extension
-
-private extension String {
-    func truncated(to length: Int) -> String {
-        if count <= length {
-            return self
-        }
-        return String(prefix(length - 3)) + "..."
     }
 }
 

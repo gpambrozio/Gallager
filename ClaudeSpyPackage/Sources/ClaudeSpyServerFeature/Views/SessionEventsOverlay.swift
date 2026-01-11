@@ -35,7 +35,7 @@ struct SessionEventsOverlay: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(session.events.prefix(5)) { event in
+                ForEach(session.events.prefix(10)) { event in
                     EventRow(event: event)
                 }
             }
@@ -64,7 +64,7 @@ private struct EventRow: View {
                     .lineLimit(1)
 
                 if let subtitle = event.action.subtitle {
-                    Text(subtitle.prefix(50) + (subtitle.count > 50 ? "..." : ""))
+                    Text(subtitle)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
