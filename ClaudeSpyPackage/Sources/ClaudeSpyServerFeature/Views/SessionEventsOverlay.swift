@@ -35,7 +35,7 @@ struct SessionEventsOverlay: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(session.events.prefix(5)) { event in
+                ForEach(session.events.prefix(10)) { event in
                     EventRow(event: event)
                 }
             }
@@ -59,11 +59,11 @@ private struct EventRow: View {
                 .frame(width: 14)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(eventTitle)
+                Text(event.action.title)
                     .font(.caption2.bold())
                     .lineLimit(1)
 
-                if let subtitle = eventSubtitle {
+                if let subtitle = event.action.subtitle {
                     Text(subtitle)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -82,98 +82,9 @@ private struct EventRow: View {
     }
 
     private var eventIcon: some View {
-        Group {
-            switch event.action {
-            case .sessionStart:
-                Symbols.playFill.image
-                    .foregroundStyle(.green)
-            case .sessionEnd:
-                Symbols.stopFill.image
-                    .foregroundStyle(.red)
-            case .preToolUse,
-                 .postToolUse:
-                Symbols.wrenchAndScrewdriver.image
-                    .foregroundStyle(.blue)
-            case .permissionRequest:
-                Symbols.lockFill.image
-                    .foregroundStyle(.orange)
-            case .notification:
-                Symbols.bellFill.image
-                    .foregroundStyle(.purple)
-            case .userPromptSubmit:
-                Symbols.textBubbleFill.image
-                    .foregroundStyle(.cyan)
-            case .stop,
-                 .subagentStop:
-                Symbols.stopCircleFill.image
-                    .foregroundStyle(.red)
-            case .preCompact:
-                Symbols.arrowDownRightAndArrowUpLeft.image
-                    .foregroundStyle(.indigo)
-            case .unknown:
-                Symbols.questionmark.image
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .font(.caption2)
-    }
-
-    private var eventTitle: String {
-        switch event.action {
-        case .sessionStart:
-            return "Session Started"
-        case .sessionEnd:
-            return "Session Ended"
-        case let .preToolUse(body):
-            return body.toolName ?? "Tool Use"
-        case let .postToolUse(body):
-            return "Done: \(body.toolName ?? "Tool")"
-        case .permissionRequest:
-            return "Permission Request"
-        case let .notification(body):
-            return body.notificationType ?? "Notification"
-        case .userPromptSubmit:
-            return "Prompt Submitted"
-        case .stop:
-            return "Agent Stopped"
-        case .subagentStop:
-            return "Subagent Stopped"
-        case let .preCompact(body):
-            return "Compacting (\(body.trigger ?? "unknown"))"
-        case let .unknown(body):
-            return body.hookEventName
-        }
-    }
-
-    private var eventSubtitle: String? {
-        switch event.action {
-        case let .preToolUse(body):
-            return toolInputSummary(body.toolInput)
-        case let .permissionRequest(body):
-            return body.toolName
-        case let .sessionStart(body):
-            return body.source
-        default:
-            return nil
-        }
-    }
-
-    private func toolInputSummary(_ input: ClaudeCodeTool?) -> String? {
-        guard let input else { return nil }
-
-        switch input {
-        case let .bash(params):
-            // Show first 50 chars of command
-            let command = params.command
-            if command.count > 50 {
-                return String(command.prefix(47)) + "..."
-            }
-            return command
-        case let .askUserQuestion(params):
-            return params.questions.first?.question
-        default:
-            return nil
-        }
+        event.action.symbol.image
+            .foregroundStyle(event.action.symbolColor)
+            .font(.caption2)
     }
 
     private func formatTimestamp(_ date: Date) -> String {

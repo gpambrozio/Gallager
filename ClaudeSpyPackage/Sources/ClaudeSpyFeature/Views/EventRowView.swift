@@ -17,7 +17,7 @@ struct EventRowView: View {
             // Event details
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text(eventTitle)
+                    Text(event.action.title)
                         .font(.subheadline)
                         .fontWeight(.medium)
 
@@ -28,7 +28,7 @@ struct EventRowView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                if let subtitle = eventSubtitle {
+                if let subtitle = event.action.subtitle {
                     Text(subtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -42,149 +42,13 @@ struct EventRowView: View {
     // MARK: - Event Display Properties
 
     private var eventIcon: some View {
-        icon.image
+        event.action.symbol.image
             .font(.system(size: 14, weight: .medium))
-            .foregroundStyle(iconColor)
-    }
-
-    private var icon: Symbols {
-        switch event.action {
-        case .sessionStart:
-            .playFill
-        case .sessionEnd:
-            .stopFill
-        case .preToolUse,
-             .postToolUse:
-            .wrenchAndScrewdriver
-        case .permissionRequest:
-            .lockFill
-        case .notification:
-            .bellFill
-        case .userPromptSubmit:
-            .textBubbleFill
-        case .stop,
-             .subagentStop:
-            .stopCircleFill
-        case .preCompact:
-            .arrowDownRightAndArrowUpLeft
-        case .unknown:
-            .questionmark
-        }
-    }
-
-    private var iconColor: Color {
-        switch event.action {
-        case .sessionStart:
-            .green
-        case .sessionEnd:
-            .red
-        case .preToolUse,
-             .postToolUse:
-            .blue
-        case .permissionRequest:
-            .orange
-        case .notification:
-            .purple
-        case .userPromptSubmit:
-            .cyan
-        case .stop,
-             .subagentStop:
-            .red
-        case .preCompact:
-            .indigo
-        case .unknown:
-            .gray
-        }
+            .foregroundStyle(event.action.symbolColor)
     }
 
     private var iconBackgroundColor: Color {
-        iconColor
-    }
-
-    private var eventTitle: String {
-        switch event.action {
-        case .sessionStart:
-            "Session Started"
-        case .sessionEnd:
-            "Session Ended"
-        case let .preToolUse(body):
-            "Tool: \(body.toolName ?? "Unknown")"
-        case let .postToolUse(body):
-            "Completed: \(body.toolName ?? "Unknown")"
-        case let .permissionRequest(body):
-            "Permission: \(body.toolName ?? "Unknown")"
-        case let .notification(body):
-            "Notification: \(body.notificationType ?? "Unknown")"
-        case .userPromptSubmit:
-            "Prompt Submitted"
-        case .stop:
-            "Agent Stopped"
-        case .subagentStop:
-            "Subagent Stopped"
-        case let .preCompact(body):
-            "Compacting (\(body.trigger ?? "unknown"))"
-        case let .unknown(body):
-            body.hookEventName
-        }
-    }
-
-    private var eventSubtitle: String? {
-        switch event.action {
-        case let .sessionStart(body):
-            body.cwd.map { "Working directory: \($0)" }
-
-        case .sessionEnd:
-            nil
-
-        case let .preToolUse(body):
-            toolInputDescription(body.toolInput)
-
-        case let .postToolUse(body):
-            toolInputDescription(body.toolInput)
-
-        case let .permissionRequest(body):
-            body.permissionMode.map { "Mode: \($0)" }
-
-        case let .notification(body):
-            body.message?.truncated(to: 80)
-
-        case let .userPromptSubmit(body):
-            body.prompt?.truncated(to: 80)
-
-        case .stop,
-             .subagentStop:
-            nil
-
-        case let .preCompact(body):
-            body.customInstructions?.truncated(to: 80)
-
-        case .unknown:
-            nil
-        }
-    }
-
-    private func toolInputDescription(_ input: ClaudeCodeTool?) -> String? {
-        guard let input else { return nil }
-
-        switch input {
-        case let .bash(params):
-            return params.command.truncated(to: 80)
-        case let .askUserQuestion(params):
-            return params.questions.first?.question.truncated(to: 80)
-        default:
-            return nil
-        }
-    }
-}
-
-// MARK: - String Extension
-
-private extension String {
-    func truncated(to length: Int) -> String {
-        if count <= length {
-            return self
-        }
-        return String(prefix(length - 3)) + "..."
+        event.action.symbolColor
     }
 }
 

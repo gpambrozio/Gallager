@@ -3,22 +3,17 @@ public extension HookEventMessage {
     func buildNotification() -> (title: String, body: String)? {
         let projectName = projectName ?? "Claude Code"
 
-        let title: String
         let body: String
 
         switch event.action {
         case .permissionRequest:
-            title = "Permission Required"
             body = "\(projectName): Claude needs your approval"
         case .sessionStart:
-            title = "Session Started"
             body = "\(projectName): Claude Code session started"
         case .stop:
-            title = "Session Idle"
             body = "\(projectName): Claude Code is waiting for your input"
         case let .notification(notifBody):
             if let message = notifBody.message {
-                title = "Notification"
                 body = "\(projectName): \(message)"
             } else {
                 return nil
@@ -26,7 +21,7 @@ public extension HookEventMessage {
         default:
             return nil
         }
-        return (title, body)
+        return (title: event.action.title, body: body)
     }
 }
 

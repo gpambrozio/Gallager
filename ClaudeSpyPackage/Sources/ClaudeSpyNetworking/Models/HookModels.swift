@@ -64,6 +64,13 @@ public struct ClaudeSession: Codable, Sendable {
     public var displayName: String {
         projectFolderName ?? paneId
     }
+
+    /// Whether this session needs user attention.
+    /// This is true when the latest event would trigger a notification (e.g., permission request, session idle).
+    /// Uses the same logic as the iOS app's badge indicator.
+    public var needsAttention: Bool {
+        latestEvent?.wouldTriggerNotification ?? false
+    }
 }
 
 // MARK: - Hook Event
@@ -766,6 +773,61 @@ public enum HookAction: Codable, Sendable {
     /// The parsed timestamp as a Date, or nil if parsing fails
     public var timestamp: Date? {
         ISO8601Parser.parse(timestampString)
+    }
+
+    /// Human-readable title for this action
+    public var title: String {
+        switch self {
+        case .sessionStart:
+            "Session Started"
+        case .sessionEnd:
+            "Session Ended"
+        case let .preToolUse(body):
+            body.toolName ?? "Tool Use"
+        case let .postToolUse(body):
+            "Done: \(body.toolName ?? "Tool")"
+        case let .permissionRequest(body):
+            "Permission: \(body.toolName ?? "Request")"
+        case let .notification(body):
+            body.notificationType ?? "Notification"
+        case .userPromptSubmit:
+            "Prompt Submitted"
+        case .stop:
+            "Session Idle"
+        case .subagentStop:
+            "Subagent Stopped"
+        case let .preCompact(body):
+            "Compacting (\(body.trigger ?? "unknown"))"
+        case let .unknown(body):
+            body.hookEventName
+        }
+    }
+
+    /// Optional subtitle with additional context about this action
+    public var subtitle: String? {
+        switch self {
+        case let .sessionStart(body):
+            body.cwd ?? body.source
+        case .sessionEnd:
+            nil
+        case let .preToolUse(body):
+            body.toolInput?.summary
+        case let .postToolUse(body):
+            body.toolInput?.summary
+        case let .permissionRequest(body):
+            body.permissionMode
+        case let .notification(body):
+            body.message
+        case let .userPromptSubmit(body):
+            body.prompt
+        case .stop,
+             .subagentStop:
+            nil
+        case let .preCompact(body):
+            body.customInstructions
+        case .unknown:
+            nil
+        }
     }
 
     /// Parse hook action from JSON data by reading hook_event_name
