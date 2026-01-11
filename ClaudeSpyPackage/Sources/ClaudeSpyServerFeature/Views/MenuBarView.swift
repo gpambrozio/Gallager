@@ -26,6 +26,7 @@ public struct MenuBarView: View {
 
             Button("Show Panes Window") {
                 openWindow(id: "main")
+                NSApplication.shared.activate(ignoringOtherApps: true)
             }
 
             SettingsLink {
