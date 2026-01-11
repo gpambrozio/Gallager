@@ -40,6 +40,11 @@ final public class AppSettings {
 
     // MARK: - Behavior Settings
 
+    /// Whether to run as menu bar only app (hide dock icon and main window)
+    public var menuBarOnly: Bool {
+        didSet { UserDefaults.standard.set(menuBarOnly, forKey: Keys.menuBarOnly) }
+    }
+
     /// Whether to restore windows on launch
     public var restoreWindowsOnLaunch: Bool {
         didSet { UserDefaults.standard.set(restoreWindowsOnLaunch, forKey: Keys.restoreWindowsOnLaunch) }
@@ -118,6 +123,7 @@ final public class AppSettings {
         self.fontSize = defaults.object(forKey: Keys.fontSize) as? Double ?? Defaults.fontSize
         self.scrollbackLines = defaults.object(forKey: Keys.scrollbackLines) as? Int ?? Defaults.scrollbackLines
         self.theme = TerminalTheme(rawValue: defaults.string(forKey: Keys.theme) ?? "") ?? Defaults.theme
+        self.menuBarOnly = defaults.object(forKey: Keys.menuBarOnly) as? Bool ?? Defaults.menuBarOnly
         self.restoreWindowsOnLaunch = defaults.object(forKey: Keys.restoreWindowsOnLaunch) as? Bool ?? Defaults.restoreWindowsOnLaunch
         self.showStatusBar = defaults.object(forKey: Keys.showStatusBar) as? Bool ?? Defaults.showStatusBar
         self.autoReconnect = defaults.object(forKey: Keys.autoReconnect) as? Bool ?? Defaults.autoReconnect
@@ -150,6 +156,7 @@ final public class AppSettings {
         static let fontSize = "fontSize"
         static let scrollbackLines = "scrollbackLines"
         static let theme = "theme"
+        static let menuBarOnly = "menuBarOnly"
         static let restoreWindowsOnLaunch = "restoreWindowsOnLaunch"
         static let showStatusBar = "showStatusBar"
         static let autoReconnect = "autoReconnect"
@@ -174,6 +181,7 @@ final public class AppSettings {
         static let fontSize = 12.0
         static let scrollbackLines = 10_000
         static let theme = TerminalTheme.defaultDark
+        static let menuBarOnly = false
         static let restoreWindowsOnLaunch = true
         static let showStatusBar = true
         static let autoReconnect = false

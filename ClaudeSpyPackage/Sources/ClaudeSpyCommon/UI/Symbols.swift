@@ -8,6 +8,7 @@ import SwiftUI
 @SFSymbol
 public enum Symbols: String {
     // swiftformat:sort:begin
+    case ant
     case antenna2Bars = "antenna.radiowaves.left.and.right"
     case arrowClockwise = "arrow.clockwise"
     case arrowDown = "arrow.down"

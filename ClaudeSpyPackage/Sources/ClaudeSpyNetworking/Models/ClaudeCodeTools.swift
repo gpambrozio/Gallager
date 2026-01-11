@@ -66,6 +66,50 @@ public enum ClaudeCodeTool: Sendable, Equatable {
         }
     }
 
+    /// A short summary of what this tool invocation does
+    public var summary: String? {
+        switch self {
+        case let .read(params):
+            params.filePath
+        case let .edit(params):
+            params.filePath
+        case let .write(params):
+            params.filePath
+        case let .multiEdit(params):
+            params.filePath
+        case let .grep(params):
+            params.pattern
+        case let .glob(params):
+            params.pattern
+        case let .bash(params):
+            params.command
+        case let .bashOutput(params):
+            params.bashId
+        case let .killShell(params):
+            params.shellId
+        case let .task(params):
+            params.description
+        case .todoWrite:
+            nil
+        case .exitPlanMode:
+            nil
+        case let .webFetch(params):
+            params.url
+        case let .webSearch(params):
+            params.query
+        case let .notebookEdit(params):
+            params.notebookPath
+        case let .slashCommand(params):
+            params.command
+        case let .askUserQuestion(params):
+            params.questions.first?.question
+        case let .mcp(params):
+            params.tool
+        case .other:
+            nil
+        }
+    }
+
     public static func decode(from decoder: Decoder, toolName: String?) throws -> ClaudeCodeTool? {
         let container = try decoder.singleValueContainer()
 

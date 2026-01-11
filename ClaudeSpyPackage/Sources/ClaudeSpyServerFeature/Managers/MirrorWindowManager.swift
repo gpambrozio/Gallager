@@ -185,7 +185,7 @@ final public class MirrorWindowManager {
         // Refresh panes to get current state and find the target for this pane ID
         let allPanes = await tmuxService.refreshPanes()
 
-        guard let pane = allPanes.first(where: { $0.id == paneId }) else {
+        guard let pane = allPanes.first(where: { $0.paneId == paneId }) else {
             return
         }
 
@@ -235,8 +235,8 @@ final public class MirrorWindowManager {
         // Refresh panes to get current state
         let allPanes = await tmuxService.refreshPanes()
 
-        // Find the pane with this ID
-        guard let pane = allPanes.first(where: { $0.id == paneId }) else {
+        // Find the pane with this pane ID (not target)
+        guard let pane = allPanes.first(where: { $0.paneId == paneId }) else {
             return
         }
 

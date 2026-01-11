@@ -13,6 +13,7 @@ struct TmuxPaneMirrorApp: App {
     @State private var pairingManager: PairingManager?
     @State private var externalServerClient = ExternalServerClient()
     @State private var commandExecutor: TmuxCommandExecutor?
+    @State private var menuBarService = MenuBarService()
 
     private let hookServer = HookServerService()
 
@@ -45,6 +46,11 @@ struct TmuxPaneMirrorApp: App {
                     await hookServer.startServer()
                     await setupExternalServerClient()
                     await autoConnectIfConfigured()
+                    setupMenuBar()
+                    applyMenuBarOnlyMode()
+                }
+                .onChange(of: settings.menuBarOnly) {
+                    applyMenuBarOnlyMode()
                 }
         }
         .commands {
@@ -205,6 +211,23 @@ struct TmuxPaneMirrorApp: App {
                 sessions: sessions,
                 activePanes: activePaneIds
             )
+        }
+    }
+
+    // MARK: - Menu Bar Setup
+
+    private func setupMenuBar() {
+        guard let manager = windowManager else { return }
+        menuBarService.setup(windowManager: manager, tmuxService: tmuxService)
+    }
+
+    private func applyMenuBarOnlyMode() {
+        if settings.menuBarOnly {
+            // Hide dock icon
+            NSApp.setActivationPolicy(.accessory)
+        } else {
+            // Show dock icon
+            NSApp.setActivationPolicy(.regular)
         }
     }
 

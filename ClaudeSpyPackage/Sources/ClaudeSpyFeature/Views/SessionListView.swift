@@ -115,7 +115,7 @@ struct SessionRowView: View {
     let isActive: Bool
 
     private var indicatorColor: Color {
-        if session.latestEvent?.wouldTriggerNotification == true {
+        if session.needsAttention {
             return .red
         } else if isActive {
             return .green
@@ -139,7 +139,7 @@ struct SessionRowView: View {
                 // Latest event summary
                 if let latestEvent = session.latestEvent {
                     HStack {
-                        Text(latestEventSummary(latestEvent))
+                        Text(latestEvent.action.title)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -159,33 +159,6 @@ struct SessionRowView: View {
             }
         }
         .padding(.vertical, 4)
-    }
-
-    private func latestEventSummary(_ event: HookEvent) -> String {
-        switch event.action {
-        case .sessionStart:
-            return "Session started"
-        case .sessionEnd:
-            return "Session ended"
-        case let .preToolUse(body):
-            return "Using \(body.toolName ?? "tool")"
-        case let .postToolUse(body):
-            return "Completed \(body.toolName ?? "tool")"
-        case let .permissionRequest(body):
-            return "Permission: \(body.toolName ?? "unknown")"
-        case let .notification(body):
-            return "Notification: \(body.notificationType ?? "unknown")"
-        case .userPromptSubmit:
-            return "Prompt submitted"
-        case .stop:
-            return "Agent stopped"
-        case .subagentStop:
-            return "Subagent stopped"
-        case let .preCompact(body):
-            return "Compacting (\(body.trigger ?? "unknown"))"
-        case let .unknown(body):
-            return body.hookEventName
-        }
     }
 }
 
