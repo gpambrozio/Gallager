@@ -40,6 +40,14 @@ public actor TmuxCommandExecutor {
             case .captureSnapshot:
                 // Snapshot is handled specially - returns success here, data sent separately
                 logger.info("Capture snapshot command received (will be handled by caller)")
+
+            case .startStream:
+                // Stream start is handled specially - caller manages the stream lifecycle
+                logger.info("Start stream command received (will be handled by caller)")
+
+            case .stopStream:
+                // Stream stop is handled specially - caller manages the stream lifecycle
+                logger.info("Stop stream command received (will be handled by caller)")
             }
 
             logger.info("Command executed successfully", metadata: ["commandId": "\(command.id)"])

@@ -63,6 +63,38 @@ final public class SessionDetailService {
     /// Response state for the current event
     public var responseState: ResponseState?
 
+    // MARK: - Streaming State
+
+    /// Whether terminal streaming is currently active
+    public var isStreaming = false
+
+    /// Whether we're currently trying to start streaming
+    public var isStartingStream = false
+
+    /// Current terminal width during streaming
+    public var streamWidth = 80
+
+    /// Current terminal height during streaming
+    public var streamHeight = 24
+
+    /// Error message from streaming, if any
+    public var streamError: String?
+
+    /// Callback for streaming data - set by the view to receive live updates
+    public var onStreamData: ((Data) -> Void)?
+
+    /// Whether auto-reconnect is enabled for streaming
+    public var autoReconnectEnabled = true
+
+    /// Number of reconnection attempts
+    private var reconnectAttempts = 0
+
+    /// Maximum number of reconnection attempts
+    private let maxReconnectAttempts = 5
+
+    /// Task for reconnection delay
+    private var reconnectTask: Task<Void, Never>?
+
     // MARK: - Initialization
 
     public init(paneId: String, sessionStore: SessionStore, relayClient: RelayClient) {
@@ -139,5 +171,158 @@ final public class SessionDetailService {
     /// Send a command to the Mac for this pane
     public func sendCommand(_ command: CommandType) async {
         await relayClient.sendCommand(CommandMessage(paneId: paneId, command: command))
+    }
+
+    // MARK: - Streaming
+
+    /// Start streaming terminal content from the Mac
+    public func startStreaming() async {
+        guard !isStreaming, !isStartingStream else { return }
+
+        isStartingStream = true
+        streamError = nil
+        autoReconnectEnabled = true
+
+        // Set up streaming callbacks before starting the stream
+        setupStreamingCallbacks()
+
+        let result = await relayClient.startStream(paneId: paneId)
+
+        switch result {
+        case .success:
+            // Stream started - isStreaming will be set to true when we receive
+            // the terminalStreamStarted message
+            break
+        case let .failure(error):
+            isStartingStream = false
+            streamError = error.localizedDescription
+            clearStreamingCallbacks()
+        }
+    }
+
+    /// Stop streaming terminal content
+    public func stopStreaming() async {
+        guard isStreaming || isStartingStream else { return }
+
+        // Disable auto-reconnect to prevent immediate reconnection
+        autoReconnectEnabled = false
+        reconnectTask?.cancel()
+        reconnectTask = nil
+
+        _ = await relayClient.stopStream(paneId: paneId)
+
+        isStreaming = false
+        isStartingStream = false
+        reconnectAttempts = 0
+        clearStreamingCallbacks()
+    }
+
+    /// Set up callbacks to receive streaming data from RelayClient
+    private func setupStreamingCallbacks() {
+        let paneId = self.paneId
+
+        relayClient.onTerminalStreamStarted = { [weak self] message in
+            guard message.paneId == paneId else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isStreaming = true
+                self.isStartingStream = false
+                self.streamWidth = message.width
+                self.streamHeight = message.height
+                self.streamError = nil
+
+                // Reset reconnect state on successful connection
+                self.resetReconnectState()
+
+                // Feed initial content if present
+                if let initialContent = message.initialContent, !initialContent.isEmpty {
+                    self.onStreamData?(initialContent)
+                }
+            }
+        }
+
+        relayClient.onTerminalStreamData = { [weak self] message in
+            guard message.paneId == paneId else { return }
+            guard let data = message.data else { return }
+            Task { @MainActor [weak self] in
+                self?.onStreamData?(data)
+            }
+        }
+
+        relayClient.onTerminalStreamStopped = { [weak self] message in
+            guard message.paneId == paneId else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isStreaming = false
+                self.isStartingStream = false
+                if let reason = message.reason {
+                    self.streamError = reason
+                }
+
+                // Attempt auto-reconnect if enabled
+                if self.autoReconnectEnabled {
+                    await self.attemptReconnect()
+                }
+            }
+        }
+
+        relayClient.onTerminalStreamDimensionChange = { [weak self] message in
+            guard message.paneId == paneId else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.streamWidth = message.width
+                self.streamHeight = message.height
+            }
+        }
+    }
+
+    /// Clear streaming callbacks
+    private func clearStreamingCallbacks() {
+        relayClient.onTerminalStreamStarted = nil
+        relayClient.onTerminalStreamData = nil
+        relayClient.onTerminalStreamStopped = nil
+        relayClient.onTerminalStreamDimensionChange = nil
+    }
+
+    /// Attempt to reconnect the stream with exponential backoff
+    private func attemptReconnect() async {
+        guard
+            autoReconnectEnabled,
+            !isStreaming,
+            !isStartingStream,
+            reconnectAttempts < maxReconnectAttempts
+        else {
+            if reconnectAttempts >= maxReconnectAttempts {
+                streamError = "Connection lost. Max reconnection attempts reached."
+            }
+            return
+        }
+
+        reconnectAttempts += 1
+
+        // Calculate delay with exponential backoff: 1s, 2s, 4s, 8s, 16s
+        let delay = pow(Double(2), Double(reconnectAttempts - 1))
+
+        reconnectTask?.cancel()
+        reconnectTask = Task {
+            try? await Task.sleep(for: .seconds(delay))
+
+            guard !Task.isCancelled, autoReconnectEnabled else { return }
+
+            // Check if Mac is still connected
+            guard relayClient.isMacConnected else {
+                streamError = "Mac disconnected. Waiting for reconnection..."
+                return
+            }
+
+            await startStreaming()
+        }
+    }
+
+    /// Reset reconnection state (call when streaming successfully starts)
+    private func resetReconnectState() {
+        reconnectAttempts = 0
+        reconnectTask?.cancel()
+        reconnectTask = nil
     }
 }

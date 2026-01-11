@@ -91,6 +91,10 @@ public enum CommandType: Codable, Sendable {
     case cancelOperation
     /// Capture a terminal snapshot with scrollback (multiplier for visible height)
     case captureSnapshot(scrollbackMultiplier: Int)
+    /// Start streaming terminal content from a pane
+    case startStream
+    /// Stop streaming terminal content from a pane
+    case stopStream
 }
 
 // MARK: - Command Message
@@ -180,5 +184,85 @@ public struct TerminalSnapshotMessage: Codable, Sendable, Identifiable, Hashable
     /// Decodes the content from Base64
     public var content: Data? {
         Data(base64Encoded: contentBase64)
+    }
+}
+
+// MARK: - Terminal Streaming Messages
+
+/// Sent from Mac when terminal streaming has started
+public struct TerminalStreamStartedMessage: Codable, Sendable {
+    /// The pane ID being streamed
+    public let paneId: String
+
+    /// Terminal width in character columns
+    public let width: Int
+
+    /// Terminal height in character rows
+    public let height: Int
+
+    /// Initial terminal content as Base64-encoded data
+    public let initialContentBase64: String
+
+    public init(paneId: String, width: Int, height: Int, initialContent: Data) {
+        self.paneId = paneId
+        self.width = width
+        self.height = height
+        self.initialContentBase64 = initialContent.base64EncodedString()
+    }
+
+    /// Decodes the initial content from Base64
+    public var initialContent: Data? {
+        Data(base64Encoded: initialContentBase64)
+    }
+}
+
+/// Sent from Mac with incremental terminal data during streaming
+public struct TerminalStreamDataMessage: Codable, Sendable {
+    /// The pane ID being streamed
+    public let paneId: String
+
+    /// Incremental data as Base64-encoded bytes
+    public let dataBase64: String
+
+    public init(paneId: String, data: Data) {
+        self.paneId = paneId
+        self.dataBase64 = data.base64EncodedString()
+    }
+
+    /// Decodes the data from Base64
+    public var data: Data? {
+        Data(base64Encoded: dataBase64)
+    }
+}
+
+/// Sent from Mac when terminal streaming has stopped
+public struct TerminalStreamStoppedMessage: Codable, Sendable {
+    /// The pane ID that was being streamed
+    public let paneId: String
+
+    /// Optional reason for stopping (error message if applicable)
+    public let reason: String?
+
+    public init(paneId: String, reason: String? = nil) {
+        self.paneId = paneId
+        self.reason = reason
+    }
+}
+
+/// Sent from Mac when terminal dimensions change during streaming
+public struct TerminalStreamDimensionChangeMessage: Codable, Sendable {
+    /// The pane ID being streamed
+    public let paneId: String
+
+    /// New terminal width in character columns
+    public let width: Int
+
+    /// New terminal height in character rows
+    public let height: Int
+
+    public init(paneId: String, width: Int, height: Int) {
+        self.paneId = paneId
+        self.width = width
+        self.height = height
     }
 }

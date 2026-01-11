@@ -2,7 +2,7 @@ import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import SwiftUI
 
-/// Detailed view of a single Claude session with event history and terminal snapshot.
+/// Detailed view of a single Claude session with event history and live terminal streaming.
 struct SessionDetailView: View {
     let paneId: String
 
@@ -14,6 +14,9 @@ struct SessionDetailView: View {
     // which aren't available at init time. We create the service in .task when view appears.
     // This is the standard SwiftUI pattern when services depend on Environment values.
     @State private var service: SessionDetailService?
+
+    /// Whether to show the live terminal stream view
+    @State private var showTerminalStream = false
 
     var body: some View {
         bodyContent
@@ -37,9 +40,9 @@ struct SessionDetailView: View {
                 .navigationTitle("Session")
             #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
-                .navigationDestination(item: $bindableService.terminalSnapshot) { snapshot in
-                    TerminalSnapshotView(
-                        snapshot: snapshot,
+                .navigationDestination(isPresented: $showTerminalStream) {
+                    TerminalStreamView(
+                        service: service,
                         responseState: $bindableService.responseState,
                         isConnected: service.isMacConnected,
                         sendCommand: { command in
@@ -65,9 +68,9 @@ struct SessionDetailView: View {
             Section {
                 viewTerminalButton(service: service)
             } header: {
-                Text("Terminal")
+                Text("Live Terminal")
             } footer: {
-                if let error = service.snapshotError {
+                if let error = service.streamError {
                     Text(error)
                         .foregroundStyle(.red)
                         .font(.caption)
@@ -130,26 +133,17 @@ struct SessionDetailView: View {
     @ViewBuilder
     private func viewTerminalButton(service: SessionDetailService) -> some View {
         Button {
-            Task {
-                await service.requestTerminalSnapshot()
-            }
+            showTerminalStream = true
         } label: {
             HStack {
-                if service.isLoadingSnapshot {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Symbols.terminal.image
-                }
-                Text("View Terminal")
+                Symbols.terminal.image
+                Text("View Live Terminal")
                 Spacer()
-                if !service.isLoadingSnapshot {
-                    Symbols.arrowRight.image
-                        .foregroundStyle(.secondary)
-                }
+                Symbols.arrowRight.image
+                    .foregroundStyle(.secondary)
             }
         }
-        .disabled(!service.isMacConnected || service.isLoadingSnapshot)
+        .disabled(!service.isMacConnected)
     }
 }
 

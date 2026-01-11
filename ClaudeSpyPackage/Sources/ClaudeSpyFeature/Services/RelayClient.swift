@@ -143,6 +143,18 @@ final public class RelayClient {
     /// Called when a terminal snapshot is received from Mac
     public var onTerminalSnapshot: (@Sendable (TerminalSnapshotMessage) -> Void)?
 
+    /// Called when terminal streaming starts from Mac
+    public var onTerminalStreamStarted: (@Sendable (TerminalStreamStartedMessage) -> Void)?
+
+    /// Called when terminal stream data is received from Mac
+    public var onTerminalStreamData: (@Sendable (TerminalStreamDataMessage) -> Void)?
+
+    /// Called when terminal streaming stops from Mac
+    public var onTerminalStreamStopped: (@Sendable (TerminalStreamStoppedMessage) -> Void)?
+
+    /// Called when terminal dimensions change during streaming
+    public var onTerminalStreamDimensionChange: (@Sendable (TerminalStreamDimensionChangeMessage) -> Void)?
+
     /// Called when Mac connection status changes
     public var onMacConnectionChange: (@Sendable (Bool) -> Void)?
 
@@ -337,6 +349,44 @@ final public class RelayClient {
                     pendingContinuation.resume(returning: .failure(RelayClientError.timeout))
                 }
             }
+        }
+    }
+
+    /// Start streaming terminal content from a pane
+    /// - Parameter paneId: The pane ID to stream
+    /// - Returns: Result indicating success or failure
+    public func startStream(paneId: String) async -> Result<Void, Error> {
+        guard state.isConnected else {
+            return .failure(RelayClientError.notConnected)
+        }
+
+        let command = CommandMessage(paneId: paneId, command: .startStream)
+        let result = await sendCommandWithResponse(command, timeout: 10)
+
+        switch result {
+        case .success:
+            return .success(())
+        case let .failure(error):
+            return .failure(error)
+        }
+    }
+
+    /// Stop streaming terminal content from a pane
+    /// - Parameter paneId: The pane ID to stop streaming
+    /// - Returns: Result indicating success or failure
+    public func stopStream(paneId: String) async -> Result<Void, Error> {
+        guard state.isConnected else {
+            return .failure(RelayClientError.notConnected)
+        }
+
+        let command = CommandMessage(paneId: paneId, command: .stopStream)
+        let result = await sendCommandWithResponse(command, timeout: 10)
+
+        switch result {
+        case .success:
+            return .success(())
+        case let .failure(error):
+            return .failure(error)
         }
     }
 
@@ -573,6 +623,22 @@ final public class RelayClient {
             }
             // Also call the legacy callback if set
             onTerminalSnapshot?(snapshot)
+
+        case let .terminalStreamStarted(message):
+            logger.info("Terminal stream started: pane=\(message.paneId) dimensions=\(message.width)x\(message.height)")
+            onTerminalStreamStarted?(message)
+
+        case let .terminalStreamData(message):
+            // Don't log for high-frequency data messages
+            onTerminalStreamData?(message)
+
+        case let .terminalStreamStopped(message):
+            logger.info("Terminal stream stopped: pane=\(message.paneId) reason=\(message.reason ?? "none")")
+            onTerminalStreamStopped?(message)
+
+        case let .terminalStreamDimensionChange(message):
+            logger.info("Terminal stream dimension change: pane=\(message.paneId) dimensions=\(message.width)x\(message.height)")
+            onTerminalStreamDimensionChange?(message)
 
         case let .macConnected(connectedMessage):
             logger.info("Mac device connected")

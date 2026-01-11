@@ -273,6 +273,60 @@ final public class ExternalServerClient {
         await sendEncrypted(message)
     }
 
+    /// Send a terminal stream started notification to iOS (encrypted)
+    public func sendTerminalStreamStarted(_ message: TerminalStreamStartedMessage) async {
+        guard state.isConnected else {
+            logger.debug("Not connected, cannot send terminal stream started")
+            return
+        }
+
+        logger.info("Sending terminal stream started", metadata: [
+            "paneId": "\(message.paneId)",
+            "dimensions": "\(message.width)x\(message.height)",
+        ])
+
+        await sendEncrypted(.terminalStreamStarted(message))
+    }
+
+    /// Send terminal stream data to iOS (encrypted)
+    public func sendTerminalStreamData(_ message: TerminalStreamDataMessage) async {
+        guard state.isConnected else {
+            return // Silent - don't log for high-frequency data messages
+        }
+
+        await sendEncrypted(.terminalStreamData(message))
+    }
+
+    /// Send a terminal stream stopped notification to iOS (encrypted)
+    public func sendTerminalStreamStopped(_ message: TerminalStreamStoppedMessage) async {
+        guard state.isConnected else {
+            logger.debug("Not connected, cannot send terminal stream stopped")
+            return
+        }
+
+        logger.info("Sending terminal stream stopped", metadata: [
+            "paneId": "\(message.paneId)",
+            "reason": "\(message.reason ?? "none")",
+        ])
+
+        await sendEncrypted(.terminalStreamStopped(message))
+    }
+
+    /// Send terminal stream dimension change to iOS (encrypted)
+    public func sendTerminalStreamDimensionChange(_ message: TerminalStreamDimensionChangeMessage) async {
+        guard state.isConnected else {
+            logger.debug("Not connected, cannot send terminal stream dimension change")
+            return
+        }
+
+        logger.info("Sending terminal stream dimension change", metadata: [
+            "paneId": "\(message.paneId)",
+            "dimensions": "\(message.width)x\(message.height)",
+        ])
+
+        await sendEncrypted(.terminalStreamDimensionChange(message))
+    }
+
     /// Send an encrypted push notification payload for a hook event.
     ///
     /// This is sent alongside the encrypted hook event. The server will:
