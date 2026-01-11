@@ -146,16 +146,16 @@ struct TmuxPaneMirrorApp: App {
         setupSessionStateHandler(manager: windowManager)
 
         // Forward hook events to window manager AND external server
-        // Capture as local variables to ensure proper reference semantics
+        // Capture strongly since these are held by @State and won't be deallocated
         let manager = windowManager
         let serverClient = externalServerClient
-        await hookServer.setEventHandler { [weak manager, weak serverClient] event in
+        await hookServer.setEventHandler { [manager, serverClient] event in
             // Handle locally
-            await manager?.handleHookEvent(event)
+            await manager.handleHookEvent(event)
 
             guard event.action.body.shouldSendToServer else { return }
             // Forward to iOS via external server
-            await serverClient?.sendHookEvent(event)
+            await serverClient.sendHookEvent(event)
         }
     }
 
@@ -211,10 +211,8 @@ struct TmuxPaneMirrorApp: App {
     }
 
     private func setupSessionStateHandler(manager: MirrorWindowManager) {
-        externalServerClient.setSessionStateHandler { [settings, weak manager] in
-            guard let manager else {
-                return SessionStateMessage(pairId: "", sessions: [:], activePanes: [])
-            }
+        // Capture manager strongly since it's held by @State and won't be deallocated
+        externalServerClient.setSessionStateHandler { [settings, manager] in
             // Access @MainActor properties
             let pairId = await settings.pairId ?? ""
             let sessions = await manager.activeSessions
