@@ -66,9 +66,6 @@ struct GeneralSettingsView: View {
             }
 
             Section("Behavior") {
-                Toggle("Menu bar only mode", isOn: $settings.menuBarOnly)
-                    .help("Hide the dock icon and main window. Access sessions from the menu bar icon.")
-
                 Toggle("Restore windows on launch", isOn: $settings.restoreWindowsOnLaunch)
 
                 Toggle("Show status bar", isOn: $settings.showStatusBar)
