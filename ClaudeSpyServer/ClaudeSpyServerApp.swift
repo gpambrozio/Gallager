@@ -30,9 +30,29 @@ struct TmuxPaneMirrorApp: App {
         _tmuxService = State(initialValue: service)
     }
 
+    /// Number of sessions that need user attention
+    private var pendingSessionCount: Int {
+        windowManager?.activeSessions.values.filter(\.needsAttention).count ?? 0
+    }
+
     var body: some Scene {
-        // Main window
-        WindowGroup {
+        // Menu bar extra - primary interface, always visible
+        MenuBarExtra {
+            MenuBarView()
+                .environment(windowManager ?? createWindowManager())
+                .task {
+                    // Initialize services from MenuBarExtra since it's always active
+                    await initializeServices()
+                    await hookServer.startServer()
+                    await setupExternalServerClient()
+                    await autoConnectIfConfigured()
+                }
+        } label: {
+            MenuBarIcon(pendingCount: pendingSessionCount)
+        }
+
+        // Main window - hidden by default, opened from menu bar
+        Window("ClaudeSpy", id: "main") {
             ContentView()
                 .environment(settings)
                 .environment(tmuxService)
@@ -40,13 +60,8 @@ struct TmuxPaneMirrorApp: App {
                 .environment(pairingManager ?? createPairingManager())
                 .environment(externalServerClient)
                 .environment(\.e2eeService, e2eeService)
-                .task {
-                    await initializeServices()
-                    await hookServer.startServer()
-                    await setupExternalServerClient()
-                    await autoConnectIfConfigured()
-                }
         }
+        .defaultLaunchBehavior(.suppressed)
         .commands {
             // File menu
             CommandGroup(replacing: .newItem) {
