@@ -6,9 +6,9 @@ import SwiftUI
 
 @main
 struct TmuxPaneMirrorApp: App {
-    @State private var settings = AppSettings()
+    @State private var settings: AppSettings
     @State private var tmuxService: TmuxService
-    @State private var windowManager: MirrorWindowManager?
+    @State private var windowManager: MirrorWindowManager
     @State private var e2eeService: E2EEService?
     @State private var pairingManager: PairingManager?
     @State private var externalServerClient = ExternalServerClient()
@@ -28,20 +28,25 @@ struct TmuxPaneMirrorApp: App {
             socketPath: initialSettings.tmuxSocket.isEmpty ? nil : initialSettings.tmuxSocket
         )
         _tmuxService = State(initialValue: service)
+
+        // Create window manager eagerly so it's shared across all scenes
+        let manager = MirrorWindowManager(settings: initialSettings, tmuxService: service)
+        _windowManager = State(initialValue: manager)
     }
 
     /// Number of sessions that need user attention
     private var pendingSessionCount: Int {
-        windowManager?.activeSessions.values.filter(\.needsAttention).count ?? 0
+        windowManager.activeSessions.values.filter(\.needsAttention).count
     }
 
     var body: some Scene {
         // Menu bar extra - primary interface, always visible
         MenuBarExtra {
             MenuBarView()
-                .environment(windowManager ?? createWindowManager())
+                .environment(windowManager)
                 .task {
                     // Initialize services from MenuBarExtra since it's always active
+                    await setupWindowManagerHandlers()
                     await initializeServices()
                     await hookServer.startServer()
                     await setupExternalServerClient()
@@ -56,7 +61,7 @@ struct TmuxPaneMirrorApp: App {
             ContentView()
                 .environment(settings)
                 .environment(tmuxService)
-                .environment(windowManager ?? createWindowManager())
+                .environment(windowManager)
                 .environment(pairingManager ?? createPairingManager())
                 .environment(externalServerClient)
                 .environment(\.e2eeService, e2eeService)
@@ -73,7 +78,7 @@ struct TmuxPaneMirrorApp: App {
                 Divider()
 
                 Button("Close All Mirrors") {
-                    windowManager?.closeAll()
+                    windowManager.closeAll()
                 }
                 .keyboardShortcut("w", modifiers: [.command, .shift])
             }
@@ -96,9 +101,9 @@ struct TmuxPaneMirrorApp: App {
             CommandGroup(after: .windowList) {
                 Divider()
 
-                ForEach(windowManager?.mirroredTargets ?? [], id: \.self) { target in
+                ForEach(windowManager.mirroredTargets, id: \.self) { target in
                     Button(target) {
-                        windowManager?.bringToFront(target: target)
+                        windowManager.bringToFront(target: target)
                     }
                 }
             }
@@ -133,25 +138,21 @@ struct TmuxPaneMirrorApp: App {
         }
     }
 
-    private func createWindowManager() -> MirrorWindowManager {
-        let manager = MirrorWindowManager(settings: settings, tmuxService: tmuxService)
-        windowManager = manager
+    /// Sets up event handlers for the window manager
+    /// Called once during app initialization from the MenuBarExtra's task
+    private func setupWindowManagerHandlers() async {
+        // Set up session state handler for external server communication
+        setupSessionStateHandler(manager: windowManager)
 
-        // Set up session state handler synchronously to avoid race with autoConnectIfConfigured
-        setupSessionStateHandler(manager: manager)
+        // Forward hook events to window manager AND external server
+        await hookServer.setEventHandler { [windowManager, externalServerClient] event in
+            // Handle locally
+            await windowManager.handleHookEvent(event)
 
-        // Forward hook events to window manager AND external server (async setup is fine here)
-        Task { @MainActor in
-            await hookServer.setEventHandler { [weak manager, weak externalServerClient] event in
-                // Handle locally
-                await manager?.handleHookEvent(event)
-
-                guard event.action.body.shouldSendToServer else { return }
-                // Forward to iOS via external server
-                await externalServerClient?.sendHookEvent(event)
-            }
+            guard event.action.body.shouldSendToServer else { return }
+            // Forward to iOS via external server
+            await externalServerClient.sendHookEvent(event)
         }
-        return manager
     }
 
     private func createPairingManager() -> PairingManager {
@@ -206,10 +207,7 @@ struct TmuxPaneMirrorApp: App {
     }
 
     private func setupSessionStateHandler(manager: MirrorWindowManager) {
-        externalServerClient.setSessionStateHandler { [settings, weak manager] in
-            guard let manager else {
-                return SessionStateMessage(pairId: "", sessions: [:], activePanes: [])
-            }
+        externalServerClient.setSessionStateHandler { [settings, manager] in
             // Access @MainActor properties
             let pairId = await settings.pairId ?? ""
             let sessions = await manager.activeSessions
