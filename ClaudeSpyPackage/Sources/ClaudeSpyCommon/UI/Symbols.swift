@@ -22,6 +22,7 @@ public enum Symbols: String {
     case docOnClipboard = "doc.on.clipboard"
     case exclamationmarkTriangle = "exclamationmark.triangle"
     case gearshape
+    case handsAndSparklesFill = "hands.and.sparkles.fill"
     case iphone
     case linkCircle = "link.circle"
     case linkCircleFill = "link.circle.fill"

@@ -66,8 +66,6 @@ struct GeneralSettingsView: View {
             }
 
             Section("Behavior") {
-                Toggle("Restore windows on launch", isOn: $settings.restoreWindowsOnLaunch)
-
                 Toggle("Show status bar", isOn: $settings.showStatusBar)
 
                 Toggle("Auto-reconnect on connection loss", isOn: $settings.autoReconnect)

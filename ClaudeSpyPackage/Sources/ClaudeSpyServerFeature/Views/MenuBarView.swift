@@ -84,13 +84,13 @@ public struct MenuBarIcon: View {
 
     public init() { }
 
-    private var pendingCount: Int {
-        windowManager.activeSessions.values.filter(\.needsAttention).count
+    private var hasPending: Bool {
+        windowManager.activeSessions.values.contains(where: \.needsAttention)
     }
 
     public var body: some View {
-        if pendingCount > 0 {
-            Label("\(pendingCount)", symbol: .sparkles)
+        if hasPending {
+            Symbols.handsAndSparklesFill.image
         } else {
             Symbols.sparkles.image
         }

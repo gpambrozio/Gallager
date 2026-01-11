@@ -40,11 +40,6 @@ final public class AppSettings {
 
     // MARK: - Behavior Settings
 
-    /// Whether to restore windows on launch
-    public var restoreWindowsOnLaunch: Bool {
-        didSet { UserDefaults.standard.set(restoreWindowsOnLaunch, forKey: Keys.restoreWindowsOnLaunch) }
-    }
-
     /// Whether to show the status bar in mirror windows
     public var showStatusBar: Bool {
         didSet { UserDefaults.standard.set(showStatusBar, forKey: Keys.showStatusBar) }
@@ -118,7 +113,6 @@ final public class AppSettings {
         self.fontSize = defaults.object(forKey: Keys.fontSize) as? Double ?? Defaults.fontSize
         self.scrollbackLines = defaults.object(forKey: Keys.scrollbackLines) as? Int ?? Defaults.scrollbackLines
         self.theme = TerminalTheme(rawValue: defaults.string(forKey: Keys.theme) ?? "") ?? Defaults.theme
-        self.restoreWindowsOnLaunch = defaults.object(forKey: Keys.restoreWindowsOnLaunch) as? Bool ?? Defaults.restoreWindowsOnLaunch
         self.showStatusBar = defaults.object(forKey: Keys.showStatusBar) as? Bool ?? Defaults.showStatusBar
         self.autoReconnect = defaults.object(forKey: Keys.autoReconnect) as? Bool ?? Defaults.autoReconnect
         self.reconnectDelay = defaults.object(forKey: Keys.reconnectDelay) as? Int ?? Defaults.reconnectDelay
@@ -150,7 +144,6 @@ final public class AppSettings {
         static let fontSize = "fontSize"
         static let scrollbackLines = "scrollbackLines"
         static let theme = "theme"
-        static let restoreWindowsOnLaunch = "restoreWindowsOnLaunch"
         static let showStatusBar = "showStatusBar"
         static let autoReconnect = "autoReconnect"
         static let reconnectDelay = "reconnectDelay"
@@ -174,7 +167,6 @@ final public class AppSettings {
         static let fontSize = 12.0
         static let scrollbackLines = 10_000
         static let theme = TerminalTheme.defaultDark
-        static let restoreWindowsOnLaunch = true
         static let showStatusBar = true
         static let autoReconnect = false
         static let reconnectDelay = 5
