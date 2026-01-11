@@ -143,6 +143,15 @@ final public class RelayClient {
     /// Called when a terminal snapshot is received from Mac
     public var onTerminalSnapshot: (@Sendable (TerminalSnapshotMessage) -> Void)?
 
+    /// Called when a terminal stream starts from Mac
+    public var onTerminalStreamStarted: (@Sendable (TerminalStreamStarted) -> Void)?
+
+    /// Called when a terminal stream chunk is received from Mac
+    public var onTerminalStreamChunk: (@Sendable (TerminalStreamChunk) -> Void)?
+
+    /// Called when a terminal stream stops from Mac
+    public var onTerminalStreamStopped: (@Sendable (TerminalStreamStopped) -> Void)?
+
     /// Called when Mac connection status changes
     public var onMacConnectionChange: (@Sendable (Bool) -> Void)?
 
@@ -348,6 +357,34 @@ final public class RelayClient {
         }
 
         await send(.requestSessionState)
+    }
+
+    /// Start streaming terminal content for a pane
+    public func startTerminalStream(paneId: String) async {
+        guard state.isConnected else {
+            logger.debug("Not connected, cannot start terminal stream")
+            return
+        }
+
+        let command = CommandMessage(
+            paneId: paneId,
+            command: .startStream
+        )
+        await sendEncrypted(.command(command))
+    }
+
+    /// Stop streaming terminal content for a pane
+    public func stopTerminalStream(paneId: String) async {
+        guard state.isConnected else {
+            logger.debug("Not connected, cannot stop terminal stream")
+            return
+        }
+
+        let command = CommandMessage(
+            paneId: paneId,
+            command: .stopStream
+        )
+        await sendEncrypted(.command(command))
     }
 
     /// Send push notification token to the relay server
@@ -573,6 +610,18 @@ final public class RelayClient {
             }
             // Also call the legacy callback if set
             onTerminalSnapshot?(snapshot)
+
+        case let .terminalStreamStarted(started):
+            logger.info("Terminal stream started from Mac: \(started.paneId)")
+            onTerminalStreamStarted?(started)
+
+        case let .terminalStreamChunk(chunk):
+            // Don't log every chunk - too noisy
+            onTerminalStreamChunk?(chunk)
+
+        case let .terminalStreamStopped(stopped):
+            logger.info("Terminal stream stopped from Mac: \(stopped.paneId)")
+            onTerminalStreamStopped?(stopped)
 
         case let .macConnected(connectedMessage):
             logger.info("Mac device connected")

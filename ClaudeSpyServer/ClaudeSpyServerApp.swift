@@ -13,6 +13,7 @@ struct TmuxPaneMirrorApp: App {
     @State private var pairingManager: PairingManager?
     @State private var externalServerClient = ExternalServerClient()
     @State private var commandExecutor: TmuxCommandExecutor?
+    @State private var remoteStreamManager: RemoteTerminalStreamManager?
 
     private let hookServer = HookServerService()
 
@@ -166,16 +167,34 @@ struct TmuxPaneMirrorApp: App {
         let executor = TmuxCommandExecutor(tmuxService: tmuxService)
         commandExecutor = executor
 
+        // Create remote stream manager
+        let streamManager = RemoteTerminalStreamManager(
+            tmuxService: tmuxService,
+            serverClient: externalServerClient
+        )
+        remoteStreamManager = streamManager
+
         // Set up command handler - called when iOS sends a command
         // Capture tmuxService and externalServerClient for snapshot handling
         let service = tmuxService
         let serverClient = externalServerClient
-        externalServerClient.setCommandHandler { [executor, service, serverClient] command in
+        externalServerClient.setCommandHandler { [executor, service, serverClient, streamManager] command in
             // Handle snapshot commands specially - requires MainActor for tmuxService access
             if case let .captureSnapshot(scrollbackMultiplier) = command.command {
                 // handleSnapshotCommand is @MainActor, so this call will hop to main actor
                 return await handleSnapshotCommand(command, scrollbackMultiplier: scrollbackMultiplier, tmuxService: service, serverClient: serverClient)
             }
+
+            // Handle stream commands - requires MainActor for streamManager access
+            switch command.command {
+            case .startStream:
+                return await streamManager.startStream(paneId: command.paneId, commandId: command.id)
+            case .stopStream:
+                return await streamManager.stopStream(paneId: command.paneId, commandId: command.id)
+            default:
+                break
+            }
+
             // Regular commands execute on the actor executor (background)
             return await executor.execute(command)
         }

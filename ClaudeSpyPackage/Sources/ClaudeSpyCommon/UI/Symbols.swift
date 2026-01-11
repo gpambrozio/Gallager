@@ -36,6 +36,7 @@ public enum Symbols: String {
     case stopFill = "stop.fill"
     case terminal
     case textBubbleFill = "text.bubble.fill"
+    case video = "video.fill"
     case wifi
     case wifiSlash = "wifi.slash"
     case wrenchAndScrewdriver = "wrench.and.screwdriver"

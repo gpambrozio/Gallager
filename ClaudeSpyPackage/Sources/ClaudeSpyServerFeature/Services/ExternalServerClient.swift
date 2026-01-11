@@ -273,6 +273,49 @@ final public class ExternalServerClient {
         await sendEncrypted(message)
     }
 
+    /// Send notification that a terminal stream has started (encrypted)
+    public func sendTerminalStreamStarted(_ started: TerminalStreamStarted) async {
+        guard state.isConnected else {
+            logger.debug("Not connected, cannot send stream started notification")
+            return
+        }
+
+        logger.info("Terminal stream started", metadata: [
+            "paneId": "\(started.paneId)",
+            "dimensions": "\(started.width)x\(started.height)",
+        ])
+
+        let message = WebSocketMessage.terminalStreamStarted(started)
+        await sendEncrypted(message)
+    }
+
+    /// Send a chunk of streaming terminal data to iOS (encrypted)
+    public func sendTerminalStreamChunk(_ chunk: TerminalStreamChunk) async {
+        guard state.isConnected else {
+            // Don't log every skipped chunk - too noisy
+            return
+        }
+
+        let message = WebSocketMessage.terminalStreamChunk(chunk)
+        await sendEncrypted(message)
+    }
+
+    /// Send notification that a terminal stream has stopped (encrypted)
+    public func sendTerminalStreamStopped(_ stopped: TerminalStreamStopped) async {
+        guard state.isConnected else {
+            logger.debug("Not connected, cannot send stream stopped notification")
+            return
+        }
+
+        logger.info("Terminal stream stopped", metadata: [
+            "paneId": "\(stopped.paneId)",
+            "reason": "\(stopped.reason ?? "user requested")",
+        ])
+
+        let message = WebSocketMessage.terminalStreamStopped(stopped)
+        await sendEncrypted(message)
+    }
+
     /// Send an encrypted push notification payload for a hook event.
     ///
     /// This is sent alongside the encrypted hook event. The server will:

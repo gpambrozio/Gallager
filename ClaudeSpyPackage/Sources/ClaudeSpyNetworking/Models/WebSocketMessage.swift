@@ -20,6 +20,15 @@ public enum WebSocketMessage: Codable, Sendable {
     /// Mac sends a terminal snapshot response
     case terminalSnapshot(TerminalSnapshotMessage)
 
+    /// Mac sends a chunk of streaming terminal data
+    case terminalStreamChunk(TerminalStreamChunk)
+
+    /// Mac notifies that a terminal stream has started
+    case terminalStreamStarted(TerminalStreamStarted)
+
+    /// Mac notifies that a terminal stream has stopped
+    case terminalStreamStopped(TerminalStreamStopped)
+
     /// Mac sends complete session state (on iOS connect or request)
     case sessionState(SessionStateMessage)
 
@@ -126,6 +135,15 @@ public enum EncryptedMessageType: String, Codable, Sendable {
 
     /// Terminal snapshot from Mac to iOS
     case terminalSnapshot
+
+    /// Terminal stream chunk from Mac to iOS
+    case terminalStreamChunk
+
+    /// Terminal stream started from Mac to iOS
+    case terminalStreamStarted
+
+    /// Terminal stream stopped from Mac to iOS
+    case terminalStreamStopped
 }
 
 // MARK: - Error Message
@@ -168,6 +186,9 @@ public extension WebSocketMessage {
         case hookEvent
         case commandResponse
         case terminalSnapshot
+        case terminalStreamChunk
+        case terminalStreamStarted
+        case terminalStreamStopped
         case sessionState
         case macRegistered
         case command
@@ -204,6 +225,15 @@ public extension WebSocketMessage {
         case .terminalSnapshot:
             let payload = try container.decode(TerminalSnapshotMessage.self, forKey: .payload)
             self = .terminalSnapshot(payload)
+        case .terminalStreamChunk:
+            let payload = try container.decode(TerminalStreamChunk.self, forKey: .payload)
+            self = .terminalStreamChunk(payload)
+        case .terminalStreamStarted:
+            let payload = try container.decode(TerminalStreamStarted.self, forKey: .payload)
+            self = .terminalStreamStarted(payload)
+        case .terminalStreamStopped:
+            let payload = try container.decode(TerminalStreamStopped.self, forKey: .payload)
+            self = .terminalStreamStopped(payload)
         case .sessionState:
             let payload = try container.decode(SessionStateMessage.self, forKey: .payload)
             self = .sessionState(payload)
@@ -269,6 +299,15 @@ public extension WebSocketMessage {
         case let .terminalSnapshot(payload):
             try container.encode(MessageType.terminalSnapshot, forKey: .type)
             try container.encode(payload, forKey: .payload)
+        case let .terminalStreamChunk(payload):
+            try container.encode(MessageType.terminalStreamChunk, forKey: .type)
+            try container.encode(payload, forKey: .payload)
+        case let .terminalStreamStarted(payload):
+            try container.encode(MessageType.terminalStreamStarted, forKey: .type)
+            try container.encode(payload, forKey: .payload)
+        case let .terminalStreamStopped(payload):
+            try container.encode(MessageType.terminalStreamStopped, forKey: .type)
+            try container.encode(payload, forKey: .payload)
         case let .sessionState(payload):
             try container.encode(MessageType.sessionState, forKey: .type)
             try container.encode(payload, forKey: .payload)
@@ -325,6 +364,9 @@ public extension WebSocketMessage {
         case .hookEvent: MessageType.hookEvent.rawValue
         case .commandResponse: MessageType.commandResponse.rawValue
         case .terminalSnapshot: MessageType.terminalSnapshot.rawValue
+        case .terminalStreamChunk: MessageType.terminalStreamChunk.rawValue
+        case .terminalStreamStarted: MessageType.terminalStreamStarted.rawValue
+        case .terminalStreamStopped: MessageType.terminalStreamStopped.rawValue
         case .sessionState: MessageType.sessionState.rawValue
         case .macRegistered: MessageType.macRegistered.rawValue
         case .command: MessageType.command.rawValue
@@ -356,7 +398,10 @@ public extension WebSocketMessage {
              .sessionState,
              .command,
              .commandResponse,
-             .terminalSnapshot:
+             .terminalSnapshot,
+             .terminalStreamChunk,
+             .terminalStreamStarted,
+             .terminalStreamStopped:
             true
         default:
             false
@@ -372,6 +417,9 @@ public extension WebSocketMessage {
         case .command: .command
         case .commandResponse: .commandResponse
         case .terminalSnapshot: .terminalSnapshot
+        case .terminalStreamChunk: .terminalStreamChunk
+        case .terminalStreamStarted: .terminalStreamStarted
+        case .terminalStreamStopped: .terminalStreamStopped
         default: nil
         }
     }

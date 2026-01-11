@@ -47,6 +47,18 @@ struct SessionDetailView: View {
                         }
                     )
                 }
+                .navigationDestination(item: $bindableService.streamInfo) { streamInfo in
+                    TerminalStreamView(
+                        paneId: streamInfo.paneId,
+                        initialWidth: streamInfo.width,
+                        initialHeight: streamInfo.height,
+                        onDisappear: {
+                            Task {
+                                await service.stopStreaming()
+                            }
+                        }
+                    )
+                }
             #endif
         } else {
             ContentUnavailableView(
@@ -63,6 +75,7 @@ struct SessionDetailView: View {
         List {
             // Terminal section
             Section {
+                watchLiveButton(service: service)
                 viewTerminalButton(service: service)
             } header: {
                 Text("Terminal")
@@ -125,6 +138,36 @@ struct SessionDetailView: View {
         }
     }
 
+    // MARK: - Watch Live Button
+
+    @ViewBuilder
+    private func watchLiveButton(service: SessionDetailService) -> some View {
+        Button {
+            Task {
+                await service.startStreaming()
+            }
+        } label: {
+            HStack {
+                Symbols.video.image
+                    .foregroundStyle(.red)
+                Text("Watch Live")
+                Spacer()
+
+                Text("LIVE")
+                    .font(.caption.bold())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.red)
+                    .clipShape(Capsule())
+
+                Symbols.arrowRight.image
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .disabled(!service.isMacConnected)
+    }
+
     // MARK: - View Terminal Button
 
     @ViewBuilder
@@ -141,7 +184,7 @@ struct SessionDetailView: View {
                 } else {
                     Symbols.terminal.image
                 }
-                Text("View Terminal")
+                Text("View Snapshot")
                 Spacer()
                 if !service.isLoadingSnapshot {
                     Symbols.arrowRight.image

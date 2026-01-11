@@ -63,6 +63,12 @@ final public class SessionDetailService {
     /// Response state for the current event
     public var responseState: ResponseState?
 
+    /// Whether streaming is currently active
+    public var isStreaming = false
+
+    /// Stream start information when streaming is active
+    public var streamInfo: TerminalStreamStarted?
+
     // MARK: - Initialization
 
     public init(paneId: String, sessionStore: SessionStore, relayClient: RelayClient) {
@@ -139,5 +145,27 @@ final public class SessionDetailService {
     /// Send a command to the Mac for this pane
     public func sendCommand(_ command: CommandType) async {
         await relayClient.sendCommand(CommandMessage(paneId: paneId, command: command))
+    }
+
+    /// Start streaming the terminal
+    public func startStreaming() async {
+        isStreaming = true
+
+        // Get default dimensions - will be updated when stream starts
+        streamInfo = TerminalStreamStarted(
+            commandId: UUID(),
+            paneId: paneId,
+            width: 80,
+            height: 24
+        )
+
+        await relayClient.startTerminalStream(paneId: paneId)
+    }
+
+    /// Stop streaming the terminal
+    public func stopStreaming() async {
+        await relayClient.stopTerminalStream(paneId: paneId)
+        isStreaming = false
+        streamInfo = nil
     }
 }
