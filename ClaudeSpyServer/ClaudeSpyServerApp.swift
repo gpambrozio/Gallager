@@ -6,6 +6,8 @@ import SwiftUI
 
 @main
 struct TmuxPaneMirrorApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     @State private var settings: AppSettings
     @State private var tmuxService: TmuxService
     @State private var windowManager: MirrorWindowManager
@@ -13,6 +15,7 @@ struct TmuxPaneMirrorApp: App {
     @State private var pairingManager: PairingManager?
     @State private var externalServerClient = ExternalServerClient()
     @State private var commandExecutor: TmuxCommandExecutor?
+    @State private var isInitialized = false
 
     private let hookServer = HookServerService()
 
@@ -39,17 +42,19 @@ struct TmuxPaneMirrorApp: App {
         MenuBarExtra {
             MenuBarView()
                 .environment(windowManager)
-                .task {
-                    // Initialize services from MenuBarExtra since it's always active
+        } label: {
+            MenuBarIcon()
+                .environment(windowManager)
+                .task(id: isInitialized) {
+                    // Initialize services on app launch (runs when label appears)
+                    guard !isInitialized else { return }
                     await setupWindowManagerHandlers()
                     await initializeServices()
                     await hookServer.startServer()
                     await setupExternalServerClient()
                     await autoConnectIfConfigured()
+                    isInitialized = true
                 }
-        } label: {
-            MenuBarIcon()
-                .environment(windowManager)
         }
 
         // Main window - hidden by default, opened from menu bar
@@ -321,4 +326,13 @@ private func handleSnapshotCommand(
 
 extension Notification.Name {
     static let refreshPaneList = Notification.Name("refreshPaneList")
+}
+
+// MARK: - App Delegate
+
+/// App delegate to handle app lifecycle events
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_: Notification) {
+        // App launched - initialization handled by SwiftUI task
+    }
 }
