@@ -13,7 +13,7 @@ struct TmuxPaneMirrorApp: App {
     @State private var windowManager: MirrorWindowManager
     @State private var e2eeService: E2EEService?
     @State private var pairingManager: PairingManager?
-    @State private var externalServerClient = ExternalServerClient()
+    @State private var externalServerClient: ExternalServerClient
     @State private var commandExecutor: TmuxCommandExecutor?
     @State private var isInitialized = false
 
@@ -35,6 +35,23 @@ struct TmuxPaneMirrorApp: App {
         // Create window manager eagerly so it's shared across all scenes
         let manager = MirrorWindowManager(settings: initialSettings, tmuxService: service)
         _windowManager = State(initialValue: manager)
+
+        // Create external server client and set up session state handler synchronously
+        // This ensures the handler is ready before any connection is established
+        let serverClient = ExternalServerClient()
+        _externalServerClient = State(initialValue: serverClient)
+
+        // Set up session state handler immediately
+        serverClient.setSessionStateHandler { [initialSettings, manager] in
+            let pairId = await initialSettings.pairId ?? ""
+            let sessions = await manager.activeSessions
+            let activePaneIds = await Array(manager.activeSessions.keys)
+            return SessionStateMessage(
+                pairId: pairId,
+                sessions: sessions,
+                activePanes: activePaneIds
+            )
+        }
     }
 
     var body: some Scene {
@@ -142,8 +159,8 @@ struct TmuxPaneMirrorApp: App {
     /// Sets up event handlers for the window manager
     /// Called once during app initialization from the MenuBarExtra's task
     private func setupWindowManagerHandlers() async {
-        // Set up session state handler for external server communication
-        setupSessionStateHandler(manager: windowManager)
+        // Note: Session state handler is set up in init() to ensure it's ready
+        // before any connection is established
 
         // Forward hook events to window manager AND external server
         // Capture strongly since these are held by @State and won't be deallocated
@@ -207,22 +224,6 @@ struct TmuxPaneMirrorApp: App {
         externalServerClient.setPartnerKeyHandler { [settings] publicKey, publicKeyId in
             settings.partnerPublicKey = publicKey
             settings.partnerPublicKeyId = publicKeyId
-        }
-    }
-
-    private func setupSessionStateHandler(manager: MirrorWindowManager) {
-        // Capture manager strongly since it's held by @State and won't be deallocated
-        externalServerClient.setSessionStateHandler { [settings, manager] in
-            // Access @MainActor properties
-            let pairId = await settings.pairId ?? ""
-            let sessions = await manager.activeSessions
-            // Use active session pane IDs, not window targets
-            let activePaneIds = await Array(manager.activeSessions.keys)
-            return SessionStateMessage(
-                pairId: pairId,
-                sessions: sessions,
-                activePanes: activePaneIds
-            )
         }
     }
 
