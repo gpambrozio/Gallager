@@ -6,19 +6,16 @@ import Logging
 actor RelayService {
     private let pairingService: PairingService
     private let connectionHub: ConnectionHub
-    private let pushTokenStore: PushTokenStore
     private let apnsService: APNsService?
     private let logger = Logger(label: "relay-service")
 
     init(
         pairingService: PairingService,
         connectionHub: ConnectionHub,
-        pushTokenStore: PushTokenStore,
         apnsService: APNsService?
     ) {
         self.pairingService = pairingService
         self.connectionHub = connectionHub
-        self.pushTokenStore = pushTokenStore
         self.apnsService = apnsService
     }
 
@@ -110,7 +107,7 @@ actor RelayService {
         case let .registerPushToken(tokenMessage):
             // Store push token for this pair
             logger.info("iOS registering push token", metadata: ["pairId": "\(pairId)"])
-            await pushTokenStore.registerToken(tokenMessage.deviceToken, for: pairId)
+            await pairingService.registerPushToken(tokenMessage.deviceToken, for: pairId)
             let response = PushTokenRegisteredMessage(success: true)
             await connectionHub.send(.pushTokenRegistered(response), to: pairId, deviceType: .ios)
 

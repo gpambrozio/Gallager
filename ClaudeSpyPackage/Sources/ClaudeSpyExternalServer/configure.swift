@@ -20,16 +20,13 @@ public func configure(_ app: Application) async throws {
     let pairingService = PairingService()
     let connectionHub = ConnectionHub()
 
-    // Initialize push notification services
-    let pushTokenStore = PushTokenStore()
-
     // Determine APNs environment from APNS_ENVIRONMENT variable (defaults to development)
     // Use "production" only when iOS app is distributed via App Store/TestFlight
     let apnsEnvString = ProcessInfo.processInfo.environment["APNS_ENVIRONMENT"] ?? "development"
     let apnsEnvironment: APNSEnvironment = apnsEnvString == "production" ? .production : .development
 
     let apnsService = await APNsService(
-        pushTokenStore: pushTokenStore,
+        pairingService: pairingService,
         connectionHub: connectionHub,
         environment: apnsEnvironment
     )
@@ -38,14 +35,12 @@ public func configure(_ app: Application) async throws {
     let relayService = RelayService(
         pairingService: pairingService,
         connectionHub: connectionHub,
-        pushTokenStore: pushTokenStore,
         apnsService: apnsService
     )
 
     // Store services in app storage
     app.storage[PairingServiceKey.self] = pairingService
     app.storage[ConnectionHubKey.self] = connectionHub
-    app.storage[PushTokenStoreKey.self] = pushTokenStore
     app.storage[APNsServiceKey.self] = apnsService
     app.storage[RelayServiceKey.self] = relayService
 
@@ -65,10 +60,6 @@ struct ConnectionHubKey: StorageKey {
 
 struct RelayServiceKey: StorageKey {
     typealias Value = RelayService
-}
-
-struct PushTokenStoreKey: StorageKey {
-    typealias Value = PushTokenStore
 }
 
 struct APNsServiceKey: StorageKey {
@@ -97,13 +88,6 @@ extension Application {
             fatalError("RelayService not configured. Call configure(_:) first.")
         }
         return service
-    }
-
-    var pushTokenStore: PushTokenStore {
-        guard let store = storage[PushTokenStoreKey.self] else {
-            fatalError("PushTokenStore not configured. Call configure(_:) first.")
-        }
-        return store
     }
 
     var apnsService: APNsService? {

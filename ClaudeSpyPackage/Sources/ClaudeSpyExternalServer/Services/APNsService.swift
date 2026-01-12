@@ -10,7 +10,7 @@ import NIOPosix
 /// Sends push notifications to iOS devices via APNs
 actor APNsService {
     private let client: APNSClient<JSONDecoder, JSONEncoder>?
-    private let pushTokenStore: PushTokenStore
+    private let pairingService: PairingService
     private let connectionHub: ConnectionHub
     private let logger = Logger(label: "apns-service")
     private let bundleId: String
@@ -18,7 +18,7 @@ actor APNsService {
     // MARK: - Initialization
 
     init(
-        pushTokenStore: PushTokenStore,
+        pairingService: PairingService,
         connectionHub: ConnectionHub,
         keyPath: String? = nil,
         keyId: String? = nil,
@@ -26,7 +26,7 @@ actor APNsService {
         bundleId: String? = nil,
         environment: APNSEnvironment = .development
     ) async {
-        self.pushTokenStore = pushTokenStore
+        self.pairingService = pairingService
         self.connectionHub = connectionHub
         self.bundleId = bundleId
             ?? ProcessInfo.processInfo.environment["APNS_BUNDLE_ID"]
@@ -100,7 +100,7 @@ actor APNsService {
             return
         }
 
-        guard let deviceToken = await pushTokenStore.getToken(for: pairId) else {
+        guard let deviceToken = await pairingService.getPushToken(for: pairId) else {
             logger.debug("No push token for pair", metadata: ["pairId": "\(pairId)"])
             return
         }
@@ -178,7 +178,7 @@ actor APNsService {
             if reason == "BadDeviceToken" || reason == "Unregistered" {
                 // Device token is no longer valid, remove it
                 Task {
-                    await pushTokenStore.removeToken(for: pairId)
+                    await pairingService.removePushToken(for: pairId)
                     logger.warning("Removed invalid push token for pair", metadata: ["pairId": "\(pairId)"])
                 }
             }
