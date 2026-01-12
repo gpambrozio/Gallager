@@ -74,8 +74,9 @@ final public class RemoteTerminalStreamManager {
 
                 // Chain sends to ensure ordering - wait for previous send before starting this one
                 let previousSend = pendingSend
-                pendingSend = Task {
+                pendingSend = Task { [weak client] in
                     await previousSend?.value
+                    guard !Task.isCancelled, let client else { return }
                     await client.sendTerminalStreamChunk(chunk)
                 }
             }
@@ -95,8 +96,8 @@ final public class RemoteTerminalStreamManager {
                     width: newWidth,
                     height: newHeight
                 )
-                Task {
-                    await client.sendTerminalStreamStarted(dimensionUpdate)
+                Task { [weak client] in
+                    await client?.sendTerminalStreamStarted(dimensionUpdate)
                 }
             }
 

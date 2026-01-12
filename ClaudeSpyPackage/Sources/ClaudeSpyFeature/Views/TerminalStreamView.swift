@@ -265,6 +265,7 @@
             let previousProcess = pendingProcess
             pendingProcess = Task {
                 await previousProcess?.value
+                guard !Task.isCancelled else { return }
                 processChunk(chunk)
             }
         }
@@ -369,11 +370,10 @@
             // Disable automatic content resizing (like Mac)
             scrollView.autoresizesSubviews = false
 
-            // Store reference for updateUIView
-            context.coordinator.terminalView = terminalView
-
             // Register terminal view with the stream coordinator
             // This will resize buffer and frame to match coordinator dimensions
+            // Also stores the reference in context.coordinator for updateUIView
+            context.coordinator.terminalView = terminalView
             coordinator.setTerminalView(terminalView, fontName: fontName, fontSize: fontSize)
 
             // Sync scroll view content size with terminal frame
