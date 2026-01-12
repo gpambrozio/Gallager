@@ -179,6 +179,8 @@
         private var pendingChunks: [TerminalStreamChunk] = []
         /// Whether we've received dimensions from TerminalStreamStarted
         private var dimensionsReceived = false
+        /// Whether we've fed any chunks yet (first chunk clears terminal)
+        private var hasReceivedFirstChunk = false
         /// Task chain to ensure chunks are processed in order
         private var pendingProcess: Task<Void, Never>?
 
@@ -247,9 +249,10 @@
         private func feedChunk(_ chunk: TerminalStreamChunk, to view: TerminalView) {
             guard let data = chunk.data else { return }
 
-            // Clear terminal before feeding initial content
+            // Clear terminal before feeding the first chunk
             // This matches how the Mac app handles initial stream content
-            if chunk.isInitial {
+            if !hasReceivedFirstChunk {
+                hasReceivedFirstChunk = true
                 let clearData = Data("\u{1b}[2J\u{1b}[H".utf8)
                 view.feed(byteArray: ArraySlice(clearData))
             }

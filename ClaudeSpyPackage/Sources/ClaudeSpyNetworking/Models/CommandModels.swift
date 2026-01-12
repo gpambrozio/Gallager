@@ -156,21 +156,16 @@ public struct TerminalStreamChunk: Codable, Sendable {
     /// The chunk of terminal data as Base64-encoded bytes (raw ANSI escape sequences)
     public let dataBase64: String
 
-    /// Whether this is the initial content (includes cursor positioning)
-    public let isInitial: Bool
-
     public init(
         paneId: String,
         width: Int,
         height: Int,
-        data: Data,
-        isInitial: Bool = false
+        data: Data
     ) {
         self.paneId = paneId
         self.width = width
         self.height = height
         self.dataBase64 = data.base64EncodedString()
-        self.isInitial = isInitial
     }
 
     /// Decodes the data from Base64

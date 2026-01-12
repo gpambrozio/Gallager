@@ -57,9 +57,6 @@ final public class RemoteTerminalStreamManager {
                 "dimensions": "\(dims.width)x\(dims.height)",
             ])
 
-            // Track whether we've sent the initial content
-            var sentInitialContent = false
-
             // Serial task to ensure chunks are sent in order
             // Each new chunk awaits the previous send before starting
             var pendingSend: Task<Void, Never>?
@@ -68,17 +65,11 @@ final public class RemoteTerminalStreamManager {
             stream.onData = { [weak self] data in
                 guard let self, let client = self.serverClient else { return }
 
-                // The first chunk is the initial terminal content (from capturePaneWithPositioning)
-                // Mark it as initial so iOS knows to clear the terminal first
-                let isInitial = !sentInitialContent
-                sentInitialContent = true
-
                 let chunk = TerminalStreamChunk(
                     paneId: paneId,
                     width: stream.width,
                     height: stream.height,
-                    data: data,
-                    isInitial: isInitial
+                    data: data
                 )
 
                 // Chain sends to ensure ordering - wait for previous send before starting this one
