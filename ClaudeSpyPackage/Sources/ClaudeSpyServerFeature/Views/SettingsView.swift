@@ -75,11 +75,12 @@ struct GeneralSettingsView: View {
                 Toggle("Auto-reconnect on connection loss", isOn: $settings.autoReconnect)
 
                 if settings.autoReconnect {
-                    HStack {
-                        Text("Reconnect delay")
-                        TextField("Seconds", value: $settings.reconnectDelay, format: .number)
-                            .frame(width: 60)
-                        Text("seconds")
+                    LabeledContent("Reconnect delay") {
+                        HStack {
+                            TextField("", value: $settings.reconnectDelay, format: .number)
+                                .frame(width: 60)
+                            Text("seconds")
+                        }
                     }
                 }
             }
