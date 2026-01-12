@@ -89,8 +89,6 @@ public enum CommandType: Codable, Sendable {
     case sendKeystroke([TmuxKey])
     /// Cancel current operation (Ctrl+C)
     case cancelOperation
-    /// Capture a terminal snapshot with scrollback (multiplier for visible height)
-    case captureSnapshot(scrollbackMultiplier: Int)
     /// Start streaming terminal content from a pane
     case startStream
     /// Stop streaming terminal content from a pane
@@ -139,51 +137,6 @@ public struct CommandResponseMessage: Codable, Sendable {
 
     public static func failure(for commandId: UUID, error: String) -> CommandResponseMessage {
         CommandResponseMessage(commandId: commandId, success: false, error: error)
-    }
-}
-
-// MARK: - Terminal Snapshot
-
-/// Response containing a terminal snapshot with content and dimensions
-public struct TerminalSnapshotMessage: Codable, Sendable, Identifiable, Hashable {
-    public var id: UUID { commandId }
-    /// The command ID this snapshot responds to
-    public let commandId: UUID
-
-    /// The pane ID that was captured
-    public let paneId: String
-
-    /// Terminal width in character columns
-    public let width: Int
-
-    /// Terminal height in character rows (visible area)
-    public let height: Int
-
-    /// Total number of lines including scrollback
-    public let totalLines: Int
-
-    /// The captured content as Base64-encoded data (raw bytes with ANSI escape sequences)
-    public let contentBase64: String
-
-    public init(
-        commandId: UUID,
-        paneId: String,
-        width: Int,
-        height: Int,
-        totalLines: Int,
-        content: Data
-    ) {
-        self.commandId = commandId
-        self.paneId = paneId
-        self.width = width
-        self.height = height
-        self.totalLines = totalLines
-        self.contentBase64 = content.base64EncodedString()
-    }
-
-    /// Decodes the content from Base64
-    public var content: Data? {
-        Data(base64Encoded: contentBase64)
     }
 }
 

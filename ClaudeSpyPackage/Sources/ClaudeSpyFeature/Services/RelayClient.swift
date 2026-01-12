@@ -126,9 +126,6 @@ final public class RelayClient {
     /// Pending command continuations keyed by command ID
     private var pendingCommands: [UUID: CheckedContinuation<Result<CommandResponseMessage, Error>, Never>] = [:]
 
-    /// Pending snapshot continuations keyed by command ID
-    private var pendingSnapshots: [UUID: CheckedContinuation<Result<TerminalSnapshotMessage, Error>, Never>] = [:]
-
     // MARK: - Callbacks
 
     /// Called when a hook event is received from Mac
@@ -139,9 +136,6 @@ final public class RelayClient {
 
     /// Called when a command response is received from Mac
     public var onCommandResponse: (@Sendable (CommandResponseMessage) -> Void)?
-
-    /// Called when a terminal snapshot is received from Mac
-    public var onTerminalSnapshot: (@Sendable (TerminalSnapshotMessage) -> Void)?
 
     /// Called when a terminal stream starts from Mac
     public var onTerminalStreamStarted: (@Sendable (TerminalStreamStarted) -> Void)?
@@ -311,38 +305,6 @@ final public class RelayClient {
             Task {
                 try? await Task.sleep(for: .seconds(timeout))
                 if let pendingContinuation = pendingCommands.removeValue(forKey: command.id) {
-                    pendingContinuation.resume(returning: .failure(RelayClientError.timeout))
-                }
-            }
-        }
-    }
-
-    /// Send a snapshot command and wait for the snapshot data
-    /// - Parameters:
-    ///   - command: The capture snapshot command
-    ///   - timeout: Maximum time to wait for snapshot (default: 15 seconds)
-    /// - Returns: Result containing TerminalSnapshotMessage or Error
-    public func sendSnapshotCommand(
-        _ command: CommandMessage,
-        timeout: TimeInterval = 15
-    ) async -> Result<TerminalSnapshotMessage, Error> {
-        guard state.isConnected else {
-            return .failure(RelayClientError.notConnected)
-        }
-
-        return await withCheckedContinuation { continuation in
-            // Store continuation for this command ID
-            pendingSnapshots[command.id] = continuation
-
-            // Send the command (encrypted)
-            Task {
-                await sendEncrypted(.command(command))
-            }
-
-            // Set up timeout
-            Task {
-                try? await Task.sleep(for: .seconds(timeout))
-                if let pendingContinuation = pendingSnapshots.removeValue(forKey: command.id) {
                     pendingContinuation.resume(returning: .failure(RelayClientError.timeout))
                 }
             }
@@ -602,15 +564,6 @@ final public class RelayClient {
             // Also call the legacy callback if set
             onCommandResponse?(response)
 
-        case let .terminalSnapshot(snapshot):
-            logger.info("Received terminal snapshot from Mac")
-            // Resume any pending continuation for this snapshot
-            if let continuation = pendingSnapshots.removeValue(forKey: snapshot.commandId) {
-                continuation.resume(returning: .success(snapshot))
-            }
-            // Also call the legacy callback if set
-            onTerminalSnapshot?(snapshot)
-
         case let .terminalStreamStarted(started):
             logger.info("Terminal stream started from Mac: \(started.paneId)")
             onTerminalStreamStarted?(started)
@@ -789,10 +742,5 @@ final public class RelayClient {
             continuation.resume(returning: .failure(RelayClientError.notConnected))
         }
         pendingCommands.removeAll()
-
-        for (_, continuation) in pendingSnapshots {
-            continuation.resume(returning: .failure(RelayClientError.notConnected))
-        }
-        pendingSnapshots.removeAll()
     }
 }

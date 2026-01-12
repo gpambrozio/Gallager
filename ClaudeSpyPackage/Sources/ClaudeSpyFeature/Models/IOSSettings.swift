@@ -64,12 +64,12 @@ final public class IOSSettings {
         didSet { UserDefaults.standard.set(autoReconnect, forKey: Keys.autoReconnect) }
     }
 
-    /// Font name for terminal snapshot display
+    /// Font name for terminal display
     public var terminalFontName: String {
         didSet { UserDefaults.standard.set(terminalFontName, forKey: Keys.terminalFontName) }
     }
 
-    /// Font size for terminal snapshot display
+    /// Font size for terminal display
     public var terminalFontSize: Double {
         didSet { UserDefaults.standard.set(terminalFontSize, forKey: Keys.terminalFontSize) }
     }

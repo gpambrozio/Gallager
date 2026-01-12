@@ -452,7 +452,7 @@ struct SettingsView: View {
             } header: {
                 Text("Terminal")
             } footer: {
-                Text("Customize the font used in terminal snapshots.")
+                Text("Customize the font used in the terminal view.")
             }
 
             // Server Section

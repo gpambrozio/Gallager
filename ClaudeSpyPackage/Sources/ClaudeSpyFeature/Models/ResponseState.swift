@@ -3,7 +3,7 @@ import Foundation
 import SwiftUI
 
 /// Manages the state of an event response (permission request, prompt, etc.)
-/// This allows response state to be shared between SessionDetailView and TerminalSnapshotView
+/// This allows response state to be shared between SessionDetailView and TerminalStreamView
 @MainActor
 @Observable
 final public class ResponseState {

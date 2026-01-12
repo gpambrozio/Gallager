@@ -5,7 +5,7 @@ import Observation
 /// Service managing state and logic for a single Claude session detail view.
 ///
 /// This service encapsulates business logic for displaying and interacting with a session,
-/// including terminal snapshots, response state management, and command sending.
+/// including live terminal streaming, response state management, and command sending.
 /// It provides a live view of the session data from SessionStore, avoiding staleness issues.
 ///
 /// The service uses `withObservationTracking` to reactively observe changes in `SessionStore`
@@ -50,15 +50,6 @@ final public class SessionDetailService {
     }
 
     // MARK: - Observable State
-
-    /// Whether a terminal snapshot is currently being loaded
-    public var isLoadingSnapshot = false
-
-    /// The loaded terminal snapshot, if any
-    public var terminalSnapshot: TerminalSnapshotMessage?
-
-    /// Error message from snapshot loading, if any
-    public var snapshotError: String?
 
     /// Response state for the current event
     public var responseState: ResponseState?
@@ -123,24 +114,6 @@ final public class SessionDetailService {
     }
 
     // MARK: - Actions
-
-    /// Request a terminal snapshot from the Mac
-    public func requestTerminalSnapshot() async {
-        isLoadingSnapshot = true
-        snapshotError = nil
-
-        let command = CommandMessage(paneId: paneId, command: .captureSnapshot(scrollbackMultiplier: 3))
-        let result = await relayClient.sendSnapshotCommand(command)
-
-        isLoadingSnapshot = false
-
-        switch result {
-        case let .success(snapshot):
-            terminalSnapshot = snapshot
-        case let .failure(error):
-            snapshotError = error.localizedDescription
-        }
-    }
 
     /// Send a command to the Mac for this pane
     public func sendCommand(_ command: CommandType) async {

@@ -10,6 +10,9 @@
         let paneId: String
         let initialWidth: Int
         let initialHeight: Int
+        @Binding var responseState: ResponseState?
+        let isConnected: Bool
+        let sendCommand: CommandSender
         let onDisappear: () -> Void
 
         @Environment(IOSSettings.self) private var settings
@@ -25,7 +28,7 @@
             case disconnected(reason: String?)
             case error(String)
 
-            var isConnected: Bool {
+            var isStreamConnected: Bool {
                 if case .connected = self { return true }
                 return false
             }
@@ -33,6 +36,24 @@
 
         var body: some View {
             VStack(spacing: 0) {
+                // Response view above terminal if available
+                if
+                    let responseState,
+                    let responseView = responseState.event.responseView(
+                        isConnected: isConnected,
+                        sendCommand: {
+                            await sendCommand($0)
+                            dismiss()
+                        },
+                        state: responseState
+                    ) {
+                    responseView
+                        .padding()
+                        .background(Color(.systemGroupedBackground))
+
+                    Divider()
+                }
+
                 // Status bar
                 streamStatusBar
 
@@ -79,7 +100,7 @@
 
                 Spacer()
 
-                if streamState.isConnected {
+                if streamState.isStreamConnected {
                     Text("LIVE")
                         .font(.caption.bold())
                         .foregroundStyle(.white)
@@ -292,6 +313,32 @@
                 paneId: "%1",
                 initialWidth: 80,
                 initialHeight: 24,
+                responseState: .constant(nil),
+                isConnected: true,
+                sendCommand: { _ in },
+                onDisappear: { }
+            )
+        }
+        .environment(IOSSettings.shared)
+        .environment(RelayClient())
+    }
+
+    #Preview("With Permission Request") {
+        let event = HookEvent(
+            action: .permissionRequest(PermissionRequestBody.preview),
+            projectPath: "/Users/test/Projects/TestProject",
+            tmuxPane: "%1"
+        )
+        var responseState: ResponseState? = ResponseState(event: event)
+
+        NavigationStack {
+            TerminalStreamView(
+                paneId: "%1",
+                initialWidth: 80,
+                initialHeight: 24,
+                responseState: Binding(get: { responseState }, set: { responseState = $0 }),
+                isConnected: true,
+                sendCommand: { _ in },
                 onDisappear: { }
             )
         }
