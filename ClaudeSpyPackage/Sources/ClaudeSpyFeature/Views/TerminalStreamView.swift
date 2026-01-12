@@ -265,7 +265,8 @@
             let cellSize = FontMetrics.calculateCellSize(fontName: fontName, fontSize: fontSize)
 
             // Calculate frame for the terminal
-            let exactWidth = CGFloat(coordinator.width) * cellSize.width
+            // Add horizontal buffer to match Mac's sizing (compensates for SwiftTerm internals)
+            let exactWidth = CGFloat(coordinator.width) * cellSize.width + FontMetrics.horizontalBuffer
             let exactHeight = CGFloat(coordinator.height) * cellSize.height
             let exactFrame = CGRect(x: 0, y: 0, width: exactWidth, height: exactHeight)
 
@@ -313,7 +314,7 @@
 
             // Update terminal frame if dimensions changed
             let cellSize = FontMetrics.calculateCellSize(fontName: fontName, fontSize: fontSize)
-            let newWidth = CGFloat(coordinator.width) * cellSize.width
+            let newWidth = CGFloat(coordinator.width) * cellSize.width + FontMetrics.horizontalBuffer
             let newHeight = CGFloat(coordinator.height) * cellSize.height
 
             if terminalView.frame.width != newWidth || terminalView.frame.height != newHeight {
