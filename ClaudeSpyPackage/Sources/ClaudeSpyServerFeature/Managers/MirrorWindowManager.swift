@@ -229,6 +229,22 @@ final public class MirrorWindowManager {
         Array(openWindows.keys).sorted()
     }
 
+    /// Number of sessions that need user attention
+    public var pendingSessionCount: Int {
+        activeSessions.values.filter(\.needsAttention).count
+    }
+
+    /// All sessions sorted with attention-needing sessions first
+    public var sortedSessions: [ClaudeSession] {
+        activeSessions.values.sorted {
+            // Attention-needing sessions come first, then sort by pane ID
+            if $0.needsAttention != $1.needsAttention {
+                return $0.needsAttention
+            }
+            return $0.paneId < $1.paneId
+        }
+    }
+
     /// Opens a mirror for the specified tmux pane by ID
     /// - Parameter paneId: The tmux pane ID (e.g., "%0", "%1")
     public func openMirrorForPane(_ paneId: String) async {

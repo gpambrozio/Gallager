@@ -8,11 +8,12 @@ import SwiftUI
 struct TmuxPaneMirrorApp: App {
     @State private var settings = AppSettings()
     @State private var tmuxService: TmuxService
-    @State private var windowManager: MirrorWindowManager?
+    @State private var windowManager: MirrorWindowManager
     @State private var e2eeService: E2EEService?
     @State private var pairingManager: PairingManager?
     @State private var externalServerClient = ExternalServerClient()
     @State private var commandExecutor: TmuxCommandExecutor?
+    @State private var isServiceSetupComplete = false
 
     private let hookServer = HookServerService()
 
@@ -28,23 +29,26 @@ struct TmuxPaneMirrorApp: App {
             socketPath: initialSettings.tmuxSocket.isEmpty ? nil : initialSettings.tmuxSocket
         )
         _tmuxService = State(initialValue: service)
+
+        // Create window manager upfront so MenuBarExtra can access it immediately
+        let manager = MirrorWindowManager(settings: initialSettings, tmuxService: service)
+        _windowManager = State(initialValue: manager)
     }
 
     var body: some Scene {
-        // Main window
-        WindowGroup {
+        // Main panes window - can be shown via menu bar "Show Panes Window"
+        Window("Panes", id: "panes") {
             ContentView()
                 .environment(settings)
                 .environment(tmuxService)
-                .environment(windowManager ?? createWindowManager())
+                .environment(windowManager)
                 .environment(pairingManager ?? createPairingManager())
                 .environment(externalServerClient)
                 .environment(\.e2eeService, e2eeService)
                 .task {
-                    await initializeServices()
-                    await hookServer.startServer()
-                    await setupExternalServerClient()
-                    await autoConnectIfConfigured()
+                    await setupAllServices()
+                    // Close the initial window after setup - app is menu bar driven
+                    closeInitialPanesWindow()
                 }
         }
         .commands {
@@ -58,7 +62,7 @@ struct TmuxPaneMirrorApp: App {
                 Divider()
 
                 Button("Close All Mirrors") {
-                    windowManager?.closeAll()
+                    windowManager.closeAll()
                 }
                 .keyboardShortcut("w", modifiers: [.command, .shift])
             }
@@ -81,9 +85,9 @@ struct TmuxPaneMirrorApp: App {
             CommandGroup(after: .windowList) {
                 Divider()
 
-                ForEach(windowManager?.mirroredTargets ?? [], id: \.self) { target in
+                ForEach(windowManager.mirroredTargets, id: \.self) { target in
                     Button(target) {
-                        windowManager?.bringToFront(target: target)
+                        windowManager.bringToFront(target: target)
                     }
                 }
             }
@@ -97,9 +101,43 @@ struct TmuxPaneMirrorApp: App {
                 .environment(externalServerClient)
                 .environment(\.e2eeService, e2eeService)
         }
+
+        // Menu bar extra - always visible, main entry point to the app
+        MenuBarExtra {
+            MenuBarExtraView()
+                .environment(windowManager)
+        } label: {
+            MenuBarLabel(pendingCount: windowManager.pendingSessionCount)
+        }
     }
 
-    // MARK: - Service Creation
+    // MARK: - Service Setup
+
+    /// Sets up all services. Called once when the app starts.
+    /// Uses isServiceSetupComplete to ensure it only runs once even if
+    /// the task is triggered multiple times.
+    private func setupAllServices() async {
+        guard !isServiceSetupComplete else { return }
+        isServiceSetupComplete = true
+
+        // Set up session state handler for external server
+        setupSessionStateHandler(manager: windowManager)
+
+        // Forward hook events to window manager AND external server
+        await hookServer.setEventHandler { [weak windowManager, weak externalServerClient] event in
+            // Handle locally
+            await windowManager?.handleHookEvent(event)
+
+            guard event.action.body.shouldSendToServer else { return }
+            // Forward to iOS via external server
+            await externalServerClient?.sendHookEvent(event)
+        }
+
+        await initializeServices()
+        await hookServer.startServer()
+        await setupExternalServerClient()
+        await autoConnectIfConfigured()
+    }
 
     private func initializeServices() async {
         // Create E2EEService if not already created
@@ -116,27 +154,6 @@ struct TmuxPaneMirrorApp: App {
         if let service = e2eeService, pairingManager == nil {
             pairingManager = PairingManager(settings: settings, e2eeService: service)
         }
-    }
-
-    private func createWindowManager() -> MirrorWindowManager {
-        let manager = MirrorWindowManager(settings: settings, tmuxService: tmuxService)
-        windowManager = manager
-
-        // Set up session state handler synchronously to avoid race with autoConnectIfConfigured
-        setupSessionStateHandler(manager: manager)
-
-        // Forward hook events to window manager AND external server (async setup is fine here)
-        Task { @MainActor in
-            await hookServer.setEventHandler { [weak manager, weak externalServerClient] event in
-                // Handle locally
-                await manager?.handleHookEvent(event)
-
-                guard event.action.body.shouldSendToServer else { return }
-                // Forward to iOS via external server
-                await externalServerClient?.sendHookEvent(event)
-            }
-        }
-        return manager
     }
 
     private func createPairingManager() -> PairingManager {
@@ -179,9 +196,6 @@ struct TmuxPaneMirrorApp: App {
             // Regular commands execute on the actor executor (background)
             return await executor.execute(command)
         }
-
-        // Session state handler needs to be set up after windowManager is created
-        // It will be set up in createWindowManager instead
 
         // Set up partner key handler to persist keys to settings
         externalServerClient.setPartnerKeyHandler { [settings] publicKey, publicKeyId in
@@ -299,6 +313,18 @@ private func handleSnapshotCommand(
     } catch {
         logger.error("Snapshot capture failed: \(error.localizedDescription)")
         return .failure(for: command.id, error: error.localizedDescription)
+    }
+}
+
+// MARK: - Window Management
+
+/// Closes the initial panes window on app launch.
+/// The app is menu bar driven, so we don't want the panes window showing by default.
+@MainActor
+private func closeInitialPanesWindow() {
+    // Find and close the Panes window
+    for window in NSApp.windows where window.title == "Panes" {
+        window.close()
     }
 }
 
