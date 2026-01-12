@@ -1,6 +1,7 @@
 import ClaudeSpyFeature
 import SwiftUI
 import UIKit
+import UserNotifications
 
 @main
 struct ClaudeSpyApp: App {
@@ -21,16 +22,18 @@ struct ClaudeSpyApp: App {
 
 // MARK: - App Delegate
 
-class AppDelegate: NSObject, UIApplicationDelegate {
+class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(
-        _ application: UIApplication,
-        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+        _: UIApplication,
+        didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        // Set ourselves as the notification center delegate to handle notification taps
+        UNUserNotificationCenter.current().delegate = self
         return true
     }
 
     func application(
-        _ application: UIApplication,
+        _: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
         Task { @MainActor in
@@ -39,11 +42,35 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     }
 
     func application(
-        _ application: UIApplication,
+        _: UIApplication,
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
         Task { @MainActor in
             PushNotificationService.shared.didFailToRegisterForRemoteNotifications(error: error)
         }
+    }
+
+    // MARK: - UNUserNotificationCenterDelegate
+
+    /// Called when user taps on a notification (app was in background or terminated)
+    func userNotificationCenter(
+        _: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        Task { @MainActor in
+            PushNotificationService.shared.handleNotificationResponse(response)
+        }
+        completionHandler()
+    }
+
+    /// Called when notification arrives while app is in foreground
+    func userNotificationCenter(
+        _: UNUserNotificationCenter,
+        willPresent _: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        // Show the notification even when app is in foreground (banner + sound)
+        completionHandler([.banner, .sound])
     }
 }

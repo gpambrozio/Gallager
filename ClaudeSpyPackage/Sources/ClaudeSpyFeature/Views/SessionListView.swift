@@ -15,6 +15,9 @@ struct SessionListView: View {
             }
         }
         .navigationTitle("Sessions")
+        .navigationDestination(for: String.self) { paneId in
+            SessionDetailView(paneId: paneId)
+        }
         .toolbar {
             #if os(iOS)
                 ToolbarItem(placement: .topBarTrailing) {
@@ -41,9 +44,6 @@ struct SessionListView: View {
                     )
                 }
             }
-        }
-        .navigationDestination(for: String.self) { paneId in
-            SessionDetailView(paneId: paneId)
         }
         .refreshable {
             await relayClient.requestSessionState()

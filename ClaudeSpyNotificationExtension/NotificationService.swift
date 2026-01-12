@@ -98,9 +98,12 @@ class NotificationService: UNNotificationServiceExtension {
             content.title = notificationContent.title
             content.body = notificationContent.body
 
-            // Optionally add additional context to userInfo
+            // Add context to userInfo for deep linking and analytics
             content.userInfo["eventType"] = notificationContent.eventType
             content.userInfo["decrypted"] = true
+            if let paneId = notificationContent.paneId {
+                content.userInfo["paneId"] = paneId
+            }
 
             contentHandler?(content)
         } catch let error as DecryptionError {
