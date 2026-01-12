@@ -17,7 +17,6 @@
 
         @Environment(IOSSettings.self) private var settings
         @Environment(RelayClient.self) private var relayClient
-        @Environment(\.dismiss) private var dismiss
 
         @State private var streamState: StreamState = .connecting
         @State private var terminalCoordinator: TerminalStreamCoordinator?
@@ -41,10 +40,7 @@
                     let responseState,
                     let responseView = responseState.event.responseView(
                         isConnected: isConnected,
-                        sendCommand: {
-                            await sendCommand($0)
-                            dismiss()
-                        },
+                        sendCommand: sendCommand,
                         state: responseState
                     ) {
                     responseView
@@ -72,13 +68,6 @@
             }
             .navigationTitle("Live Terminal")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-            }
             .task {
                 await setupStreaming()
             }
