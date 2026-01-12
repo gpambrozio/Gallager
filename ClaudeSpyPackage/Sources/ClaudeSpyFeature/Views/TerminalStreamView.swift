@@ -161,7 +161,9 @@
             relayClient.onTerminalStreamChunk = { [weak coordinator] chunk in
                 Task { @MainActor in
                     guard chunk.paneId == paneId else { return }
-                    coordinator?.feed(chunk: chunk)
+                    // Queue chunk for ordered processing - ensures chunks are processed
+                    // in order even if Tasks from multiple callbacks race
+                    coordinator?.queueChunk(chunk)
                 }
             }
 
@@ -188,6 +190,8 @@
         private var pendingChunks: [TerminalStreamChunk] = []
         /// Whether we've received dimensions from TerminalStreamStarted
         private var dimensionsReceived = false
+        /// Task chain to ensure chunks are processed in order
+        private var pendingProcess: Task<Void, Never>?
 
         init(width: Int, height: Int) {
             self.width = width
@@ -216,7 +220,18 @@
             flushPendingChunks()
         }
 
-        func feed(chunk: TerminalStreamChunk) {
+        /// Queue a chunk for ordered processing
+        /// This ensures chunks are processed in the order they arrive, even if
+        /// the calling Tasks complete out of order
+        func queueChunk(_ chunk: TerminalStreamChunk) {
+            let previousProcess = pendingProcess
+            pendingProcess = Task {
+                await previousProcess?.value
+                feed(chunk: chunk)
+            }
+        }
+
+        private func feed(chunk: TerminalStreamChunk) {
             // Buffer chunks until we have dimensions AND terminal view
             guard dimensionsReceived, let view = terminalView else {
                 pendingChunks.append(chunk)
