@@ -208,11 +208,9 @@
             self.height = height
             dimensionsReceived = true
 
-            // Resize the terminal to match pane dimensions
-            terminalView?.resize(
-                cols: width,
-                rows: height
-            )
+            // Resize the terminal's internal buffer to match pane dimensions
+            // This matches how Mac mirror handles resize via getTerminal().resize()
+            terminalView?.getTerminal().resize(cols: width, rows: height)
 
             // Now that we have correct dimensions, flush pending chunks
             flushPendingChunks()
@@ -223,6 +221,11 @@
             guard dimensionsReceived, let view = terminalView else {
                 pendingChunks.append(chunk)
                 return
+            }
+
+            // Check if dimensions changed (e.g., terminal was resized)
+            if chunk.width != width || chunk.height != height {
+                updateDimensions(width: chunk.width, height: chunk.height)
             }
 
             feedChunk(chunk, to: view)

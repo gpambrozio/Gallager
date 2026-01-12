@@ -82,12 +82,23 @@ final public class RemoteTerminalStreamManager {
             }
 
             stream.onDimensionChange = { [weak self] newWidth, newHeight in
-                guard let self else { return }
+                guard let self, let client = self.serverClient else { return }
                 self.logger.debug("Dimensions changed", metadata: [
                     "paneId": "\(paneId)",
                     "newWidth": "\(newWidth)",
                     "newHeight": "\(newHeight)",
                 ])
+
+                // Notify iOS of dimension change so it can resize the terminal
+                let dimensionUpdate = TerminalStreamStarted(
+                    commandId: commandId,
+                    paneId: paneId,
+                    width: newWidth,
+                    height: newHeight
+                )
+                Task {
+                    await client.sendTerminalStreamStarted(dimensionUpdate)
+                }
             }
 
             // NOW connect and start streaming (this sends initial content)
