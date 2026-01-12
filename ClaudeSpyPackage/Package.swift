@@ -65,7 +65,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/nicklockwood/SwiftFormat", from: "0.53.0"),
         .package(url: "https://github.com/gpambrozio/SFSymbolsMacro", branch: "swift-syntax-602"),
-        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.2.0"),
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", revision: "e468331b454ee171a5218ee2c3dd5b41897b50e5"), // v1.8.0
         .package(url: "https://github.com/vapor/vapor", from: "4.0.0"),
         .package(url: "https://github.com/vapor/apns.git", from: "4.0.0"),
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
