@@ -60,6 +60,10 @@ final public class RemoteTerminalStreamManager {
             // Track whether we've sent the initial content
             var sentInitialContent = false
 
+            // Serial task to ensure chunks are sent in order
+            // Each new chunk awaits the previous send before starting
+            var pendingSend: Task<Void, Never>?
+
             // Set up callbacks to forward data to iOS
             stream.onData = { [weak self] data in
                 guard let self, let client = self.serverClient else { return }
@@ -76,7 +80,11 @@ final public class RemoteTerminalStreamManager {
                     data: data,
                     isInitial: isInitial
                 )
-                Task {
+
+                // Chain sends to ensure ordering - wait for previous send before starting this one
+                let previousSend = pendingSend
+                pendingSend = Task {
+                    await previousSend?.value
                     await client.sendTerminalStreamChunk(chunk)
                 }
             }
