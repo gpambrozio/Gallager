@@ -70,6 +70,8 @@ struct GeneralSettingsView: View {
 
                 Toggle("Show status bar", isOn: $settings.showStatusBar)
 
+                Toggle("Auto-open mirror on session start", isOn: $settings.autoOpenMirrorOnSession)
+
                 Toggle("Auto-reconnect on connection loss", isOn: $settings.autoReconnect)
 
                 if settings.autoReconnect {
