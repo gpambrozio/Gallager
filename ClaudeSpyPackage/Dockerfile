@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.4
 
 # Build stage
-FROM swift:6.0-jammy AS builder
+FROM swift:6.1-jammy AS builder
 
 WORKDIR /build
 
@@ -34,7 +34,7 @@ RUN --mount=type=cache,target=/build/.build \
     cp .build/release/ClaudeSpyExternalServer /tmp/
 
 # Runtime stage - use slim image
-FROM swift:6.0-jammy-slim
+FROM swift:6.1-jammy-slim
 
 WORKDIR /app
 
