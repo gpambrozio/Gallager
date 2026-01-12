@@ -168,19 +168,30 @@
         }
     }
 
-    /// Coordinator that manages the terminal view and receives streaming updates
+    /// Coordinator that manages the terminal view and receives streaming updates.
+    /// Modeled after Mac's TerminalController for consistent behavior.
     @MainActor
     final class TerminalStreamCoordinator: ObservableObject {
         /// Published so SwiftUI updates the frame when dimensions change
         @Published private(set) var width: Int
         @Published private(set) var height: Int
+
+        /// The underlying SwiftTerm terminal view
         private var terminalView: TerminalView?
+
+        /// Font settings for frame calculations
+        private var fontName = "SF Mono"
+        private var fontSize: CGFloat = 12
+
         /// Chunks buffered before terminal is ready or dimensions received
         private var pendingChunks: [TerminalStreamChunk] = []
+
         /// Whether we've received dimensions from TerminalStreamStarted
         private var dimensionsReceived = false
-        /// Whether we've fed any chunks yet (first chunk clears terminal)
-        private var hasReceivedFirstChunk = false
+
+        /// Whether we've cleared the terminal (happens once when ready)
+        private var hasCleared = false
+
         /// Task chain to ensure chunks are processed in order
         private var pendingProcess: Task<Void, Never>?
 
@@ -189,145 +200,204 @@
             self.height = height
         }
 
-        func setTerminalView(_ view: TerminalView) {
+        /// Registers the terminal view and ensures it's properly configured.
+        /// Called from makeUIView after terminal creation.
+        func setTerminalView(_ view: TerminalView, fontName: String, fontSize: CGFloat) {
             terminalView = view
+            self.fontName = fontName
+            self.fontSize = fontSize
 
-            // If dimensions received, flush any pending chunks
+            // Always ensure buffer matches our dimensions (like Mac's resize)
+            view.getTerminal().resize(cols: width, rows: height)
+
+            // Update the pixel frame to match
+            updateTerminalFrameSize()
+
+            // If dimensions already received, we're ready to process data
             if dimensionsReceived {
+                // Clear once when terminal is ready (handles race where dimensions arrived first)
+                clearOnceIfNeeded()
                 flushPendingChunks()
             }
         }
 
+        /// Updates dimensions when TerminalStreamStarted is received.
+        /// Resizes both buffer AND frame synchronously (like Mac's resize method).
         func updateDimensions(width: Int, height: Int) {
             self.width = width
             self.height = height
             dimensionsReceived = true
 
-            // Resize the terminal's internal buffer to match pane dimensions
-            // This matches how Mac mirror handles resize via getTerminal().resize()
-            terminalView?.getTerminal().resize(cols: width, rows: height)
+            guard let view = terminalView else {
+                // Terminal not ready yet - dimensions will be applied in setTerminalView
+                return
+            }
 
-            // Now that we have correct dimensions, flush pending chunks
+            // Resize the terminal's internal buffer
+            view.getTerminal().resize(cols: width, rows: height)
+
+            // Update the pixel frame to match (synchronous, like Mac)
+            updateTerminalFrameSize()
+
+            // Clear once when terminal is ready (like Mac pattern)
+            clearOnceIfNeeded()
+
+            // Flush any buffered chunks
             flushPendingChunks()
         }
 
-        /// Queue a chunk for ordered processing
-        /// This ensures chunks are processed in the order they arrive, even if
-        /// the calling Tasks complete out of order
+        /// Clears the terminal display (matches Mac's clear method)
+        func clear() {
+            guard let view = terminalView else { return }
+            let clearSequence = Data("\u{1b}[2J\u{1b}[H".utf8)
+            view.feed(byteArray: ArraySlice(clearSequence))
+        }
+
+        /// Feeds raw data to the terminal (matches Mac's feed method)
+        func feed(_ data: Data) {
+            guard let view = terminalView else { return }
+            view.feed(byteArray: ArraySlice(data))
+        }
+
+        /// Queue a chunk for ordered processing.
+        /// Ensures chunks are processed in order even if Tasks race.
         func queueChunk(_ chunk: TerminalStreamChunk) {
             let previousProcess = pendingProcess
             pendingProcess = Task {
                 await previousProcess?.value
-                feed(chunk: chunk)
+                processChunk(chunk)
             }
         }
 
-        private func feed(chunk: TerminalStreamChunk) {
+        // MARK: - Private Methods
+
+        /// Clears the terminal once when it's ready to receive data.
+        /// Called from both setTerminalView and updateDimensions to handle race conditions.
+        private func clearOnceIfNeeded() {
+            guard !hasCleared else { return }
+            hasCleared = true
+            clear()
+        }
+
+        /// Updates the terminal frame size based on current font and dimensions.
+        /// Matches Mac's updateTerminalFrameSize method.
+        private func updateTerminalFrameSize() {
+            guard let view = terminalView else { return }
+
+            let cellSize = FontMetrics.calculateCellSize(fontName: fontName, fontSize: fontSize)
+
+            // Calculate required size (matches Mac calculation)
+            let frameWidth = CGFloat(width) * cellSize.width + FontMetrics.horizontalBuffer
+            let frameHeight = CGFloat(height) * cellSize.height
+
+            view.frame = CGRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
+        }
+
+        /// Processes a single chunk, buffering if not ready
+        private func processChunk(_ chunk: TerminalStreamChunk) {
             // Buffer chunks until we have dimensions AND terminal view
-            guard dimensionsReceived, let view = terminalView else {
+            guard dimensionsReceived, terminalView != nil else {
                 pendingChunks.append(chunk)
                 return
             }
 
-            // Check if dimensions changed (e.g., terminal was resized)
+            // Check if dimensions changed (e.g., terminal was resized on Mac)
             if chunk.width != width || chunk.height != height {
                 updateDimensions(width: chunk.width, height: chunk.height)
             }
 
-            feedChunk(chunk, to: view)
+            // Feed the data
+            if let data = chunk.data {
+                feed(data)
+            }
         }
 
         private func flushPendingChunks() {
-            guard let view = terminalView, dimensionsReceived else { return }
+            guard terminalView != nil, dimensionsReceived else { return }
 
             for chunk in pendingChunks {
-                feedChunk(chunk, to: view)
+                if let data = chunk.data {
+                    feed(data)
+                }
             }
             pendingChunks.removeAll()
         }
-
-        private func feedChunk(_ chunk: TerminalStreamChunk, to view: TerminalView) {
-            guard let data = chunk.data else { return }
-
-            // Clear terminal before feeding the first chunk
-            // This matches how the Mac app handles initial stream content
-            if !hasReceivedFirstChunk {
-                hasReceivedFirstChunk = true
-                let clearData = Data("\u{1b}[2J\u{1b}[H".utf8)
-                view.feed(byteArray: ArraySlice(clearData))
-            }
-
-            view.feed(byteArray: ArraySlice(data))
-        }
     }
 
-    /// SwiftUI wrapper around SwiftTerm's TerminalView for streaming
+    /// SwiftUI wrapper around SwiftTerm's TerminalView for streaming.
+    /// Modeled after Mac's TerminalContainerView for consistent behavior.
     private struct TerminalStreamContainerView: UIViewRepresentable {
         @ObservedObject var coordinator: TerminalStreamCoordinator
         let fontName: String
         let fontSize: CGFloat
 
         func makeUIView(context: Context) -> UIScrollView {
-            // Use FontMetrics to calculate cell size
-            let cellSize = FontMetrics.calculateCellSize(fontName: fontName, fontSize: fontSize)
-
-            // Calculate frame for the terminal
-            // Add horizontal buffer to match Mac's sizing (compensates for SwiftTerm internals)
-            let exactWidth = CGFloat(coordinator.width) * cellSize.width + FontMetrics.horizontalBuffer
-            let exactHeight = CGFloat(coordinator.height) * cellSize.height
-            let exactFrame = CGRect(x: 0, y: 0, width: exactWidth, height: exactHeight)
-
-            // Create the terminal with the exact frame
+            // Create terminal with initial frame (will be resized by coordinator)
+            let initialFrame = CGRect(x: 0, y: 0, width: 800, height: 600)
             let font = UIFont(name: fontName, size: fontSize)
                 ?? UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
-            let terminalView = TerminalView(frame: exactFrame, font: font)
+            let terminalView = TerminalView(frame: initialFrame, font: font)
 
-            // Set dark theme colors
-            terminalView.nativeForegroundColor = UIColor(white: 0.9, alpha: 1)
-            terminalView.nativeBackgroundColor = UIColor.black
+            // Set dark theme colors (matches Mac's applyDarkTheme)
+            let bgColor = UIColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
+            terminalView.nativeForegroundColor = UIColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1)
+            terminalView.nativeBackgroundColor = bgColor
 
             // Disable TerminalView's own scrolling since we wrap it
             terminalView.isScrollEnabled = false
             terminalView.contentOffset = .zero
+
+            // Disable automatic content resizing - we want fixed terminal size (like Mac)
+            terminalView.autoresizingMask = []
+
+            // Hide input assistant (keyboard suggestions)
             terminalView.inputAssistantItem.leadingBarButtonGroups = []
             terminalView.inputAssistantItem.trailingBarButtonGroups = []
 
-            // Create scroll view wrapper
+            // Create scroll view wrapper (matches Mac's scroll view setup)
             let scrollView = UIScrollView()
-            scrollView.backgroundColor = .black
+            scrollView.backgroundColor = bgColor
             scrollView.addSubview(terminalView)
-            scrollView.contentSize = exactFrame.size
             scrollView.showsHorizontalScrollIndicator = true
             scrollView.showsVerticalScrollIndicator = true
             scrollView.alwaysBounceVertical = true
             scrollView.alwaysBounceHorizontal = false
 
-            // Store references
+            // Ensure no automatic content insets (like Mac)
+            scrollView.contentInsetAdjustmentBehavior = .never
+
+            // Disable automatic content resizing (like Mac)
+            scrollView.autoresizesSubviews = false
+
+            // Store reference for updateUIView
             context.coordinator.terminalView = terminalView
-            context.coordinator.scrollView = scrollView
 
             // Register terminal view with the stream coordinator
-            coordinator.setTerminalView(terminalView)
+            // This will resize buffer and frame to match coordinator dimensions
+            coordinator.setTerminalView(terminalView, fontName: fontName, fontSize: fontSize)
+
+            // Sync scroll view content size with terminal frame
+            scrollView.contentSize = terminalView.frame.size
 
             return scrollView
         }
 
         func updateUIView(_ scrollView: UIScrollView, context: Context) {
-            // Auto-scroll to bottom when new content arrives
             guard let terminalView = context.coordinator.terminalView else { return }
 
-            // Check if user is near the bottom (within 50 pixels)
-            let nearBottom = scrollView.contentOffset.y >= scrollView.contentSize.height - scrollView.bounds.height - 50
-
-            // Update terminal frame if dimensions changed
-            let cellSize = FontMetrics.calculateCellSize(fontName: fontName, fontSize: fontSize)
-            let newWidth = CGFloat(coordinator.width) * cellSize.width + FontMetrics.horizontalBuffer
-            let newHeight = CGFloat(coordinator.height) * cellSize.height
-
-            if terminalView.frame.width != newWidth || terminalView.frame.height != newHeight {
-                terminalView.frame = CGRect(x: 0, y: 0, width: newWidth, height: newHeight)
+            // Sync scroll view content size with terminal frame
+            // (coordinator handles frame updates via updateTerminalFrameSize)
+            if scrollView.contentSize != terminalView.frame.size {
                 scrollView.contentSize = terminalView.frame.size
             }
+
+            // Auto-scroll: check if user is near the bottom
+            let cellSize = FontMetrics.calculateCellSize(fontName: fontName, fontSize: fontSize)
+            let lineHeight = cellSize.height
+            let scrollThreshold = lineHeight * 2 // Two lines tolerance
+
+            let nearBottom = scrollView.contentOffset.y >=
+                scrollView.contentSize.height - scrollView.bounds.height - scrollThreshold
 
             // Auto-scroll to bottom if user was near bottom
             if nearBottom {
@@ -343,7 +413,6 @@
         @MainActor
         class Coordinator {
             var terminalView: TerminalView?
-            var scrollView: UIScrollView?
         }
     }
 
