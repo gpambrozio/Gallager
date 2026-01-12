@@ -103,7 +103,8 @@ public struct ContentView: View {
                         if let notification = event.buildNotification() {
                             PushNotificationService.shared.scheduleLocalNotification(
                                 title: notification.title,
-                                body: notification.body
+                                body: notification.body,
+                                paneId: event.event.tmuxPane
                             )
                         }
                     }
@@ -254,6 +255,11 @@ struct MainView: View {
     @Environment(\.e2eeService) private var e2eeService
 
     @State private var selectedTab: Tab = .sessions
+    @State private var sessionsNavigationPath = NavigationPath()
+
+    #if os(iOS)
+        @State private var pushService = PushNotificationService.shared
+    #endif
 
     enum Tab {
         case sessions
@@ -262,7 +268,7 @@ struct MainView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            NavigationStack {
+            NavigationStack(path: $sessionsNavigationPath) {
                 SessionListView()
             }
             .tabItem {
@@ -281,7 +287,44 @@ struct MainView: View {
         .task {
             await connectIfNeeded()
         }
+        #if os(iOS)
+        .onChange(of: pushService.pendingDeepLinkPaneId) { _, paneId in
+            handleDeepLink(paneId: paneId)
+        }
+        .onAppear {
+            // Check for pending deep link when view appears (e.g., app launched from notification)
+            if let paneId = pushService.consumePendingDeepLink() {
+                handleDeepLink(paneId: paneId)
+            }
+        }
+        #endif
     }
+
+    #if os(iOS)
+        /// Navigate to a specific session when a deep link is received.
+        ///
+        /// Note: If the session no longer exists (e.g., notification was delayed and session ended),
+        /// SessionDetailView will show an appropriate empty state.
+        private func handleDeepLink(paneId: String?) {
+            guard let paneId else { return }
+
+            // Clear the pending deep link. This is intentionally called here even though
+            // onAppear may have already consumed it—ensures state is cleared regardless
+            // of which code path triggered the navigation.
+            _ = pushService.consumePendingDeepLink()
+
+            // Switch to sessions tab
+            selectedTab = .sessions
+
+            // Navigate to the session detail after a brief delay. This delay is necessary
+            // because NavigationStack may ignore path appends if the tab transition hasn't
+            // completed. 100ms provides reliable behavior across device types.
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(100))
+                sessionsNavigationPath.append(paneId)
+            }
+        }
+    #endif
 
     private func connectIfNeeded() async {
         // Connect if paired but not already connected

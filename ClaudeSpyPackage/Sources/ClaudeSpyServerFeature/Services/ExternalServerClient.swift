@@ -306,6 +306,7 @@ final public class ExternalServerClient {
             body: notification.body,
             eventType: event.action.eventName,
             pairId: pairId,
+            paneId: event.tmuxPane,
             timestamp: event.timestamp
         )
 
