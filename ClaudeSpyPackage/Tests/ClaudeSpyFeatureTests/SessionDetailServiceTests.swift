@@ -87,9 +87,8 @@ struct SessionDetailServiceTests {
         #expect(service.responseState?.event.id == event.id)
     }
 
-    // TODO: This test is flaky due to observation tracking timing issues.
-    // The withObservationTracking callback may not fire reliably in test context.
-    // See: SessionDetailService.startObservingSessionStore()
+    // This test is disabled because withObservationTracking callbacks
+    // may not fire reliably in test context.
     @Test("Response state updates when latest event changes", .disabled("Flaky: observation tracking timing"))
     func responseStateUpdatesWithNewEvent() async throws {
         let sessionStore = SessionStore()

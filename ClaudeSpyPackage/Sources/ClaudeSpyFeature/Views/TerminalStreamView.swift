@@ -184,6 +184,8 @@
         private(set) var height: Int
         private var terminalView: TerminalView?
         private var pendingData: [Data] = []
+        /// Track if we need to clear terminal when it becomes available
+        private var pendingClear = false
 
         init(width: Int, height: Int) {
             self.width = width
@@ -192,6 +194,13 @@
 
         func setTerminalView(_ view: TerminalView) {
             terminalView = view
+
+            // Clear terminal first if initial content was buffered
+            if pendingClear {
+                let clearData = Data("\u{1b}[2J\u{1b}[H".utf8)
+                view.feed(byteArray: ArraySlice(clearData))
+                pendingClear = false
+            }
 
             // Feed any pending data
             for data in pendingData {
@@ -213,10 +222,21 @@
                 updateDimensions(width: chunk.width, height: chunk.height)
             }
 
+            // Clear terminal before feeding initial content
+            // This matches how the Mac app handles initial stream content
+            if chunk.isInitial, let view = terminalView {
+                let clearData = Data("\u{1b}[2J\u{1b}[H".utf8)
+                view.feed(byteArray: ArraySlice(clearData))
+            }
+
             if let view = terminalView {
                 view.feed(byteArray: ArraySlice(data))
             } else {
                 // Buffer data until terminal view is ready
+                // Track if this is initial content so we clear when terminal is available
+                if chunk.isInitial {
+                    pendingClear = true
+                }
                 pendingData.append(data)
             }
         }

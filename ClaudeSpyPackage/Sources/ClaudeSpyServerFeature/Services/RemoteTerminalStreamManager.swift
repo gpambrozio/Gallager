@@ -38,15 +38,24 @@ final public class RemoteTerminalStreamManager {
         // Create a PaneStream for this pane
         let stream = PaneStream(target: paneId, tmuxService: tmuxService)
 
+        // Track whether we've sent the initial content
+        var sentInitialContent = false
+
         // Set up callbacks to forward data to iOS
         stream.onData = { [weak self] data in
             guard let self, let client = self.serverClient else { return }
+
+            // The first chunk is the initial terminal content (from capturePaneWithPositioning)
+            // Mark it as initial so iOS knows to clear the terminal first
+            let isInitial = !sentInitialContent
+            sentInitialContent = true
+
             let chunk = TerminalStreamChunk(
                 paneId: paneId,
                 width: stream.width,
                 height: stream.height,
                 data: data,
-                isInitial: false
+                isInitial: isInitial
             )
             Task {
                 await client.sendTerminalStreamChunk(chunk)
