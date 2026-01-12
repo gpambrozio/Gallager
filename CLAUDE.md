@@ -76,6 +76,8 @@ Use: `Symbols.starFill.image` or `Label("Text", symbol: .starFill)`
 
 Use XcodeBuildTools skills. Scheme: `ClaudeSpyServer` (macOS), `ClaudeSpy` (iOS).
 
+**Killing Mac app:** Use `osascript -e 'quit app "ClaudeSpyServer"'` — `pkill`/`killall` don't work reliably.
+
 ## Reference Docs
 
 - **Code examples:** `docs/swift-patterns.md` - SwiftUI patterns, Sendable, testing
