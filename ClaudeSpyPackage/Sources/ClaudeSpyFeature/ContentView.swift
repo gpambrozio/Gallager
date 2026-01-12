@@ -252,6 +252,7 @@ public struct ContentView: View {
 struct MainView: View {
     @Environment(IOSSettings.self) private var settings
     @Environment(RelayClient.self) private var relayClient
+    @Environment(SessionStore.self) private var sessionStore
     @Environment(\.e2eeService) private var e2eeService
 
     @State private var selectedTab: Tab = .sessions
@@ -305,16 +306,17 @@ struct MainView: View {
         private func handleDeepLink(paneId: String?) {
             guard let paneId else { return }
 
-            // Clear the pending deep link
-            _ = pushService.consumePendingDeepLink()
+            // Validate session exists before navigating (notification may be stale)
+            guard sessionStore.session(for: paneId) != nil else { return }
 
             // Switch to sessions tab
             selectedTab = .sessions
 
-            // Navigate to the session detail
-            // Give a brief delay for tab switch animation
+            // Navigate to the session detail after a brief delay to allow TabView
+            // to complete its transition. Without this delay, NavigationStack may
+            // ignore the append if the tab isn't fully active yet.
             Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(100))
+                try? await Task.sleep(for: .milliseconds(50))
                 sessionsNavigationPath.append(paneId)
             }
         }
