@@ -137,28 +137,14 @@ final public class RelayClient {
     /// Called when session state is received from Mac
     public var onSessionState: (@Sendable (SessionStateMessage) -> Void)?
 
-    /// Called when a command response is received from Mac
-    public var onCommandResponse: (@Sendable (CommandResponseMessage) -> Void)?
-
-    /// Called when Mac connection status changes
-    public var onMacConnectionChange: (@Sendable (Bool) -> Void)?
-
     /// Called when partner's public key is received (for persisting to settings)
-    private var onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)?
+    public var onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)?
 
     // MARK: - Initialization
 
     public init() { }
 
     // MARK: - Configuration
-
-    /// Set the handler for when partner's public key is received.
-    /// Parameters are (publicKey: Base64, publicKeyId: String).
-    public func setPartnerKeyHandler(
-        _ handler: @escaping @MainActor @Sendable (String, String) async -> Void
-    ) {
-        onPartnerKeyReceived = handler
-    }
 
     // MARK: - Connection Management
 
@@ -503,7 +489,6 @@ final public class RelayClient {
                 state = .connected
                 connectedMacName = response.macDeviceName
                 isMacConnected = response.macDeviceName != nil
-                onMacConnectionChange?(isMacConnected)
 
                 // Establish E2EE session if Mac is connected and we have their public key
                 if
@@ -559,8 +544,6 @@ final public class RelayClient {
                     continuation.resume(returning: .failure(RelayClientError.commandFailed(response.error ?? "Unknown error")))
                 }
             }
-            // Also call the legacy callback if set
-            onCommandResponse?(response)
 
         case let .terminalSnapshot(snapshot):
             logger.info("Received terminal snapshot from Mac")
@@ -572,7 +555,6 @@ final public class RelayClient {
         case let .macConnected(connectedMessage):
             logger.info("Mac device connected")
             isMacConnected = true
-            onMacConnectionChange?(true)
 
             // Establish E2EE session with Mac's public key
             let macPublicKey = connectedMessage.publicKey
@@ -607,7 +589,6 @@ final public class RelayClient {
             logger.info("Mac device disconnected")
             isMacConnected = false
             connectedMacName = nil
-            onMacConnectionChange?(false)
 
         case .ping:
             await send(.pong)
@@ -681,7 +662,6 @@ final public class RelayClient {
     private func handleDisconnection() async {
         isMacConnected = false
         connectedMacName = nil
-        onMacConnectionChange?(false)
 
         await cleanupConnection()
 

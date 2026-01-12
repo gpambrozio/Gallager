@@ -118,15 +118,8 @@ public struct ContentView: View {
             }
         }
 
-        relayClient.onMacConnectionChange = { connected in
-            // Mac connection status changed
-            // Could clear sessions on disconnect if desired:
-            // sessionStore.clearOnDisconnect()
-            _ = connected
-        }
-
         // Set up partner key handler to persist Mac's public key for reconnection
-        relayClient.setPartnerKeyHandler { [settings] publicKey, publicKeyId in
+        relayClient.onPartnerKeyReceived = { [settings] publicKey, publicKeyId in
             settings.partnerPublicKey = publicKey
             settings.partnerPublicKeyId = publicKeyId
         }
