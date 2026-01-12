@@ -180,12 +180,14 @@
     /// Coordinator that manages the terminal view and receives streaming updates
     @MainActor
     final class TerminalStreamCoordinator: ObservableObject {
-        private(set) var width: Int
-        private(set) var height: Int
+        /// Published so SwiftUI updates the frame when dimensions change
+        @Published private(set) var width: Int
+        @Published private(set) var height: Int
         private var terminalView: TerminalView?
-        private var pendingData: [Data] = []
-        /// Track if we need to clear terminal when it becomes available
-        private var pendingClear = false
+        /// Chunks buffered before terminal is ready or dimensions received
+        private var pendingChunks: [TerminalStreamChunk] = []
+        /// Whether we've received dimensions from TerminalStreamStarted
+        private var dimensionsReceived = false
 
         init(width: Int, height: Int) {
             self.width = width
@@ -195,50 +197,57 @@
         func setTerminalView(_ view: TerminalView) {
             terminalView = view
 
-            // Clear terminal first if initial content was buffered
-            if pendingClear {
-                let clearData = Data("\u{1b}[2J\u{1b}[H".utf8)
-                view.feed(byteArray: ArraySlice(clearData))
-                pendingClear = false
+            // If dimensions received, flush any pending chunks
+            if dimensionsReceived {
+                flushPendingChunks()
             }
-
-            // Feed any pending data
-            for data in pendingData {
-                view.feed(byteArray: ArraySlice(data))
-            }
-            pendingData.removeAll()
         }
 
         func updateDimensions(width: Int, height: Int) {
             self.width = width
             self.height = height
+            dimensionsReceived = true
+
+            // Resize the terminal to match pane dimensions
+            terminalView?.resize(
+                cols: width,
+                rows: height
+            )
+
+            // Now that we have correct dimensions, flush pending chunks
+            flushPendingChunks()
         }
 
         func feed(chunk: TerminalStreamChunk) {
-            guard let data = chunk.data else { return }
-
-            // Update dimensions if changed
-            if chunk.width != width || chunk.height != height {
-                updateDimensions(width: chunk.width, height: chunk.height)
+            // Buffer chunks until we have dimensions AND terminal view
+            guard dimensionsReceived, let view = terminalView else {
+                pendingChunks.append(chunk)
+                return
             }
+
+            feedChunk(chunk, to: view)
+        }
+
+        private func flushPendingChunks() {
+            guard let view = terminalView, dimensionsReceived else { return }
+
+            for chunk in pendingChunks {
+                feedChunk(chunk, to: view)
+            }
+            pendingChunks.removeAll()
+        }
+
+        private func feedChunk(_ chunk: TerminalStreamChunk, to view: TerminalView) {
+            guard let data = chunk.data else { return }
 
             // Clear terminal before feeding initial content
             // This matches how the Mac app handles initial stream content
-            if chunk.isInitial, let view = terminalView {
+            if chunk.isInitial {
                 let clearData = Data("\u{1b}[2J\u{1b}[H".utf8)
                 view.feed(byteArray: ArraySlice(clearData))
             }
 
-            if let view = terminalView {
-                view.feed(byteArray: ArraySlice(data))
-            } else {
-                // Buffer data until terminal view is ready
-                // Track if this is initial content so we clear when terminal is available
-                if chunk.isInitial {
-                    pendingClear = true
-                }
-                pendingData.append(data)
-            }
+            view.feed(byteArray: ArraySlice(data))
         }
     }
 

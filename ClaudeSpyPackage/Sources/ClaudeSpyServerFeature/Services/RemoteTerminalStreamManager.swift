@@ -38,54 +38,63 @@ final public class RemoteTerminalStreamManager {
         // Create a PaneStream for this pane
         let stream = PaneStream(target: paneId, tmuxService: tmuxService)
 
-        // Track whether we've sent the initial content
-        var sentInitialContent = false
-
-        // Set up callbacks to forward data to iOS
-        stream.onData = { [weak self] data in
-            guard let self, let client = self.serverClient else { return }
-
-            // The first chunk is the initial terminal content (from capturePaneWithPositioning)
-            // Mark it as initial so iOS knows to clear the terminal first
-            let isInitial = !sentInitialContent
-            sentInitialContent = true
-
-            let chunk = TerminalStreamChunk(
-                paneId: paneId,
-                width: stream.width,
-                height: stream.height,
-                data: data,
-                isInitial: isInitial
-            )
-            Task {
-                await client.sendTerminalStreamChunk(chunk)
-            }
-        }
-
-        stream.onDimensionChange = { [weak self] newWidth, newHeight in
-            guard let self else { return }
-            self.logger.debug("Dimensions changed", metadata: [
-                "paneId": "\(paneId)",
-                "newWidth": "\(newWidth)",
-                "newHeight": "\(newHeight)",
-            ])
-        }
-
         do {
-            // Connect and start streaming
+            // Get dimensions FIRST so iOS can size terminal before receiving content
+            // This matches how Mac local mirror works (resize before feeding data)
+            let dims = try await tmuxService.getPaneDimensions(paneId)
+
+            // Send dimensions to iOS BEFORE any content
+            let started = TerminalStreamStarted(
+                commandId: commandId,
+                paneId: paneId,
+                width: dims.width,
+                height: dims.height
+            )
+            await serverClient?.sendTerminalStreamStarted(started)
+
+            logger.info("Sent stream dimensions", metadata: [
+                "paneId": "\(paneId)",
+                "dimensions": "\(dims.width)x\(dims.height)",
+            ])
+
+            // Track whether we've sent the initial content
+            var sentInitialContent = false
+
+            // Set up callbacks to forward data to iOS
+            stream.onData = { [weak self] data in
+                guard let self, let client = self.serverClient else { return }
+
+                // The first chunk is the initial terminal content (from capturePaneWithPositioning)
+                // Mark it as initial so iOS knows to clear the terminal first
+                let isInitial = !sentInitialContent
+                sentInitialContent = true
+
+                let chunk = TerminalStreamChunk(
+                    paneId: paneId,
+                    width: stream.width,
+                    height: stream.height,
+                    data: data,
+                    isInitial: isInitial
+                )
+                Task {
+                    await client.sendTerminalStreamChunk(chunk)
+                }
+            }
+
+            stream.onDimensionChange = { [weak self] newWidth, newHeight in
+                guard let self else { return }
+                self.logger.debug("Dimensions changed", metadata: [
+                    "paneId": "\(paneId)",
+                    "newWidth": "\(newWidth)",
+                    "newHeight": "\(newHeight)",
+                ])
+            }
+
+            // NOW connect and start streaming (this sends initial content)
             try await stream.connect()
 
             // Store the active stream
             activeStreams[paneId] = stream
-
-            // Notify iOS that stream has started
-            let started = TerminalStreamStarted(
-                commandId: commandId,
-                paneId: paneId,
-                width: stream.width,
-                height: stream.height
-            )
-            await serverClient?.sendTerminalStreamStarted(started)
 
             logger.info("Remote stream started", metadata: [
                 "paneId": "\(paneId)",
