@@ -140,9 +140,6 @@ final public class RelayClient {
     /// Called when a command response is received from Mac
     public var onCommandResponse: (@Sendable (CommandResponseMessage) -> Void)?
 
-    /// Called when a terminal snapshot is received from Mac
-    public var onTerminalSnapshot: (@Sendable (TerminalSnapshotMessage) -> Void)?
-
     /// Called when Mac connection status changes
     public var onMacConnectionChange: (@Sendable (Bool) -> Void)?
 
@@ -571,8 +568,6 @@ final public class RelayClient {
             if let continuation = pendingSnapshots.removeValue(forKey: snapshot.commandId) {
                 continuation.resume(returning: .success(snapshot))
             }
-            // Also call the legacy callback if set
-            onTerminalSnapshot?(snapshot)
 
         case let .macConnected(connectedMessage):
             logger.info("Mac device connected")
