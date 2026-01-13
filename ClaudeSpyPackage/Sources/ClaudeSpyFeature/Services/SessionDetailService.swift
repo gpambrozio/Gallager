@@ -123,8 +123,8 @@ final public class SessionDetailService {
         isLoadingSnapshot = true
         snapshotError = nil
 
-        let command = CommandMessage(paneId: paneId, command: .captureSnapshot(scrollbackMultiplier: 3))
-        let result = await relayClient.sendSnapshotCommand(command)
+        let command = CaptureSnapshot(scrollbackMultiplier: 3)
+        let result = await relayClient.sendCommand(command, paneId: paneId)
 
         isLoadingSnapshot = false
 
@@ -136,8 +136,16 @@ final public class SessionDetailService {
         }
     }
 
-    /// Send a command to the Mac for this pane
+    /// Send a command to the Mac for this pane (fire-and-forget style)
     public func sendCommand(_ command: CommandType) async {
-        await relayClient.sendCommand(CommandMessage(paneId: paneId, command: command))
+        // Extract the spec from the CommandType and send it
+        switch command {
+        case let .sendKeystroke(spec):
+            _ = await relayClient.sendCommand(spec, paneId: paneId)
+        case let .cancelOperation(spec):
+            _ = await relayClient.sendCommand(spec, paneId: paneId)
+        case let .captureSnapshot(spec):
+            _ = await relayClient.sendCommand(spec, paneId: paneId)
+        }
     }
 }

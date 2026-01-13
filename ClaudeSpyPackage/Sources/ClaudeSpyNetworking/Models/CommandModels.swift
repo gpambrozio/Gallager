@@ -81,16 +81,90 @@ public enum TmuxKey: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - Command Spec Protocol
+
+/// Protocol that maps a command to its expected response type.
+/// Used for type-safe command sending on the client side.
+public protocol CommandSpec: Codable, Sendable {
+    /// The response type this command expects
+    associatedtype Response: Sendable
+
+    /// Wrap this spec in the CommandType enum for wire format
+    var commandType: CommandType { get }
+}
+
+// MARK: - Concrete Command Specs
+
+/// Send keystrokes to a tmux pane. Returns success/failure.
+public struct SendKeystroke: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    public let keystrokes: [TmuxKey]
+
+    public init(_ keystrokes: [TmuxKey]) {
+        self.keystrokes = keystrokes
+    }
+
+    public var commandType: CommandType {
+        .sendKeystroke(self)
+    }
+}
+
+/// Cancel the current operation (Ctrl+C). Returns success/failure.
+public struct CancelOperation: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    public init() { }
+
+    public var commandType: CommandType {
+        .cancelOperation(self)
+    }
+}
+
+/// Capture a terminal snapshot. Returns the snapshot data.
+public struct CaptureSnapshot: CommandSpec, Equatable {
+    public typealias Response = TerminalSnapshotMessage
+
+    public let scrollbackMultiplier: Int
+
+    public init(scrollbackMultiplier: Int) {
+        self.scrollbackMultiplier = scrollbackMultiplier
+    }
+
+    public var commandType: CommandType {
+        .captureSnapshot(self)
+    }
+}
+
 // MARK: - Command Types
 
 /// Commands that can be sent from iOS to Mac, with their associated data.
-public enum CommandType: Codable, Sendable {
+/// This enum is the wire format - it's what gets encoded and sent over the network.
+/// Each case holds its corresponding CommandSpec struct.
+public enum CommandType: Codable, Sendable, Equatable {
     /// Send keystrokes to a tmux pane
-    case sendKeystroke([TmuxKey])
+    case sendKeystroke(SendKeystroke)
     /// Cancel current operation (Ctrl+C)
-    case cancelOperation
-    /// Capture a terminal snapshot with scrollback (multiplier for visible height)
-    case captureSnapshot(scrollbackMultiplier: Int)
+    case cancelOperation(CancelOperation)
+    /// Capture a terminal snapshot with scrollback
+    case captureSnapshot(CaptureSnapshot)
+
+    // MARK: - Convenience Factory Methods
+
+    /// Create a sendKeystroke command from an array of keys
+    public static func sendKeystroke(_ keys: [TmuxKey]) -> CommandType {
+        .sendKeystroke(SendKeystroke(keys))
+    }
+
+    /// Create a cancelOperation command
+    public static var cancelOperation: CommandType {
+        .cancelOperation(CancelOperation())
+    }
+
+    /// Create a captureSnapshot command with the given scrollback multiplier
+    public static func captureSnapshot(scrollbackMultiplier: Int) -> CommandType {
+        .captureSnapshot(CaptureSnapshot(scrollbackMultiplier: scrollbackMultiplier))
+    }
 }
 
 // MARK: - Command Message
