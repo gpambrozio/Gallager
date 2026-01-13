@@ -129,6 +129,11 @@
                 terminalController.resize(columns: service.width, rows: service.height)
                 terminalController.clear()
                 terminalController.feed(data)
+                // Scroll to bottom after a brief delay to ensure layout is complete
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(50))
+                    terminalController.scrollToBottom()
+                }
             }
 
             service.onData = { data in
