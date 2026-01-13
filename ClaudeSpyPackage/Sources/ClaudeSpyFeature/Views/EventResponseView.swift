@@ -49,11 +49,21 @@ struct PromptView: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
-            textField
-            sendButtonRow
-        }
-        .padding(.vertical, 8)
+        textField
+            .padding(.vertical, 8)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    if state.isSending {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Button("Send") {
+                            sendMessage()
+                        }
+                        .disabled(isInputEmpty || !isConnected)
+                    }
+                }
+            }
     }
 
     private var textField: some View {
@@ -75,24 +85,6 @@ struct PromptView: View {
     private var textFieldBorder: some View {
         RoundedRectangle(cornerRadius: 12)
             .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-    }
-
-    private var sendButtonRow: some View {
-        HStack {
-            Spacer()
-            Button {
-                sendMessage()
-            } label: {
-                if state.isSending {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Text("Send")
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(isInputEmpty || state.isSending || !isConnected)
-        }
     }
 
     private func sendMessage() {
