@@ -15,7 +15,6 @@
 
         @Environment(IOSSettings.self) private var settings
         @Environment(RelayClient.self) private var relayClient
-        @Environment(\.dismiss) private var dismiss
 
         @State private var terminalController = IOSTerminalController()
         @State private var streamService: TerminalStreamService?
@@ -28,10 +27,7 @@
                     let responseState,
                     let responseView = responseState.event.responseView(
                         isConnected: isConnected,
-                        sendCommand: {
-                            await sendCommand($0)
-                            dismiss()
-                        },
+                        sendCommand: sendCommand,
                         state: responseState
                     ) {
                     responseView
