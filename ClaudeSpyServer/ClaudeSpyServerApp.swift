@@ -210,8 +210,9 @@ struct TmuxPaneMirrorApp: App {
         }
 
         // Stop all streams when iOS disconnects
-        // Note: This is handled implicitly when ExternalServerClient detects iOS disconnect
-        // The stream manager will be notified and stop all streams
+        externalServerClient.setIOSDisconnectedHandler { [streamManager] in
+            await streamManager.stopAllStreams(reason: "ios_disconnected")
+        }
     }
 
     private func setupSessionStateHandler(manager: MirrorWindowManager) {

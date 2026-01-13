@@ -115,6 +115,9 @@ final public class ExternalServerClient {
     /// Called when partner's public key is received (for persisting to settings)
     private var onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)?
 
+    /// Called when iOS device disconnects (for stopping streams, etc.)
+    private var onIOSDisconnected: (@Sendable () async -> Void)?
+
     // MARK: - Initialization
 
     public init() { }
@@ -149,6 +152,14 @@ final public class ExternalServerClient {
         _ handler: @escaping @MainActor @Sendable (String, String) async -> Void
     ) {
         onPartnerKeyReceived = handler
+    }
+
+    /// Set the handler for when iOS device disconnects.
+    /// Use this to stop active streams or clean up resources.
+    public func setIOSDisconnectedHandler(
+        _ handler: @escaping @Sendable () async -> Void
+    ) {
+        onIOSDisconnected = handler
     }
 
     // MARK: - Connection Management
@@ -599,6 +610,7 @@ final public class ExternalServerClient {
             logger.info("iOS device disconnected")
             isIOSConnected = false
             connectedIOSDeviceName = nil
+            await onIOSDisconnected?()
 
         case .requestSessionState:
             logger.info("iOS requested session state")
