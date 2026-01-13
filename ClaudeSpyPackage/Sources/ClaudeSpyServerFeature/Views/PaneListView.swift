@@ -136,6 +136,7 @@ private struct PaneRow: View {
 private struct PaneListPreview: View {
     @State private var settings = AppSettings()
     @State private var tmuxService = TmuxService()
+    @State private var paneStreamManager: PaneStreamManager?
     @State private var windowManager: MirrorWindowManager?
 
     var body: some View {
@@ -178,7 +179,13 @@ private struct PaneListPreview: View {
             }
         }
         .onAppear {
-            windowManager = MirrorWindowManager(settings: settings, tmuxService: tmuxService)
+            let streamManager = PaneStreamManager(tmuxService: tmuxService)
+            paneStreamManager = streamManager
+            windowManager = MirrorWindowManager(
+                settings: settings,
+                tmuxService: tmuxService,
+                paneStreamManager: streamManager
+            )
         }
     }
 }

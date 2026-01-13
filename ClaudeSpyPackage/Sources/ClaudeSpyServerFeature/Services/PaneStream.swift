@@ -1,14 +1,19 @@
 import Foundation
 
 /// The connection state of a pane stream
-enum StreamState: Equatable, Sendable {
+public enum StreamState: Equatable, Sendable {
     case disconnected
     case connecting
     case connected
     case error(String)
 
-    var isActive: Bool {
+    public var isActive: Bool {
         self == .connected
+    }
+
+    public var isError: Bool {
+        if case .error = self { return true }
+        return false
     }
 }
 
@@ -130,14 +135,5 @@ final class PaneStream {
         height = newHeight
         onDimensionChange?(newWidth, newHeight)
         return true
-    }
-}
-
-private extension StreamState {
-    var isError: Bool {
-        if case .error = self {
-            return true
-        }
-        return false
     }
 }

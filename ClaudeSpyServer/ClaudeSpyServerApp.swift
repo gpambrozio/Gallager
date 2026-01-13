@@ -8,6 +8,7 @@ import SwiftUI
 struct TmuxPaneMirrorApp: App {
     @State private var settings = AppSettings()
     @State private var tmuxService: TmuxService
+    @State private var paneStreamManager: PaneStreamManager
     @State private var windowManager: MirrorWindowManager?
     @State private var e2eeService: E2EEService?
     @State private var pairingManager: PairingManager?
@@ -29,6 +30,10 @@ struct TmuxPaneMirrorApp: App {
             socketPath: initialSettings.tmuxSocket.isEmpty ? nil : initialSettings.tmuxSocket
         )
         _tmuxService = State(initialValue: service)
+
+        // Create PaneStreamManager once in init to ensure single instance
+        let streamManager = PaneStreamManager(tmuxService: service)
+        _paneStreamManager = State(initialValue: streamManager)
     }
 
     var body: some Scene {
@@ -41,6 +46,7 @@ struct TmuxPaneMirrorApp: App {
                 .environment(pairingManager ?? createPairingManager())
                 .environment(externalServerClient)
                 .environment(\.e2eeService, e2eeService)
+                .environment(paneStreamManager)
                 .task {
                     await initializeServices()
                     await hookServer.startServer()
@@ -120,7 +126,11 @@ struct TmuxPaneMirrorApp: App {
     }
 
     private func createWindowManager() -> MirrorWindowManager {
-        let manager = MirrorWindowManager(settings: settings, tmuxService: tmuxService)
+        let manager = MirrorWindowManager(
+            settings: settings,
+            tmuxService: tmuxService,
+            paneStreamManager: paneStreamManager
+        )
         windowManager = manager
 
         // Set up session state handler synchronously to avoid race with autoConnectIfConfigured
@@ -168,7 +178,10 @@ struct TmuxPaneMirrorApp: App {
         commandExecutor = executor
 
         // Create remote stream manager for terminal streaming to iOS
-        let streamManager = RemoteTerminalStreamManager(tmuxService: tmuxService)
+        let streamManager = RemoteTerminalStreamManager(
+            paneStreamManager: paneStreamManager,
+            tmuxService: tmuxService
+        )
         remoteStreamManager = streamManager
 
         // Set up stream manager's send callback to use the external server client

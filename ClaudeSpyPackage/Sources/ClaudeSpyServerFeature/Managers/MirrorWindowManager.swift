@@ -23,10 +23,12 @@ final public class MirrorWindowManager {
 
     private let settings: AppSettings
     private let tmuxService: TmuxService
+    private let paneStreamManager: PaneStreamManager
 
-    public init(settings: AppSettings, tmuxService: TmuxService) {
+    public init(settings: AppSettings, tmuxService: TmuxService, paneStreamManager: PaneStreamManager) {
         self.settings = settings
         self.tmuxService = tmuxService
+        self.paneStreamManager = paneStreamManager
     }
 
     // MARK: - Session Management
@@ -83,6 +85,7 @@ final public class MirrorWindowManager {
             .environment(settings)
             .environment(tmuxService)
             .environment(self)
+            .environment(paneStreamManager)
 
         // Create hosting controller
         let hostingController = NSHostingController(rootView: mirrorView)

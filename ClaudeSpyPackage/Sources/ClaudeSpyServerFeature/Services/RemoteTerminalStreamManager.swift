@@ -4,7 +4,7 @@ import Logging
 
 /// Manages terminal streaming sessions from Mac to iOS devices.
 ///
-/// When iOS requests a terminal stream, this manager creates a PaneStream connection
+/// When iOS requests a terminal stream, this manager subscribes to the shared PaneStreamManager
 /// and forwards terminal data to iOS via the ExternalServerClient.
 @Observable
 @MainActor
@@ -14,7 +14,7 @@ final public class RemoteTerminalStreamManager {
     /// Information about an active stream
     private struct ActiveStream {
         let paneId: String
-        let paneStream: PaneStream
+        let subscription: PaneStreamSubscription
         let commandId: UUID
     }
 
@@ -22,7 +22,10 @@ final public class RemoteTerminalStreamManager {
 
     private let logger = Logger(label: "com.claudespy.remoteterminalstream")
 
-    /// The tmux service for creating pane streams
+    /// The shared pane stream manager
+    private let paneStreamManager: PaneStreamManager
+
+    /// The tmux service for pane lookups
     private let tmuxService: TmuxService
 
     /// Callback to send messages to iOS
@@ -33,7 +36,8 @@ final public class RemoteTerminalStreamManager {
 
     // MARK: - Initialization
 
-    public init(tmuxService: TmuxService) {
+    public init(paneStreamManager: PaneStreamManager, tmuxService: TmuxService) {
+        self.paneStreamManager = paneStreamManager
         self.tmuxService = tmuxService
     }
 
@@ -52,9 +56,9 @@ final public class RemoteTerminalStreamManager {
     ///   - commandId: The command ID from iOS to respond to
     /// - Returns: The initial stream started message, or nil if failed
     public func startStream(paneId: String, commandId: UUID) async -> TerminalStreamStartedMessage? {
-        // Check if already streaming this pane
+        // Check if already streaming this pane to iOS
         if activeStreams[paneId] != nil {
-            logger.warning("Already streaming pane \(paneId)")
+            logger.warning("Already streaming pane \(paneId) to iOS")
             return nil
         }
 
@@ -69,37 +73,33 @@ final public class RemoteTerminalStreamManager {
             "target": "\(paneTarget)",
         ])
 
-        // Create pane stream
-        let paneStream = PaneStream(target: paneTarget, tmuxService: tmuxService)
-
-        // Set up data callback to forward to iOS
-        paneStream.onData = { [weak self] data in
-            guard let self else { return }
-            Task {
-                await self.forwardData(paneId: paneId, data: data)
-            }
-        }
-
-        // Set up resize callback to forward to iOS
-        paneStream.onDimensionChange = { [weak self] width, height in
-            guard let self else { return }
-            Task {
-                await self.forwardResize(paneId: paneId, width: width, height: height)
-            }
-        }
-
-        // Connect to the pane
+        // Subscribe to the shared pane stream
+        let subscription: PaneStreamSubscription
         do {
-            try await paneStream.connect()
+            subscription = try await paneStreamManager.subscribe(
+                target: paneTarget,
+                onData: { [weak self] data in
+                    guard let self else { return }
+                    Task {
+                        await self.forwardData(paneId: paneId, data: data)
+                    }
+                },
+                onDimensionChange: { [weak self] width, height in
+                    guard let self else { return }
+                    Task {
+                        await self.forwardResize(paneId: paneId, width: width, height: height)
+                    }
+                }
+            )
         } catch {
-            logger.error("Failed to connect to pane stream: \(error)")
+            logger.error("Failed to subscribe to pane stream: \(error)")
             return nil
         }
 
         // Store the active stream
         activeStreams[paneId] = ActiveStream(
             paneId: paneId,
-            paneStream: paneStream,
+            subscription: subscription,
             commandId: commandId
         )
 
@@ -116,14 +116,14 @@ final public class RemoteTerminalStreamManager {
         let startedMessage = TerminalStreamStartedMessage(
             commandId: commandId,
             paneId: paneId,
-            width: paneStream.width,
-            height: paneStream.height,
+            width: subscription.width,
+            height: subscription.height,
             initialContent: initialContent
         )
 
         logger.info("Remote terminal stream started", metadata: [
             "paneId": "\(paneId)",
-            "dimensions": "\(paneStream.width)x\(paneStream.height)",
+            "dimensions": "\(subscription.width)x\(subscription.height)",
         ])
 
         return startedMessage
@@ -144,8 +144,8 @@ final public class RemoteTerminalStreamManager {
             "reason": "\(reason)",
         ])
 
-        // Disconnect the pane stream
-        await stream.paneStream.disconnect()
+        // Unsubscribe from the shared pane stream
+        await stream.subscription.unsubscribe()
 
         // Notify iOS that the stream stopped
         let stoppedMessage = TerminalStreamStoppedMessage(paneId: paneId, reason: reason)

@@ -7,8 +7,9 @@ struct MirrorWindowView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(TmuxService.self) private var tmuxService
     @Environment(MirrorWindowManager.self) private var windowManager
+    @Environment(PaneStreamManager.self) private var paneStreamManager
 
-    @State private var paneStream: PaneStream?
+    @State private var subscription: PaneStreamSubscription?
     @State private var terminalController = TerminalController()
     @State private var showJumpToBottom = false
 
@@ -63,9 +64,9 @@ struct MirrorWindowView: View {
             // Check if our pane's dimensions changed during global refresh
             guard
                 let updatedPane = newPanes.first(where: { $0.id == paneInfo.id }),
-                let stream = paneStream else { return }
+                let sub = subscription else { return }
             // updateDimensions will trigger onDimensionChange callback if dimensions changed
-            stream.updateDimensions(width: updatedPane.width, height: updatedPane.height)
+            sub.updateDimensions(width: updatedPane.width, height: updatedPane.height)
         }
     }
 
@@ -102,13 +103,13 @@ struct MirrorWindowView: View {
                 .frame(height: 12)
 
             // Dimensions
-            Text("\(paneStream?.width ?? paneInfo.width)x\(paneStream?.height ?? paneInfo.height)")
+            Text("\(subscription?.width ?? paneInfo.width)x\(subscription?.height ?? paneInfo.height)")
 
             Divider()
                 .frame(height: 12)
 
             // Scrollback info
-            Text("Scrollback: \(formatNumber(paneStream?.scrollbackLines ?? 0)) lines")
+            Text("Scrollback: \(formatNumber(subscription?.scrollbackLines ?? 0)) lines")
 
             Spacer()
         }
@@ -122,7 +123,7 @@ struct MirrorWindowView: View {
     // MARK: - Computed Properties
 
     private var statusColor: Color {
-        switch paneStream?.state ?? .disconnected {
+        switch subscription?.state ?? .disconnected {
         case .connected:
             return .green
         case .connecting:
@@ -135,7 +136,7 @@ struct MirrorWindowView: View {
     }
 
     private var statusText: String {
-        switch paneStream?.state ?? .disconnected {
+        switch subscription?.state ?? .disconnected {
         case .connected:
             return "Connected"
         case .connecting:
@@ -150,9 +151,6 @@ struct MirrorWindowView: View {
     // MARK: - Actions
 
     private func connectToPane() async {
-        let stream = PaneStream(target: paneInfo.target, tmuxService: tmuxService)
-        paneStream = stream
-
         // Configure font from settings
         terminalController.fontName = settings.fontName
         terminalController.fontSize = CGFloat(settings.fontSize)
@@ -170,33 +168,33 @@ struct MirrorWindowView: View {
         // Clear terminal and reset cursor position before receiving data
         terminalController.clear()
 
-        // Set up data handler
-        stream.onData = { data in
-            terminalController.feed(data)
-        }
-
-        // Set up dimension change handler
-        stream.onDimensionChange = { [weak windowManager, weak terminalController] newWidth, newHeight in
-            // Safety check: don't resize if terminal is being torn down
-            guard let terminalController else { return }
-            // Resize the terminal to match new pane dimensions
-            terminalController.resize(columns: newWidth, rows: newHeight)
-            // Resize the window to match
-            windowManager?.resizeWindow(target: paneInfo.target, columns: newWidth, rows: newHeight)
-        }
-
+        // Subscribe to the shared pane stream
         do {
-            try await stream.connect()
+            let sub = try await paneStreamManager.subscribe(
+                target: paneInfo.target,
+                onData: { [weak terminalController] data in
+                    terminalController?.feed(data)
+                },
+                onDimensionChange: { [weak windowManager, weak terminalController] newWidth, newHeight in
+                    // Safety check: don't resize if terminal is being torn down
+                    guard let terminalController else { return }
+                    // Resize the terminal to match new pane dimensions
+                    terminalController.resize(columns: newWidth, rows: newHeight)
+                    // Resize the window to match
+                    windowManager?.resizeWindow(target: paneInfo.target, columns: newWidth, rows: newHeight)
+                }
+            )
+            subscription = sub
             // Update dimensions if they changed
-            terminalController.resize(columns: stream.width, rows: stream.height)
+            terminalController.resize(columns: sub.width, rows: sub.height)
         } catch {
-            // Error is captured in stream state
+            // Error is captured in subscription state
         }
     }
 
     private func disconnect() async {
-        await paneStream?.disconnect()
-        paneStream = nil
+        await subscription?.unsubscribe()
+        subscription = nil
     }
 
     private func formatNumber(_ number: Int) -> String {
