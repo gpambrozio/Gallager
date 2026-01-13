@@ -102,8 +102,9 @@ final public class ExternalServerClient {
 
     // MARK: - Callbacks
 
-    /// Called when a command is received from iOS
-    private var onCommand: (@MainActor @Sendable (CommandMessage) async -> CommandResponseMessage)?
+    /// Called when a command is received from iOS.
+    /// Returns nil if the command sends its own response (e.g., snapshot commands send TerminalSnapshotMessage).
+    private var onCommand: (@MainActor @Sendable (CommandMessage) async -> CommandResponseMessage?)?
 
     /// Called when session state is requested by iOS
     private var onSessionStateRequest: (@Sendable () async -> SessionStateMessage)?
@@ -120,9 +121,10 @@ final public class ExternalServerClient {
 
     // MARK: - Configuration
 
-    /// Set the handler for commands from iOS
+    /// Set the handler for commands from iOS.
+    /// Handler should return nil if it sends its own response (e.g., snapshot commands).
     public func setCommandHandler(
-        _ handler: @escaping @Sendable (CommandMessage) async -> CommandResponseMessage
+        _ handler: @escaping @Sendable (CommandMessage) async -> CommandResponseMessage?
     ) {
         onCommand = handler
     }
@@ -506,8 +508,9 @@ final public class ExternalServerClient {
 
         case let .command(command):
             logger.info("Received command from iOS", metadata: ["type": "\(command.command)"])
-            if let onCommand {
-                let response = await onCommand(command)
+            if let onCommand, let response = await onCommand(command) {
+                // Only send response if handler returned one.
+                // Some commands (e.g., snapshot) send their own response type.
                 await sendEncrypted(.commandResponse(response))
             }
 
