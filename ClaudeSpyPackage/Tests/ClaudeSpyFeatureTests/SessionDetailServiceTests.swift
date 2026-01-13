@@ -178,42 +178,4 @@ struct SessionDetailServiceTests {
         // dependency injection to set isMacConnected to true.
         // For now, this tests the property delegation works.
     }
-
-    // MARK: - Snapshot Loading State Tests
-
-    @Test("Initial snapshot state is empty")
-    func initialSnapshotStateIsEmpty() {
-        let sessionStore = SessionStore()
-        let relayClient = RelayClient()
-
-        let service = SessionDetailService(
-            paneId: "%1",
-            sessionStore: sessionStore,
-            relayClient: relayClient
-        )
-
-        #expect(service.isLoadingSnapshot == false)
-        #expect(service.terminalSnapshot == nil)
-        #expect(service.snapshotError == nil)
-    }
-
-    @Test("Snapshot request completes with error when not connected")
-    func snapshotRequestFailsWhenNotConnected() async {
-        let sessionStore = SessionStore()
-        let relayClient = RelayClient()
-
-        let service = SessionDetailService(
-            paneId: "%1",
-            sessionStore: sessionStore,
-            relayClient: relayClient
-        )
-
-        // Request snapshot (will fail because not connected)
-        await service.requestTerminalSnapshot()
-
-        // Should have error and no snapshot
-        #expect(service.snapshotError != nil)
-        #expect(service.terminalSnapshot == nil)
-        #expect(service.isLoadingSnapshot == false)
-    }
 }

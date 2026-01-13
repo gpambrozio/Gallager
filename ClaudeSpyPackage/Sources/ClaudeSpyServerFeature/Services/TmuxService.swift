@@ -189,46 +189,6 @@ final public class TmuxService {
         return result.stdout
     }
 
-    /// Captures a pane with specified scrollback for snapshot display
-    /// - Parameters:
-    ///   - target: The pane target
-    ///   - scrollbackMultiplier: How many times the visible height to capture as scrollback
-    /// - Returns: Tuple containing the captured data and total line count
-    public func capturePaneWithScrollback(
-        _ target: String,
-        scrollbackMultiplier: Int = 3
-    ) async throws -> (content: Data, totalLines: Int) {
-        // Get pane dimensions
-        let (_, height) = try await getPaneDimensions(target)
-
-        // Capture with scrollback using -S flag (negative = lines before visible area)
-        var args = ["capture-pane", "-t", target, "-p", "-e"]
-
-        // Only add -S flag if we want scrollback (multiplier > 0)
-        // Without -S, tmux captures just the visible area
-        if scrollbackMultiplier > 0 {
-            let scrollbackLines = height * scrollbackMultiplier
-            args.append("-S")
-            args.append("-\(scrollbackLines)")
-        }
-
-        let result = try await runTmuxCommand(args)
-
-        guard result.isSuccess else {
-            throw TmuxError.invalidPane(target: target)
-        }
-
-        // Count actual lines captured
-        let content = result.stdout
-        let lineCount = content.withUnsafeBytes { buffer in
-            buffer.reduce(0) { count, byte in
-                byte == UInt8(ascii: "\n") ? count + 1 : count
-            }
-        }
-
-        return (content: content, totalLines: max(lineCount, height))
-    }
-
     /// Captures the visible pane content with cursor positioning for each line
     /// This ensures content is rendered at the correct position in the terminal
     public func capturePaneWithPositioning(_ target: String) async throws -> Data {

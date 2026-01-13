@@ -17,9 +17,6 @@ public enum WebSocketMessage: Codable, Sendable {
     /// Mac responds to a command from iOS
     case commandResponse(CommandResponseMessage)
 
-    /// Mac sends a terminal snapshot response
-    case terminalSnapshot(TerminalSnapshotMessage)
-
     /// Mac confirms terminal stream started with initial content
     case terminalStreamStarted(TerminalStreamStartedMessage)
 
@@ -136,9 +133,6 @@ public enum EncryptedMessageType: String, Codable, Sendable {
     /// Command response from Mac to iOS
     case commandResponse
 
-    /// Terminal snapshot from Mac to iOS
-    case terminalSnapshot
-
     /// Terminal stream started from Mac to iOS
     case terminalStreamStarted
 
@@ -191,7 +185,6 @@ public extension WebSocketMessage {
         case registerMac
         case hookEvent
         case commandResponse
-        case terminalSnapshot
         case terminalStreamStarted
         case terminalStreamData
         case terminalStreamResize
@@ -229,9 +222,6 @@ public extension WebSocketMessage {
         case .commandResponse:
             let payload = try container.decode(CommandResponseMessage.self, forKey: .payload)
             self = .commandResponse(payload)
-        case .terminalSnapshot:
-            let payload = try container.decode(TerminalSnapshotMessage.self, forKey: .payload)
-            self = .terminalSnapshot(payload)
         case .terminalStreamStarted:
             let payload = try container.decode(TerminalStreamStartedMessage.self, forKey: .payload)
             self = .terminalStreamStarted(payload)
@@ -306,9 +296,6 @@ public extension WebSocketMessage {
         case let .commandResponse(payload):
             try container.encode(MessageType.commandResponse, forKey: .type)
             try container.encode(payload, forKey: .payload)
-        case let .terminalSnapshot(payload):
-            try container.encode(MessageType.terminalSnapshot, forKey: .type)
-            try container.encode(payload, forKey: .payload)
         case let .terminalStreamStarted(payload):
             try container.encode(MessageType.terminalStreamStarted, forKey: .type)
             try container.encode(payload, forKey: .payload)
@@ -376,7 +363,6 @@ public extension WebSocketMessage {
         case .registerMac: MessageType.registerMac.rawValue
         case .hookEvent: MessageType.hookEvent.rawValue
         case .commandResponse: MessageType.commandResponse.rawValue
-        case .terminalSnapshot: MessageType.terminalSnapshot.rawValue
         case .terminalStreamStarted: MessageType.terminalStreamStarted.rawValue
         case .terminalStreamData: MessageType.terminalStreamData.rawValue
         case .terminalStreamResize: MessageType.terminalStreamResize.rawValue
@@ -412,7 +398,6 @@ public extension WebSocketMessage {
              .sessionState,
              .command,
              .commandResponse,
-             .terminalSnapshot,
              .terminalStreamStarted,
              .terminalStreamData,
              .terminalStreamResize,
@@ -431,7 +416,6 @@ public extension WebSocketMessage {
         case .sessionState: .sessionState
         case .command: .command
         case .commandResponse: .commandResponse
-        case .terminalSnapshot: .terminalSnapshot
         case .terminalStreamStarted: .terminalStreamStarted
         case .terminalStreamData: .terminalStreamData
         case .terminalStreamResize: .terminalStreamResize

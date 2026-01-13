@@ -83,7 +83,7 @@ actor RelayService {
             await connectionHub.send(.pong, to: pairId, deviceType: .mac)
 
         default:
-            // All sensitive messages (hookEvent, sessionState, commandResponse, terminalSnapshot)
+            // All sensitive messages (hookEvent, sessionState, commandResponse, terminal streaming)
             // must be sent encrypted. Reject unencrypted versions.
             logger.warning("Rejected unencrypted message that should be encrypted", metadata: ["type": "\(message.messageType)"])
         }

@@ -2,7 +2,7 @@ import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import SwiftUI
 
-/// Detailed view of a single Claude session with event history and terminal snapshot.
+/// Detailed view of a single Claude session with event history and live terminal.
 struct SessionDetailView: View {
     let paneId: String
 
@@ -47,16 +47,6 @@ struct SessionDetailView: View {
                         }
                     )
                 }
-                .navigationDestination(item: $bindableService.terminalSnapshot) { snapshot in
-                    TerminalSnapshotView(
-                        snapshot: snapshot,
-                        responseState: $bindableService.responseState,
-                        isConnected: service.isMacConnected,
-                        sendCommand: { command in
-                            await service.sendCommand(command)
-                        }
-                    )
-                }
             #endif
         } else {
             ContentUnavailableView(
@@ -72,17 +62,8 @@ struct SessionDetailView: View {
     private func sessionContent(service: SessionDetailService, session: ClaudeSession) -> some View {
         List {
             // Terminal section
-            Section {
+            Section("Terminal") {
                 liveTerminalButton(service: service)
-                viewTerminalButton(service: service)
-            } header: {
-                Text("Terminal")
-            } footer: {
-                if let error = service.snapshotError {
-                    Text(error)
-                        .foregroundStyle(.red)
-                        .font(.caption)
-                }
             }
 
             // Context-sensitive response section based on latest event
@@ -152,31 +133,6 @@ struct SessionDetailView: View {
             }
         }
         .disabled(!service.isMacConnected)
-    }
-
-    @ViewBuilder
-    private func viewTerminalButton(service: SessionDetailService) -> some View {
-        Button {
-            Task {
-                await service.requestTerminalSnapshot()
-            }
-        } label: {
-            HStack {
-                if service.isLoadingSnapshot {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Symbols.camera.image
-                }
-                Text("View Snapshot")
-                Spacer()
-                if !service.isLoadingSnapshot {
-                    Symbols.arrowRight.image
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .disabled(!service.isMacConnected || service.isLoadingSnapshot)
     }
 }
 
