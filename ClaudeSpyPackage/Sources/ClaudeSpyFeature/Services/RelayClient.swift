@@ -127,6 +127,29 @@ final public class RelayClient {
     /// Each handler receives the raw response and knows how to resume the appropriate continuation.
     private var pendingCommands: [UUID: @MainActor (Result<Any, Error>) -> Void] = [:]
 
+    // MARK: - Stream Handlers
+
+    /// Handlers for terminal stream messages, keyed by pane ID.
+    /// Registered when starting a stream, unregistered when stopping.
+    public struct StreamHandler: Sendable {
+        public let onData: @MainActor @Sendable (TerminalStreamDataMessage) -> Void
+        public let onResize: @MainActor @Sendable (TerminalStreamResizeMessage) -> Void
+        public let onStopped: @MainActor @Sendable (TerminalStreamStoppedMessage) -> Void
+
+        public init(
+            onData: @escaping @MainActor @Sendable (TerminalStreamDataMessage) -> Void,
+            onResize: @escaping @MainActor @Sendable (TerminalStreamResizeMessage) -> Void,
+            onStopped: @escaping @MainActor @Sendable (TerminalStreamStoppedMessage) -> Void
+        ) {
+            self.onData = onData
+            self.onResize = onResize
+            self.onStopped = onStopped
+        }
+    }
+
+    /// Active stream handlers keyed by pane ID
+    private var streamHandlers: [String: StreamHandler] = [:]
+
     // MARK: - Callbacks
 
     /// Called when a hook event is received from Mac
@@ -137,15 +160,6 @@ final public class RelayClient {
 
     /// Called when partner's public key is received (for persisting to settings)
     public var onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)?
-
-    /// Called when terminal stream data is received from Mac
-    public var onTerminalStreamData: (@MainActor @Sendable (TerminalStreamDataMessage) -> Void)?
-
-    /// Called when terminal stream resize is received from Mac
-    public var onTerminalStreamResize: (@MainActor @Sendable (TerminalStreamResizeMessage) -> Void)?
-
-    /// Called when terminal stream is stopped by Mac
-    public var onTerminalStreamStopped: (@MainActor @Sendable (TerminalStreamStoppedMessage) -> Void)?
 
     // MARK: - Initialization
 
@@ -327,6 +341,24 @@ final public class RelayClient {
         logger.info("Sending push token to relay server")
         let message = WebSocketMessage.registerPushToken(RegisterPushTokenMessage(deviceToken: token))
         await send(message)
+    }
+
+    // MARK: - Stream Handler Registration
+
+    /// Register handlers for terminal stream messages for a specific pane.
+    /// - Parameters:
+    ///   - paneId: The pane ID to register handlers for
+    ///   - handler: The handler containing callbacks for data/resize/stopped events
+    public func registerStreamHandler(for paneId: String, handler: StreamHandler) {
+        logger.debug("Registering stream handler for pane \(paneId)")
+        streamHandlers[paneId] = handler
+    }
+
+    /// Unregister stream handlers for a specific pane.
+    /// - Parameter paneId: The pane ID to unregister handlers for
+    public func unregisterStreamHandler(for paneId: String) {
+        logger.debug("Unregistering stream handler for pane \(paneId)")
+        streamHandlers.removeValue(forKey: paneId)
     }
 
     // MARK: - Private Methods
@@ -538,15 +570,21 @@ final public class RelayClient {
         case let .terminalStreamData(dataMessage):
             // Stream data is frequent, so use debug level logging
             logger.debug("Received terminal stream data from Mac")
-            onTerminalStreamData?(dataMessage)
+            if let handler = streamHandlers[dataMessage.paneId] {
+                handler.onData(dataMessage)
+            }
 
         case let .terminalStreamResize(resizeMessage):
             logger.info("Received terminal stream resize from Mac")
-            onTerminalStreamResize?(resizeMessage)
+            if let handler = streamHandlers[resizeMessage.paneId] {
+                handler.onResize(resizeMessage)
+            }
 
         case let .terminalStreamStopped(stoppedMessage):
             logger.info("Received terminal stream stopped from Mac")
-            onTerminalStreamStopped?(stoppedMessage)
+            if let handler = streamHandlers[stoppedMessage.paneId] {
+                handler.onStopped(stoppedMessage)
+            }
 
         case let .macConnected(connectedMessage):
             logger.info("Mac device connected")

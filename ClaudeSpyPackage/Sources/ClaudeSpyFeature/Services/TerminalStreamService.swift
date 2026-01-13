@@ -84,6 +84,16 @@
             state = .connecting
             logger.info("Starting terminal stream for pane \(targetPaneId)")
 
+            // Register stream handlers before sending command
+            relayClient.registerStreamHandler(
+                for: targetPaneId,
+                handler: RelayClient.StreamHandler(
+                    onData: { [weak self] message in self?.handleStreamData(message) },
+                    onResize: { [weak self] message in self?.handleStreamResize(message) },
+                    onStopped: { [weak self] message in self?.handleStreamStopped(message) }
+                )
+            )
+
             let command = StartTerminalStream()
             let result = await relayClient.sendCommand(command, paneId: targetPaneId, timeout: 30)
 
@@ -101,6 +111,8 @@
                 }
 
             case let .failure(error):
+                // Unregister handlers on failure
+                relayClient.unregisterStreamHandler(for: targetPaneId)
                 let errorMessage = error.localizedDescription
                 state = .error(errorMessage)
                 logger.error("Failed to start terminal stream: \(errorMessage)")
@@ -116,6 +128,9 @@
 
             let targetPaneId = paneId
             logger.info("Stopping terminal stream for pane \(targetPaneId)")
+
+            // Unregister handlers
+            relayClient.unregisterStreamHandler(for: targetPaneId)
 
             let command = StopTerminalStream()
             _ = await relayClient.sendCommand(command, paneId: targetPaneId, timeout: 5)

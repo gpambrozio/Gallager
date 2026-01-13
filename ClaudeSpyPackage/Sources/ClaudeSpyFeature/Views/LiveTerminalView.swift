@@ -67,7 +67,6 @@
                 await setupAndConnect()
             }
             .onDisappear {
-                cleanup()
                 Task {
                     await streamService?.stopStreaming()
                 }
@@ -150,32 +149,12 @@
                 }
             }
 
-            // Set up relay client callbacks to route messages to this service
-            relayClient.onTerminalStreamData = { [weak service] message in
-                service?.handleStreamData(message)
-            }
-
-            relayClient.onTerminalStreamResize = { [weak service] message in
-                service?.handleStreamResize(message)
-            }
-
-            relayClient.onTerminalStreamStopped = { [weak service] message in
-                service?.handleStreamStopped(message)
-            }
-
-            // Start streaming
+            // Start streaming (service handles handler registration internally)
             do {
                 try await service.startStreaming()
             } catch {
                 errorMessage = error.localizedDescription
             }
-        }
-
-        private func cleanup() {
-            // Clear relay client callbacks when view disappears
-            relayClient.onTerminalStreamData = nil
-            relayClient.onTerminalStreamResize = nil
-            relayClient.onTerminalStreamStopped = nil
         }
     }
 
