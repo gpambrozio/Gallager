@@ -63,6 +63,9 @@ final public class SessionDetailService {
     /// Response state for the current event
     public var responseState: ResponseState?
 
+    /// Whether to show the live terminal view
+    public var showLiveTerminal = false
+
     // MARK: - Initialization
 
     public init(paneId: String, sessionStore: SessionStore, relayClient: RelayClient) {
@@ -136,6 +139,11 @@ final public class SessionDetailService {
         }
     }
 
+    /// Open the live terminal streaming view
+    public func openLiveTerminal() {
+        showLiveTerminal = true
+    }
+
     /// Send a command to the Mac for this pane (fire-and-forget style)
     public func sendCommand(_ command: CommandType) async {
         // Extract the spec from the CommandType and send it
@@ -145,6 +153,10 @@ final public class SessionDetailService {
         case let .cancelOperation(spec):
             _ = await relayClient.sendCommand(spec, paneId: paneId)
         case let .captureSnapshot(spec):
+            _ = await relayClient.sendCommand(spec, paneId: paneId)
+        case let .startTerminalStream(spec):
+            _ = await relayClient.sendCommand(spec, paneId: paneId)
+        case let .stopTerminalStream(spec):
             _ = await relayClient.sendCommand(spec, paneId: paneId)
         }
     }

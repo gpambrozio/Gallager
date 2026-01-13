@@ -275,6 +275,62 @@ final public class ExternalServerClient {
         await sendEncrypted(message)
     }
 
+    /// Send terminal stream started message to iOS (encrypted)
+    public func sendTerminalStreamStarted(_ message: TerminalStreamStartedMessage) async {
+        guard state.isConnected else {
+            logger.debug("Not connected, cannot send stream started message")
+            return
+        }
+
+        logger.info("Sending terminal stream started", metadata: [
+            "paneId": "\(message.paneId)",
+            "dimensions": "\(message.width)x\(message.height)",
+        ])
+
+        await sendEncrypted(.terminalStreamStarted(message))
+    }
+
+    /// Send streaming terminal data to iOS (encrypted)
+    public func sendTerminalStreamData(_ message: TerminalStreamDataMessage) async {
+        guard state.isConnected else { return }
+        await sendEncrypted(.terminalStreamData(message))
+    }
+
+    /// Send terminal stream resize to iOS (encrypted)
+    public func sendTerminalStreamResize(_ message: TerminalStreamResizeMessage) async {
+        guard state.isConnected else { return }
+
+        logger.info("Sending terminal stream resize", metadata: [
+            "paneId": "\(message.paneId)",
+            "dimensions": "\(message.width)x\(message.height)",
+        ])
+
+        await sendEncrypted(.terminalStreamResize(message))
+    }
+
+    /// Send terminal stream stopped message to iOS (encrypted)
+    public func sendTerminalStreamStopped(_ message: TerminalStreamStoppedMessage) async {
+        guard state.isConnected else { return }
+
+        logger.info("Sending terminal stream stopped", metadata: [
+            "paneId": "\(message.paneId)",
+            "reason": "\(message.reason)",
+        ])
+
+        await sendEncrypted(.terminalStreamStopped(message))
+    }
+
+    /// Send any WebSocket message encrypted to iOS
+    /// This is a general-purpose method for sending arbitrary messages
+    public func sendEncryptedMessage(_ message: WebSocketMessage) async {
+        guard state.isConnected else {
+            logger.debug("Not connected, cannot send message")
+            return
+        }
+
+        await sendEncrypted(message)
+    }
+
     /// Send an encrypted push notification payload for a hook event.
     ///
     /// This is sent alongside the encrypted hook event. The server will:

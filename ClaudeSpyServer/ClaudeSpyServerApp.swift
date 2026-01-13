@@ -13,6 +13,7 @@ struct TmuxPaneMirrorApp: App {
     @State private var pairingManager: PairingManager?
     @State private var externalServerClient = ExternalServerClient()
     @State private var commandExecutor: TmuxCommandExecutor?
+    @State private var remoteStreamManager: RemoteTerminalStreamManager?
 
     private let hookServer = HookServerService()
 
@@ -166,16 +167,48 @@ struct TmuxPaneMirrorApp: App {
         let executor = TmuxCommandExecutor(tmuxService: tmuxService)
         commandExecutor = executor
 
-        // Set up command handler - called when iOS sends a command
-        // Capture tmuxService and externalServerClient for snapshot handling
-        let service = tmuxService
+        // Create remote stream manager for terminal streaming to iOS
+        let streamManager = RemoteTerminalStreamManager(tmuxService: tmuxService)
+        remoteStreamManager = streamManager
+
+        // Set up stream manager's send callback to use the external server client
         let serverClient = externalServerClient
-        externalServerClient.setCommandHandler { [executor, service, serverClient] command in
+        streamManager.setSendCallback { message in
+            await serverClient.sendEncryptedMessage(message)
+        }
+
+        // Set up command handler - called when iOS sends a command
+        // Capture dependencies for special command handling
+        let service = tmuxService
+        externalServerClient.setCommandHandler { [executor, service, serverClient, streamManager] command in
             // Handle snapshot commands specially - requires MainActor for tmuxService access
             if case let .captureSnapshot(spec) = command.command {
                 // handleSnapshotCommand is @MainActor, so this call will hop to main actor
-                return await handleSnapshotCommand(command, scrollbackMultiplier: spec.scrollbackMultiplier, tmuxService: service, serverClient: serverClient)
+                return await handleSnapshotCommand(
+                    command,
+                    scrollbackMultiplier: spec.scrollbackMultiplier,
+                    tmuxService: service,
+                    serverClient: serverClient
+                )
             }
+
+            // Handle start terminal stream command
+            if case .startTerminalStream = command.command {
+                return await handleStartStreamCommand(
+                    command,
+                    streamManager: streamManager,
+                    serverClient: serverClient
+                )
+            }
+
+            // Handle stop terminal stream command
+            if case .stopTerminalStream = command.command {
+                return await handleStopStreamCommand(
+                    command,
+                    streamManager: streamManager
+                )
+            }
+
             // Regular commands execute on the actor executor (background)
             return await executor.execute(command)
         }
@@ -188,6 +221,10 @@ struct TmuxPaneMirrorApp: App {
             settings.partnerPublicKey = publicKey
             settings.partnerPublicKeyId = publicKeyId
         }
+
+        // Stop all streams when iOS disconnects
+        // Note: This is handled implicitly when ExternalServerClient detects iOS disconnect
+        // The stream manager will be notified and stop all streams
     }
 
     private func setupSessionStateHandler(manager: MirrorWindowManager) {
@@ -300,6 +337,49 @@ private func handleSnapshotCommand(
         logger.error("Snapshot capture failed: \(error.localizedDescription)")
         return .failure(for: command.id, error: error.localizedDescription)
     }
+}
+
+// MARK: - Stream Command Handlers
+
+/// Handles start terminal stream commands from iOS devices.
+///
+/// Returns nil on success (the TerminalStreamStartedMessage is the response),
+/// or an error response on failure.
+@MainActor
+private func handleStartStreamCommand(
+    _ command: CommandMessage,
+    streamManager: RemoteTerminalStreamManager,
+    serverClient: ExternalServerClient
+) async -> CommandResponseMessage? {
+    let logger = Logger(label: "com.claudespy.stream")
+    logger.info("handleStartStreamCommand started", metadata: ["paneId": "\(command.paneId)"])
+
+    guard let startedMessage = await streamManager.startStream(paneId: command.paneId, commandId: command.id) else {
+        logger.error("Failed to start terminal stream")
+        return .failure(for: command.id, error: "Failed to start terminal stream")
+    }
+
+    // Send the started message - this IS the response
+    await serverClient.sendTerminalStreamStarted(startedMessage)
+    logger.info("Terminal stream started successfully")
+
+    // Return nil - the TerminalStreamStartedMessage is the response
+    return nil
+}
+
+/// Handles stop terminal stream commands from iOS devices.
+@MainActor
+private func handleStopStreamCommand(
+    _ command: CommandMessage,
+    streamManager: RemoteTerminalStreamManager
+) async -> CommandResponseMessage? {
+    let logger = Logger(label: "com.claudespy.stream")
+    logger.info("handleStopStreamCommand started", metadata: ["paneId": "\(command.paneId)"])
+
+    await streamManager.stopStream(paneId: command.paneId, reason: "user_requested")
+    logger.info("Terminal stream stopped")
+
+    return .success(for: command.id)
 }
 
 // MARK: - Notifications

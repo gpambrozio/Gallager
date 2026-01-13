@@ -37,6 +37,16 @@ struct SessionDetailView: View {
                 .navigationTitle("Session")
             #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
+                .navigationDestination(isPresented: $bindableService.showLiveTerminal) {
+                    LiveTerminalView(
+                        paneId: paneId,
+                        responseState: $bindableService.responseState,
+                        isConnected: service.isMacConnected,
+                        sendCommand: { command in
+                            await service.sendCommand(command)
+                        }
+                    )
+                }
                 .navigationDestination(item: $bindableService.terminalSnapshot) { snapshot in
                     TerminalSnapshotView(
                         snapshot: snapshot,
@@ -63,6 +73,7 @@ struct SessionDetailView: View {
         List {
             // Terminal section
             Section {
+                liveTerminalButton(service: service)
                 viewTerminalButton(service: service)
             } header: {
                 Text("Terminal")
@@ -125,7 +136,23 @@ struct SessionDetailView: View {
         }
     }
 
-    // MARK: - View Terminal Button
+    // MARK: - Terminal Buttons
+
+    @ViewBuilder
+    private func liveTerminalButton(service: SessionDetailService) -> some View {
+        Button {
+            service.openLiveTerminal()
+        } label: {
+            HStack {
+                Symbols.terminal.image
+                Text("Live Terminal")
+                Spacer()
+                Symbols.arrowRight.image
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .disabled(!service.isMacConnected)
+    }
 
     @ViewBuilder
     private func viewTerminalButton(service: SessionDetailService) -> some View {
@@ -139,9 +166,9 @@ struct SessionDetailView: View {
                     ProgressView()
                         .controlSize(.small)
                 } else {
-                    Symbols.terminal.image
+                    Symbols.camera.image
                 }
-                Text("View Terminal")
+                Text("View Snapshot")
                 Spacer()
                 if !service.isLoadingSnapshot {
                     Symbols.arrowRight.image

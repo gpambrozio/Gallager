@@ -138,6 +138,15 @@ final public class RelayClient {
     /// Called when partner's public key is received (for persisting to settings)
     public var onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)?
 
+    /// Called when terminal stream data is received from Mac
+    public var onTerminalStreamData: (@MainActor @Sendable (TerminalStreamDataMessage) -> Void)?
+
+    /// Called when terminal stream resize is received from Mac
+    public var onTerminalStreamResize: (@MainActor @Sendable (TerminalStreamResizeMessage) -> Void)?
+
+    /// Called when terminal stream is stopped by Mac
+    public var onTerminalStreamStopped: (@MainActor @Sendable (TerminalStreamStoppedMessage) -> Void)?
+
     // MARK: - Initialization
 
     public init() { }
@@ -525,6 +534,26 @@ final public class RelayClient {
             if let handler = pendingCommands.removeValue(forKey: snapshot.commandId) {
                 handler(.success(snapshot))
             }
+
+        case let .terminalStreamStarted(startedMessage):
+            logger.info("Received terminal stream started from Mac")
+            // Resume any pending handler for the start stream command
+            if let handler = pendingCommands.removeValue(forKey: startedMessage.commandId) {
+                handler(.success(startedMessage))
+            }
+
+        case let .terminalStreamData(dataMessage):
+            // Stream data is frequent, so use debug level logging
+            logger.debug("Received terminal stream data from Mac")
+            onTerminalStreamData?(dataMessage)
+
+        case let .terminalStreamResize(resizeMessage):
+            logger.info("Received terminal stream resize from Mac")
+            onTerminalStreamResize?(resizeMessage)
+
+        case let .terminalStreamStopped(stoppedMessage):
+            logger.info("Received terminal stream stopped from Mac")
+            onTerminalStreamStopped?(stoppedMessage)
 
         case let .macConnected(connectedMessage):
             logger.info("Mac device connected")

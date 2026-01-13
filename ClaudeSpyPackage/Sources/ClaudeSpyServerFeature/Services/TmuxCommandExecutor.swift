@@ -40,6 +40,11 @@ public actor TmuxCommandExecutor {
             case .captureSnapshot:
                 // Snapshot is handled specially - returns success here, data sent separately
                 logger.info("Capture snapshot command received (will be handled by caller)")
+
+            case .startTerminalStream,
+                 .stopTerminalStream:
+                // Stream commands are handled by RemoteTerminalStreamManager, not here
+                logger.info("Stream command received (will be handled by caller)")
             }
 
             logger.info("Command executed successfully", metadata: ["commandId": "\(command.id)"])

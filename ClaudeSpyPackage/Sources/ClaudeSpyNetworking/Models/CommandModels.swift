@@ -136,6 +136,28 @@ public struct CaptureSnapshot: CommandSpec, Equatable {
     }
 }
 
+/// Start streaming terminal data from a pane. Returns initial state.
+public struct StartTerminalStream: CommandSpec, Equatable {
+    public typealias Response = TerminalStreamStartedMessage
+
+    public init() { }
+
+    public var commandType: CommandType {
+        .startTerminalStream(self)
+    }
+}
+
+/// Stop streaming terminal data from a pane. Returns success/failure.
+public struct StopTerminalStream: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    public init() { }
+
+    public var commandType: CommandType {
+        .stopTerminalStream(self)
+    }
+}
+
 // MARK: - Command Types
 
 /// Commands that can be sent from iOS to Mac, with their associated data.
@@ -148,6 +170,10 @@ public enum CommandType: Codable, Sendable, Equatable {
     case cancelOperation(CancelOperation)
     /// Capture a terminal snapshot with scrollback
     case captureSnapshot(CaptureSnapshot)
+    /// Start streaming terminal data from a pane
+    case startTerminalStream(StartTerminalStream)
+    /// Stop streaming terminal data from a pane
+    case stopTerminalStream(StopTerminalStream)
 
     // MARK: - Convenience Factory Methods
 
@@ -164,6 +190,16 @@ public enum CommandType: Codable, Sendable, Equatable {
     /// Create a captureSnapshot command with the given scrollback multiplier
     public static func captureSnapshot(scrollbackMultiplier: Int) -> CommandType {
         .captureSnapshot(CaptureSnapshot(scrollbackMultiplier: scrollbackMultiplier))
+    }
+
+    /// Create a startTerminalStream command
+    public static var startTerminalStream: CommandType {
+        .startTerminalStream(StartTerminalStream())
+    }
+
+    /// Create a stopTerminalStream command
+    public static var stopTerminalStream: CommandType {
+        .stopTerminalStream(StopTerminalStream())
     }
 }
 
@@ -254,5 +290,97 @@ public struct TerminalSnapshotMessage: Codable, Sendable, Identifiable, Hashable
     /// Decodes the content from Base64
     public var content: Data? {
         Data(base64Encoded: contentBase64)
+    }
+}
+
+// MARK: - Terminal Stream Messages
+
+/// Response when terminal streaming starts, containing initial terminal state
+public struct TerminalStreamStartedMessage: Codable, Sendable, Identifiable {
+    public var id: UUID { commandId }
+
+    /// The command ID this message responds to
+    public let commandId: UUID
+
+    /// The pane ID being streamed
+    public let paneId: String
+
+    /// Terminal width in character columns
+    public let width: Int
+
+    /// Terminal height in character rows
+    public let height: Int
+
+    /// Initial content as Base64-encoded data (raw bytes with ANSI escape sequences)
+    public let initialContentBase64: String
+
+    public init(
+        commandId: UUID,
+        paneId: String,
+        width: Int,
+        height: Int,
+        initialContent: Data
+    ) {
+        self.commandId = commandId
+        self.paneId = paneId
+        self.width = width
+        self.height = height
+        self.initialContentBase64 = initialContent.base64EncodedString()
+    }
+
+    /// Decodes the initial content from Base64
+    public var initialContent: Data? {
+        Data(base64Encoded: initialContentBase64)
+    }
+}
+
+/// Streaming terminal data chunk sent from Mac to iOS
+public struct TerminalStreamDataMessage: Codable, Sendable {
+    /// The pane ID the data belongs to
+    public let paneId: String
+
+    /// The terminal data as Base64-encoded bytes (raw ANSI escape sequences)
+    public let dataBase64: String
+
+    public init(paneId: String, data: Data) {
+        self.paneId = paneId
+        self.dataBase64 = data.base64EncodedString()
+    }
+
+    /// Decodes the data from Base64
+    public var data: Data? {
+        Data(base64Encoded: dataBase64)
+    }
+}
+
+/// Terminal resize notification sent from Mac to iOS during streaming
+public struct TerminalStreamResizeMessage: Codable, Sendable {
+    /// The pane ID being resized
+    public let paneId: String
+
+    /// New terminal width in character columns
+    public let width: Int
+
+    /// New terminal height in character rows
+    public let height: Int
+
+    public init(paneId: String, width: Int, height: Int) {
+        self.paneId = paneId
+        self.width = width
+        self.height = height
+    }
+}
+
+/// Notification that terminal streaming has stopped
+public struct TerminalStreamStoppedMessage: Codable, Sendable {
+    /// The pane ID that stopped streaming
+    public let paneId: String
+
+    /// Reason for stopping (e.g., "user_requested", "pane_closed", "error")
+    public let reason: String
+
+    public init(paneId: String, reason: String) {
+        self.paneId = paneId
+        self.reason = reason
     }
 }
