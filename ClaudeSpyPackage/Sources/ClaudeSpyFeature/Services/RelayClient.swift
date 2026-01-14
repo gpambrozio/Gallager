@@ -123,11 +123,9 @@ final public class RelayClient {
 
     // MARK: - Pending Commands
 
-    /// Pending command continuations keyed by command ID
-    private var pendingCommands: [UUID: CheckedContinuation<Result<CommandResponseMessage, Error>, Never>] = [:]
-
-    /// Pending snapshot continuations keyed by command ID
-    private var pendingSnapshots: [UUID: CheckedContinuation<Result<TerminalSnapshotMessage, Error>, Never>] = [:]
+    /// Type-erased response handlers keyed by command ID.
+    /// Each handler receives the raw response and knows how to resume the appropriate continuation.
+    private var pendingCommands: [UUID: @MainActor (Result<Any, Error>) -> Void] = [:]
 
     // MARK: - Callbacks
 
@@ -137,31 +135,14 @@ final public class RelayClient {
     /// Called when session state is received from Mac
     public var onSessionState: (@Sendable (SessionStateMessage) -> Void)?
 
-    /// Called when a command response is received from Mac
-    public var onCommandResponse: (@Sendable (CommandResponseMessage) -> Void)?
-
-    /// Called when a terminal snapshot is received from Mac
-    public var onTerminalSnapshot: (@Sendable (TerminalSnapshotMessage) -> Void)?
-
-    /// Called when Mac connection status changes
-    public var onMacConnectionChange: (@Sendable (Bool) -> Void)?
-
     /// Called when partner's public key is received (for persisting to settings)
-    private var onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)?
+    public var onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)?
 
     // MARK: - Initialization
 
     public init() { }
 
     // MARK: - Configuration
-
-    /// Set the handler for when partner's public key is received.
-    /// Parameters are (publicKey: Base64, publicKeyId: String).
-    public func setPartnerKeyHandler(
-        _ handler: @escaping @MainActor @Sendable (String, String) async -> Void
-    ) {
-        onPartnerKeyReceived = handler
-    }
 
     // MARK: - Connection Management
 
@@ -265,76 +246,52 @@ final public class RelayClient {
 
     // MARK: - Sending Messages
 
-    /// Send a command to be relayed to Mac (fire-and-forget, encrypted)
-    public func sendCommand(_ command: CommandMessage) async {
-        guard state.isConnected else {
-            logger.debug("Not connected, cannot send command")
-            return
-        }
-
-        let message = WebSocketMessage.command(command)
-        await sendEncrypted(message)
-    }
-
-    /// Send a command and wait for response (with Result-based completion)
+    /// Send a command and wait for response with type-safe return type.
+    ///
+    /// The command's `CommandSpec` conformance determines the expected response type,
+    /// providing compile-time type safety for command/response pairs.
+    ///
     /// - Parameters:
-    ///   - command: The command to send
-    ///   - timeout: Maximum time to wait for response (default: 10 seconds)
-    /// - Returns: Result containing CommandResponseMessage or Error
-    public func sendCommandWithResponse(
-        _ command: CommandMessage,
-        timeout: TimeInterval = 10
-    ) async -> Result<CommandResponseMessage, Error> {
+    ///   - command: The command specification to send (conforms to `CommandSpec`)
+    ///   - paneId: The tmux pane ID to target
+    ///   - timeout: Maximum time to wait for response (default: 15 seconds)
+    /// - Returns: Result containing the command's associated Response type or Error
+    public func sendCommand<C: CommandSpec>(
+        _ command: C,
+        paneId: String,
+        timeout: TimeInterval = 15
+    ) async -> Result<C.Response, Error> {
         guard state.isConnected else {
             return .failure(RelayClientError.notConnected)
         }
 
-        return await withCheckedContinuation { continuation in
-            // Store continuation for this command ID
-            pendingCommands[command.id] = continuation
+        let commandMessage = CommandMessage(paneId: paneId, command: command.commandType)
 
-            // Send the command (encrypted)
-            Task {
-                await sendEncrypted(.command(command))
-            }
-
-            // Set up timeout
-            Task {
-                try? await Task.sleep(for: .seconds(timeout))
-                if let pendingContinuation = pendingCommands.removeValue(forKey: command.id) {
-                    pendingContinuation.resume(returning: .failure(RelayClientError.timeout))
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Result<C.Response, Error>, Never>) in
+            // Store type-erased handler that knows how to cast the response
+            pendingCommands[commandMessage.id] = { result in
+                switch result {
+                case let .success(anyResponse):
+                    if let typedResponse = anyResponse as? C.Response {
+                        continuation.resume(returning: .success(typedResponse))
+                    } else {
+                        continuation.resume(returning: .failure(RelayClientError.commandFailed("Unexpected response type")))
+                    }
+                case let .failure(error):
+                    continuation.resume(returning: .failure(error))
                 }
             }
-        }
-    }
-
-    /// Send a snapshot command and wait for the snapshot data
-    /// - Parameters:
-    ///   - command: The capture snapshot command
-    ///   - timeout: Maximum time to wait for snapshot (default: 15 seconds)
-    /// - Returns: Result containing TerminalSnapshotMessage or Error
-    public func sendSnapshotCommand(
-        _ command: CommandMessage,
-        timeout: TimeInterval = 15
-    ) async -> Result<TerminalSnapshotMessage, Error> {
-        guard state.isConnected else {
-            return .failure(RelayClientError.notConnected)
-        }
-
-        return await withCheckedContinuation { continuation in
-            // Store continuation for this command ID
-            pendingSnapshots[command.id] = continuation
 
             // Send the command (encrypted)
             Task {
-                await sendEncrypted(.command(command))
+                await self.sendEncrypted(.command(commandMessage))
             }
 
             // Set up timeout
             Task {
                 try? await Task.sleep(for: .seconds(timeout))
-                if let pendingContinuation = pendingSnapshots.removeValue(forKey: command.id) {
-                    pendingContinuation.resume(returning: .failure(RelayClientError.timeout))
+                if let handler = self.pendingCommands.removeValue(forKey: commandMessage.id) {
+                    handler(.failure(RelayClientError.timeout))
                 }
             }
         }
@@ -506,7 +463,6 @@ final public class RelayClient {
                 state = .connected
                 connectedMacName = response.macDeviceName
                 isMacConnected = response.macDeviceName != nil
-                onMacConnectionChange?(isMacConnected)
 
                 // Establish E2EE session if Mac is connected and we have their public key
                 if
@@ -554,30 +510,25 @@ final public class RelayClient {
 
         case let .commandResponse(response):
             logger.info("Received command response from Mac")
-            // Resume any pending continuation for this command
-            if let continuation = pendingCommands.removeValue(forKey: response.commandId) {
+            // Resume any pending handler for this command
+            if let handler = pendingCommands.removeValue(forKey: response.commandId) {
                 if response.success {
-                    continuation.resume(returning: .success(response))
+                    handler(.success(response))
                 } else {
-                    continuation.resume(returning: .failure(RelayClientError.commandFailed(response.error ?? "Unknown error")))
+                    handler(.failure(RelayClientError.commandFailed(response.error ?? "Unknown error")))
                 }
             }
-            // Also call the legacy callback if set
-            onCommandResponse?(response)
 
         case let .terminalSnapshot(snapshot):
             logger.info("Received terminal snapshot from Mac")
-            // Resume any pending continuation for this snapshot
-            if let continuation = pendingSnapshots.removeValue(forKey: snapshot.commandId) {
-                continuation.resume(returning: .success(snapshot))
+            // Resume any pending handler for this snapshot command
+            if let handler = pendingCommands.removeValue(forKey: snapshot.commandId) {
+                handler(.success(snapshot))
             }
-            // Also call the legacy callback if set
-            onTerminalSnapshot?(snapshot)
 
         case let .macConnected(connectedMessage):
             logger.info("Mac device connected")
             isMacConnected = true
-            onMacConnectionChange?(true)
 
             // Establish E2EE session with Mac's public key
             let macPublicKey = connectedMessage.publicKey
@@ -612,7 +563,6 @@ final public class RelayClient {
             logger.info("Mac device disconnected")
             isMacConnected = false
             connectedMacName = nil
-            onMacConnectionChange?(false)
 
         case .ping:
             await send(.pong)
@@ -686,7 +636,6 @@ final public class RelayClient {
     private func handleDisconnection() async {
         isMacConnected = false
         connectedMacName = nil
-        onMacConnectionChange?(false)
 
         await cleanupConnection()
 
@@ -736,14 +685,9 @@ final public class RelayClient {
         urlSession = nil
 
         // Fail all pending commands with not connected error
-        for (_, continuation) in pendingCommands {
-            continuation.resume(returning: .failure(RelayClientError.notConnected))
+        for (_, handler) in pendingCommands {
+            handler(.failure(RelayClientError.notConnected))
         }
         pendingCommands.removeAll()
-
-        for (_, continuation) in pendingSnapshots {
-            continuation.resume(returning: .failure(RelayClientError.notConnected))
-        }
-        pendingSnapshots.removeAll()
     }
 }

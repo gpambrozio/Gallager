@@ -44,13 +44,6 @@
             }
             .navigationTitle("Terminal Snapshot")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-            }
         }
     }
 

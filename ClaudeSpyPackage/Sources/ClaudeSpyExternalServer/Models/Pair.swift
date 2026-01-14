@@ -33,4 +33,7 @@ struct Pair: Sendable, Codable {
 
     /// When the pairing was created
     let createdAt: Date
+
+    /// iOS push notification token (optional, registered when iOS connects)
+    var pushToken: String?
 }

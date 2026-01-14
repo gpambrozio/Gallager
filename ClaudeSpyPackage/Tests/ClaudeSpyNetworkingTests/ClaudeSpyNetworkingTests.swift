@@ -75,6 +75,52 @@ struct PushModelsTests {
         #expect(decoded.pairId == original.pairId)
     }
 
+    @Test("NotificationContent with paneId round-trip encoding")
+    func notificationContentWithPaneIdRoundTrip() throws {
+        let original = NotificationContent(
+            title: "Session Event",
+            body: "Something happened",
+            eventType: "sessionStart",
+            pairId: "uuid-456",
+            paneId: "%123",
+            timestamp: Date()
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let jsonData = try encoder.encode(original)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(NotificationContent.self, from: jsonData)
+
+        #expect(decoded.title == original.title)
+        #expect(decoded.body == original.body)
+        #expect(decoded.eventType == original.eventType)
+        #expect(decoded.pairId == original.pairId)
+        #expect(decoded.paneId == original.paneId)
+        #expect(decoded.paneId == "%123")
+    }
+
+    @Test("NotificationContent decodes with missing paneId")
+    func notificationContentDecodesWithoutPaneId() throws {
+        let json = """
+        {
+            "title": "Claude Code",
+            "body": "Session started",
+            "eventType": "sessionStart",
+            "pairId": "pair-abc",
+            "timestamp": "2024-01-01T00:00:00Z"
+        }
+        """
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let content = try decoder.decode(NotificationContent.self, from: Data(json.utf8))
+
+        #expect(content.paneId == nil)
+    }
+
     // MARK: - EncryptedPushPayload Tests
 
     @Test("EncryptedPushPayload encodes correctly")

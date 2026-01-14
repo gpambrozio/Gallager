@@ -189,9 +189,9 @@ struct TmuxPaneMirrorApp: App {
         let serverClient = externalServerClient
         externalServerClient.setCommandHandler { [executor, service, serverClient] command in
             // Handle snapshot commands specially - requires MainActor for tmuxService access
-            if case let .captureSnapshot(scrollbackMultiplier) = command.command {
+            if case let .captureSnapshot(spec) = command.command {
                 // handleSnapshotCommand is @MainActor, so this call will hop to main actor
-                return await handleSnapshotCommand(command, scrollbackMultiplier: scrollbackMultiplier, tmuxService: service, serverClient: serverClient)
+                return await handleSnapshotCommand(command, scrollbackMultiplier: spec.scrollbackMultiplier, tmuxService: service, serverClient: serverClient)
             }
             // Regular commands execute on the actor executor (background)
             return await executor.execute(command)
@@ -252,17 +252,16 @@ struct TmuxPaneMirrorApp: App {
 
 /// Handles snapshot capture commands from iOS devices.
 ///
-/// Snapshot commands are handled specially because:
-/// 1. The captured terminal content is large and sent via a separate message
-/// 2. The command response is sent immediately for acknowledgment
-/// 3. The actual snapshot data follows asynchronously
+/// Snapshot commands are handled specially because the captured terminal content
+/// is sent as a TerminalSnapshotMessage rather than a CommandResponseMessage.
+/// Returns nil on success (the snapshot message is the response), or an error response on failure.
 @MainActor
 private func handleSnapshotCommand(
     _ command: CommandMessage,
     scrollbackMultiplier: Int,
     tmuxService: TmuxService,
     serverClient: ExternalServerClient
-) async -> CommandResponseMessage {
+) async -> CommandResponseMessage? {
     let logger = Logger(label: "com.claudespy.snapshot")
     logger.info("handleSnapshotCommand started", metadata: ["paneId": "\(command.paneId)"])
 
@@ -295,7 +294,7 @@ private func handleSnapshotCommand(
             "contentBytes": "\(content.count)",
         ])
 
-        // Create and send the snapshot
+        // Create and send the snapshot - this IS the response
         let snapshot = TerminalSnapshotMessage(
             commandId: command.id,
             paneId: command.paneId,
@@ -309,7 +308,8 @@ private func handleSnapshotCommand(
         await serverClient.sendTerminalSnapshot(snapshot)
         logger.info("Snapshot sent successfully")
 
-        return .success(for: command.id)
+        // Return nil - the TerminalSnapshotMessage is the response
+        return nil
     } catch {
         logger.error("Snapshot capture failed: \(error.localizedDescription)")
         return .failure(for: command.id, error: error.localizedDescription)

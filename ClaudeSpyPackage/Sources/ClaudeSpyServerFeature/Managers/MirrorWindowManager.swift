@@ -60,8 +60,8 @@ final public class MirrorWindowManager {
             // Get or create session and add the event
             updateSession(paneId: paneId) { $0.addEvent(event) }
 
-            // Only auto-open if user hasn't manually closed this pane's window
-            if !userClosedPanes.contains(paneId) {
+            // Only auto-open if setting is enabled and user hasn't manually closed this pane's window
+            if settings.autoOpenMirrorOnSession && !userClosedPanes.contains(paneId) {
                 await openMirrorForPane(paneId)
             }
         }

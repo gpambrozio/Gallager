@@ -31,8 +31,8 @@ public actor TmuxCommandExecutor {
 
         do {
             switch command.command {
-            case let .sendKeystroke(keys):
-                try await executeSendKeystroke(paneId: command.paneId, keys: keys)
+            case let .sendKeystroke(spec):
+                try await executeSendKeystroke(paneId: command.paneId, keys: spec.keystrokes)
 
             case .cancelOperation:
                 try await tmuxService.sendInterrupt(command.paneId)

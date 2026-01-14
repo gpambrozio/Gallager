@@ -20,6 +20,9 @@ public struct NotificationContent: Codable, Sendable, Equatable {
     /// The pair ID for routing (also included unencrypted for server routing)
     public let pairId: String
 
+    /// The tmux pane ID for deep linking to the specific session
+    public let paneId: String?
+
     /// When the event occurred
     public let timestamp: Date
 
@@ -28,12 +31,14 @@ public struct NotificationContent: Codable, Sendable, Equatable {
         body: String,
         eventType: String,
         pairId: String,
+        paneId: String? = nil,
         timestamp: Date = Date()
     ) {
         self.title = title
         self.body = body
         self.eventType = eventType
         self.pairId = pairId
+        self.paneId = paneId
         self.timestamp = timestamp
     }
 }
@@ -85,6 +90,7 @@ public extension NotificationContent {
             body: body,
             eventType: eventMessage.event.action.eventName,
             pairId: eventMessage.pairId,
+            paneId: eventMessage.event.tmuxPane,
             timestamp: eventMessage.event.timestamp
         )
     }

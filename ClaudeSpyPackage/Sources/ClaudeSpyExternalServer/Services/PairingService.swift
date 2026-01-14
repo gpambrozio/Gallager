@@ -206,6 +206,39 @@ actor PairingService {
         logger.debug("Updated iOS public key for pair", metadata: ["pairId": "\(pairId)"])
     }
 
+    // MARK: - Push Token Management
+
+    /// Register a push token for a pair
+    func registerPushToken(_ token: String, for pairId: String) {
+        guard var pair = activePairs[pairId] else {
+            logger.warning("Cannot register push token for unknown pair", metadata: ["pairId": "\(pairId)"])
+            return
+        }
+        pair.pushToken = token
+        activePairs[pairId] = pair
+        savePairs()
+        logger.info("Registered push token for pair", metadata: ["pairId": "\(pairId)"])
+    }
+
+    /// Get the push token for a pair
+    func getPushToken(for pairId: String) -> String? {
+        activePairs[pairId]?.pushToken
+    }
+
+    /// Remove the push token for a pair
+    func removePushToken(for pairId: String) {
+        guard var pair = activePairs[pairId] else { return }
+        pair.pushToken = nil
+        activePairs[pairId] = pair
+        savePairs()
+        logger.info("Removed push token for pair", metadata: ["pairId": "\(pairId)"])
+    }
+
+    /// Check if a pair has a registered push token
+    func hasPushToken(for pairId: String) -> Bool {
+        activePairs[pairId]?.pushToken != nil
+    }
+
     // MARK: - Private Helpers
 
     private func cleanupExpiredCodes() {
