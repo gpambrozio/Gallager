@@ -52,7 +52,7 @@ struct PromptView: View {
         textField
             .padding(.vertical, 8)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     if state.isSending {
                         ProgressView()
                             .controlSize(.small)
