@@ -94,6 +94,12 @@ class NotificationService: UNNotificationServiceExtension {
             // Decode the notification content
             let notificationContent = try JSONDecoder().decode(NotificationContent.self, from: decryptedData)
 
+            // Remove previous notifications for this session before showing the new one
+            // This keeps only the most recent notification per pane/session
+            if let paneId = notificationContent.paneId {
+                await removePreviousNotifications(forPaneId: paneId)
+            }
+
             // Update the notification with decrypted content
             content.title = notificationContent.title
             content.body = notificationContent.body
@@ -127,6 +133,21 @@ class NotificationService: UNNotificationServiceExtension {
         // Decrypt using ChaChaPoly
         let sealedBox = try ChaChaPoly.SealedBox(combined: payload.ciphertext)
         return try ChaChaPoly.open(sealedBox, using: symmetricKey)
+    }
+
+    /// Removes any previously delivered notifications for the same pane/session.
+    /// This ensures only the most recent notification per session is shown.
+    private func removePreviousNotifications(forPaneId paneId: String) async {
+        let center = UNUserNotificationCenter.current()
+        let deliveredNotifications = await center.deliveredNotifications()
+
+        let identifiersToRemove = deliveredNotifications
+            .filter { $0.request.content.userInfo["paneId"] as? String == paneId }
+            .map(\.request.identifier)
+
+        if !identifiersToRemove.isEmpty {
+            center.removeDeliveredNotifications(withIdentifiers: identifiersToRemove)
+        }
     }
 
     private func deliverWithFailure(reason: DecryptionFailureReason) {
