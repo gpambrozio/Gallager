@@ -4,17 +4,8 @@ import ClaudeSpyServerFeature
 import Logging
 import SwiftUI
 
-/// App delegate for handling app lifecycle events
-final class AppDelegate: NSObject, NSApplicationDelegate {
-    func applicationDidFinishLaunching(_: Notification) {
-        // Service initialization is handled by .task modifiers on MenuBarExtra
-    }
-}
-
 @main
 struct TmuxPaneMirrorApp: App {
-    @NSApplicationDelegateAdaptor private var appDelegate: AppDelegate
-
     @State private var settings = AppSettings()
     @State private var tmuxService: TmuxService
     @State private var windowManager: MirrorWindowManager
@@ -117,14 +108,9 @@ struct TmuxPaneMirrorApp: App {
         MenuBarExtra {
             MenuBarExtraView()
                 .environment(windowManager)
-                .task {
-                    // Backup: trigger setup when menu content is first shown
-                    await setupAllServices()
-                }
         } label: {
             MenuBarLabel(pendingCount: windowManager.pendingSessionCount)
                 .task {
-                    // Primary: trigger setup when menu bar label appears (at app launch)
                     await setupAllServices()
                 }
         }
@@ -132,9 +118,7 @@ struct TmuxPaneMirrorApp: App {
 
     // MARK: - Service Setup
 
-    /// Sets up all services. Called once when the app starts.
-    /// Uses isServiceSetupComplete to ensure it only runs once even if
-    /// the task is triggered multiple times.
+    /// Sets up all services. Called once when the app starts via MenuBarLabel's .task modifier.
     private func setupAllServices() async {
         guard !isServiceSetupComplete else { return }
         isServiceSetupComplete = true
