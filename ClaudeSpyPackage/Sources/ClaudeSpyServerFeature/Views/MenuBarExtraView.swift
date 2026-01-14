@@ -66,10 +66,8 @@ public struct MenuBarExtraView: View {
 
             if session.needsAttention {
                 Label(title, symbol: .exclamationmarkCircleFill)
-                    .symbolRenderingMode(.multicolor)
             } else {
-                Label(title, symbol: .checkmarkCircleFill)
-                    .foregroundStyle(.green)
+                Text(title)
             }
         }
     }
@@ -87,7 +85,7 @@ public struct MenuBarLabel: View {
 
     public var body: some View {
         if pendingCount > 0 {
-            Label("\(pendingCount)", symbol: .sparkles)
+            Label("\(pendingCount)", symbol: .handsAndSparklesFill)
         } else {
             Symbols.sparkles.image
         }
