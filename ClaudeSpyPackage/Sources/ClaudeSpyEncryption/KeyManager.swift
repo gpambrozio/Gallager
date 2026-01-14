@@ -162,7 +162,8 @@ import Foundation
         // MARK: - Private Helpers
 
         /// Builds base keychain query attributes, including access group if configured.
-        private func baseKeychainAttributes(account: String) -> [String: Any] {
+        /// Marked nonisolated since Keychain APIs are thread-safe.
+        private nonisolated func baseKeychainAttributes(account: String) -> [String: Any] {
             var attrs: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: keychainService,
@@ -259,16 +260,9 @@ import Foundation
         /// - Throws: `CryptoError.keychainError` on Keychain access failure
         public nonisolated func loadKeyPairSync() throws -> StoredKeyPair? {
             // Query for private key data
-            var privateKeyQuery: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: keychainService,
-                kSecAttrAccount as String: privateKeyAccount,
-                kSecReturnData as String: true,
-                kSecMatchLimit as String: kSecMatchLimitOne,
-            ]
-            if let accessGroup {
-                privateKeyQuery[kSecAttrAccessGroup as String] = accessGroup
-            }
+            var privateKeyQuery = baseKeychainAttributes(account: privateKeyAccount)
+            privateKeyQuery[kSecReturnData as String] = true
+            privateKeyQuery[kSecMatchLimit as String] = kSecMatchLimitOne
 
             var privateKeyResult: AnyObject?
             let privateKeyStatus = SecItemCopyMatching(privateKeyQuery as CFDictionary, &privateKeyResult)
@@ -285,16 +279,9 @@ import Foundation
             }
 
             // Query for key ID
-            var keyIdQuery: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: keychainService,
-                kSecAttrAccount as String: keyIdAccount,
-                kSecReturnData as String: true,
-                kSecMatchLimit as String: kSecMatchLimitOne,
-            ]
-            if let accessGroup {
-                keyIdQuery[kSecAttrAccessGroup as String] = accessGroup
-            }
+            var keyIdQuery = baseKeychainAttributes(account: keyIdAccount)
+            keyIdQuery[kSecReturnData as String] = true
+            keyIdQuery[kSecMatchLimit as String] = kSecMatchLimitOne
 
             var keyIdResult: AnyObject?
             let keyIdStatus = SecItemCopyMatching(keyIdQuery as CFDictionary, &keyIdResult)
