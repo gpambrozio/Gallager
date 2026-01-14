@@ -162,7 +162,8 @@ import Foundation
         // MARK: - Private Helpers
 
         /// Builds base keychain query attributes, including access group if configured.
-        private func baseKeychainAttributes(account: String) -> [String: Any] {
+        /// Marked nonisolated since Keychain APIs are thread-safe.
+        private nonisolated func baseKeychainAttributes(account: String) -> [String: Any] {
             var attrs: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: keychainService,
@@ -215,6 +216,49 @@ import Foundation
         /// - Returns: The stored key pair, or nil if not found
         /// - Throws: `CryptoError.keychainError` on Keychain access failure
         public func loadKeyPair() throws -> StoredKeyPair? {
+            // Delegate to the nonisolated sync version (Keychain access is thread-safe)
+            try loadKeyPairSync()
+        }
+
+        /// Deletes all stored keys from the Keychain, including session keys.
+        /// Use this for factory reset or unpairing.
+        public func deleteKeys() throws {
+            // Delete private key
+            let privateKeyQuery = baseKeychainAttributes(account: privateKeyAccount)
+            let privateKeyStatus = SecItemDelete(privateKeyQuery as CFDictionary)
+            if privateKeyStatus != errSecSuccess && privateKeyStatus != errSecItemNotFound {
+                throw CryptoError.keychainError(status: privateKeyStatus)
+            }
+
+            // Delete key ID
+            let keyIdQuery = baseKeychainAttributes(account: keyIdAccount)
+            let keyIdStatus = SecItemDelete(keyIdQuery as CFDictionary)
+            if keyIdStatus != errSecSuccess && keyIdStatus != errSecItemNotFound {
+                throw CryptoError.keychainError(status: keyIdStatus)
+            }
+
+            // Delete session key
+            let sessionKeyQuery = baseKeychainAttributes(account: sessionKeyAccount)
+            let sessionKeyStatus = SecItemDelete(sessionKeyQuery as CFDictionary)
+            if sessionKeyStatus != errSecSuccess && sessionKeyStatus != errSecItemNotFound {
+                throw CryptoError.keychainError(status: sessionKeyStatus)
+            }
+        }
+
+        /// Checks if a key pair exists in the Keychain.
+        public func hasStoredKeyPair() -> Bool {
+            var query = baseKeychainAttributes(account: privateKeyAccount)
+            query[kSecReturnData as String] = false
+
+            let status = SecItemCopyMatching(query as CFDictionary, nil)
+            return status == errSecSuccess
+        }
+
+        /// Synchronously loads an existing key pair from the Keychain.
+        /// This is useful for initialization in contexts where async is not available.
+        /// - Returns: The stored key pair, or nil if not found
+        /// - Throws: `CryptoError.keychainError` on Keychain access failure
+        public nonisolated func loadKeyPairSync() throws -> StoredKeyPair? {
             // Query for private key data
             var privateKeyQuery = baseKeychainAttributes(account: privateKeyAccount)
             privateKeyQuery[kSecReturnData as String] = true
@@ -259,45 +303,11 @@ import Foundation
                     privateKeyData: privateKeyData,
                     publicKeyData: publicKey.rawRepresentation,
                     keyId: keyId,
-                    createdAt: Date() // We don't store creation date, use current
+                    createdAt: Date()
                 )
             } catch {
                 throw CryptoError.invalidPrivateKey
             }
-        }
-
-        /// Deletes all stored keys from the Keychain, including session keys.
-        /// Use this for factory reset or unpairing.
-        public func deleteKeys() throws {
-            // Delete private key
-            let privateKeyQuery = baseKeychainAttributes(account: privateKeyAccount)
-            let privateKeyStatus = SecItemDelete(privateKeyQuery as CFDictionary)
-            if privateKeyStatus != errSecSuccess && privateKeyStatus != errSecItemNotFound {
-                throw CryptoError.keychainError(status: privateKeyStatus)
-            }
-
-            // Delete key ID
-            let keyIdQuery = baseKeychainAttributes(account: keyIdAccount)
-            let keyIdStatus = SecItemDelete(keyIdQuery as CFDictionary)
-            if keyIdStatus != errSecSuccess && keyIdStatus != errSecItemNotFound {
-                throw CryptoError.keychainError(status: keyIdStatus)
-            }
-
-            // Delete session key
-            let sessionKeyQuery = baseKeychainAttributes(account: sessionKeyAccount)
-            let sessionKeyStatus = SecItemDelete(sessionKeyQuery as CFDictionary)
-            if sessionKeyStatus != errSecSuccess && sessionKeyStatus != errSecItemNotFound {
-                throw CryptoError.keychainError(status: sessionKeyStatus)
-            }
-        }
-
-        /// Checks if a key pair exists in the Keychain.
-        public func hasStoredKeyPair() -> Bool {
-            var query = baseKeychainAttributes(account: privateKeyAccount)
-            query[kSecReturnData as String] = false
-
-            let status = SecItemCopyMatching(query as CFDictionary, nil)
-            return status == errSecSuccess
         }
 
         // MARK: - Session Key Storage
