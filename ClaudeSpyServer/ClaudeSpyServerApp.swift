@@ -4,8 +4,19 @@ import ClaudeSpyServerFeature
 import Logging
 import SwiftUI
 
+/// App delegate to ensure services initialize at launch (not dependent on view lifecycle)
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    var onFinishLaunching: (() -> Void)?
+
+    func applicationDidFinishLaunching(_: Notification) {
+        onFinishLaunching?()
+    }
+}
+
 @main
 struct TmuxPaneMirrorApp: App {
+    @NSApplicationDelegateAdaptor private var appDelegate: AppDelegate
+
     @State private var settings = AppSettings()
     @State private var tmuxService: TmuxService
     @State private var windowManager: MirrorWindowManager
@@ -33,6 +44,12 @@ struct TmuxPaneMirrorApp: App {
         // Create window manager upfront so MenuBarExtra can access it immediately
         let manager = MirrorWindowManager(settings: initialSettings, tmuxService: service)
         _windowManager = State(initialValue: manager)
+
+        // CRITICAL: Load E2EEService synchronously from Keychain BEFORE any view rendering.
+        // This prevents createPairingManager() from generating temporary keys.
+        if let e2ee = try? E2EEService.loadFromKeychainSync() {
+            _e2eeService = State(initialValue: e2ee)
+        }
     }
 
     var body: some Scene {
@@ -45,9 +62,6 @@ struct TmuxPaneMirrorApp: App {
                 .environment(pairingManager ?? createPairingManager())
                 .environment(externalServerClient)
                 .environment(\.e2eeService, e2eeService)
-                .task {
-                    await setupAllServices()
-                }
         }
         .defaultLaunchBehavior(.suppressed)
         .commands {
@@ -105,8 +119,26 @@ struct TmuxPaneMirrorApp: App {
         MenuBarExtra {
             MenuBarExtraView()
                 .environment(windowManager)
+                .task {
+                    // Trigger setup when menu is first opened (backup)
+                    await setupAllServices()
+                }
         } label: {
             MenuBarLabel(pendingCount: windowManager.pendingSessionCount)
+                .onAppear {
+                    // Set up app delegate callback to trigger service initialization
+                    appDelegate.onFinishLaunching = {
+                        Task { @MainActor in
+                            await setupAllServices()
+                        }
+                    }
+                    // If app already launched, trigger now
+                    if NSApp.isRunning {
+                        Task { @MainActor in
+                            await setupAllServices()
+                        }
+                    }
+                }
         }
     }
 

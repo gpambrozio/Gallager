@@ -215,55 +215,8 @@ import Foundation
         /// - Returns: The stored key pair, or nil if not found
         /// - Throws: `CryptoError.keychainError` on Keychain access failure
         public func loadKeyPair() throws -> StoredKeyPair? {
-            // Query for private key data
-            var privateKeyQuery = baseKeychainAttributes(account: privateKeyAccount)
-            privateKeyQuery[kSecReturnData as String] = true
-            privateKeyQuery[kSecMatchLimit as String] = kSecMatchLimitOne
-
-            var privateKeyResult: AnyObject?
-            let privateKeyStatus = SecItemCopyMatching(privateKeyQuery as CFDictionary, &privateKeyResult)
-
-            if privateKeyStatus == errSecItemNotFound {
-                return nil
-            }
-
-            guard
-                privateKeyStatus == errSecSuccess,
-                let privateKeyData = privateKeyResult as? Data
-            else {
-                throw CryptoError.keychainError(status: privateKeyStatus)
-            }
-
-            // Query for key ID
-            var keyIdQuery = baseKeychainAttributes(account: keyIdAccount)
-            keyIdQuery[kSecReturnData as String] = true
-            keyIdQuery[kSecMatchLimit as String] = kSecMatchLimitOne
-
-            var keyIdResult: AnyObject?
-            let keyIdStatus = SecItemCopyMatching(keyIdQuery as CFDictionary, &keyIdResult)
-
-            guard
-                keyIdStatus == errSecSuccess,
-                let keyIdData = keyIdResult as? Data,
-                let keyId = String(data: keyIdData, encoding: .utf8)
-            else {
-                throw CryptoError.keychainError(status: keyIdStatus)
-            }
-
-            // Reconstruct public key from private key
-            do {
-                let privateKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: privateKeyData)
-                let publicKey = privateKey.publicKey
-
-                return StoredKeyPair(
-                    privateKeyData: privateKeyData,
-                    publicKeyData: publicKey.rawRepresentation,
-                    keyId: keyId,
-                    createdAt: Date() // We don't store creation date, use current
-                )
-            } catch {
-                throw CryptoError.invalidPrivateKey
-            }
+            // Delegate to the nonisolated sync version (Keychain access is thread-safe)
+            try loadKeyPairSync()
         }
 
         /// Deletes all stored keys from the Keychain, including session keys.
@@ -298,6 +251,76 @@ import Foundation
 
             let status = SecItemCopyMatching(query as CFDictionary, nil)
             return status == errSecSuccess
+        }
+
+        /// Synchronously loads an existing key pair from the Keychain.
+        /// This is useful for initialization in contexts where async is not available.
+        /// - Returns: The stored key pair, or nil if not found
+        /// - Throws: `CryptoError.keychainError` on Keychain access failure
+        public nonisolated func loadKeyPairSync() throws -> StoredKeyPair? {
+            // Query for private key data
+            var privateKeyQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: keychainService,
+                kSecAttrAccount as String: privateKeyAccount,
+                kSecReturnData as String: true,
+                kSecMatchLimit as String: kSecMatchLimitOne,
+            ]
+            if let accessGroup {
+                privateKeyQuery[kSecAttrAccessGroup as String] = accessGroup
+            }
+
+            var privateKeyResult: AnyObject?
+            let privateKeyStatus = SecItemCopyMatching(privateKeyQuery as CFDictionary, &privateKeyResult)
+
+            if privateKeyStatus == errSecItemNotFound {
+                return nil
+            }
+
+            guard
+                privateKeyStatus == errSecSuccess,
+                let privateKeyData = privateKeyResult as? Data
+            else {
+                throw CryptoError.keychainError(status: privateKeyStatus)
+            }
+
+            // Query for key ID
+            var keyIdQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: keychainService,
+                kSecAttrAccount as String: keyIdAccount,
+                kSecReturnData as String: true,
+                kSecMatchLimit as String: kSecMatchLimitOne,
+            ]
+            if let accessGroup {
+                keyIdQuery[kSecAttrAccessGroup as String] = accessGroup
+            }
+
+            var keyIdResult: AnyObject?
+            let keyIdStatus = SecItemCopyMatching(keyIdQuery as CFDictionary, &keyIdResult)
+
+            guard
+                keyIdStatus == errSecSuccess,
+                let keyIdData = keyIdResult as? Data,
+                let keyId = String(data: keyIdData, encoding: .utf8)
+            else {
+                throw CryptoError.keychainError(status: keyIdStatus)
+            }
+
+            // Reconstruct public key from private key
+            do {
+                let privateKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: privateKeyData)
+                let publicKey = privateKey.publicKey
+
+                return StoredKeyPair(
+                    privateKeyData: privateKeyData,
+                    publicKeyData: publicKey.rawRepresentation,
+                    keyId: keyId,
+                    createdAt: Date()
+                )
+            } catch {
+                throw CryptoError.invalidPrivateKey
+            }
         }
 
         // MARK: - Session Key Storage

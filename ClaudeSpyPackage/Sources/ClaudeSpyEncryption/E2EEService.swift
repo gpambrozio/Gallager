@@ -114,6 +114,21 @@
             self.sessionState = SessionState()
         }
 
+        /// Synchronously creates a new E2EE service, loading keys from Keychain.
+        ///
+        /// This initializer is useful for App init() where async is not available.
+        /// If no keys exist in Keychain, returns nil (caller should handle first-time setup).
+        ///
+        /// - Parameter keyManager: The key manager to use for key storage.
+        /// - Returns: E2EEService if keys exist, nil if no keys in Keychain
+        /// - Throws: `CryptoError` if key loading fails
+        public static func loadFromKeychainSync(keyManager: KeyManager = KeyManager()) throws -> E2EEService? {
+            guard let existingPair = try keyManager.loadKeyPairSync() else {
+                return nil
+            }
+            return E2EEService(keyPair: existingPair, keyManager: keyManager)
+        }
+
         // MARK: - Public Key Access
 
         /// Our public key data that can be shared with partners.
