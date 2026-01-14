@@ -47,10 +47,9 @@ struct TmuxPaneMirrorApp: App {
                 .environment(\.e2eeService, e2eeService)
                 .task {
                     await setupAllServices()
-                    // Close the initial window after setup - app is menu bar driven
-                    closeInitialPanesWindow()
                 }
         }
+        .defaultLaunchBehavior(.suppressed)
         .commands {
             // File menu
             CommandGroup(replacing: .newItem) {
@@ -313,18 +312,6 @@ private func handleSnapshotCommand(
     } catch {
         logger.error("Snapshot capture failed: \(error.localizedDescription)")
         return .failure(for: command.id, error: error.localizedDescription)
-    }
-}
-
-// MARK: - Window Management
-
-/// Closes the initial panes window on app launch.
-/// The app is menu bar driven, so we don't want the panes window showing by default.
-@MainActor
-private func closeInitialPanesWindow() {
-    // Find and close the Panes window
-    for window in NSApp.windows where window.title == "Panes" {
-        window.close()
     }
 }
 

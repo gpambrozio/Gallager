@@ -6,6 +6,7 @@ import SwiftUI
 public struct MenuBarExtraView: View {
     @Environment(MirrorWindowManager.self) private var windowManager
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     public init() { }
 
@@ -31,7 +32,10 @@ public struct MenuBarExtraView: View {
         }
         .keyboardShortcut("p", modifiers: [.command, .shift])
 
-        SettingsLink {
+        Button {
+            openSettings()
+            NSApp.activate(ignoringOtherApps: true)
+        } label: {
             Label("Settings...", symbol: .gearshape)
         }
         .keyboardShortcut(",", modifiers: .command)
