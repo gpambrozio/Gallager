@@ -58,24 +58,18 @@ public struct MenuBarExtraView: View {
                 NSApp.activate(ignoringOtherApps: true)
             }
         } label: {
-            HStack {
-                if session.needsAttention {
-                    Circle()
-                        .fill(.red)
-                        .frame(width: 8, height: 8)
-                } else {
-                    Circle()
-                        .fill(.green.opacity(0.6))
-                        .frame(width: 8, height: 8)
-                }
+            let title = if let latestEvent = session.latestEvent {
+                "\(session.displayName) • \(latestEvent.action.title)"
+            } else {
+                session.displayName
+            }
 
-                Text(session.displayName)
-
-                if let latestEvent = session.latestEvent {
-                    Text("• \(latestEvent.action.title)")
-                        .foregroundStyle(.secondary)
-                        .font(.caption)
-                }
+            if session.needsAttention {
+                Label(title, symbol: .exclamationmarkCircleFill)
+                    .symbolRenderingMode(.multicolor)
+            } else {
+                Label(title, symbol: .checkmarkCircleFill)
+                    .foregroundStyle(.green)
             }
         }
     }
