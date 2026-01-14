@@ -1,0 +1,223 @@
+#if os(macOS)
+    import ClaudeSpyCommon
+    import ClaudeSpyEncryption
+    import ClaudeSpyNetworking
+    import Foundation
+    import Logging
+
+    /// Coordinates app-level services and their interactions for the macOS app.
+    ///
+    /// This class centralizes all service initialization, event wiring, and state synchronization
+    /// that was previously scattered in the App struct. The App entry point should create this
+    /// coordinator and use its public properties for environment injection.
+    @Observable
+    @MainActor
+    final public class AppCoordinator {
+        // MARK: - Public Services (for environment injection)
+
+        /// App settings
+        public let settings: AppSettings
+
+        /// Tmux interaction service
+        public let tmuxService: TmuxService
+
+        /// Window manager for pane mirroring
+        public let windowManager: MirrorWindowManager
+
+        /// External relay server client
+        public let externalServerClient: ExternalServerClient
+
+        /// Device pairing manager
+        public private(set) var pairingManager: PairingManager?
+
+        /// E2EE service for encryption
+        public private(set) var e2eeService: E2EEService?
+
+        // MARK: - Private Services
+
+        private let hookServer: HookServerService
+        private var commandExecutor: TmuxCommandExecutor?
+        private var snapshotHandler: SnapshotHandler?
+        private var isServiceSetupComplete = false
+
+        private let logger = Logger(label: "com.claudespy.coordinator")
+
+        // MARK: - Initialization
+
+        /// Creates the AppCoordinator with default or provided settings.
+        ///
+        /// Synchronous initialization sets up core services. Call `setupAllServices()` asynchronously
+        /// to complete service initialization and start connections.
+        public init(settings: AppSettings = AppSettings()) {
+            // Disable macOS automatic window restoration to prevent duplicate windows on launch
+            UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
+
+            self.settings = settings
+
+            // Create tmux service
+            self.tmuxService = TmuxService(
+                tmuxPath: settings.tmuxPath,
+                socketPath: settings.tmuxSocket.isEmpty ? nil : settings.tmuxSocket
+            )
+
+            // Create window manager
+            self.windowManager = MirrorWindowManager(settings: settings, tmuxService: tmuxService)
+
+            // Create external server client
+            self.externalServerClient = ExternalServerClient()
+
+            // Create hook server
+            self.hookServer = HookServerService()
+
+            // CRITICAL: Load E2EEService synchronously from Keychain BEFORE any view rendering.
+            // This prevents createPairingManager() from generating temporary keys.
+            if let e2ee = try? E2EEService.loadFromKeychainSync() {
+                self.e2eeService = e2ee
+            }
+        }
+
+        // MARK: - Public API
+
+        /// Creates or returns the pairing manager.
+        ///
+        /// This is useful for SwiftUI views that need a PairingManager before async setup completes.
+        /// It will create a temporary one if needed, which will be properly initialized later.
+        public func getOrCreatePairingManager() -> PairingManager {
+            if let manager = pairingManager {
+                return manager
+            }
+
+            let manager = createPairingManager()
+            return manager
+        }
+
+        /// Sets up all services. Call this once when the app starts (e.g., from a .task modifier).
+        public func setupAllServices() async {
+            guard !isServiceSetupComplete else { return }
+            isServiceSetupComplete = true
+
+            // Set up session state handler for external server
+            setupSessionStateHandler()
+
+            // Forward hook events to window manager AND external server
+            await hookServer.setEventHandler { [weak self] event in
+                guard let self else { return }
+                // Handle locally
+                await windowManager.handleHookEvent(event)
+
+                guard event.action.body.shouldSendToServer else { return }
+                // Forward to iOS via external server
+                await externalServerClient.sendHookEvent(event)
+            }
+
+            await initializeServices()
+            await hookServer.startServer()
+            await setupExternalServerClient()
+            await autoConnectIfConfigured()
+        }
+
+        // MARK: - Private Setup Methods
+
+        private func initializeServices() async {
+            // Create E2EEService if not already created
+            if e2eeService == nil {
+                do {
+                    e2eeService = try await E2EEService()
+                } catch {
+                    logger.error("Failed to create E2EEService: \(error)")
+                }
+            }
+
+            // Ensure PairingManager has the E2EEService
+            if let service = e2eeService, pairingManager == nil {
+                pairingManager = PairingManager(settings: settings, e2eeService: service)
+            }
+        }
+
+        private func createPairingManager() -> PairingManager {
+            // Create E2EEService synchronously with a generated key pair
+            // This will be properly initialized with keychain persistence in initializeServices()
+            let service: E2EEService
+            if let existingService = e2eeService {
+                service = existingService
+            } else {
+                // Generate a temporary key pair for initial setup
+                let keyPair = StoredKeyPair.generateNew()
+                service = E2EEService(keyPair: keyPair)
+                e2eeService = service
+            }
+
+            let manager = PairingManager(settings: settings, e2eeService: service)
+            pairingManager = manager
+            return manager
+        }
+
+        private func setupExternalServerClient() async {
+            // Create command executor
+            let executor = TmuxCommandExecutor(tmuxService: tmuxService)
+            commandExecutor = executor
+
+            // Create snapshot handler
+            let handler = SnapshotHandler(tmuxService: tmuxService, serverClient: externalServerClient)
+            snapshotHandler = handler
+
+            // Set up command handler - called when iOS sends a command
+            externalServerClient.setCommandHandler { [executor, handler] command in
+                // Handle snapshot commands specially
+                if case let .captureSnapshot(spec) = command.command {
+                    return await handler.handleSnapshotCommand(command, scrollbackMultiplier: spec.scrollbackMultiplier)
+                }
+                // Regular commands execute on the actor executor
+                return await executor.execute(command)
+            }
+
+            // Set up partner key handler to persist keys to settings
+            externalServerClient.setPartnerKeyHandler { [settings] publicKey, publicKeyId in
+                settings.partnerPublicKey = publicKey
+                settings.partnerPublicKeyId = publicKeyId
+            }
+        }
+
+        private func setupSessionStateHandler() {
+            externalServerClient.setSessionStateHandler { [settings, weak windowManager] in
+                guard let windowManager else {
+                    return SessionStateMessage(pairId: "", sessions: [:], activePanes: [])
+                }
+                let pairId = await settings.pairId ?? ""
+                let sessions = await windowManager.activeSessions
+                let activePaneIds = await Array(windowManager.activeSessions.keys)
+                return SessionStateMessage(
+                    pairId: pairId,
+                    sessions: sessions,
+                    activePanes: activePaneIds
+                )
+            }
+        }
+
+        private func autoConnectIfConfigured() async {
+            // Auto-connect to relay server if configured and paired
+            guard
+                settings.autoConnectToServer,
+                let pairId = settings.pairId,
+                let serverURL = URL(string: settings.externalServerURL),
+                let manager = pairingManager,
+                let e2eeService
+            else {
+                return
+            }
+
+            let keyInfo = manager.publicKeyInfo
+            await externalServerClient.connect(
+                serverURL: serverURL,
+                pairId: pairId,
+                deviceId: settings.deviceId,
+                deviceName: Host.current().localizedName ?? "Mac",
+                publicKey: keyInfo.publicKey.base64EncodedString(),
+                publicKeyId: keyInfo.keyId,
+                e2eeService: e2eeService,
+                partnerPublicKey: settings.partnerPublicKey,
+                partnerPublicKeyId: settings.partnerPublicKeyId
+            )
+        }
+    }
+#endif
