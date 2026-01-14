@@ -38,6 +38,10 @@ ClaudeSpy/
 
 ## Critical Rules
 
+### Only necessary code outside Packages
+
+The code in the Xcode project should be the absolute minimal. If code can be in a package then it should. 
+
 ### No ViewModels
 
 Use native SwiftUI data flow:
