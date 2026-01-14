@@ -69,3 +69,4 @@ default.profraw
 ClaudeSpyPackage/pairs.json
 ClaudeSpyPackage/secrets/
 ClaudeSpyPackage/.env
+.claude/iOSSimulator.json
