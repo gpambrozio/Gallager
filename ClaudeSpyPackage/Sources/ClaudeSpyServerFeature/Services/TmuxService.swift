@@ -191,7 +191,46 @@ final public class TmuxService {
 
     /// Captures the visible pane content with cursor positioning for each line
     /// This ensures content is rendered at the correct position in the terminal
-    public func capturePaneWithPositioning(_ target: String) async throws -> Data {
+    /// - Parameters:
+    ///   - target: The pane target
+    ///   - scrollbackLines: Number of scrollback history lines to include (0 = visible only)
+    ///   - resetTerminal: Whether to send a soft terminal reset before content (useful for mid-session joins)
+    public func capturePaneWithPositioning(
+        _ target: String,
+        scrollbackLines: Int = 0,
+        resetTerminal: Bool = false
+    ) async throws -> Data {
+        var result = Data()
+
+        // Send soft terminal reset to clear scroll regions, modes, etc.
+        if resetTerminal {
+            // DECSTR (Soft Terminal Reset) + clear screen + cursor home
+            let resetSequence = "\u{1b}[!p\u{1b}[2J\u{1b}[H"
+            if let resetData = resetSequence.data(using: .utf8) {
+                result.append(resetData)
+            }
+        }
+
+        // If scrollback requested, capture and include history first
+        if scrollbackLines > 0 {
+            // Capture scrollback history (lines before visible area)
+            // In tmux: line 0 is top of visible area, -1 is just above it
+            // So -scrollbackLines to -1 gives us the N most recent scrollback lines
+            let historyArgs = [
+                "capture-pane", "-t", target, "-p", "-e",
+                "-S", "\(-scrollbackLines)", "-E", "-1",
+            ]
+            let historyResult = try await runTmuxCommand(historyArgs)
+
+            if historyResult.isSuccess {
+                let historyContent = historyResult.stdoutString
+                // Feed history content - terminal will scroll naturally
+                if let historyData = historyContent.data(using: .utf8) {
+                    result.append(historyData)
+                }
+            }
+        }
+
         // Capture just the visible content (no scrollback)
         let captureArgs = ["capture-pane", "-t", target, "-p", "-e"]
         let captureResult = try await runTmuxCommand(captureArgs)
@@ -230,7 +269,11 @@ final public class TmuxService {
         // tmux cursor_x and cursor_y are 0-based, ANSI escape is 1-based
         positionedContent += "\u{1b}[\(cursorY + 1);\(cursorX + 1)H"
 
-        return positionedContent.data(using: .utf8) ?? Data()
+        if let positionedData = positionedContent.data(using: .utf8) {
+            result.append(positionedData)
+        }
+
+        return result
     }
 
     /// Starts pipe-pane to stream output to a named pipe

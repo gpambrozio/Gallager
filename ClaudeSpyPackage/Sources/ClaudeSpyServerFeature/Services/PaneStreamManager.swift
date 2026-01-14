@@ -96,11 +96,14 @@ final public class PaneStreamManager {
     ///   - target: The pane target (e.g., "session:window.pane")
     ///   - onData: Callback for incoming terminal data
     ///   - onDimensionChange: Optional callback for dimension changes
+    ///   - sendInitialContent: Whether to send initial content when joining an existing stream.
+    ///     Set to false if the subscriber handles initial content separately. Default is true.
     /// - Returns: A subscription that can be used to unsubscribe
     public func subscribe(
         target: String,
         onData: @escaping @MainActor (Data) -> Void,
-        onDimensionChange: (@MainActor (Int, Int) -> Void)? = nil
+        onDimensionChange: (@MainActor (Int, Int) -> Void)? = nil,
+        sendInitialContent: Bool = true
     ) async throws -> PaneStreamSubscription {
         let subscriberId = UUID().uuidString
 
@@ -112,8 +115,8 @@ final public class PaneStreamManager {
             )
             streams[target] = managed
 
-            // Send current content to new subscriber
-            if managed.paneStream.state == .connected {
+            // Send current content to new subscriber (unless they handle it themselves)
+            if sendInitialContent, managed.paneStream.state == .connected {
                 let content = try await tmuxService.capturePaneWithPositioning(target)
                 onData(content)
             }

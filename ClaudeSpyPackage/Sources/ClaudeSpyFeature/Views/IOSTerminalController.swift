@@ -59,9 +59,9 @@
             // Set up terminal colors (dark theme by default)
             applyDarkTheme()
 
-            // Disable TerminalView's own scrolling since we wrap it in our own UIScrollView
-            terminalView.isScrollEnabled = false
-            terminalView.contentOffset = .zero
+            // Keep SwiftTerm's internal scrolling enabled - it's needed for proper
+            // escape sequence handling (scroll regions, cursor positioning, etc.)
+            // The UIScrollView wrapper provides additional scrolling for the view itself
 
             // Hide input assistant items (keyboard suggestions bar)
             terminalView.inputAssistantItem.leadingBarButtonGroups = []

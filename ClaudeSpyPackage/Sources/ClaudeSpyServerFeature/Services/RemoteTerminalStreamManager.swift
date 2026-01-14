@@ -18,6 +18,12 @@ final public class RemoteTerminalStreamManager {
         let commandId: UUID
     }
 
+    /// A queued message to send to iOS
+    private enum QueuedMessage {
+        case data(paneId: String, data: Data)
+        case resize(paneId: String, width: Int, height: Int)
+    }
+
     // MARK: - Properties
 
     private let logger = Logger(label: "com.claudespy.remoteterminalstream")
@@ -33,6 +39,12 @@ final public class RemoteTerminalStreamManager {
 
     /// Active streams keyed by pane ID
     private var activeStreams: [String: ActiveStream] = [:]
+
+    /// Queue for messages to ensure in-order delivery
+    private var messageQueue: [QueuedMessage] = []
+
+    /// Whether the queue processor is currently running
+    private var isProcessingQueue = false
 
     // MARK: - Initialization
 
@@ -74,22 +86,19 @@ final public class RemoteTerminalStreamManager {
         ])
 
         // Subscribe to the shared pane stream
+        // Note: sendInitialContent=false because we handle initial content via TerminalStreamStartedMessage
         let subscription: PaneStreamSubscription
         do {
             subscription = try await paneStreamManager.subscribe(
                 target: paneTarget,
                 onData: { [weak self] data in
-                    guard let self else { return }
-                    Task {
-                        await self.forwardData(paneId: paneId, data: data)
-                    }
+                    // Queue data synchronously to preserve order
+                    self?.queueMessage(.data(paneId: paneId, data: data))
                 },
                 onDimensionChange: { [weak self] width, height in
-                    guard let self else { return }
-                    Task {
-                        await self.forwardResize(paneId: paneId, width: width, height: height)
-                    }
-                }
+                    self?.queueMessage(.resize(paneId: paneId, width: width, height: height))
+                },
+                sendInitialContent: false
             )
         } catch {
             logger.error("Failed to subscribe to pane stream: \(error)")
@@ -103,10 +112,13 @@ final public class RemoteTerminalStreamManager {
             commandId: commandId
         )
 
-        // Get initial content
+        // Get initial content with scrollback history (~3 pages)
         let initialContent: Data
         do {
-            initialContent = try await tmuxService.capturePaneWithPositioning(paneTarget)
+            initialContent = try await tmuxService.capturePaneWithPositioning(
+                paneTarget,
+                scrollbackLines: 150
+            )
         } catch {
             logger.error("Failed to capture initial pane content: \(error)")
             initialContent = Data()
@@ -162,20 +174,41 @@ final public class RemoteTerminalStreamManager {
 
     // MARK: - Private Methods
 
-    /// Forward terminal data to iOS
-    private func forwardData(paneId: String, data: Data) async {
-        guard activeStreams[paneId] != nil else { return }
-
-        let message = TerminalStreamDataMessage(paneId: paneId, data: data)
-        await sendToIOS?(.terminalStreamData(message))
+    /// Queue a message for in-order delivery to iOS
+    private func queueMessage(_ message: QueuedMessage) {
+        messageQueue.append(message)
+        processQueueIfNeeded()
     }
 
-    /// Forward resize event to iOS
-    private func forwardResize(paneId: String, width: Int, height: Int) async {
-        guard activeStreams[paneId] != nil else { return }
+    /// Start processing the queue if not already running
+    private func processQueueIfNeeded() {
+        guard !isProcessingQueue else { return }
+        isProcessingQueue = true
 
-        let message = TerminalStreamResizeMessage(paneId: paneId, width: width, height: height)
-        await sendToIOS?(.terminalStreamResize(message))
+        Task {
+            await processQueue()
+        }
+    }
+
+    /// Process queued messages in order
+    private func processQueue() async {
+        while !messageQueue.isEmpty {
+            let message = messageQueue.removeFirst()
+
+            switch message {
+            case let .data(paneId, data):
+                guard activeStreams[paneId] != nil else { continue }
+                let wsMessage = TerminalStreamDataMessage(paneId: paneId, data: data)
+                await sendToIOS?(.terminalStreamData(wsMessage))
+
+            case let .resize(paneId, width, height):
+                guard activeStreams[paneId] != nil else { continue }
+                let wsMessage = TerminalStreamResizeMessage(paneId: paneId, width: width, height: height)
+                await sendToIOS?(.terminalStreamResize(wsMessage))
+            }
+        }
+
+        isProcessingQueue = false
     }
 
     /// Find the pane target for a given pane ID
