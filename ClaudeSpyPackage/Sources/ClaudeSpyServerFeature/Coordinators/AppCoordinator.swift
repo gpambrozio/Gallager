@@ -114,6 +114,9 @@
             await hookServer.startServer()
             await setupExternalServerClient()
             await autoConnectIfConfigured()
+
+            // Start periodic validation to clean up stale sessions
+            windowManager.startPeriodicSessionValidation()
         }
 
         // MARK: - Private Setup Methods

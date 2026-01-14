@@ -12,9 +12,6 @@ public struct MainView: View {
     @Environment(PairingManager.self) private var pairingManager
     @Environment(\.e2eeService) private var e2eeService: E2EEService?
 
-    /// Refresh interval in seconds
-    private let refreshInterval: TimeInterval = 5
-
     public init() { }
 
     public var body: some View {
@@ -47,15 +44,8 @@ public struct MainView: View {
             }
         }
         .task {
-            // Initial load
+            // Initial load only - periodic refresh is handled by MirrorWindowManager
             await refreshPanes()
-
-            // Auto-refresh every 5 seconds
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(refreshInterval))
-                guard !Task.isCancelled else { break }
-                await refreshPanes()
-            }
         }
     }
 

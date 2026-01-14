@@ -21,12 +21,49 @@ final public class MirrorWindowManager {
     /// Strong references to window delegates (NSWindow.delegate is weak)
     private var windowDelegates: [String: MirrorWindowDelegate] = [:]
 
+    /// Task for periodic session validation
+    private var sessionValidationTask: Task<Void, Never>?
+
+    /// Interval between session validation checks (in seconds)
+    private let validationInterval: TimeInterval = 5
+
     private let settings: AppSettings
     private let tmuxService: TmuxService
 
     public init(settings: AppSettings, tmuxService: TmuxService) {
         self.settings = settings
         self.tmuxService = tmuxService
+    }
+
+    // MARK: - Periodic Session Validation
+
+    /// Starts a background task that periodically validates sessions against actual tmux panes.
+    /// Sessions for panes that no longer exist are automatically removed.
+    public func startPeriodicSessionValidation() {
+        // Cancel any existing task
+        sessionValidationTask?.cancel()
+
+        sessionValidationTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(self?.validationInterval ?? 5))
+
+                guard !Task.isCancelled, let self else { break }
+
+                // Always refresh panes to keep UI updated
+                let panes = await self.tmuxService.refreshPanes()
+
+                // Only run cleanup if we have sessions to check
+                if !self.activeSessions.isEmpty {
+                    self.cleanupStaleSessions(currentPanes: panes)
+                }
+            }
+        }
+    }
+
+    /// Stops the periodic session validation task.
+    public func stopPeriodicSessionValidation() {
+        sessionValidationTask?.cancel()
+        sessionValidationTask = nil
     }
 
     // MARK: - Session Management
@@ -245,7 +282,8 @@ final public class MirrorWindowManager {
         }
     }
 
-    /// Opens a mirror for the specified tmux pane by ID
+    /// Opens a mirror for the specified tmux pane by ID.
+    /// If the pane no longer exists, the session is removed as stale.
     /// - Parameter paneId: The tmux pane ID (e.g., "%0", "%1")
     public func openMirrorForPane(_ paneId: String) async {
         // Refresh panes to get current state
@@ -253,10 +291,33 @@ final public class MirrorWindowManager {
 
         // Find the pane with this pane ID (not target)
         guard let pane = allPanes.first(where: { $0.paneId == paneId }) else {
+            // Pane no longer exists - clean up the stale session
+            removeStaleSession(paneId: paneId)
             return
         }
 
         openMirror(for: pane)
+    }
+
+    // MARK: - Session Cleanup
+
+    /// Removes a stale session for a pane that no longer exists
+    /// - Parameter paneId: The tmux pane ID to remove
+    private func removeStaleSession(paneId: String) {
+        activeSessions.removeValue(forKey: paneId)
+        userClosedPanes.remove(paneId)
+    }
+
+    /// Cleans up active Claude sessions for panes that no longer exist.
+    /// Call this to remove orphaned sessions when their tmux panes have been closed.
+    /// - Parameter currentPanes: The list of currently existing tmux panes
+    public func cleanupStaleSessions(currentPanes: [PaneInfo]) {
+        let existingPaneIds = Set(currentPanes.map(\.paneId))
+        let stalePaneIds = activeSessions.keys.filter { !existingPaneIds.contains($0) }
+
+        for paneId in stalePaneIds {
+            removeStaleSession(paneId: paneId)
+        }
     }
 }
 
