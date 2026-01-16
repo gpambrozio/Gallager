@@ -227,7 +227,9 @@ struct AskUserQuestionResponseView: View {
                 .buttonStyle(.bordered)
 
                 Button {
-                    confirmAndSubmit()
+                    Task {
+                        await confirmAndSubmit()
+                    }
                 } label: {
                     Label("Confirm", symbol: .checkmarkCircleFill)
                         .frame(maxWidth: .infinity)
@@ -523,54 +525,53 @@ struct AskUserQuestionResponseView: View {
         selectedOptions = []
         customInputText = ""
         showingCustomInput = false
+        customInputError = nil
     }
 
-    private func confirmAndSubmit() {
+    private func confirmAndSubmit() async {
         state.isSending = true
 
-        Task {
-            // Build keystrokes for all answers
-            var keystrokes: [TmuxKey] = []
+        // Build keystrokes for all answers
+        var keystrokes: [TmuxKey] = []
 
-            for questionIndex in 0..<questions.count {
-                guard let answer = collectedAnswers[questionIndex] else { continue }
-                let question = questions[questionIndex]
+        for questionIndex in 0..<questions.count {
+            guard let answer = collectedAnswers[questionIndex] else { continue }
+            let question = questions[questionIndex]
 
-                switch answer {
-                case let .selected(indices):
-                    if question.multiSelect {
-                        // For multi-select, send each selection individually with tab after
-                        for index in indices {
-                            keystrokes.append(.text("\(index + 1)"))
-                        }
-                        keystrokes.append(.tab)
-                    } else {
-                        // For single select, just send the number
-                        if let index = indices.first {
-                            keystrokes.append(.text("\(index + 1)"))
-                        }
+            switch answer {
+            case let .selected(indices):
+                if question.multiSelect {
+                    // For multi-select, send each selection individually with tab after
+                    for index in indices {
+                        keystrokes.append(.text("\(index + 1)"))
                     }
-                case let .custom(text):
-                    // Send "Other" option number, then text, delay, Enter, delay
-                    let otherOptionNumber = question.options.count + 1
-                    keystrokes.append(.text("\(otherOptionNumber)"))
-                    keystrokes.append(.text(text))
-                    keystrokes.append(.delay(300))
-                    keystrokes.append(.enter)
-                    keystrokes.append(.delay(300))
+                    keystrokes.append(.tab)
+                } else {
+                    // For single select, just send the number
+                    if let index = indices.first {
+                        keystrokes.append(.text("\(index + 1)"))
+                    }
                 }
+            case let .custom(text):
+                // Send "Other" option number, then text, delay, Enter, delay
+                let otherOptionNumber = question.options.count + 1
+                keystrokes.append(.text("\(otherOptionNumber)"))
+                keystrokes.append(.text(text))
+                keystrokes.append(.delay(300))
+                keystrokes.append(.enter)
+                keystrokes.append(.delay(300))
             }
-
-            // Final enter to submit all answers
-            keystrokes.append(.enter)
-
-            // Send all keystrokes at once
-            await sendCommand(.sendKeystroke(keystrokes))
-
-            state.isSending = false
-            state.response = .allQuestionsAnswered
-            isSubmitted = true
         }
+
+        // Final enter to submit all answers
+        keystrokes.append(.enter)
+
+        // Send all keystrokes at once
+        await sendCommand(.sendKeystroke(keystrokes))
+
+        state.isSending = false
+        state.response = .allQuestionsAnswered
+        isSubmitted = true
     }
 }
 
