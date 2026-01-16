@@ -312,8 +312,13 @@ struct MainView: View {
             // Navigate to the session detail after a brief delay. This delay is necessary
             // because NavigationStack may ignore path appends if the tab transition hasn't
             // completed. 100ms provides reliable behavior across device types.
+            //
+            // We reset the navigation path first to ensure only one session detail view
+            // exists in the stack. Multiple push notifications would otherwise pile up
+            // session views indefinitely.
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(100))
+                sessionsNavigationPath = NavigationPath()
                 sessionsNavigationPath.append(paneId)
             }
         }
