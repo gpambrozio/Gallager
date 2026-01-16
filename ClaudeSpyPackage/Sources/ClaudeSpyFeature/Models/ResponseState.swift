@@ -27,6 +27,10 @@ public enum ResponseType {
     case acceptedWithSuggestion
     case rejected
     case customInstructions(String)
+    /// Used when an answer has been submitted for one question in a multi-question sequence
+    case questionAnswered(questionIndex: Int, selectedOptions: Set<Int>)
+    /// Used when all questions have been answered
+    case allQuestionsAnswered
 
     public var feedbackMessage: String {
         switch self {
@@ -38,17 +42,23 @@ public enum ResponseType {
             "Permission rejected"
         case let .customInstructions(text):
             "Sent: \(text)"
+        case let .questionAnswered(index, _):
+            "Answered question \(index + 1)"
+        case .allQuestionsAnswered:
+            "All questions answered"
         }
     }
 
     public var feedbackColor: Color {
         switch self {
         case .accepted,
-             .acceptedWithSuggestion:
+             .acceptedWithSuggestion,
+             .allQuestionsAnswered:
             .green
         case .rejected:
             .red
-        case .customInstructions:
+        case .customInstructions,
+             .questionAnswered:
             .blue
         }
     }

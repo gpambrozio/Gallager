@@ -21,12 +21,22 @@ extension HookEvent {
              .stop:
             AnyView(PromptView(isConnected: isConnected, sendCommand: sendCommand, state: state))
         case let .permissionRequest(body):
-            AnyView(PermissionRequestResponseView(
-                request: body,
-                isConnected: isConnected,
-                sendCommand: sendCommand,
-                state: state
-            ))
+            // Check if this is actually an AskUserQuestion disguised as a permission request
+            if let toolInput = body.toolInput, case let .askUserQuestion(params) = toolInput {
+                AnyView(AskUserQuestionResponseView(
+                    params: params,
+                    isConnected: isConnected,
+                    sendCommand: sendCommand,
+                    state: state
+                ))
+            } else {
+                AnyView(PermissionRequestResponseView(
+                    request: body,
+                    isConnected: isConnected,
+                    sendCommand: sendCommand,
+                    state: state
+                ))
+            }
         default:
             nil
         }
@@ -97,6 +107,321 @@ struct PromptView: View {
             await sendCommand(.sendKeystroke([.text(trimmed), .enter]))
             inputText = ""
             state.isSending = false
+        }
+    }
+}
+
+// MARK: - Ask User Question Response View
+
+/// Interactive question response view for AskUserQuestion tool calls.
+struct AskUserQuestionResponseView: View {
+    let params: AskUserQuestionParameters
+    let isConnected: Bool
+    let sendCommand: CommandSender
+    let state: ResponseState
+
+    /// Tracks which question index we're currently on
+    @State private var currentQuestionIndex = 0
+    /// For multi-select questions, tracks selected option indices
+    @State private var selectedOptions: Set<Int> = []
+    /// For "Other" option custom input
+    @State private var customInputText = ""
+    /// Whether we're showing the custom input field
+    @State private var showingCustomInput = false
+    @FocusState private var isTextFieldFocused: Bool
+
+    private var questions: [AskUserQuestionParameters.AskUserQuestion] {
+        params.questions
+    }
+
+    private var currentQuestion: AskUserQuestionParameters.AskUserQuestion? {
+        guard currentQuestionIndex < questions.count else { return nil }
+        return questions[currentQuestionIndex]
+    }
+
+    private var isComplete: Bool {
+        currentQuestionIndex >= questions.count
+    }
+
+    var body: some View {
+        if isComplete {
+            completionFeedback
+        } else if let question = currentQuestion {
+            questionContent(question)
+        }
+    }
+
+    private var completionFeedback: some View {
+        HStack {
+            Symbols.checkmarkCircleFill.image
+                .foregroundStyle(.green)
+            Text("All questions answered")
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .font(.subheadline)
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private func questionContent(_ question: AskUserQuestionParameters.AskUserQuestion) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Progress indicator
+            if questions.count > 1 {
+                progressHeader
+            }
+
+            // Question header and text
+            questionHeader(question)
+
+            // Options
+            optionsList(question)
+
+            // "Other" option
+            otherOptionSection
+
+            // Multi-select submit button
+            if question.multiSelect && !selectedOptions.isEmpty && !showingCustomInput {
+                submitMultiSelectButton
+            }
+
+            if state.isSending {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                        .controlSize(.small)
+                    Spacer()
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var progressHeader: some View {
+        HStack {
+            Text("Question \(currentQuestionIndex + 1) of \(questions.count)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+    }
+
+    private func questionHeader(_ question: AskUserQuestionParameters.AskUserQuestion) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // Header tag
+            Text(question.header.uppercased())
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(.blue))
+
+            // Question text
+            Text(question.question)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder
+    private func optionsList(_ question: AskUserQuestionParameters.AskUserQuestion) -> some View {
+        VStack(spacing: 8) {
+            ForEach(Array(question.options.enumerated()), id: \.offset) { index, option in
+                optionButton(option, index: index, isMultiSelect: question.multiSelect)
+            }
+        }
+    }
+
+    private func optionButton(
+        _ option: AskUserQuestionParameters.AskUserQuestionOption,
+        index: Int,
+        isMultiSelect: Bool
+    ) -> some View {
+        Button {
+            if isMultiSelect {
+                toggleMultiSelectOption(index)
+            } else {
+                selectSingleOption(index)
+            }
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                // Selection indicator
+                if isMultiSelect {
+                    (selectedOptions.contains(index) ? Symbols.checkmarkSquareFill.image : Symbols.square.image)
+                        .foregroundStyle(selectedOptions.contains(index) ? .blue : .secondary)
+                } else {
+                    Text("\(index + 1)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 24, height: 24)
+                        .background(Circle().fill(.blue))
+                }
+
+                // Option content
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(option.label)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.leading)
+
+                    if let description = option.description, !description.isEmpty {
+                        Text(description)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                    }
+                }
+
+                Spacer()
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity)
+            .background(optionBackground(isSelected: selectedOptions.contains(index)))
+            .overlay(optionBorder(isSelected: selectedOptions.contains(index)))
+        }
+        .buttonStyle(.plain)
+        .disabled(!isConnected || state.isSending)
+    }
+
+    private func optionBackground(isSelected: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 12)
+            .fill(isSelected ? Color.blue.opacity(0.1) : Color.gray.opacity(0.1))
+    }
+
+    private func optionBorder(isSelected: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 12)
+            .stroke(isSelected ? Color.blue : Color.gray.opacity(0.3), lineWidth: 1)
+    }
+
+    @ViewBuilder
+    private var otherOptionSection: some View {
+        if showingCustomInput {
+            VStack(spacing: 8) {
+                TextField("Enter your response...", text: $customInputText, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(2...4)
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.1)))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.blue, lineWidth: 1))
+                    .focused($isTextFieldFocused)
+                    .disabled(state.isSending || !isConnected)
+
+                HStack {
+                    Button("Cancel") {
+                        showingCustomInput = false
+                        customInputText = ""
+                    }
+                    .buttonStyle(.bordered)
+
+                    Spacer()
+
+                    Button("Submit") {
+                        submitCustomInput()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(customInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        } else {
+            Button {
+                showingCustomInput = true
+                isTextFieldFocused = true
+            } label: {
+                HStack(spacing: 12) {
+                    Symbols.pencilLine.image
+                        .foregroundStyle(.secondary)
+                    Text("Other...")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity)
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.05)))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.2), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .disabled(!isConnected || state.isSending)
+        }
+    }
+
+    private var submitMultiSelectButton: some View {
+        Button {
+            submitMultiSelect()
+        } label: {
+            Label("Submit Selection", symbol: .checkmarkCircleFill)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .buttonBorderShape(.roundedRectangle(radius: 12))
+        .disabled(!isConnected || state.isSending || selectedOptions.isEmpty)
+    }
+
+    // MARK: - Actions
+
+    private func selectSingleOption(_ index: Int) {
+        state.isSending = true
+        Task {
+            // Send the option number (1-indexed as shown in UI)
+            await sendCommand(.sendKeystroke([.text("\(index + 1)")]))
+            state.response = .questionAnswered(
+                questionIndex: currentQuestionIndex,
+                selectedOptions: [index]
+            )
+            advanceToNextQuestion()
+        }
+    }
+
+    private func toggleMultiSelectOption(_ index: Int) {
+        if selectedOptions.contains(index) {
+            selectedOptions.remove(index)
+        } else {
+            selectedOptions.insert(index)
+        }
+    }
+
+    private func submitMultiSelect() {
+        guard !selectedOptions.isEmpty else { return }
+
+        state.isSending = true
+        Task {
+            // For multi-select, send each selected option number separated by commas
+            // This is a reasonable assumption for how the CLI might handle it
+            let sortedSelections = selectedOptions.sorted()
+            let selectionString = sortedSelections.map { String($0 + 1) }.joined(separator: ",")
+            await sendCommand(.sendKeystroke([.text(selectionString), .enter]))
+            state.response = .questionAnswered(
+                questionIndex: currentQuestionIndex,
+                selectedOptions: selectedOptions
+            )
+            advanceToNextQuestion()
+        }
+    }
+
+    private func submitCustomInput() {
+        let trimmed = customInputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        state.isSending = true
+        Task {
+            // Send the "Other" option number (options count + 1) followed by the custom text
+            let otherOptionNumber = (currentQuestion?.options.count ?? 0) + 1
+            await sendCommand(.sendKeystroke([.text("\(otherOptionNumber)"), .text(trimmed), .enter]))
+            state.response = .customInstructions(trimmed)
+            customInputText = ""
+            showingCustomInput = false
+            advanceToNextQuestion()
+        }
+    }
+
+    private func advanceToNextQuestion() {
+        state.isSending = false
+        currentQuestionIndex += 1
+        selectedOptions = []
+
+        if isComplete {
+            state.response = .allQuestionsAnswered
         }
     }
 }
@@ -542,7 +867,183 @@ private struct ToolInputView: View {
     }
 }
 
+#Preview("Ask User Question - Single Select") {
+    let params = AskUserQuestionParameters.previewSingleSelect
+    let event = HookEvent(
+        action: .permissionRequest(PermissionRequestBody(
+            sessionId: "test-session",
+            hookEventName: "PermissionRequest",
+            toolName: "AskUserQuestion",
+            toolInput: .askUserQuestion(params)
+        )),
+        projectPath: nil,
+        tmuxPane: nil
+    )
+    let state = ResponseState(event: event)
+
+    return List {
+        Section("Question") {
+            AskUserQuestionResponseView(
+                params: params,
+                isConnected: true,
+                sendCommand: { _ in },
+                state: state
+            )
+        }
+    }
+}
+
+#Preview("Ask User Question - Multi Select") {
+    let params = AskUserQuestionParameters.previewMultiSelect
+    let event = HookEvent(
+        action: .permissionRequest(PermissionRequestBody(
+            sessionId: "test-session",
+            hookEventName: "PermissionRequest",
+            toolName: "AskUserQuestion",
+            toolInput: .askUserQuestion(params)
+        )),
+        projectPath: nil,
+        tmuxPane: nil
+    )
+    let state = ResponseState(event: event)
+
+    return List {
+        Section("Question") {
+            AskUserQuestionResponseView(
+                params: params,
+                isConnected: true,
+                sendCommand: { _ in },
+                state: state
+            )
+        }
+    }
+}
+
+#Preview("Ask User Question - Multiple Questions") {
+    let params = AskUserQuestionParameters.previewMultipleQuestions
+    let event = HookEvent(
+        action: .permissionRequest(PermissionRequestBody(
+            sessionId: "test-session",
+            hookEventName: "PermissionRequest",
+            toolName: "AskUserQuestion",
+            toolInput: .askUserQuestion(params)
+        )),
+        projectPath: nil,
+        tmuxPane: nil
+    )
+    let state = ResponseState(event: event)
+
+    return List {
+        Section("Question") {
+            AskUserQuestionResponseView(
+                params: params,
+                isConnected: true,
+                sendCommand: { _ in },
+                state: state
+            )
+        }
+    }
+}
+
 // MARK: - Preview Helpers
+
+extension AskUserQuestionParameters {
+    static var previewSingleSelect: AskUserQuestionParameters {
+        AskUserQuestionParameters(
+            questions: [
+                AskUserQuestion(
+                    question: "The current networking only supports request/response. For live streaming, should I add new WebSocket message types?",
+                    header: "Streaming",
+                    options: [
+                        AskUserQuestionOption(
+                            label: "Yes, new message types (Recommended)",
+                            description: "Add dedicated streaming messages for continuous data flow. More efficient, cleaner architecture."
+                        ),
+                        AskUserQuestionOption(
+                            label: "Polling with existing snapshots",
+                            description: "Request snapshots repeatedly at intervals. Simpler but higher latency and network overhead."
+                        ),
+                    ],
+                    multiSelect: false
+                ),
+            ],
+            answers: nil
+        )
+    }
+
+    static var previewMultiSelect: AskUserQuestionParameters {
+        AskUserQuestionParameters(
+            questions: [
+                AskUserQuestion(
+                    question: "Which features do you want to enable for the new dashboard?",
+                    header: "Features",
+                    options: [
+                        AskUserQuestionOption(
+                            label: "Real-time updates",
+                            description: "Live data streaming via WebSockets"
+                        ),
+                        AskUserQuestionOption(
+                            label: "Dark mode",
+                            description: "Support for dark color scheme"
+                        ),
+                        AskUserQuestionOption(
+                            label: "Export to CSV",
+                            description: "Download data in CSV format"
+                        ),
+                        AskUserQuestionOption(
+                            label: "Charts and graphs",
+                            description: "Visual data representation"
+                        ),
+                    ],
+                    multiSelect: true
+                ),
+            ],
+            answers: nil
+        )
+    }
+
+    static var previewMultipleQuestions: AskUserQuestionParameters {
+        AskUserQuestionParameters(
+            questions: [
+                AskUserQuestion(
+                    question: "For live streaming, should I add new WebSocket message types?",
+                    header: "Streaming",
+                    options: [
+                        AskUserQuestionOption(
+                            label: "Yes, new message types (Recommended)",
+                            description: "More efficient, cleaner architecture."
+                        ),
+                        AskUserQuestionOption(
+                            label: "Polling with existing snapshots",
+                            description: "Simpler but higher latency."
+                        ),
+                    ],
+                    multiSelect: false
+                ),
+                AskUserQuestion(
+                    question: "Who controls the terminal dimensions for the iOS streaming view?",
+                    header: "Terminal sizing",
+                    options: [
+                        AskUserQuestionOption(
+                            label: "iOS requests specific dimensions",
+                            description: "iOS calculates desired size based on screen space."
+                        ),
+                        AskUserQuestionOption(
+                            label: "Mac sends actual tmux pane dimensions",
+                            description: "iOS receives whatever size the tmux pane actually is."
+                        ),
+                        AskUserQuestionOption(
+                            label: "Match the pane dimensions",
+                            description: "iOS view should match the actual tmux pane size."
+                        ),
+                    ],
+                    multiSelect: false
+                ),
+            ],
+            answers: nil
+        )
+    }
+}
 
 extension PermissionRequestBody {
     static var preview: PermissionRequestBody {

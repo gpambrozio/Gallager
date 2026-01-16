@@ -18,6 +18,7 @@ public enum Symbols: String {
     case boltFill = "bolt.fill"
     case checkmarkCircle = "checkmark.circle"
     case checkmarkCircleFill = "checkmark.circle.fill"
+    case checkmarkSquareFill = "checkmark.square.fill"
     case chevronLeft = "chevron.left"
     case docOnClipboard = "doc.on.clipboard"
     case exclamationmarkCircleFill = "exclamationmark.circle.fill"
@@ -29,11 +30,13 @@ public enum Symbols: String {
     case linkCircleFill = "link.circle.fill"
     case lockFill = "lock.fill"
     case pause
+    case pencilLine = "pencil.line"
     case play
     case playFill = "play.fill"
     case qrcode
     case questionmark
     case sparkles
+    case square
     case stopCircleFill = "stop.circle.fill"
     case stopFill = "stop.fill"
     case terminal
