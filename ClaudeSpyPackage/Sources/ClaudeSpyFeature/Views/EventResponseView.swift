@@ -965,13 +965,15 @@ private struct ToolInputView: View {
     )
     let state = ResponseState(event: event)
 
-    return List {
-        Section("Response") {
-            PromptView(
-                isConnected: true,
-                sendCommand: { _ in },
-                state: state
-            )
+    return NavigationStack {
+        List {
+            Section("Response") {
+                PromptView(
+                    isConnected: true,
+                    sendCommand: { _ in },
+                    state: state
+                )
+            }
         }
     }
 }
@@ -984,14 +986,16 @@ private struct ToolInputView: View {
     )
     let state = ResponseState(event: event)
 
-    return List {
-        Section("Response") {
-            PermissionRequestResponseView(
-                request: PermissionRequestBody.preview,
-                isConnected: true,
-                sendCommand: { _ in },
-                state: state
-            )
+    return NavigationStack {
+        List {
+            Section("Response") {
+                PermissionRequestResponseView(
+                    request: PermissionRequestBody.preview,
+                    isConnected: true,
+                    sendCommand: { _ in },
+                    state: state
+                )
+            }
         }
     }
 }
@@ -1004,14 +1008,16 @@ private struct ToolInputView: View {
     )
     let state = ResponseState(event: event)
 
-    return List {
-        Section("Response") {
-            PermissionRequestResponseView(
-                request: PermissionRequestBody.previewWithSuggestions,
-                isConnected: true,
-                sendCommand: { _ in },
-                state: state
-            )
+    return NavigationStack {
+        List {
+            Section("Response") {
+                PermissionRequestResponseView(
+                    request: PermissionRequestBody.previewWithSuggestions,
+                    isConnected: true,
+                    sendCommand: { _ in },
+                    state: state
+                )
+            }
         }
     }
 }
@@ -1030,14 +1036,16 @@ private struct ToolInputView: View {
     )
     let state = ResponseState(event: event)
 
-    return List {
-        Section("Question") {
-            AskUserQuestionResponseView(
-                params: params,
-                isConnected: true,
-                sendCommand: { _ in },
-                state: state
-            )
+    return NavigationStack {
+        List {
+            Section("Question") {
+                AskUserQuestionResponseView(
+                    params: params,
+                    isConnected: true,
+                    sendCommand: { _ in },
+                    state: state
+                )
+            }
         }
     }
 }
@@ -1056,14 +1064,16 @@ private struct ToolInputView: View {
     )
     let state = ResponseState(event: event)
 
-    return List {
-        Section("Question") {
-            AskUserQuestionResponseView(
-                params: params,
-                isConnected: true,
-                sendCommand: { _ in },
-                state: state
-            )
+    return NavigationStack {
+        List {
+            Section("Question") {
+                AskUserQuestionResponseView(
+                    params: params,
+                    isConnected: true,
+                    sendCommand: { _ in },
+                    state: state
+                )
+            }
         }
     }
 }
@@ -1082,14 +1092,16 @@ private struct ToolInputView: View {
     )
     let state = ResponseState(event: event)
 
-    return List {
-        Section("Question") {
-            AskUserQuestionResponseView(
-                params: params,
-                isConnected: true,
-                sendCommand: { _ in },
-                state: state
-            )
+    return NavigationStack {
+        List {
+            Section("Question") {
+                AskUserQuestionResponseView(
+                    params: params,
+                    isConnected: true,
+                    sendCommand: { _ in },
+                    state: state
+                )
+            }
         }
     }
 }
