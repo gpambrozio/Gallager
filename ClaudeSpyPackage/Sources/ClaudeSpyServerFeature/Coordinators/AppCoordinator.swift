@@ -27,6 +27,9 @@
         /// External relay server client
         public let externalServerClient: ExternalServerClient
 
+        /// Terminal stream service for iOS live streaming
+        public let terminalStreamService: TerminalStreamService
+
         /// Device pairing manager
         public private(set) var pairingManager: PairingManager?
 
@@ -65,6 +68,9 @@
 
             // Create external server client
             self.externalServerClient = ExternalServerClient()
+
+            // Create terminal stream service
+            self.terminalStreamService = TerminalStreamService()
 
             // Create hook server
             self.hookServer = HookServerService()
@@ -156,6 +162,10 @@
         }
 
         private func setupExternalServerClient() async {
+            // Configure terminal stream service and connect to window manager
+            terminalStreamService.configure(serverClient: externalServerClient)
+            windowManager.terminalStreamService = terminalStreamService
+
             // Create command executor
             let executor = TmuxCommandExecutor(tmuxService: tmuxService)
             commandExecutor = executor
@@ -165,11 +175,29 @@
             snapshotHandler = handler
 
             // Set up command handler - called when iOS sends a command
-            externalServerClient.setCommandHandler { [executor, handler] command in
+            let streamService = terminalStreamService
+            let windowMgr = windowManager
+            let tmux = tmuxService
+            externalServerClient.setCommandHandler { [executor, handler, streamService, windowMgr, tmux] command in
                 // Handle snapshot commands specially
                 if case let .captureSnapshot(spec) = command.command {
                     return await handler.handleSnapshotCommand(command, scrollbackMultiplier: spec.scrollbackMultiplier)
                 }
+
+                // Handle stream commands
+                if case .startTerminalStream = command.command {
+                    return await Self.handleStartStream(
+                        command: command,
+                        streamService: streamService,
+                        windowManager: windowMgr,
+                        tmuxService: tmux
+                    )
+                }
+                if case .stopTerminalStream = command.command {
+                    await streamService.stopStreaming(paneId: command.paneId)
+                    return .success(for: command.id)
+                }
+
                 // Regular commands execute on the actor executor
                 return await executor.execute(command)
             }
@@ -194,6 +222,37 @@
                     sessions: sessions,
                     activePanes: activePaneIds
                 )
+            }
+        }
+
+        private static func handleStartStream(
+            command: CommandMessage,
+            streamService: TerminalStreamService,
+            windowManager: MirrorWindowManager,
+            tmuxService: TmuxService
+        ) async -> CommandResponseMessage? {
+            let paneId = command.paneId
+
+            // Get pane dimensions and initial content
+            do {
+                let paneTarget = paneId // paneId is the tmux target (e.g., "%1")
+                let dimensions = try await tmuxService.getPaneDimensions(paneTarget)
+
+                // Capture initial pane content with cursor positioning
+                let initialContent = try await tmuxService.capturePaneWithPositioning(paneTarget)
+
+                // Start streaming - MirrorWindowView will automatically forward data
+                // when it sees the stream is active via streamService.isStreaming()
+                await streamService.startStreaming(
+                    paneId: paneId,
+                    width: dimensions.width,
+                    height: dimensions.height,
+                    initialContent: initialContent
+                )
+
+                return .success(for: command.id)
+            } catch {
+                return .failure(for: command.id, error: error.localizedDescription)
             }
         }
 

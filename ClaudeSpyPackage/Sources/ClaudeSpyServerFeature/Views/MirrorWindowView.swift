@@ -7,6 +7,7 @@ struct MirrorWindowView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(TmuxService.self) private var tmuxService
     @Environment(MirrorWindowManager.self) private var windowManager
+    @Environment(TerminalStreamService.self) private var streamService
 
     @State private var paneStream: PaneStream?
     @State private var terminalController = TerminalController()
@@ -170,19 +171,34 @@ struct MirrorWindowView: View {
         // Clear terminal and reset cursor position before receiving data
         terminalController.clear()
 
-        // Set up data handler
-        stream.onData = { data in
+        // Set up data handler - feed to local terminal AND forward to iOS if streaming
+        let paneId = paneInfo.paneId
+        stream.onData = { [weak streamService] data in
             terminalController.feed(data)
+
+            // Forward to iOS stream if active
+            if let streamService, streamService.isStreaming(paneId: paneId) {
+                Task {
+                    await streamService.feedData(paneId: paneId, data: data)
+                }
+            }
         }
 
         // Set up dimension change handler
-        stream.onDimensionChange = { [weak windowManager, weak terminalController] newWidth, newHeight in
+        stream.onDimensionChange = { [weak windowManager, weak terminalController, weak streamService] newWidth, newHeight in
             // Safety check: don't resize if terminal is being torn down
             guard let terminalController else { return }
             // Resize the terminal to match new pane dimensions
             terminalController.resize(columns: newWidth, rows: newHeight)
             // Resize the window to match
             windowManager?.resizeWindow(target: paneInfo.target, columns: newWidth, rows: newHeight)
+
+            // Notify iOS stream if active
+            if let streamService, streamService.isStreaming(paneId: paneId) {
+                Task {
+                    await streamService.notifyDimensionChange(paneId: paneId, width: newWidth, height: newHeight)
+                }
+            }
         }
 
         do {

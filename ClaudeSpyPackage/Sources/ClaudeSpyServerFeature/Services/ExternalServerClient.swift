@@ -275,6 +275,22 @@ final public class ExternalServerClient {
         await sendEncrypted(message)
     }
 
+    /// Send terminal stream data to iOS (encrypted)
+    public func sendTerminalStream(_ streamMessage: TerminalStreamMessage) async {
+        guard state.isConnected else {
+            logger.debug("Not connected, cannot send terminal stream")
+            return
+        }
+
+        logger.debug("Sending terminal stream", metadata: [
+            "paneId": "\(streamMessage.paneId)",
+            "updateType": "\(streamMessage.updateType)",
+        ])
+
+        let message = WebSocketMessage.terminalStream(streamMessage)
+        await sendEncrypted(message)
+    }
+
     /// Send an encrypted push notification payload for a hook event.
     ///
     /// This is sent alongside the encrypted hook event. The server will:

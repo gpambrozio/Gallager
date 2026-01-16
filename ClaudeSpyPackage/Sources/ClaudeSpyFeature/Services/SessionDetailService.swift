@@ -51,14 +51,8 @@ final public class SessionDetailService {
 
     // MARK: - Observable State
 
-    /// Whether a terminal snapshot is currently being loaded
-    public var isLoadingSnapshot = false
-
-    /// The loaded terminal snapshot, if any
-    public var terminalSnapshot: TerminalSnapshotMessage?
-
-    /// Error message from snapshot loading, if any
-    public var snapshotError: String?
+    /// Whether to show the live terminal view
+    public var showLiveTerminal = false
 
     /// Response state for the current event
     public var responseState: ResponseState?
@@ -118,24 +112,6 @@ final public class SessionDetailService {
 
     // MARK: - Actions
 
-    /// Request a terminal snapshot from the Mac
-    public func requestTerminalSnapshot() async {
-        isLoadingSnapshot = true
-        snapshotError = nil
-
-        let command = CaptureSnapshot(scrollbackMultiplier: 3)
-        let result = await relayClient.sendCommand(command, paneId: paneId)
-
-        isLoadingSnapshot = false
-
-        switch result {
-        case let .success(snapshot):
-            terminalSnapshot = snapshot
-        case let .failure(error):
-            snapshotError = error.localizedDescription
-        }
-    }
-
     /// Send a command to the Mac for this pane (fire-and-forget style)
     public func sendCommand(_ command: CommandType) async {
         // Extract the spec from the CommandType and send it
@@ -145,6 +121,10 @@ final public class SessionDetailService {
         case let .cancelOperation(spec):
             _ = await relayClient.sendCommand(spec, paneId: paneId)
         case let .captureSnapshot(spec):
+            _ = await relayClient.sendCommand(spec, paneId: paneId)
+        case let .startTerminalStream(spec):
+            _ = await relayClient.sendCommand(spec, paneId: paneId)
+        case let .stopTerminalStream(spec):
             _ = await relayClient.sendCommand(spec, paneId: paneId)
         }
     }

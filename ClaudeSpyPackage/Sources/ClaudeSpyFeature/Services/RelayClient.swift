@@ -135,6 +135,9 @@ final public class RelayClient {
     /// Called when session state is received from Mac
     public var onSessionState: (@Sendable (SessionStateMessage) -> Void)?
 
+    /// Called when a terminal stream message is received from Mac
+    public var onTerminalStream: (@MainActor @Sendable (TerminalStreamMessage) -> Void)?
+
     /// Called when partner's public key is received (for persisting to settings)
     public var onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)?
 
@@ -525,6 +528,10 @@ final public class RelayClient {
             if let handler = pendingCommands.removeValue(forKey: snapshot.commandId) {
                 handler(.success(snapshot))
             }
+
+        case let .terminalStream(streamMessage):
+            logger.debug("Received terminal stream for pane \(streamMessage.paneId)")
+            onTerminalStream?(streamMessage)
 
         case let .macConnected(connectedMessage):
             logger.info("Mac device connected")

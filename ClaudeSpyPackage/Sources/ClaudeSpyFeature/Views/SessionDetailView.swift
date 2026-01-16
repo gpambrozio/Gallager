@@ -37,9 +37,9 @@ struct SessionDetailView: View {
                 .navigationTitle("Session")
             #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
-                .navigationDestination(item: $bindableService.terminalSnapshot) { snapshot in
-                    TerminalSnapshotView(
-                        snapshot: snapshot,
+                .navigationDestination(isPresented: $bindableService.showLiveTerminal) {
+                    LiveTerminalView(
+                        paneId: paneId,
                         responseState: $bindableService.responseState,
                         isConnected: service.isMacConnected,
                         sendCommand: { command in
@@ -66,12 +66,6 @@ struct SessionDetailView: View {
                 viewTerminalButton(service: service)
             } header: {
                 Text("Terminal")
-            } footer: {
-                if let error = service.snapshotError {
-                    Text(error)
-                        .foregroundStyle(.red)
-                        .font(.caption)
-                }
             }
 
             // Context-sensitive response section based on latest event
@@ -130,26 +124,17 @@ struct SessionDetailView: View {
     @ViewBuilder
     private func viewTerminalButton(service: SessionDetailService) -> some View {
         Button {
-            Task {
-                await service.requestTerminalSnapshot()
-            }
+            service.showLiveTerminal = true
         } label: {
             HStack {
-                if service.isLoadingSnapshot {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Symbols.terminal.image
-                }
+                Symbols.terminal.image
                 Text("View Terminal")
                 Spacer()
-                if !service.isLoadingSnapshot {
-                    Symbols.arrowRight.image
-                        .foregroundStyle(.secondary)
-                }
+                Symbols.arrowRight.image
+                    .foregroundStyle(.secondary)
             }
         }
-        .disabled(!service.isMacConnected || service.isLoadingSnapshot)
+        .disabled(!service.isMacConnected)
     }
 }
 
