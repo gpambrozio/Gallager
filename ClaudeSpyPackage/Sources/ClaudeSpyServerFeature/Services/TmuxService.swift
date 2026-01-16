@@ -95,6 +95,9 @@ final public class TmuxService {
         do {
             try await checkAvailability()
 
+            // Get sessions with attached clients to prefer them during deduplication
+            let attachedSessions = await getAttachedSessionNames()
+
             // Format: #{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}
             let format = "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}"
 
@@ -114,10 +117,21 @@ final public class TmuxService {
                 .split(separator: "\n")
                 .map(String.init)
 
-            // Parse panes and deduplicate by paneId (filters out grouped session duplicates)
+            // Parse panes and sort so attached sessions come first
             let allPanes = lines.compactMap { PaneInfo(fromTmuxOutput: $0) }
+            let sortedPanes = allPanes.sorted { pane1, pane2 in
+                let pane1Attached = attachedSessions.contains(pane1.sessionName)
+                let pane2Attached = attachedSessions.contains(pane2.sessionName)
+                // Attached sessions come first
+                if pane1Attached != pane2Attached {
+                    return pane1Attached
+                }
+                return false // Preserve original order otherwise
+            }
+
+            // Deduplicate by paneId - attached session versions will be kept
             var seen = Set<String>()
-            panes = allPanes.filter { pane in
+            panes = sortedPanes.filter { pane in
                 if seen.contains(pane.paneId) {
                     return false
                 }
@@ -130,6 +144,23 @@ final public class TmuxService {
         }
 
         return panes
+    }
+
+    /// Gets the names of sessions that have clients attached
+    private func getAttachedSessionNames() async -> Set<String> {
+        guard
+            let result = try? await runTmuxCommand(["list-clients", "-F", "#{session_name}"]),
+            result.isSuccess
+        else {
+            return []
+        }
+
+        let sessions = result.stdoutString
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: "\n")
+            .map(String.init)
+
+        return Set(sessions)
     }
 
     /// Validates that a pane target exists
