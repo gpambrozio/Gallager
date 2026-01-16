@@ -521,10 +521,11 @@ struct AskUserQuestionResponseView: View {
                 switch answer {
                 case let .selected(indices):
                     if question.multiSelect {
-                        // For multi-select, send comma-separated numbers
-                        let sortedIndices = indices.sorted()
-                        let selectionString = sortedIndices.map { String($0 + 1) }.joined(separator: ",")
-                        keystrokes.append(.text(selectionString))
+                        // For multi-select, send each selection individually with tab after
+                        for index in indices {
+                            keystrokes.append(.text("\(index + 1)"))
+                        }
+                        keystrokes.append(.tab)
                     } else {
                         // For single select, just send the number
                         if let index = indices.first {
