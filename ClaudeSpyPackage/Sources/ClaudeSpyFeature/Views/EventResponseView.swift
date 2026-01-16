@@ -401,32 +401,28 @@ struct AskUserQuestionResponseView: View {
     @ViewBuilder
     private var otherOptionSection: some View {
         if showingCustomInput {
-            VStack(spacing: 8) {
-                TextField("Enter your response...", text: $customInputText, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(2...4)
-                    .padding(12)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.1)))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.blue, lineWidth: 1))
-                    .focused($isTextFieldFocused)
-                    .disabled(!isConnected)
-
-                HStack {
-                    Button("Cancel") {
-                        showingCustomInput = false
-                        customInputText = ""
+            TextField("Enter your response...", text: $customInputText, axis: .vertical)
+                .textFieldStyle(.plain)
+                .lineLimit(2...4)
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.1)))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.blue, lineWidth: 1))
+                .focused($isTextFieldFocused)
+                .disabled(!isConnected)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            showingCustomInput = false
+                            customInputText = ""
+                            isTextFieldFocused = false
+                        }
                     }
-                    .buttonStyle(.bordered)
-
-                    Spacer()
-
-                    Button("Next") {
-                        saveCustomInput()
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Next") {
+                            saveCustomInput()
+                        }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(customInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-            }
         } else {
             Button {
                 showingCustomInput = true
@@ -491,6 +487,7 @@ struct AskUserQuestionResponseView: View {
         collectedAnswers[currentQuestionIndex] = .custom(trimmed)
         customInputText = ""
         showingCustomInput = false
+        isTextFieldFocused = false
         advanceToNextQuestion()
     }
 
