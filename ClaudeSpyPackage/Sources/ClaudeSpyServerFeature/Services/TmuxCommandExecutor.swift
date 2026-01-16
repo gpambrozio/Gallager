@@ -67,7 +67,7 @@ public actor TmuxCommandExecutor {
             try await tmuxService.sendKeys(
                 paneId,
                 keys: key.tmuxKeyName,
-                literal: key.isLiteral
+                literal: key.requiresLiteralMode
             )
         }
     }

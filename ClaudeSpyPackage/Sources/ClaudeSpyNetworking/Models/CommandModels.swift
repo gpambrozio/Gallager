@@ -78,10 +78,10 @@ public enum TmuxKey: Codable, Sendable, Equatable {
         }
     }
 
-    /// Whether this key should be sent literally (without tmux interpretation)
-    public var isLiteral: Bool {
+    /// Whether this key requires tmux literal mode (sends text as-is without interpretation).
+    /// Only applies to `.text` - other cases like `.delay` are handled specially by the executor.
+    public var requiresLiteralMode: Bool {
         if case .text = self { return true }
-        if case .delay = self { return true } // Delay is handled specially
         return false
     }
 }
