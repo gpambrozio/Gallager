@@ -154,6 +154,8 @@ struct AskUserQuestionResponseView: View {
     @State private var showingCustomInput = false
     /// Whether we've submitted and are done
     @State private var isSubmitted = false
+    /// Error message for custom input validation
+    @State private var customInputError: String?
     @FocusState private var isTextFieldFocused: Bool
 
     private var questions: [AskUserQuestionParameters.AskUserQuestion] {
@@ -401,28 +403,43 @@ struct AskUserQuestionResponseView: View {
     @ViewBuilder
     private var otherOptionSection: some View {
         if showingCustomInput {
-            TextField("Enter your response...", text: $customInputText, axis: .vertical)
-                .textFieldStyle(.plain)
-                .lineLimit(2...4)
-                .padding(12)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.1)))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.blue, lineWidth: 1))
-                .focused($isTextFieldFocused)
-                .disabled(!isConnected)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") {
-                            showingCustomInput = false
-                            customInputText = ""
-                            isTextFieldFocused = false
+            VStack(alignment: .leading, spacing: 4) {
+                TextField("Enter your response...", text: $customInputText, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(2...4)
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.1)))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(customInputError != nil ? Color.red : Color.blue, lineWidth: 1)
+                    )
+                    .focused($isTextFieldFocused)
+                    .disabled(!isConnected)
+                    .onChange(of: customInputText) {
+                        customInputError = nil
+                    }
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") {
+                                showingCustomInput = false
+                                customInputText = ""
+                                customInputError = nil
+                                isTextFieldFocused = false
+                            }
+                        }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Next") {
+                                saveCustomInput()
+                            }
                         }
                     }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Next") {
-                            saveCustomInput()
-                        }
-                    }
+
+                if let error = customInputError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
                 }
+            }
         } else {
             Button {
                 showingCustomInput = true
@@ -482,8 +499,12 @@ struct AskUserQuestionResponseView: View {
 
     private func saveCustomInput() {
         let trimmed = customInputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else {
+            customInputError = "Please enter a response"
+            return
+        }
 
+        customInputError = nil
         collectedAnswers[currentQuestionIndex] = .custom(trimmed)
         customInputText = ""
         showingCustomInput = false
