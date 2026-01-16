@@ -233,12 +233,21 @@
         ) async -> CommandResponseMessage? {
             let paneId = command.paneId
 
-            // Get pane dimensions and initial content
             do {
+                // Ensure mirror window is open for this pane FIRST.
+                // This is necessary because the PaneStream (which provides continuous data)
+                // is created by MirrorWindowView. Without an open mirror, there's no data source.
+                // If already open, this just brings it to front.
+                await windowManager.openMirrorForPane(paneId)
+
+                // Brief delay to allow PaneStream to connect and start receiving data.
+                // This minimizes the gap between our initial capture and when PaneStream
+                // starts forwarding data to the stream service.
+                try await Task.sleep(for: .milliseconds(100))
+
+                // Get pane dimensions and capture content AFTER PaneStream has likely connected
                 let paneTarget = paneId // paneId is the tmux target (e.g., "%1")
                 let dimensions = try await tmuxService.getPaneDimensions(paneTarget)
-
-                // Capture initial pane content with cursor positioning
                 let initialContent = try await tmuxService.capturePaneWithPositioning(paneTarget)
 
                 // Start streaming - MirrorWindowView will automatically forward data
