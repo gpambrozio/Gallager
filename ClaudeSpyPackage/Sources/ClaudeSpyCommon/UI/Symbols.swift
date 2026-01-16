@@ -16,10 +16,12 @@ public enum Symbols: String {
     case arrowUpCircleFill = "arrow.up.circle.fill"
     case bellFill = "bell.fill"
     case boltFill = "bolt.fill"
+    case checkmark
     case checkmarkCircle = "checkmark.circle"
     case checkmarkCircleFill = "checkmark.circle.fill"
     case checkmarkSquareFill = "checkmark.square.fill"
     case chevronLeft = "chevron.left"
+    case chevronRight = "chevron.right"
     case docOnClipboard = "doc.on.clipboard"
     case exclamationmarkCircleFill = "exclamationmark.circle.fill"
     case exclamationmarkTriangle = "exclamationmark.triangle"
@@ -44,6 +46,7 @@ public enum Symbols: String {
     case wifi
     case wifiSlash = "wifi.slash"
     case wrenchAndScrewdriver = "wrench.and.screwdriver"
+    case xmark
     case xmarkCircle = "xmark.circle"
     case xmarkCircleFill = "xmark.circle.fill"
     // swiftformat:sort:end

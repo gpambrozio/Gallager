@@ -422,16 +422,20 @@ struct AskUserQuestionResponseView: View {
                     }
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
-                            Button("Cancel") {
+                            Button {
                                 showingCustomInput = false
                                 customInputText = ""
                                 customInputError = nil
                                 isTextFieldFocused = false
+                            } label: {
+                                Symbols.xmark.image
                             }
                         }
                         ToolbarItem(placement: .confirmationAction) {
-                            Button("Next") {
+                            Button {
                                 saveCustomInput()
+                            } label: {
+                                Symbols.checkmark.image
                             }
                         }
                     }
