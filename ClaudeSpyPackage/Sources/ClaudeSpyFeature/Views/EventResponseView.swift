@@ -113,7 +113,29 @@ struct PromptView: View {
 
 // MARK: - Ask User Question Response View
 
+/// Represents an answer to a question - either selected option indices or custom text
+private enum QuestionAnswer {
+    case selected(Set<Int>)
+    case custom(String)
+
+    /// Returns the display text for this answer given the question's options
+    func displayText(for question: AskUserQuestionParameters.AskUserQuestion) -> String {
+        switch self {
+        case let .selected(indices):
+            let sortedIndices = indices.sorted()
+            let labels = sortedIndices.compactMap { index -> String? in
+                guard index < question.options.count else { return nil }
+                return question.options[index].label
+            }
+            return labels.joined(separator: ", ")
+        case let .custom(text):
+            return "Other: \(text)"
+        }
+    }
+}
+
 /// Interactive question response view for AskUserQuestion tool calls.
+/// Collects all answers first, shows a summary for confirmation, then submits.
 struct AskUserQuestionResponseView: View {
     let params: AskUserQuestionParameters
     let isConnected: Bool
@@ -122,12 +144,16 @@ struct AskUserQuestionResponseView: View {
 
     /// Tracks which question index we're currently on
     @State private var currentQuestionIndex = 0
-    /// For multi-select questions, tracks selected option indices
+    /// Collected answers for each question (keyed by question index)
+    @State private var collectedAnswers: [Int: QuestionAnswer] = [:]
+    /// For multi-select questions, tracks selected option indices for current question
     @State private var selectedOptions: Set<Int> = []
     /// For "Other" option custom input
     @State private var customInputText = ""
     /// Whether we're showing the custom input field
     @State private var showingCustomInput = false
+    /// Whether we've submitted and are done
+    @State private var isSubmitted = false
     @FocusState private var isTextFieldFocused: Bool
 
     private var questions: [AskUserQuestionParameters.AskUserQuestion] {
@@ -139,17 +165,22 @@ struct AskUserQuestionResponseView: View {
         return questions[currentQuestionIndex]
     }
 
-    private var isComplete: Bool {
-        currentQuestionIndex >= questions.count
+    /// All questions have been answered, ready to show summary
+    private var isReadyForReview: Bool {
+        collectedAnswers.count == questions.count
     }
 
     var body: some View {
-        if isComplete {
+        if isSubmitted {
             completionFeedback
+        } else if isReadyForReview {
+            summaryView
         } else if let question = currentQuestion {
             questionContent(question)
         }
     }
+
+    // MARK: - Completion Feedback
 
     private var completionFeedback: some View {
         HStack {
@@ -162,6 +193,88 @@ struct AskUserQuestionResponseView: View {
         .font(.subheadline)
         .padding(.vertical, 4)
     }
+
+    // MARK: - Summary View
+
+    private var summaryView: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header
+            HStack {
+                Symbols.checkmarkCircle.image
+                    .foregroundStyle(.blue)
+                Text("Review Your Answers")
+                    .font(.headline)
+                Spacer()
+            }
+
+            // Answers list
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(questions.enumerated()), id: \.offset) { index, question in
+                    summaryRow(for: question, at: index)
+                }
+            }
+
+            // Action buttons
+            HStack(spacing: 12) {
+                Button {
+                    startOver()
+                } label: {
+                    Label("Start Over", symbol: .arrowClockwise)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    confirmAndSubmit()
+                } label: {
+                    Label("Confirm", symbol: .checkmarkCircleFill)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!isConnected || state.isSending)
+            }
+
+            if state.isSending {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Submitting...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func summaryRow(
+        for question: AskUserQuestionParameters.AskUserQuestion,
+        at index: Int
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // Question header tag
+            Text(question.header.uppercased())
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(.blue))
+
+            // Answer
+            if let answer = collectedAnswers[index] {
+                Text(answer.displayText(for: question))
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.1)))
+    }
+
+    // MARK: - Question Content
 
     @ViewBuilder
     private func questionContent(_ question: AskUserQuestionParameters.AskUserQuestion) -> some View {
@@ -180,18 +293,9 @@ struct AskUserQuestionResponseView: View {
             // "Other" option
             otherOptionSection
 
-            // Multi-select submit button
+            // Multi-select next button
             if question.multiSelect && !selectedOptions.isEmpty && !showingCustomInput {
-                submitMultiSelectButton
-            }
-
-            if state.isSending {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                        .controlSize(.small)
-                    Spacer()
-                }
+                nextQuestionButton
             }
         }
         .padding(.vertical, 4)
@@ -281,7 +385,7 @@ struct AskUserQuestionResponseView: View {
             .overlay(optionBorder(isSelected: selectedOptions.contains(index)))
         }
         .buttonStyle(.plain)
-        .disabled(!isConnected || state.isSending)
+        .disabled(!isConnected)
     }
 
     private func optionBackground(isSelected: Bool) -> some View {
@@ -305,7 +409,7 @@ struct AskUserQuestionResponseView: View {
                     .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.1)))
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.blue, lineWidth: 1))
                     .focused($isTextFieldFocused)
-                    .disabled(state.isSending || !isConnected)
+                    .disabled(!isConnected)
 
                 HStack {
                     Button("Cancel") {
@@ -316,8 +420,8 @@ struct AskUserQuestionResponseView: View {
 
                     Spacer()
 
-                    Button("Submit") {
-                        submitCustomInput()
+                    Button("Next") {
+                        saveCustomInput()
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(customInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -342,35 +446,28 @@ struct AskUserQuestionResponseView: View {
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.2), lineWidth: 1))
             }
             .buttonStyle(.plain)
-            .disabled(!isConnected || state.isSending)
+            .disabled(!isConnected)
         }
     }
 
-    private var submitMultiSelectButton: some View {
+    private var nextQuestionButton: some View {
         Button {
-            submitMultiSelect()
+            saveMultiSelectAndAdvance()
         } label: {
-            Label("Submit Selection", symbol: .checkmarkCircleFill)
+            Label("Next", symbol: .arrowRight)
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
         .buttonBorderShape(.roundedRectangle(radius: 12))
-        .disabled(!isConnected || state.isSending || selectedOptions.isEmpty)
+        .disabled(!isConnected || selectedOptions.isEmpty)
     }
 
     // MARK: - Actions
 
     private func selectSingleOption(_ index: Int) {
-        state.isSending = true
-        Task {
-            // Send the option number (1-indexed as shown in UI)
-            await sendCommand(.sendKeystroke([.text("\(index + 1)")]))
-            state.response = .questionAnswered(
-                questionIndex: currentQuestionIndex,
-                selectedOptions: [index]
-            )
-            advanceToNextQuestion()
-        }
+        // Save the answer and advance to next question
+        collectedAnswers[currentQuestionIndex] = .selected([index])
+        advanceToNextQuestion()
     }
 
     private func toggleMultiSelectOption(_ index: Int) {
@@ -381,47 +478,76 @@ struct AskUserQuestionResponseView: View {
         }
     }
 
-    private func submitMultiSelect() {
+    private func saveMultiSelectAndAdvance() {
         guard !selectedOptions.isEmpty else { return }
-
-        state.isSending = true
-        Task {
-            // For multi-select, send each selected option number separated by commas
-            // This is a reasonable assumption for how the CLI might handle it
-            let sortedSelections = selectedOptions.sorted()
-            let selectionString = sortedSelections.map { String($0 + 1) }.joined(separator: ",")
-            await sendCommand(.sendKeystroke([.text(selectionString), .enter]))
-            state.response = .questionAnswered(
-                questionIndex: currentQuestionIndex,
-                selectedOptions: selectedOptions
-            )
-            advanceToNextQuestion()
-        }
+        collectedAnswers[currentQuestionIndex] = .selected(selectedOptions)
+        advanceToNextQuestion()
     }
 
-    private func submitCustomInput() {
+    private func saveCustomInput() {
         let trimmed = customInputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        state.isSending = true
-        Task {
-            // Send the "Other" option number (options count + 1) followed by the custom text
-            let otherOptionNumber = (currentQuestion?.options.count ?? 0) + 1
-            await sendCommand(.sendKeystroke([.text("\(otherOptionNumber)"), .text(trimmed), .enter]))
-            state.response = .customInstructions(trimmed)
-            customInputText = ""
-            showingCustomInput = false
-            advanceToNextQuestion()
-        }
+        collectedAnswers[currentQuestionIndex] = .custom(trimmed)
+        customInputText = ""
+        showingCustomInput = false
+        advanceToNextQuestion()
     }
 
     private func advanceToNextQuestion() {
-        state.isSending = false
         currentQuestionIndex += 1
         selectedOptions = []
+    }
 
-        if isComplete {
+    private func startOver() {
+        currentQuestionIndex = 0
+        collectedAnswers = [:]
+        selectedOptions = []
+        customInputText = ""
+        showingCustomInput = false
+    }
+
+    private func confirmAndSubmit() {
+        state.isSending = true
+
+        Task {
+            // Build keystrokes for all answers
+            var keystrokes: [TmuxKey] = []
+
+            for questionIndex in 0..<questions.count {
+                guard let answer = collectedAnswers[questionIndex] else { continue }
+                let question = questions[questionIndex]
+
+                switch answer {
+                case let .selected(indices):
+                    if question.multiSelect {
+                        // For multi-select, send comma-separated numbers
+                        let sortedIndices = indices.sorted()
+                        let selectionString = sortedIndices.map { String($0 + 1) }.joined(separator: ",")
+                        keystrokes.append(.text(selectionString))
+                    } else {
+                        // For single select, just send the number
+                        if let index = indices.first {
+                            keystrokes.append(.text("\(index + 1)"))
+                        }
+                    }
+                case let .custom(text):
+                    // Send "Other" option number followed by the text
+                    let otherOptionNumber = question.options.count + 1
+                    keystrokes.append(.text("\(otherOptionNumber)"))
+                    keystrokes.append(.text(text))
+                }
+            }
+
+            // Add final return to submit
+            keystrokes.append(.enter)
+
+            // Send all keystrokes at once
+            await sendCommand(.sendKeystroke(keystrokes))
+
+            state.isSending = false
             state.response = .allQuestionsAnswered
+            isSubmitted = true
         }
     }
 }
