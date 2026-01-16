@@ -408,17 +408,34 @@ public struct AskUserQuestionParameters: Codable, Sendable, Equatable {
     public let questions: [AskUserQuestion]
     public let answers: [String: String]?
 
+    public init(questions: [AskUserQuestion], answers: [String: String]?) {
+        self.questions = questions
+        self.answers = answers
+    }
+
     public struct AskUserQuestion: Codable, Sendable, Equatable {
         public let question: String
         /// Short label for chip/tag display (max 12 chars)
         public let header: String
         public let options: [AskUserQuestionOption]
         public let multiSelect: Bool
+
+        public init(question: String, header: String, options: [AskUserQuestionOption], multiSelect: Bool) {
+            self.question = question
+            self.header = header
+            self.options = options
+            self.multiSelect = multiSelect
+        }
     }
 
     public struct AskUserQuestionOption: Codable, Sendable, Equatable {
         public let label: String
         public let description: String?
+
+        public init(label: String, description: String?) {
+            self.label = label
+            self.description = description
+        }
     }
 }
 

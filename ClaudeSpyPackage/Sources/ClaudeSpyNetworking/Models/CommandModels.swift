@@ -52,6 +52,9 @@ public enum TmuxKey: Codable, Sendable, Equatable {
     /// Control key combinations (e.g., .ctrl("c") for Ctrl+C)
     case ctrl(Character)
 
+    /// Delay in milliseconds (not a real key, handled specially by executor)
+    case delay(Int)
+
     /// The tmux key name for special keys, or the literal text
     public var tmuxKeyName: String {
         switch self {
@@ -71,11 +74,13 @@ public enum TmuxKey: Codable, Sendable, Equatable {
         case .pageUp: "PageUp"
         case .pageDown: "PageDown"
         case let .ctrl(char): "C-\(char)"
+        case .delay: "" // Not a real key, handled by executor
         }
     }
 
-    /// Whether this key should be sent literally (without tmux interpretation)
-    public var isLiteral: Bool {
+    /// Whether this key requires tmux literal mode (sends text as-is without interpretation).
+    /// Only applies to `.text` - other cases like `.delay` are handled specially by the executor.
+    public var requiresLiteralMode: Bool {
         if case .text = self { return true }
         return false
     }
