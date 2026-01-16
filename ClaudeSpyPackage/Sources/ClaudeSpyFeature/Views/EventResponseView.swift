@@ -532,14 +532,17 @@ struct AskUserQuestionResponseView: View {
                         }
                     }
                 case let .custom(text):
-                    // Send "Other" option number followed by the text
+                    // Send "Other" option number, then text, delay, Enter, delay
                     let otherOptionNumber = question.options.count + 1
                     keystrokes.append(.text("\(otherOptionNumber)"))
                     keystrokes.append(.text(text))
+                    keystrokes.append(.delay(300))
+                    keystrokes.append(.enter)
+                    keystrokes.append(.delay(300))
                 }
             }
 
-            // Add final return to submit
+            // Final enter to submit all answers
             keystrokes.append(.enter)
 
             // Send all keystrokes at once

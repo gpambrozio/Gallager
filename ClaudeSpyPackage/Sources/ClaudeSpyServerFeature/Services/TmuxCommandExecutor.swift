@@ -58,6 +58,12 @@ public actor TmuxCommandExecutor {
 
     private func executeSendKeystroke(paneId: String, keys: [TmuxKey]) async throws {
         for key in keys {
+            // Handle delay specially - sleep instead of sending to tmux
+            if case let .delay(milliseconds) = key {
+                try await Task.sleep(for: .milliseconds(milliseconds))
+                continue
+            }
+
             try await tmuxService.sendKeys(
                 paneId,
                 keys: key.tmuxKeyName,
