@@ -248,7 +248,8 @@
                 // Get pane dimensions and capture content AFTER PaneStream has likely connected
                 let paneTarget = paneId // paneId is the tmux target (e.g., "%1")
                 let dimensions = try await tmuxService.getPaneDimensions(paneTarget)
-                let initialContent = try await tmuxService.capturePaneWithPositioning(paneTarget)
+                // Capture with scrollback (3x terminal height) so iOS has history to scroll through
+                let initialContent = try await tmuxService.capturePaneWithScrollbackForStreaming(paneTarget)
 
                 // Start streaming - MirrorWindowView will automatically forward data
                 // when it sees the stream is active via streamService.isStreaming()

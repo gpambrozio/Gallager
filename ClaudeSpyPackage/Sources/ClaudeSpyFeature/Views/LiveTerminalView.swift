@@ -189,8 +189,19 @@
         let fontName: String
         let fontSize: CGFloat
 
+        /// Buffered content to feed when onData is connected
+        private var pendingInitialContent = Data()
+
         /// Callback to feed data to the terminal view
         var onData: ((Data) -> Void)?
+
+        /// Call after setting onData to flush any pending content
+        func flushPendingContent() {
+            guard !pendingInitialContent.isEmpty, let onData else { return }
+            let content = pendingInitialContent
+            pendingInitialContent = Data()
+            onData(content)
+        }
 
         /// Callback when dimensions change
         var onResize: ((Int, Int) -> Void)?
@@ -203,7 +214,11 @@
         }
 
         func feed(_ data: Data) {
-            onData?(data)
+            if let onData {
+                onData(data)
+            } else {
+                pendingInitialContent.append(data)
+            }
         }
 
         func resize(width: Int, height: Int) {
@@ -241,22 +256,23 @@
             // Configure terminal
             terminalView.nativeForegroundColor = UIColor(white: 0.9, alpha: 1)
             terminalView.nativeBackgroundColor = UIColor.black
-            terminalView.isScrollEnabled = false
-            terminalView.contentOffset = .zero
+            // Enable native scrolling so scrollback buffer is accessible
+            terminalView.isScrollEnabled = true
             terminalView.inputAssistantItem.leadingBarButtonGroups = []
             terminalView.inputAssistantItem.trailingBarButtonGroups = []
 
             // Resize terminal buffer
             terminalView.getTerminal().resize(cols: terminalState.width, rows: terminalState.height)
 
-            // Create scroll view
+            // Create scroll view for horizontal scrolling only (wide terminals)
+            // The terminal's native scrolling handles vertical/scrollback
             let scrollView = UIScrollView()
             scrollView.backgroundColor = .black
             scrollView.addSubview(terminalView)
             scrollView.contentSize = exactFrame.size
             scrollView.showsHorizontalScrollIndicator = true
-            scrollView.showsVerticalScrollIndicator = true
-            scrollView.alwaysBounceVertical = true
+            scrollView.showsVerticalScrollIndicator = false
+            scrollView.alwaysBounceVertical = false
             scrollView.alwaysBounceHorizontal = false
 
             // Store references
@@ -266,9 +282,13 @@
 
             // Wire up callbacks
             terminalState.onData = { [weak terminalView] data in
+                guard let terminalView else { return }
                 let bytes = [UInt8](data)
-                terminalView?.feed(byteArray: bytes[...])
+                terminalView.feed(byteArray: bytes[...])
             }
+
+            // Flush any pending initial content now that callback is connected
+            terminalState.flushPendingContent()
 
             let coordinator = context.coordinator
             terminalState.onResize = { [weak coordinator] newWidth, newHeight in
