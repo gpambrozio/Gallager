@@ -540,12 +540,15 @@ struct AskUserQuestionResponseView: View {
                     // For multi-select, send each selection individually with tab after
                     for index in indices {
                         keystrokes.append(.text("\(index + 1)"))
+                        keystrokes.append(.delay(500))
                     }
-                    keystrokes.append(.tab)
+                    keystrokes.append(.right)
+                    keystrokes.append(.delay(500))
                 } else {
                     // For single select, just send the number
                     if let index = indices.first {
                         keystrokes.append(.text("\(index + 1)"))
+                        keystrokes.append(.delay(500))
                     }
                 }
             case let .custom(text):
@@ -553,9 +556,9 @@ struct AskUserQuestionResponseView: View {
                 let otherOptionNumber = question.options.count + 1
                 keystrokes.append(.text("\(otherOptionNumber)"))
                 keystrokes.append(.text(text))
-                keystrokes.append(.delay(300))
+                keystrokes.append(.delay(500))
                 keystrokes.append(.enter)
-                keystrokes.append(.delay(300))
+                keystrokes.append(.delay(500))
             }
         }
 
