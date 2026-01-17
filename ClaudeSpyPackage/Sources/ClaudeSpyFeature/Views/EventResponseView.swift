@@ -756,7 +756,7 @@ struct ExitPlanModeResponseView: View {
     private func approvePlan() async {
         state.isSending = true
         // Send "1" to approve the plan
-        await sendCommand(.sendKeystroke([.text("1")]))
+        await sendCommand(.sendKeystroke([.text("3")]))
         state.isSending = false
         state.response = .accepted
     }
