@@ -25,9 +25,7 @@
         @Environment(IOSSettings.self) private var settings
         @Environment(\.dismiss) private var dismiss
 
-        @State private var streamState: StreamState = .idle
-        @State private var terminalState: TerminalState?
-        @State private var error: String?
+        @State private var coordinator: StreamCoordinator?
 
         var body: some View {
             VStack(spacing: 0) {
@@ -64,33 +62,38 @@
 
         @ViewBuilder
         private var terminalContent: some View {
-            switch streamState {
-            case .idle,
-                 .connecting:
+            if let coordinator {
+                switch coordinator.streamState {
+                case .idle,
+                     .connecting:
+                    ProgressView("Connecting to terminal...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                case .streaming:
+                    if let state = coordinator.terminalState {
+                        TerminalStreamContainerView(terminalState: state)
+                    } else {
+                        ProgressView("Initializing terminal...")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+
+                case .ended:
+                    ContentUnavailableView(
+                        "Stream Ended",
+                        symbol: .terminal,
+                        description: "The terminal stream has ended."
+                    )
+
+                case .error:
+                    ContentUnavailableView(
+                        "Stream Error",
+                        symbol: .exclamationmarkTriangle,
+                        description: coordinator.error ?? "Unknown error"
+                    )
+                }
+            } else {
                 ProgressView("Connecting to terminal...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            case .streaming:
-                if let state = terminalState {
-                    TerminalStreamContainerView(terminalState: state)
-                } else {
-                    ProgressView("Initializing terminal...")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-
-            case .ended:
-                ContentUnavailableView(
-                    "Stream Ended",
-                    symbol: .terminal,
-                    description: "The terminal stream has ended."
-                )
-
-            case .error:
-                ContentUnavailableView(
-                    "Stream Error",
-                    symbol: .exclamationmarkTriangle,
-                    description: error ?? "Unknown error"
-                )
             }
         }
 
@@ -98,19 +101,30 @@
 
         private func startStreaming() async {
             guard isConnected else {
-                streamState = .error
-                error = "Mac is not connected"
+                let coord = StreamCoordinator(
+                    paneId: paneId,
+                    fontName: settings.terminalFontName,
+                    fontSize: CGFloat(settings.terminalFontSize)
+                )
+                coord.streamState = .error
+                coord.error = "Mac is not connected"
+                coordinator = coord
                 return
             }
 
-            streamState = .connecting
+            // Create coordinator that the callback can capture
+            let coord = StreamCoordinator(
+                paneId: paneId,
+                fontName: settings.terminalFontName,
+                fontSize: CGFloat(settings.terminalFontSize)
+            )
+            coord.streamState = .connecting
+            coordinator = coord
 
-            // Set up stream message handler
-            relayClient.onTerminalStream = { message in
-                guard message.paneId == paneId else { return }
-                Task { @MainActor in
-                    handleStreamMessage(message)
-                }
+            // Set up stream message handler - coordinator is a class so weak capture works
+            relayClient.onTerminalStream = { [weak coord] message in
+                guard let coord, message.paneId == paneId else { return }
+                coord.handleStreamMessage(message)
             }
 
             // Request stream start
@@ -121,22 +135,43 @@
 
             // Only handle failure - streaming state is set when initial state arrives
             if case let .failure(err) = result {
-                streamState = .error
-                error = err.localizedDescription
+                coord.streamState = .error
+                coord.error = err.localizedDescription
             }
         }
 
         private func stopStreaming() async {
-            guard isConnected else { return }
             relayClient.onTerminalStream = nil
+            guard isConnected else { return }
             _ = await relayClient.sendCommand(
                 StopTerminalStream(),
                 paneId: paneId
             )
         }
+    }
 
-        @MainActor
-        private func handleStreamMessage(_ message: TerminalStreamMessage) {
+    // MARK: - Stream Coordinator
+
+    /// Observable class that manages stream state.
+    /// This allows the callback closure to capture a class reference that can be weakly held.
+    @Observable
+    @MainActor
+    final private class StreamCoordinator {
+        let paneId: String
+        let fontName: String
+        let fontSize: CGFloat
+
+        var streamState: StreamState = .idle
+        var terminalState: TerminalState?
+        var error: String?
+
+        init(paneId: String, fontName: String, fontSize: CGFloat) {
+            self.paneId = paneId
+            self.fontName = fontName
+            self.fontSize = fontSize
+        }
+
+        func handleStreamMessage(_ message: TerminalStreamMessage) {
             switch message.updateType {
             case let .initialState(initial):
                 // Create terminal state with initial content
@@ -144,8 +179,8 @@
                 let state = TerminalState(
                     width: initial.width,
                     height: initial.height,
-                    fontName: settings.terminalFontName,
-                    fontSize: CGFloat(settings.terminalFontSize)
+                    fontName: fontName,
+                    fontSize: fontSize
                 )
                 state.feed(content)
                 terminalState = state
