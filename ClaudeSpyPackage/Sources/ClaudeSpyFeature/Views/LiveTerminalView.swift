@@ -23,7 +23,6 @@
 
         @Environment(RelayClient.self) private var relayClient
         @Environment(IOSSettings.self) private var settings
-        @Environment(\.dismiss) private var dismiss
 
         @State private var coordinator: StreamCoordinator?
 
@@ -34,10 +33,7 @@
                     let responseState,
                     let responseView = responseState.event.responseView(
                         isConnected: isConnected,
-                        sendCommand: {
-                            await sendCommand($0)
-                            dismiss()
-                        },
+                        sendCommand: { await sendCommand($0) },
                         state: responseState
                     ) {
                     responseView
