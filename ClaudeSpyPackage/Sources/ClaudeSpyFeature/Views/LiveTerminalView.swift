@@ -331,7 +331,6 @@
 
             // Store references
             context.coordinator.terminalView = terminalView
-            context.coordinator.scrollView = scrollView
             context.coordinator.cellSize = cellSize
             context.coordinator.widthConstraint = widthConstraint
             context.coordinator.heightConstraint = heightConstraint
@@ -359,21 +358,15 @@
         }
 
         func makeCoordinator() -> Coordinator {
-            Coordinator(terminalState: terminalState)
+            Coordinator()
         }
 
         @MainActor
         final class Coordinator {
             var terminalView: TerminalView?
-            var scrollView: UIScrollView?
             var cellSize: CGSize = .zero
             var widthConstraint: NSLayoutConstraint?
             var heightConstraint: NSLayoutConstraint?
-            let terminalState: TerminalState
-
-            init(terminalState: TerminalState) {
-                self.terminalState = terminalState
-            }
 
             func handleResize(width: Int, height: Int) {
                 guard let terminalView else { return }
