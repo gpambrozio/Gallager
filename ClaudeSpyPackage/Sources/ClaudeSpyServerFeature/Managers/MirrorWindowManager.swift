@@ -30,8 +30,8 @@ final public class MirrorWindowManager {
     private let settings: AppSettings
     private let tmuxService: TmuxService
 
-    /// Terminal stream service for iOS live streaming (set after init)
-    public var terminalStreamService: TerminalStreamService?
+    /// Pane stream manager for sharing streams (set after init)
+    public var paneStreamManager: PaneStreamManager?
 
     public init(settings: AppSettings, tmuxService: TmuxService) {
         self.settings = settings
@@ -120,16 +120,16 @@ final public class MirrorWindowManager {
 
         // Create the mirror view with required environment
         let mirrorView: AnyView
-        if let streamService = terminalStreamService {
+        if let streamManager = paneStreamManager {
             mirrorView = AnyView(
                 MirrorWindowView(paneInfo: paneInfo)
                     .environment(settings)
                     .environment(tmuxService)
                     .environment(self)
-                    .environment(streamService)
+                    .environment(streamManager)
             )
         } else {
-            // Fallback without stream service (shouldn't happen in normal usage)
+            // Fallback without stream manager (shouldn't happen in normal usage)
             mirrorView = AnyView(
                 MirrorWindowView(paneInfo: paneInfo)
                     .environment(settings)

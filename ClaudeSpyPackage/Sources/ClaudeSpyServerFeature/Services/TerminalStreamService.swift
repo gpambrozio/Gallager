@@ -6,15 +6,14 @@ import Logging
 
 /// Manages live terminal streaming to connected iOS devices.
 ///
-/// This service acts as a bridge between the local terminal display (MirrorWindowView)
-/// and the network layer (ExternalServerClient). It handles data batching for efficient
-/// transmission and tracks which panes are actively being streamed.
+/// This service subscribes to PaneStreamManager for terminal data and forwards
+/// it to iOS via the network layer. It handles data batching for efficient
+/// transmission.
 ///
 /// Usage:
-/// 1. Call `startStreaming(paneId:...)` when iOS requests a stream
-/// 2. Call `feedData(paneId:data:)` whenever terminal output arrives
-/// 3. Call `notifyDimensionChange(...)` when the pane resizes
-/// 4. Call `stopStreaming(paneId:)` when the stream should end
+/// 1. Call `startStreaming(paneId:target:...)` when iOS requests a stream
+/// 2. Data flows automatically from PaneStreamManager
+/// 3. Call `stopStreaming(paneId:)` when the stream should end
 @Observable
 @MainActor
 final public class TerminalStreamService {
@@ -24,6 +23,9 @@ final public class TerminalStreamService {
 
     /// Reference to the external server client for sending messages
     private weak var serverClient: ExternalServerClient?
+
+    /// Reference to the pane stream manager
+    private weak var paneStreamManager: PaneStreamManager?
 
     /// Active streams keyed by pane ID
     private var activeStreams: [String: StreamContext] = [:]
@@ -40,13 +42,16 @@ final public class TerminalStreamService {
 
     public init() { }
 
-    /// Configure the server client reference.
+    /// Configure the service with required dependencies.
     ///
     /// Must be called before starting any streams.
     ///
-    /// - Parameter client: The ExternalServerClient to use for sending stream data
-    public func configure(serverClient: ExternalServerClient) {
+    /// - Parameters:
+    ///   - serverClient: The ExternalServerClient to use for sending stream data
+    ///   - paneStreamManager: The PaneStreamManager to subscribe to for data
+    public func configure(serverClient: ExternalServerClient, paneStreamManager: PaneStreamManager) {
         self.serverClient = serverClient
+        self.paneStreamManager = paneStreamManager
     }
 
     // MARK: - Public API
@@ -63,20 +68,21 @@ final public class TerminalStreamService {
 
     /// Start streaming a pane to iOS.
     ///
-    /// Call this when iOS requests a stream. You must provide the initial state
-    /// (current terminal buffer and dimensions).
+    /// Subscribes to PaneStreamManager for data and sends it to iOS.
     ///
     /// - Parameters:
-    ///   - paneId: The pane identifier
+    ///   - paneId: The pane identifier (e.g., "%1")
+    ///   - target: The pane target (e.g., "mysession:0.1")
     ///   - width: Initial terminal width in columns
     ///   - height: Initial terminal height in rows
-    ///   - initialContent: Current terminal buffer content
+    ///   - initialContent: Current terminal buffer content (scrollback + visible)
     public func startStreaming(
         paneId: String,
+        target: String,
         width: Int,
         height: Int,
         initialContent: Data
-    ) async {
+    ) async throws {
         guard activeStreams[paneId] == nil else {
             logger.info("Stream already active for pane \(paneId)")
             return
@@ -84,16 +90,46 @@ final public class TerminalStreamService {
 
         guard let serverClient else {
             logger.error("Server client not configured, cannot start streaming")
-            return
+            throw StreamError.notConfigured
+        }
+
+        guard let paneStreamManager else {
+            logger.error("Pane stream manager not configured, cannot start streaming")
+            throw StreamError.notConfigured
         }
 
         logger.info("Starting terminal stream", metadata: [
             "paneId": "\(paneId)",
+            "target": "\(target)",
             "dimensions": "\(width)x\(height)",
             "bufferSize": "\(initialContent.count)",
         ])
 
-        // Send initial state
+        // Create context for batching
+        let context = StreamContext(paneId: paneId)
+
+        // Subscribe to PaneStreamManager for data
+        let subscriptionId = try await paneStreamManager.subscribe(
+            paneId: paneId,
+            target: target,
+            onData: { [weak self, weak context] data in
+                guard let self, let context else { return }
+                Task {
+                    await self.handleIncomingData(context: context, paneId: paneId, data: data)
+                }
+            },
+            onDimensionChange: { [weak self] newWidth, newHeight in
+                guard let self else { return }
+                Task {
+                    await self.handleDimensionChange(paneId: paneId, width: newWidth, height: newHeight)
+                }
+            }
+        )
+
+        context.subscriptionId = subscriptionId
+        activeStreams[paneId] = context
+
+        // Send initial state to iOS
         let initialMessage = TerminalStreamMessage.initialState(
             paneId: paneId,
             width: width,
@@ -101,57 +137,16 @@ final public class TerminalStreamService {
             content: initialContent
         )
         await serverClient.sendTerminalStream(initialMessage)
-
-        // Set up stream context
-        let context = StreamContext(paneId: paneId)
-        activeStreams[paneId] = context
     }
 
-    /// Feed terminal data to the stream.
-    ///
-    /// Call this whenever new terminal output arrives for a streaming pane.
-    /// Data is batched for efficient transmission.
-    ///
-    /// - Parameters:
-    ///   - paneId: The pane identifier
-    ///   - data: Raw terminal data (may include ANSI escape sequences)
-    public func feedData(paneId: String, data: Data) async {
-        guard let context = activeStreams[paneId] else { return }
-
-        context.appendData(data)
-
-        // Check if we should send immediately (batch full) or schedule
-        if context.pendingDataSize >= maxBatchSize {
-            await flushPendingData(for: context, paneId: paneId)
-        } else {
-            scheduleBatchSend(for: context, paneId: paneId)
-        }
-    }
-
-    /// Notify of a dimension change.
-    ///
-    /// Call this when the pane is resized.
-    ///
-    /// - Parameters:
-    ///   - paneId: The pane identifier
-    ///   - width: New width in columns
-    ///   - height: New height in rows
-    public func notifyDimensionChange(paneId: String, width: Int, height: Int) async {
-        guard activeStreams[paneId] != nil else { return }
-        guard let serverClient else { return }
-
-        logger.info("Sending dimension change", metadata: [
-            "paneId": "\(paneId)",
-            "dimensions": "\(width)x\(height)",
-        ])
-
-        let message = TerminalStreamMessage.dimensionChange(paneId: paneId, width: width, height: height)
-        await serverClient.sendTerminalStream(message)
+    /// Errors that can occur during streaming
+    public enum StreamError: Error {
+        case notConfigured
     }
 
     /// Stop streaming a pane.
     ///
-    /// Flushes any pending data and sends the stream end message.
+    /// Unsubscribes from PaneStreamManager, flushes any pending data, and sends the stream end message.
     ///
     /// - Parameter paneId: The pane identifier
     public func stopStreaming(paneId: String) async {
@@ -161,6 +156,11 @@ final public class TerminalStreamService {
         }
 
         logger.info("Stopping terminal stream", metadata: ["paneId": "\(paneId)"])
+
+        // Unsubscribe from PaneStreamManager
+        if let subscriptionId = context.subscriptionId {
+            await paneStreamManager?.unsubscribe(subscriptionId)
+        }
 
         // Flush any pending data
         await flushPendingData(for: context, paneId: paneId)
@@ -202,6 +202,32 @@ final public class TerminalStreamService {
         let message = TerminalStreamMessage.dataChunk(paneId: paneId, data: dataToSend)
         await serverClient.sendTerminalStream(message)
     }
+
+    /// Handle incoming data from PaneStreamManager
+    private func handleIncomingData(context: StreamContext, paneId: String, data: Data) async {
+        context.appendData(data)
+
+        // Check if we should send immediately (batch full) or schedule
+        if context.pendingDataSize >= maxBatchSize {
+            await flushPendingData(for: context, paneId: paneId)
+        } else {
+            scheduleBatchSend(for: context, paneId: paneId)
+        }
+    }
+
+    /// Handle dimension change from PaneStreamManager
+    private func handleDimensionChange(paneId: String, width: Int, height: Int) async {
+        guard activeStreams[paneId] != nil else { return }
+        guard let serverClient else { return }
+
+        logger.info("Sending dimension change", metadata: [
+            "paneId": "\(paneId)",
+            "dimensions": "\(width)x\(height)",
+        ])
+
+        let message = TerminalStreamMessage.dimensionChange(paneId: paneId, width: width, height: height)
+        await serverClient.sendTerminalStream(message)
+    }
 }
 
 // MARK: - Stream Context
@@ -210,6 +236,7 @@ final public class TerminalStreamService {
 @MainActor
 final private class StreamContext {
     let paneId: String
+    var subscriptionId: UUID?
     private var pendingData = Data()
     var batchTask: Task<Void, Never>?
 

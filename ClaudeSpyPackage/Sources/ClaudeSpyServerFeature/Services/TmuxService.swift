@@ -419,50 +419,6 @@ final public class TmuxService {
         return result
     }
 
-    /// Captures the visible pane content with cursor positioning for each line
-    /// This ensures content is rendered at the correct position in the terminal
-    public func capturePaneWithPositioning(_ target: String) async throws -> Data {
-        // Capture just the visible content (no scrollback)
-        let captureArgs = ["capture-pane", "-t", target, "-p", "-e"]
-        let captureResult = try await runTmuxCommand(captureArgs)
-
-        guard captureResult.isSuccess else {
-            throw TmuxError.invalidPane(target: target)
-        }
-
-        // Get the current cursor position
-        let cursorArgs = ["display-message", "-t", target, "-p", "#{cursor_x},#{cursor_y}"]
-        let cursorResult = try await runTmuxCommand(cursorArgs)
-        let cursorPos = cursorResult.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cursorParts = cursorPos.split(separator: ",")
-        let cursorX = Int(cursorParts.first ?? "0") ?? 0
-        let cursorY = Int(cursorParts.last ?? "0") ?? 0
-
-        // Split into lines and add cursor positioning for each
-        let content = captureResult.stdoutString
-        let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
-
-        var positionedContent = ""
-
-        // Start with cursor home
-        positionedContent += "\u{1b}[H" // Cursor to home position (1,1)
-
-        for (index, line) in lines.enumerated() {
-            // Move cursor to row (index+1), column 1
-            positionedContent += "\u{1b}[\(index + 1);1H"
-            // Clear the line first to avoid artifacts
-            positionedContent += "\u{1b}[2K"
-            // Add the line content
-            positionedContent += line
-        }
-
-        // Position cursor where it actually is in the source pane
-        // tmux cursor_x and cursor_y are 0-based, ANSI escape is 1-based
-        positionedContent += "\u{1b}[\(cursorY + 1);\(cursorX + 1)H"
-
-        return positionedContent.data(using: .utf8) ?? Data()
-    }
-
     /// Starts pipe-pane to stream output to a named pipe
     /// - Parameter target: The pane target
     /// - Returns: The path to the created FIFO

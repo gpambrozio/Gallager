@@ -119,10 +119,8 @@
                 paneId: paneId
             )
 
-            switch result {
-            case .success:
-                streamState = .streaming
-            case let .failure(err):
+            // Only handle failure - streaming state is set when initial state arrives
+            if case let .failure(err) = result {
                 streamState = .error
                 error = err.localizedDescription
             }

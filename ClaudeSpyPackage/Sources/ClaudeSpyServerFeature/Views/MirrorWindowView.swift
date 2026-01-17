@@ -7,11 +7,15 @@ struct MirrorWindowView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(TmuxService.self) private var tmuxService
     @Environment(MirrorWindowManager.self) private var windowManager
-    @Environment(TerminalStreamService.self) private var streamService
+    @Environment(PaneStreamManager.self) private var paneStreamManager
 
-    @State private var paneStream: PaneStream?
+    @State private var subscriptionId: UUID?
     @State private var terminalController = TerminalController()
     @State private var showJumpToBottom = false
+    @State private var streamState: StreamState = .disconnected
+    @State private var streamWidth: Int?
+    @State private var streamHeight: Int?
+    @State private var scrollbackLines = 0
 
     /// The active Claude session for this pane, if any
     private var claudeSession: ClaudeSession? {
@@ -62,11 +66,13 @@ struct MirrorWindowView: View {
         }
         .onChange(of: tmuxService.panes) { _, newPanes in
             // Check if our pane's dimensions changed during global refresh
-            guard
-                let updatedPane = newPanes.first(where: { $0.id == paneInfo.id }),
-                let stream = paneStream else { return }
-            // updateDimensions will trigger onDimensionChange callback if dimensions changed
-            stream.updateDimensions(width: updatedPane.width, height: updatedPane.height)
+            guard let updatedPane = newPanes.first(where: { $0.id == paneInfo.id }) else { return }
+            // PaneStreamManager will forward dimension changes to subscribers
+            paneStreamManager.updateDimensions(
+                paneId: paneInfo.paneId,
+                width: updatedPane.width,
+                height: updatedPane.height
+            )
         }
     }
 
@@ -103,13 +109,13 @@ struct MirrorWindowView: View {
                 .frame(height: 12)
 
             // Dimensions
-            Text("\(paneStream?.width ?? paneInfo.width)x\(paneStream?.height ?? paneInfo.height)")
+            Text("\(streamWidth ?? paneInfo.width)x\(streamHeight ?? paneInfo.height)")
 
             Divider()
                 .frame(height: 12)
 
             // Scrollback info
-            Text("Scrollback: \(formatNumber(paneStream?.scrollbackLines ?? 0)) lines")
+            Text("Scrollback: \(formatNumber(scrollbackLines)) lines")
 
             Spacer()
         }
@@ -123,7 +129,7 @@ struct MirrorWindowView: View {
     // MARK: - Computed Properties
 
     private var statusColor: Color {
-        switch paneStream?.state ?? .disconnected {
+        switch streamState {
         case .connected:
             return .green
         case .connecting:
@@ -136,7 +142,7 @@ struct MirrorWindowView: View {
     }
 
     private var statusText: String {
-        switch paneStream?.state ?? .disconnected {
+        switch streamState {
         case .connected:
             return "Connected"
         case .connecting:
@@ -151,8 +157,7 @@ struct MirrorWindowView: View {
     // MARK: - Actions
 
     private func connectToPane() async {
-        let stream = PaneStream(target: paneInfo.target, tmuxService: tmuxService)
-        paneStream = stream
+        streamState = .connecting
 
         // Configure font from settings
         terminalController.fontName = settings.fontName
@@ -163,56 +168,57 @@ struct MirrorWindowView: View {
         do {
             let dims = try await tmuxService.getPaneDimensions(paneInfo.target)
             terminalController.resize(columns: dims.width, rows: dims.height)
+            streamWidth = dims.width
+            streamHeight = dims.height
         } catch {
             // Fall back to pane info dimensions
             terminalController.resize(columns: paneInfo.width, rows: paneInfo.height)
+            streamWidth = paneInfo.width
+            streamHeight = paneInfo.height
         }
 
         // Clear terminal and reset cursor position before receiving data
         terminalController.clear()
 
-        // Set up data handler - feed to local terminal AND forward to iOS if streaming
-        let paneId = paneInfo.paneId
-        stream.onData = { [weak streamService] data in
-            terminalController.feed(data)
-
-            // Forward to iOS stream if active
-            if let streamService, streamService.isStreaming(paneId: paneId) {
-                Task {
-                    await streamService.feedData(paneId: paneId, data: data)
-                }
-            }
-        }
-
-        // Set up dimension change handler
-        stream.onDimensionChange = { [weak windowManager, weak terminalController, weak streamService] newWidth, newHeight in
-            // Safety check: don't resize if terminal is being torn down
-            guard let terminalController else { return }
-            // Resize the terminal to match new pane dimensions
-            terminalController.resize(columns: newWidth, rows: newHeight)
-            // Resize the window to match
-            windowManager?.resizeWindow(target: paneInfo.target, columns: newWidth, rows: newHeight)
-
-            // Notify iOS stream if active
-            if let streamService, streamService.isStreaming(paneId: paneId) {
-                Task {
-                    await streamService.notifyDimensionChange(paneId: paneId, width: newWidth, height: newHeight)
-                }
-            }
-        }
-
+        // Subscribe to PaneStreamManager
+        // Note: We can't use [weak self] since View is a struct. Capture specific objects instead.
+        let controller = terminalController
+        let target = paneInfo.target
         do {
-            try await stream.connect()
-            // Update dimensions if they changed
-            terminalController.resize(columns: stream.width, rows: stream.height)
+            let subId = try await paneStreamManager.subscribe(
+                paneId: paneInfo.paneId,
+                target: target,
+                onData: { data in
+                    controller.feed(data)
+                },
+                onDimensionChange: { [weak windowManager] newWidth, newHeight in
+                    // Resize the terminal to match new pane dimensions
+                    controller.resize(columns: newWidth, rows: newHeight)
+                    // Resize the window to match
+                    windowManager?.resizeWindow(target: target, columns: newWidth, rows: newHeight)
+                }
+            )
+
+            subscriptionId = subId
+            streamState = .connected
+
+            // Update dimensions from manager if available
+            if let dims = paneStreamManager.dimensions(for: paneInfo.paneId) {
+                streamWidth = dims.width
+                streamHeight = dims.height
+                terminalController.resize(columns: dims.width, rows: dims.height)
+            }
         } catch {
-            // Error is captured in stream state
+            streamState = .error(error.localizedDescription)
         }
     }
 
     private func disconnect() async {
-        await paneStream?.disconnect()
-        paneStream = nil
+        if let subId = subscriptionId {
+            await paneStreamManager.unsubscribe(subId)
+            subscriptionId = nil
+        }
+        streamState = .disconnected
     }
 
     private func formatNumber(_ number: Int) -> String {
