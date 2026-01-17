@@ -67,8 +67,8 @@ final class PaneStream {
             width = dims.width
             height = dims.height
 
-            // Capture initial content with cursor positioning for each line
-            let initialContent = try await tmuxService.capturePaneWithPositioning(target)
+            // Capture initial content with scrollback (3x terminal height)
+            let initialContent = try await tmuxService.capturePaneWithScrollbackForStreaming(target)
             onData?(initialContent)
 
             // Start pipe-pane streaming for live updates

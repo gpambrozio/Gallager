@@ -141,6 +141,28 @@ public struct CaptureSnapshot: CommandSpec, Equatable {
     }
 }
 
+/// Start streaming terminal output to iOS. Returns success/failure.
+public struct StartTerminalStream: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    public init() { }
+
+    public var commandType: CommandType {
+        .startTerminalStream(self)
+    }
+}
+
+/// Stop streaming terminal output to iOS. Returns success/failure.
+public struct StopTerminalStream: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    public init() { }
+
+    public var commandType: CommandType {
+        .stopTerminalStream(self)
+    }
+}
+
 // MARK: - Command Types
 
 /// Commands that can be sent from iOS to Mac, with their associated data.
@@ -153,6 +175,10 @@ public enum CommandType: Codable, Sendable, Equatable {
     case cancelOperation(CancelOperation)
     /// Capture a terminal snapshot with scrollback
     case captureSnapshot(CaptureSnapshot)
+    /// Start streaming terminal output
+    case startTerminalStream(StartTerminalStream)
+    /// Stop streaming terminal output
+    case stopTerminalStream(StopTerminalStream)
 
     // MARK: - Convenience Factory Methods
 
@@ -169,6 +195,16 @@ public enum CommandType: Codable, Sendable, Equatable {
     /// Create a captureSnapshot command with the given scrollback multiplier
     public static func captureSnapshot(scrollbackMultiplier: Int) -> CommandType {
         .captureSnapshot(CaptureSnapshot(scrollbackMultiplier: scrollbackMultiplier))
+    }
+
+    /// Create a startTerminalStream command
+    public static var startTerminalStream: CommandType {
+        .startTerminalStream(StartTerminalStream())
+    }
+
+    /// Create a stopTerminalStream command
+    public static var stopTerminalStream: CommandType {
+        .stopTerminalStream(StopTerminalStream())
     }
 }
 

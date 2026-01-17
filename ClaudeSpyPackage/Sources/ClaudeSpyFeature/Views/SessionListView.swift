@@ -16,7 +16,11 @@ struct SessionListView: View {
         }
         .navigationTitle("Sessions")
         .navigationDestination(for: String.self) { paneId in
-            SessionDetailView(paneId: paneId)
+            SessionDetailView(
+                paneId: paneId,
+                sessionStore: sessionStore,
+                relayClient: relayClient
+            )
         }
         .toolbar {
             #if os(iOS)

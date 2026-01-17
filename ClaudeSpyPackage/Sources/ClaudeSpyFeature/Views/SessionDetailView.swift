@@ -6,42 +6,43 @@ import SwiftUI
 struct SessionDetailView: View {
     let paneId: String
 
-    @Environment(RelayClient.self) private var relayClient
-    @Environment(SessionStore.self) private var sessionStore
     @Environment(IOSSettings.self) private var settings
+    @State private var service: SessionDetailService
 
-    // Note: Service is optional because we need @Environment values (sessionStore, relayClient)
-    // which aren't available at init time. We create the service in .task when view appears.
-    // This is the standard SwiftUI pattern when services depend on Environment values.
-    @State private var service: SessionDetailService?
+    init(
+        paneId: String,
+        sessionStore: SessionStore,
+        relayClient: RelayClient
+    ) {
+        self.paneId = paneId
+        self.service = SessionDetailService(
+            paneId: paneId,
+            sessionStore: sessionStore,
+            relayClient: relayClient
+        )
+    }
 
     var body: some View {
         bodyContent
-            .task {
-                if service == nil {
-                    service = SessionDetailService(
-                        paneId: paneId,
-                        sessionStore: sessionStore,
-                        relayClient: relayClient
-                    )
-                }
-            }
+            .navigationTitle("Session")
+        #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     @ViewBuilder
     private var bodyContent: some View {
-        if let service, let session = service.session {
+        if let session = service.session {
             @Bindable var bindableService = service
 
-            sessionContent(service: service, session: session)
-                .navigationTitle("Session")
+            sessionContent(session: session)
             #if os(iOS)
-                .navigationBarTitleDisplayMode(.inline)
-                .navigationDestination(item: $bindableService.terminalSnapshot) { snapshot in
-                    TerminalSnapshotView(
-                        snapshot: snapshot,
+                .navigationDestination(isPresented: $bindableService.showLiveTerminal) {
+                    LiveTerminalView(
+                        paneId: paneId,
                         responseState: $bindableService.responseState,
                         isConnected: service.isMacConnected,
+                        settings: settings,
                         sendCommand: { command in
                             await service.sendCommand(command)
                         }
@@ -54,24 +55,17 @@ struct SessionDetailView: View {
                 symbol: .exclamationmarkTriangle,
                 description: "This session may have ended or the pane no longer exists."
             )
-            .navigationTitle("Session")
         }
     }
 
     @ViewBuilder
-    private func sessionContent(service: SessionDetailService, session: ClaudeSession) -> some View {
+    private func sessionContent(session: ClaudeSession) -> some View {
         List {
             // Terminal section
             Section {
-                viewTerminalButton(service: service)
+                viewTerminalButton()
             } header: {
                 Text("Terminal")
-            } footer: {
-                if let error = service.snapshotError {
-                    Text(error)
-                        .foregroundStyle(.red)
-                        .font(.caption)
-                }
             }
 
             // Context-sensitive response section based on latest event
@@ -128,36 +122,29 @@ struct SessionDetailView: View {
     // MARK: - View Terminal Button
 
     @ViewBuilder
-    private func viewTerminalButton(service: SessionDetailService) -> some View {
+    private func viewTerminalButton() -> some View {
         Button {
-            Task {
-                await service.requestTerminalSnapshot()
-            }
+            service.showLiveTerminal = true
         } label: {
             HStack {
-                if service.isLoadingSnapshot {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Symbols.terminal.image
-                }
+                Symbols.terminal.image
                 Text("View Terminal")
                 Spacer()
-                if !service.isLoadingSnapshot {
-                    Symbols.arrowRight.image
-                        .foregroundStyle(.secondary)
-                }
+                Symbols.arrowRight.image
+                    .foregroundStyle(.secondary)
             }
         }
-        .disabled(!service.isMacConnected || service.isLoadingSnapshot)
+        .disabled(!service.isMacConnected)
     }
 }
 
 #Preview {
     NavigationStack {
-        SessionDetailView(paneId: "%1")
+        SessionDetailView(
+            paneId: "%1",
+            sessionStore: SessionStore(),
+            relayClient: RelayClient()
+        )
     }
-    .environment(RelayClient())
-    .environment(SessionStore())
     .environment(IOSSettings.shared)
 }

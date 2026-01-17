@@ -260,18 +260,34 @@ final public class TmuxService {
         return (content: content, totalLines: max(lineCount, height))
     }
 
-    /// Captures the visible pane content with cursor positioning for each line
-    /// This ensures content is rendered at the correct position in the terminal
-    public func capturePaneWithPositioning(_ target: String) async throws -> Data {
-        // Capture just the visible content (no scrollback)
-        let captureArgs = ["capture-pane", "-t", target, "-p", "-e"]
-        let captureResult = try await runTmuxCommand(captureArgs)
+    /// Captures pane content with scrollback for streaming initialization.
+    /// Scrollback lines have problematic escape codes filtered (keeping only colors),
+    /// while the visible area uses full ANSI codes with explicit cursor positioning.
+    /// - Parameters:
+    ///   - target: The pane target
+    ///   - scrollbackMultiplier: How many times the visible height to capture as scrollback (default: 3)
+    /// - Returns: Terminal data that will populate both scrollback and visible area
+    public func capturePaneWithScrollbackForStreaming(
+        _ target: String,
+        scrollbackMultiplier: Int = 3
+    ) async throws -> Data {
+        // Get pane dimensions
+        let (width, height) = try await getPaneDimensions(target)
+        let scrollbackLines = height * scrollbackMultiplier
 
-        guard captureResult.isSuccess else {
+        // Capture scrollback WITH escape codes
+        let scrollbackArgs = ["capture-pane", "-t", target, "-p", "-e", "-S", "-\(scrollbackLines)", "-E", "-1"]
+        let scrollbackResult = try await runTmuxCommand(scrollbackArgs)
+
+        // Capture visible area WITH escape codes for colors
+        let visibleArgs = ["capture-pane", "-t", target, "-p", "-e"]
+        let visibleResult = try await runTmuxCommand(visibleArgs)
+
+        guard visibleResult.isSuccess else {
             throw TmuxError.invalidPane(target: target)
         }
 
-        // Get the current cursor position
+        // Get cursor position
         let cursorArgs = ["display-message", "-t", target, "-p", "#{cursor_x},#{cursor_y}"]
         let cursorResult = try await runTmuxCommand(cursorArgs)
         let cursorPos = cursorResult.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -279,29 +295,128 @@ final public class TmuxService {
         let cursorX = Int(cursorParts.first ?? "0") ?? 0
         let cursorY = Int(cursorParts.last ?? "0") ?? 0
 
-        // Split into lines and add cursor positioning for each
-        let content = captureResult.stdoutString
-        let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
+        var output = ""
 
-        var positionedContent = ""
+        // Part 1: Output scrollback with filtered escape codes (keep only SGR/colors)
+        // Each line is padded to terminal width to ensure proper line boundaries
+        if scrollbackResult.isSuccess {
+            let scrollbackContent = scrollbackResult.stdoutString
+            let scrollbackLinesList = scrollbackContent.split(separator: "\n", omittingEmptySubsequences: false)
 
-        // Start with cursor home
-        positionedContent += "\u{1b}[H" // Cursor to home position (1,1)
+            for line in scrollbackLinesList {
+                // Filter to colors only and pad/truncate to width
+                let filtered = filterToColorCodesOnly(String(line))
+                let visibleLength = countVisibleCharacters(filtered)
 
-        for (index, line) in lines.enumerated() {
-            // Move cursor to row (index+1), column 1
-            positionedContent += "\u{1b}[\(index + 1);1H"
-            // Clear the line first to avoid artifacts
-            positionedContent += "\u{1b}[2K"
-            // Add the line content
-            positionedContent += line
+                output += "\u{1b}[0m" // Reset at start
+                output += filtered
+
+                // Pad with spaces to fill the terminal width, then reset and newline
+                if visibleLength < width {
+                    output += String(repeating: " ", count: width - visibleLength)
+                }
+                output += "\u{1b}[0m\r\n" // Reset, carriage return, newline
+            }
         }
 
-        // Position cursor where it actually is in the source pane
-        // tmux cursor_x and cursor_y are 0-based, ANSI escape is 1-based
-        positionedContent += "\u{1b}[\(cursorY + 1);\(cursorX + 1)H"
+        // Part 2: Render visible area with explicit positioning and colors
+        let visibleLines = visibleResult.stdoutString
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
 
-        return positionedContent.data(using: .utf8) ?? Data()
+        output += "\u{1b}[H" // Cursor to home
+
+        for (index, line) in visibleLines.enumerated() {
+            // Move cursor to row (index+1), column 1
+            output += "\u{1b}[\(index + 1);1H"
+            // Clear the line first to avoid artifacts
+            output += "\u{1b}[2K"
+            // Add the line content
+            output += line
+        }
+
+        // Position cursor where it actually is
+        output += "\u{1b}[\(cursorY + 1);\(cursorX + 1)H"
+
+        return output.data(using: .utf8) ?? Data()
+    }
+
+    /// Counts visible characters in a string, ignoring ANSI escape sequences
+    private func countVisibleCharacters(_ input: String) -> Int {
+        var count = 0
+        var i = input.startIndex
+
+        while i < input.endIndex {
+            if input[i] == "\u{1b}", input.index(after: i) < input.endIndex {
+                let nextIndex = input.index(after: i)
+                if input[nextIndex] == "[" {
+                    // Skip CSI sequence
+                    var endIndex = input.index(after: nextIndex)
+                    while endIndex < input.endIndex {
+                        let char = input[endIndex]
+                        if char >= "@" && char <= "~" {
+                            i = input.index(after: endIndex)
+                            break
+                        }
+                        endIndex = input.index(after: endIndex)
+                    }
+                    if endIndex >= input.endIndex {
+                        i = input.index(after: i)
+                    }
+                } else {
+                    i = input.index(after: i)
+                }
+            } else {
+                count += 1
+                i = input.index(after: i)
+            }
+        }
+
+        return count
+    }
+
+    /// Filters ANSI escape codes, keeping only SGR (color/style) codes.
+    /// Removes cursor positioning, screen clearing, and other control sequences.
+    private func filterToColorCodesOnly(_ input: String) -> String {
+        var result = ""
+        var i = input.startIndex
+
+        while i < input.endIndex {
+            if input[i] == "\u{1b}", input.index(after: i) < input.endIndex {
+                let nextIndex = input.index(after: i)
+                if input[nextIndex] == "[" {
+                    // CSI sequence - find the end
+                    var endIndex = input.index(after: nextIndex)
+                    while endIndex < input.endIndex {
+                        let char = input[endIndex]
+                        if char >= "@" && char <= "~" {
+                            // Found terminating character
+                            let sequence = String(input[i...endIndex])
+                            // Keep only SGR sequences (ending with 'm')
+                            if char == "m" {
+                                result += sequence
+                            }
+                            // Skip other sequences (cursor positioning, etc.)
+                            i = input.index(after: endIndex)
+                            break
+                        }
+                        endIndex = input.index(after: endIndex)
+                    }
+                    if endIndex >= input.endIndex {
+                        // Incomplete sequence, skip the escape
+                        i = input.index(after: i)
+                    }
+                } else {
+                    // Non-CSI escape sequence, skip
+                    i = input.index(after: i)
+                }
+            } else {
+                result.append(input[i])
+                i = input.index(after: i)
+            }
+        }
+
+        return result
     }
 
     /// Starts pipe-pane to stream output to a named pipe

@@ -27,6 +27,12 @@
         /// External relay server client
         public let externalServerClient: ExternalServerClient
 
+        /// Terminal stream service for iOS live streaming
+        public let terminalStreamService: TerminalStreamService
+
+        /// Pane stream manager for sharing streams between UI and streaming
+        public let paneStreamManager: PaneStreamManager
+
         /// Device pairing manager
         public private(set) var pairingManager: PairingManager?
 
@@ -60,11 +66,21 @@
                 socketPath: settings.tmuxSocket.isEmpty ? nil : settings.tmuxSocket
             )
 
+            // Create pane stream manager
+            self.paneStreamManager = PaneStreamManager(tmuxService: tmuxService)
+
             // Create window manager
-            self.windowManager = MirrorWindowManager(settings: settings, tmuxService: tmuxService)
+            self.windowManager = MirrorWindowManager(
+                settings: settings,
+                tmuxService: tmuxService,
+                paneStreamManager: paneStreamManager
+            )
 
             // Create external server client
             self.externalServerClient = ExternalServerClient()
+
+            // Create terminal stream service
+            self.terminalStreamService = TerminalStreamService()
 
             // Create hook server
             self.hookServer = HookServerService()
@@ -156,6 +172,15 @@
         }
 
         private func setupExternalServerClient() async {
+            // Configure terminal stream service with pane stream manager
+            terminalStreamService.configure(
+                serverClient: externalServerClient,
+                paneStreamManager: paneStreamManager
+            )
+
+            // Connect pane stream manager to window manager for view injection
+            windowManager.paneStreamManager = paneStreamManager
+
             // Create command executor
             let executor = TmuxCommandExecutor(tmuxService: tmuxService)
             commandExecutor = executor
@@ -165,11 +190,27 @@
             snapshotHandler = handler
 
             // Set up command handler - called when iOS sends a command
-            externalServerClient.setCommandHandler { [executor, handler] command in
+            let streamService = terminalStreamService
+            let tmux = tmuxService
+            externalServerClient.setCommandHandler { [executor, handler, streamService, tmux] command in
                 // Handle snapshot commands specially
                 if case let .captureSnapshot(spec) = command.command {
                     return await handler.handleSnapshotCommand(command, scrollbackMultiplier: spec.scrollbackMultiplier)
                 }
+
+                // Handle stream commands
+                if case .startTerminalStream = command.command {
+                    return await Self.handleStartStream(
+                        command: command,
+                        streamService: streamService,
+                        tmuxService: tmux
+                    )
+                }
+                if case .stopTerminalStream = command.command {
+                    await streamService.stopStreaming(paneId: command.paneId)
+                    return .success(for: command.id)
+                }
+
                 // Regular commands execute on the actor executor
                 return await executor.execute(command)
             }
@@ -194,6 +235,37 @@
                     sessions: sessions,
                     activePanes: activePaneIds
                 )
+            }
+        }
+
+        private static func handleStartStream(
+            command: CommandMessage,
+            streamService: TerminalStreamService,
+            tmuxService: TmuxService
+        ) async -> CommandResponseMessage? {
+            let paneId = command.paneId
+            let paneTarget = paneId // paneId is the tmux target (e.g., "%1")
+
+            do {
+                // Get pane dimensions
+                let dimensions = try await tmuxService.getPaneDimensions(paneTarget)
+
+                // Capture with scrollback (3x terminal height) so iOS has history to scroll through
+                let initialContent = try await tmuxService.capturePaneWithScrollbackForStreaming(paneTarget)
+
+                // Start streaming - TerminalStreamService subscribes to PaneStreamManager
+                // which creates/reuses a PaneStream for this pane
+                try await streamService.startStreaming(
+                    paneId: paneId,
+                    target: paneTarget,
+                    width: dimensions.width,
+                    height: dimensions.height,
+                    initialContent: initialContent
+                )
+
+                return .success(for: command.id)
+            } catch {
+                return .failure(for: command.id, error: error.localizedDescription)
             }
         }
 

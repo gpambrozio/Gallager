@@ -20,6 +20,9 @@ public enum WebSocketMessage: Codable, Sendable {
     /// Mac sends a terminal snapshot response
     case terminalSnapshot(TerminalSnapshotMessage)
 
+    /// Mac sends terminal stream data (continuous updates)
+    case terminalStream(TerminalStreamMessage)
+
     /// Mac sends complete session state (on iOS connect or request)
     case sessionState(SessionStateMessage)
 
@@ -126,6 +129,9 @@ public enum EncryptedMessageType: String, Codable, Sendable {
 
     /// Terminal snapshot from Mac to iOS
     case terminalSnapshot
+
+    /// Terminal stream data from Mac to iOS
+    case terminalStream
 }
 
 // MARK: - Error Message
@@ -168,6 +174,7 @@ public extension WebSocketMessage {
         case hookEvent
         case commandResponse
         case terminalSnapshot
+        case terminalStream
         case sessionState
         case macRegistered
         case command
@@ -204,6 +211,9 @@ public extension WebSocketMessage {
         case .terminalSnapshot:
             let payload = try container.decode(TerminalSnapshotMessage.self, forKey: .payload)
             self = .terminalSnapshot(payload)
+        case .terminalStream:
+            let payload = try container.decode(TerminalStreamMessage.self, forKey: .payload)
+            self = .terminalStream(payload)
         case .sessionState:
             let payload = try container.decode(SessionStateMessage.self, forKey: .payload)
             self = .sessionState(payload)
@@ -269,6 +279,9 @@ public extension WebSocketMessage {
         case let .terminalSnapshot(payload):
             try container.encode(MessageType.terminalSnapshot, forKey: .type)
             try container.encode(payload, forKey: .payload)
+        case let .terminalStream(payload):
+            try container.encode(MessageType.terminalStream, forKey: .type)
+            try container.encode(payload, forKey: .payload)
         case let .sessionState(payload):
             try container.encode(MessageType.sessionState, forKey: .type)
             try container.encode(payload, forKey: .payload)
@@ -325,6 +338,7 @@ public extension WebSocketMessage {
         case .hookEvent: MessageType.hookEvent.rawValue
         case .commandResponse: MessageType.commandResponse.rawValue
         case .terminalSnapshot: MessageType.terminalSnapshot.rawValue
+        case .terminalStream: MessageType.terminalStream.rawValue
         case .sessionState: MessageType.sessionState.rawValue
         case .macRegistered: MessageType.macRegistered.rawValue
         case .command: MessageType.command.rawValue
@@ -356,7 +370,8 @@ public extension WebSocketMessage {
              .sessionState,
              .command,
              .commandResponse,
-             .terminalSnapshot:
+             .terminalSnapshot,
+             .terminalStream:
             true
         default:
             false
@@ -372,6 +387,7 @@ public extension WebSocketMessage {
         case .command: .command
         case .commandResponse: .commandResponse
         case .terminalSnapshot: .terminalSnapshot
+        case .terminalStream: .terminalStream
         default: nil
         }
     }
