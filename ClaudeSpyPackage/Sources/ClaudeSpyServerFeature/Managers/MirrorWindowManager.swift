@@ -124,13 +124,11 @@ final public class MirrorWindowManager {
         }
 
         // Create the mirror view with required environment
-        let mirrorView = AnyView(
-            MirrorWindowView(paneInfo: paneInfo)
-                .environment(settings)
-                .environment(tmuxService)
-                .environment(self)
-                .environment(paneStreamManager)
-        )
+        let mirrorView = MirrorWindowView(paneInfo: paneInfo)
+            .environment(settings)
+            .environment(tmuxService)
+            .environment(self)
+            .environment(paneStreamManager)
 
         // Create hosting controller
         let hostingController = NSHostingController(rootView: mirrorView)
