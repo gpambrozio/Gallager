@@ -17,6 +17,10 @@ struct SessionDetailView: View {
 
     var body: some View {
         bodyContent
+            .navigationTitle("Session")
+        #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+        #endif
             .task {
                 if service == nil {
                     service = SessionDetailService(
@@ -34,9 +38,6 @@ struct SessionDetailView: View {
             @Bindable var bindableService = service
 
             sessionContent(service: service, session: session)
-                .navigationTitle("Session")
-            #if os(iOS)
-                .navigationBarTitleDisplayMode(.inline)
                 .navigationDestination(isPresented: $bindableService.showLiveTerminal) {
                     LiveTerminalView(
                         paneId: paneId,
@@ -48,14 +49,12 @@ struct SessionDetailView: View {
                         }
                     )
                 }
-            #endif
         } else {
             ContentUnavailableView(
                 "Session Not Found",
                 symbol: .exclamationmarkTriangle,
                 description: "This session may have ended or the pane no longer exists."
             )
-            .navigationTitle("Session")
         }
     }
 
