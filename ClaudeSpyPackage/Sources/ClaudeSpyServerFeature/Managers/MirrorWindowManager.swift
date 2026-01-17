@@ -30,12 +30,17 @@ final public class MirrorWindowManager {
     private let settings: AppSettings
     private let tmuxService: TmuxService
 
-    /// Pane stream manager for sharing streams (set after init)
-    public var paneStreamManager: PaneStreamManager?
+    /// Pane stream manager for sharing streams
+    public var paneStreamManager: PaneStreamManager
 
-    public init(settings: AppSettings, tmuxService: TmuxService) {
+    public init(
+        settings: AppSettings,
+        tmuxService: TmuxService,
+        paneStreamManager: PaneStreamManager
+    ) {
         self.settings = settings
         self.tmuxService = tmuxService
+        self.paneStreamManager = paneStreamManager
     }
 
     // MARK: - Periodic Session Validation
@@ -119,24 +124,13 @@ final public class MirrorWindowManager {
         }
 
         // Create the mirror view with required environment
-        let mirrorView: AnyView
-        if let streamManager = paneStreamManager {
-            mirrorView = AnyView(
-                MirrorWindowView(paneInfo: paneInfo)
-                    .environment(settings)
-                    .environment(tmuxService)
-                    .environment(self)
-                    .environment(streamManager)
-            )
-        } else {
-            // Fallback without stream manager (shouldn't happen in normal usage)
-            mirrorView = AnyView(
-                MirrorWindowView(paneInfo: paneInfo)
-                    .environment(settings)
-                    .environment(tmuxService)
-                    .environment(self)
-            )
-        }
+        let mirrorView = AnyView(
+            MirrorWindowView(paneInfo: paneInfo)
+                .environment(settings)
+                .environment(tmuxService)
+                .environment(self)
+                .environment(paneStreamManager)
+        )
 
         // Create hosting controller
         let hostingController = NSHostingController(rootView: mirrorView)

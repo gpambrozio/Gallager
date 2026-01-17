@@ -66,14 +66,18 @@
                 socketPath: settings.tmuxSocket.isEmpty ? nil : settings.tmuxSocket
             )
 
+            // Create pane stream manager
+            self.paneStreamManager = PaneStreamManager(tmuxService: tmuxService)
+
             // Create window manager
-            self.windowManager = MirrorWindowManager(settings: settings, tmuxService: tmuxService)
+            self.windowManager = MirrorWindowManager(
+                settings: settings,
+                tmuxService: tmuxService,
+                paneStreamManager: paneStreamManager
+            )
 
             // Create external server client
             self.externalServerClient = ExternalServerClient()
-
-            // Create pane stream manager
-            self.paneStreamManager = PaneStreamManager(tmuxService: tmuxService)
 
             // Create terminal stream service
             self.terminalStreamService = TerminalStreamService()

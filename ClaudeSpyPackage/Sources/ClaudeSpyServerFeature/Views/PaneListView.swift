@@ -178,7 +178,11 @@ private struct PaneListPreview: View {
             }
         }
         .onAppear {
-            windowManager = MirrorWindowManager(settings: settings, tmuxService: tmuxService)
+            windowManager = MirrorWindowManager(
+                settings: settings,
+                tmuxService: tmuxService,
+                paneStreamManager: .init(tmuxService: tmuxService)
+            )
         }
     }
 }
