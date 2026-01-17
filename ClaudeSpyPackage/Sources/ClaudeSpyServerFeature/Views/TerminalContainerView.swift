@@ -100,17 +100,10 @@ final class TerminalController: @unchecked Sendable {
         terminalView.feed(byteArray: bytes[...])
     }
 
-    /// Feeds a string to the terminal
-    func feed(_ string: String) {
-        if let data = string.data(using: .utf8) {
-            feed(data)
-        }
-    }
-
     /// Clears the terminal display
     func clear() {
         // Send clear screen escape sequence
-        feed("\u{1b}[2J\u{1b}[H")
+        feed(Data("\u{1b}[2J\u{1b}[H".utf8))
     }
 
     /// Resizes the terminal to the specified dimensions and calculates the fixed pixel size
@@ -151,11 +144,6 @@ final class TerminalController: @unchecked Sendable {
     func scrollToBottom() {
         terminalView.scroll(toPosition: 1)
         isScrolledUp = false
-    }
-
-    /// Gets the terminal's scrollback content as data
-    func getScrollbackContent() -> Data {
-        terminalView.getTerminal().getBufferAsData()
     }
 
     // MARK: - Theme Support
