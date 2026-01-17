@@ -353,7 +353,27 @@ public struct TodoWriteParameters: Codable, Sendable, Equatable {
 }
 
 public struct ExitPlanModeParameters: Codable, Sendable, Equatable {
-    public let plan: String
+    /// The markdown plan content (may be nil if not provided)
+    public let plan: String?
+    /// Prompt-based permissions requested for plan implementation
+    public let allowedPrompts: [AllowedPrompt]?
+
+    public init(plan: String?, allowedPrompts: [AllowedPrompt]?) {
+        self.plan = plan
+        self.allowedPrompts = allowedPrompts
+    }
+
+    public struct AllowedPrompt: Codable, Sendable, Equatable {
+        /// The tool this prompt applies to (e.g., "Bash")
+        public let tool: String
+        /// Semantic description of the action (e.g., "run tests")
+        public let prompt: String
+
+        public init(tool: String, prompt: String) {
+            self.tool = tool
+            self.prompt = prompt
+        }
+    }
 }
 
 public struct WebFetchParameters: Codable, Sendable, Equatable {
