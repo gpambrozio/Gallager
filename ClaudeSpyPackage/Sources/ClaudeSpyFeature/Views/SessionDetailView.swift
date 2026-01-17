@@ -42,6 +42,7 @@ struct SessionDetailView: View {
                         paneId: paneId,
                         responseState: $bindableService.responseState,
                         isConnected: service.isMacConnected,
+                        settings: settings,
                         sendCommand: { command in
                             await service.sendCommand(command)
                         }

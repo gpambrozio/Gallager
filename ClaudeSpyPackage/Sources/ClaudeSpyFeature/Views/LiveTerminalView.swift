@@ -22,9 +22,25 @@
         let sendCommand: CommandSender
 
         @Environment(RelayClient.self) private var relayClient
-        @Environment(IOSSettings.self) private var settings
+        @State private var coordinator: StreamCoordinator
 
-        @State private var coordinator: StreamCoordinator?
+        init(
+            paneId: String,
+            responseState: Binding<ResponseState?>,
+            isConnected: Bool,
+            settings: IOSSettings,
+            sendCommand: @escaping CommandSender
+        ) {
+            self.paneId = paneId
+            self._responseState = responseState
+            self.isConnected = isConnected
+            self.sendCommand = sendCommand
+            self.coordinator = StreamCoordinator(
+                paneId: paneId,
+                fontName: settings.terminalFontName,
+                fontSize: CGFloat(settings.terminalFontSize)
+            )
+        }
 
         var body: some View {
             VStack(spacing: 0) {
@@ -33,7 +49,7 @@
                     let responseState,
                     let responseView = responseState.event.responseView(
                         isConnected: isConnected,
-                        sendCommand: { await sendCommand($0) },
+                        sendCommand: sendCommand,
                         state: responseState
                     ) {
                     responseView
@@ -58,38 +74,33 @@
 
         @ViewBuilder
         private var terminalContent: some View {
-            if let coordinator {
-                switch coordinator.streamState {
-                case .idle,
-                     .connecting:
-                    ProgressView("Connecting to terminal...")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                case .streaming:
-                    if let state = coordinator.terminalState {
-                        TerminalStreamContainerView(terminalState: state)
-                    } else {
-                        ProgressView("Initializing terminal...")
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-
-                case .ended:
-                    ContentUnavailableView(
-                        "Stream Ended",
-                        symbol: .terminal,
-                        description: "The terminal stream has ended."
-                    )
-
-                case .error:
-                    ContentUnavailableView(
-                        "Stream Error",
-                        symbol: .exclamationmarkTriangle,
-                        description: coordinator.error ?? "Unknown error"
-                    )
-                }
-            } else {
+            switch coordinator.streamState {
+            case .idle,
+                 .connecting:
                 ProgressView("Connecting to terminal...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            case .streaming:
+                if let state = coordinator.terminalState {
+                    TerminalStreamContainerView(terminalState: state)
+                } else {
+                    ProgressView("Initializing terminal...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+
+            case .ended:
+                ContentUnavailableView(
+                    "Stream Ended",
+                    symbol: .terminal,
+                    description: "The terminal stream has ended."
+                )
+
+            case .error:
+                ContentUnavailableView(
+                    "Stream Error",
+                    symbol: .exclamationmarkTriangle,
+                    description: coordinator.error ?? "Unknown error"
+                )
             }
         }
 
@@ -97,30 +108,18 @@
 
         private func startStreaming() async {
             guard isConnected else {
-                let coord = StreamCoordinator(
-                    paneId: paneId,
-                    fontName: settings.terminalFontName,
-                    fontSize: CGFloat(settings.terminalFontSize)
-                )
-                coord.streamState = .error
-                coord.error = "Mac is not connected"
-                coordinator = coord
+                coordinator.streamState = .error
+                coordinator.error = "Mac is not connected"
                 return
             }
 
             // Create coordinator that the callback can capture
-            let coord = StreamCoordinator(
-                paneId: paneId,
-                fontName: settings.terminalFontName,
-                fontSize: CGFloat(settings.terminalFontSize)
-            )
-            coord.streamState = .connecting
-            coordinator = coord
+            coordinator.streamState = .connecting
 
             // Set up stream message handler - coordinator is a class so weak capture works
-            relayClient.onTerminalStream = { [weak coord] message in
-                guard let coord, message.paneId == paneId else { return }
-                coord.handleStreamMessage(message)
+            relayClient.onTerminalStream = { [weak coordinator] message in
+                guard let coordinator, message.paneId == paneId else { return }
+                coordinator.handleStreamMessage(message)
             }
 
             // Request stream start
@@ -131,8 +130,8 @@
 
             // Only handle failure - streaming state is set when initial state arrives
             if case let .failure(err) = result {
-                coord.streamState = .error
-                coord.error = err.localizedDescription
+                coordinator.streamState = .error
+                coordinator.error = err.localizedDescription
             }
         }
 
@@ -397,8 +396,9 @@
         NavigationStack {
             LiveTerminalView(
                 paneId: "%1",
-                responseState: .constant(nil),
+                responseState: .init(get: { nil }, set: { _ in }),
                 isConnected: true,
+                settings: .shared,
                 sendCommand: { _ in }
             )
         }
