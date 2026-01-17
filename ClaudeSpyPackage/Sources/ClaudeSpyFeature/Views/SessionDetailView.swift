@@ -5,15 +5,24 @@ import SwiftUI
 /// Detailed view of a single Claude session with event history and terminal snapshot.
 struct SessionDetailView: View {
     let paneId: String
+    let settings: IOSSettings
 
-    @Environment(RelayClient.self) private var relayClient
-    @Environment(SessionStore.self) private var sessionStore
-    @Environment(IOSSettings.self) private var settings
+    @State private var service: SessionDetailService
 
-    // Note: Service is optional because we need @Environment values (sessionStore, relayClient)
-    // which aren't available at init time. We create the service in .task when view appears.
-    // This is the standard SwiftUI pattern when services depend on Environment values.
-    @State private var service: SessionDetailService?
+    init(
+        paneId: String,
+        sessionStore: SessionStore,
+        relayClient: RelayClient,
+        settings: IOSSettings
+    ) {
+        self.paneId = paneId
+        self.settings = settings
+        self.service = SessionDetailService(
+            paneId: paneId,
+            sessionStore: sessionStore,
+            relayClient: relayClient
+        )
+    }
 
     var body: some View {
         bodyContent
@@ -21,23 +30,15 @@ struct SessionDetailView: View {
         #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
         #endif
-            .task {
-                if service == nil {
-                    service = SessionDetailService(
-                        paneId: paneId,
-                        sessionStore: sessionStore,
-                        relayClient: relayClient
-                    )
-                }
-            }
     }
 
     @ViewBuilder
     private var bodyContent: some View {
-        if let service, let session = service.session {
+        if let session = service.session {
             @Bindable var bindableService = service
 
-            sessionContent(service: service, session: session)
+            sessionContent(session: session)
+            #if os(iOS)
                 .navigationDestination(isPresented: $bindableService.showLiveTerminal) {
                     LiveTerminalView(
                         paneId: paneId,
@@ -49,6 +50,7 @@ struct SessionDetailView: View {
                         }
                     )
                 }
+            #endif
         } else {
             ContentUnavailableView(
                 "Session Not Found",
@@ -59,11 +61,11 @@ struct SessionDetailView: View {
     }
 
     @ViewBuilder
-    private func sessionContent(service: SessionDetailService, session: ClaudeSession) -> some View {
+    private func sessionContent(session: ClaudeSession) -> some View {
         List {
             // Terminal section
             Section {
-                viewTerminalButton(service: service)
+                viewTerminalButton()
             } header: {
                 Text("Terminal")
             }
@@ -122,7 +124,7 @@ struct SessionDetailView: View {
     // MARK: - View Terminal Button
 
     @ViewBuilder
-    private func viewTerminalButton(service: SessionDetailService) -> some View {
+    private func viewTerminalButton() -> some View {
         Button {
             service.showLiveTerminal = true
         } label: {
@@ -140,9 +142,11 @@ struct SessionDetailView: View {
 
 #Preview {
     NavigationStack {
-        SessionDetailView(paneId: "%1")
+        SessionDetailView(
+            paneId: "%1",
+            sessionStore: SessionStore(),
+            relayClient: RelayClient(),
+            settings: .shared
+        )
     }
-    .environment(RelayClient())
-    .environment(SessionStore())
-    .environment(IOSSettings.shared)
 }

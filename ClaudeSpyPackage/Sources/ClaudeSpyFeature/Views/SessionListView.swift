@@ -5,6 +5,7 @@ import SwiftUI
 struct SessionListView: View {
     @Environment(SessionStore.self) private var sessionStore
     @Environment(RelayClient.self) private var relayClient
+    @Environment(IOSSettings.self) private var settings
 
     var body: some View {
         Group {
@@ -16,7 +17,12 @@ struct SessionListView: View {
         }
         .navigationTitle("Sessions")
         .navigationDestination(for: String.self) { paneId in
-            SessionDetailView(paneId: paneId)
+            SessionDetailView(
+                paneId: paneId,
+                sessionStore: sessionStore,
+                relayClient: relayClient,
+                settings: settings
+            )
         }
         .toolbar {
             #if os(iOS)
