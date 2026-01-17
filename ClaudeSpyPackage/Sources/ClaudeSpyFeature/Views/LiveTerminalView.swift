@@ -242,14 +242,14 @@
 
             let exactWidth = CGFloat(terminalState.width) * cellSize.width
             let exactHeight = CGFloat(terminalState.height) * cellSize.height
-            let exactFrame = CGRect(x: 0, y: 0, width: exactWidth, height: exactHeight)
 
             // Create font
             let font = UIFont(name: terminalState.fontName, size: terminalState.fontSize)
                 ?? UIFont.monospacedSystemFont(ofSize: terminalState.fontSize, weight: .regular)
 
             // Create terminal view
-            let terminalView = TerminalView(frame: exactFrame, font: font)
+            let terminalView = TerminalView(frame: .zero, font: font)
+            terminalView.translatesAutoresizingMaskIntoConstraints = false
 
             // Configure terminal
             terminalView.nativeForegroundColor = UIColor(white: 0.9, alpha: 1)
@@ -267,16 +267,41 @@
             let scrollView = UIScrollView()
             scrollView.backgroundColor = .black
             scrollView.addSubview(terminalView)
-            scrollView.contentSize = exactFrame.size
             scrollView.showsHorizontalScrollIndicator = true
             scrollView.showsVerticalScrollIndicator = false
             scrollView.alwaysBounceVertical = false
             scrollView.alwaysBounceHorizontal = false
 
+            // Use Auto Layout to properly size the terminal view
+            // Terminal should fill available space but grow for wide/tall terminals
+            let widthConstraint = terminalView.widthAnchor.constraint(equalToConstant: exactWidth)
+            let heightConstraint = terminalView.heightAnchor.constraint(equalToConstant: exactHeight)
+            // Lower priority so minimum size constraints take precedence
+            widthConstraint.priority = .defaultHigh
+            heightConstraint.priority = .defaultHigh
+
+            NSLayoutConstraint.activate([
+                // Pin to scroll view content (defines scrollable area)
+                terminalView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+                terminalView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+                terminalView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+                terminalView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+
+                // Minimum size = scroll view visible area (fills space when terminal is small)
+                terminalView.widthAnchor.constraint(greaterThanOrEqualTo: scrollView.frameLayoutGuide.widthAnchor),
+                terminalView.heightAnchor.constraint(greaterThanOrEqualTo: scrollView.frameLayoutGuide.heightAnchor),
+
+                // Exact terminal size (breaks when smaller than visible area)
+                widthConstraint,
+                heightConstraint,
+            ])
+
             // Store references
             context.coordinator.terminalView = terminalView
             context.coordinator.scrollView = scrollView
             context.coordinator.cellSize = cellSize
+            context.coordinator.widthConstraint = widthConstraint
+            context.coordinator.heightConstraint = heightConstraint
 
             // Wire up callbacks
             terminalState.onData = { [weak terminalView] data in
@@ -309,6 +334,8 @@
             var terminalView: TerminalView?
             var scrollView: UIScrollView?
             var cellSize: CGSize = .zero
+            var widthConstraint: NSLayoutConstraint?
+            var heightConstraint: NSLayoutConstraint?
             let terminalState: TerminalState
 
             init(terminalState: TerminalState) {
@@ -316,14 +343,16 @@
             }
 
             func handleResize(width: Int, height: Int) {
-                guard let terminalView, let scrollView else { return }
+                guard let terminalView else { return }
 
                 let newWidth = CGFloat(width) * cellSize.width
                 let newHeight = CGFloat(height) * cellSize.height
 
-                terminalView.frame = CGRect(x: 0, y: 0, width: newWidth, height: newHeight)
+                // Update constraints for new terminal size
+                widthConstraint?.constant = newWidth
+                heightConstraint?.constant = newHeight
+
                 terminalView.getTerminal().resize(cols: width, rows: height)
-                scrollView.contentSize = CGSize(width: newWidth, height: newHeight)
             }
         }
     }
