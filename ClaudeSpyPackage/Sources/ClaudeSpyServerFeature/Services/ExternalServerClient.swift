@@ -442,11 +442,7 @@ final public class ExternalServerClient {
         let data: Data
         switch message {
         case let .string(text):
-            guard let textData = text.data(using: .utf8) else {
-                logger.error("Failed to convert message text to data")
-                return
-            }
-            data = textData
+            data = Data(text.utf8)
         case let .data(messageData):
             data = messageData
         @unknown default:

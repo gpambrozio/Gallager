@@ -89,3 +89,9 @@ custom_rules:
         regex: '(\(systemName:|systemImage:)'
         message: "When using SFSymbols, use the `Symbols` enum instead of the string value"
         severity: error
+
+    custom_string_data_utf8:
+        name: "Use Data(string.utf8) instead of string.data(using: .utf8)"
+        regex: '\.data\(using:\s*\.utf8\)'
+        message: "Use `Data(string.utf8)` instead of `string.data(using: .utf8)` - it's non-optional and cleaner"
+        severity: error

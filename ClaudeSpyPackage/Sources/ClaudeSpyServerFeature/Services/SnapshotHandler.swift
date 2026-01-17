@@ -55,7 +55,7 @@ final public class SnapshotHandler {
                 positionedContent += line
             }
 
-            let content = positionedContent.data(using: .utf8) ?? Data()
+            let content = Data(positionedContent.utf8)
 
             logger.info("Pane captured with scrollback", metadata: [
                 "width": "\(width)",

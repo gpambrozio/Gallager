@@ -77,8 +77,8 @@ let sharedSecret = try macPrivateKey.sharedSecretFromKeyAgreement(
 // Derive symmetric key using HKDF
 let symmetricKey = sharedSecret.hkdfDerivedSymmetricKey(
     using: SHA256.self,
-    salt: "ClaudeSpy-E2EE-v1".data(using: .utf8)!,
-    sharedInfo: pairId.data(using: .utf8)!,  // Bind to this pairing
+    salt: Data("ClaudeSpy-E2EE-v1".utf8),
+    sharedInfo: Data(pairId.utf8),  // Bind to this pairing
     outputByteCount: 32
 )
 ```
@@ -414,7 +414,7 @@ let verificationCode = hash.prefix(3).map { String(format: "%02X", $0) }.joined(
     )
 
     // Encrypt and decrypt
-    let plaintext = "Hello, encrypted world!".data(using: .utf8)!
+    let plaintext = Data("Hello, encrypted world!".utf8)
     let encrypted = try service1.encrypt(plaintext)
     let decrypted = try service2.decrypt(encrypted)
 
@@ -433,7 +433,7 @@ let verificationCode = hash.prefix(3).map { String(format: "%02X", $0) }.joined(
     // Service3 tries to decrypt
     try service3.establishSession(partnerPublicKey: service1.publicKey, pairId: "pair")
 
-    let encrypted = try service1.encrypt("secret".data(using: .utf8)!)
+    let encrypted = try service1.encrypt(Data("secret".utf8))
 
     #expect(throws: CryptoError.self) {
         try service3.decrypt(encrypted)

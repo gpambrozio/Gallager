@@ -391,9 +391,7 @@ import Foundation
             }
 
             // Store key ID
-            guard let keyIdData = keyPair.keyId.data(using: .utf8) else {
-                throw CryptoError.keychainError(status: errSecParam)
-            }
+            let keyIdData = Data(keyPair.keyId.utf8)
 
             let keyIdAttributes = storeAttributes(account: keyIdAccount, data: keyIdData)
             let keyIdStatus = SecItemAdd(keyIdAttributes as CFDictionary, nil)

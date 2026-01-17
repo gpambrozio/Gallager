@@ -338,7 +338,7 @@ final public class TmuxService {
         // Position cursor where it actually is
         output += "\u{1b}[\(cursorY + 1);\(cursorX + 1)H"
 
-        return output.data(using: .utf8) ?? Data()
+        return Data(output.utf8)
     }
 
     /// Counts visible characters in a string, ignoring ANSI escape sequences

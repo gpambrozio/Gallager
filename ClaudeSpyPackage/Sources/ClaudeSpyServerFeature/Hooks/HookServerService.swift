@@ -127,9 +127,7 @@ public actor HookServerService {
             "bodyLength": "\(bodyString.count)",
         ])
 
-        guard let bodyData = bodyString.data(using: .utf8) else {
-            throw Abort(.badRequest, reason: "Invalid body encoding")
-        }
+        let bodyData = Data(bodyString.utf8)
 
         // Parse the hook action
         let hookAction: HookAction

@@ -55,7 +55,7 @@ struct WebSocketController: RouteCollection {
 
         // Handle incoming messages
         ws.onText { _, text in
-            guard let data = text.data(using: .utf8) else { return }
+            let data = Data(text.utf8)
             await handleIncomingMessage(
                 data: data,
                 pairId: pairId,

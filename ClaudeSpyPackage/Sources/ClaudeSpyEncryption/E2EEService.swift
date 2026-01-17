@@ -192,9 +192,10 @@
             // Derive symmetric key using HKDF with strong domain separation
             // Include pairId and both public keys in sharedInfo
             // Sort public keys lexicographically to ensure both sides derive the same key
-            guard let pairIdData = pairId.data(using: .utf8), !pairIdData.isEmpty else {
+            guard !pairId.isEmpty else {
                 throw CryptoError.invalidPairId
             }
+            let pairIdData = Data(pairId.utf8)
 
             let ourKey = keyPair.publicKeyData
             let theirKey = partnerKey.rawRepresentation
