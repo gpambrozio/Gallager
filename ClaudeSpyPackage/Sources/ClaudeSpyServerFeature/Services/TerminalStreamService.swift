@@ -112,13 +112,15 @@ final public class TerminalStreamService {
         let subscriptionId = try await paneStreamManager.subscribe(
             paneId: paneId,
             target: target,
-            onData: { [weak self, weak context] data in
-                guard let self, let context else { return }
+            onData: { [weak self] (data: Data) in
+                guard let self else { return }
+                // Look up context from activeStreams to ensure we're still active
+                guard let context = self.activeStreams[paneId] else { return }
                 Task {
                     await self.handleIncomingData(context: context, paneId: paneId, data: data)
                 }
             },
-            onDimensionChange: { [weak self] newWidth, newHeight in
+            onDimensionChange: { [weak self] (newWidth: Int, newHeight: Int) in
                 guard let self else { return }
                 Task {
                     await self.handleDimensionChange(paneId: paneId, width: newWidth, height: newHeight)
@@ -156,6 +158,9 @@ final public class TerminalStreamService {
         }
 
         logger.info("Stopping terminal stream", metadata: ["paneId": "\(paneId)"])
+
+        // Cancel any pending batch send
+        context.batchTask?.cancel()
 
         // Unsubscribe from PaneStreamManager
         if let subscriptionId = context.subscriptionId {

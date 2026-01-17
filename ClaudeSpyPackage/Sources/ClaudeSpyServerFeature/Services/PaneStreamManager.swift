@@ -99,7 +99,19 @@
 
             // Get or create stream
             if var context = streams[paneId] {
-                // Existing stream - add subscriber
+                // Existing stream - send initial content BEFORE adding subscriber
+                // to avoid race condition where incremental data arrives before scrollback
+                do {
+                    let initialContent = try await tmuxService.capturePaneWithScrollbackForStreaming(target)
+                    onData(initialContent)
+                } catch {
+                    logger.warning("Failed to capture initial content for new subscriber", metadata: [
+                        "paneId": "\(paneId)",
+                        "error": "\(error)",
+                    ])
+                }
+
+                // Now add subscriber so they receive future incremental updates
                 context.subscriberIds.insert(subscriptionId)
                 streams[paneId] = context
 
@@ -108,11 +120,6 @@
                     "subscriptionId": "\(subscriptionId)",
                     "totalSubscribers": "\(context.subscriberIds.count)",
                 ])
-
-                // Send current content to the new subscriber only
-                if let initialContent = try? await tmuxService.capturePaneWithScrollbackForStreaming(target) {
-                    onData(initialContent)
-                }
             } else {
                 // Create new stream
                 let stream = PaneStream(target: target, tmuxService: tmuxService)

@@ -196,19 +196,18 @@ struct MirrorWindowView: View {
         terminalController.clear()
 
         // Subscribe to PaneStreamManager
-        // Note: We can't use [weak self] since View is a struct. Capture specific objects instead.
-        let controller = terminalController
+        // Note: We can't use [weak self] since View is a struct. Use weak captures for class instances.
         let target = paneInfo.target
         do {
             let subId = try await paneStreamManager.subscribe(
                 paneId: paneInfo.paneId,
                 target: target,
-                onData: { data in
-                    controller.feed(data)
+                onData: { [weak terminalController] data in
+                    terminalController?.feed(data)
                 },
-                onDimensionChange: { [weak windowManager] newWidth, newHeight in
+                onDimensionChange: { [weak terminalController, weak windowManager] newWidth, newHeight in
                     // Resize the terminal to match new pane dimensions
-                    controller.resize(columns: newWidth, rows: newHeight)
+                    terminalController?.resize(columns: newWidth, rows: newHeight)
                     // Resize the window to match
                     windowManager?.resizeWindow(target: target, columns: newWidth, rows: newHeight)
                 }
