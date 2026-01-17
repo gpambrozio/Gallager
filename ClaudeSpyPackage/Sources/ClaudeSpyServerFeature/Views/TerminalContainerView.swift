@@ -8,17 +8,35 @@ final private class FlippedClipView: NSClipView {
     override var isFlipped: Bool { true }
 }
 
+/// A scroll view that notifies when its frame changes
+final class ResizingScrollView: NSScrollView {
+    var onResize: ((NSSize) -> Void)?
+
+    override func layout() {
+        super.layout()
+        onResize?(frame.size)
+    }
+}
+
 /// A SwiftUI wrapper around SwiftTerm's TerminalView embedded in a scroll view
 struct TerminalContainerView: NSViewRepresentable {
     /// The terminal view controller that manages the underlying terminal
     let terminalController: TerminalController
 
-    func makeNSView(context: Context) -> NSScrollView {
-        terminalController.scrollView
+    func makeNSView(context: Context) -> ResizingScrollView {
+        let scrollView = terminalController.scrollView
+
+        // Set up resize callback
+        scrollView.onResize = { [weak terminalController] size in
+            terminalController?.updateMinimumSize(size)
+        }
+
+        return scrollView
     }
 
-    func updateNSView(_ nsView: NSScrollView, context: Context) {
-        // Updates are handled by the TerminalController
+    func updateNSView(_ nsView: ResizingScrollView, context: Context) {
+        // Also update on SwiftUI layout changes
+        terminalController.updateMinimumSize(nsView.frame.size)
     }
 }
 
@@ -27,7 +45,7 @@ struct TerminalContainerView: NSViewRepresentable {
 @MainActor
 final class TerminalController: @unchecked Sendable {
     /// The scroll view containing the terminal
-    let scrollView: NSScrollView
+    let scrollView: ResizingScrollView
 
     /// The underlying SwiftTerm terminal view
     let terminalView: TerminalView
@@ -54,12 +72,15 @@ final class TerminalController: @unchecked Sendable {
     /// Whether the user has scrolled away from the bottom
     private(set) var isScrolledUp = false
 
+    /// Minimum size for the terminal (visible scroll view area)
+    private var minimumSize = NSSize.zero
+
     init() {
         // Create terminal view
         self.terminalView = TerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
 
         // Create scroll view to contain the terminal
-        self.scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        self.scrollView = ResizingScrollView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
 
         // Use flipped clip view so content aligns to top instead of bottom
         let flippedClipView = FlippedClipView()
@@ -118,6 +139,12 @@ final class TerminalController: @unchecked Sendable {
         updateTerminalFrameSize()
     }
 
+    /// Updates the minimum size for the terminal view (called when scroll view resizes)
+    func updateMinimumSize(_ size: NSSize) {
+        minimumSize = size
+        updateTerminalFrameSize()
+    }
+
     /// Updates the terminal frame size based on current font and dimensions
     private func updateTerminalFrameSize() {
         // Calculate cell size from font metrics (matches SwiftTerm's computeFontDimensions)
@@ -129,7 +156,11 @@ final class TerminalController: @unchecked Sendable {
         let width = CGFloat(columns) * cellSize.width + FontMetrics.horizontalBuffer
         let height = CGFloat(rows) * cellSize.height
 
-        terminalSize = NSSize(width: width, height: height)
+        // Use the larger of terminal size or minimum (visible) size
+        let finalWidth = max(width, minimumSize.width)
+        let finalHeight = max(height, minimumSize.height)
+
+        terminalSize = NSSize(width: finalWidth, height: finalHeight)
 
         // Update the terminal view frame
         terminalView.frame = NSRect(origin: .zero, size: terminalSize)

@@ -21,13 +21,24 @@ struct MirrorWindowView: View {
         windowManager.activeSessions[paneInfo.paneId]
     }
 
+    /// Minimum frame size for the terminal based on character dimensions
+    private var terminalMinSize: CGSize {
+        let cols = streamWidth ?? paneInfo.width
+        let rows = streamHeight ?? paneInfo.height
+        let cellSize = FontMetrics.calculateCellSize(
+            fontName: settings.fontName,
+            fontSize: CGFloat(settings.fontSize)
+        )
+        return CGSize(
+            width: CGFloat(cols) * cellSize.width + FontMetrics.horizontalBuffer,
+            height: CGFloat(rows) * cellSize.height
+        )
+    }
+
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                // Terminal view
-                TerminalContainerView(terminalController: terminalController)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .ignoresSafeArea(edges: .horizontal)
+                terminalView
 
                 // Jump to bottom button (shown when scrolled up)
                 if showJumpToBottom {
@@ -76,6 +87,17 @@ struct MirrorWindowView: View {
     }
 
     // MARK: - Subviews
+
+    private var terminalView: some View {
+        TerminalContainerView(terminalController: terminalController)
+            .frame(
+                minWidth: terminalMinSize.width,
+                maxWidth: .infinity,
+                minHeight: terminalMinSize.height,
+                maxHeight: .infinity
+            )
+            .ignoresSafeArea(edges: .horizontal)
+    }
 
     private var jumpToBottomBar: some View {
         HStack {
