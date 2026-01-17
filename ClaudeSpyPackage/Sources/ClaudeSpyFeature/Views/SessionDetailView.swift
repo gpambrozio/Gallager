@@ -5,18 +5,16 @@ import SwiftUI
 /// Detailed view of a single Claude session with event history and terminal snapshot.
 struct SessionDetailView: View {
     let paneId: String
-    let settings: IOSSettings
 
+    @Environment(IOSSettings.self) private var settings
     @State private var service: SessionDetailService
 
     init(
         paneId: String,
         sessionStore: SessionStore,
-        relayClient: RelayClient,
-        settings: IOSSettings
+        relayClient: RelayClient
     ) {
         self.paneId = paneId
-        self.settings = settings
         self.service = SessionDetailService(
             paneId: paneId,
             sessionStore: sessionStore,
@@ -145,8 +143,8 @@ struct SessionDetailView: View {
         SessionDetailView(
             paneId: "%1",
             sessionStore: SessionStore(),
-            relayClient: RelayClient(),
-            settings: .shared
+            relayClient: RelayClient()
         )
     }
+    .environment(IOSSettings.shared)
 }
