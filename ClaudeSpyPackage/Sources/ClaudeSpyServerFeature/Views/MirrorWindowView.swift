@@ -15,7 +15,6 @@ struct MirrorWindowView: View {
     @State private var streamState: StreamState = .disconnected
     @State private var streamWidth: Int?
     @State private var streamHeight: Int?
-    @State private var scrollbackLines = 0
 
     /// The active Claude session for this pane, if any
     private var claudeSession: ClaudeSession? {
@@ -110,12 +109,6 @@ struct MirrorWindowView: View {
 
             // Dimensions
             Text("\(streamWidth ?? paneInfo.width)x\(streamHeight ?? paneInfo.height)")
-
-            Divider()
-                .frame(height: 12)
-
-            // Scrollback info
-            Text("Scrollback: \(formatNumber(scrollbackLines)) lines")
 
             Spacer()
         }
