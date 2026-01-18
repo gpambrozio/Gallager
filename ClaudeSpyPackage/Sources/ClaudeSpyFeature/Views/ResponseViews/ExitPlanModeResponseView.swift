@@ -15,7 +15,14 @@ struct ExitPlanModeResponseView: View {
 
     var body: some View {
         if let response = state.response {
-            responseFeedback(response)
+            if case .rejected = response {
+                VStack(spacing: 12) {
+                    responseFeedback(response)
+                    PromptView(isConnected: isConnected, sendCommand: sendCommand, state: state)
+                }
+            } else {
+                responseFeedback(response)
+            }
         } else {
             planContent
         }
