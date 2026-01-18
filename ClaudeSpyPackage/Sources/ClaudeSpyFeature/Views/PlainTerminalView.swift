@@ -26,9 +26,7 @@
                 responseState: $responseState,
                 isConnected: isConnected,
                 settings: settings,
-                sendCommand: { command in
-                    await sendCommand(command)
-                }
+                sendCommand: sendCommand
             )
             .navigationTitle("Terminal")
             #if os(iOS)
