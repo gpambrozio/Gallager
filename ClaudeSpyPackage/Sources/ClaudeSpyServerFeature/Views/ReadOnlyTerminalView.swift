@@ -10,8 +10,14 @@
     /// 1. Forwards drawing and layout to the terminal view
     /// 2. Intercepts mouse clicks to prevent the terminal from becoming first responder
     /// 3. Still allows scroll events to pass through to the parent NSScrollView
+    ///
+    /// Scroll preservation: Use `feedPreservingScroll` to preserve scroll position when
+    /// the user has scrolled up from the bottom.
     final class ReadOnlyTerminalView: NSView {
         let terminalView: TerminalView
+
+        /// Set to true to enable scroll preservation when feeding data
+        var preserveUserScroll = false
 
         override init(frame: NSRect) {
             self.terminalView = TerminalView(frame: NSRect(origin: .zero, size: frame.size))
@@ -62,8 +68,28 @@
             terminalView.feed(byteArray: byteArray)
         }
 
+        /// Feeds data while preserving scroll position if user has scrolled up.
+        /// Use this instead of `feed(byteArray:)` for streaming content.
+        func feedPreservingScroll(_ bytes: ArraySlice<UInt8>) {
+            // Save current scroll position (0 = top, 1 = bottom)
+            let savedPosition = scrollPosition
+            let wasAtBottom = savedPosition >= 0.999
+
+            // Feed the data (this will auto-scroll to bottom)
+            terminalView.feed(byteArray: bytes)
+
+            // If scroll preservation is enabled and user had scrolled up, restore position
+            if preserveUserScroll && !wasAtBottom {
+                terminalView.scroll(toPosition: savedPosition)
+            }
+        }
+
         func scroll(toPosition position: Double) {
             terminalView.scroll(toPosition: position)
+        }
+
+        var scrollPosition: Double {
+            terminalView.scrollPosition
         }
     }
 #endif

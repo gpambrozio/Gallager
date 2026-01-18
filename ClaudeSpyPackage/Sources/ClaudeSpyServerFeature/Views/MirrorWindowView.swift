@@ -11,7 +11,6 @@ struct MirrorWindowView: View {
 
     @State private var subscriptionId: UUID?
     @State private var terminalController = TerminalController()
-    @State private var showJumpToBottom = false
     @State private var streamState: StreamState = .disconnected
     @State private var streamWidth: Int?
     @State private var streamHeight: Int?
@@ -39,11 +38,6 @@ struct MirrorWindowView: View {
         ZStack {
             VStack(spacing: 0) {
                 terminalView
-
-                // Jump to bottom button (shown when scrolled up)
-                if showJumpToBottom {
-                    jumpToBottomBar
-                }
 
                 // Status bar
                 if settings.showStatusBar {
@@ -97,23 +91,6 @@ struct MirrorWindowView: View {
                 maxHeight: .infinity
             )
             .ignoresSafeArea(edges: .horizontal)
-    }
-
-    private var jumpToBottomBar: some View {
-        HStack {
-            Spacer()
-            Button {
-                terminalController.scrollToBottom()
-                showJumpToBottom = false
-            } label: {
-                Label("Jump to Bottom", symbol: .arrowDown)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            Spacer()
-        }
-        .padding(8)
-        .background(.bar)
     }
 
     private var statusBar: some View {
@@ -198,12 +175,29 @@ struct MirrorWindowView: View {
         // Subscribe to PaneStreamManager
         // Note: We can't use [weak self] since View is a struct. Use weak captures for class instances.
         let target = paneInfo.target
+
+        // Track whether we've scrolled to bottom after initial content
+        // Using a class so it can be captured mutably in the closure
+        final class ScrollState { var hasScrolledInitial = false }
+        let scrollState = ScrollState()
+
         do {
             let subId = try await paneStreamManager.subscribe(
                 paneId: paneInfo.paneId,
                 target: target,
-                onData: { [weak terminalController] data in
-                    terminalController?.feed(data)
+                onData: { [weak terminalController, scrollState] data in
+                    guard let terminalController else { return }
+                    let bytes = [UInt8](data)[...]
+                    if !scrollState.hasScrolledInitial {
+                        // First data - feed, scroll to bottom, enable preservation
+                        terminalController.terminalView.feed(byteArray: bytes)
+                        terminalController.scrollToBottom()
+                        terminalController.terminalView.preserveUserScroll = true
+                        scrollState.hasScrolledInitial = true
+                    } else {
+                        // Subsequent data - preserve user's scroll position
+                        terminalController.terminalView.feedPreservingScroll(bytes)
+                    }
                 },
                 onDimensionChange: { [weak terminalController, weak windowManager] newWidth, newHeight in
                     // Resize the terminal to match new pane dimensions

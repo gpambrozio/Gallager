@@ -69,9 +69,6 @@ final class TerminalController: @unchecked Sendable {
     /// The fixed size of the terminal content
     private var terminalSize = NSSize(width: 800, height: 600)
 
-    /// Whether the user has scrolled away from the bottom
-    private(set) var isScrolledUp = false
-
     /// Minimum size for the terminal (visible scroll view area)
     private var minimumSize = NSSize.zero
 
@@ -108,11 +105,14 @@ final class TerminalController: @unchecked Sendable {
     }
 
     private func setupTerminal() {
-        // Configure terminal appearance
-        updateFont()
-
         // Set up terminal colors (dark theme by default)
         applyDarkTheme()
+
+        // Defer font setup - SwiftTerm's TerminalView may crash if font is set
+        // before the view is added to the view hierarchy
+        Task { @MainActor [weak self] in
+            self?.updateFont()
+        }
     }
 
     /// Feeds raw data (including ANSI escape sequences) to the terminal
@@ -174,7 +174,6 @@ final class TerminalController: @unchecked Sendable {
     /// Scrolls to the bottom of the terminal
     func scrollToBottom() {
         terminalView.scroll(toPosition: 1)
-        isScrolledUp = false
     }
 
     // MARK: - Theme Support

@@ -223,12 +223,16 @@
         /// Callback to feed data to the terminal view
         var onData: ((Data) -> Void)?
 
+        /// Callback called once after initial content is fed (for scroll-to-bottom and enabling preservation)
+        var onInitialContentLoaded: (() -> Void)?
+
         /// Call after setting onData to flush any pending content
         func flushPendingContent() {
             guard !pendingInitialContent.isEmpty, let onData else { return }
             let content = pendingInitialContent
             pendingInitialContent = Data()
             onData(content)
+            onInitialContentLoaded?()
         }
 
         /// Callback when dimensions change
@@ -338,8 +342,13 @@
             // Wire up callbacks
             terminalState.onData = { [weak terminalView] data in
                 guard let terminalView else { return }
-                let bytes = [UInt8](data)
-                terminalView.feed(byteArray: bytes[...])
+                terminalView.feedPreservingScroll([UInt8](data)[...])
+            }
+
+            terminalState.onInitialContentLoaded = { [weak terminalView] in
+                // Scroll to bottom and enable scroll preservation
+                terminalView?.scroll(toPosition: 1)
+                terminalView?.preserveUserScroll = true
             }
 
             // Flush any pending initial content now that callback is connected
