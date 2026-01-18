@@ -281,7 +281,7 @@
             // This is needed because SwiftTerm renders based on frame, and content
             // is fed before Auto Layout runs. Constraints handle dynamic resizing after.
             let initialFrame = CGRect(x: 0, y: 0, width: exactWidth, height: exactHeight)
-            let terminalView = TerminalView(frame: initialFrame, font: font)
+            let terminalView = ReadOnlyTerminalView(frame: initialFrame, font: font)
             terminalView.translatesAutoresizingMaskIntoConstraints = false
 
             // Configure terminal
@@ -363,7 +363,7 @@
 
         @MainActor
         final class Coordinator {
-            var terminalView: TerminalView?
+            var terminalView: ReadOnlyTerminalView?
             var cellSize: CGSize = .zero
             var widthConstraint: NSLayoutConstraint?
             var heightConstraint: NSLayoutConstraint?

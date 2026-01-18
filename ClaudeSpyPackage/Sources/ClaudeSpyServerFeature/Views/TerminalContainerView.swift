@@ -47,8 +47,8 @@ final class TerminalController: @unchecked Sendable {
     /// The scroll view containing the terminal
     let scrollView: ResizingScrollView
 
-    /// The underlying SwiftTerm terminal view
-    let terminalView: TerminalView
+    /// The underlying SwiftTerm terminal view (read-only, no keyboard input)
+    let terminalView: ReadOnlyTerminalView
 
     /// Font name for the terminal
     var fontName = "SF Mono" {
@@ -77,7 +77,7 @@ final class TerminalController: @unchecked Sendable {
 
     init() {
         // Create terminal view
-        self.terminalView = TerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        self.terminalView = ReadOnlyTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
 
         // Create scroll view to contain the terminal
         self.scrollView = ResizingScrollView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
