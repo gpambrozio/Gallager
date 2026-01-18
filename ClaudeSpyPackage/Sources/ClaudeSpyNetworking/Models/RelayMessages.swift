@@ -28,11 +28,19 @@ public struct SessionStateMessage: Codable, Sendable {
     public let pairId: String
     public let sessions: [String: ClaudeSession]
     public let activePanes: [String]
+    /// All tmux panes (including those without Claude sessions)
+    public let panes: [PaneInfoMessage]?
 
-    public init(pairId: String, sessions: [String: ClaudeSession], activePanes: [String]) {
+    public init(
+        pairId: String,
+        sessions: [String: ClaudeSession],
+        activePanes: [String],
+        panes: [PaneInfoMessage]? = nil
+    ) {
         self.pairId = pairId
         self.sessions = sessions
         self.activePanes = activePanes
+        self.panes = panes
     }
 }
 

@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Foundation
 
 /// Information about a tmux pane
@@ -75,5 +76,21 @@ public extension PaneInfo {
         self.height = height
         self.isActive = components[8] == "1"
         self.target = "\(sessionName):\(windowIndex).\(paneIndex)"
+    }
+
+    /// Converts to the shared networking model for iOS display
+    var asPaneInfoMessage: PaneInfoMessage {
+        PaneInfoMessage(
+            id: paneId,
+            target: target,
+            sessionName: sessionName,
+            windowIndex: windowIndex,
+            paneIndex: paneIndex,
+            command: command,
+            currentPath: currentPath,
+            width: width,
+            height: height,
+            isActive: isActive
+        )
     }
 }
