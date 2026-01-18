@@ -335,7 +335,7 @@ struct MainView: View {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(100))
                 sessionsNavigationPath = NavigationPath()
-                sessionsNavigationPath.append(paneId)
+                sessionsNavigationPath.append(SessionNavigation.claudeSession(paneId: paneId))
                 currentlyDisplayedPaneId = paneId
             }
         }
