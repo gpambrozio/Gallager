@@ -98,8 +98,9 @@
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                 keyboardVisible = false
-                // Sync isInteractive when keyboard is dismissed by system (e.g., user taps outside)
-                isInteractive = false
+                // Note: We intentionally don't set isInteractive = false here because keyboard
+                // switching (e.g., to SwiftTerm's secondary keyboard) briefly fires this notification.
+                // The slight state desync is preferable to breaking keyboard switching.
             }
         }
 
