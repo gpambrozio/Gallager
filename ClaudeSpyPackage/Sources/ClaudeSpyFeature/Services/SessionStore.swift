@@ -19,7 +19,10 @@ final public class SessionStore {
     /// List of active pane IDs
     public private(set) var activePanes: [String] = []
 
-    /// All sessions as a sorted array for display
+    /// All tmux panes (including those without Claude sessions)
+    public private(set) var panes: [PaneInfoMessage] = []
+
+    /// Claude sessions sorted by most recent event timestamp
     public var sortedSessions: [(paneId: String, session: ClaudeSession)] {
         sessions
             .map { (paneId: $0.key, session: $0.value) }
@@ -31,14 +34,30 @@ final public class SessionStore {
             }
     }
 
-    /// Whether there are any active sessions
+    /// Panes that have Claude sessions (for section 1)
+    public var claudeSessionPanes: [(paneId: String, session: ClaudeSession)] {
+        sortedSessions
+    }
+
+    /// Panes without Claude sessions (plain terminals, for section 2)
+    public var plainTerminalPanes: [PaneInfoMessage] {
+        let sessionPaneIds = Set(sessions.keys)
+        return panes.filter { !sessionPaneIds.contains($0.id) }
+    }
+
+    /// Whether there are any sessions or panes to display
     public var hasSessions: Bool {
-        !sessions.isEmpty
+        !sessions.isEmpty || !panes.isEmpty
     }
 
     /// Total number of sessions
     public var sessionCount: Int {
         sessions.count
+    }
+
+    /// Total number of items to display (Claude sessions + plain terminals)
+    public var totalItemCount: Int {
+        sessions.count + plainTerminalPanes.count
     }
 
     // MARK: - Initialization
@@ -79,10 +98,13 @@ final public class SessionStore {
 
     /// Handle a full session state update from the Mac
     public func handleStateUpdate(_ state: SessionStateMessage) {
-        logger.info("Received full session state: \(state.sessions.count) sessions")
+        logger.info(
+            "Received full session state: \(state.sessions.count) sessions, \(state.panes?.count ?? 0) panes"
+        )
 
         sessions = state.sessions
         activePanes = state.activePanes
+        panes = state.panes ?? []
     }
 
     /// Clear all session data (e.g., on disconnect)
@@ -90,6 +112,7 @@ final public class SessionStore {
         logger.info("Clearing session data on disconnect")
         sessions.removeAll()
         activePanes.removeAll()
+        panes.removeAll()
     }
 
     /// Get a session by pane ID

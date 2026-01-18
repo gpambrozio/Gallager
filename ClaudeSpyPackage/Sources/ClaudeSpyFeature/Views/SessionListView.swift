@@ -1,10 +1,22 @@
 import ClaudeSpyCommon
+import ClaudeSpyNetworking
 import SwiftUI
 
-/// View displaying a list of active Claude sessions from the Mac.
+// MARK: - Navigation
+
+/// Navigation value for the session list
+enum SessionNavigation: Hashable {
+    /// Navigate to a Claude session detail view
+    case claudeSession(paneId: String)
+    /// Navigate directly to live terminal for a plain terminal (no Claude session)
+    case plainTerminal(paneId: String)
+}
+
+/// View displaying a list of active Claude sessions and terminals from the Mac.
 struct SessionListView: View {
     @Environment(SessionStore.self) private var sessionStore
     @Environment(RelayClient.self) private var relayClient
+    @Environment(IOSSettings.self) private var settings
 
     var body: some View {
         Group {
@@ -15,12 +27,26 @@ struct SessionListView: View {
             }
         }
         .navigationTitle("Sessions")
-        .navigationDestination(for: String.self) { paneId in
-            SessionDetailView(
-                paneId: paneId,
-                sessionStore: sessionStore,
-                relayClient: relayClient
-            )
+        .navigationDestination(for: SessionNavigation.self) { destination in
+            switch destination {
+            case let .claudeSession(paneId):
+                SessionDetailView(
+                    paneId: paneId,
+                    sessionStore: sessionStore,
+                    relayClient: relayClient
+                )
+            #if os(iOS)
+                case let .plainTerminal(paneId):
+                    PlainTerminalView(
+                        paneId: paneId,
+                        relayClient: relayClient,
+                        settings: settings
+                    )
+            #else
+                case .plainTerminal:
+                    EmptyView()
+            #endif
+            }
         }
         .toolbar {
             #if os(iOS)
@@ -39,13 +65,29 @@ struct SessionListView: View {
 
     private var sessionsList: some View {
         List {
-            ForEach(sessionStore.sortedSessions, id: \.paneId) { item in
-                NavigationLink(value: item.paneId) {
-                    SessionRowView(
-                        paneId: item.paneId,
-                        session: item.session,
-                        isActive: sessionStore.isPaneActive(item.paneId)
-                    )
+            // Section 1: Claude Sessions (if any)
+            if !sessionStore.claudeSessionPanes.isEmpty {
+                Section("Claude Code") {
+                    ForEach(sessionStore.claudeSessionPanes, id: \.paneId) { item in
+                        NavigationLink(value: SessionNavigation.claudeSession(paneId: item.paneId)) {
+                            SessionRowView(
+                                paneId: item.paneId,
+                                session: item.session,
+                                isActive: sessionStore.isPaneActive(item.paneId)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Section 2: Plain Terminals (if any)
+            if !sessionStore.plainTerminalPanes.isEmpty {
+                Section("Terminals") {
+                    ForEach(sessionStore.plainTerminalPanes) { pane in
+                        NavigationLink(value: SessionNavigation.plainTerminal(paneId: pane.id)) {
+                            TerminalRowView(pane: pane)
+                        }
+                    }
                 }
             }
         }
@@ -58,10 +100,10 @@ struct SessionListView: View {
 
     private var emptyStateView: some View {
         ContentUnavailableView {
-            Label("No Sessions", symbol: .terminal)
+            Label("No Terminals", symbol: .terminal)
         } description: {
             if relayClient.isMacConnected {
-                Text("No active Claude Code sessions on your Mac")
+                Text("No active terminals on your Mac")
             } else {
                 Text("Waiting for Mac to connect...")
             }
@@ -166,10 +208,68 @@ struct SessionRowView: View {
     }
 }
 
+// MARK: - Terminal Row View
+
+/// Row view for plain terminals (no Claude session)
+struct TerminalRowView: View {
+    let pane: PaneInfoMessage
+
+    /// Display name derived from current path or pane ID
+    private var displayName: String {
+        if let path = pane.currentPath, !path.isEmpty {
+            return URL(fileURLWithPath: path).lastPathComponent
+        }
+        return pane.id
+    }
+
+    /// Subtitle showing session:window.pane info
+    private var subtitle: String {
+        "\(pane.sessionName):\(pane.windowIndex).\(pane.paneIndex)"
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Terminal icon instead of activity indicator
+            Symbols.terminal.image
+                .foregroundStyle(.secondary)
+                .frame(width: 20, height: 20)
+
+            VStack(alignment: .leading, spacing: 4) {
+                // Display name (folder name or pane ID)
+                Text(displayName)
+                    .font(.headline)
+
+                // Command and path info
+                HStack {
+                    if let command = pane.command, !command.isEmpty {
+                        Text(command)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer()
+
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+
+                // Dimensions
+                Text("\(pane.width)×\(pane.height)")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
 #Preview {
     NavigationStack {
         SessionListView()
     }
     .environment(SessionStore())
     .environment(RelayClient())
+    .environment(IOSSettings.shared)
 }

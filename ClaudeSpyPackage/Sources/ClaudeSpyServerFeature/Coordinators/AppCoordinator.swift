@@ -223,17 +223,23 @@
         }
 
         private func setupSessionStateHandler() {
-            externalServerClient.setSessionStateHandler { [settings, weak windowManager] in
+            externalServerClient.setSessionStateHandler { [settings, weak windowManager, tmuxService] in
                 guard let windowManager else {
-                    return SessionStateMessage(pairId: "", sessions: [:], activePanes: [])
+                    return SessionStateMessage(pairId: "", sessions: [:], activePanes: [], panes: [])
                 }
                 let pairId = await settings.pairId ?? ""
                 let sessions = await windowManager.activeSessions
                 let activePaneIds = await Array(windowManager.activeSessions.keys)
+
+                // Refresh and include all panes for iOS to display
+                let allPanes = await tmuxService.refreshPanes()
+                let paneMessages = allPanes.map { $0.asPaneInfoMessage }
+
                 return SessionStateMessage(
                     pairId: pairId,
                     sessions: sessions,
-                    activePanes: activePaneIds
+                    activePanes: activePaneIds,
+                    panes: paneMessages
                 )
             }
         }
