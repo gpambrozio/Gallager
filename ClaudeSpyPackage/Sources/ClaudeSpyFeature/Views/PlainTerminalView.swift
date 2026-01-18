@@ -29,9 +29,7 @@
                 sendCommand: sendCommand
             )
             .navigationTitle("Terminal")
-            #if os(iOS)
-                .navigationBarTitleDisplayMode(.inline)
-            #endif
+            .navigationBarTitleDisplayMode(.inline)
         }
 
         /// Send a command to the Mac for this pane
