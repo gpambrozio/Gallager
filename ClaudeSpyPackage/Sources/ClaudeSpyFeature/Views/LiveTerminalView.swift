@@ -9,6 +9,9 @@
     ///
     /// This view requests a terminal stream from the Mac, displays the live output,
     /// and handles dimension changes. It replaces the static snapshot view.
+    ///
+    /// When `isInteractive` is true, the terminal accepts keyboard input which is
+    /// forwarded to tmux via the relay server.
     struct LiveTerminalView: View {
         let paneId: String
 
@@ -23,6 +26,12 @@
 
         @Environment(RelayClient.self) private var relayClient
         @State private var coordinator: StreamCoordinator
+
+        /// Whether the terminal is in interactive mode (keyboard is showing)
+        @State private var isInteractive = false
+
+        /// Tracks keyboard visibility to sync toolbar icon and trigger layout updates
+        @State private var keyboardVisible = false
 
         init(
             paneId: String,
@@ -44,8 +53,9 @@
 
         var body: some View {
             VStack(spacing: 0) {
-                // Response view above terminal if available
+                // Response view above terminal (hidden when keyboard is showing)
                 if
+                    !keyboardVisible,
                     let responseState,
                     let responseView = responseState.event.responseView(
                         isConnected: isConnected,
@@ -64,11 +74,33 @@
             }
             .navigationTitle("Live Terminal")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        isInteractive.toggle()
+                    } label: {
+                        Label(
+                            keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
+                            symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
+                        )
+                    }
+                    .disabled(!isConnected || coordinator.streamState != .streaming)
+                }
+            }
             .task {
                 await startStreaming()
             }
             .onDisappear {
                 Task { await stopStreaming() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                keyboardVisible = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                keyboardVisible = false
+                // Note: We intentionally don't set isInteractive = false here because keyboard
+                // switching (e.g., to SwiftTerm's secondary keyboard) briefly fires this notification.
+                // The slight state desync is preferable to breaking keyboard switching.
             }
         }
 
@@ -82,7 +114,18 @@
 
             case .streaming:
                 if let state = coordinator.terminalState {
-                    TerminalStreamContainerView(terminalState: state)
+                    TerminalStreamContainerView(
+                        terminalState: state,
+                        isInteractive: isInteractive,
+                        onInput: { keys in
+                            Task {
+                                _ = await relayClient.sendCommand(
+                                    SendKeystroke(keys),
+                                    paneId: paneId
+                                )
+                            }
+                        }
+                    )
                 } else {
                     ProgressView("Initializing terminal...")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -263,9 +306,18 @@
 
     // MARK: - Terminal Container View
 
-    /// UIKit container for the streaming terminal
+    /// UIKit container for the streaming terminal.
+    ///
+    /// Uses `InteractiveTerminalView` which supports both read-only and interactive modes.
+    /// When `isInteractive` is true, the keyboard is shown and input is forwarded via `onInput`.
     private struct TerminalStreamContainerView: UIViewRepresentable {
         let terminalState: TerminalState
+
+        /// Whether the terminal accepts keyboard input
+        let isInteractive: Bool
+
+        /// Callback when user types (keys are ready for relay transmission)
+        let onInput: @MainActor ([TmuxKey]) -> Void
 
         func makeUIView(context: Context) -> UIScrollView {
             // Calculate cell size
@@ -281,26 +333,25 @@
             let font = UIFont(name: terminalState.fontName, size: terminalState.fontSize)
                 ?? UIFont.monospacedSystemFont(ofSize: terminalState.fontSize, weight: .regular)
 
-            // Create terminal view with initial frame matching calculated size
-            // This is needed because SwiftTerm renders based on frame, and content
-            // is fed before Auto Layout runs. Constraints handle dynamic resizing after.
+            // Create interactive terminal view
             let initialFrame = CGRect(x: 0, y: 0, width: exactWidth, height: exactHeight)
-            let terminalView = ReadOnlyTerminalView(frame: initialFrame, font: font)
+            let terminalView = InteractiveTerminalView(frame: initialFrame, font: font)
             terminalView.translatesAutoresizingMaskIntoConstraints = false
 
             // Configure terminal
             terminalView.nativeForegroundColor = UIColor(white: 0.9, alpha: 1)
             terminalView.nativeBackgroundColor = UIColor.black
-            // Enable native scrolling so scrollback buffer is accessible
             terminalView.isScrollEnabled = true
             terminalView.inputAssistantItem.leadingBarButtonGroups = []
             terminalView.inputAssistantItem.trailingBarButtonGroups = []
+
+            // Wire up input callback
+            terminalView.onInput = onInput
 
             // Resize terminal buffer
             terminalView.getTerminal().resize(cols: terminalState.width, rows: terminalState.height)
 
             // Create scroll view for horizontal scrolling only (wide terminals)
-            // The terminal's native scrolling handles vertical/scrollback
             let scrollView = UIScrollView()
             scrollView.backgroundColor = .black
             scrollView.addSubview(terminalView)
@@ -310,25 +361,18 @@
             scrollView.alwaysBounceHorizontal = false
 
             // Use Auto Layout to properly size the terminal view
-            // Terminal should fill available space but grow for wide/tall terminals
             let widthConstraint = terminalView.widthAnchor.constraint(equalToConstant: exactWidth)
             let heightConstraint = terminalView.heightAnchor.constraint(equalToConstant: exactHeight)
-            // Lower priority so minimum size constraints take precedence
             widthConstraint.priority = .defaultHigh
             heightConstraint.priority = .defaultHigh
 
             NSLayoutConstraint.activate([
-                // Pin to scroll view content (defines scrollable area)
                 terminalView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
                 terminalView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
                 terminalView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
                 terminalView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
-
-                // Minimum size = scroll view visible area (fills space when terminal is small)
                 terminalView.widthAnchor.constraint(greaterThanOrEqualTo: scrollView.frameLayoutGuide.widthAnchor),
                 terminalView.heightAnchor.constraint(greaterThanOrEqualTo: scrollView.frameLayoutGuide.heightAnchor),
-
-                // Exact terminal size (breaks when smaller than visible area)
                 widthConstraint,
                 heightConstraint,
             ])
@@ -339,19 +383,17 @@
             context.coordinator.widthConstraint = widthConstraint
             context.coordinator.heightConstraint = heightConstraint
 
-            // Wire up callbacks
+            // Wire up data callbacks
             terminalState.onData = { [weak terminalView] data in
                 guard let terminalView else { return }
                 terminalView.feedPreservingScroll([UInt8](data)[...])
             }
 
             terminalState.onInitialContentLoaded = { [weak terminalView] in
-                // Scroll to bottom and enable scroll preservation
                 terminalView?.scroll(toPosition: 1)
                 terminalView?.preserveUserScroll = true
             }
 
-            // Flush any pending initial content now that callback is connected
             terminalState.flushPendingContent()
 
             let coordinator = context.coordinator
@@ -359,11 +401,23 @@
                 coordinator?.handleResize(width: newWidth, height: newHeight)
             }
 
+            // Set initial keyboard state
+            if isInteractive {
+                terminalView.activateInput()
+            }
+
             return scrollView
         }
 
         func updateUIView(_ scrollView: UIScrollView, context: Context) {
-            // Updates handled by callbacks
+            // Toggle keyboard visibility based on interactive state
+            guard let terminalView = context.coordinator.terminalView else { return }
+
+            if isInteractive {
+                terminalView.activateInput()
+            } else {
+                terminalView.deactivateInput()
+            }
         }
 
         func makeCoordinator() -> Coordinator {
@@ -372,7 +426,7 @@
 
         @MainActor
         final class Coordinator {
-            var terminalView: ReadOnlyTerminalView?
+            var terminalView: InteractiveTerminalView?
             var cellSize: CGSize = .zero
             var widthConstraint: NSLayoutConstraint?
             var heightConstraint: NSLayoutConstraint?
@@ -383,7 +437,6 @@
                 let newWidth = CGFloat(width) * cellSize.width
                 let newHeight = CGFloat(height) * cellSize.height
 
-                // Update constraints for new terminal size
                 widthConstraint?.constant = newWidth
                 heightConstraint?.constant = newHeight
 

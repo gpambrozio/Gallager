@@ -30,6 +30,8 @@ public enum Symbols: String {
     case gearshape
     case handsAndSparklesFill = "hands.and.sparkles.fill"
     case iphone
+    case keyboard
+    case keyboardChevronCompactDown = "keyboard.chevron.compact.down"
     case linkCircle = "link.circle"
     case linkCircleFill = "link.circle.fill"
     case listBulletClipboard = "list.bullet.clipboard"
