@@ -20,8 +20,8 @@
     /// ```
     final class InteractiveTerminalView: TerminalView {
         /// Callback invoked when the user types. The keys are ready for relay transmission.
-        /// Called on the main thread.
-        var onInput: (([TmuxKey]) -> Void)?
+        /// Marked @MainActor for Swift 6 strict concurrency safety.
+        var onInput: (@MainActor ([TmuxKey]) -> Void)?
 
         /// Set to true after initial content has been loaded to enable scroll preservation
         var preserveUserScroll = false
@@ -89,6 +89,9 @@
 
     // MARK: - TerminalViewDelegate
 
+    // SwiftTerm's TerminalViewDelegate is not marked Sendable, but all delegate methods
+    // are called on the main thread from UIKit. We use @preconcurrency to bridge to
+    // Swift 6 strict concurrency while acknowledging this UIKit threading guarantee.
     extension InteractiveTerminalView: @preconcurrency TerminalViewDelegate {
         func send(source: TerminalView, data: ArraySlice<UInt8>) {
             // Convert raw bytes to TmuxKey representations

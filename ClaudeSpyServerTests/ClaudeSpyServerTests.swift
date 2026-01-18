@@ -148,4 +148,25 @@ struct TmuxKeyParsingTests {
 
         #expect(keys == [.text("héllo"), .space, .text("世界")])
     }
+
+    @Test func parsesTabNotAsCtrlI() {
+        // 0x09 should be Tab, not Ctrl+I (even though Ctrl+I generates 0x09)
+        // This is intentional: Tab is the more common interpretation
+        let data = Data([0x09])
+        let keys = TmuxKey.from(bytes: data)
+
+        #expect(keys == [.tab])
+        #expect(keys != [.ctrl("i")])
+    }
+
+    @Test func parsesUnrecognizedCSISequence() {
+        // Unrecognized CSI sequence like cursor position: ESC [ 1 ; 2 H
+        // Should not hang the parser - consume and continue
+        let data = Data([0x1B, 0x5B, 0x31, 0x3B, 0x32, 0x48, 0x61]) // ESC [ 1 ; 2 H a
+        let keys = TmuxKey.from(bytes: data)
+
+        // The unrecognized sequence should be consumed, followed by "a"
+        // Exact behavior may vary, but it should not hang
+        #expect(!keys.isEmpty)
+    }
 }

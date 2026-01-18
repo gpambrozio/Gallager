@@ -98,6 +98,8 @@
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                 keyboardVisible = false
+                // Sync isInteractive when keyboard is dismissed by system (e.g., user taps outside)
+                isInteractive = false
             }
         }
 
@@ -314,7 +316,7 @@
         let isInteractive: Bool
 
         /// Callback when user types (keys are ready for relay transmission)
-        let onInput: ([TmuxKey]) -> Void
+        let onInput: @MainActor ([TmuxKey]) -> Void
 
         func makeUIView(context: Context) -> UIScrollView {
             // Calculate cell size

@@ -179,6 +179,12 @@ public extension TmuxKey {
                             break
                         }
                     }
+
+                    // Unrecognized CSI sequence - consume ESC [ and next byte to avoid infinite loop
+                    flushText()
+                    result.append(.escape)
+                    index = data.index(index, offsetBy: 3)
+                    continue
                 }
 
                 // Alt+letter: ESC followed by letter (meta key)
@@ -199,21 +205,22 @@ public extension TmuxKey {
             }
 
             // Control characters
+            // Note: Order matters! Specific cases must come before the range.
             switch byte {
             case 0x00: // Ctrl+@ or Ctrl+Space
                 flushText()
                 result.append(.ctrl("@"))
-            case 0x01...0x1A: // Ctrl+A through Ctrl+Z
-                flushText()
-                let letter = Character(UnicodeScalar(byte - 1 + UInt8(ascii: "a")))
-                result.append(.ctrl(letter))
-            case 0x09: // Tab (also Ctrl+I, but Tab is more common)
+            case 0x09: // Tab (Ctrl+I generates 0x09, but Tab is the expected behavior)
                 flushText()
                 result.append(.tab)
             case 0x0A,
-                 0x0D: // Line feed, Carriage return
+                 0x0D: // Line feed, Carriage return → Enter
                 flushText()
                 result.append(.enter)
+            case 0x01...0x1A: // Ctrl+A through Ctrl+Z (excluding 0x09, 0x0A, 0x0D handled above)
+                flushText()
+                let letter = Character(UnicodeScalar(byte - 1 + UInt8(ascii: "a")))
+                result.append(.ctrl(letter))
             case 0x1B: // Escape (bare, handled above for sequences)
                 flushText()
                 result.append(.escape)
@@ -227,7 +234,6 @@ public extension TmuxKey {
                 textBuffer.append(Character(UnicodeScalar(byte)))
             default:
                 // High bytes - try to decode as UTF-8
-                // Find the end of the UTF-8 sequence
                 let remaining = data[index...]
                 if
                     let string = String(data: Data(remaining.prefix(4)), encoding: .utf8),
@@ -237,6 +243,8 @@ public extension TmuxKey {
                     index = data.index(index, offsetBy: charBytes)
                     continue
                 }
+                // Invalid UTF-8 byte - use replacement character instead of silently dropping
+                textBuffer.append("\u{FFFD}")
             }
 
             index = data.index(after: index)
