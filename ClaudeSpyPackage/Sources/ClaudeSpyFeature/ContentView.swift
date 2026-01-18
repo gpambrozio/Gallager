@@ -252,6 +252,9 @@ struct MainView: View {
 
     #if os(iOS)
         @State private var pushService = PushNotificationService.shared
+        /// Tracks the currently displayed session pane ID for deep link deduplication.
+        /// Set when navigating to a session, cleared when popping back to the list.
+        @State private var currentlyDisplayedPaneId: String?
     #endif
 
     enum Tab {
@@ -284,6 +287,12 @@ struct MainView: View {
         .onChange(of: pushService.pendingDeepLinkPaneId) { _, paneId in
             handleDeepLink(paneId: paneId)
         }
+        .onChange(of: sessionsNavigationPath.count) { _, count in
+            // Clear the currently displayed pane ID when user pops back to session list
+            if count == 0 {
+                currentlyDisplayedPaneId = nil
+            }
+        }
         .onAppear {
             // Check for pending deep link when view appears (e.g., app launched from notification)
             if let paneId = pushService.consumePendingDeepLink() {
@@ -309,6 +318,13 @@ struct MainView: View {
             // Switch to sessions tab
             selectedTab = .sessions
 
+            // If we're already displaying this session, don't navigate again.
+            // This prevents redundant navigation when receiving multiple push
+            // notifications for the same session.
+            guard currentlyDisplayedPaneId != paneId else {
+                return
+            }
+
             // Navigate to the session detail after a brief delay. This delay is necessary
             // because NavigationStack may ignore path appends if the tab transition hasn't
             // completed. 100ms provides reliable behavior across device types.
@@ -320,6 +336,7 @@ struct MainView: View {
                 try? await Task.sleep(for: .milliseconds(100))
                 sessionsNavigationPath = NavigationPath()
                 sessionsNavigationPath.append(paneId)
+                currentlyDisplayedPaneId = paneId
             }
         }
     #endif
