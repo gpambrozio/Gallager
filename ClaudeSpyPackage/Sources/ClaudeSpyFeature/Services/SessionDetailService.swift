@@ -101,7 +101,8 @@ final public class SessionDetailService {
         if let latestEvent = currentSession?.latestEvent {
             if latestEvent.id != lastProcessedEventId {
                 lastProcessedEventId = latestEvent.id
-                responseState = ResponseState(event: latestEvent)
+                // Pass sessionStore so ResponseState can persist/restore responses
+                responseState = ResponseState(event: latestEvent, sessionStore: sessionStore)
             }
         } else if lastProcessedEventId != nil {
             // Session has no events anymore, clear state

@@ -3,7 +3,8 @@ import Foundation
 import SwiftUI
 
 /// Manages the state of an event response (permission request, prompt, etc.)
-/// This allows response state to be shared between SessionDetailView and TerminalSnapshotView
+/// This allows response state to be shared between SessionDetailView and TerminalSnapshotView.
+/// Responses are persisted to SessionStore so they survive navigation.
 @MainActor
 @Observable
 final public class ResponseState {
@@ -13,16 +14,27 @@ final public class ResponseState {
     /// Whether a command is currently being sent
     public var isSending = false
 
-    /// The user's response, if they've responded
-    public var response: ResponseType?
+    /// Reference to the session store for persistence
+    private weak var sessionStore: SessionStore?
 
-    public init(event: HookEvent) {
+    /// The user's response, if they've responded.
+    /// Setting this persists the response to SessionStore.
+    public var response: ResponseType? {
+        didSet {
+            sessionStore?.setResponse(response, for: event.id)
+        }
+    }
+
+    public init(event: HookEvent, sessionStore: SessionStore? = nil) {
         self.event = event
+        self.sessionStore = sessionStore
+        // Restore any existing response from the store
+        self.response = sessionStore?.response(for: event.id)
     }
 }
 
 /// Represents the type of response given
-public enum ResponseType {
+public enum ResponseType: Equatable {
     case accepted
     case acceptedWithSuggestion
     case rejected

@@ -22,6 +22,10 @@ final public class SessionStore {
     /// All tmux panes (including those without Claude sessions)
     public private(set) var panes: [PaneInfoMessage] = []
 
+    /// User responses to events, keyed by event ID
+    /// This persists across navigation so responses aren't lost
+    private var eventResponses: [UUID: ResponseType] = [:]
+
     /// Claude sessions sorted by most recent event timestamp
     public var sortedSessions: [(paneId: String, session: ClaudeSession)] {
         sessions
@@ -123,5 +127,22 @@ final public class SessionStore {
     /// Check if a pane is currently active
     public func isPaneActive(_ paneId: String) -> Bool {
         activePanes.contains(paneId)
+    }
+
+    // MARK: - Event Responses
+
+    /// Get the stored response for an event, if any
+    public func response(for eventId: UUID) -> ResponseType? {
+        eventResponses[eventId]
+    }
+
+    /// Store a response for an event
+    public func setResponse(_ response: ResponseType?, for eventId: UUID) {
+        if let response {
+            eventResponses[eventId] = response
+            logger.debug("Stored response for event \(eventId): \(response.feedbackMessage)")
+        } else {
+            eventResponses.removeValue(forKey: eventId)
+        }
     }
 }
