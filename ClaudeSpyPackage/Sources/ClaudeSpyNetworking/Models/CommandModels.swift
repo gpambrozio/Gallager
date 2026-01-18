@@ -86,6 +86,167 @@ public enum TmuxKey: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - Byte Parsing
+
+public extension TmuxKey {
+    /// Converts raw terminal bytes to an array of TmuxKey representations.
+    ///
+    /// Parses escape sequences (arrow keys, etc.), control characters, and regular text.
+    /// This is the inverse of what tmux send-keys does - we take what SwiftTerm gives us
+    /// and convert it back to logical keystrokes.
+    ///
+    /// - Parameter data: Raw bytes from the terminal (e.g., from TerminalViewDelegate.send)
+    /// - Returns: Array of TmuxKey values ready for transmission
+    static func from(bytes data: Data) -> [TmuxKey] {
+        var result: [TmuxKey] = []
+        var index = data.startIndex
+        var textBuffer = ""
+
+        // Flush accumulated text to results
+        func flushText() {
+            if !textBuffer.isEmpty {
+                result.append(.text(textBuffer))
+                textBuffer = ""
+            }
+        }
+
+        while index < data.endIndex {
+            let byte = data[index]
+
+            // Check for escape sequence
+            if byte == 0x1B, index + 1 < data.endIndex {
+                let nextByte = data[index + 1]
+
+                // CSI sequence: ESC [
+                if nextByte == 0x5B, index + 2 < data.endIndex {
+                    let seqByte = data[index + 2]
+
+                    // Arrow keys and simple CSI sequences
+                    switch seqByte {
+                    case 0x41: // A - Up
+                        flushText()
+                        result.append(.up)
+                        index = data.index(index, offsetBy: 3)
+                        continue
+                    case 0x42: // B - Down
+                        flushText()
+                        result.append(.down)
+                        index = data.index(index, offsetBy: 3)
+                        continue
+                    case 0x43: // C - Right
+                        flushText()
+                        result.append(.right)
+                        index = data.index(index, offsetBy: 3)
+                        continue
+                    case 0x44: // D - Left
+                        flushText()
+                        result.append(.left)
+                        index = data.index(index, offsetBy: 3)
+                        continue
+                    case 0x48: // H - Home
+                        flushText()
+                        result.append(.home)
+                        index = data.index(index, offsetBy: 3)
+                        continue
+                    case 0x46: // F - End
+                        flushText()
+                        result.append(.end)
+                        index = data.index(index, offsetBy: 3)
+                        continue
+                    default:
+                        break
+                    }
+
+                    // Extended sequences: ESC [ n ~
+                    if index + 3 < data.endIndex, data[index + 3] == 0x7E {
+                        switch seqByte {
+                        case 0x33: // 3~ - Delete
+                            flushText()
+                            result.append(.delete)
+                            index = data.index(index, offsetBy: 4)
+                            continue
+                        case 0x35: // 5~ - Page Up
+                            flushText()
+                            result.append(.pageUp)
+                            index = data.index(index, offsetBy: 4)
+                            continue
+                        case 0x36: // 6~ - Page Down
+                            flushText()
+                            result.append(.pageDown)
+                            index = data.index(index, offsetBy: 4)
+                            continue
+                        default:
+                            break
+                        }
+                    }
+                }
+
+                // Alt+letter: ESC followed by letter (meta key)
+                if nextByte >= 0x20, nextByte < 0x7F {
+                    // For now, pass through as escape + character
+                    // Could add .alt(Character) case if needed
+                    flushText()
+                    result.append(.escape)
+                    index = data.index(after: index)
+                    continue
+                }
+
+                // Bare escape
+                flushText()
+                result.append(.escape)
+                index = data.index(after: index)
+                continue
+            }
+
+            // Control characters
+            switch byte {
+            case 0x00: // Ctrl+@ or Ctrl+Space
+                flushText()
+                result.append(.ctrl("@"))
+            case 0x01...0x1A: // Ctrl+A through Ctrl+Z
+                flushText()
+                let letter = Character(UnicodeScalar(byte - 1 + UInt8(ascii: "a")))
+                result.append(.ctrl(letter))
+            case 0x09: // Tab (also Ctrl+I, but Tab is more common)
+                flushText()
+                result.append(.tab)
+            case 0x0A,
+                 0x0D: // Line feed, Carriage return
+                flushText()
+                result.append(.enter)
+            case 0x1B: // Escape (bare, handled above for sequences)
+                flushText()
+                result.append(.escape)
+            case 0x20: // Space
+                flushText()
+                result.append(.space)
+            case 0x7F: // DEL - typically backspace on modern terminals
+                flushText()
+                result.append(.backspace)
+            case 0x21...0x7E: // Printable ASCII
+                textBuffer.append(Character(UnicodeScalar(byte)))
+            default:
+                // High bytes - try to decode as UTF-8
+                // Find the end of the UTF-8 sequence
+                let remaining = data[index...]
+                if
+                    let string = String(data: Data(remaining.prefix(4)), encoding: .utf8),
+                    let char = string.first {
+                    textBuffer.append(char)
+                    let charBytes = String(char).utf8.count
+                    index = data.index(index, offsetBy: charBytes)
+                    continue
+                }
+            }
+
+            index = data.index(after: index)
+        }
+
+        flushText()
+        return result
+    }
+}
+
 // MARK: - Command Spec Protocol
 
 /// Protocol that maps a command to its expected response type.
