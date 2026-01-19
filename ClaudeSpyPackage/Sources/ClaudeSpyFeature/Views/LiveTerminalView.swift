@@ -390,8 +390,22 @@
             }
 
             terminalState.onInitialContentLoaded = { [weak terminalView] in
-                terminalView?.scroll(toPosition: 1)
-                terminalView?.preserveUserScroll = true
+                Task { @MainActor in
+                    guard let terminalView else { return }
+                    try? await Task.sleep(for: .milliseconds(100))
+
+                    // Scroll inner terminal to bottom of its content
+                    let innerMaxY = terminalView.contentSize.height - terminalView.bounds.height
+                    terminalView.setContentOffset(CGPoint(x: 0, y: max(0, innerMaxY)), animated: false)
+
+                    // Also scroll outer scroll view to show bottom of terminal frame
+                    if let outerScrollView = terminalView.superview as? UIScrollView {
+                        let outerMaxY = outerScrollView.contentSize.height - outerScrollView.bounds.height
+                        outerScrollView.setContentOffset(CGPoint(x: 0, y: max(0, outerMaxY)), animated: false)
+                    }
+
+                    terminalView.preserveUserScroll = true
+                }
             }
 
             terminalState.flushPendingContent()
