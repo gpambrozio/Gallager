@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Apple Events Usage Description - required for AppleScript automation -->
+	<key>NSAppleEventsUsageDescription</key>
+	<string>ClaudeSpy needs to control terminal applications to open tmux sessions.</string>
+</dict>
+</plist>

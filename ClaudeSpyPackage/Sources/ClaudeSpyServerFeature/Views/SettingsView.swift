@@ -1,6 +1,7 @@
 import AppKit
 import ClaudeSpyCommon
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Settings view for configuring the application
 public struct SettingsView: View {
@@ -37,6 +38,30 @@ struct GeneralSettingsView: View {
 
         Form {
             Section("Terminal") {
+                Picker("Terminal App", selection: $settings.terminalApp) {
+                    ForEach(TerminalApp.allCases, id: \.self) { app in
+                        HStack {
+                            Text(app.rawValue)
+                            if app != .custom && !app.isInstalled {
+                                Text("(not installed)")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .tag(app)
+                    }
+                }
+                .help("Terminal application to use when attaching to sessions")
+
+                if settings.terminalApp == .custom {
+                    HStack {
+                        Text("App Path")
+                        TextField("Path to terminal app", text: $settings.customTerminalPath)
+                        Button("Browse...") {
+                            browseForTerminalApp(settings: settings)
+                        }
+                    }
+                }
+
                 Picker("Font", selection: $settings.fontName) {
                     ForEach(availableFonts, id: \.self) { font in
                         Text(font).tag(font)
@@ -131,6 +156,21 @@ private func browseForTmux(settings: AppSettings) {
 
     if panel.runModal() == .OK, let url = panel.url {
         settings.tmuxPath = url.path
+    }
+}
+
+@MainActor
+private func browseForTerminalApp(settings: AppSettings) {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = false
+    panel.allowsMultipleSelection = false
+    panel.directoryURL = URL(fileURLWithPath: "/Applications")
+    panel.allowedContentTypes = [.application]
+    panel.message = "Select a terminal application"
+
+    if panel.runModal() == .OK, let url = panel.url {
+        settings.customTerminalPath = url.path
     }
 }
 

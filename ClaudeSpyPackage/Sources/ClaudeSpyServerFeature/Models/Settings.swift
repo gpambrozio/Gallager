@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 
@@ -77,6 +78,16 @@ final public class AppSettings {
         didSet { UserDefaults.standard.set(tmuxSocket, forKey: Keys.tmuxSocket) }
     }
 
+    /// Terminal application to use for attaching to sessions
+    public var terminalApp: TerminalApp {
+        didSet { UserDefaults.standard.set(terminalApp.rawValue, forKey: Keys.terminalApp) }
+    }
+
+    /// Path to custom terminal application (when terminalApp is .custom)
+    public var customTerminalPath: String {
+        didSet { UserDefaults.standard.set(customTerminalPath, forKey: Keys.customTerminalPath) }
+    }
+
     // MARK: - Remote Access Settings
 
     /// URL of the external relay server
@@ -130,6 +141,8 @@ final public class AppSettings {
         self.reconnectDelay = defaults.object(forKey: Keys.reconnectDelay) as? Int ?? Defaults.reconnectDelay
         self.tmuxPath = defaults.string(forKey: Keys.tmuxPath) ?? Defaults.tmuxPath
         self.tmuxSocket = defaults.string(forKey: Keys.tmuxSocket) ?? Defaults.tmuxSocket
+        self.terminalApp = TerminalApp(rawValue: defaults.string(forKey: Keys.terminalApp) ?? "") ?? Defaults.terminalApp
+        self.customTerminalPath = defaults.string(forKey: Keys.customTerminalPath) ?? Defaults.customTerminalPath
 
         // Remote Access
         self.externalServerURL = defaults.string(forKey: Keys.externalServerURL) ?? Defaults.externalServerURL
@@ -163,6 +176,8 @@ final public class AppSettings {
         static let reconnectDelay = "reconnectDelay"
         static let tmuxPath = "tmuxPath"
         static let tmuxSocket = "tmuxSocket"
+        static let terminalApp = "terminalApp"
+        static let customTerminalPath = "customTerminalPath"
         // Remote Access
         static let externalServerURL = "externalServerURL"
         static let pairId = "pairId"
@@ -188,6 +203,8 @@ final public class AppSettings {
         static let reconnectDelay = 5
         static let tmuxPath = "/opt/homebrew/bin/tmux"
         static let tmuxSocket = ""
+        static let terminalApp = TerminalApp.terminalApp
+        static let customTerminalPath = ""
         // Remote Access
         static let externalServerURL = "wss://claudespy.gustavo.eng.br"
         static let autoConnectToServer = true

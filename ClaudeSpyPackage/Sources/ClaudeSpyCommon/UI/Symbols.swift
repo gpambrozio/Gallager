@@ -36,6 +36,7 @@ public enum Symbols: String {
     case linkCircleFill = "link.circle.fill"
     case listBulletClipboard = "list.bullet.clipboard"
     case lockFill = "lock.fill"
+    case macwindow
     case pause
     case pencilLine = "pencil.line"
     case play

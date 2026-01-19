@@ -14,6 +14,8 @@ public struct MainView: View {
 
     public init() { }
 
+    @State private var attachError: String?
+
     public var body: some View {
         PaneListView(
             panes: tmuxService.panes,
@@ -22,6 +24,9 @@ public struct MainView: View {
             onRefresh: { await refreshPanes() },
             onOpenMirror: { pane in
                 windowManager.openMirror(for: pane)
+            },
+            onAttachTerminal: { pane in
+                attachToTerminal(pane)
             }
         )
         .navigationTitle("Available Panes")
@@ -46,6 +51,16 @@ public struct MainView: View {
         .task {
             // Initial load only - periodic refresh is handled by MirrorWindowManager
             await refreshPanes()
+        }
+        .alert("Terminal Error", isPresented: .init(
+            get: { attachError != nil },
+            set: { if !$0 { attachError = nil } }
+        )) {
+            Button("OK") { attachError = nil }
+        } message: {
+            if let error = attachError {
+                Text(error)
+            }
         }
     }
 
@@ -135,6 +150,17 @@ public struct MainView: View {
 
     private func refreshPanes() async {
         await tmuxService.refreshPanes()
+    }
+
+    private func attachToTerminal(_ pane: PaneInfo) {
+        let launcher = TerminalLauncher(settings: settings)
+        Task {
+            do {
+                try await launcher.attachToSession(pane.sessionName)
+            } catch {
+                attachError = error.localizedDescription
+            }
+        }
     }
 
     private func connectToServer() async {

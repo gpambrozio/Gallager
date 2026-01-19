@@ -8,6 +8,7 @@ struct PaneListView: View {
     let error: String?
     let onRefresh: () async -> Void
     let onOpenMirror: (PaneInfo) -> Void
+    let onAttachTerminal: (PaneInfo) -> Void
 
     var body: some View {
         Group {
@@ -55,9 +56,11 @@ struct PaneListView: View {
         List {
             Section {
                 ForEach(panes) { pane in
-                    PaneRow(pane: pane) {
-                        onOpenMirror(pane)
-                    }
+                    PaneRow(
+                        pane: pane,
+                        onOpen: { onOpenMirror(pane) },
+                        onAttach: { onAttachTerminal(pane) }
+                    )
                 }
             } header: {
                 HStack {
@@ -68,7 +71,7 @@ struct PaneListView: View {
                     Text("Directory")
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Text("")
-                        .frame(width: 60)
+                        .frame(width: 90) // Space for Claude icon + two buttons
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -87,6 +90,7 @@ private struct PaneRow: View {
 
     let pane: PaneInfo
     let onOpen: () -> Void
+    let onAttach: () -> Void
 
     /// Check if pane has active Claude session (accessing activeSessions directly for observation)
     private var hasClaude: Bool {
@@ -114,6 +118,12 @@ private struct PaneRow: View {
                     .foregroundStyle(.purple)
                     .help("Claude Code session active")
             }
+
+            Button(action: onAttach) {
+                Symbols.macwindow.image
+            }
+            .buttonStyle(.borderless)
+            .help("Open session in terminal app")
 
             Button(action: onOpen) {
                 Symbols.arrowRight.image
@@ -172,7 +182,8 @@ private struct PaneListPreview: View {
                     isLoading: false,
                     error: nil,
                     onRefresh: { },
-                    onOpenMirror: { _ in }
+                    onOpenMirror: { _ in },
+                    onAttachTerminal: { _ in }
                 )
                 .environment(windowManager)
             }
