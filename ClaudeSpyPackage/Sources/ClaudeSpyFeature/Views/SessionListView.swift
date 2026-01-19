@@ -19,6 +19,8 @@
         @Environment(RelayClient.self) private var relayClient
         @Environment(IOSSettings.self) private var settings
 
+        @State private var isCreatingSession = false
+
         var body: some View {
             Group {
                 if sessionStore.hasSessions {
@@ -45,9 +47,56 @@
                 }
             }
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    newSessionButton
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     connectionStatusView
                 }
+            }
+        }
+
+        // MARK: - New Session Button
+
+        private var newSessionButton: some View {
+            Button {
+                Task {
+                    await createNewSession()
+                }
+            } label: {
+                if isCreatingSession {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Symbols.plus.image
+                }
+            }
+            .disabled(!relayClient.isMacConnected || isCreatingSession)
+        }
+
+        private func createNewSession() async {
+            guard !isCreatingSession else { return }
+
+            isCreatingSession = true
+            defer { isCreatingSession = false }
+
+            let command = CreateTmuxSession(
+                sessionName: settings.newSessionName,
+                width: settings.newSessionWidth,
+                height: settings.newSessionHeight
+            )
+
+            // paneId is not used for session creation, pass empty string
+            let result = await relayClient.sendCommand(command, paneId: "")
+
+            switch result {
+            case .success:
+                // Session created - the session list will update via sessionState
+                // Request a refresh to show the new session immediately
+                await relayClient.requestSessionState()
+            case let .failure(error):
+                // Could show an alert here, but for now just log
+                print("Failed to create session: \(error)")
             }
         }
 

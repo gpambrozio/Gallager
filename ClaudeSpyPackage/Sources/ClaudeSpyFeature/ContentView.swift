@@ -448,6 +448,33 @@
                     Text("Customize the font used in terminal snapshots.")
                 }
 
+                // New Session Section
+                Section {
+                    @Bindable var settings = settings
+
+                    TextField("Session Name", text: $settings.newSessionName)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+
+                    Stepper(
+                        "Width: \(settings.newSessionWidth) columns",
+                        value: $settings.newSessionWidth,
+                        in: 40...300,
+                        step: 10
+                    )
+
+                    Stepper(
+                        "Height: \(settings.newSessionHeight) rows",
+                        value: $settings.newSessionHeight,
+                        in: 10...100,
+                        step: 5
+                    )
+                } header: {
+                    Text("New Session")
+                } footer: {
+                    Text("Settings for new tmux sessions created from iOS. If a session with this name exists, a number will be appended.")
+                }
+
                 // Server Section
                 Section("Server") {
                     @Bindable var settings = settings

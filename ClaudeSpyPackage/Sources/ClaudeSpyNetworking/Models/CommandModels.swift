@@ -332,6 +332,72 @@ public struct StopTerminalStream: CommandSpec, Equatable {
     }
 }
 
+/// Create a new tmux session. Returns the created session info.
+public struct CreateTmuxSession: CommandSpec, Equatable {
+    public typealias Response = CreateTmuxSessionResponse
+
+    /// Base name for the session
+    public let sessionName: String
+
+    /// Terminal width in columns
+    public let width: Int
+
+    /// Terminal height in rows
+    public let height: Int
+
+    public init(sessionName: String, width: Int, height: Int) {
+        self.sessionName = sessionName
+        self.width = width
+        self.height = height
+    }
+
+    public var commandType: CommandType {
+        .createTmuxSession(self)
+    }
+}
+
+/// Response for create tmux session command
+public struct CreateTmuxSessionResponse: Codable, Sendable {
+    public let commandId: UUID
+    public let success: Bool
+    public let error: String?
+    /// The actual session name created (may differ from requested if numbered)
+    public let sessionName: String?
+    /// The pane ID of the created session's first pane
+    public let paneId: String?
+
+    public init(
+        commandId: UUID,
+        success: Bool,
+        error: String? = nil,
+        sessionName: String? = nil,
+        paneId: String? = nil
+    ) {
+        self.commandId = commandId
+        self.success = success
+        self.error = error
+        self.sessionName = sessionName
+        self.paneId = paneId
+    }
+
+    public static func success(
+        for commandId: UUID,
+        sessionName: String,
+        paneId: String
+    ) -> CreateTmuxSessionResponse {
+        CreateTmuxSessionResponse(
+            commandId: commandId,
+            success: true,
+            sessionName: sessionName,
+            paneId: paneId
+        )
+    }
+
+    public static func failure(for commandId: UUID, error: String) -> CreateTmuxSessionResponse {
+        CreateTmuxSessionResponse(commandId: commandId, success: false, error: error)
+    }
+}
+
 // MARK: - Command Types
 
 /// Commands that can be sent from iOS to Mac, with their associated data.
@@ -348,6 +414,8 @@ public enum CommandType: Codable, Sendable, Equatable {
     case startTerminalStream(StartTerminalStream)
     /// Stop streaming terminal output
     case stopTerminalStream(StopTerminalStream)
+    /// Create a new tmux session
+    case createTmuxSession(CreateTmuxSession)
 
     // MARK: - Convenience Factory Methods
 
@@ -374,6 +442,15 @@ public enum CommandType: Codable, Sendable, Equatable {
     /// Create a stopTerminalStream command
     public static var stopTerminalStream: CommandType {
         .stopTerminalStream(StopTerminalStream())
+    }
+
+    /// Create a createTmuxSession command
+    public static func createTmuxSession(
+        sessionName: String,
+        width: Int,
+        height: Int
+    ) -> CommandType {
+        .createTmuxSession(CreateTmuxSession(sessionName: sessionName, width: width, height: height))
     }
 }
 

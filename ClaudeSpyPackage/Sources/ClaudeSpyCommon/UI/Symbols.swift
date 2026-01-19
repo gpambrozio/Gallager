@@ -40,6 +40,7 @@ public enum Symbols: String {
     case pencilLine = "pencil.line"
     case play
     case playFill = "play.fill"
+    case plus
     case qrcode
     case questionmark
     case sparkles

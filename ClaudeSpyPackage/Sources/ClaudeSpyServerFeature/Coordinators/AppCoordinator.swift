@@ -211,6 +211,15 @@
                     return .success(for: command.id)
                 }
 
+                // Handle create session command
+                if case let .createTmuxSession(spec) = command.command {
+                    return await Self.handleCreateSession(
+                        command: command,
+                        spec: spec,
+                        tmuxService: tmux
+                    )
+                }
+
                 // Regular commands execute on the actor executor
                 return await executor.execute(command)
             }
@@ -269,6 +278,27 @@
                     initialContent: initialContent
                 )
 
+                return .success(for: command.id)
+            } catch {
+                return .failure(for: command.id, error: error.localizedDescription)
+            }
+        }
+
+        private static func handleCreateSession(
+            command: CommandMessage,
+            spec: CreateTmuxSession,
+            tmuxService: TmuxService
+        ) async -> CommandResponseMessage {
+            do {
+                let result = try await tmuxService.createSession(
+                    baseName: spec.sessionName,
+                    width: spec.width,
+                    height: spec.height
+                )
+                // Note: The session state will be refreshed and sent to iOS
+                // via the normal session state mechanism after panes are refreshed.
+                // The paneId returned here could be used for immediate navigation on iOS.
+                _ = result // Success - session created
                 return .success(for: command.id)
             } catch {
                 return .failure(for: command.id, error: error.localizedDescription)
