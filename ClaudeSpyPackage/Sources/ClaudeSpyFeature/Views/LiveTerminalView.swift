@@ -95,6 +95,11 @@
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
                 keyboardVisible = true
+                // Scroll to bottom after keyboard animation completes
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(350))
+                    coordinator.terminalState?.scrollToBottom?()
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                 keyboardVisible = false
@@ -281,6 +286,9 @@
         /// Callback when dimensions change
         var onResize: ((Int, Int) -> Void)?
 
+        /// Scrolls the terminal to the bottom. Set by UIKit side, callable from SwiftUI.
+        var scrollToBottom: (() -> Void)?
+
         init(width: Int, height: Int, fontName: String, fontSize: CGFloat) {
             self.width = width
             self.height = height
@@ -389,21 +397,27 @@
                 terminalView.feedPreservingScroll([UInt8](data)[...])
             }
 
-            terminalState.onInitialContentLoaded = { [weak terminalView] in
+            // Set up scroll-to-bottom callback
+            terminalState.scrollToBottom = { [weak terminalView] in
+                guard let terminalView else { return }
+
+                // Scroll inner terminal to bottom of its content
+                let innerMaxY = terminalView.contentSize.height - terminalView.bounds.height
+                terminalView.setContentOffset(CGPoint(x: 0, y: max(0, innerMaxY)), animated: false)
+
+                // Also scroll outer scroll view to show bottom of terminal frame
+                if let outerScrollView = terminalView.superview as? UIScrollView {
+                    let outerMaxY = outerScrollView.contentSize.height - outerScrollView.bounds.height
+                    outerScrollView.setContentOffset(CGPoint(x: 0, y: max(0, outerMaxY)), animated: false)
+                }
+            }
+
+            terminalState.onInitialContentLoaded = { [weak terminalState, weak terminalView] in
                 Task { @MainActor in
                     guard let terminalView else { return }
+                    // Delay to let layout settle after initial content feed
                     try? await Task.sleep(for: .milliseconds(100))
-
-                    // Scroll inner terminal to bottom of its content
-                    let innerMaxY = terminalView.contentSize.height - terminalView.bounds.height
-                    terminalView.setContentOffset(CGPoint(x: 0, y: max(0, innerMaxY)), animated: false)
-
-                    // Also scroll outer scroll view to show bottom of terminal frame
-                    if let outerScrollView = terminalView.superview as? UIScrollView {
-                        let outerMaxY = outerScrollView.contentSize.height - outerScrollView.bounds.height
-                        outerScrollView.setContentOffset(CGPoint(x: 0, y: max(0, outerMaxY)), animated: false)
-                    }
-
+                    terminalState?.scrollToBottom?()
                     terminalView.preserveUserScroll = true
                 }
             }
