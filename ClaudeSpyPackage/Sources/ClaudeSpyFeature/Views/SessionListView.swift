@@ -20,6 +20,7 @@
         @Environment(IOSSettings.self) private var settings
 
         @State private var isCreatingSession = false
+        @State private var creationError: String?
 
         var body: some View {
             Group {
@@ -52,6 +53,18 @@
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     connectionStatusView
+                }
+            }
+            .alert("Session Creation Failed", isPresented: .init(
+                get: { creationError != nil },
+                set: { if !$0 { creationError = nil } }
+            )) {
+                Button("OK") {
+                    creationError = nil
+                }
+            } message: {
+                if let error = creationError {
+                    Text(error)
                 }
             }
         }
@@ -95,8 +108,7 @@
                 // Request a refresh to show the new session immediately
                 await relayClient.requestSessionState()
             case let .failure(error):
-                // Could show an alert here, but for now just log
-                print("Failed to create session: \(error)")
+                creationError = error.localizedDescription
             }
         }
 
