@@ -89,4 +89,5 @@ Use XcodeBuildTools skills. Scheme: `ClaudeSpyServer` (macOS), `ClaudeSpy` (iOS)
 - **Architecture:** `docs/distributed-architecture-plan.md`
 - **Encryption:** `docs/e2ee-encryption-plan.md`
 - **Known issues:** `docs/known-issues.md`
-- **Terminal sizing:** `docs/swiftterm-sizing.md`
+- **Terminal sizing (macOS):** `docs/swiftterm-sizing.md`
+- **Terminal scrolling (iOS):** `docs/swiftterm-ios-scrolling.md`
