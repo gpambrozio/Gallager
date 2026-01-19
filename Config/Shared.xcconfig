@@ -24,8 +24,6 @@ TARGETED_DEVICE_FAMILY = 1,2
 // Info PLIST
 // ==========================================
 GENERATE_INFOPLIST_FILE = YES
-INFOPLIST_KEY_UISupportedInterfaceOrientations = portrait landscape-left landscape-right portrait-upside-down
-INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = portrait landscape-left landscape-right portrait-upside-down
 
 // ==========================================
 // Entitlements
