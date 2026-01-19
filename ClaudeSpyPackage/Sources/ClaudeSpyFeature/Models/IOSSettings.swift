@@ -19,6 +19,9 @@
             static let autoReconnect = "autoReconnect"
             static let terminalFontName = "terminalFontName"
             static let terminalFontSize = "terminalFontSize"
+            static let newSessionName = "newSessionName"
+            static let newSessionWidth = "newSessionWidth"
+            static let newSessionHeight = "newSessionHeight"
         }
 
         // MARK: - Singleton
@@ -72,6 +75,21 @@
             didSet { UserDefaults.standard.set(terminalFontSize, forKey: Keys.terminalFontSize) }
         }
 
+        /// Base name for new tmux sessions created from iOS
+        public var newSessionName: String {
+            didSet { UserDefaults.standard.set(newSessionName, forKey: Keys.newSessionName) }
+        }
+
+        /// Width (columns) for new tmux sessions
+        public var newSessionWidth: Int {
+            didSet { UserDefaults.standard.set(newSessionWidth, forKey: Keys.newSessionWidth) }
+        }
+
+        /// Height (rows) for new tmux sessions
+        public var newSessionHeight: Int {
+            didSet { UserDefaults.standard.set(newSessionHeight, forKey: Keys.newSessionHeight) }
+        }
+
         // MARK: - Computed Properties
 
         /// Whether the device is currently paired
@@ -111,6 +129,11 @@
             self.terminalFontName = defaults.string(forKey: Keys.terminalFontName) ?? "Menlo"
             // swiftlint:disable:next custom_no_number_decimals
             self.terminalFontSize = defaults.object(forKey: Keys.terminalFontSize) as? Double ?? 10.0
+
+            // New session settings
+            self.newSessionName = defaults.string(forKey: Keys.newSessionName) ?? "claude"
+            self.newSessionWidth = defaults.object(forKey: Keys.newSessionWidth) as? Int ?? 120
+            self.newSessionHeight = defaults.object(forKey: Keys.newSessionHeight) as? Int ?? 40
         }
 
         // MARK: - Methods

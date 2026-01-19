@@ -115,6 +115,9 @@
             // Set up session state handler for external server
             setupSessionStateHandler()
 
+            // Push session state to iOS whenever panes change
+            setupPanesChangedHandler()
+
             // Forward hook events to window manager AND external server
             await hookServer.setEventHandler { [weak self] event in
                 guard let self else { return }
@@ -211,6 +214,15 @@
                     return .success(for: command.id)
                 }
 
+                // Handle create session command
+                if case let .createTmuxSession(spec) = command.command {
+                    return await Self.handleCreateSession(
+                        command: command,
+                        spec: spec,
+                        tmuxService: tmux
+                    )
+                }
+
                 // Regular commands execute on the actor executor
                 return await executor.execute(command)
             }
@@ -244,6 +256,13 @@
             }
         }
 
+        private func setupPanesChangedHandler() {
+            let serverClient = externalServerClient
+            tmuxService.setPanesChangedHandler { [serverClient] in
+                await serverClient.pushSessionState()
+            }
+        }
+
         private static func handleStartStream(
             command: CommandMessage,
             streamService: TerminalStreamService,
@@ -269,6 +288,25 @@
                     initialContent: initialContent
                 )
 
+                return .success(for: command.id)
+            } catch {
+                return .failure(for: command.id, error: error.localizedDescription)
+            }
+        }
+
+        private static func handleCreateSession(
+            command: CommandMessage,
+            spec: CreateTmuxSession,
+            tmuxService: TmuxService
+        ) async -> CommandResponseMessage {
+            do {
+                // Create the session - TmuxService.createSession calls refreshPanes(),
+                // which triggers the panes changed handler to push state to iOS
+                _ = try await tmuxService.createSession(
+                    baseName: spec.sessionName,
+                    width: spec.width,
+                    height: spec.height
+                )
                 return .success(for: command.id)
             } catch {
                 return .failure(for: command.id, error: error.localizedDescription)

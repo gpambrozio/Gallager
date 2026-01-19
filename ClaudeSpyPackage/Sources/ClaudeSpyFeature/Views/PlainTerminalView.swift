@@ -45,6 +45,9 @@
                 _ = await relayClient.sendCommand(spec, paneId: paneId)
             case let .stopTerminalStream(spec):
                 _ = await relayClient.sendCommand(spec, paneId: paneId)
+            case let .createTmuxSession(spec):
+                // Session creation doesn't target an existing pane, but handle for exhaustiveness
+                _ = await relayClient.sendCommand(spec, paneId: "")
             }
         }
     }

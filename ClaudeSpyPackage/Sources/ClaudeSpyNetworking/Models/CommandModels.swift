@@ -332,6 +332,30 @@ public struct StopTerminalStream: CommandSpec, Equatable {
     }
 }
 
+/// Create a new tmux session. Returns success/failure.
+public struct CreateTmuxSession: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// Base name for the session
+    public let sessionName: String
+
+    /// Terminal width in columns
+    public let width: Int
+
+    /// Terminal height in rows
+    public let height: Int
+
+    public init(sessionName: String, width: Int, height: Int) {
+        self.sessionName = sessionName
+        self.width = width
+        self.height = height
+    }
+
+    public var commandType: CommandType {
+        .createTmuxSession(self)
+    }
+}
+
 // MARK: - Command Types
 
 /// Commands that can be sent from iOS to Mac, with their associated data.
@@ -348,6 +372,8 @@ public enum CommandType: Codable, Sendable, Equatable {
     case startTerminalStream(StartTerminalStream)
     /// Stop streaming terminal output
     case stopTerminalStream(StopTerminalStream)
+    /// Create a new tmux session
+    case createTmuxSession(CreateTmuxSession)
 
     // MARK: - Convenience Factory Methods
 
@@ -374,6 +400,15 @@ public enum CommandType: Codable, Sendable, Equatable {
     /// Create a stopTerminalStream command
     public static var stopTerminalStream: CommandType {
         .stopTerminalStream(StopTerminalStream())
+    }
+
+    /// Create a createTmuxSession command
+    public static func createTmuxSession(
+        sessionName: String,
+        width: Int,
+        height: Int
+    ) -> CommandType {
+        .createTmuxSession(CreateTmuxSession(sessionName: sessionName, width: width, height: height))
     }
 }
 

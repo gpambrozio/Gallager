@@ -41,6 +41,9 @@ final public class TmuxService {
     /// Current list of available panes (updated by refreshPanes)
     public private(set) var panes: [PaneInfo] = []
 
+    /// Handler called when the pane list changes (after refreshPanes detects a change)
+    private var onPanesChanged: (@Sendable () async -> Void)?
+
     /// Error from the last refresh attempt, if any
     public private(set) var lastError: String?
 
@@ -56,6 +59,12 @@ final public class TmuxService {
     public func configure(tmuxPath: String, socketPath: String?) {
         self.tmuxPath = tmuxPath
         self.socketPath = socketPath?.isEmpty == true ? nil : socketPath
+    }
+
+    /// Sets a handler to be called when the pane list changes.
+    /// This is useful for pushing updates to remote clients (e.g., iOS).
+    public func setPanesChangedHandler(_ handler: @escaping @Sendable () async -> Void) {
+        onPanesChanged = handler
     }
 
     // MARK: - tmux Commands
@@ -89,8 +98,18 @@ final public class TmuxService {
 
         isRefreshing = true
         lastError = nil
+        let oldPanes = panes
 
-        defer { isRefreshing = false }
+        defer {
+            isRefreshing = false
+
+            // Notify if panes changed (compare sets to ignore order)
+            if Set(panes) != Set(oldPanes), let handler = onPanesChanged {
+                Task {
+                    await handler()
+                }
+            }
+        }
 
         do {
             try await checkAvailability()
@@ -511,6 +530,100 @@ final public class TmuxService {
         }
 
         return result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: - Session Creation
+
+    /// Creates a new tmux session with the specified name and dimensions.
+    /// If a session with the given name already exists, appends a number suffix.
+    /// - Parameters:
+    ///   - baseName: The desired base name for the session
+    ///   - width: Terminal width in columns
+    ///   - height: Terminal height in rows
+    /// - Returns: Tuple containing the actual session name and the pane ID of the first pane
+    public func createSession(
+        baseName: String,
+        width: Int,
+        height: Int
+    ) async throws -> (sessionName: String, paneId: String) {
+        // Get existing session names
+        let existingNames = await getExistingSessionNames()
+
+        // Find a unique name
+        let sessionName = findUniqueSessionName(baseName: baseName, existingNames: existingNames)
+
+        // Create the session with specified dimensions
+        // -d: detached, -x: width, -y: height
+        let result = try await runTmuxCommand([
+            "new-session",
+            "-d",
+            "-s", sessionName,
+            "-x", String(width),
+            "-y", String(height),
+        ])
+
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+
+        // Get the pane ID of the first pane in the new session
+        // Target format: session:window.pane (first window, first pane)
+        let windowIndex = 0
+        let paneIndex = 0
+        let firstPaneTarget = "\(sessionName):\(windowIndex).\(paneIndex)"
+        let paneIdResult = try await runTmuxCommand([
+            "display-message",
+            "-t", firstPaneTarget,
+            "-p", "#{pane_id}",
+        ])
+
+        guard paneIdResult.isSuccess else {
+            throw TmuxError.commandFailed(message: "Session created but could not get pane ID")
+        }
+
+        let paneId = paneIdResult.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Refresh panes to include the new session
+        await refreshPanes()
+
+        return (sessionName: sessionName, paneId: paneId)
+    }
+
+    /// Gets all existing session names
+    private func getExistingSessionNames() async -> Set<String> {
+        guard
+            let result = try? await runTmuxCommand(["list-sessions", "-F", "#{session_name}"]),
+            result.isSuccess
+        else {
+            return []
+        }
+
+        let names = result.stdoutString
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: "\n")
+            .map(String.init)
+
+        return Set(names)
+    }
+
+    /// Finds a unique session name by appending numbers if needed
+    private func findUniqueSessionName(baseName: String, existingNames: Set<String>) -> String {
+        // Sanitize base name: tmux session names can't contain colons or periods
+        let sanitized = baseName
+            .replacingOccurrences(of: ":", with: "-")
+            .replacingOccurrences(of: ".", with: "-")
+
+        if !existingNames.contains(sanitized) {
+            return sanitized
+        }
+
+        // Find the next available number
+        var counter = 2
+        while existingNames.contains("\(sanitized)-\(counter)") {
+            counter += 1
+        }
+
+        return "\(sanitized)-\(counter)"
     }
 
     // MARK: - Private Helpers
