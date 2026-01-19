@@ -151,6 +151,28 @@ final public class ExternalServerClient {
         onPartnerKeyReceived = handler
     }
 
+    /// Proactively push current session state to iOS.
+    /// Call this when the pane list changes (e.g., after creating a session).
+    public func pushSessionState() async {
+        guard state.isConnected, isIOSConnected else {
+            logger.debug("Not connected to iOS, skipping session state push")
+            return
+        }
+
+        guard let onSessionStateRequest else {
+            logger.warning("Cannot push session state: no handler set")
+            return
+        }
+
+        let sessionState = await onSessionStateRequest()
+        logger.info("Pushing session state to iOS", metadata: [
+            "pairId": "\(sessionState.pairId)",
+            "sessionCount": "\(sessionState.sessions.count)",
+            "paneCount": "\(sessionState.panes?.count ?? 0)",
+        ])
+        await sendEncrypted(.sessionState(sessionState))
+    }
+
     // MARK: - Connection Management
 
     /// Connect to the external relay server
@@ -242,19 +264,6 @@ final public class ExternalServerClient {
 
         // Also send encrypted push payload for notifications when iOS is offline
         await sendEncryptedPushNotification(for: event)
-    }
-
-    /// Send session state to iOS (encrypted)
-    public func sendSessionState(_ sessions: [String: ClaudeSession], activePanes: [String]) async {
-        guard state.isConnected, let pairId else {
-            logger.debug("Not connected, cannot send session state")
-            return
-        }
-
-        let message = WebSocketMessage.sessionState(
-            SessionStateMessage(pairId: pairId, sessions: sessions, activePanes: activePanes)
-        )
-        await sendEncrypted(message)
     }
 
     /// Send a terminal snapshot to iOS (encrypted)
@@ -557,17 +566,7 @@ final public class ExternalServerClient {
             }
 
             // Send current session state to newly connected iOS
-            if let onSessionStateRequest {
-                let state = await onSessionStateRequest()
-                logger.info("Sending session state to newly connected iOS", metadata: [
-                    "pairId": "\(state.pairId)",
-                    "sessionCount": "\(state.sessions.count)",
-                    "activePanes": "\(state.activePanes.count)",
-                ])
-                await sendEncrypted(.sessionState(state))
-            } else {
-                logger.warning("iOS connected but no session state handler is set!")
-            }
+            await pushSessionState()
 
         case .iosDisconnected:
             logger.info("iOS device disconnected")
@@ -576,17 +575,7 @@ final public class ExternalServerClient {
 
         case .requestSessionState:
             logger.info("iOS requested session state")
-            if let onSessionStateRequest {
-                let state = await onSessionStateRequest()
-                logger.info("Sending session state", metadata: [
-                    "pairId": "\(state.pairId)",
-                    "sessionCount": "\(state.sessions.count)",
-                    "activePanes": "\(state.activePanes.count)",
-                ])
-                await sendEncrypted(.sessionState(state))
-            } else {
-                logger.warning("Session state requested but no handler is set!")
-            }
+            await pushSessionState()
 
         case .ping:
             await send(.pong)

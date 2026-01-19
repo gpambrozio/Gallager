@@ -41,6 +41,9 @@ final public class TmuxService {
     /// Current list of available panes (updated by refreshPanes)
     public private(set) var panes: [PaneInfo] = []
 
+    /// Handler called when the pane list changes (after refreshPanes detects a change)
+    private var onPanesChanged: (@Sendable () async -> Void)?
+
     /// Error from the last refresh attempt, if any
     public private(set) var lastError: String?
 
@@ -56,6 +59,12 @@ final public class TmuxService {
     public func configure(tmuxPath: String, socketPath: String?) {
         self.tmuxPath = tmuxPath
         self.socketPath = socketPath?.isEmpty == true ? nil : socketPath
+    }
+
+    /// Sets a handler to be called when the pane list changes.
+    /// This is useful for pushing updates to remote clients (e.g., iOS).
+    public func setPanesChangedHandler(_ handler: @escaping @Sendable () async -> Void) {
+        onPanesChanged = handler
     }
 
     // MARK: - tmux Commands
@@ -89,8 +98,18 @@ final public class TmuxService {
 
         isRefreshing = true
         lastError = nil
+        let oldPanes = panes
 
-        defer { isRefreshing = false }
+        defer {
+            isRefreshing = false
+
+            // Notify if panes changed (compare sets to ignore order)
+            if Set(panes) != Set(oldPanes), let handler = onPanesChanged {
+                Task {
+                    await handler()
+                }
+            }
+        }
 
         do {
             try await checkAvailability()

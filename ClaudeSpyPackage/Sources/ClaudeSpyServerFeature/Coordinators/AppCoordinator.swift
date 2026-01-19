@@ -115,6 +115,9 @@
             // Set up session state handler for external server
             setupSessionStateHandler()
 
+            // Push session state to iOS whenever panes change
+            setupPanesChangedHandler()
+
             // Forward hook events to window manager AND external server
             await hookServer.setEventHandler { [weak self] event in
                 guard let self else { return }
@@ -253,6 +256,13 @@
             }
         }
 
+        private func setupPanesChangedHandler() {
+            let serverClient = externalServerClient
+            tmuxService.setPanesChangedHandler { [serverClient] in
+                await serverClient.pushSessionState()
+            }
+        }
+
         private static func handleStartStream(
             command: CommandMessage,
             streamService: TerminalStreamService,
@@ -290,15 +300,13 @@
             tmuxService: TmuxService
         ) async -> CommandResponseMessage {
             do {
-                let result = try await tmuxService.createSession(
+                // Create the session - TmuxService.createSession calls refreshPanes(),
+                // which triggers the panes changed handler to push state to iOS
+                _ = try await tmuxService.createSession(
                     baseName: spec.sessionName,
                     width: spec.width,
                     height: spec.height
                 )
-                // Note: The session state will be refreshed and sent to iOS
-                // via the normal session state mechanism after panes are refreshed.
-                // The paneId returned here could be used for immediate navigation on iOS.
-                _ = result // Success - session created
                 return .success(for: command.id)
             } catch {
                 return .failure(for: command.id, error: error.localizedDescription)
