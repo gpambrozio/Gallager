@@ -161,13 +161,26 @@
                 return
             }
 
-            // Create coordinator that the callback can capture
+            // Generate a unique session ID for this streaming attempt
+            // This prevents stale callbacks from processing messages
+            let streamSessionId = UUID()
+            coordinator.streamSessionId = streamSessionId
             coordinator.streamState = .connecting
 
-            // Set up stream message handler - coordinator is a class so weak capture works
-            relayClient.onTerminalStream = { [weak coordinator] message in
-                guard let coordinator, message.paneId == paneId else { return }
-                coordinator.handleStreamMessage(message)
+            // Capture coordinator strongly - it's held by @State so won't outlive the view,
+            // and stopStreaming() clears the callback to break the reference
+            let currentCoordinator = coordinator
+            let currentPaneId = paneId
+
+            // Set up stream message handler BEFORE sending the command
+            // Use strong capture to prevent the coordinator from being deallocated during async gaps
+            relayClient.onTerminalStream = { message in
+                // Verify this callback is for the current stream session
+                guard
+                    currentCoordinator.streamSessionId == streamSessionId,
+                    message.paneId == currentPaneId
+                else { return }
+                currentCoordinator.handleStreamMessage(message)
             }
 
             // Request stream start
@@ -178,13 +191,19 @@
 
             // Only handle failure - streaming state is set when initial state arrives
             if case let .failure(err) = result {
-                coordinator.streamState = .error
-                coordinator.error = err.localizedDescription
+                // Only update state if this is still the active stream session
+                if coordinator.streamSessionId == streamSessionId {
+                    coordinator.streamState = .error
+                    coordinator.error = err.localizedDescription
+                }
             }
         }
 
         private func stopStreaming() async {
+            // Invalidate the current stream session first
+            coordinator.streamSessionId = nil
             relayClient.onTerminalStream = nil
+
             guard isConnected else { return }
             _ = await relayClient.sendCommand(
                 StopTerminalStream(),
@@ -196,7 +215,7 @@
     // MARK: - Stream Coordinator
 
     /// Observable class that manages stream state.
-    /// This allows the callback closure to capture a class reference that can be weakly held.
+    /// Uses a session ID to prevent stale callbacks from processing messages.
     @Observable
     @MainActor
     final private class StreamCoordinator {
@@ -207,6 +226,11 @@
         var streamState: StreamState = .idle
         var terminalState: TerminalState?
         var error: String?
+
+        /// Unique identifier for the current streaming session.
+        /// Set when streaming starts, cleared when streaming stops.
+        /// Prevents race conditions where old callbacks process messages meant for new sessions.
+        var streamSessionId: UUID?
 
         init(paneId: String, fontName: String, fontSize: CGFloat) {
             self.paneId = paneId
