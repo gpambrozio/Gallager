@@ -18,7 +18,7 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator.externalServerClient)
                 .environment(\.e2eeService, coordinator.e2eeService)
         }
-        .defaultLaunchBehavior(.suppressed)
+        .defaultLaunchBehavior(.presented) // TODO: Change back to .suppressed
         .commands {
             // File menu
             CommandGroup(replacing: .newItem) {
