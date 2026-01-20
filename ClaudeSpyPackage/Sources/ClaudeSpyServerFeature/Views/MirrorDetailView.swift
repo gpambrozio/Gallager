@@ -161,23 +161,21 @@ struct MirrorDetailView: View {
         // Subscribe to PaneStreamManager
         let target = paneInfo.target
 
-        // Track whether we've scrolled to bottom after initial content
-        final class ScrollState { var hasScrolledInitial = false }
-        let scrollState = ScrollState()
+        var hasScrolledInitial = false
 
         do {
             let subId = try await paneStreamManager.subscribe(
                 paneId: paneInfo.paneId,
                 target: target,
-                onData: { [weak terminalController, scrollState] data in
+                onData: { [weak terminalController] data in
                     guard let terminalController else { return }
                     let bytes = [UInt8](data)[...]
-                    if !scrollState.hasScrolledInitial {
+                    if !hasScrolledInitial {
                         // First data - feed, scroll to bottom, enable preservation
                         terminalController.terminalView.feed(byteArray: bytes)
                         terminalController.scrollToBottom()
                         terminalController.terminalView.preserveUserScroll = true
-                        scrollState.hasScrolledInitial = true
+                        hasScrolledInitial = true
                     } else {
                         // Subsequent data - preserve user's scroll position
                         terminalController.terminalView.feedPreservingScroll(bytes)
