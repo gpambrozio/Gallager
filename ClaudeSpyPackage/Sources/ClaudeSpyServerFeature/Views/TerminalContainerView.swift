@@ -3,14 +3,9 @@ import ClaudeSpyCommon
 import SwiftTerm
 import SwiftUI
 
-/// A flipped clip view that positions content at the top instead of bottom
-final private class FlippedClipView: NSClipView {
-    override var isFlipped: Bool { true }
-}
-
 /// A scroll view that notifies when its frame changes
 final class ResizingScrollView: NSScrollView {
-    var onResize: ((NSSize) -> Void)?
+    fileprivate var onResize: ((NSSize) -> Void)?
 
     override func layout() {
         super.layout()
@@ -24,14 +19,7 @@ struct TerminalContainerView: NSViewRepresentable {
     let terminalController: TerminalController
 
     func makeNSView(context: Context) -> ResizingScrollView {
-        let scrollView = terminalController.scrollView
-
-        // Set up resize callback
-        scrollView.onResize = { [weak terminalController] size in
-            terminalController?.updateMinimumSize(size)
-        }
-
-        return scrollView
+        terminalController.scrollView
     }
 
     func updateNSView(_ nsView: ResizingScrollView, context: Context) {
@@ -79,12 +67,9 @@ final class TerminalController: @unchecked Sendable {
         // Create scroll view to contain the terminal
         self.scrollView = ResizingScrollView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
 
-        // Use flipped clip view so content aligns to top instead of bottom
-        let flippedClipView = FlippedClipView()
-        flippedClipView.documentView = terminalView
-        scrollView.contentView = flippedClipView
+        scrollView.documentView = terminalView
 
-        scrollView.hasVerticalScroller = true
+        scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
@@ -97,11 +82,15 @@ final class TerminalController: @unchecked Sendable {
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
 
-        // Disable automatic content resizing - we want fixed terminal size
-        scrollView.autoresizesSubviews = false
-        terminalView.autoresizingMask = []
+        scrollView.autoresizesSubviews = true
+        terminalView.autoresizingMask = [.width, .height]
 
         setupTerminal()
+
+        // Set up resize callback
+        scrollView.onResize = { [weak self] size in
+            self?.updateMinimumSize(size)
+        }
     }
 
     private func setupTerminal() {
