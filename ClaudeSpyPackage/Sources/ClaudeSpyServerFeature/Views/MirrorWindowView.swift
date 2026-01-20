@@ -4,6 +4,7 @@ import SwiftUI
 /// View for a single pane mirror window
 struct MirrorWindowView: View {
     let paneInfo: PaneInfo
+    let resizeWindow: Bool
     @Environment(AppSettings.self) private var settings
     @Environment(TmuxService.self) private var tmuxService
     @Environment(MirrorWindowManager.self) private var windowManager
@@ -85,12 +86,12 @@ struct MirrorWindowView: View {
     private var terminalView: some View {
         TerminalContainerView(terminalController: terminalController)
             .frame(
-                minWidth: terminalMinSize.width,
+                minWidth: resizeWindow ? terminalMinSize.width : 100,
                 maxWidth: .infinity,
-                minHeight: terminalMinSize.height,
+                minHeight: resizeWindow ? terminalMinSize.height : 100,
                 maxHeight: .infinity
             )
-            .ignoresSafeArea(edges: .horizontal)
+            .ignoresSafeArea(edges: resizeWindow ? .horizontal : [])
     }
 
     private var statusBar: some View {
@@ -199,8 +200,10 @@ struct MirrorWindowView: View {
                 onDimensionChange: { [weak terminalController, weak windowManager] newWidth, newHeight in
                     // Resize the terminal to match new pane dimensions
                     terminalController?.resize(columns: newWidth, rows: newHeight)
-                    // Resize the window to match
-                    windowManager?.resizeWindow(target: target, columns: newWidth, rows: newHeight)
+                    if resizeWindow {
+                        // Resize the window to match
+                        windowManager?.resizeWindow(target: target, columns: newWidth, rows: newHeight)
+                    }
                 }
             )
 
@@ -224,11 +227,5 @@ struct MirrorWindowView: View {
             subscriptionId = nil
         }
         streamState = .disconnected
-    }
-
-    private func formatNumber(_ number: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter.string(from: NSNumber(value: number)) ?? "\(number)"
     }
 }

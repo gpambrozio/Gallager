@@ -124,7 +124,7 @@ final public class MirrorWindowManager {
         }
 
         // Create the mirror view with required environment
-        let mirrorView = MirrorWindowView(paneInfo: paneInfo)
+        let mirrorView = MirrorWindowView(paneInfo: paneInfo, resizeWindow: true)
             .environment(settings)
             .environment(tmuxService)
             .environment(self)
