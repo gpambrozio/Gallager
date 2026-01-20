@@ -43,6 +43,44 @@
             // Scrolling is handled by the parent NSScrollView
         }
 
+        /// Forward scroll events to parent NSScrollView for panning.
+        ///
+        /// SwiftTerm's TerminalView intercepts all scroll events for terminal scrollback,
+        /// ignoring deltaX completely and never passing events to parent views.
+        /// We need to forward events to enable:
+        /// 1. Horizontal panning (deltaX) - always forwarded to parent
+        /// 2. Vertical panning (deltaY) - forwarded to parent when needed
+        override func scrollWheel(with event: NSEvent) {
+            // Find the enclosing scroll view
+            guard let scrollView = enclosingScrollView else {
+                // No scroll view, let terminal handle it
+                terminalView.scrollWheel(with: event)
+                return
+            }
+
+            // Always forward horizontal scroll to parent for panning
+            if event.deltaX != 0 {
+                scrollView.scrollWheel(with: event)
+                return
+            }
+
+            // For vertical scroll, check if we need panning or terminal scrollback
+            let clipView = scrollView.contentView
+            let documentHeight = scrollView.documentView?.frame.height ?? 0
+            let visibleHeight = clipView.bounds.height
+
+            // If terminal view fits entirely in the scroll view, use terminal scrollback
+            if documentHeight <= visibleHeight {
+                terminalView.scrollWheel(with: event)
+                return
+            }
+
+            // Terminal is larger than view - need to handle both panning and scrollback
+            // For now, prioritize panning via parent scroll view
+            // Users can use terminal's built-in scrollback via keyboard or scrollbar
+            scrollView.scrollWheel(with: event)
+        }
+
         // MARK: - Forward TerminalView Properties
 
         var font: NSFont {
