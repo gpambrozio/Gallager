@@ -58,7 +58,7 @@ struct TerminalContainerView: NSViewRepresentable {
 
         // Set up resize callback
         coordinator.scrollView.onResize = { [weak coordinator] size in
-            coordinator?.updateMinimumSize(size)
+            coordinator?.updateContainerSize(size)
         }
 
         return coordinator.scrollView
@@ -70,15 +70,12 @@ struct TerminalContainerView: NSViewRepresentable {
         // Update settings if changed
         coordinator.updateSettings(settings)
 
-        // Update minimum size on layout changes
-        coordinator.updateMinimumSize(nsView.frame.size)
+        // Update container size on layout changes
+        coordinator.updateContainerSize(nsView.frame.size)
 
-        // Check for dimension changes from tmux refresh
+        // Check for column changes from tmux refresh (rows are dynamic)
         if let currentPane = tmuxService.panes.first(where: { $0.id == paneInfo.id }) {
-            coordinator.handleExternalDimensionChange(
-                width: currentPane.width,
-                height: currentPane.height
-            )
+            coordinator.handleExternalColumnChange(width: currentPane.width)
         }
     }
 
@@ -108,11 +105,10 @@ struct TerminalContainerView: NSViewRepresentable {
         private var columns = 80
         private var rows = 24
         private var lastExternalWidth = 0
-        private var lastExternalHeight = 0
 
         private var fontName = "SF Mono"
         private var fontSize: CGFloat = 12
-        private var minimumSize: NSSize = .zero
+        private var containerSize: NSSize = .zero
 
         private var onStateChange: TerminalStateChangeHandler?
 
@@ -165,7 +161,6 @@ struct TerminalContainerView: NSViewRepresentable {
             self.windowManager = windowManager
             self.onStateChange = onStateChange
             lastExternalWidth = paneInfo.width
-            lastExternalHeight = paneInfo.height
 
             // Apply initial settings
             updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
@@ -193,12 +188,12 @@ struct TerminalContainerView: NSViewRepresentable {
         private func connect(paneInfo: PaneInfo, tmuxService: TmuxService) async {
             updateState(.connecting)
 
-            // Get initial dimensions
+            // Get initial columns from tmux (rows are dynamic based on container)
             do {
                 let dims = try await tmuxService.getPaneDimensions(paneInfo.target)
-                resize(columns: dims.width, rows: dims.height)
+                updateColumns(dims.width)
             } catch {
-                resize(columns: paneInfo.width, rows: paneInfo.height)
+                updateColumns(paneInfo.width)
             }
 
             clear()
@@ -218,7 +213,7 @@ struct TerminalContainerView: NSViewRepresentable {
                         self?.handleData(data)
                     },
                     onDimensionChange: { [weak self, weak windowManager] newWidth, newHeight in
-                        self?.resize(columns: newWidth, rows: newHeight)
+                        self?.updateColumns(newWidth)
                         windowManager?.resizeWindow(target: target, columns: newWidth, rows: newHeight)
                     }
                 )
@@ -226,9 +221,9 @@ struct TerminalContainerView: NSViewRepresentable {
                 subscriptionId = subId
                 updateState(.connected)
 
-                // Update dimensions from manager if available
+                // Update columns from manager if available
                 if let dims = paneStreamManager.dimensions(for: paneInfo.paneId) {
-                    resize(columns: dims.width, rows: dims.height)
+                    updateColumns(dims.width)
                 }
             } catch {
                 updateState(.error(error.localizedDescription))
@@ -263,9 +258,10 @@ struct TerminalContainerView: NSViewRepresentable {
             feed(Data("\u{1b}[2J\u{1b}[H".utf8))
         }
 
-        func resize(columns: Int, rows: Int) {
-            self.columns = columns
-            self.rows = rows
+        /// Updates columns from tmux. Rows are calculated dynamically from container height.
+        func updateColumns(_ newColumns: Int) {
+            guard newColumns != columns else { return }
+            columns = newColumns
             terminalView.getTerminal().resize(cols: columns, rows: rows)
             updateTerminalFrameSize()
             notifyStateChange()
@@ -275,9 +271,10 @@ struct TerminalContainerView: NSViewRepresentable {
             terminalView.scroll(toPosition: 1)
         }
 
-        func updateMinimumSize(_ size: NSSize) {
-            minimumSize = size
-            updateTerminalFrameSize()
+        func updateContainerSize(_ size: NSSize) {
+            guard size != containerSize else { return }
+            containerSize = size
+            recalculateRowsAndResize()
         }
 
         // MARK: Settings
@@ -325,29 +322,44 @@ struct TerminalContainerView: NSViewRepresentable {
 
         // MARK: External Dimension Changes
 
-        func handleExternalDimensionChange(width: Int, height: Int) {
-            guard width != lastExternalWidth || height != lastExternalHeight else { return }
+        func handleExternalColumnChange(width: Int) {
+            guard width != lastExternalWidth else { return }
             lastExternalWidth = width
-            lastExternalHeight = height
 
             // Forward to pane stream manager (it will notify via onDimensionChange callback)
-            paneStreamManager?.updateDimensions(paneId: paneInfo?.paneId ?? "", width: width, height: height)
+            // Note: rows are dynamic based on container, so we pass current rows
+            paneStreamManager?.updateDimensions(paneId: paneInfo?.paneId ?? "", width: width, height: rows)
         }
 
         // MARK: Private Helpers
 
+        /// Recalculates rows based on container height and resizes terminal
+        private func recalculateRowsAndResize() {
+            let cellSize = FontMetrics.calculateCellSize(fontName: fontName, fontSize: fontSize)
+            guard cellSize.height > 0 else { return }
+
+            // Calculate rows from container height
+            let newRows = max(1, Int(containerSize.height / cellSize.height))
+
+            if newRows != rows {
+                rows = newRows
+                terminalView.getTerminal().resize(cols: columns, rows: rows)
+                notifyStateChange()
+            }
+
+            updateTerminalFrameSize()
+        }
+
         private func updateTerminalFrameSize() {
             let cellSize = FontMetrics.calculateCellSize(fontName: fontName, fontSize: fontSize)
 
-            // Calculate required size with buffer for SwiftTerm's internal scroller
+            // Width: fixed to terminal columns (tmux width)
             let width = CGFloat(columns) * cellSize.width + FontMetrics.horizontalBuffer
-            let height = CGFloat(rows) * cellSize.height
 
-            // Use the larger of terminal size or minimum (visible) size
-            let finalWidth = max(width, minimumSize.width)
-            let finalHeight = max(height, minimumSize.height)
+            // Height: fill container (rows are dynamic based on container)
+            let height = max(CGFloat(rows) * cellSize.height, containerSize.height)
 
-            terminalView.frame = NSRect(origin: .zero, size: NSSize(width: finalWidth, height: finalHeight))
+            terminalView.frame = NSRect(origin: .zero, size: NSSize(width: width, height: height))
         }
 
         private func updateState(_ state: StreamState) {

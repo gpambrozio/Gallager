@@ -11,37 +11,19 @@ struct MirrorWindowView: View {
     @State private var streamWidth: Int?
     @State private var streamHeight: Int?
 
-    /// Minimum frame size for the terminal based on character dimensions
-    private var terminalMinSize: CGSize {
-        let cols = streamWidth ?? paneInfo.width
-        let rows = streamHeight ?? paneInfo.height
-        let cellSize = FontMetrics.calculateCellSize(
-            fontName: settings.fontName,
-            fontSize: CGFloat(settings.fontSize)
-        )
-        return CGSize(
-            width: CGFloat(cols) * cellSize.width + FontMetrics.horizontalBuffer,
-            height: CGFloat(rows) * cellSize.height
-        )
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             TerminalContainerView(
                 paneInfo: paneInfo,
                 onStateChange: { state, width, height in
-                    streamState = state
-                    streamWidth = width
-                    streamHeight = height
+                    Task { @MainActor in
+                        streamState = state
+                        streamWidth = width
+                        streamHeight = height
+                    }
                 }
             )
-            .frame(
-                minWidth: terminalMinSize.width,
-                maxWidth: .infinity,
-                minHeight: terminalMinSize.height,
-                maxHeight: .infinity
-            )
-            .ignoresSafeArea(edges: .horizontal)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if settings.showStatusBar {
                 statusBar
