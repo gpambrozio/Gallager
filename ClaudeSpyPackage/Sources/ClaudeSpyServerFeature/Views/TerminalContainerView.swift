@@ -3,6 +3,13 @@ import ClaudeSpyCommon
 import SwiftTerm
 import SwiftUI
 
+// MARK: - State Change Callback
+
+/// Callback type for reporting terminal state changes to parent view
+typealias TerminalStateChangeHandler = @MainActor (StreamState, Int, Int) -> Void
+
+// MARK: - Resizing Scroll View
+
 /// A scroll view that notifies when its frame changes
 final class ResizingScrollView: NSScrollView {
     var onResize: ((NSSize) -> Void)?
@@ -13,197 +20,343 @@ final class ResizingScrollView: NSScrollView {
     }
 }
 
-/// A SwiftUI wrapper around SwiftTerm's TerminalView embedded in a scroll view
+// MARK: - Terminal Container View
+
+/// A self-contained SwiftUI view that mirrors a tmux pane.
+///
+/// This view handles everything internally:
+/// - Creates and manages the terminal views (scroll view + terminal)
+/// - Connects to the pane stream
+/// - Feeds data to the terminal
+/// - Handles dimension changes
+/// - Reports state back to parent via callback
 struct TerminalContainerView: NSViewRepresentable {
-    /// The terminal view controller that manages the underlying terminal
-    let terminalController: TerminalController
+    let paneInfo: PaneInfo
+    let onStateChange: TerminalStateChangeHandler?
+
+    @Environment(AppSettings.self) private var settings
+    @Environment(TmuxService.self) private var tmuxService
+    @Environment(PaneStreamManager.self) private var paneStreamManager
+    @Environment(MirrorWindowManager.self) private var windowManager
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
 
     func makeNSView(context: Context) -> ResizingScrollView {
-        let scrollView = terminalController.scrollView
+        let coordinator = context.coordinator
+
+        // Start the coordinator with all dependencies
+        coordinator.start(
+            paneInfo: paneInfo,
+            tmuxService: tmuxService,
+            paneStreamManager: paneStreamManager,
+            windowManager: windowManager,
+            settings: settings,
+            onStateChange: onStateChange
+        )
 
         // Set up resize callback
-        scrollView.onResize = { [weak terminalController] size in
-            terminalController?.updateMinimumSize(size)
+        coordinator.scrollView.onResize = { [weak coordinator] size in
+            coordinator?.updateMinimumSize(size)
         }
 
-        return scrollView
+        return coordinator.scrollView
     }
 
     func updateNSView(_ nsView: ResizingScrollView, context: Context) {
-        // Also update on SwiftUI layout changes
-        terminalController.updateMinimumSize(nsView.frame.size)
-    }
-}
+        let coordinator = context.coordinator
 
-/// Controller that manages a SwiftTerm TerminalView with fixed dimensions
-@Observable
-@MainActor
-final class TerminalController: @unchecked Sendable {
-    /// The scroll view containing the terminal
-    let scrollView: ResizingScrollView
+        // Update settings if changed
+        coordinator.updateSettings(settings)
 
-    /// The underlying SwiftTerm terminal view (read-only, no keyboard input)
-    let terminalView: ReadOnlyTerminalView
+        // Update minimum size on layout changes
+        coordinator.updateMinimumSize(nsView.frame.size)
 
-    /// Font name for the terminal
-    var fontName = "SF Mono" {
-        didSet { updateFont() }
-    }
-
-    /// Font size for the terminal
-    var fontSize: CGFloat = 12 {
-        didSet { updateFont() }
-    }
-
-    /// Number of columns (fixed to pane size)
-    private(set) var columns = 80
-
-    /// Number of rows (fixed to pane size)
-    private(set) var rows = 24
-
-    /// The fixed size of the terminal content
-    private var terminalSize = NSSize(width: 800, height: 600)
-
-    /// Minimum size for the terminal (visible scroll view area)
-    private var minimumSize = NSSize.zero
-
-    init() {
-        // Create terminal view
-        self.terminalView = ReadOnlyTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-
-        // Create scroll view to contain the terminal
-        self.scrollView = ResizingScrollView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-
-        scrollView.documentView = terminalView
-
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.borderType = .noBorder
-        scrollView.backgroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
-
-        // Use overlay scrollers so they don't take up content space
-        scrollView.scrollerStyle = .overlay
-
-        // Ensure no automatic content insets
-        scrollView.automaticallyAdjustsContentInsets = false
-        scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
-
-        // Disable automatic content resizing - we want fixed terminal size
-        scrollView.autoresizesSubviews = false
-        terminalView.autoresizingMask = []
-
-        setupTerminal()
-    }
-
-    private func setupTerminal() {
-        // Set up terminal colors (dark theme by default)
-        applyDarkTheme()
-
-        // Defer font setup - SwiftTerm's TerminalView may crash if font is set
-        // before the view is added to the view hierarchy
-        Task { @MainActor [weak self] in
-            self?.updateFont()
+        // Check for dimension changes from tmux refresh
+        if let currentPane = tmuxService.panes.first(where: { $0.id == paneInfo.id }) {
+            coordinator.handleExternalDimensionChange(
+                width: currentPane.width,
+                height: currentPane.height
+            )
         }
     }
 
-    /// Feeds raw data (including ANSI escape sequences) to the terminal
-    func feed(_ data: Data) {
-        let bytes = [UInt8](data)
-        terminalView.feed(byteArray: bytes[...])
+    static func dismantleNSView(_ nsView: ResizingScrollView, coordinator: Coordinator) {
+        coordinator.stop()
     }
 
-    /// Clears the terminal display
-    func clear() {
-        // Send clear screen escape sequence
-        feed(Data("\u{1b}[2J\u{1b}[H".utf8))
-    }
+    // MARK: - Coordinator
 
-    /// Resizes the terminal to the specified dimensions and calculates the fixed pixel size
-    func resize(columns: Int, rows: Int) {
-        self.columns = columns
-        self.rows = rows
+    @MainActor
+    final class Coordinator: @unchecked Sendable {
+        // MARK: Views
 
-        // Resize the terminal's internal buffer
-        terminalView.getTerminal().resize(cols: columns, rows: rows)
+        let scrollView: ResizingScrollView
+        let terminalView: ReadOnlyTerminalView
 
-        // Calculate the pixel size needed for this terminal
-        updateTerminalFrameSize()
-    }
+        // MARK: Services (held for lifetime)
 
-    /// Updates the minimum size for the terminal view (called when scroll view resizes)
-    func updateMinimumSize(_ size: NSSize) {
-        minimumSize = size
-        updateTerminalFrameSize()
-    }
+        private weak var paneStreamManager: PaneStreamManager?
+        private weak var windowManager: MirrorWindowManager?
 
-    /// Updates the terminal frame size based on current font and dimensions
-    private func updateTerminalFrameSize() {
-        // Calculate cell size from font metrics (matches SwiftTerm's computeFontDimensions)
-        let cellSize = calculateCellSize()
+        // MARK: State
 
-        // Calculate required size
-        // Add buffer to compensate for SwiftTerm's internal scroller
-        // See: docs/swiftterm-sizing.md for details
-        let width = CGFloat(columns) * cellSize.width + FontMetrics.horizontalBuffer
-        let height = CGFloat(rows) * cellSize.height
+        private var paneInfo: PaneInfo?
+        private var subscriptionId: UUID?
+        private var streamState: StreamState = .disconnected
+        private var columns = 80
+        private var rows = 24
+        private var lastExternalWidth = 0
+        private var lastExternalHeight = 0
 
-        // Use the larger of terminal size or minimum (visible) size
-        let finalWidth = max(width, minimumSize.width)
-        let finalHeight = max(height, minimumSize.height)
+        private var fontName = "SF Mono"
+        private var fontSize: CGFloat = 12
+        private var minimumSize: NSSize = .zero
 
-        terminalSize = NSSize(width: finalWidth, height: finalHeight)
+        private var onStateChange: TerminalStateChangeHandler?
 
-        // Update the terminal view frame
-        terminalView.frame = NSRect(origin: .zero, size: terminalSize)
-    }
+        // Track initial scroll state
+        private var hasScrolledInitial = false
 
-    /// Calculates the cell size based on the current font
-    private func calculateCellSize() -> CGSize {
-        FontMetrics.calculateCellSize(fontName: fontName, fontSize: fontSize)
-    }
+        // MARK: Initialization
 
-    /// Scrolls to the bottom of the terminal
-    func scrollToBottom() {
-        terminalView.scroll(toPosition: 1)
-    }
+        init() {
+            // Create terminal view
+            self.terminalView = ReadOnlyTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
 
-    // MARK: - Theme Support
+            // Create scroll view to contain the terminal
+            self.scrollView = ResizingScrollView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
 
-    func applyDarkTheme() {
-        // Default dark theme colors
-        let bgColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
-        terminalView.nativeForegroundColor = NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1)
-        terminalView.nativeBackgroundColor = bgColor
-        scrollView.backgroundColor = bgColor
-    }
+            setupScrollView()
+            setupTerminal()
+        }
 
-    func applyLightTheme() {
-        let bgColor = NSColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1)
-        terminalView.nativeForegroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
-        terminalView.nativeBackgroundColor = bgColor
-        scrollView.backgroundColor = bgColor
-    }
+        private func setupScrollView() {
+            scrollView.documentView = terminalView
+            scrollView.hasVerticalScroller = true
+            scrollView.hasHorizontalScroller = true
+            scrollView.autohidesScrollers = true
+            scrollView.borderType = .noBorder
+            scrollView.backgroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
+            scrollView.scrollerStyle = .overlay
+            scrollView.automaticallyAdjustsContentInsets = false
+            scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+            scrollView.autoresizesSubviews = false
+            terminalView.autoresizingMask = []
+        }
 
-    func applyTheme(_ theme: TerminalTheme) {
-        switch theme {
-        case .defaultDark,
-             .solarizedDark:
+        private func setupTerminal() {
             applyDarkTheme()
-        case .defaultLight,
-             .solarizedLight:
-            applyLightTheme()
         }
-    }
 
-    // MARK: - Private Helpers
+        // MARK: Lifecycle
 
-    private func updateFont() {
-        let font = NSFont(name: fontName, size: fontSize)
-            ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
-        terminalView.font = font
+        func start(
+            paneInfo: PaneInfo,
+            tmuxService: TmuxService,
+            paneStreamManager: PaneStreamManager,
+            windowManager: MirrorWindowManager,
+            settings: AppSettings,
+            onStateChange: TerminalStateChangeHandler?
+        ) {
+            self.paneInfo = paneInfo
+            self.paneStreamManager = paneStreamManager
+            self.windowManager = windowManager
+            self.onStateChange = onStateChange
+            lastExternalWidth = paneInfo.width
+            lastExternalHeight = paneInfo.height
 
-        // Recalculate terminal size with new font
-        updateTerminalFrameSize()
+            // Apply initial settings
+            updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
+            applyTheme(settings.theme)
+
+            // Start connection
+            Task {
+                await connect(paneInfo: paneInfo, tmuxService: tmuxService)
+            }
+        }
+
+        func stop() {
+            guard let subId = subscriptionId else { return }
+            let manager = paneStreamManager
+            Task {
+                await manager?.unsubscribe(subId)
+            }
+            subscriptionId = nil
+            // Don't call updateState here - the view is being dismantled
+            // and updating @State during teardown causes a crash
+        }
+
+        // MARK: Connection
+
+        private func connect(paneInfo: PaneInfo, tmuxService: TmuxService) async {
+            updateState(.connecting)
+
+            // Get initial dimensions
+            do {
+                let dims = try await tmuxService.getPaneDimensions(paneInfo.target)
+                resize(columns: dims.width, rows: dims.height)
+            } catch {
+                resize(columns: paneInfo.width, rows: paneInfo.height)
+            }
+
+            clear()
+
+            // Subscribe to stream
+            guard let paneStreamManager else {
+                updateState(.error("Stream manager unavailable"))
+                return
+            }
+
+            do {
+                let target = paneInfo.target
+                let subId = try await paneStreamManager.subscribe(
+                    paneId: paneInfo.paneId,
+                    target: target,
+                    onData: { [weak self] data in
+                        self?.handleData(data)
+                    },
+                    onDimensionChange: { [weak self, weak windowManager] newWidth, newHeight in
+                        self?.resize(columns: newWidth, rows: newHeight)
+                        windowManager?.resizeWindow(target: target, columns: newWidth, rows: newHeight)
+                    }
+                )
+
+                subscriptionId = subId
+                updateState(.connected)
+
+                // Update dimensions from manager if available
+                if let dims = paneStreamManager.dimensions(for: paneInfo.paneId) {
+                    resize(columns: dims.width, rows: dims.height)
+                }
+            } catch {
+                updateState(.error(error.localizedDescription))
+            }
+        }
+
+        // MARK: Data Handling
+
+        private func handleData(_ data: Data) {
+            let bytes = [UInt8](data)[...]
+
+            if !hasScrolledInitial {
+                // First data - feed, scroll to bottom, enable preservation
+                terminalView.feed(byteArray: bytes)
+                scrollToBottom()
+                terminalView.preserveUserScroll = true
+                hasScrolledInitial = true
+            } else {
+                // Subsequent data - preserve user's scroll position
+                terminalView.feedPreservingScroll(bytes)
+            }
+        }
+
+        // MARK: Terminal Operations
+
+        func feed(_ data: Data) {
+            let bytes = [UInt8](data)
+            terminalView.feed(byteArray: bytes[...])
+        }
+
+        func clear() {
+            feed(Data("\u{1b}[2J\u{1b}[H".utf8))
+        }
+
+        func resize(columns: Int, rows: Int) {
+            self.columns = columns
+            self.rows = rows
+            terminalView.getTerminal().resize(cols: columns, rows: rows)
+            updateTerminalFrameSize()
+            notifyStateChange()
+        }
+
+        func scrollToBottom() {
+            terminalView.scroll(toPosition: 1)
+        }
+
+        func updateMinimumSize(_ size: NSSize) {
+            minimumSize = size
+            updateTerminalFrameSize()
+        }
+
+        // MARK: Settings
+
+        func updateSettings(_ settings: AppSettings) {
+            updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
+            applyTheme(settings.theme)
+        }
+
+        private func updateFont(name: String, size: CGFloat) {
+            guard name != fontName || size != fontSize else { return }
+            fontName = name
+            fontSize = size
+
+            let font = NSFont(name: fontName, size: fontSize)
+                ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            terminalView.font = font
+            updateTerminalFrameSize()
+        }
+
+        func applyTheme(_ theme: TerminalTheme) {
+            switch theme {
+            case .defaultDark,
+                 .solarizedDark:
+                applyDarkTheme()
+            case .defaultLight,
+                 .solarizedLight:
+                applyLightTheme()
+            }
+        }
+
+        private func applyDarkTheme() {
+            let bgColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
+            terminalView.nativeForegroundColor = NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1)
+            terminalView.nativeBackgroundColor = bgColor
+            scrollView.backgroundColor = bgColor
+        }
+
+        private func applyLightTheme() {
+            let bgColor = NSColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1)
+            terminalView.nativeForegroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
+            terminalView.nativeBackgroundColor = bgColor
+            scrollView.backgroundColor = bgColor
+        }
+
+        // MARK: External Dimension Changes
+
+        func handleExternalDimensionChange(width: Int, height: Int) {
+            guard width != lastExternalWidth || height != lastExternalHeight else { return }
+            lastExternalWidth = width
+            lastExternalHeight = height
+
+            // Forward to pane stream manager (it will notify via onDimensionChange callback)
+            paneStreamManager?.updateDimensions(paneId: paneInfo?.paneId ?? "", width: width, height: height)
+        }
+
+        // MARK: Private Helpers
+
+        private func updateTerminalFrameSize() {
+            let cellSize = FontMetrics.calculateCellSize(fontName: fontName, fontSize: fontSize)
+
+            // Calculate required size with buffer for SwiftTerm's internal scroller
+            let width = CGFloat(columns) * cellSize.width + FontMetrics.horizontalBuffer
+            let height = CGFloat(rows) * cellSize.height
+
+            // Use the larger of terminal size or minimum (visible) size
+            let finalWidth = max(width, minimumSize.width)
+            let finalHeight = max(height, minimumSize.height)
+
+            terminalView.frame = NSRect(origin: .zero, size: NSSize(width: finalWidth, height: finalHeight))
+        }
+
+        private func updateState(_ state: StreamState) {
+            streamState = state
+            notifyStateChange()
+        }
+
+        private func notifyStateChange() {
+            onStateChange?(streamState, columns, rows)
+        }
     }
 }
