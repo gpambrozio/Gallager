@@ -15,11 +15,6 @@ struct MirrorWindowView: View {
     @State private var streamWidth: Int?
     @State private var streamHeight: Int?
 
-    /// The active Claude session for this pane, if any
-    private var claudeSession: ClaudeSession? {
-        windowManager.activeSessions[paneInfo.paneId]
-    }
-
     /// Minimum frame size for the terminal based on character dimensions
     private var terminalMinSize: CGSize {
         let cols = streamWidth ?? paneInfo.width
@@ -35,19 +30,12 @@ struct MirrorWindowView: View {
     }
 
     var body: some View {
-        ZStack {
-            VStack(spacing: 0) {
-                terminalView
+        VStack(spacing: 0) {
+            terminalView
 
-                // Status bar
-                if settings.showStatusBar {
-                    statusBar
-                }
-            }
-
-            // Claude session events overlay
-            if let session = claudeSession {
-                SessionEventsOverlay(session: session)
+            // Status bar
+            if settings.showStatusBar {
+                statusBar
             }
         }
         .navigationTitle("Mirror: \(paneInfo.paneId) (\(paneInfo.target))")
