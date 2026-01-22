@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import sys
 import os
-import json
 from urllib.request import urlopen, Request
 from urllib.parse import urlencode
 from urllib.error import URLError
