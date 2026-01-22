@@ -1,6 +1,6 @@
 {
   "name": "claude-spy",
-  "version": "1.0.1.3",
+  "version": "1.0.2",
   "description": "Claude Spy allows you to spy and interact with local claude sessions.",
   "author": {
     "name": "Gustavo Ambrozio",
@@ -9,5 +9,5 @@
   },
   "repository": "https://github.com/gpambrozio/claude-spy",
   "license": "MIT",
-  "keywords": ["claude", "mcp", "tmux"]
+  "keywords": ["claude", "ios", "tmux"]
 }
