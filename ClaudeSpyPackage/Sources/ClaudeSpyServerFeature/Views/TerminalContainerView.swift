@@ -3,11 +3,6 @@ import ClaudeSpyCommon
 import SwiftTerm
 import SwiftUI
 
-/// A flipped clip view that positions content at the top instead of bottom
-final private class FlippedClipView: NSClipView {
-    override var isFlipped: Bool { true }
-}
-
 /// A scroll view that notifies when its frame changes
 final class ResizingScrollView: NSScrollView {
     var onResize: ((NSSize) -> Void)?
@@ -79,10 +74,7 @@ final class TerminalController: @unchecked Sendable {
         // Create scroll view to contain the terminal
         self.scrollView = ResizingScrollView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
 
-        // Use flipped clip view so content aligns to top instead of bottom
-        let flippedClipView = FlippedClipView()
-        flippedClipView.documentView = terminalView
-        scrollView.contentView = flippedClipView
+        scrollView.documentView = terminalView
 
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
