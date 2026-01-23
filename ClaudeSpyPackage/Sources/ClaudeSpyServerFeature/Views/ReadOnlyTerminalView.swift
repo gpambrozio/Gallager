@@ -2,39 +2,156 @@
     import AppKit
     import SwiftTerm
 
-    /// A container view that wraps a TerminalView and prevents it from receiving keyboard input.
-    ///
-    /// SwiftTerm's `TerminalView` on macOS doesn't expose `acceptsFirstResponder` or
-    /// `becomeFirstResponder()` as `open`, so subclassing won't work. Instead, we wrap the
-    /// terminal in a container that:
-    /// 1. Forwards drawing and layout to the terminal view
-    /// 2. Intercepts mouse clicks to prevent the terminal from becoming first responder
-    /// 3. Lets the terminal handle its own scrolling via SwiftTerm's built-in scroll support
-    ///
-    /// Scroll preservation: Use `feedPreservingScroll` to preserve scroll position when
-    /// the user has scrolled up from the bottom.
+    // MARK: - Scroll Event Overlay
+
+    /// Intercepts events: horizontal scrolls handled here, vertical/mouse forwarded to terminal.
+    final private class ScrollEventOverlay: NSView {
+        weak var terminalView: TerminalView?
+        var onHorizontalScroll: ((CGFloat) -> Void)?
+
+        override var acceptsFirstResponder: Bool { false }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            bounds.contains(point) ? self : nil
+        }
+
+        override func scrollWheel(with event: NSEvent) {
+            if abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) {
+                onHorizontalScroll?(-event.scrollingDeltaX)
+            } else {
+                terminalView?.scrollWheel(with: event)
+            }
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            terminalView?.mouseDown(with: event)
+            window?.makeFirstResponder(superview)
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            terminalView?.mouseDragged(with: event)
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            terminalView?.mouseUp(with: event)
+        }
+    }
+
+    // MARK: - ReadOnlyTerminalView
+
+    /// Read-only terminal wrapper with horizontal scrolling. Prevents keyboard focus.
     final class ReadOnlyTerminalView: NSView {
         let terminalView: TerminalView
+        private var horizontalScroller: NSScroller?
+        private var scrollOverlay: ScrollEventOverlay?
+        private var terminalWidth: CGFloat = 0
+        private var horizontalOffset: CGFloat = 0
 
-        /// Set to true to enable scroll preservation when feeding data
         var preserveUserScroll = false
-
-        /// Callback for frame resize detection
         var onResize: ((NSSize) -> Void)?
 
         override init(frame: NSRect) {
             self.terminalView = TerminalView(frame: NSRect(origin: .zero, size: frame.size))
             super.init(frame: frame)
 
-            // Don't auto-resize - we manually control the terminal size to keep columns fixed
+            wantsLayer = true
+            layer?.masksToBounds = true
             terminalView.autoresizingMask = []
             addSubview(terminalView)
+            setupScrollOverlay()
+            setupHorizontalScroller()
         }
 
-        /// Sets the internal terminal view's frame size.
-        /// Use this to control the terminal size independently of the container size.
+        private func setupScrollOverlay() {
+            let overlay = ScrollEventOverlay(frame: bounds)
+            overlay.autoresizingMask = [.width, .height]
+            overlay.terminalView = terminalView
+            overlay.onHorizontalScroll = { [weak self] delta in
+                self?.scrollHorizontally(by: delta)
+            }
+            addSubview(overlay)
+            scrollOverlay = overlay
+        }
+
+        private func setupHorizontalScroller() {
+            let scrollerHeight = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay)
+            let scrollerFrame = NSRect(
+                x: 0,
+                y: 0,
+                width: bounds.width,
+                height: scrollerHeight
+            )
+
+            let scroller = NSScroller(frame: scrollerFrame)
+            scroller.scrollerStyle = .overlay
+            scroller.knobProportion = 1
+            scroller.isEnabled = false
+            scroller.alphaValue = 0
+            scroller.autoresizingMask = [.width]
+            scroller.target = self
+            scroller.action = #selector(horizontalScrollerActivated)
+            addSubview(scroller)
+
+            horizontalScroller = scroller
+        }
+
+        @objc
+        private func horizontalScrollerActivated() {
+            guard let scroller = horizontalScroller else { return }
+            let maxOffset = terminalWidth - bounds.width
+
+            switch scroller.hitPart {
+            case .knob,
+                 .knobSlot where maxOffset > 0:
+                horizontalOffset = scroller.doubleValue * maxOffset
+                updateTerminalPosition()
+            case .decrementPage:
+                scrollHorizontally(by: -bounds.width * 0.9)
+            case .incrementPage:
+                scrollHorizontally(by: bounds.width * 0.9)
+            default:
+                break
+            }
+        }
+
+        private func scrollHorizontally(by delta: CGFloat) {
+            let maxOffset = terminalWidth - bounds.width
+            guard maxOffset > 0 else { return }
+
+            horizontalOffset = max(0, min(maxOffset, horizontalOffset + delta))
+            updateTerminalPosition()
+            updateHorizontalScroller()
+        }
+
+        private func updateTerminalPosition() {
+            var frame = terminalView.frame
+            frame.origin.x = -horizontalOffset
+            terminalView.frame = frame
+        }
+
+        private func updateHorizontalScroller() {
+            guard let scroller = horizontalScroller else { return }
+            let maxOffset = terminalWidth - bounds.width
+            let needsScroll = maxOffset > 0
+
+            scroller.isEnabled = needsScroll
+            scroller.alphaValue = needsScroll ? 1 : 0
+            scroller.knobProportion = needsScroll ? bounds.width / terminalWidth : 1
+            if needsScroll {
+                scroller.doubleValue = horizontalOffset / maxOffset
+            }
+        }
+
         func setTerminalSize(_ size: NSSize) {
-            terminalView.frame = NSRect(origin: .zero, size: size)
+            terminalWidth = size.width
+            terminalView.frame = NSRect(x: -horizontalOffset, y: 0, width: size.width, height: bounds.height)
+
+            let maxOffset = max(0, terminalWidth - bounds.width)
+            if horizontalOffset > maxOffset {
+                horizontalOffset = maxOffset
+                updateTerminalPosition()
+            }
+            updateHorizontalScroller()
         }
 
         @available(*, unavailable)
@@ -44,21 +161,18 @@
 
         override func layout() {
             super.layout()
+            if let scroller = horizontalScroller {
+                let h = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay)
+                scroller.frame = NSRect(x: 0, y: 0, width: bounds.width, height: h)
+            }
+            terminalView.frame.size.height = bounds.height
+            updateHorizontalScroller()
             onResize?(frame.size)
         }
 
-        override var acceptsFirstResponder: Bool {
-            false
-        }
+        override var acceptsFirstResponder: Bool { false }
 
-        /// Intercept mouse down to prevent the terminal from becoming first responder.
-        /// We still allow the event to propagate for selection and scrolling purposes.
-        override func mouseDown(with event: NSEvent) {
-            // Don't call super or forward to terminalView - this prevents focus
-            // Scrolling is handled by the parent NSScrollView
-        }
-
-        // MARK: - Forward TerminalView Properties
+        // MARK: - TerminalView Forwarding
 
         var font: NSFont {
             get { terminalView.font }
@@ -72,7 +186,10 @@
 
         var nativeBackgroundColor: NSColor {
             get { terminalView.nativeBackgroundColor }
-            set { terminalView.nativeBackgroundColor = newValue }
+            set {
+                terminalView.nativeBackgroundColor = newValue
+                layer?.backgroundColor = newValue.cgColor
+            }
         }
 
         func getTerminal() -> Terminal {
@@ -83,18 +200,11 @@
             terminalView.feed(byteArray: byteArray)
         }
 
-        /// Feeds data while preserving scroll position if user has scrolled up.
-        /// Use this instead of `feed(byteArray:)` for streaming content.
         func feedPreservingScroll(_ bytes: ArraySlice<UInt8>) {
-            // Save current scroll position (0 = top, 1 = bottom)
             let savedPosition = scrollPosition
             let wasAtBottom = savedPosition >= 0.999
-
-            // Feed the data (this will auto-scroll to bottom)
             terminalView.feed(byteArray: bytes)
-
-            // If scroll preservation is enabled and user had scrolled up, restore position
-            if preserveUserScroll && !wasAtBottom {
+            if preserveUserScroll, !wasAtBottom {
                 terminalView.scroll(toPosition: savedPosition)
             }
         }

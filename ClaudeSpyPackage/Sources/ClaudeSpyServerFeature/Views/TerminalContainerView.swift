@@ -44,11 +44,6 @@ struct TerminalContainerView: NSViewRepresentable {
             onStateChange: onStateChange
         )
 
-        // Set up resize callback
-        coordinator.terminalView.onResize = { [weak coordinator] size in
-            coordinator?.updateContainerSize(size)
-        }
-
         return coordinator.terminalView
     }
 
@@ -309,17 +304,27 @@ struct TerminalContainerView: NSViewRepresentable {
             updateTerminalFrameSize()
         }
 
-        private func updateTerminalFrameSize() {
+        // MARK: - Size Calculations
+
+        /// Returns the terminal width based on columns (for SwiftUI sizing)
+        func calculateTerminalWidth() -> CGFloat {
             let cellSize = FontMetrics.calculateCellSize(fontName: fontName, fontSize: fontSize)
+            return CGFloat(columns) * cellSize.width + FontMetrics.horizontalBuffer
+        }
 
-            // Terminal width: fixed to columns (tmux dictates)
-            let terminalWidth = CGFloat(columns) * cellSize.width + FontMetrics.horizontalBuffer
+        /// Returns the terminal height based on rows (for SwiftUI sizing)
+        func calculateTerminalHeight() -> CGFloat {
+            let cellSize = FontMetrics.calculateCellSize(fontName: fontName, fontSize: fontSize)
+            return CGFloat(rows) * cellSize.height
+        }
 
-            // Terminal height: based on rows (dynamic from container height)
-            let terminalHeight = CGFloat(rows) * cellSize.height
+        private func updateTerminalFrameSize() {
+            let terminalWidth = calculateTerminalWidth()
+            let terminalHeight = calculateTerminalHeight()
 
-            // Set the internal terminal size (keeps columns fixed regardless of container width)
-            terminalView.setTerminalSize(NSSize(width: terminalWidth, height: terminalHeight))
+            // Set terminal size - ReadOnlyTerminalView handles horizontal scrolling internally
+            let terminalSize = NSSize(width: terminalWidth, height: terminalHeight)
+            terminalView.setTerminalSize(terminalSize)
         }
 
         private func updateState(_ state: StreamState) {
