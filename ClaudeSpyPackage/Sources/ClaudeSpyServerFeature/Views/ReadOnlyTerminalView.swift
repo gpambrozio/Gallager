@@ -9,7 +9,7 @@
     /// terminal in a container that:
     /// 1. Forwards drawing and layout to the terminal view
     /// 2. Intercepts mouse clicks to prevent the terminal from becoming first responder
-    /// 3. Still allows scroll events to pass through to the parent NSScrollView
+    /// 3. Lets the terminal handle its own scrolling via SwiftTerm's built-in scroll support
     ///
     /// Scroll preservation: Use `feedPreservingScroll` to preserve scroll position when
     /// the user has scrolled up from the bottom.
@@ -18,6 +18,9 @@
 
         /// Set to true to enable scroll preservation when feeding data
         var preserveUserScroll = false
+
+        /// Callback for frame resize detection
+        var onResize: ((NSSize) -> Void)?
 
         override init(frame: NSRect) {
             self.terminalView = TerminalView(frame: NSRect(origin: .zero, size: frame.size))
@@ -30,6 +33,11 @@
         @available(*, unavailable)
         required init?(coder: NSCoder) {
             fatalError("init(coder:) has not been implemented")
+        }
+
+        override func layout() {
+            super.layout()
+            onResize?(frame.size)
         }
 
         override var acceptsFirstResponder: Bool {

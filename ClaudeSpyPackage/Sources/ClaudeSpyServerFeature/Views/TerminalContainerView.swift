@@ -8,24 +8,12 @@ import SwiftUI
 /// Callback type for reporting terminal state changes to parent view
 typealias TerminalStateChangeHandler = @MainActor (StreamState, Int, Int) -> Void
 
-// MARK: - Resizing Scroll View
-
-/// A scroll view that notifies when its frame changes
-final class ResizingScrollView: NSScrollView {
-    var onResize: ((NSSize) -> Void)?
-
-    override func layout() {
-        super.layout()
-        onResize?(frame.size)
-    }
-}
-
 // MARK: - Terminal Container View
 
 /// A self-contained SwiftUI view that mirrors a tmux pane.
 ///
 /// This view handles everything internally:
-/// - Creates and manages the terminal views (scroll view + terminal)
+/// - Creates and manages the terminal view
 /// - Connects to the pane stream
 /// - Feeds data to the terminal
 /// - Handles dimension changes
@@ -43,7 +31,7 @@ struct TerminalContainerView: NSViewRepresentable {
         Coordinator()
     }
 
-    func makeNSView(context: Context) -> ResizingScrollView {
+    func makeNSView(context: Context) -> ReadOnlyTerminalView {
         let coordinator = context.coordinator
 
         // Start the coordinator with all dependencies
@@ -57,14 +45,14 @@ struct TerminalContainerView: NSViewRepresentable {
         )
 
         // Set up resize callback
-        coordinator.scrollView.onResize = { [weak coordinator] size in
+        coordinator.terminalView.onResize = { [weak coordinator] size in
             coordinator?.updateContainerSize(size)
         }
 
-        return coordinator.scrollView
+        return coordinator.terminalView
     }
 
-    func updateNSView(_ nsView: ResizingScrollView, context: Context) {
+    func updateNSView(_ nsView: ReadOnlyTerminalView, context: Context) {
         let coordinator = context.coordinator
 
         // Update settings if changed
@@ -79,7 +67,7 @@ struct TerminalContainerView: NSViewRepresentable {
         }
     }
 
-    static func dismantleNSView(_ nsView: ResizingScrollView, coordinator: Coordinator) {
+    static func dismantleNSView(_ nsView: ReadOnlyTerminalView, coordinator: Coordinator) {
         coordinator.stop()
     }
 
@@ -89,7 +77,6 @@ struct TerminalContainerView: NSViewRepresentable {
     final class Coordinator: @unchecked Sendable {
         // MARK: Views
 
-        let scrollView: ResizingScrollView
         let terminalView: ReadOnlyTerminalView
 
         // MARK: Services (held for lifetime)
@@ -118,31 +105,7 @@ struct TerminalContainerView: NSViewRepresentable {
         // MARK: Initialization
 
         init() {
-            // Create terminal view
             self.terminalView = ReadOnlyTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-
-            // Create scroll view to contain the terminal
-            self.scrollView = ResizingScrollView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-
-            setupScrollView()
-            setupTerminal()
-        }
-
-        private func setupScrollView() {
-            scrollView.documentView = terminalView
-            scrollView.hasVerticalScroller = true
-            scrollView.hasHorizontalScroller = true
-            scrollView.autohidesScrollers = true
-            scrollView.borderType = .noBorder
-            scrollView.backgroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
-            scrollView.scrollerStyle = .overlay
-            scrollView.automaticallyAdjustsContentInsets = false
-            scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
-            scrollView.autoresizesSubviews = false
-            terminalView.autoresizingMask = []
-        }
-
-        private func setupTerminal() {
             applyDarkTheme()
         }
 
@@ -307,17 +270,13 @@ struct TerminalContainerView: NSViewRepresentable {
         }
 
         private func applyDarkTheme() {
-            let bgColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
             terminalView.nativeForegroundColor = NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1)
-            terminalView.nativeBackgroundColor = bgColor
-            scrollView.backgroundColor = bgColor
+            terminalView.nativeBackgroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
         }
 
         private func applyLightTheme() {
-            let bgColor = NSColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1)
             terminalView.nativeForegroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
-            terminalView.nativeBackgroundColor = bgColor
-            scrollView.backgroundColor = bgColor
+            terminalView.nativeBackgroundColor = NSColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1)
         }
 
         // MARK: External Dimension Changes
@@ -353,8 +312,8 @@ struct TerminalContainerView: NSViewRepresentable {
         private func updateTerminalFrameSize() {
             let cellSize = FontMetrics.calculateCellSize(fontName: fontName, fontSize: fontSize)
 
-            // Width: fixed to terminal columns (tmux width)
-            let width = CGFloat(columns) * cellSize.width + FontMetrics.horizontalBuffer
+            // Width: fill container (columns stay fixed to tmux width)
+            let width = containerSize.width
 
             // Height: fill container (rows are dynamic based on container)
             let height = max(CGFloat(rows) * cellSize.height, containerSize.height)
