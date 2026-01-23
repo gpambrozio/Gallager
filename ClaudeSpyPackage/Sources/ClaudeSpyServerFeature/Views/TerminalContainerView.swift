@@ -312,13 +312,14 @@ struct TerminalContainerView: NSViewRepresentable {
         private func updateTerminalFrameSize() {
             let cellSize = FontMetrics.calculateCellSize(fontName: fontName, fontSize: fontSize)
 
-            // Width: fill container (columns stay fixed to tmux width)
-            let width = containerSize.width
+            // Terminal width: fixed to columns (tmux dictates)
+            let terminalWidth = CGFloat(columns) * cellSize.width + FontMetrics.horizontalBuffer
 
-            // Height: fill container (rows are dynamic based on container)
-            let height = max(CGFloat(rows) * cellSize.height, containerSize.height)
+            // Terminal height: based on rows (dynamic from container height)
+            let terminalHeight = CGFloat(rows) * cellSize.height
 
-            terminalView.frame = NSRect(origin: .zero, size: NSSize(width: width, height: height))
+            // Set the internal terminal size (keeps columns fixed regardless of container width)
+            terminalView.setTerminalSize(NSSize(width: terminalWidth, height: terminalHeight))
         }
 
         private func updateState(_ state: StreamState) {

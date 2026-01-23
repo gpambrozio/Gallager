@@ -26,8 +26,15 @@
             self.terminalView = TerminalView(frame: NSRect(origin: .zero, size: frame.size))
             super.init(frame: frame)
 
-            terminalView.autoresizingMask = [.width, .height]
+            // Don't auto-resize - we manually control the terminal size to keep columns fixed
+            terminalView.autoresizingMask = []
             addSubview(terminalView)
+        }
+
+        /// Sets the internal terminal view's frame size.
+        /// Use this to control the terminal size independently of the container size.
+        func setTerminalSize(_ size: NSSize) {
+            terminalView.frame = NSRect(origin: .zero, size: size)
         }
 
         @available(*, unavailable)
