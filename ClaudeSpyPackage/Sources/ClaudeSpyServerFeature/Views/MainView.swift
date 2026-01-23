@@ -112,7 +112,7 @@ public struct MainView: View {
     @ViewBuilder
     private var detailContent: some View {
         if let pane = selectedPane {
-            MirrorWindowView(paneInfo: pane, resizeWindow: false)
+            MirrorWindowView(paneInfo: pane)
                 .id(pane.id)
         } else {
             ContentUnavailableView(
