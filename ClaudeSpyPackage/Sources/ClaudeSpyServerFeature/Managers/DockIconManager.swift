@@ -33,7 +33,7 @@ final public class DockIconManager {
         NSApp.setActivationPolicy(.accessory)
 
         // Start observing window notifications using async streams
-        observationTask = Task { [weak self] in
+        observationTask = Task {
             await withTaskGroup(of: Void.self) { group in
                 // Window became key (focused)
                 group.addTask { @MainActor [weak self] in
@@ -158,10 +158,5 @@ final public class DockIconManager {
                 NSApp.setActivationPolicy(.accessory)
             }
         }
-    }
-
-    /// Forces an update of the activation policy. Call this when manually opening windows.
-    public func forceUpdate() {
-        updateActivationPolicy()
     }
 }
