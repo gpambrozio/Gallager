@@ -89,6 +89,7 @@ public enum FontMetrics {
 
         var advance = CGSize.zero
         CTFontGetAdvancesForGlyphs(font, .horizontal, glyphs, &advance, 1)
-        return ceil(advance.width) // Match SwiftTerm's ceiling behavior
+        // SwiftTerm does NOT ceil the width - only height uses ceil()
+        return advance.width
     }
 }
