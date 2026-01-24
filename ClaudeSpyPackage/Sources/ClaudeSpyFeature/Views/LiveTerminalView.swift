@@ -352,13 +352,13 @@
         let onInput: @MainActor ([TmuxKey]) -> Void
 
         func makeUIView(context: Context) -> UIScrollView {
-            // Calculate cell size
+            // Calculate cell size using FontMetrics (matches SwiftTerm's computeFontDimensions)
             let cellSize = FontMetrics.calculateCellSize(
                 fontName: terminalState.fontName,
                 fontSize: terminalState.fontSize
             )
 
-            let exactWidth = CGFloat(terminalState.width) * cellSize.width
+            let exactWidth = CGFloat(terminalState.width) * cellSize.width + FontMetrics.horizontalBuffer
             let exactHeight = CGFloat(terminalState.height) * cellSize.height
 
             // Create font
@@ -395,7 +395,7 @@
             context.coordinator.outerScrollView = scrollView
 
             // Use Auto Layout to size the terminal view
-            // Width: exact terminal width (for horizontal scrolling of wide terminals)
+            // Width: exact terminal width + padding (for horizontal scrolling of wide terminals)
             // Height: fits available space (terminal's internal scrolling handles scrollback)
             let widthConstraint = terminalView.widthAnchor.constraint(equalToConstant: exactWidth)
             widthConstraint.priority = .defaultHigh
@@ -481,8 +481,8 @@
             func handleResize(width: Int, height: Int) {
                 guard let terminalView else { return }
 
-                // Update width constraint for horizontal scrolling
-                let newWidth = CGFloat(width) * cellSize.width
+                // Update width constraint for horizontal scrolling (with buffer for edge cases)
+                let newWidth = CGFloat(width) * cellSize.width + FontMetrics.horizontalBuffer
                 widthConstraint?.constant = newWidth
 
                 // Update terminal buffer size (height is handled by SwiftTerm's internal scrolling)

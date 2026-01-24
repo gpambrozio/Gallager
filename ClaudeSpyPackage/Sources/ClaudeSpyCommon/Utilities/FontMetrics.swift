@@ -19,8 +19,10 @@ import Foundation
 public enum FontMetrics {
     /// Calculates the cell size for a monospace font.
     ///
-    /// This exactly matches SwiftTerm's `computeFontDimensions()` method:
-    /// https://github.com/migueldeicaza/SwiftTerm/blob/0b8d99bd19b694df44e1ccaa3891309719d34330/Sources/SwiftTerm/Apple/AppleTerminalView.swift#L142-L167
+    /// This exactly matches SwiftTerm's `computeFontDimensions()` method.
+    /// Note: SwiftTerm uses different width calculation methods on macOS vs iOS:
+    /// - macOS: NSFont.advancement(forGlyph:) via CTFont
+    /// - iOS: "W".size(withAttributes:).width via NSAttributedString
     ///
     /// - Parameters:
     ///   - fontName: Name of the font (e.g., "SF Mono", "Menlo")
@@ -29,15 +31,22 @@ public enum FontMetrics {
     public static func calculateCellSize(fontName: String, fontSize: CGFloat) -> CGSize {
         let font = createFont(name: fontName, size: fontSize)
 
-        // Width: use glyph advancement for "W"
-        // SwiftTerm uses this specific character for width calculation
-        let cellWidth = glyphAdvanceWidth(for: font, character: "W")
-
-        // Height: sum of ascent, descent, and leading (same as SwiftTerm)
+        // Height: sum of ascent, descent, and leading (same on both platforms)
         let lineAscent = CTFontGetAscent(font)
         let lineDescent = CTFontGetDescent(font)
         let lineLeading = CTFontGetLeading(font)
         let cellHeight = ceil(lineAscent + lineDescent + lineLeading)
+
+        // Width: SwiftTerm uses different methods per platform
+        #if canImport(AppKit) && !targetEnvironment(macCatalyst)
+            // macOS: Use glyph advancement (matches SwiftTerm's macOS implementation)
+            let cellWidth = glyphAdvanceWidth(for: font, character: "W")
+        #else
+            // iOS: Use NSAttributedString sizing (matches SwiftTerm's iOS implementation)
+            let uiFont = font as UIFont
+            let fontAttributes: [NSAttributedString.Key: Any] = [.font: uiFont]
+            let cellWidth = "W".size(withAttributes: fontAttributes).width
+        #endif
 
         return CGSize(width: max(1, cellWidth), height: max(1, cellHeight))
     }
