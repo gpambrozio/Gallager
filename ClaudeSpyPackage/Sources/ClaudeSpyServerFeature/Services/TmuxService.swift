@@ -7,7 +7,6 @@ enum TmuxError: Error, LocalizedError {
     case invalidPane(target: String)
     case commandFailed(message: String)
     case permissionDenied
-    case pipeError(message: String)
 
     var errorDescription: String? {
         switch self {
@@ -21,8 +20,6 @@ enum TmuxError: Error, LocalizedError {
             return "tmux command failed: \(message)"
         case .permissionDenied:
             return "Permission denied accessing tmux"
-        case let .pipeError(message):
-            return "Connection lost to pane: \(message)"
         }
     }
 }
@@ -34,9 +31,6 @@ final public class TmuxService {
     private let processRunner = ProcessRunner()
     private var tmuxPath: String
     private var socketPath: String?
-
-    /// Active pipe-pane processes keyed by pane target
-    private var activePipes: [String: String] = [:]
 
     /// Current list of available panes (updated by refreshPanes)
     public private(set) var panes: [PaneInfo] = []
@@ -401,34 +395,6 @@ final public class TmuxService {
         return result
     }
 
-    /// Starts pipe-pane to stream output to a named pipe
-    /// - Parameter target: The pane target
-    /// - Returns: The path to the created FIFO
-    public func startPipePipe(_ target: String) async throws -> String {
-        // Generate unique FIFO path
-        let fifoPath = "/tmp/tmux-mirror-\(UUID().uuidString).fifo"
-
-        // Create the FIFO
-        let fifoReader = FIFOReader(path: fifoPath)
-        try await fifoReader.createFIFO()
-
-        // Start pipe-pane
-        let result = try await runTmuxCommand([
-            "pipe-pane",
-            "-t", target,
-            "cat > \(fifoPath)",
-        ])
-
-        guard result.isSuccess else {
-            // Clean up FIFO on failure
-            await fifoReader.stop()
-            throw TmuxError.pipeError(message: result.stderrString)
-        }
-
-        activePipes[target] = fifoPath
-        return fifoPath
-    }
-
     /// Forces a pane to redraw by sending Ctrl+L
     public func forceRedraw(_ target: String) async throws {
         _ = try await runTmuxCommand([
@@ -463,21 +429,6 @@ final public class TmuxService {
             "-t", target,
             "C-c",
         ])
-    }
-
-    /// Stops pipe-pane for a target
-    public func stopPipePipe(_ target: String) async throws {
-        // Stop pipe-pane by running it with no command
-        _ = try await runTmuxCommand([
-            "pipe-pane",
-            "-t", target,
-        ])
-
-        // Clean up FIFO if we know about it
-        if let fifoPath = activePipes[target] {
-            try? FileManager.default.removeItem(atPath: fifoPath)
-            activePipes.removeValue(forKey: target)
-        }
     }
 
     /// Gets the pane ID for a target

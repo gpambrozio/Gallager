@@ -33,6 +33,9 @@
         /// Pane stream manager for sharing streams between UI and streaming
         public let paneStreamManager: PaneStreamManager
 
+        /// Control client manager for tmux control mode connections
+        public let controlClientManager: TmuxControlClientManager
+
         /// Device pairing manager
         public private(set) var pairingManager: PairingManager?
 
@@ -66,8 +69,17 @@
                 socketPath: settings.tmuxSocket.isEmpty ? nil : settings.tmuxSocket
             )
 
-            // Create pane stream manager
-            self.paneStreamManager = PaneStreamManager(tmuxService: tmuxService)
+            // Create control client manager for tmux control mode
+            self.controlClientManager = TmuxControlClientManager(
+                tmuxPath: settings.tmuxPath,
+                socketPath: settings.tmuxSocket.isEmpty ? nil : settings.tmuxSocket
+            )
+
+            // Create pane stream manager with control client manager
+            self.paneStreamManager = PaneStreamManager(
+                tmuxService: tmuxService,
+                controlClientManager: controlClientManager
+            )
 
             // Create window manager
             self.windowManager = MirrorWindowManager(

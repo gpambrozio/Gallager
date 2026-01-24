@@ -37,6 +37,7 @@
 
         private let logger = Logger(label: "com.claudespy.panestreammanager")
         private let tmuxService: TmuxService
+        private let controlClientManager: TmuxControlClientManager
 
         /// Active streams keyed by paneId
         private var streams: [String: StreamContext] = [:]
@@ -64,8 +65,14 @@
 
         // MARK: - Initialization
 
-        public init(tmuxService: TmuxService) {
+        public init(tmuxService: TmuxService, controlClientManager: TmuxControlClientManager) {
             self.tmuxService = tmuxService
+            self.controlClientManager = controlClientManager
+
+            // Wire up dimension changes from control client
+            controlClientManager.setOnDimensionChange { [weak self] paneId, width, height in
+                self?.updateDimensions(paneId: paneId, width: width, height: height)
+            }
         }
 
         // MARK: - Public API
@@ -121,8 +128,12 @@
                     "totalSubscribers": "\(context.subscriberIds.count)",
                 ])
             } else {
-                // Create new stream
-                let stream = PaneStream(target: target, tmuxService: tmuxService)
+                // Create new stream with control client manager for real-time updates
+                let stream = PaneStream(
+                    target: target,
+                    tmuxService: tmuxService,
+                    controlClientManager: controlClientManager
+                )
 
                 // Set up callbacks to forward to all subscribers
                 stream.onData = { [weak self] data in
