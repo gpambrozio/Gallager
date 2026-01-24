@@ -237,7 +237,7 @@ actor TmuxControlClient {
         // Create timeout task that we can cancel on success
         let timeoutTask = Task {
             try? await Task.sleep(for: .seconds(timeout))
-            if let cont = await self.pendingCommands.removeValue(forKey: commandNumber) {
+            if let cont = self.pendingCommands.removeValue(forKey: commandNumber) {
                 cont.resume(throwing: TmuxControlError.timeout)
             }
         }
