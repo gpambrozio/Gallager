@@ -7,7 +7,6 @@ enum TmuxError: Error, LocalizedError {
     case invalidPane(target: String)
     case commandFailed(message: String)
     case permissionDenied
-    case pipeError(message: String)
 
     var errorDescription: String? {
         switch self {
@@ -21,8 +20,6 @@ enum TmuxError: Error, LocalizedError {
             return "tmux command failed: \(message)"
         case .permissionDenied:
             return "Permission denied accessing tmux"
-        case let .pipeError(message):
-            return "Connection lost to pane: \(message)"
         }
     }
 }
@@ -34,9 +31,6 @@ final public class TmuxService {
     private let processRunner = ProcessRunner()
     private var tmuxPath: String
     private var socketPath: String?
-
-    /// Active pipe-pane processes keyed by pane target
-    private var activePipes: [String: String] = [:]
 
     /// Current list of available panes (updated by refreshPanes)
     public private(set) var panes: [PaneInfo] = []
@@ -290,8 +284,8 @@ final public class TmuxService {
         _ target: String,
         scrollbackMultiplier: Int = 3
     ) async throws -> Data {
-        // Get pane dimensions
-        let (width, height) = try await getPaneDimensions(target)
+        // Get pane height for scrollback calculation
+        let (_, height) = try await getPaneDimensions(target)
         let scrollbackLines = height * scrollbackMultiplier
 
         // Capture scrollback WITH escape codes
@@ -317,23 +311,20 @@ final public class TmuxService {
         var output = ""
 
         // Part 1: Output scrollback with filtered escape codes (keep only SGR/colors)
-        // Each line is padded to terminal width to ensure proper line boundaries
         if scrollbackResult.isSuccess {
             let scrollbackContent = scrollbackResult.stdoutString
             let scrollbackLinesList = scrollbackContent.split(separator: "\n", omittingEmptySubsequences: false)
 
             for line in scrollbackLinesList {
-                // Filter to colors only and pad/truncate to width
-                let filtered = filterToColorCodesOnly(String(line))
-                let visibleLength = countVisibleCharacters(filtered)
-
+                // Strip any trailing CR (tmux may output \r\n line endings)
+                var lineStr = String(line)
+                if lineStr.hasSuffix("\r") {
+                    lineStr.removeLast()
+                }
+                // Filter to colors only, reset attributes, output content with newline
+                let filtered = filterToColorCodesOnly(lineStr)
                 output += "\u{1b}[0m" // Reset at start
                 output += filtered
-
-                // Pad with spaces to fill the terminal width, then reset and newline
-                if visibleLength < width {
-                    output += String(repeating: " ", count: width - visibleLength)
-                }
                 output += "\u{1b}[0m\r\n" // Reset, carriage return, newline
             }
         }
@@ -358,40 +349,6 @@ final public class TmuxService {
         output += "\u{1b}[\(cursorY + 1);\(cursorX + 1)H"
 
         return Data(output.utf8)
-    }
-
-    /// Counts visible characters in a string, ignoring ANSI escape sequences
-    private func countVisibleCharacters(_ input: String) -> Int {
-        var count = 0
-        var i = input.startIndex
-
-        while i < input.endIndex {
-            if input[i] == "\u{1b}", input.index(after: i) < input.endIndex {
-                let nextIndex = input.index(after: i)
-                if input[nextIndex] == "[" {
-                    // Skip CSI sequence
-                    var endIndex = input.index(after: nextIndex)
-                    while endIndex < input.endIndex {
-                        let char = input[endIndex]
-                        if char >= "@" && char <= "~" {
-                            i = input.index(after: endIndex)
-                            break
-                        }
-                        endIndex = input.index(after: endIndex)
-                    }
-                    if endIndex >= input.endIndex {
-                        i = input.index(after: i)
-                    }
-                } else {
-                    i = input.index(after: i)
-                }
-            } else {
-                count += 1
-                i = input.index(after: i)
-            }
-        }
-
-        return count
     }
 
     /// Filters ANSI escape codes, keeping only SGR (color/style) codes.
@@ -438,34 +395,6 @@ final public class TmuxService {
         return result
     }
 
-    /// Starts pipe-pane to stream output to a named pipe
-    /// - Parameter target: The pane target
-    /// - Returns: The path to the created FIFO
-    public func startPipePipe(_ target: String) async throws -> String {
-        // Generate unique FIFO path
-        let fifoPath = "/tmp/tmux-mirror-\(UUID().uuidString).fifo"
-
-        // Create the FIFO
-        let fifoReader = FIFOReader(path: fifoPath)
-        try await fifoReader.createFIFO()
-
-        // Start pipe-pane
-        let result = try await runTmuxCommand([
-            "pipe-pane",
-            "-t", target,
-            "cat > \(fifoPath)",
-        ])
-
-        guard result.isSuccess else {
-            // Clean up FIFO on failure
-            await fifoReader.stop()
-            throw TmuxError.pipeError(message: result.stderrString)
-        }
-
-        activePipes[target] = fifoPath
-        return fifoPath
-    }
-
     /// Forces a pane to redraw by sending Ctrl+L
     public func forceRedraw(_ target: String) async throws {
         _ = try await runTmuxCommand([
@@ -500,21 +429,6 @@ final public class TmuxService {
             "-t", target,
             "C-c",
         ])
-    }
-
-    /// Stops pipe-pane for a target
-    public func stopPipePipe(_ target: String) async throws {
-        // Stop pipe-pane by running it with no command
-        _ = try await runTmuxCommand([
-            "pipe-pane",
-            "-t", target,
-        ])
-
-        // Clean up FIFO if we know about it
-        if let fifoPath = activePipes[target] {
-            try? FileManager.default.removeItem(atPath: fifoPath)
-            activePipes.removeValue(forKey: target)
-        }
     }
 
     /// Gets the pane ID for a target

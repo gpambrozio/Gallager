@@ -216,5 +216,11 @@
         var scrollPosition: Double {
             terminalView.scrollPosition
         }
+
+        /// Returns the optimal frame size for the current terminal dimensions.
+        /// This accounts for cell size and internal scroller width.
+        func getOptimalFrameSize() -> NSRect {
+            terminalView.getOptimalFrameSize()
+        }
     }
 #endif

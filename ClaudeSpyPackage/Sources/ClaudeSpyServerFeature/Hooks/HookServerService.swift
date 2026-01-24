@@ -97,7 +97,9 @@ public actor HookServerService {
         }
 
         // Main hook endpoint - receives all hook types
-        app.post("api", "hooks") { [weak self] req async throws -> Response in
+        // Increase body size limit to 50MB to handle large tool payloads
+        // (e.g., Write/Edit tools with large file content)
+        app.on(.POST, "api", "hooks", body: .collect(maxSize: "50mb")) { [weak self] req async throws -> Response in
             guard let self else {
                 throw Abort(.internalServerError)
             }
