@@ -42,6 +42,9 @@
         /// E2EE service for encryption
         public private(set) var e2eeService: E2EEService?
 
+        /// Dock icon visibility manager
+        public let dockIconManager: DockIconManager
+
         // MARK: - Private Services
 
         private let hookServer: HookServerService
@@ -97,6 +100,9 @@
             // Create hook server
             self.hookServer = HookServerService()
 
+            // Create dock icon manager
+            self.dockIconManager = DockIconManager()
+
             // CRITICAL: Load E2EEService synchronously from Keychain BEFORE any view rendering.
             // This prevents createPairingManager() from generating temporary keys.
             if let e2ee = try? E2EEService.loadFromKeychainSync() {
@@ -123,6 +129,9 @@
         public func setupAllServices() async {
             guard !isServiceSetupComplete else { return }
             isServiceSetupComplete = true
+
+            // Start dock icon management (hides dock icon initially, shows when windows open)
+            dockIconManager.startObserving()
 
             // Set up session state handler for external server
             setupSessionStateHandler()
