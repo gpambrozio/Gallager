@@ -2,6 +2,52 @@ import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import SwiftUI
 
+// MARK: - Permission UI Extensions
+
+extension PermissionDestination {
+    /// Badge text for UI display
+    var badgeText: String {
+        switch self {
+        case .session: "THIS SESSION"
+        case .localSettings: "ALWAYS"
+        case let .other(val): val.uppercased()
+        }
+    }
+
+    /// Badge color for UI display
+    var badgeColor: Color {
+        switch self {
+        case .session: .blue
+        case .localSettings: .orange
+        case .other: .gray
+        }
+    }
+}
+
+extension PermissionSuggestion {
+    /// Human-readable description of the suggestion
+    var humanReadableDescription: String {
+        switch (type, destination) {
+        case (.addRules, .session):
+            "Allow for this session"
+        case (.addRules, .localSettings):
+            "Remember and always allow"
+        case (.addDirectories, .session):
+            "Allow directory for this session"
+        case (.addDirectories, .localSettings):
+            "Remember and always allow directory"
+        case (.setMode, .session):
+            "Set mode for this session"
+        case (.setMode, .localSettings):
+            "Save mode to settings"
+        default:
+            [type?.displayName, "for", destination?.stringValue.lowercased()]
+                .compactMap { $0 }
+                .joined(separator: " ")
+        }
+    }
+}
+
 // MARK: - Permission Request Response View
 
 /// Accept/Reject buttons with permission suggestions for permission requests.
@@ -50,9 +96,36 @@ struct PermissionRequestResponseView: View {
         .padding(.vertical, 4)
     }
 
+    // MARK: - Permission Content
+
     private var permissionContent: some View {
         VStack(spacing: 12) {
-            // Show what's being requested
+            // Tool request card
+            toolRequestCard
+
+            // Side-by-side action buttons
+            actionButtonRow
+
+            // Permission suggestions card (if any)
+            if !suggestions.isEmpty {
+                suggestionCard
+            }
+
+            // Custom instructions
+            customInstructionsSection
+
+            if state.isSending {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    // MARK: - Tool Request Card
+
+    private var toolRequestCard: some View {
+        Group {
             if let tool = request.toolInput {
                 ToolInputView(tool: tool)
             } else if let toolName = request.toolName {
@@ -65,28 +138,17 @@ struct PermissionRequestResponseView: View {
                 }
                 .font(.subheadline)
             }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.1)))
+    }
 
-            // Accept button
-            Button {
-                Task {
-                    await sendCommand(.sendKeystroke([.text("1")]))
-                    state.response = .accepted
-                }
-            } label: {
-                Label("Accept", symbol: .checkmarkCircleFill)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.roundedRectangle(radius: 12))
-            .tint(.green)
-            .disabled(!isConnected || state.isSending)
+    // MARK: - Action Buttons
 
-            // Permission suggestions (single combined button)
-            if !suggestions.isEmpty {
-                combinedSuggestionsButton
-            }
-
-            // Reject button
+    private var actionButtonRow: some View {
+        HStack(spacing: 12) {
+            // Reject button (left)
             Button {
                 Task {
                     await sendCommand(.sendKeystroke([.escape]))
@@ -101,107 +163,97 @@ struct PermissionRequestResponseView: View {
             .tint(.red)
             .disabled(!isConnected || state.isSending)
 
-            // Custom instructions text area
-            VStack(spacing: 8) {
-                TextField("Custom instructions...", text: $customInstructions, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(2...4)
-                    .padding(12)
-                    .background(textFieldBackground)
-                    .overlay(textFieldBorder)
-                    .focused($isTextFieldFocused)
-                    .disabled(state.isSending || !isConnected)
-
-                if !isInputEmpty {
-                    HStack {
-                        Spacer()
-                        Button {
-                            Task {
-                                await sendCustomInstructions()
-                            }
-                        } label: {
-                            Text("Send")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(isInputEmpty || state.isSending || !isConnected)
-                    }
+            // Accept button (right)
+            Button {
+                Task {
+                    await sendCommand(.sendKeystroke([.text("1")]))
+                    state.response = .accepted
                 }
+            } label: {
+                Label("Accept", symbol: .checkmarkCircleFill)
+                    .frame(maxWidth: .infinity)
             }
-
-            if state.isSending {
-                ProgressView()
-                    .controlSize(.small)
-            }
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.roundedRectangle(radius: 12))
+            .tint(.green)
+            .disabled(!isConnected || state.isSending)
         }
-        .padding(.vertical, 4)
     }
 
-    private var combinedSuggestionsButton: some View {
-        Button {
-            Task {
-                // Send "2" to select the first suggestion option
-                await sendCommand(.sendKeystroke([.text("2")]))
-                state.response = .acceptedWithSuggestion
-            }
-        } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Accept Suggestion:")
-                    .fontWeight(.medium)
-                ForEach(Array(suggestions.enumerated()), id: \.offset) { _, suggestion in
-                    suggestionLabel(for: suggestion)
-                }
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.roundedRectangle(radius: 12))
-        .tint(.blue)
-        .disabled(!isConnected || state.isSending)
-    }
+    // MARK: - Suggestion Card
 
-    private func suggestionLabel(for suggestion: PermissionSuggestion) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            // Build a descriptive label from the suggestion
-            let parts: [String?] = [
-                suggestion.type?.stringValue,
-                suggestion.behavior?.stringValue,
-                "to",
-                suggestion.destination?.stringValue,
-            ]
-
-            HStack(spacing: 4) {
-                Text(parts.compactMap(\.self).joined(separator: " "))
+    private var suggestionCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header
+            HStack(spacing: 6) {
+                Symbols.lockFill.image
+                    .foregroundStyle(.blue)
+                Text("Save Permission Rule")
+                    .font(.subheadline.weight(.semibold))
                 Spacer()
             }
 
-            if let rules = suggestion.rules {
-                ForEach(Array(rules.enumerated()), id: \.offset) { _, rule in
-                    HStack(alignment: .top, spacing: 4) {
-                        if let toolName = rule.toolName {
-                            Text(toolName)
-                        }
+            // Suggestions list (group by destination - only show header for first in each group)
+            ForEach(Array(suggestions.enumerated()), id: \.offset) { index, suggestion in
+                let previousDestination = index > 0 ? suggestions[index - 1].destination : nil
+                let showHeader = suggestion.destination != previousDestination
+                SuggestionRow(suggestion: suggestion, showHeader: showHeader)
+            }
 
-                        if let ruleContent = rule.ruleContent {
-                            Text(ruleContent)
-                        }
+            // Accept with suggestion button
+            Button {
+                Task {
+                    await sendCommand(.sendKeystroke([.text("2")]))
+                    state.response = .acceptedWithSuggestion
+                }
+            } label: {
+                Text("Accept with Rule")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.roundedRectangle(radius: 12))
+            .tint(.blue)
+            .disabled(!isConnected || state.isSending)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.05)))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.blue.opacity(0.2), lineWidth: 1)
+        )
+    }
 
-                        Spacer()
+    // MARK: - Custom Instructions
+
+    private var customInstructionsSection: some View {
+        VStack(spacing: 8) {
+            TextField("Custom instructions...", text: $customInstructions, axis: .vertical)
+                .textFieldStyle(.plain)
+                .lineLimit(2...4)
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.1)))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                )
+                .focused($isTextFieldFocused)
+                .disabled(state.isSending || !isConnected)
+
+            if !isInputEmpty {
+                HStack {
+                    Spacer()
+                    Button {
+                        Task {
+                            await sendCustomInstructions()
+                        }
+                    } label: {
+                        Text("Send")
                     }
-                    .padding(.leading, 12)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isInputEmpty || state.isSending || !isConnected)
                 }
             }
         }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var textFieldBackground: some View {
-        RoundedRectangle(cornerRadius: 12)
-            .fill(Color.gray.opacity(0.1))
-    }
-
-    private var textFieldBorder: some View {
-        RoundedRectangle(cornerRadius: 12)
-            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
     }
 
     private func sendCustomInstructions() async {
@@ -215,6 +267,76 @@ struct PermissionRequestResponseView: View {
         customInstructions = ""
         state.isSending = false
         state.response = .customInstructions(sentText)
+    }
+}
+
+// MARK: - Suggestion Row
+
+private struct SuggestionRow: View {
+    let suggestion: PermissionSuggestion
+    var showHeader = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Destination badge + description (only shown for first in each destination group)
+            if showHeader {
+                HStack(spacing: 8) {
+                    if let destination = suggestion.destination {
+                        DestinationBadge(destination: destination)
+                    }
+                    Text(suggestion.humanReadableDescription)
+                        .font(.subheadline)
+                    Spacer()
+                }
+            }
+
+            // Rules (always shown)
+            if let rules = suggestion.rules, !rules.isEmpty {
+                ForEach(Array(rules.enumerated()), id: \.offset) { _, rule in
+                    RuleRow(rule: rule)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Destination Badge
+
+private struct DestinationBadge: View {
+    let destination: PermissionDestination
+
+    var body: some View {
+        Text(destination.badgeText)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(destination.badgeColor))
+    }
+}
+
+// MARK: - Rule Row
+
+private struct RuleRow: View {
+    let rule: PermissionRule
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if let toolName = rule.toolName {
+                Text(toolName)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.blue)
+            }
+            if let content = rule.ruleContent {
+                Text(content)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.primary)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(RoundedRectangle(cornerRadius: 4).fill(Color.gray.opacity(0.1)))
     }
 }
 
@@ -276,16 +398,10 @@ struct ToolInputView: View {
                 }
 
             case let .bash(params):
-                headerRow("Execute Command")
+                headerRow("Run Command")
                 detailRow("Command:", params.command, maxLines: 3)
                 if let desc = params.description {
-                    detailRow("Description:", desc, maxLines: 2)
-                }
-                if let timeout = params.timeout {
-                    detailRow("Timeout:", "\(timeout / 1_000)s")
-                }
-                if params.runInBackground == true {
-                    detailRow("Mode:", "Background execution")
+                    detailRow("Description:", desc, maxLines: 3)
                 }
 
             case let .bashOutput(params):
@@ -371,8 +487,11 @@ struct ToolInputView: View {
     private func headerRow(_ text: String) -> some View {
         GridRow {
             Text(text)
-                .fontWeight(.semibold)
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.primary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(Color.blue.opacity(0.15)))
                 .gridCellColumns(2)
                 .frame(maxWidth: .infinity, alignment: .center)
         }
@@ -381,12 +500,16 @@ struct ToolInputView: View {
     private func detailRow(_ label: String, _ value: String, maxLines: Int = 1) -> some View {
         GridRow {
             Text(label)
+                .font(.callout)
                 .foregroundStyle(.secondary)
                 .gridColumnAlignment(.trailing)
             Text(value)
+                .font(.callout)
                 .fontWeight(.medium)
+                .multilineTextAlignment(.leading)
                 .lineLimit(maxLines)
                 .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
                 .gridColumnAlignment(.leading)
         }
     }
@@ -414,12 +537,14 @@ extension PermissionRequestBody {
             sessionId: "test-session",
             hookEventName: "PermissionRequest",
             toolName: "Bash",
+            toolInput: .bash(
+                .init(
+                    command: "git status",
+                    description: "Check git status"
+                )
+            ),
             permissionSuggestions: [
-                PermissionSuggestion(
-                    type: .addRules,
-                    behavior: .allow,
-                    destination: .session
-                ),
+                // Two session-scoped suggestions (badge shown only on first)
                 PermissionSuggestion(
                     type: .addRules,
                     rules: [
@@ -428,6 +553,15 @@ extension PermissionRequestBody {
                     behavior: .allow,
                     destination: .session
                 ),
+                PermissionSuggestion(
+                    type: .addRules,
+                    rules: [
+                        PermissionRule(toolName: "Bash", ruleContent: "git diff"),
+                    ],
+                    behavior: .allow,
+                    destination: .session
+                ),
+                // Different destination - badge shown again
                 PermissionSuggestion(
                     type: .addRules,
                     rules: [

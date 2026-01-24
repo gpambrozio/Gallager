@@ -556,7 +556,7 @@ public enum PermissionBehavior: Codable, Sendable {
 }
 
 /// The destination for where the permission should be saved
-public enum PermissionDestination: Codable, Sendable {
+public enum PermissionDestination: Codable, Sendable, Equatable {
     case session
     case localSettings
     case other(String)
