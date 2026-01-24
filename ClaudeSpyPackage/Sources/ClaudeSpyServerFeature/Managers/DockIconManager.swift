@@ -8,7 +8,7 @@ import AppKit
 /// the dock icon when the user is actively working with windows.
 @MainActor
 final public class DockIconManager {
-    private var isObserving = false
+    private var observationTask: Task<Void, Never>?
 
     /// Window identifiers to ignore when counting visible windows
     /// (e.g., menu bar popups, status item windows)
@@ -23,80 +23,71 @@ final public class DockIconManager {
     /// Starts observing window changes and sets initial activation policy.
     /// Call this once during app startup.
     public func startObserving() {
-        guard !isObserving else { return }
-        isObserving = true
+        guard observationTask == nil else { return }
 
         // Set initial policy to accessory (no dock icon)
         NSApp.setActivationPolicy(.accessory)
 
-        // Observe window visibility changes
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(windowDidBecomeVisible),
-            name: NSWindow.didBecomeKeyNotification,
-            object: nil
-        )
+        // Start observing window notifications using async streams
+        observationTask = Task {
+            await withTaskGroup(of: Void.self) { group in
+                // Window became key (focused)
+                group.addTask { @MainActor in
+                    for await notification in NotificationCenter.default.notifications(
+                        named: NSWindow.didBecomeKeyNotification
+                    ) {
+                        self.handleWindowVisible(notification)
+                    }
+                }
 
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(windowDidBecomeVisible),
-            name: NSWindow.didBecomeMainNotification,
-            object: nil
-        )
+                // Window became main
+                group.addTask { @MainActor in
+                    for await notification in NotificationCenter.default.notifications(
+                        named: NSWindow.didBecomeMainNotification
+                    ) {
+                        self.handleWindowVisible(notification)
+                    }
+                }
 
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(windowWillClose),
-            name: NSWindow.willCloseNotification,
-            object: nil
-        )
+                // Window will close
+                group.addTask { @MainActor in
+                    for await _ in NotificationCenter.default.notifications(
+                        named: NSWindow.willCloseNotification
+                    ) {
+                        await self.handleWindowClosing()
+                    }
+                }
 
-        // Also observe when windows are ordered out (hidden without closing)
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(windowDidResignKey),
-            name: NSWindow.didResignKeyNotification,
-            object: nil
-        )
+                // Window resigned key (lost focus, may be hidden)
+                group.addTask { @MainActor in
+                    for await _ in NotificationCenter.default.notifications(
+                        named: NSWindow.didResignKeyNotification
+                    ) {
+                        await self.handleWindowClosing()
+                    }
+                }
+            }
+        }
     }
 
     /// Stops observing window changes.
     public func stopObserving() {
-        guard isObserving else { return }
-        isObserving = false
-
-        NotificationCenter.default.removeObserver(self)
-    }
-
-    deinit {
-        NotificationCenter.default.removeObserver(self)
+        observationTask?.cancel()
+        observationTask = nil
     }
 
     // MARK: - Notification Handlers
 
-    @objc private func windowDidBecomeVisible(_ notification: Notification) {
+    private func handleWindowVisible(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
-
-        // Ignore non-regular windows
         guard isRelevantWindow(window) else { return }
-
         updateActivationPolicy()
     }
 
-    @objc private func windowWillClose(_ notification: Notification) {
+    private func handleWindowClosing() async {
         // Delay the check slightly to allow the window to fully close
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(100))
-            self.updateActivationPolicy()
-        }
-    }
-
-    @objc private func windowDidResignKey(_ notification: Notification) {
-        // Check if we need to hide dock icon after window operations
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(100))
-            self.updateActivationPolicy()
-        }
+        try? await Task.sleep(for: .milliseconds(100))
+        updateActivationPolicy()
     }
 
     // MARK: - Private Methods
