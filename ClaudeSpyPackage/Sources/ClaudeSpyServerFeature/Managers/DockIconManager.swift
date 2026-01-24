@@ -90,7 +90,12 @@ final public class DockIconManager {
 
     private func handleWindowClosing() async {
         // Delay the check slightly to allow the window to fully close
-        try? await Task.sleep(for: .milliseconds(100))
+        do {
+            try await Task.sleep(for: .milliseconds(100))
+        } catch {
+            // Task was cancelled, don't update policy
+            return
+        }
         updateActivationPolicy()
     }
 
@@ -98,9 +103,14 @@ final public class DockIconManager {
 
     /// Checks if a window is a relevant app window (not menu bar, popup, etc.)
     private func isRelevantWindow(_ window: NSWindow) -> Bool {
-        let className = String(describing: type(of: window))
+        // Filter by window level - only normal level windows are app windows
+        // This catches status bar windows, popups, menus, floating panels, etc.
+        guard window.level == .normal else {
+            return false
+        }
 
-        // Ignore known non-app windows
+        // Secondary check: ignore known system window classes (in case level check isn't sufficient)
+        let className = String(describing: type(of: window))
         if ignoredWindowClasses.contains(className) {
             return false
         }
