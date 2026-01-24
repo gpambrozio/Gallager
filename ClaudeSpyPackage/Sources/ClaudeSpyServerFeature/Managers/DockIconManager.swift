@@ -20,6 +20,10 @@ final public class DockIconManager {
 
     public init() {}
 
+    deinit {
+        observationTask?.cancel()
+    }
+
     /// Starts observing window changes and sets initial activation policy.
     /// Call this once during app startup.
     public func startObserving() {
