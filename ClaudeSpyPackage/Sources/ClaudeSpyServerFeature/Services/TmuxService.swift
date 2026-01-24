@@ -288,8 +288,11 @@ final public class TmuxService {
         let (_, height) = try await getPaneDimensions(target)
         let scrollbackLines = height * scrollbackMultiplier
 
-        // Capture scrollback WITH escape codes
-        let scrollbackArgs = ["capture-pane", "-t", target, "-p", "-e", "-S", "-\(scrollbackLines)", "-E", "-1"]
+        // Capture scrollback + visible area together (no -E flag means capture through visible end)
+        // This ensures that when we output with \r\n and content scrolls, the scrollback buffer
+        // gets fully populated before Part 2 overwrites the visible area.
+        // Without this, the tail of scrollback output ends up in visible and gets lost.
+        let scrollbackArgs = ["capture-pane", "-t", target, "-p", "-e", "-S", "-\(scrollbackLines)"]
         let scrollbackResult = try await runTmuxCommand(scrollbackArgs)
 
         // Capture visible area WITH escape codes for colors
