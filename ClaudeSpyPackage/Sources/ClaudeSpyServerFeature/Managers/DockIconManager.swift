@@ -31,6 +31,9 @@ final public class DockIconManager {
     public func startObserving() {
         guard observationTask == nil else { return }
 
+        // Check initial window state - windows may already be open before we started observing
+        updateActivationPolicy()
+
         // Start observing window notifications using async streams
         observationTask = Task { [weak self] in
             await self?.observeWindowNotifications()

@@ -209,6 +209,6 @@ See `docs/e2ee-encryption-plan.md` for full design.
 - `ClaudeSpyEncryption/KeyManager.swift`
 - `ClaudeSpyNotificationExtension/NotificationService.swift`
 
-**Encrypted types:** hookEvent, sessionState, command, commandResponse, terminalSnapshot
+**Encrypted types:** hookEvent, sessionState, command, commandResponse, terminalStream
 
 **Unencrypted types:** registerMac/registerIOS, ping/pong, iosConnected/Disconnected, encryptedPush

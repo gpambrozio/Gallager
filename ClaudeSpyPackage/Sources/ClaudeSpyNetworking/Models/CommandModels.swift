@@ -295,21 +295,6 @@ public struct CancelOperation: CommandSpec, Equatable {
     }
 }
 
-/// Capture a terminal snapshot. Returns the snapshot data.
-public struct CaptureSnapshot: CommandSpec, Equatable {
-    public typealias Response = TerminalSnapshotMessage
-
-    public let scrollbackMultiplier: Int
-
-    public init(scrollbackMultiplier: Int) {
-        self.scrollbackMultiplier = scrollbackMultiplier
-    }
-
-    public var commandType: CommandType {
-        .captureSnapshot(self)
-    }
-}
-
 /// Start streaming terminal output to iOS. Returns success/failure.
 public struct StartTerminalStream: CommandSpec, Equatable {
     public typealias Response = CommandResponseMessage
@@ -366,8 +351,6 @@ public enum CommandType: Codable, Sendable, Equatable {
     case sendKeystroke(SendKeystroke)
     /// Cancel current operation (Ctrl+C)
     case cancelOperation(CancelOperation)
-    /// Capture a terminal snapshot with scrollback
-    case captureSnapshot(CaptureSnapshot)
     /// Start streaming terminal output
     case startTerminalStream(StartTerminalStream)
     /// Stop streaming terminal output
@@ -385,11 +368,6 @@ public enum CommandType: Codable, Sendable, Equatable {
     /// Create a cancelOperation command
     public static var cancelOperation: CommandType {
         .cancelOperation(CancelOperation())
-    }
-
-    /// Create a captureSnapshot command with the given scrollback multiplier
-    public static func captureSnapshot(scrollbackMultiplier: Int) -> CommandType {
-        .captureSnapshot(CaptureSnapshot(scrollbackMultiplier: scrollbackMultiplier))
     }
 
     /// Create a startTerminalStream command
@@ -454,50 +432,5 @@ public struct CommandResponseMessage: Codable, Sendable {
 
     public static func failure(for commandId: UUID, error: String) -> CommandResponseMessage {
         CommandResponseMessage(commandId: commandId, success: false, error: error)
-    }
-}
-
-// MARK: - Terminal Snapshot
-
-/// Response containing a terminal snapshot with content and dimensions
-public struct TerminalSnapshotMessage: Codable, Sendable, Identifiable, Hashable {
-    public var id: UUID { commandId }
-    /// The command ID this snapshot responds to
-    public let commandId: UUID
-
-    /// The pane ID that was captured
-    public let paneId: String
-
-    /// Terminal width in character columns
-    public let width: Int
-
-    /// Terminal height in character rows (visible area)
-    public let height: Int
-
-    /// Total number of lines including scrollback
-    public let totalLines: Int
-
-    /// The captured content as Base64-encoded data (raw bytes with ANSI escape sequences)
-    public let contentBase64: String
-
-    public init(
-        commandId: UUID,
-        paneId: String,
-        width: Int,
-        height: Int,
-        totalLines: Int,
-        content: Data
-    ) {
-        self.commandId = commandId
-        self.paneId = paneId
-        self.width = width
-        self.height = height
-        self.totalLines = totalLines
-        self.contentBase64 = content.base64EncodedString()
-    }
-
-    /// Decodes the content from Base64
-    public var content: Data? {
-        Data(base64Encoded: contentBase64)
     }
 }

@@ -49,7 +49,6 @@
 
         private let hookServer: HookServerService
         private var commandExecutor: TmuxCommandExecutor?
-        private var snapshotHandler: SnapshotHandler?
         private var isServiceSetupComplete = false
 
         private let logger = Logger(label: "com.claudespy.coordinator")
@@ -209,19 +208,10 @@
             let executor = TmuxCommandExecutor(tmuxService: tmuxService)
             commandExecutor = executor
 
-            // Create snapshot handler
-            let handler = SnapshotHandler(tmuxService: tmuxService, serverClient: externalServerClient)
-            snapshotHandler = handler
-
             // Set up command handler - called when iOS sends a command
             let streamService = terminalStreamService
             let tmux = tmuxService
-            externalServerClient.setCommandHandler { [executor, handler, streamService, tmux] command in
-                // Handle snapshot commands specially
-                if case let .captureSnapshot(spec) = command.command {
-                    return await handler.handleSnapshotCommand(command, scrollbackMultiplier: spec.scrollbackMultiplier)
-                }
-
+            externalServerClient.setCommandHandler { [executor, streamService, tmux] command in
                 // Handle stream commands
                 if case .startTerminalStream = command.command {
                     return await Self.handleStartStream(

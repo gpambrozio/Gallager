@@ -35,7 +35,7 @@ Reference: [CryptoKit Basics: End-to-End Encryption](https://dev.to/cardoso/cryp
 | Message Type | Sensitive Data | Priority |
 |--------------|----------------|----------|
 | `hookEvent` | Project paths, tool inputs/outputs, session IDs | **Critical** |
-| `terminalSnapshot` | Terminal content (may contain secrets) | **Critical** |
+| `terminalStream` | Terminal content (may contain secrets) | **Critical** |
 | `command` | Keystrokes (may contain passwords) | **High** |
 | `commandResponse` | Execution results | **High** |
 | `sessionState` | Session metadata, recent events | **Medium** |
