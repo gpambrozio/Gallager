@@ -29,41 +29,41 @@ final public class DockIconManager {
         NSApp.setActivationPolicy(.accessory)
 
         // Start observing window notifications using async streams
-        observationTask = Task {
+        observationTask = Task { [weak self] in
             await withTaskGroup(of: Void.self) { group in
                 // Window became key (focused)
-                group.addTask { @MainActor in
+                group.addTask { @MainActor [weak self] in
                     for await notification in NotificationCenter.default.notifications(
                         named: NSWindow.didBecomeKeyNotification
                     ) {
-                        self.handleWindowVisible(notification)
+                        self?.handleWindowVisible(notification)
                     }
                 }
 
                 // Window became main
-                group.addTask { @MainActor in
+                group.addTask { @MainActor [weak self] in
                     for await notification in NotificationCenter.default.notifications(
                         named: NSWindow.didBecomeMainNotification
                     ) {
-                        self.handleWindowVisible(notification)
+                        self?.handleWindowVisible(notification)
                     }
                 }
 
                 // Window will close
-                group.addTask { @MainActor in
+                group.addTask { @MainActor [weak self] in
                     for await _ in NotificationCenter.default.notifications(
                         named: NSWindow.willCloseNotification
                     ) {
-                        await self.handleWindowClosing()
+                        await self?.handleWindowClosing()
                     }
                 }
 
                 // Window resigned key (lost focus, may be hidden)
-                group.addTask { @MainActor in
+                group.addTask { @MainActor [weak self] in
                     for await _ in NotificationCenter.default.notifications(
                         named: NSWindow.didResignKeyNotification
                     ) {
-                        await self.handleWindowClosing()
+                        await self?.handleWindowClosing()
                     }
                 }
             }
