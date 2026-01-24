@@ -39,8 +39,6 @@
                 _ = await relayClient.sendCommand(spec, paneId: paneId)
             case let .cancelOperation(spec):
                 _ = await relayClient.sendCommand(spec, paneId: paneId)
-            case let .captureSnapshot(spec):
-                _ = await relayClient.sendCommand(spec, paneId: paneId)
             case let .startTerminalStream(spec):
                 _ = await relayClient.sendCommand(spec, paneId: paneId)
             case let .stopTerminalStream(spec):

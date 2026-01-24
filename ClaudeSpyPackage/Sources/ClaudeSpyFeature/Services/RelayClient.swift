@@ -518,13 +518,6 @@ final public class RelayClient {
                 }
             }
 
-        case let .terminalSnapshot(snapshot):
-            logger.info("Received terminal snapshot from Mac")
-            // Resume any pending handler for this snapshot command
-            if let handler = pendingCommands.removeValue(forKey: snapshot.commandId) {
-                handler(.success(snapshot))
-            }
-
         case let .terminalStream(streamMessage):
             logger.debug("Received terminal stream for pane \(streamMessage.paneId)")
             onTerminalStream?(streamMessage)

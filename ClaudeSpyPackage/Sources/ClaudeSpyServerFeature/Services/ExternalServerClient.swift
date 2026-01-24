@@ -266,24 +266,6 @@ final public class ExternalServerClient {
         await sendEncryptedPushNotification(for: event)
     }
 
-    /// Send a terminal snapshot to iOS (encrypted)
-    public func sendTerminalSnapshot(_ snapshot: TerminalSnapshotMessage) async {
-        guard state.isConnected else {
-            logger.debug("Not connected, cannot send terminal snapshot")
-            return
-        }
-
-        let contentSize = snapshot.contentBase64.count
-        logger.info("Sending terminal snapshot", metadata: [
-            "paneId": "\(snapshot.paneId)",
-            "dimensions": "\(snapshot.width)x\(snapshot.totalLines)",
-            "contentSize": "\(contentSize) bytes",
-        ])
-
-        let message = WebSocketMessage.terminalSnapshot(snapshot)
-        await sendEncrypted(message)
-    }
-
     /// Send terminal stream data to iOS (encrypted)
     public func sendTerminalStream(_ streamMessage: TerminalStreamMessage) async {
         guard state.isConnected else {

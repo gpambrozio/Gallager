@@ -37,10 +37,6 @@ public actor TmuxCommandExecutor {
             case .cancelOperation:
                 try await tmuxService.sendInterrupt(command.paneId)
 
-            case .captureSnapshot:
-                // Snapshot is handled specially - returns success here, data sent separately
-                logger.info("Capture snapshot command received (will be handled by caller)")
-
             case .startTerminalStream,
                  .stopTerminalStream,
                  .createTmuxSession:

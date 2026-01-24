@@ -289,7 +289,7 @@ sequenceDiagram
     PSM->>PS: connect()
     PS->>TCC: registerPaneHandler()
     TCC->>TMUX: (already in control mode)
-    PS->>PS: capturePaneWithScrollback()
+    PS->>PS: capturePaneWithScrollbackForStreaming()
     PS-->>PSM: onData(initial content)
     PSM-->>TSS: subscriber callback
     TSS->>ESC: sendTerminalStream(initialState)
