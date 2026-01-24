@@ -290,8 +290,8 @@ final public class TmuxService {
         _ target: String,
         scrollbackMultiplier: Int = 3
     ) async throws -> Data {
-        // Get pane dimensions
-        let (width, height) = try await getPaneDimensions(target)
+        // Get pane height for scrollback calculation
+        let (_, height) = try await getPaneDimensions(target)
         let scrollbackLines = height * scrollbackMultiplier
 
         // Capture scrollback WITH escape codes
@@ -317,23 +317,20 @@ final public class TmuxService {
         var output = ""
 
         // Part 1: Output scrollback with filtered escape codes (keep only SGR/colors)
-        // Each line is padded to terminal width to ensure proper line boundaries
         if scrollbackResult.isSuccess {
             let scrollbackContent = scrollbackResult.stdoutString
             let scrollbackLinesList = scrollbackContent.split(separator: "\n", omittingEmptySubsequences: false)
 
             for line in scrollbackLinesList {
-                // Filter to colors only and pad/truncate to width
-                let filtered = filterToColorCodesOnly(String(line))
-                let visibleLength = countVisibleCharacters(filtered)
-
+                // Strip any trailing CR (tmux may output \r\n line endings)
+                var lineStr = String(line)
+                if lineStr.hasSuffix("\r") {
+                    lineStr.removeLast()
+                }
+                // Filter to colors only, reset attributes, output content with newline
+                let filtered = filterToColorCodesOnly(lineStr)
                 output += "\u{1b}[0m" // Reset at start
                 output += filtered
-
-                // Pad with spaces to fill the terminal width, then reset and newline
-                if visibleLength < width {
-                    output += String(repeating: " ", count: width - visibleLength)
-                }
                 output += "\u{1b}[0m\r\n" // Reset, carriage return, newline
             }
         }
@@ -358,40 +355,6 @@ final public class TmuxService {
         output += "\u{1b}[\(cursorY + 1);\(cursorX + 1)H"
 
         return Data(output.utf8)
-    }
-
-    /// Counts visible characters in a string, ignoring ANSI escape sequences
-    private func countVisibleCharacters(_ input: String) -> Int {
-        var count = 0
-        var i = input.startIndex
-
-        while i < input.endIndex {
-            if input[i] == "\u{1b}", input.index(after: i) < input.endIndex {
-                let nextIndex = input.index(after: i)
-                if input[nextIndex] == "[" {
-                    // Skip CSI sequence
-                    var endIndex = input.index(after: nextIndex)
-                    while endIndex < input.endIndex {
-                        let char = input[endIndex]
-                        if char >= "@" && char <= "~" {
-                            i = input.index(after: endIndex)
-                            break
-                        }
-                        endIndex = input.index(after: endIndex)
-                    }
-                    if endIndex >= input.endIndex {
-                        i = input.index(after: i)
-                    }
-                } else {
-                    i = input.index(after: i)
-                }
-            } else {
-                count += 1
-                i = input.index(after: i)
-            }
-        }
-
-        return count
     }
 
     /// Filters ANSI escape codes, keeping only SGR (color/style) codes.
