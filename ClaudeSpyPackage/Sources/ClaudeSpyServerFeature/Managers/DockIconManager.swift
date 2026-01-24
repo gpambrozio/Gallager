@@ -15,10 +15,10 @@ final public class DockIconManager {
     private let ignoredWindowClasses: Set<String> = [
         "NSStatusBarWindow",
         "_NSPopoverWindow",
-        "NSMenuWindowManagerWindow"
+        "NSMenuWindowManagerWindow",
     ]
 
-    public init() {}
+    public init() { }
 
     deinit {
         observationTask?.cancel()
@@ -33,44 +33,8 @@ final public class DockIconManager {
         NSApp.setActivationPolicy(.accessory)
 
         // Start observing window notifications using async streams
-        observationTask = Task {
-            await withTaskGroup(of: Void.self) { group in
-                // Window became key (focused)
-                group.addTask { @MainActor [weak self] in
-                    for await notification in NotificationCenter.default.notifications(
-                        named: NSWindow.didBecomeKeyNotification
-                    ) {
-                        self?.handleWindowVisible(notification)
-                    }
-                }
-
-                // Window became main
-                group.addTask { @MainActor [weak self] in
-                    for await notification in NotificationCenter.default.notifications(
-                        named: NSWindow.didBecomeMainNotification
-                    ) {
-                        self?.handleWindowVisible(notification)
-                    }
-                }
-
-                // Window will close
-                group.addTask { @MainActor [weak self] in
-                    for await _ in NotificationCenter.default.notifications(
-                        named: NSWindow.willCloseNotification
-                    ) {
-                        await self?.handleWindowClosing()
-                    }
-                }
-
-                // Window resigned key (lost focus, may be hidden)
-                group.addTask { @MainActor [weak self] in
-                    for await _ in NotificationCenter.default.notifications(
-                        named: NSWindow.didResignKeyNotification
-                    ) {
-                        await self?.handleWindowClosing()
-                    }
-                }
-            }
+        observationTask = Task { [weak self] in
+            await self?.observeWindowNotifications()
         }
     }
 
@@ -78,6 +42,49 @@ final public class DockIconManager {
     public func stopObserving() {
         observationTask?.cancel()
         observationTask = nil
+    }
+
+    // MARK: - Notification Observation
+
+    private func observeWindowNotifications() async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await self.observeWindowBecameKey() }
+            group.addTask { await self.observeWindowBecameMain() }
+            group.addTask { await self.observeWindowWillClose() }
+            group.addTask { await self.observeWindowResignedKey() }
+        }
+    }
+
+    private func observeWindowBecameKey() async {
+        for await notification in NotificationCenter.default.notifications(
+            named: NSWindow.didBecomeKeyNotification
+        ) {
+            handleWindowVisible(notification)
+        }
+    }
+
+    private func observeWindowBecameMain() async {
+        for await notification in NotificationCenter.default.notifications(
+            named: NSWindow.didBecomeMainNotification
+        ) {
+            handleWindowVisible(notification)
+        }
+    }
+
+    private func observeWindowWillClose() async {
+        for await _ in NotificationCenter.default.notifications(
+            named: NSWindow.willCloseNotification
+        ) {
+            await handleWindowClosing()
+        }
+    }
+
+    private func observeWindowResignedKey() async {
+        for await _ in NotificationCenter.default.notifications(
+            named: NSWindow.didResignKeyNotification
+        ) {
+            await handleWindowClosing()
+        }
     }
 
     // MARK: - Notification Handlers
