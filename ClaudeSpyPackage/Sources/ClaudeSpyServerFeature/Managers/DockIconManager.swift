@@ -9,6 +9,7 @@ import AppKit
 @MainActor
 final public class DockIconManager {
     private var observationTask: Task<Void, Never>?
+    private var updatePolicyTask: Task<Void, Never>?
 
     /// Window identifiers to ignore when counting visible windows
     /// (e.g., menu bar popups, status item windows)
@@ -24,13 +25,11 @@ final public class DockIconManager {
         observationTask?.cancel()
     }
 
-    /// Starts observing window changes and sets initial activation policy.
+    /// Starts observing window changes.
     /// Call this once during app startup.
+    /// Note: The app's LSUIElement=YES in Info.plist already sets accessory policy by default.
     public func startObserving() {
         guard observationTask == nil else { return }
-
-        // Set initial policy to accessory (no dock icon)
-        NSApp.setActivationPolicy(.accessory)
 
         // Start observing window notifications using async streams
         observationTask = Task { [weak self] in
@@ -75,7 +74,7 @@ final public class DockIconManager {
         for await _ in NotificationCenter.default.notifications(
             named: NSWindow.willCloseNotification
         ) {
-            await handleWindowClosing()
+            handleWindowClosing()
         }
     }
 
@@ -83,7 +82,7 @@ final public class DockIconManager {
         for await _ in NotificationCenter.default.notifications(
             named: NSWindow.didResignKeyNotification
         ) {
-            await handleWindowClosing()
+            handleWindowClosing()
         }
     }
 
@@ -95,15 +94,19 @@ final public class DockIconManager {
         updateActivationPolicy()
     }
 
-    private func handleWindowClosing() async {
-        // Delay the check slightly to allow the window to fully close
-        do {
-            try await Task.sleep(for: .milliseconds(100))
-        } catch {
-            // Task was cancelled, don't update policy
-            return
+    private func handleWindowClosing() {
+        // Cancel any pending update and schedule a new one
+        // This ensures we only update once after rapid window close events
+        updatePolicyTask?.cancel()
+        updatePolicyTask = Task {
+            do {
+                try await Task.sleep(for: .milliseconds(100))
+                guard !Task.isCancelled else { return }
+                updateActivationPolicy()
+            } catch {
+                // Task was cancelled, don't update policy
+            }
         }
-        updateActivationPolicy()
     }
 
     // MARK: - Private Methods
@@ -123,11 +126,11 @@ final public class DockIconManager {
         }
 
         // Ignore windows without standard window features
-        // Regular windows have titled, closable style masks
+        // App windows typically have titled or closable style masks (or both)
         let hasTitle = window.styleMask.contains(.titled)
         let isClosable = window.styleMask.contains(.closable)
 
-        // Settings and regular windows should have title and be closable
+        // Accept windows with either title bar or close button
         guard hasTitle || isClosable else {
             return false
         }
