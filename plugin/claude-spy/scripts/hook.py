@@ -33,7 +33,9 @@ def main():
                      headers={'Content-Type': 'application/json'},
                      method='POST')
         with urlopen(req, timeout=5) as response:
-            print(response.read().decode('utf-8'))
+            # Read response but don't do anything with it
+            response.read().decode('utf-8')
+            exit(0)
     except (URLError, Exception):
         # Fallback response if server is not available
         exit(0)
