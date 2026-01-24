@@ -289,11 +289,15 @@ struct TerminalContainerView: NSViewRepresentable {
 
         /// Recalculates rows based on container height and resizes terminal
         private func recalculateRowsAndResize() {
-            let cellSize = FontMetrics.calculateCellSize(fontName: fontName, fontSize: fontSize)
-            guard cellSize.height > 0 else { return }
+            guard rows > 0 else { return }
+
+            // Derive cell height from SwiftTerm's optimal frame size
+            let currentOptimalSize = terminalView.getOptimalFrameSize().size
+            let cellHeight = currentOptimalSize.height / CGFloat(rows)
+            guard cellHeight > 0 else { return }
 
             // Calculate rows from container height
-            let newRows = max(1, Int(containerSize.height / cellSize.height))
+            let newRows = max(1, Int(containerSize.height / cellHeight))
 
             if newRows != rows {
                 rows = newRows
@@ -306,25 +310,10 @@ struct TerminalContainerView: NSViewRepresentable {
 
         // MARK: - Size Calculations
 
-        /// Returns the terminal width based on columns (for SwiftUI sizing)
-        func calculateTerminalWidth() -> CGFloat {
-            let cellSize = FontMetrics.calculateCellSize(fontName: fontName, fontSize: fontSize)
-            return CGFloat(columns) * cellSize.width + FontMetrics.horizontalBuffer
-        }
-
-        /// Returns the terminal height based on rows (for SwiftUI sizing)
-        func calculateTerminalHeight() -> CGFloat {
-            let cellSize = FontMetrics.calculateCellSize(fontName: fontName, fontSize: fontSize)
-            return CGFloat(rows) * cellSize.height
-        }
-
         private func updateTerminalFrameSize() {
-            let terminalWidth = calculateTerminalWidth()
-            let terminalHeight = calculateTerminalHeight()
-
-            // Set terminal size - ReadOnlyTerminalView handles horizontal scrolling internally
-            let terminalSize = NSSize(width: terminalWidth, height: terminalHeight)
-            terminalView.setTerminalSize(terminalSize)
+            // Let SwiftTerm tell us the optimal size - it knows its own cell dimensions and scroller width
+            let optimalSize = terminalView.getOptimalFrameSize().size
+            terminalView.setTerminalSize(optimalSize)
         }
 
         private func updateState(_ state: StreamState) {

@@ -9,31 +9,67 @@ Detailed documentation for ClaudeSpy services. Reference when modifying specific
 `@Observable @MainActor` class abstracting tmux CLI interactions.
 
 **Methods:**
-- `listPanes()` - discovers all panes across sessions
+- `refreshPanes()` - discovers all panes across sessions
 - `validatePane()` - checks if pane target exists
 - `capturePane()` - captures scrollback with ANSI sequences
-- `capturePaneWithPositioning()` - captures with cursor positioning
-- `startPipePipe()` / `stopPipePipe()` - manages FIFOs for streaming
+- `capturePaneWithScrollbackForStreaming()` - captures with cursor positioning for streaming init
 - `getPaneDimensions()` / `getPaneId()` - dimension tracking
+- `sendKeys()` / `sendInterrupt()` - send input to panes
+- `createSession()` - creates new tmux session with dimensions
 
 **Config:** `tmuxPath` (default: `/opt/homebrew/bin/tmux`), optional `socketPath`
+
+### TmuxControlClient (`ClaudeSpyServerFeature/Services/TmuxControlClient.swift`)
+
+Actor managing a `tmux -C attach` control mode connection.
+
+**Features:**
+- Connects to tmux session in control mode for structured event notifications
+- Parses control protocol: `%output`, `%layout-change`, `%begin/%end/%error`, `%exit`
+- Unescapes octal-encoded output (`\033` → ESC character)
+- Buffers output during resize to ensure clients get dimensions before new content
+- Sends commands and receives responses via `%begin/%end` blocks
+
+**Notifications:**
+- `onOutput(paneId, data)` - terminal output for a pane
+- `onDimensionChange(paneId, width, height)` - pane resized
+- `onExit(reason)` - control mode connection closed
+
+### TmuxControlClientManager (`ClaudeSpyServerFeature/Services/TmuxControlClientManager.swift`)
+
+`@Observable @MainActor` managing `TmuxControlClient` instances per session.
+
+**Methods:**
+- `getClient(for:)` - returns existing or creates new client for session
+- `registerPane()` / `unregisterPane()` - subscribe/unsubscribe to pane output
+- `extractSessionName(from:)` - parses session from pane target
+
+Multiple panes in the same session share one control client connection.
 
 ### PaneStream (`ClaudeSpyServerFeature/Services/PaneStream.swift`)
 
 `@Observable @MainActor` class managing streaming to a single pane.
 
-**States:** `disconnected` → `connecting` → `connected` | `paused` | `error`
+**States:** `disconnected` → `connecting` → `connected` | `error`
 
 **Data Flow:**
 ```
-TmuxService.startPipePipe() → FIFOReader → AsyncStream<Data>
-                                               ↓
-                               PaneStream buffers/yields
-                                               ↓
-                                TerminalController.feed(data)
+TmuxControlClient ──%output──→ TmuxControlClientManager
+                                        ↓
+                              PaneStream.onData callback
+                                        ↓
+                               TerminalController.feed(data)
+
+TmuxControlClient ──%layout-change──→ buffers output
+                                        ↓
+                              queries list-panes for dimensions
+                                        ↓
+                              sends onDimensionChange
+                                        ↓
+                              flushes buffered output
 ```
 
-**Features:** Initial content with cursor positioning, pause/resume buffering, dimension tracking
+**Features:** Initial content capture, real-time dimension updates via control mode
 
 ### MirrorWindowManager (`ClaudeSpyServerFeature/Managers/MirrorWindowManager.swift`)
 
@@ -113,14 +149,6 @@ TmuxService.startPipePipe() → FIFOReader → AsyncStream<Data>
 - `horizontalBuffer` - scroller compensation (width + 4px)
 
 See `docs/swiftterm-sizing.md` for sizing analysis.
-
-### FIFOReader (`ClaudeSpyServerFeature/Utilities/FIFOReader.swift`)
-
-Actor for named pipes.
-
-- `createFIFO()` - creates via `mkfifo()`
-- `startReading()` - returns `AsyncStream<Data>`
-- Handles EOF gracefully
 
 ### ProcessRunner (`ClaudeSpyServerFeature/Utilities/ProcessRunner.swift`)
 

@@ -65,7 +65,7 @@ Use: `Symbols.starFill.image` or `Label("Text", symbol: .starFill)`
 ### Concurrency
 
 - `@MainActor` for all UI
-- actors for I/O (ProcessRunner, FIFOReader)
+- actors for I/O (ProcessRunner, TmuxControlClient)
 - No GCD, Swift Concurrency only
 - All cross-boundary types must be `Sendable`
 

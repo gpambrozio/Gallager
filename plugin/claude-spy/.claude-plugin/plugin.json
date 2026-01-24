@@ -1,6 +1,6 @@
 {
   "name": "claude-spy",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Claude Spy allows you to spy and interact with local claude sessions.",
   "author": {
     "name": "Gustavo Ambrozio",

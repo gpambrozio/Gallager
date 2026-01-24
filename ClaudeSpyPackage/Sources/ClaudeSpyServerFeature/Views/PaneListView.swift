@@ -189,10 +189,17 @@ private struct PaneListPreview: View {
             }
         }
         .onAppear {
+            let controlClientManager = TmuxControlClientManager(
+                tmuxPath: settings.tmuxPath,
+                socketPath: settings.tmuxSocket.isEmpty ? nil : settings.tmuxSocket
+            )
             windowManager = MirrorWindowManager(
                 settings: settings,
                 tmuxService: tmuxService,
-                paneStreamManager: .init(tmuxService: tmuxService)
+                paneStreamManager: .init(
+                    tmuxService: tmuxService,
+                    controlClientManager: controlClientManager
+                )
             )
         }
     }
