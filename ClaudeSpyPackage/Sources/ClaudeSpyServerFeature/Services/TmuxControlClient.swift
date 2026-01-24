@@ -143,8 +143,9 @@ actor TmuxControlClient {
 
         // Set up termination handler
         process.terminationHandler = { [weak self] proc in
-            Task { [weak self] in
-                await self?.handleProcessTermination(exitCode: proc.terminationStatus)
+            guard let self else { return }
+            Task {
+                await self.handleProcessTermination(exitCode: proc.terminationStatus)
             }
         }
 
@@ -233,17 +234,24 @@ actor TmuxControlClient {
         let commandData = Data((command + "\n").utf8)
         try stdin.write(contentsOf: commandData)
 
-        // Wait for response with timeout
-        return try await withCheckedThrowingContinuation { continuation in
-            pendingCommands[commandNumber] = continuation
-
-            // Set up timeout
-            Task {
-                try? await Task.sleep(for: .seconds(timeout))
-                if let cont = self.pendingCommands.removeValue(forKey: commandNumber) {
-                    cont.resume(throwing: TmuxControlError.timeout)
-                }
+        // Create timeout task that we can cancel on success
+        let timeoutTask = Task {
+            try? await Task.sleep(for: .seconds(timeout))
+            if let cont = await self.pendingCommands.removeValue(forKey: commandNumber) {
+                cont.resume(throwing: TmuxControlError.timeout)
             }
+        }
+
+        // Wait for response
+        do {
+            let response = try await withCheckedThrowingContinuation { continuation in
+                pendingCommands[commandNumber] = continuation
+            }
+            timeoutTask.cancel()
+            return response
+        } catch {
+            timeoutTask.cancel()
+            throw error
         }
     }
 
@@ -537,16 +545,18 @@ actor TmuxControlClient {
         // Start buffering output until we've notified clients of new dimensions
         isBufferingOutput = true
 
-        await refreshStreamingPaneDimensions()
+        // Ensure buffering is always cleared, even on error
+        defer {
+            let buffered = outputBuffer
+            outputBuffer = []
+            isBufferingOutput = false
 
-        // Flush buffered output
-        let buffered = outputBuffer
-        outputBuffer = []
-        isBufferingOutput = false
-
-        for (paneId, data) in buffered {
-            deliverOutput(paneId: paneId, data: data)
+            for (paneId, data) in buffered {
+                deliverOutput(paneId: paneId, data: data)
+            }
         }
+
+        await refreshStreamingPaneDimensions()
     }
 
     private func refreshStreamingPaneDimensions() async {
