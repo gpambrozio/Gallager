@@ -491,9 +491,39 @@ actor TmuxControlClient {
     }
 
     private func deliverOutput(paneId: String, data: Data) {
-        if let handler = paneHandlers[paneId] {
-            handler(data)
+        guard let handler = paneHandlers[paneId] else { return }
+        // Filter out tmux-specific escape sequences that terminals don't understand
+        let filtered = filterTmuxEscapeSequences(data)
+        guard !filtered.isEmpty else { return }
+        handler(filtered)
+    }
+
+    /// Filters out tmux/screen-specific escape sequences that standard terminals don't handle.
+    /// - ESC k ... ESC \ : tmux title sequence (sets pane title)
+    /// Without filtering, terminals output the sequence content as literal text.
+    private func filterTmuxEscapeSequences(_ data: Data) -> Data {
+        var result = Data()
+        var i = data.startIndex
+
+        while i < data.endIndex {
+            // Check for ESC k (0x1B 0x6B) - start of tmux title sequence
+            if data[i] == 0x1B && i + 1 < data.endIndex && data[i + 1] == 0x6B {
+                // Skip until we find ESC \ (0x1B 0x5C) or end of data
+                i = data.index(i, offsetBy: 2) // Skip ESC k
+                while i < data.endIndex {
+                    if data[i] == 0x1B && i + 1 < data.endIndex && data[i + 1] == 0x5C {
+                        i = data.index(i, offsetBy: 2) // Skip ESC \
+                        break
+                    }
+                    i = data.index(after: i)
+                }
+            } else {
+                result.append(data[i])
+                i = data.index(after: i)
+            }
         }
+
+        return result
     }
 
     /// Unescapes tmux control mode output
