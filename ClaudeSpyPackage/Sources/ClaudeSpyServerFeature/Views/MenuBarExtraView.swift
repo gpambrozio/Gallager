@@ -76,6 +76,8 @@ public struct MenuBarExtraView: View {
 // MARK: - Menu Bar Label
 
 /// The label shown in the menu bar itself (sparkles icon with optional badge)
+/// Uses ImageRenderer to bypass SwiftUI's limitation where menu bar icons
+/// don't respect color modifiers directly.
 public struct MenuBarLabel: View {
     let pendingCount: Int
 
@@ -83,9 +85,35 @@ public struct MenuBarLabel: View {
         self.pendingCount = pendingCount
     }
 
+    /// The icon view with color and badge - rendered to NSImage (only used when pendingCount > 0)
+    private var iconView: some View {
+        HStack(spacing: 2) {
+            Symbols.handsAndSparklesFill.image
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(.red)
+
+            Text("\(pendingCount)")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 2)
+                .background(
+                    Capsule()
+                        .fill(.red)
+                )
+        }
+    }
+
+    /// Renders the icon view to an NSImage for proper color support
+    private var renderedImage: NSImage? {
+        let renderer = ImageRenderer(content: iconView)
+        renderer.scale = 2 // Retina
+        return renderer.nsImage
+    }
+
     public var body: some View {
-        if pendingCount > 0 {
-            Label("\(pendingCount)", symbol: .handsAndSparklesFill)
+        if pendingCount > 0, let image = renderedImage {
+            Image(nsImage: image)
         } else {
             Symbols.sparkles.image
         }
