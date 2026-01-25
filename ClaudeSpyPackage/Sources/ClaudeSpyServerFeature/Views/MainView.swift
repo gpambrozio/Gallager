@@ -329,7 +329,7 @@ private struct PaneSidebarRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
 
-                Text(abbreviatedPath(pane.currentPath))
+                Text(pane.currentPath.abbreviatedPath)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
@@ -339,13 +339,5 @@ private struct PaneSidebarRow: View {
         }
         .padding(.vertical, 4)
         .help(hasClaude ? "Claude Code session active" : "")
-    }
-
-    private func abbreviatedPath(_ path: String) -> String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        if path.hasPrefix(home) {
-            return "~" + path.dropFirst(home.count)
-        }
-        return path
     }
 }
