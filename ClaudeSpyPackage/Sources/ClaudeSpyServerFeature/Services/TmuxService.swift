@@ -248,11 +248,9 @@ final public class TmuxService {
         let (_, height) = try await getPaneDimensions(target)
         let scrollbackLines = height * scrollbackMultiplier
 
-        // Capture scrollback + visible area together (no -E flag means capture through visible end)
-        // This ensures that when we output with \r\n and content scrolls, the scrollback buffer
-        // gets fully populated before Part 2 overwrites the visible area.
-        // Without this, the tail of scrollback output ends up in visible and gets lost.
-        let scrollbackArgs = ["capture-pane", "-t", target, "-p", "-e", "-S", "-\(scrollbackLines)"]
+        // Capture scrollback only (ending at line -1, just before visible area)
+        // Using -E -1 ensures we don't duplicate visible area content with Part 2
+        let scrollbackArgs = ["capture-pane", "-t", target, "-p", "-e", "-S", "-\(scrollbackLines)", "-E", "-1"]
         let scrollbackResult = try await runTmuxCommand(scrollbackArgs)
 
         // Capture visible area WITH escape codes for colors
@@ -275,7 +273,11 @@ final public class TmuxService {
 
         // Part 1: Output scrollback with filtered escape codes (keep only SGR/colors)
         if scrollbackResult.isSuccess {
-            let scrollbackContent = scrollbackResult.stdoutString
+            // Trim trailing newline before splitting to avoid extra empty line at end
+            var scrollbackContent = scrollbackResult.stdoutString
+            if scrollbackContent.hasSuffix("\n") {
+                scrollbackContent.removeLast()
+            }
             let scrollbackLinesList = scrollbackContent.split(separator: "\n", omittingEmptySubsequences: false)
 
             for line in scrollbackLinesList {
@@ -292,23 +294,58 @@ final public class TmuxService {
             }
         }
 
-        // Part 2: Render visible area with explicit positioning and colors
-        let visibleLines = visibleResult.stdoutString
+        // Part 2: Render visible area without explicit row positioning
+        // This allows the content to work correctly regardless of the mirror terminal's
+        // row count. Content flows naturally - if the mirror has fewer rows than tmux,
+        // excess lines scroll into scrollback and the bottom (most recent) content is visible.
+
+        // Trim trailing newline before splitting to avoid extra empty line at end
+        var visibleContent = visibleResult.stdoutString
+        if visibleContent.hasSuffix("\n") {
+            visibleContent.removeLast()
+        }
+        let visibleLines = visibleContent
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
 
-        output += "\u{1b}[H" // Cursor to home
+        // Find the last meaningful line to output
+        // This is the max of: cursor row + 1, or the last non-empty line
+        // This prevents trailing empty lines from pushing content into scrollback
+        // when the mirror has fewer rows than tmux
+        var lastMeaningfulLine = cursorY + 1 // cursorY is 0-indexed, so +1 for count
+        for (index, line) in visibleLines.enumerated().reversed() {
+            let filtered = filterToColorCodesOnly(line)
+            if !filtered.trimmingCharacters(in: .whitespaces).isEmpty {
+                lastMeaningfulLine = max(lastMeaningfulLine, index + 1)
+                break
+            }
+        }
+        // Clamp to actual line count
+        let linesToOutput = min(lastMeaningfulLine, visibleLines.count)
 
-        for (index, line) in visibleLines.enumerated() {
-            // Move cursor to row (index+1), column 1
-            output += "\u{1b}[\(index + 1);1H"
-            // Clear the line first to avoid artifacts
-            output += "\u{1b}[2K"
-            // Add the line content
-            output += line
+        // Move to home to start drawing visible area
+        output += "\u{1b}[H" // Cursor to home (row 1, col 1)
+
+        // Output visible lines sequentially, clearing each line before writing
+        // This overwrites any Part 1 content that scrolled into visible area
+        // Filter each line to keep only color codes (remove cursor positioning that could interfere)
+        for index in 0..<linesToOutput {
+            let line = visibleLines[index]
+            output += "\u{1b}[2K" // Clear current line
+            output += filterToColorCodesOnly(line)
+            // Add newline after each line except the last
+            if index < linesToOutput - 1 {
+                output += "\r\n"
+            }
         }
 
-        // Position cursor where it actually is
+        // Clear any remaining lines below the visible content
+        // (in case terminal has more rows than visible lines)
+        output += "\u{1b}[J" // Clear from cursor to end of screen
+
+        // Position cursor at the tmux cursor location
+        // Note: if content scrolled due to terminal having fewer rows, this position
+        // may be clamped by the terminal, which is acceptable for a read-only mirror
         output += "\u{1b}[\(cursorY + 1);\(cursorX + 1)H"
 
         return Data(output.utf8)
