@@ -330,10 +330,14 @@ public struct CreateTmuxSession: CommandSpec, Equatable {
     /// Terminal height in rows
     public let height: Int
 
-    public init(sessionName: String, width: Int, height: Int) {
+    /// Optional working directory to start the session in
+    public let workingDirectory: String?
+
+    public init(sessionName: String, width: Int, height: Int, workingDirectory: String? = nil) {
         self.sessionName = sessionName
         self.width = width
         self.height = height
+        self.workingDirectory = workingDirectory
     }
 
     public var commandType: CommandType {
@@ -384,9 +388,15 @@ public enum CommandType: Codable, Sendable, Equatable {
     public static func createTmuxSession(
         sessionName: String,
         width: Int,
-        height: Int
+        height: Int,
+        workingDirectory: String? = nil
     ) -> CommandType {
-        .createTmuxSession(CreateTmuxSession(sessionName: sessionName, width: width, height: height))
+        .createTmuxSession(CreateTmuxSession(
+            sessionName: sessionName,
+            width: width,
+            height: height,
+            workingDirectory: workingDirectory
+        ))
     }
 }
 
@@ -419,15 +429,18 @@ public struct CommandResponseMessage: Codable, Sendable {
     public let commandId: UUID
     public let success: Bool
     public let error: String?
+    /// Optional pane ID returned by commands that create or affect panes
+    public let paneId: String?
 
-    public init(commandId: UUID, success: Bool, error: String? = nil) {
+    public init(commandId: UUID, success: Bool, error: String? = nil, paneId: String? = nil) {
         self.commandId = commandId
         self.success = success
         self.error = error
+        self.paneId = paneId
     }
 
-    public static func success(for commandId: UUID) -> CommandResponseMessage {
-        CommandResponseMessage(commandId: commandId, success: true)
+    public static func success(for commandId: UUID, paneId: String? = nil) -> CommandResponseMessage {
+        CommandResponseMessage(commandId: commandId, success: true, paneId: paneId)
     }
 
     public static func failure(for commandId: UUID, error: String) -> CommandResponseMessage {

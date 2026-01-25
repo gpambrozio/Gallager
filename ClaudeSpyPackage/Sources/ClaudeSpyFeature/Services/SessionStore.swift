@@ -1,4 +1,5 @@
 import ClaudeSpyCommon
+import ClaudeSpyNetworking
 import Foundation
 import os
 
@@ -21,6 +22,9 @@ final public class SessionStore {
 
     /// All tmux panes (including those without Claude sessions)
     public private(set) var panes: [PaneInfoMessage] = []
+
+    /// Claude projects discovered on the Mac
+    public private(set) var claudeProjects: [ClaudeProjectInfo] = []
 
     /// User responses to events, keyed by event ID
     /// This persists across navigation so responses aren't lost
@@ -103,12 +107,13 @@ final public class SessionStore {
     /// Handle a full session state update from the Mac
     public func handleStateUpdate(_ state: SessionStateMessage) {
         logger.info(
-            "Received full session state: \(state.sessions.count) sessions, \(state.panes?.count ?? 0) panes"
+            "Received full session state: \(state.sessions.count) sessions, \(state.panes?.count ?? 0) panes, \(state.claudeProjects?.count ?? 0) projects"
         )
 
         sessions = state.sessions
         activePanes = state.activePanes
         panes = state.panes ?? []
+        claudeProjects = state.claudeProjects ?? []
     }
 
     /// Clear all session data (e.g., on disconnect)
@@ -117,6 +122,7 @@ final public class SessionStore {
         sessions.removeAll()
         activePanes.removeAll()
         panes.removeAll()
+        claudeProjects.removeAll()
     }
 
     /// Get a session by pane ID

@@ -73,6 +73,16 @@ final public class AppSettings {
         didSet { UserDefaults.standard.set(tmuxPath, forKey: Keys.tmuxPath) }
     }
 
+    /// Whether to automatically run a command when creating sessions in project folders
+    public var autoRunClaudeInProjects: Bool {
+        didSet { UserDefaults.standard.set(autoRunClaudeInProjects, forKey: Keys.autoRunClaudeInProjects) }
+    }
+
+    /// Path to claude command (for auto-run in project folders)
+    public var claudeCommandPath: String {
+        didSet { UserDefaults.standard.set(claudeCommandPath, forKey: Keys.claudeCommandPath) }
+    }
+
     /// tmux socket path (empty for default)
     public var tmuxSocket: String {
         didSet { UserDefaults.standard.set(tmuxSocket, forKey: Keys.tmuxSocket) }
@@ -141,6 +151,17 @@ final public class AppSettings {
         self.reconnectDelay = defaults.object(forKey: Keys.reconnectDelay) as? Int ?? Defaults.reconnectDelay
         self.tmuxPath = defaults.string(forKey: Keys.tmuxPath) ?? Defaults.tmuxPath
         self.tmuxSocket = defaults.string(forKey: Keys.tmuxSocket) ?? Defaults.tmuxSocket
+
+        // Claude command settings - auto-detect on first launch
+        self.autoRunClaudeInProjects = defaults.object(forKey: Keys.autoRunClaudeInProjects) as? Bool ?? Defaults.autoRunClaudeInProjects
+        if let savedPath = defaults.string(forKey: Keys.claudeCommandPath) {
+            self.claudeCommandPath = savedPath
+        } else {
+            // First launch - try to detect claude path
+            let detectedPath = Self.detectClaudePath() ?? Defaults.claudeCommandPath
+            self.claudeCommandPath = detectedPath
+            defaults.set(detectedPath, forKey: Keys.claudeCommandPath)
+        }
         self.terminalApp = TerminalApp(rawValue: defaults.string(forKey: Keys.terminalApp) ?? "") ?? Defaults.terminalApp
         self.customTerminalPath = defaults.string(forKey: Keys.customTerminalPath) ?? Defaults.customTerminalPath
 
@@ -176,6 +197,8 @@ final public class AppSettings {
         static let reconnectDelay = "reconnectDelay"
         static let tmuxPath = "tmuxPath"
         static let tmuxSocket = "tmuxSocket"
+        static let autoRunClaudeInProjects = "autoRunClaudeInProjects"
+        static let claudeCommandPath = "claudeCommandPath"
         static let terminalApp = "terminalApp"
         static let customTerminalPath = "customTerminalPath"
         // Remote Access
@@ -203,6 +226,8 @@ final public class AppSettings {
         static let reconnectDelay = 5
         static let tmuxPath = "/opt/homebrew/bin/tmux"
         static let tmuxSocket = ""
+        static let autoRunClaudeInProjects = true
+        static let claudeCommandPath = "claude"
         static let terminalApp = TerminalApp.terminalApp
         static let customTerminalPath = ""
         // Remote Access
@@ -236,6 +261,53 @@ final public class AppSettings {
         pairedDeviceName = partnerDeviceName
         self.partnerPublicKey = partnerPublicKey
         self.partnerPublicKeyId = partnerPublicKeyId
+    }
+
+    // MARK: - Path Detection
+
+    /// Attempts to detect the claude command path using common locations and `which`
+    private static func detectClaudePath() -> String? {
+        // Common installation paths for Claude Code
+        let commonPaths = [
+            "/usr/local/bin/claude",
+            "/opt/homebrew/bin/claude",
+            NSString("~/.local/bin/claude").expandingTildeInPath,
+            NSString("~/.claude/local/claude").expandingTildeInPath,
+        ]
+
+        let fileManager = FileManager.default
+
+        // Check common paths first
+        for path in commonPaths where fileManager.isExecutableFile(atPath: path) {
+            return path
+        }
+
+        // Try using `which` command as fallback
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        process.arguments = ["claude"]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+
+            if process.terminationStatus == 0 {
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                if
+                    let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                    !path.isEmpty {
+                    return path
+                }
+            }
+        } catch {
+            // which failed, return nil
+        }
+
+        return nil
     }
 }
 

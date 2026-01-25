@@ -458,7 +458,9 @@ final public class TmuxService {
     public func createSession(
         baseName: String,
         width: Int,
-        height: Int
+        height: Int,
+        workingDirectory: String? = nil,
+        runCommand: String? = nil
     ) async throws -> (sessionName: String, paneId: String) {
         // Get existing session names
         let existingNames = await getExistingSessionNames()
@@ -466,15 +468,23 @@ final public class TmuxService {
         // Find a unique name
         let sessionName = findUniqueSessionName(baseName: baseName, existingNames: existingNames)
 
-        // Create the session with specified dimensions
-        // -d: detached, -x: width, -y: height
-        let result = try await runTmuxCommand([
+        // Build command arguments
+        // -d: detached, -x: width, -y: height, -c: working directory
+        var args = [
             "new-session",
             "-d",
             "-s", sessionName,
             "-x", String(width),
             "-y", String(height),
-        ])
+        ]
+
+        // Add working directory if specified
+        if let workingDirectory, !workingDirectory.isEmpty {
+            args.append(contentsOf: ["-c", workingDirectory])
+        }
+
+        // Create the session with specified dimensions
+        let result = try await runTmuxCommand(args)
 
         guard result.isSuccess else {
             throw TmuxError.commandFailed(message: result.stderrString)
@@ -496,6 +506,16 @@ final public class TmuxService {
         }
 
         let paneId = paneIdResult.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Run initial command if specified
+        if let runCommand, !runCommand.isEmpty {
+            _ = try await runTmuxCommand([
+                "send-keys",
+                "-t", paneId,
+                runCommand,
+                "Enter",
+            ])
+        }
 
         // Refresh panes to include the new session
         await refreshPanes()

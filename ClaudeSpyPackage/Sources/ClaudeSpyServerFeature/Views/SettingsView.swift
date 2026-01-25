@@ -125,6 +125,22 @@ struct GeneralSettingsView: View {
                         .help("Leave empty to use the default tmux socket")
                 }
             }
+
+            Section("Claude Code") {
+                Toggle("Auto-run Claude in project folders", isOn: $settings.autoRunClaudeInProjects)
+                    .help("When creating a session in a Claude project folder, automatically run the claude command")
+
+                if settings.autoRunClaudeInProjects {
+                    HStack {
+                        Text("Command")
+                        TextField("claude", text: $settings.claudeCommandPath)
+                            .help("Path to the claude command (full path or just 'claude' if in PATH)")
+                        Button("Browse...") {
+                            browseForClaude(settings: settings)
+                        }
+                    }
+                }
+            }
         }
         .formStyle(.grouped)
     }
@@ -171,6 +187,20 @@ private func browseForTerminalApp(settings: AppSettings) {
 
     if panel.runModal() == .OK, let url = panel.url {
         settings.customTerminalPath = url.path
+    }
+}
+
+@MainActor
+private func browseForClaude(settings: AppSettings) {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = false
+    panel.allowsMultipleSelection = false
+    panel.directoryURL = URL(fileURLWithPath: "/usr/local/bin")
+    panel.message = "Select the claude executable"
+
+    if panel.runModal() == .OK, let url = panel.url {
+        settings.claudeCommandPath = url.path
     }
 }
 

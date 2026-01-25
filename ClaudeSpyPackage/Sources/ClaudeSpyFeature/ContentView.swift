@@ -247,7 +247,7 @@
         var body: some View {
             TabView(selection: $selectedTab) {
                 NavigationStack(path: $sessionsNavigationPath) {
-                    SessionListView()
+                    SessionListView(navigationPath: $sessionsNavigationPath)
                 }
                 .tabItem {
                     Label("Sessions", symbol: .terminal)
