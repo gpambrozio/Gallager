@@ -459,7 +459,8 @@ final public class TmuxService {
         baseName: String,
         width: Int,
         height: Int,
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        runCommand: String? = nil
     ) async throws -> (sessionName: String, paneId: String) {
         // Get existing session names
         let existingNames = await getExistingSessionNames()
@@ -505,6 +506,16 @@ final public class TmuxService {
         }
 
         let paneId = paneIdResult.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Run initial command if specified
+        if let runCommand, !runCommand.isEmpty {
+            _ = try await runTmuxCommand([
+                "send-keys",
+                "-t", paneId,
+                runCommand,
+                "Enter",
+            ])
+        }
 
         // Refresh panes to include the new session
         await refreshPanes()

@@ -320,13 +320,17 @@
             tmuxService: TmuxService
         ) async -> CommandResponseMessage {
             do {
+                // If creating in a project folder, automatically run claude
+                let runCommand = spec.workingDirectory != nil ? "claude" : nil
+
                 // Create the session - TmuxService.createSession calls refreshPanes(),
                 // which triggers the panes changed handler to push state to iOS
                 let (_, paneId) = try await tmuxService.createSession(
                     baseName: spec.sessionName,
                     width: spec.width,
                     height: spec.height,
-                    workingDirectory: spec.workingDirectory
+                    workingDirectory: spec.workingDirectory,
+                    runCommand: runCommand
                 )
 
                 // Brief delay to let tmux fully initialize the pane before iOS starts mirroring
