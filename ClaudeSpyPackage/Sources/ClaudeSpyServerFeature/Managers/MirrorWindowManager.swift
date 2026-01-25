@@ -310,11 +310,18 @@ final public class MirrorWindowManager {
 
     // MARK: - Session Cleanup
 
-    /// Removes a stale session for a pane that no longer exists
+    /// Removes a stale session for a pane that no longer exists.
+    ///
+    /// This also closes any associated mirror window.
     /// - Parameter paneId: The tmux pane ID to remove
     private func removeStaleSession(paneId: String) {
         activeSessions.removeValue(forKey: paneId)
         userClosedPanes.remove(paneId)
+
+        // Close the mirror window if open
+        for (target, mappedPaneId) in windowPaneIds where mappedPaneId == paneId {
+            closeMirror(for: target)
+        }
     }
 
     /// Cleans up active Claude sessions for panes that no longer exist.

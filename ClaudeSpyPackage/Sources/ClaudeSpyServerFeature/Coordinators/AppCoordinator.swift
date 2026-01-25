@@ -208,6 +208,20 @@
             // Connect pane stream manager to window manager for view injection
             windowManager.paneStreamManager = paneStreamManager
 
+            // Set up real-time session cleanup when panes change
+            // When a pane exits or session disconnects, refresh panes and clean up stale sessions
+            let winManager = windowManager
+            let tmuxForCleanup = tmuxService
+            let terminalStreaming = terminalStreamService
+            controlClientManager.setOnPanesChanged {
+                Task {
+                    let panes = await tmuxForCleanup.refreshPanes()
+                    winManager.cleanupStaleSessions(currentPanes: panes)
+                    // Stop iOS streams for panes that no longer exist (sends streamEnd to iOS)
+                    await terminalStreaming.stopStreamsForClosedPanes(currentPanes: panes)
+                }
+            }
+
             // Create command executor
             let executor = TmuxCommandExecutor(tmuxService: tmuxService)
             commandExecutor = executor

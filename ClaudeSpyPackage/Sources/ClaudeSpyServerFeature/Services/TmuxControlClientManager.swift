@@ -21,8 +21,9 @@
         /// Callback for dimension changes (forwarded to PaneStreamManager)
         private var _onDimensionChange: (@MainActor (String, Int, Int) -> Void)?
 
-        /// Callback for client disconnection
-        private var _onClientDisconnected: (@MainActor (String) -> Void)?
+        /// Callback when panes may have changed (pane exited or session disconnected).
+        /// Listeners should refresh their pane list and clean up stale sessions.
+        private var _onPanesChanged: (@MainActor () -> Void)?
 
         public init(tmuxPath: String = "/opt/homebrew/bin/tmux", socketPath: String? = nil) {
             self.tmuxPath = tmuxPath
@@ -35,10 +36,11 @@
             _onDimensionChange = handler
         }
 
-        /// Sets the callback for client disconnection.
-        /// Called when a control client unexpectedly disconnects.
-        public func setOnClientDisconnected(_ handler: @escaping @MainActor (String) -> Void) {
-            _onClientDisconnected = handler
+        /// Sets the callback for when panes may have changed.
+        /// Called when a pane exits or a session disconnects.
+        /// Listeners should refresh their pane list and clean up stale sessions.
+        public func setOnPanesChanged(_ handler: @escaping @MainActor () -> Void) {
+            _onPanesChanged = handler
         }
 
         /// Gets or creates a control client for the specified session.
@@ -67,7 +69,14 @@
                 }
             }
 
-            // Set up exit handler
+            // Set up pane exit handler (pane closed but session still running)
+            await client.setOnPaneExited { [weak self] paneId in
+                Task { @MainActor [weak self] in
+                    self?.handlePanesChanged(reason: "pane \(paneId) exited")
+                }
+            }
+
+            // Set up exit handler (entire session ended)
             await client.setOnExit { [weak self] reason in
                 Task { @MainActor [weak self] in
                     self?.handleClientExit(sessionName: sessionName, reason: reason)
@@ -163,13 +172,18 @@
             _onDimensionChange?(paneId, width, height)
         }
 
+        private func handlePanesChanged(reason: String) {
+            logger.info("Panes changed", metadata: ["reason": "\(reason)"])
+            _onPanesChanged?()
+        }
+
         private func handleClientExit(sessionName: String, reason: String?) {
             logger.warning("Control client exited", metadata: [
                 "session": "\(sessionName)",
                 "reason": "\(reason ?? "unknown")",
             ])
             clients.removeValue(forKey: sessionName)
-            _onClientDisconnected?(sessionName)
+            handlePanesChanged(reason: "session \(sessionName) disconnected")
         }
     }
 #endif

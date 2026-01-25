@@ -67,6 +67,7 @@ actor TmuxControlClient {
 
     // Callbacks for notifications
     private var _onDimensionChange: (@Sendable (String, Int, Int) -> Void)?
+    private var _onPaneExited: (@Sendable (String) -> Void)?
     private var _onSessionChanged: (@Sendable (String, String) -> Void)?
     private var _onExit: (@Sendable (String?) -> Void)?
 
@@ -105,6 +106,10 @@ actor TmuxControlClient {
 
     func setOnDimensionChange(_ handler: @escaping @Sendable (String, Int, Int) -> Void) {
         _onDimensionChange = handler
+    }
+
+    func setOnPaneExited(_ handler: @escaping @Sendable (String) -> Void) {
+        _onPaneExited = handler
     }
 
     func setOnSessionChanged(_ handler: @escaping @Sendable (String, String) -> Void) {
@@ -642,6 +647,9 @@ actor TmuxControlClient {
         do {
             let response = try await sendCommand("list-panes -a -F '#{pane_id} #{pane_width} #{pane_height}'")
 
+            // Collect pane IDs that still exist
+            var existingPaneIds = Set<String>()
+
             for line in response.lines where !line.isEmpty {
                 let parts = line.split(separator: " ")
                 guard
@@ -650,6 +658,7 @@ actor TmuxControlClient {
                     let height = Int(parts[2]) else { continue }
 
                 let paneId = String(parts[0])
+                existingPaneIds.insert(paneId)
 
                 // Only notify for panes we're streaming
                 if
@@ -663,6 +672,19 @@ actor TmuxControlClient {
                     ])
                     _onDimensionChange?(paneId, width, height)
                 }
+            }
+
+            // Check for panes we're tracking that no longer exist
+            let trackedPaneIds = Set(cachedDimensions.keys)
+            let exitedPaneIds = trackedPaneIds.subtracting(existingPaneIds)
+
+            for paneId in exitedPaneIds {
+                logger.info("Pane exited (no longer in list)", metadata: ["paneId": "\(paneId)"])
+                cachedDimensions.removeValue(forKey: paneId)
+                paneHandlers.removeValue(forKey: paneId)
+                paneUtf8Buffer.removeValue(forKey: paneId)
+                paneTmuxEscapeBuffer.removeValue(forKey: paneId)
+                _onPaneExited?(paneId)
             }
         } catch {
             logger.error("Failed to refresh pane dimensions: \(error.localizedDescription)")

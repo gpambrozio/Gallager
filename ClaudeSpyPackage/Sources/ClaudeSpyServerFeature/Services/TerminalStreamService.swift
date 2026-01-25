@@ -198,6 +198,22 @@ final public class TerminalStreamService {
         }
     }
 
+    /// Stops streams for panes that are no longer in the provided list.
+    ///
+    /// Called when panes change to clean up streams for closed panes.
+    /// This sends the streamEnd message to iOS so it can close the terminal view.
+    ///
+    /// - Parameter currentPanes: The list of currently existing panes
+    public func stopStreamsForClosedPanes(currentPanes: [PaneInfo]) async {
+        let existingPaneIds = Set(currentPanes.map(\.paneId))
+        let streamsToStop = activeStreams.keys.filter { !existingPaneIds.contains($0) }
+
+        for paneId in streamsToStop {
+            logger.info("Stopping stream for closed pane", metadata: ["paneId": "\(paneId)"])
+            await stopStreaming(paneId: paneId)
+        }
+    }
+
     // MARK: - Private Methods
 
     private func scheduleBatchSend(for context: StreamContext, paneId: String) {

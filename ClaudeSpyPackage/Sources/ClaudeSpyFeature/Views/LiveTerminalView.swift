@@ -25,6 +25,7 @@
         let sendCommand: CommandSender
 
         @Environment(RelayClient.self) private var relayClient
+        @Environment(\.dismiss) private var dismiss
         @State private var coordinator: StreamCoordinator
 
         /// Whether the terminal is in interactive mode (keyboard is showing)
@@ -107,6 +108,11 @@
                 // switching (e.g., to SwiftTerm's secondary keyboard) briefly fires this notification.
                 // The slight state desync is preferable to breaking keyboard switching.
             }
+            .onChange(of: coordinator.streamState) { _, newState in
+                if newState == .ended {
+                    dismiss()
+                }
+            }
         }
 
         @ViewBuilder
@@ -117,7 +123,8 @@
                 ProgressView("Connecting to terminal...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            case .streaming:
+            case .streaming,
+                 .ended: // View auto-dismisses on stream end
                 if let state = coordinator.terminalState {
                     TerminalStreamContainerView(
                         terminalState: state,
@@ -135,13 +142,6 @@
                     ProgressView("Initializing terminal...")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-
-            case .ended:
-                ContentUnavailableView(
-                    "Stream Ended",
-                    symbol: .terminal,
-                    description: "The terminal stream has ended."
-                )
 
             case .error:
                 ContentUnavailableView(
