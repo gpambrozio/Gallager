@@ -21,7 +21,7 @@
         @Environment(RelayClient.self) private var relayClient
         @Environment(IOSSettings.self) private var settings
 
-        @State private var isCreatingSession = false
+        @State private var creatingSelection: ProjectPickerSelection?
         @State private var creationError: String?
         @State private var showProjectPicker = false
 
@@ -73,7 +73,7 @@
             .sheet(isPresented: $showProjectPicker) {
                 ProjectPickerSheet(
                     projects: sessionStore.claudeProjects,
-                    isCreating: isCreatingSession
+                    creatingSelection: creatingSelection
                 ) { selectedProject in
                     Task {
                         await createNewSession(inProject: selectedProject)
@@ -88,22 +88,23 @@
             Button {
                 showProjectPicker = true
             } label: {
-                if isCreatingSession {
+                if creatingSelection != nil {
                     ProgressView()
                         .controlSize(.small)
                 } else {
                     Symbols.plus.image
                 }
             }
-            .disabled(!relayClient.isMacConnected || isCreatingSession)
+            .disabled(!relayClient.isMacConnected || creatingSelection != nil)
         }
 
         private func createNewSession(inProject project: ClaudeProjectInfo?) async {
-            guard !isCreatingSession else { return }
+            guard creatingSelection == nil else { return }
 
-            isCreatingSession = true
+            // Track which item was selected for the spinner
+            creatingSelection = project.map { .project($0.id) } ?? .newTerminal
             defer {
-                isCreatingSession = false
+                creatingSelection = nil
                 showProjectPicker = false
             }
 
@@ -340,13 +341,24 @@
 
     // MARK: - Project Picker Sheet
 
+    /// Identifier for the selected item in the project picker
+    enum ProjectPickerSelection: Equatable {
+        case newTerminal
+        case project(String) // project path as ID
+    }
+
     /// Sheet for selecting a Claude project to create a new session in
     struct ProjectPickerSheet: View {
         let projects: [ClaudeProjectInfo]
-        let isCreating: Bool
+        /// The currently selected item (shows spinner), nil if nothing selected yet
+        let creatingSelection: ProjectPickerSelection?
         let onSelect: (ClaudeProjectInfo?) -> Void
 
         @Environment(\.dismiss) private var dismiss
+
+        private var isCreating: Bool {
+            creatingSelection != nil
+        }
 
         var body: some View {
             NavigationStack {
@@ -371,7 +383,7 @@
 
                                 Spacer()
 
-                                if isCreating {
+                                if creatingSelection == .newTerminal {
                                     ProgressView()
                                         .controlSize(.small)
                                 }
@@ -404,7 +416,7 @@
 
                                         Spacer()
 
-                                        if isCreating {
+                                        if creatingSelection == .project(project.id) {
                                             ProgressView()
                                                 .controlSize(.small)
                                         }
