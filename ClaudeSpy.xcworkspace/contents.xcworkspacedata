@@ -7,4 +7,7 @@
    <FileRef
       location = "container:ClaudeSpy.xcodeproj">
    </FileRef>
+   <FileRef
+      location = "group:ClaudeSpyServer.xctestplan">
+   </FileRef>
 </Workspace>
