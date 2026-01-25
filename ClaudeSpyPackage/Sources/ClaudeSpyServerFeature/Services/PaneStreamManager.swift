@@ -77,24 +77,37 @@
 
         // MARK: - Public API
 
+        /// Result of subscribing to a pane stream
+        public struct SubscriptionResult {
+            /// Subscription ID to use when unsubscribing
+            public let subscriptionId: UUID
+            /// Initial terminal content (scrollback + visible area)
+            public let initialContent: Data
+            /// Terminal width in columns
+            public let width: Int
+            /// Terminal height in rows
+            public let height: Int
+        }
+
         /// Subscribe to a pane stream.
         ///
         /// Creates a new PaneStream if one doesn't exist for this pane,
-        /// or reuses an existing one.
+        /// or reuses an existing one. Returns the initial content captured
+        /// atomically with the subscription to avoid timing gaps.
         ///
         /// - Parameters:
         ///   - paneId: The pane ID (e.g., "%1")
         ///   - target: The pane target (e.g., "mysession:0.1")
-        ///   - onData: Callback for incoming terminal data
+        ///   - onData: Callback for incoming terminal data (live updates only, not initial content)
         ///   - onDimensionChange: Optional callback for dimension changes
-        /// - Returns: Subscription ID to use when unsubscribing
+        /// - Returns: Subscription result containing ID, initial content, and dimensions
         /// - Throws: If the stream fails to connect
         public func subscribe(
             paneId: String,
             target: String,
             onData: @escaping @MainActor (Data) -> Void,
             onDimensionChange: (@MainActor (Int, Int) -> Void)? = nil
-        ) async throws -> UUID {
+        ) async throws -> SubscriptionResult {
             let subscriptionId = UUID()
             let subscription = Subscription(
                 id: subscriptionId,
@@ -104,19 +117,26 @@
             )
             subscriptions[subscriptionId] = subscription
 
+            let initialContent: Data
+            let width: Int
+            let height: Int
+
             // Get or create stream
             if var context = streams[paneId] {
-                // Existing stream - send initial content BEFORE adding subscriber
-                // to avoid race condition where incremental data arrives before scrollback
+                // Existing stream - capture initial content for this subscriber
+                // Don't call onData - return it instead so caller handles it appropriately
                 do {
-                    let initialContent = try await tmuxService.capturePaneWithScrollbackForStreaming(target)
-                    onData(initialContent)
+                    initialContent = try await tmuxService.capturePaneWithScrollbackForStreaming(target)
                 } catch {
                     logger.warning("Failed to capture initial content for new subscriber", metadata: [
                         "paneId": "\(paneId)",
                         "error": "\(error)",
                     ])
+                    initialContent = Data()
                 }
+
+                width = context.stream.width
+                height = context.stream.height
 
                 // Now add subscriber so they receive future incremental updates
                 context.subscriberIds.insert(subscriptionId)
@@ -143,22 +163,27 @@
                     self?.forwardDimensionChange(paneId: paneId, width: width, height: height)
                 }
 
-                // Store context BEFORE connect() so initial content can be forwarded
+                // Store context BEFORE connect() so callbacks work if triggered during connect
                 streams[paneId] = StreamContext(
                     stream: stream,
                     target: target,
                     subscriberIds: [subscriptionId]
                 )
 
-                // Connect - this will call onData with initial content
+                // Connect and get initial content atomically
+                // The content is captured right after control client registration,
+                // ensuring no gap between initial state and live updates
                 do {
-                    try await stream.connect()
+                    initialContent = try await stream.connect()
                 } catch {
                     // Clean up on failure
                     streams.removeValue(forKey: paneId)
                     subscriptions.removeValue(forKey: subscriptionId)
                     throw error
                 }
+
+                width = stream.width
+                height = stream.height
 
                 logger.info("Created new stream", metadata: [
                     "paneId": "\(paneId)",
@@ -167,7 +192,12 @@
                 ])
             }
 
-            return subscriptionId
+            return SubscriptionResult(
+                subscriptionId: subscriptionId,
+                initialContent: initialContent,
+                width: width,
+                height: height
+            )
         }
 
         /// Unsubscribe from a pane stream.

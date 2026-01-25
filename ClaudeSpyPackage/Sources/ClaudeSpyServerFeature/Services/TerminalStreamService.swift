@@ -69,19 +69,15 @@ final public class TerminalStreamService {
     /// Start streaming a pane to iOS.
     ///
     /// Subscribes to PaneStreamManager for data and sends it to iOS.
+    /// The initial content is captured atomically with the subscription,
+    /// ensuring no timing gap between initial state and live updates.
     ///
     /// - Parameters:
     ///   - paneId: The pane identifier (e.g., "%1")
     ///   - target: The pane target (e.g., "mysession:0.1")
-    ///   - width: Initial terminal width in columns
-    ///   - height: Initial terminal height in rows
-    ///   - initialContent: Current terminal buffer content (scrollback + visible)
     public func startStreaming(
         paneId: String,
-        target: String,
-        width: Int,
-        height: Int,
-        initialContent: Data
+        target: String
     ) async throws {
         guard activeStreams[paneId] == nil else {
             logger.info("Stream already active for pane \(paneId)")
@@ -101,42 +97,58 @@ final public class TerminalStreamService {
         logger.info("Starting terminal stream", metadata: [
             "paneId": "\(paneId)",
             "target": "\(target)",
-            "dimensions": "\(width)x\(height)",
-            "bufferSize": "\(initialContent.count)",
         ])
 
         // Create context for batching
         let context = StreamContext(paneId: paneId)
 
-        // Subscribe to PaneStreamManager for data
-        let subscriptionId = try await paneStreamManager.subscribe(
-            paneId: paneId,
-            target: target,
-            onData: { [weak self] (data: Data) in
-                guard let self else { return }
-                // Look up context from activeStreams to ensure we're still active
-                guard let context = self.activeStreams[paneId] else { return }
-                Task {
-                    await self.handleIncomingData(context: context, paneId: paneId, data: data)
-                }
-            },
-            onDimensionChange: { [weak self] (newWidth: Int, newHeight: Int) in
-                guard let self else { return }
-                Task {
-                    await self.handleDimensionChange(paneId: paneId, width: newWidth, height: newHeight)
-                }
-            }
-        )
-
-        context.subscriptionId = subscriptionId
+        // Store context BEFORE subscribing so callbacks work immediately
         activeStreams[paneId] = context
 
+        // Subscribe to PaneStreamManager for data
+        // This returns initial content captured atomically with the subscription
+        let result: PaneStreamManager.SubscriptionResult
+        do {
+            result = try await paneStreamManager.subscribe(
+                paneId: paneId,
+                target: target,
+                onData: { [weak self] (data: Data) in
+                    guard let self else { return }
+                    // Look up context from activeStreams to ensure we're still active
+                    guard let context = self.activeStreams[paneId] else { return }
+                    Task {
+                        await self.handleIncomingData(context: context, paneId: paneId, data: data)
+                    }
+                },
+                onDimensionChange: { [weak self] (newWidth: Int, newHeight: Int) in
+                    guard let self else { return }
+                    Task {
+                        await self.handleDimensionChange(paneId: paneId, width: newWidth, height: newHeight)
+                    }
+                }
+            )
+        } catch {
+            // Clean up on failure
+            activeStreams.removeValue(forKey: paneId)
+            throw error
+        }
+
+        context.subscriptionId = result.subscriptionId
+
+        logger.info("Stream subscribed", metadata: [
+            "paneId": "\(paneId)",
+            "dimensions": "\(result.width)x\(result.height)",
+            "bufferSize": "\(result.initialContent.count)",
+        ])
+
         // Send initial state to iOS
+        // The content was captured atomically with the subscription,
+        // so there's no gap between this state and incoming live updates
         let initialMessage = TerminalStreamMessage.initialState(
             paneId: paneId,
-            width: width,
-            height: height,
-            content: initialContent
+            width: result.width,
+            height: result.height,
+            content: result.initialContent
         )
         await serverClient.sendTerminalStream(initialMessage)
     }

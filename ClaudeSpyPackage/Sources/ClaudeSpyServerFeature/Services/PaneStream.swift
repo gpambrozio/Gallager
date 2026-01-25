@@ -52,9 +52,15 @@
             self.controlClientManager = controlClientManager
         }
 
-        /// Connects to the pane and starts streaming data via control mode
-        func connect() async throws {
-            guard state == .disconnected || state.isError else { return }
+        /// Connects to the pane and starts streaming data via control mode.
+        ///
+        /// Returns the initial content (scrollback + visible area) captured before
+        /// registering for live updates. The caller should send this content as the
+        /// initial state, then live updates will flow via the `onData` callback.
+        ///
+        /// - Returns: Initial terminal content (scrollback + visible area)
+        func connect() async throws -> Data {
+            guard state == .disconnected || state.isError else { return Data() }
 
             state = .connecting
 
@@ -76,8 +82,9 @@
                 height = dims.height
 
                 // Capture initial content with scrollback (3x terminal height)
+                // This must happen BEFORE registering with control client to ensure
+                // we capture the stable state before live updates start flowing
                 let initialContent = try await tmuxService.capturePaneWithScrollbackForStreaming(target)
-                onData?(initialContent)
 
                 // Register with control client for live updates
                 // The handler runs on a background thread, so we dispatch to MainActor
@@ -94,6 +101,7 @@
                 }
 
                 state = .connected
+                return initialContent
             } catch {
                 state = .error(error.localizedDescription)
                 throw error

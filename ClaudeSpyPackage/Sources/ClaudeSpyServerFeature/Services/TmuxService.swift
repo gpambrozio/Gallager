@@ -292,6 +292,15 @@ final public class TmuxService {
                 output += filtered
                 output += "\u{1b}[0m\r\n" // Reset, carriage return, newline
             }
+
+            // Push all scrollback content into the scrollback buffer by outputting
+            // enough newlines to scroll the entire screen. Without this, the last
+            // screen-worth of Part 1 output would be on screen and get overwritten
+            // by Part 2, causing lost scrollback history.
+            // We use height-1 because the last scrollback line already ends with \r\n
+            for _ in 0..<(height - 1) {
+                output += "\r\n"
+            }
         }
 
         // Part 2: Render visible area without explicit row positioning

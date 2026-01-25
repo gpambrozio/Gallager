@@ -164,7 +164,7 @@ struct TerminalContainerView: NSViewRepresentable {
 
             do {
                 let target = paneInfo.target
-                let subId = try await paneStreamManager.subscribe(
+                let result = try await paneStreamManager.subscribe(
                     paneId: paneInfo.paneId,
                     target: target,
                     onData: { [weak self] data in
@@ -176,12 +176,15 @@ struct TerminalContainerView: NSViewRepresentable {
                     }
                 )
 
-                subscriptionId = subId
+                subscriptionId = result.subscriptionId
                 updateState(.connected)
 
-                // Update columns from manager if available
-                if let dims = paneStreamManager.dimensions(for: paneInfo.paneId) {
-                    updateColumns(dims.width)
+                // Update columns from result dimensions
+                updateColumns(result.width)
+
+                // Feed initial content to terminal
+                if !result.initialContent.isEmpty {
+                    handleData(result.initialContent)
                 }
             } catch {
                 updateState(.error(error.localizedDescription))

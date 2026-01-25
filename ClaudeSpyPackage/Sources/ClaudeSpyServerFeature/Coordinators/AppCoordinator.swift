@@ -221,8 +221,7 @@
                 if case .startTerminalStream = command.command {
                     return await Self.handleStartStream(
                         command: command,
-                        streamService: streamService,
-                        tmuxService: tmux
+                        streamService: streamService
                     )
                 }
                 if case .stopTerminalStream = command.command {
@@ -287,27 +286,18 @@
 
         private static func handleStartStream(
             command: CommandMessage,
-            streamService: TerminalStreamService,
-            tmuxService: TmuxService
+            streamService: TerminalStreamService
         ) async -> CommandResponseMessage? {
             let paneId = command.paneId
             let paneTarget = paneId // paneId is the tmux target (e.g., "%1")
 
             do {
-                // Get pane dimensions
-                let dimensions = try await tmuxService.getPaneDimensions(paneTarget)
-
-                // Capture with scrollback (3x terminal height) so iOS has history to scroll through
-                let initialContent = try await tmuxService.capturePaneWithScrollbackForStreaming(paneTarget)
-
                 // Start streaming - TerminalStreamService subscribes to PaneStreamManager
-                // which creates/reuses a PaneStream for this pane
+                // which captures initial content atomically with the subscription,
+                // ensuring no timing gap between initial state and live updates
                 try await streamService.startStreaming(
                     paneId: paneId,
-                    target: paneTarget,
-                    width: dimensions.width,
-                    height: dimensions.height,
-                    initialContent: initialContent
+                    target: paneTarget
                 )
 
                 return .success(for: command.id)
