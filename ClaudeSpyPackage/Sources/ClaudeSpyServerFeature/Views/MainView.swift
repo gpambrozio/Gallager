@@ -3,7 +3,7 @@ import ClaudeSpyCommon
 import ClaudeSpyEncryption
 import SwiftUI
 
-/// The main application view showing available tmux panes
+/// The main application view showing available tmux panes in a sidebar layout
 public struct MainView: View {
     @Environment(TmuxService.self) private var tmuxService
     @Environment(MirrorWindowManager.self) private var windowManager
@@ -14,39 +14,20 @@ public struct MainView: View {
 
     public init() { }
 
+    @State private var selectedPane: PaneInfo?
     @State private var attachError: String?
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     public var body: some View {
-        PaneListView(
-            panes: tmuxService.panes,
-            isLoading: tmuxService.isRefreshing,
-            error: tmuxService.lastError,
-            onRefresh: { await refreshPanes() },
-            onOpenMirror: { pane in
-                windowManager.openMirror(for: pane)
-            },
-            onAttachTerminal: { pane in
-                attachToTerminal(pane)
-            }
-        )
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            sidebarContent
+        } detail: {
+            detailContent
+        }
+        .navigationSplitViewStyle(.balanced)
         .navigationTitle("Available Panes")
         .toolbar {
-            ToolbarItem(placement: .automatic) {
-                connectionStatusView
-            }
-
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    Task {
-                        await refreshPanes()
-                    }
-                } label: {
-                    Symbols.arrowClockwise.image
-                }
-                .help("Refresh pane list")
-                .keyboardShortcut("r", modifiers: .command)
-                .disabled(tmuxService.isRefreshing)
-            }
+            toolbarContent
         }
         .task {
             // Initial load only - periodic refresh is handled by MirrorWindowManager
@@ -61,6 +42,123 @@ public struct MainView: View {
             if let error = attachError {
                 Text(error)
             }
+        }
+        .onChange(of: tmuxService.panes) { _, newPanes in
+            // Keep selection valid - if selected pane was removed, clear selection
+            if
+                let selected = selectedPane,
+                !newPanes.contains(where: { $0.id == selected.id }) {
+                selectedPane = nil
+            }
+        }
+    }
+
+    // MARK: - Sidebar
+
+    @ViewBuilder
+    private var sidebarContent: some View {
+        Group {
+            if tmuxService.isRefreshing && tmuxService.panes.isEmpty {
+                loadingView
+            } else if let error = tmuxService.lastError, tmuxService.panes.isEmpty {
+                errorView(error)
+            } else if tmuxService.panes.isEmpty {
+                emptyView
+            } else {
+                paneList
+            }
+        }
+        .frame(minWidth: 200)
+    }
+
+    private var loadingView: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+            Text("Loading panes...")
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func errorView(_ message: String) -> some View {
+        ContentUnavailableView(
+            "Error Loading Panes",
+            symbol: .exclamationmarkTriangle,
+            description: message
+        )
+    }
+
+    private var emptyView: some View {
+        ContentUnavailableView(
+            "No Panes Available",
+            symbol: .terminal,
+            description: "Start tmux and create some panes to mirror."
+        )
+    }
+
+    private var paneList: some View {
+        List(tmuxService.panes, selection: $selectedPane) { pane in
+            PaneSidebarRow(pane: pane)
+                .tag(pane)
+        }
+        .listStyle(.sidebar)
+        .refreshable {
+            await refreshPanes()
+        }
+    }
+
+    // MARK: - Detail View
+
+    @ViewBuilder
+    private var detailContent: some View {
+        if let pane = selectedPane {
+            MirrorWindowView(paneInfo: pane)
+                .id(pane.id)
+        } else {
+            ContentUnavailableView(
+                "Select a Pane",
+                symbol: .terminal,
+                description: "Choose a pane from the sidebar to view its mirror."
+            )
+        }
+    }
+
+    // MARK: - Toolbar
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .automatic) {
+            connectionStatusView
+        }
+
+        // Actions for selected pane
+        ToolbarItemGroup(placement: .primaryAction) {
+            if let pane = selectedPane {
+                Button {
+                    attachToTerminal(pane)
+                } label: {
+                    Symbols.macwindow.image
+                }
+                .help("Open session in terminal app")
+
+                Button {
+                    windowManager.openMirror(for: pane)
+                } label: {
+                    Symbols.macwindowBadgePlus.image
+                }
+                .help("Open mirror in new window")
+            }
+
+            Button {
+                Task {
+                    await refreshPanes()
+                }
+            } label: {
+                Symbols.arrowClockwise.image
+            }
+            .help("Refresh pane list")
+            .keyboardShortcut("r", modifiers: .command)
+            .disabled(tmuxService.isRefreshing)
         }
     }
 
@@ -196,5 +294,50 @@ public struct MainView: View {
         if NSApp.responds(to: selector) {
             NSApp.sendAction(selector, to: nil, from: nil)
         }
+    }
+}
+
+// MARK: - Sidebar Row
+
+/// A row displaying a single pane in the sidebar
+private struct PaneSidebarRow: View {
+    @Environment(MirrorWindowManager.self) private var windowManager
+
+    let pane: PaneInfo
+
+    /// Check if pane has active Claude session
+    private var hasClaude: Bool {
+        windowManager.activeSessions[pane.paneId] != nil
+    }
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(pane.target)
+                        .font(.system(.body, design: .monospaced))
+
+                    if hasClaude {
+                        Symbols.sparkles.image
+                            .foregroundStyle(.purple)
+                            .font(.caption)
+                    }
+                }
+
+                Text(pane.command)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                Text(pane.currentPath.abbreviatedPath)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 4)
+        .help(hasClaude ? "Claude Code session active" : "")
     }
 }

@@ -89,6 +89,9 @@ actor TmuxControlClient {
     // Per-pane buffer for incomplete UTF-8 sequences (tmux splits UTF-8 across %output lines)
     private var paneUtf8Buffer: [String: Data] = [:]
 
+    // Per-pane buffer for incomplete tmux escape sequences (e.g., ESC k ... ESC \ split across chunks)
+    private var paneTmuxEscapeBuffer: [String: Data] = [:]
+
     var isConnected: Bool {
         process?.isRunning == true
     }
@@ -195,6 +198,7 @@ actor TmuxControlClient {
         isBufferingOutput = false
         byteBuffer.removeAll()
         paneUtf8Buffer.removeAll()
+        paneTmuxEscapeBuffer.removeAll()
     }
 
     // MARK: - Pane Tracking
@@ -211,6 +215,7 @@ actor TmuxControlClient {
         paneHandlers.removeValue(forKey: paneId)
         cachedDimensions.removeValue(forKey: paneId)
         paneUtf8Buffer.removeValue(forKey: paneId)
+        paneTmuxEscapeBuffer.removeValue(forKey: paneId)
         logger.debug("Unregistered pane handler", metadata: ["paneId": "\(paneId)"])
     }
 
@@ -491,9 +496,81 @@ actor TmuxControlClient {
     }
 
     private func deliverOutput(paneId: String, data: Data) {
-        if let handler = paneHandlers[paneId] {
-            handler(data)
+        guard let handler = paneHandlers[paneId] else { return }
+        // Filter out tmux-specific escape sequences that terminals don't understand
+        let filtered = filterTmuxEscapeSequences(data, paneId: paneId)
+        guard !filtered.isEmpty else { return }
+        handler(filtered)
+    }
+
+    /// Filters out tmux/screen-specific escape sequences that standard terminals don't handle.
+    /// - ESC k ... ESC \ : tmux title sequence (sets pane title)
+    /// Without filtering, terminals output the sequence content as literal text.
+    /// Buffers incomplete sequences across chunks to handle split data.
+    private func filterTmuxEscapeSequences(_ data: Data, paneId: String) -> Data {
+        var result = Data()
+
+        // Prepend any buffered incomplete sequence from previous chunk
+        var dataToProcess = data
+        if let buffered = paneTmuxEscapeBuffer[paneId], !buffered.isEmpty {
+            dataToProcess = buffered + data
+            paneTmuxEscapeBuffer[paneId] = nil
         }
+
+        var i = dataToProcess.startIndex
+
+        while i < dataToProcess.endIndex {
+            // Check for ESC (0x1B)
+            if dataToProcess[i] == 0x1B {
+                // Check if we have at least one more byte to determine sequence type
+                if i + 1 >= dataToProcess.endIndex {
+                    // Incomplete: just ESC at end, buffer it
+                    paneTmuxEscapeBuffer[paneId] = Data(dataToProcess[i...])
+                    break
+                }
+
+                if dataToProcess[i + 1] == 0x6B {
+                    // ESC k - start of tmux title sequence
+                    // Skip until we find ESC \ (0x1B 0x5C) or end of data
+                    var j = dataToProcess.index(i, offsetBy: 2) // Skip ESC k
+                    var foundEnd = false
+
+                    while j < dataToProcess.endIndex {
+                        if dataToProcess[j] == 0x1B {
+                            if j + 1 >= dataToProcess.endIndex {
+                                // ESC at end while inside sequence - buffer from start of sequence
+                                paneTmuxEscapeBuffer[paneId] = Data(dataToProcess[i...])
+                                return result
+                            }
+                            if dataToProcess[j + 1] == 0x5C {
+                                // Found ESC \ - skip it and mark sequence complete
+                                j = dataToProcess.index(j, offsetBy: 2)
+                                foundEnd = true
+                                break
+                            }
+                        }
+                        j = dataToProcess.index(after: j)
+                    }
+
+                    if foundEnd {
+                        i = j
+                    } else {
+                        // Reached end without finding ESC \ - buffer the incomplete sequence
+                        paneTmuxEscapeBuffer[paneId] = Data(dataToProcess[i...])
+                        break
+                    }
+                } else {
+                    // ESC followed by something other than 'k' - pass through
+                    result.append(dataToProcess[i])
+                    i = dataToProcess.index(after: i)
+                }
+            } else {
+                result.append(dataToProcess[i])
+                i = dataToProcess.index(after: i)
+            }
+        }
+
+        return result
     }
 
     /// Unescapes tmux control mode output

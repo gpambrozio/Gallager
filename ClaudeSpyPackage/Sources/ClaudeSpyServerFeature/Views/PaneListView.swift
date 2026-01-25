@@ -108,7 +108,7 @@ private struct PaneRow: View {
                 .lineLimit(1)
                 .frame(width: 120, alignment: .leading)
 
-            Text(abbreviatedPath(pane.currentPath))
+            Text(pane.currentPath.abbreviatedPath)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -132,14 +132,6 @@ private struct PaneRow: View {
             .help("Open mirror window")
         }
         .padding(.vertical, 4)
-    }
-
-    private func abbreviatedPath(_ path: String) -> String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        if path.hasPrefix(home) {
-            return "~" + path.dropFirst(home.count)
-        }
-        return path
     }
 }
 

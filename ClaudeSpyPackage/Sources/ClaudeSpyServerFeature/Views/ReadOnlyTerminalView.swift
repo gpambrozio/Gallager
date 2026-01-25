@@ -202,9 +202,15 @@
 
         func feedPreservingScroll(_ bytes: ArraySlice<UInt8>) {
             let savedPosition = scrollPosition
-            let wasAtBottom = savedPosition >= 0.999
+            // Consider "at bottom" if:
+            // - Position >= 0.999 (actually at bottom)
+            // - Position <= 0.001 (no scrollback yet, or at very top)
+            // When there's no scrollback, position is ~0, and we should auto-scroll
+            // when new content is added. The edge case of user scrolled to very top
+            // is rare and acceptable to auto-scroll.
+            let wasAtExtreme = savedPosition >= 0.999 || savedPosition <= 0.001
             terminalView.feed(byteArray: bytes)
-            if preserveUserScroll, !wasAtBottom {
+            if preserveUserScroll, !wasAtExtreme {
                 terminalView.scroll(toPosition: savedPosition)
             }
         }
