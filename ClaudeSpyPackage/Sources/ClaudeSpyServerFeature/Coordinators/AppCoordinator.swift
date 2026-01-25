@@ -215,7 +215,8 @@
             // Set up command handler - called when iOS sends a command
             let streamService = terminalStreamService
             let tmux = tmuxService
-            externalServerClient.setCommandHandler { [executor, streamService, tmux] command in
+            let appSettings = settings
+            externalServerClient.setCommandHandler { [executor, streamService, tmux, appSettings] command in
                 // Handle stream commands
                 if case .startTerminalStream = command.command {
                     return await Self.handleStartStream(
@@ -234,7 +235,8 @@
                     return await Self.handleCreateSession(
                         command: command,
                         spec: spec,
-                        tmuxService: tmux
+                        tmuxService: tmux,
+                        settings: appSettings
                     )
                 }
 
@@ -317,11 +319,16 @@
         private static func handleCreateSession(
             command: CommandMessage,
             spec: CreateTmuxSession,
-            tmuxService: TmuxService
+            tmuxService: TmuxService,
+            settings: AppSettings
         ) async -> CommandResponseMessage {
             do {
-                // If creating in a project folder, automatically run claude
-                let runCommand = spec.workingDirectory != nil ? "claude" : nil
+                // If creating in a project folder and auto-run is enabled, run the configured command
+                let runCommand: String? = if spec.workingDirectory != nil && settings.autoRunClaudeInProjects {
+                    settings.claudeCommandPath
+                } else {
+                    nil
+                }
 
                 // Create the session - TmuxService.createSession calls refreshPanes(),
                 // which triggers the panes changed handler to push state to iOS

@@ -103,10 +103,6 @@
 
             // Track which item was selected for the spinner
             creatingSelection = project.map { .project($0.id) } ?? .newTerminal
-            defer {
-                creatingSelection = nil
-                showProjectPicker = false
-            }
 
             // Use project name for session name if available, otherwise use default
             let sessionName = project?.name ?? settings.newSessionName
@@ -123,7 +119,11 @@
 
             switch result {
             case let .success(response):
-                // Session created - request a refresh to update the session list
+                // Session created - dismiss sheet and clear selection
+                creatingSelection = nil
+                showProjectPicker = false
+
+                // Request a refresh to update the session list
                 await relayClient.requestSessionState()
 
                 // Navigate to the new terminal if we got a pane ID
@@ -131,7 +131,10 @@
                     navigationPath.append(SessionNavigation.plainTerminal(paneId: paneId))
                 }
             case let .failure(error):
-                creationError = error.localizedDescription
+                // Include project name in error for context (sheet stays open)
+                let projectContext = project?.name ?? "terminal"
+                creationError = "Failed to create \(projectContext): \(error.localizedDescription)"
+                creatingSelection = nil
             }
         }
 
