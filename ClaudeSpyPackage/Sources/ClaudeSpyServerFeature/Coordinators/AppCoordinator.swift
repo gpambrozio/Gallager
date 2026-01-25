@@ -48,6 +48,7 @@
         // MARK: - Private Services
 
         private let hookServer: HookServerService
+        private let projectScanner: ClaudeProjectScanner
         private var commandExecutor: TmuxCommandExecutor?
         private var isServiceSetupComplete = false
 
@@ -98,6 +99,9 @@
 
             // Create hook server
             self.hookServer = HookServerService()
+
+            // Create project scanner
+            self.projectScanner = ClaudeProjectScanner()
 
             // Create dock icon manager
             self.dockIconManager = DockIconManager()
@@ -246,7 +250,8 @@
         }
 
         private func setupSessionStateHandler() {
-            externalServerClient.setSessionStateHandler { [settings, weak windowManager, tmuxService] in
+            let scanner = projectScanner
+            externalServerClient.setSessionStateHandler { [settings, weak windowManager, tmuxService, scanner] in
                 guard let windowManager else {
                     return SessionStateMessage(pairId: "", sessions: [:], activePanes: [], panes: [])
                 }
@@ -258,11 +263,15 @@
                 let allPanes = await tmuxService.refreshPanes()
                 let paneMessages = allPanes.map { $0.asPaneInfoMessage }
 
+                // Scan for Claude projects
+                let claudeProjects = await scanner.scanProjects()
+
                 return SessionStateMessage(
                     pairId: pairId,
                     sessions: sessions,
                     activePanes: activePaneIds,
-                    panes: paneMessages
+                    panes: paneMessages,
+                    claudeProjects: claudeProjects
                 )
             }
         }
@@ -313,12 +322,17 @@
             do {
                 // Create the session - TmuxService.createSession calls refreshPanes(),
                 // which triggers the panes changed handler to push state to iOS
-                _ = try await tmuxService.createSession(
+                let (_, paneId) = try await tmuxService.createSession(
                     baseName: spec.sessionName,
                     width: spec.width,
-                    height: spec.height
+                    height: spec.height,
+                    workingDirectory: spec.workingDirectory
                 )
-                return .success(for: command.id)
+
+                // Brief delay to let tmux fully initialize the pane before iOS starts mirroring
+                try? await Task.sleep(for: .milliseconds(500))
+
+                return .success(for: command.id, paneId: paneId)
             } catch {
                 return .failure(for: command.id, error: error.localizedDescription)
             }

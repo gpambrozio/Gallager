@@ -15,12 +15,15 @@
 
     /// View displaying a list of active Claude sessions and terminals from the Mac.
     struct SessionListView: View {
+        @Binding var navigationPath: NavigationPath
+
         @Environment(SessionStore.self) private var sessionStore
         @Environment(RelayClient.self) private var relayClient
         @Environment(IOSSettings.self) private var settings
 
         @State private var isCreatingSession = false
         @State private var creationError: String?
+        @State private var showProjectPicker = false
 
         var body: some View {
             Group {
@@ -67,15 +70,23 @@
                     Text(error)
                 }
             }
+            .sheet(isPresented: $showProjectPicker) {
+                ProjectPickerSheet(
+                    projects: sessionStore.claudeProjects,
+                    isCreating: isCreatingSession
+                ) { selectedProject in
+                    Task {
+                        await createNewSession(inProject: selectedProject)
+                    }
+                }
+            }
         }
 
         // MARK: - New Session Button
 
         private var newSessionButton: some View {
             Button {
-                Task {
-                    await createNewSession()
-                }
+                showProjectPicker = true
             } label: {
                 if isCreatingSession {
                     ProgressView()
@@ -87,26 +98,37 @@
             .disabled(!relayClient.isMacConnected || isCreatingSession)
         }
 
-        private func createNewSession() async {
+        private func createNewSession(inProject project: ClaudeProjectInfo?) async {
             guard !isCreatingSession else { return }
 
             isCreatingSession = true
-            defer { isCreatingSession = false }
+            defer {
+                isCreatingSession = false
+                showProjectPicker = false
+            }
+
+            // Use project name for session name if available, otherwise use default
+            let sessionName = project?.name ?? settings.newSessionName
 
             let command = CreateTmuxSession(
-                sessionName: settings.newSessionName,
+                sessionName: sessionName,
                 width: settings.newSessionWidth,
-                height: settings.newSessionHeight
+                height: settings.newSessionHeight,
+                workingDirectory: project?.path
             )
 
             // paneId is not used for session creation, pass empty string
             let result = await relayClient.sendCommand(command, paneId: "")
 
             switch result {
-            case .success:
-                // Session created - the session list will update via sessionState
-                // Request a refresh to show the new session immediately
+            case let .success(response):
+                // Session created - request a refresh to update the session list
                 await relayClient.requestSessionState()
+
+                // Navigate to the new terminal if we got a pane ID
+                if let paneId = response.paneId {
+                    navigationPath.append(SessionNavigation.plainTerminal(paneId: paneId))
+                }
             case let .failure(error):
                 creationError = error.localizedDescription
             }
@@ -316,9 +338,102 @@
         }
     }
 
+    // MARK: - Project Picker Sheet
+
+    /// Sheet for selecting a Claude project to create a new session in
+    struct ProjectPickerSheet: View {
+        let projects: [ClaudeProjectInfo]
+        let isCreating: Bool
+        let onSelect: (ClaudeProjectInfo?) -> Void
+
+        @Environment(\.dismiss) private var dismiss
+
+        var body: some View {
+            NavigationStack {
+                List {
+                    // Default option (no specific project)
+                    Section {
+                        Button {
+                            onSelect(nil)
+                        } label: {
+                            HStack {
+                                Symbols.terminal.image
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 24)
+
+                                VStack(alignment: .leading) {
+                                    Text("New Terminal")
+                                        .foregroundStyle(.primary)
+                                    Text("Start in home directory")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer()
+
+                                if isCreating {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                            }
+                        }
+                        .disabled(isCreating)
+                    }
+
+                    // Project list
+                    if !projects.isEmpty {
+                        Section("Claude Projects") {
+                            ForEach(projects) { project in
+                                Button {
+                                    onSelect(project)
+                                } label: {
+                                    HStack {
+                                        Symbols.folder.image
+                                            .foregroundStyle(.blue)
+                                            .frame(width: 24)
+
+                                        VStack(alignment: .leading) {
+                                            Text(project.name)
+                                                .foregroundStyle(.primary)
+                                            Text(project.path)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                                .truncationMode(.middle)
+                                        }
+
+                                        Spacer()
+
+                                        if isCreating {
+                                            ProgressView()
+                                                .controlSize(.small)
+                                        }
+                                    }
+                                }
+                                .disabled(isCreating)
+                            }
+                        }
+                    }
+                }
+                .navigationTitle("New Session")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            dismiss()
+                        }
+                        .disabled(isCreating)
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
+        }
+    }
+
     #Preview {
-        NavigationStack {
-            SessionListView()
+        @Previewable @State var path = NavigationPath()
+        NavigationStack(path: $path) {
+            SessionListView(navigationPath: $path)
         }
         .environment(SessionStore())
         .environment(RelayClient())

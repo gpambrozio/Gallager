@@ -30,17 +30,21 @@ public struct SessionStateMessage: Codable, Sendable {
     public let activePanes: [String]
     /// All tmux panes (including those without Claude sessions)
     public let panes: [PaneInfoMessage]?
+    /// Discovered Claude projects on the Mac
+    public let claudeProjects: [ClaudeProjectInfo]?
 
     public init(
         pairId: String,
         sessions: [String: ClaudeSession],
         activePanes: [String],
-        panes: [PaneInfoMessage]? = nil
+        panes: [PaneInfoMessage]? = nil,
+        claudeProjects: [ClaudeProjectInfo]? = nil
     ) {
         self.pairId = pairId
         self.sessions = sessions
         self.activePanes = activePanes
         self.panes = panes
+        self.claudeProjects = claudeProjects
     }
 }
 
@@ -104,6 +108,29 @@ public struct PushTokenRegisteredMessage: Codable, Sendable {
     public init(success: Bool, error: String? = nil) {
         self.success = success
         self.error = error
+    }
+}
+
+// MARK: - Claude Projects
+
+/// Information about a discovered Claude project
+public struct ClaudeProjectInfo: Codable, Sendable, Identifiable, Hashable {
+    /// Unique identifier (based on path)
+    public var id: String { path }
+
+    /// Project name (last component of path)
+    public let name: String
+
+    /// Full path to project directory
+    public let path: String
+
+    /// Timestamp of last activity in this project (for sorting by recency)
+    public let lastUsed: Date?
+
+    public init(name: String, path: String, lastUsed: Date? = nil) {
+        self.name = name
+        self.path = path
+        self.lastUsed = lastUsed
     }
 }
 

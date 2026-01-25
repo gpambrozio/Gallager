@@ -458,7 +458,8 @@ final public class TmuxService {
     public func createSession(
         baseName: String,
         width: Int,
-        height: Int
+        height: Int,
+        workingDirectory: String? = nil
     ) async throws -> (sessionName: String, paneId: String) {
         // Get existing session names
         let existingNames = await getExistingSessionNames()
@@ -466,15 +467,23 @@ final public class TmuxService {
         // Find a unique name
         let sessionName = findUniqueSessionName(baseName: baseName, existingNames: existingNames)
 
-        // Create the session with specified dimensions
-        // -d: detached, -x: width, -y: height
-        let result = try await runTmuxCommand([
+        // Build command arguments
+        // -d: detached, -x: width, -y: height, -c: working directory
+        var args = [
             "new-session",
             "-d",
             "-s", sessionName,
             "-x", String(width),
             "-y", String(height),
-        ])
+        ]
+
+        // Add working directory if specified
+        if let workingDirectory, !workingDirectory.isEmpty {
+            args.append(contentsOf: ["-c", workingDirectory])
+        }
+
+        // Create the session with specified dimensions
+        let result = try await runTmuxCommand(args)
 
         guard result.isSuccess else {
             throw TmuxError.commandFailed(message: result.stderrString)
