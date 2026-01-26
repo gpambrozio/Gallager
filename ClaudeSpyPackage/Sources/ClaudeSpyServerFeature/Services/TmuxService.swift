@@ -151,9 +151,13 @@ final public class TmuxService {
                 seen.insert(pane.paneId)
                 return true
             }
-        } catch {
-            lastError = error.localizedDescription
+        } catch TmuxError.noServerRunning {
+            // Tmux has no sessions - this is legitimate, clear panes
+            lastError = TmuxError.noServerRunning.localizedDescription
             panes = []
+        } catch {
+            // Other errors (transient failures) - keep old panes to avoid falsely marking sessions as stale
+            lastError = error.localizedDescription
         }
 
         return panes

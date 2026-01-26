@@ -116,15 +116,6 @@ final public class SessionStore {
         claudeProjects = state.claudeProjects ?? []
     }
 
-    /// Clear all session data (e.g., on disconnect)
-    public func clearOnDisconnect() {
-        logger.info("Clearing session data on disconnect")
-        sessions.removeAll()
-        activePanes.removeAll()
-        panes.removeAll()
-        claudeProjects.removeAll()
-    }
-
     /// Get a session by pane ID
     public func session(for paneId: String) -> ClaudeSession? {
         sessions[paneId]
