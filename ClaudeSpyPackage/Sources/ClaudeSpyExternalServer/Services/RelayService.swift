@@ -70,8 +70,8 @@ actor RelayService {
             await handleMacRegistration(registration, pairId: pairId)
 
         case let .encrypted(encryptedMessage):
-            // Pass through encrypted messages - server cannot decrypt
-            logger.info("Relaying encrypted message to iOS", metadata: ["innerType": "\(encryptedMessage.innerType.rawValue)"])
+            // Pass through encrypted messages - server cannot decrypt or see message type
+            logger.info("Relaying encrypted message to iOS")
             await connectionHub.send(.encrypted(encryptedMessage), to: pairId, deviceType: .ios)
 
         case let .encryptedPush(payload):
@@ -112,9 +112,9 @@ actor RelayService {
             await connectionHub.send(.pushTokenRegistered(response), to: pairId, deviceType: .ios)
 
         case let .encrypted(encryptedMessage):
-            // Pass through encrypted messages to Mac - server cannot decrypt
+            // Pass through encrypted messages to Mac - server cannot decrypt or see message type
             if await connectionHub.isMacConnected(pairId: pairId) {
-                logger.info("Relaying encrypted message to Mac", metadata: ["innerType": "\(encryptedMessage.innerType.rawValue)"])
+                logger.info("Relaying encrypted message to Mac")
                 await connectionHub.send(.encrypted(encryptedMessage), to: pairId, deviceType: .mac)
             } else {
                 // Mac not connected - encrypted commands will fail

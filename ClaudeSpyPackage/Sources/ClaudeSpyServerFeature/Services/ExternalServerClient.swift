@@ -461,7 +461,7 @@ final public class ExternalServerClient {
             }
             do {
                 decryptedMessage = try await message.decrypt(using: e2eeService)
-                logger.debug("Decrypted message", metadata: ["innerType": "\(decryptedMessage.messageType)"])
+                logger.debug("Decrypted message", metadata: ["type": "\(decryptedMessage.messageType)"])
             } catch {
                 logger.error("Failed to decrypt message: \(error)")
                 return
