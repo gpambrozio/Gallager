@@ -180,13 +180,28 @@ REMOTE_SCRIPT
     fi
 }
 
-# Show logs
+# Show logs (warnings and errors only by default)
 logs() {
     SERVER_IP=$(get_server_ip)
     REMOTE_HOST="root@$SERVER_IP"
 
-    info "Fetching logs from $SERVER_IP..."
-    ssh -o LogLevel=ERROR "$REMOTE_HOST" "cd $REMOTE_DIR && docker compose logs -f --tail=100"
+    local mode="${1:-}"
+
+    case "$mode" in
+        all|info)
+            info "Fetching all logs from $SERVER_IP..."
+            ssh -o LogLevel=ERROR "$REMOTE_HOST" "cd $REMOTE_DIR && docker compose logs -f --tail=100"
+            ;;
+        debug)
+            info "Restarting container with debug logging..."
+            ssh -o LogLevel=ERROR "$REMOTE_HOST" "cd $REMOTE_DIR && LOG_LEVEL=debug docker compose up -d && docker compose logs -f --tail=100"
+            warn "Note: Container is now running with debug logging. Run 'deploy.sh restart' to restore normal logging."
+            ;;
+        *)
+            info "Fetching warnings and errors from $SERVER_IP..."
+            ssh -o LogLevel=ERROR "$REMOTE_HOST" "cd $REMOTE_DIR && docker compose logs -f --tail=500 2>&1 | grep -E '\[ (WARNING|ERROR|CRITICAL) \]|error|Error|ERROR|warning|Warning|WARNING'"
+            ;;
+    esac
 }
 
 # Stop the server
@@ -216,11 +231,13 @@ usage() {
     echo "Usage: $0 [command]"
     echo ""
     echo "Commands:"
-    echo "  deploy    Deploy or update the server (default)"
-    echo "  logs      Show server logs (follow mode)"
-    echo "  stop      Stop the server"
-    echo "  restart   Restart the server"
-    echo "  help      Show this help message"
+    echo "  deploy        Deploy or update the server (default)"
+    echo "  logs          Show warnings and errors only (follow mode)"
+    echo "  logs all      Show all logs including info level"
+    echo "  logs debug    Restart with debug logging (use 'restart' to restore)"
+    echo "  stop          Stop the server"
+    echo "  restart       Restart the server"
+    echo "  help          Show this help message"
 }
 
 # Main
@@ -231,7 +248,7 @@ case "${1:-deploy}" in
         deploy
         ;;
     logs)
-        logs
+        logs "$2"
         ;;
     stop)
         stop

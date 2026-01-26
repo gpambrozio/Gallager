@@ -7,7 +7,7 @@ services:
     env_file:
       - .env
     environment:
-      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_LEVEL=${LOG_LEVEL:-warning}
       - PAIRING_CODE_EXPIRY_SECONDS=${PAIRING_CODE_EXPIRY_SECONDS:-300}
       - DATA_DIRECTORY=/data
       # APNs configuration - set these for push notification support
@@ -18,6 +18,11 @@ services:
       - APNS_BUNDLE_ID=${APNS_BUNDLE_ID:-}
       # APNs environment: "development" for Xcode builds, "production" for App Store/TestFlight
       - APNS_ENVIRONMENT=${APNS_ENVIRONMENT:-development}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     volumes:
       - ./data:/data
       # Mount secrets directory for APNs key (read-only)
