@@ -17,6 +17,7 @@ public struct MainView: View {
     @State private var selectedPane: PaneInfo?
     @State private var attachError: String?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var showingCloseConfirmation = false
 
     public var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -147,6 +148,25 @@ public struct MainView: View {
                     Symbols.macwindowBadgePlus.image
                 }
                 .help("Open mirror in new window")
+
+                Button {
+                    showingCloseConfirmation = true
+                } label: {
+                    Symbols.xmark.image
+                }
+                .help("Close session")
+                .confirmationDialog(
+                    "Close Session?",
+                    isPresented: $showingCloseConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("Close \"\(pane.sessionName)\"", role: .destructive) {
+                        closeSession(pane.sessionName)
+                    }
+                    Button("Cancel", role: .cancel) { }
+                } message: {
+                    Text("This will end all processes in the session.")
+                }
             }
 
             Button {
@@ -255,6 +275,16 @@ public struct MainView: View {
         Task {
             do {
                 try await launcher.attachToSession(pane.sessionName)
+            } catch {
+                attachError = error.localizedDescription
+            }
+        }
+    }
+
+    private func closeSession(_ sessionName: String) {
+        Task {
+            do {
+                try await tmuxService.killSession(sessionName)
             } catch {
                 attachError = error.localizedDescription
             }

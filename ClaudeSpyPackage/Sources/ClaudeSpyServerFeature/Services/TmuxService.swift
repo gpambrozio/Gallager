@@ -444,6 +444,22 @@ final public class TmuxService {
         ])
     }
 
+    /// Kills a tmux session by name
+    /// - Parameter sessionName: The name of the session to kill
+    public func killSession(_ sessionName: String) async throws {
+        let result = try await runTmuxCommand([
+            "kill-session",
+            "-t", sessionName,
+        ])
+
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+
+        // Refresh panes to reflect the killed session
+        await refreshPanes()
+    }
+
     /// Gets the pane ID for a target
     public func getPaneId(_ target: String) async throws -> String {
         let result = try await runTmuxCommand([
