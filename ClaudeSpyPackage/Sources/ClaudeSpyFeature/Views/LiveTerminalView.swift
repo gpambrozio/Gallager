@@ -54,9 +54,11 @@
 
         var body: some View {
             VStack(spacing: 0) {
-                // Response view above terminal (hidden when keyboard is showing)
+                // Response view above terminal (hidden when terminal keyboard is active)
+                // We use isInteractive (explicit terminal input mode) rather than keyboardVisible
+                // to avoid hiding when response view's own TextField activates the keyboard
                 if
-                    !keyboardVisible,
+                    !isInteractive,
                     let responseState,
                     let responseView = responseState.event.responseView(
                         isConnected: isConnected,
