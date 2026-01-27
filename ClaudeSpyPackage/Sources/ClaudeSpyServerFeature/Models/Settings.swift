@@ -61,6 +61,11 @@ final public class AppSettings {
         didSet { UserDefaults.standard.set(autoOpenMirrorOnSession, forKey: Keys.autoOpenMirrorOnSession) }
     }
 
+    /// Whether to prevent Mac from sleeping while Claude sessions are active
+    public var preventSleepDuringSessions: Bool {
+        didSet { UserDefaults.standard.set(preventSleepDuringSessions, forKey: Keys.preventSleepDuringSessions) }
+    }
+
     /// Delay before attempting reconnection (in seconds)
     public var reconnectDelay: Int {
         didSet { UserDefaults.standard.set(reconnectDelay, forKey: Keys.reconnectDelay) }
@@ -148,6 +153,7 @@ final public class AppSettings {
         self.showStatusBar = defaults.object(forKey: Keys.showStatusBar) as? Bool ?? Defaults.showStatusBar
         self.autoReconnect = defaults.object(forKey: Keys.autoReconnect) as? Bool ?? Defaults.autoReconnect
         self.autoOpenMirrorOnSession = defaults.object(forKey: Keys.autoOpenMirrorOnSession) as? Bool ?? Defaults.autoOpenMirrorOnSession
+        self.preventSleepDuringSessions = defaults.object(forKey: Keys.preventSleepDuringSessions) as? Bool ?? Defaults.preventSleepDuringSessions
         self.reconnectDelay = defaults.object(forKey: Keys.reconnectDelay) as? Int ?? Defaults.reconnectDelay
         self.tmuxPath = defaults.string(forKey: Keys.tmuxPath) ?? Defaults.tmuxPath
         self.tmuxSocket = defaults.string(forKey: Keys.tmuxSocket) ?? Defaults.tmuxSocket
@@ -194,6 +200,7 @@ final public class AppSettings {
         static let showStatusBar = "showStatusBar"
         static let autoReconnect = "autoReconnect"
         static let autoOpenMirrorOnSession = "autoOpenMirrorOnSession"
+        static let preventSleepDuringSessions = "preventSleepDuringSessions"
         static let reconnectDelay = "reconnectDelay"
         static let tmuxPath = "tmuxPath"
         static let tmuxSocket = "tmuxSocket"
@@ -223,6 +230,7 @@ final public class AppSettings {
         static let showStatusBar = true
         static let autoReconnect = false
         static let autoOpenMirrorOnSession = false
+        static let preventSleepDuringSessions = true
         static let reconnectDelay = 5
         static let tmuxPath = "/opt/homebrew/bin/tmux"
         static let tmuxSocket = ""

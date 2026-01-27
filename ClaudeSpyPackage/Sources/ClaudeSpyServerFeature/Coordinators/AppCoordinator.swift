@@ -45,6 +45,9 @@
         /// Dock icon visibility manager
         public let dockIconManager: DockIconManager
 
+        /// Sleep prevention manager
+        public let sleepPreventionManager: SleepPreventionManager
+
         // MARK: - Private Services
 
         private let hookServer: HookServerService
@@ -106,6 +109,9 @@
             // Create dock icon manager
             self.dockIconManager = DockIconManager()
 
+            // Create sleep prevention manager
+            self.sleepPreventionManager = SleepPreventionManager()
+
             // CRITICAL: Load E2EEService synchronously from Keychain BEFORE any view rendering.
             // This prevents createPairingManager() from generating temporary keys.
             if let e2ee = try? E2EEService.loadFromKeychainSync() {
@@ -148,6 +154,9 @@
                 // Handle locally
                 await windowManager.handleHookEvent(event)
 
+                // Update sleep prevention based on new session count
+                await updateSleepPrevention()
+
                 guard event.action.body.shouldSendToServer else { return }
                 // Forward to iOS via external server
                 await externalServerClient.sendHookEvent(event)
@@ -160,6 +169,9 @@
 
             // Start periodic validation to clean up stale sessions
             windowManager.startPeriodicSessionValidation()
+
+            // Initial sleep prevention update (in case there are already sessions)
+            updateSleepPrevention()
         }
 
         // MARK: - Private Setup Methods
@@ -213,12 +225,14 @@
             let winManager = windowManager
             let tmuxForCleanup = tmuxService
             let terminalStreaming = terminalStreamService
-            controlClientManager.setOnPanesChanged {
+            controlClientManager.setOnPanesChanged { [weak self] in
                 Task {
                     let panes = await tmuxForCleanup.refreshPanes()
                     winManager.cleanupStaleSessions(currentPanes: panes)
                     // Stop iOS streams for panes that no longer exist (sends streamEnd to iOS)
                     await terminalStreaming.stopStreamsForClosedPanes(currentPanes: panes)
+                    // Update sleep prevention after session cleanup
+                    self?.updateSleepPrevention()
                 }
             }
 
@@ -296,6 +310,15 @@
             tmuxService.setPanesChangedHandler { [serverClient] in
                 await serverClient.pushSessionState()
             }
+        }
+
+        /// Updates sleep prevention based on current session count.
+        /// Called after hook events and session cleanup.
+        private func updateSleepPrevention() {
+            sleepPreventionManager.updateForSessionCount(
+                windowManager.activeSessions.count,
+                isEnabled: settings.preventSleepDuringSessions
+            )
         }
 
         private static func handleStartStream(

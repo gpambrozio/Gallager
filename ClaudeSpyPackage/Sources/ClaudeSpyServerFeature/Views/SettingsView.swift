@@ -97,6 +97,9 @@ struct GeneralSettingsView: View {
 
                 Toggle("Auto-open mirror on session start", isOn: $settings.autoOpenMirrorOnSession)
 
+                Toggle("Prevent sleep during active sessions", isOn: $settings.preventSleepDuringSessions)
+                    .help("Keep Mac awake while Claude Code sessions are running")
+
                 Toggle("Auto-reconnect on connection loss", isOn: $settings.autoReconnect)
 
                 if settings.autoReconnect {
