@@ -1,7 +1,6 @@
 import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import Foundation
-import os
 
 /// Manages local session state received from the Mac app.
 ///
@@ -12,7 +11,7 @@ import os
 final public class SessionStore {
     // MARK: - Properties
 
-    private let logger = Logger(subsystem: "com.claudespy.ios", category: "SessionStore")
+    private let logger = Logger(label: "com.claudespy.sessionstore")
 
     /// Active Claude sessions by pane ID
     public private(set) var sessions: [String: ClaudeSession] = [:]

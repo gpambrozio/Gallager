@@ -2,7 +2,6 @@ import ClaudeSpyCommon
 import ClaudeSpyEncryption
 import ClaudeSpyNetworking
 import Foundation
-import os
 
 /// Errors that can occur during relay communication
 public enum RelayClientError: Error, LocalizedError {
@@ -57,7 +56,7 @@ final public class RelayClient {
 
     // MARK: - Properties
 
-    private let logger = Logger(subsystem: "com.claudespy.ios", category: "RelayClient")
+    private let logger = Logger(label: "com.claudespy.relayclient")
 
     /// Current connection state
     public private(set) var state: ConnectionState = .disconnected
@@ -446,7 +445,7 @@ final public class RelayClient {
             }
             do {
                 decryptedMessage = try await message.decrypt(using: e2eeService)
-                logger.debug("Decrypted message: \(decryptedMessage.messageType)")
+                logger.trace("Decrypted message: \(decryptedMessage.messageType)")
             } catch {
                 logger.error("Failed to decrypt message: \(error)")
                 return
@@ -519,7 +518,7 @@ final public class RelayClient {
             }
 
         case let .terminalStream(streamMessage):
-            logger.debug("Received terminal stream for pane \(streamMessage.paneId)")
+            logger.trace("Received terminal stream for pane \(streamMessage.paneId)")
             onTerminalStream?(streamMessage)
 
         case let .macConnected(connectedMessage):

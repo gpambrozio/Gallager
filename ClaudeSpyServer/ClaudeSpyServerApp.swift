@@ -1,10 +1,20 @@
+import ClaudeSpyCommon
 import ClaudeSpyEncryption
 import ClaudeSpyServerFeature
 import SwiftUI
 
 @main
 struct TmuxPaneMirrorApp: App {
-    @State private var coordinator = AppCoordinator()
+    @State private var coordinator: AppCoordinator
+
+    init() {
+        // Bootstrap logging FIRST, before any Logger instances are created
+        // Log level is determined by LOG_LEVEL env var (default: warning)
+        LoggingConfiguration.bootstrap()
+
+        // Now create coordinator (which creates loggers internally)
+        _coordinator = State(initialValue: AppCoordinator())
+    }
 
     var body: some Scene {
         // Main panes window - can be shown via menu bar "Show Panes Window"

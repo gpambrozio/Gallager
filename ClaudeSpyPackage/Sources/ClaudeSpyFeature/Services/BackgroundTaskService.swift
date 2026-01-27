@@ -1,6 +1,6 @@
 #if os(iOS)
+    import ClaudeSpyCommon
     import Foundation
-    import os
     import UIKit
 
     /// Manages background task to keep WebSocket connection alive briefly when app backgrounds.
@@ -19,7 +19,7 @@
 
         // MARK: - Properties
 
-        private let logger = Logger(subsystem: "com.claudespy.ios", category: "BackgroundTask")
+        private let logger = Logger(label: "com.claudespy.backgroundtask")
 
         /// Current background task identifier, or .invalid if no task is active
         private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
