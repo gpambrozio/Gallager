@@ -149,19 +149,13 @@
             setupPanesChangedHandler()
 
             // Forward hook events to window manager AND external server
-            let hookSleepManager = sleepPreventionManager
-            let hookSettings = settings
-            let hookWindowManager = windowManager
-            await hookServer.setEventHandler { [weak self, hookSleepManager, hookSettings, hookWindowManager] event in
+            await hookServer.setEventHandler { [weak self] event in
                 guard let self else { return }
                 // Handle locally
                 await windowManager.handleHookEvent(event)
 
                 // Update sleep prevention based on new session count
-                await hookSleepManager.updateForSessionCount(
-                    hookWindowManager.activeSessions.count,
-                    isEnabled: hookSettings.preventSleepDuringSessions
-                )
+                await updateSleepPrevention()
 
                 guard event.action.body.shouldSendToServer else { return }
                 // Forward to iOS via external server
@@ -176,8 +170,8 @@
             // Start periodic validation to clean up stale sessions
             windowManager.startPeriodicSessionValidation()
 
-            // Start observing session changes for sleep prevention
-            setupSleepPrevention()
+            // Initial sleep prevention update (in case there are already sessions)
+            updateSleepPrevention()
         }
 
         // MARK: - Private Setup Methods
@@ -231,19 +225,14 @@
             let winManager = windowManager
             let tmuxForCleanup = tmuxService
             let terminalStreaming = terminalStreamService
-            let sleepManager = sleepPreventionManager
-            let sleepSettings = settings
-            controlClientManager.setOnPanesChanged {
+            controlClientManager.setOnPanesChanged { [weak self] in
                 Task {
                     let panes = await tmuxForCleanup.refreshPanes()
                     winManager.cleanupStaleSessions(currentPanes: panes)
                     // Stop iOS streams for panes that no longer exist (sends streamEnd to iOS)
                     await terminalStreaming.stopStreamsForClosedPanes(currentPanes: panes)
                     // Update sleep prevention after session cleanup
-                    sleepManager.updateForSessionCount(
-                        winManager.activeSessions.count,
-                        isEnabled: sleepSettings.preventSleepDuringSessions
-                    )
+                    self?.updateSleepPrevention()
                 }
             }
 
@@ -321,11 +310,6 @@
             tmuxService.setPanesChangedHandler { [serverClient] in
                 await serverClient.pushSessionState()
             }
-        }
-
-        private func setupSleepPrevention() {
-            // Initial update based on current state (in case there are already sessions)
-            updateSleepPrevention()
         }
 
         /// Updates sleep prevention based on current session count.

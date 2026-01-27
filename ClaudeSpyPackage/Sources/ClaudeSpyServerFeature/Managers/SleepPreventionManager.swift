@@ -1,5 +1,6 @@
 import Foundation
 import IOKit.pwr_mgt
+import Logging
 
 /// Manages system sleep prevention based on active Claude Code sessions.
 ///
@@ -16,6 +17,8 @@ final public class SleepPreventionManager {
 
     /// IOKit assertion ID (0 when no assertion is held)
     private var assertionID: IOPMAssertionID = 0
+
+    private let logger = Logger(label: "com.claudespy.sleep-prevention")
 
     public init() { }
 
@@ -65,6 +68,8 @@ final public class SleepPreventionManager {
 
         if result == kIOReturnSuccess {
             isPreventingSleep = true
+        } else {
+            logger.warning("Failed to acquire sleep prevention assertion: \(result)")
         }
     }
 
