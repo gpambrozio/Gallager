@@ -22,7 +22,7 @@ APP_NAME="ClaudeSpyServer"
 # Sparkle / FTP configuration
 APPCAST_DIR="$PROJECT_ROOT/docs"
 APPCAST_FILE="$APPCAST_DIR/ClaudeSpy.xml"
-FTP_HOST="gustavo.eng.br"
+FTP_HOST="tirodinamico.com.br"
 FTP_REMOTE_DIR="/"
 ONEPASSWORD_ITEM="Updates FTP for gustavo.eng.br"
 ONEPASSWORD_ACCOUNT="OKIDD7RZWVFWPDPZSBA4O4BSPI"
