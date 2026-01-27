@@ -45,6 +45,9 @@
         /// Dock icon visibility manager
         public let dockIconManager: DockIconManager
 
+        /// Sleep prevention manager
+        public let sleepPreventionManager: SleepPreventionManager
+
         // MARK: - Private Services
 
         private let hookServer: HookServerService
@@ -106,6 +109,9 @@
             // Create dock icon manager
             self.dockIconManager = DockIconManager()
 
+            // Create sleep prevention manager
+            self.sleepPreventionManager = SleepPreventionManager()
+
             // CRITICAL: Load E2EEService synchronously from Keychain BEFORE any view rendering.
             // This prevents createPairingManager() from generating temporary keys.
             if let e2ee = try? E2EEService.loadFromKeychainSync() {
@@ -143,10 +149,19 @@
             setupPanesChangedHandler()
 
             // Forward hook events to window manager AND external server
-            await hookServer.setEventHandler { [weak self] event in
+            let hookSleepManager = sleepPreventionManager
+            let hookSettings = settings
+            let hookWindowManager = windowManager
+            await hookServer.setEventHandler { [weak self, hookSleepManager, hookSettings, hookWindowManager] event in
                 guard let self else { return }
                 // Handle locally
                 await windowManager.handleHookEvent(event)
+
+                // Update sleep prevention based on new session count
+                await hookSleepManager.updateForSessionCount(
+                    hookWindowManager.activeSessions.count,
+                    isEnabled: hookSettings.preventSleepDuringSessions
+                )
 
                 guard event.action.body.shouldSendToServer else { return }
                 // Forward to iOS via external server
@@ -160,6 +175,9 @@
 
             // Start periodic validation to clean up stale sessions
             windowManager.startPeriodicSessionValidation()
+
+            // Start observing session changes for sleep prevention
+            setupSleepPrevention()
         }
 
         // MARK: - Private Setup Methods
@@ -213,12 +231,19 @@
             let winManager = windowManager
             let tmuxForCleanup = tmuxService
             let terminalStreaming = terminalStreamService
+            let sleepManager = sleepPreventionManager
+            let sleepSettings = settings
             controlClientManager.setOnPanesChanged {
                 Task {
                     let panes = await tmuxForCleanup.refreshPanes()
                     winManager.cleanupStaleSessions(currentPanes: panes)
                     // Stop iOS streams for panes that no longer exist (sends streamEnd to iOS)
                     await terminalStreaming.stopStreamsForClosedPanes(currentPanes: panes)
+                    // Update sleep prevention after session cleanup
+                    sleepManager.updateForSessionCount(
+                        winManager.activeSessions.count,
+                        isEnabled: sleepSettings.preventSleepDuringSessions
+                    )
                 }
             }
 
@@ -296,6 +321,20 @@
             tmuxService.setPanesChangedHandler { [serverClient] in
                 await serverClient.pushSessionState()
             }
+        }
+
+        private func setupSleepPrevention() {
+            // Initial update based on current state (in case there are already sessions)
+            updateSleepPrevention()
+        }
+
+        /// Updates sleep prevention based on current session count.
+        /// Called after hook events and session cleanup.
+        private func updateSleepPrevention() {
+            sleepPreventionManager.updateForSessionCount(
+                windowManager.activeSessions.count,
+                isEnabled: settings.preventSleepDuringSessions
+            )
         }
 
         private static func handleStartStream(
