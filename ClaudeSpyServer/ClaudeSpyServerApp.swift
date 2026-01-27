@@ -6,6 +6,7 @@ import SwiftUI
 @main
 struct TmuxPaneMirrorApp: App {
     @State private var coordinator: AppCoordinator
+    @StateObject private var updaterController = UpdaterController()
 
     init() {
         // Bootstrap logging FIRST, before any Logger instances are created
@@ -30,6 +31,11 @@ struct TmuxPaneMirrorApp: App {
         }
         .defaultLaunchBehavior(.presented) // TODO: Change back to .suppressed
         .commands {
+            // App menu - Check for Updates
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesView(updaterController: updaterController)
+            }
+
             // File menu
             CommandGroup(replacing: .newItem) {
                 Button("New Mirror") {

@@ -5,5 +5,14 @@
 	<!-- Apple Events - required for AppleScript automation (terminal launching) -->
 	<key>com.apple.security.automation.apple-events</key>
 	<true/>
+
+	<!-- Network client - required for downloading updates -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+
+	<!-- Disable library validation - required because Sparkle.framework -->
+	<!-- has a different Team ID when loaded via SPM -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
 </dict>
 </plist>

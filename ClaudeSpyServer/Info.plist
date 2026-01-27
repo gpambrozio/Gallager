@@ -5,5 +5,14 @@
 	<!-- Apple Events Usage Description - required for AppleScript automation -->
 	<key>NSAppleEventsUsageDescription</key>
 	<string>ClaudeSpy needs to control terminal applications to open tmux sessions.</string>
+
+	<!-- Sparkle Auto-Update Configuration -->
+	<key>SUFeedURL</key>
+	<string>https://gpambrozio.github.io/ClaudeSpy/appcast.xml</string>
+
+	<!-- Generate with: generate_keys (from brew install sparkle) -->
+	<!-- The public key below is a placeholder - replace with your actual key -->
+	<key>SUPublicEDKey</key>
+	<string>REPLACE_WITH_YOUR_PUBLIC_EDDSA_KEY</string>
 </dict>
 </plist>

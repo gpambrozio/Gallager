@@ -30,3 +30,9 @@ GENERATE_INFOPLIST_FILE = YES
 // ==========================================
 // AI agents can modify Config/ClaudeSpy.entitlements to add capabilities
 CODE_SIGN_ENTITLEMENTS = Config/ClaudeSpy.entitlements
+
+// ==========================================
+// Sparkle Auto-Update Support
+// ==========================================
+// Required for Sparkle.framework to be found at runtime
+LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/../Frameworks
