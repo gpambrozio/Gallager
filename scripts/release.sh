@@ -40,7 +40,7 @@ NC='\033[0m'
 SKIP_NOTARIZE=false
 LOCAL_SIGNING=false
 NOTARYTOOL_PROFILE="notarytool-profile"
-TEAM_ID="ZDM9Q8QJ4N"
+TEAM_ID="XG2WG7U93U"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
