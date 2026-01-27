@@ -17,10 +17,14 @@ final public class ResponseState {
     /// Reference to the session store for persistence
     private weak var sessionStore: SessionStore?
 
+    /// Flag to prevent didSet from persisting during initialization
+    private var isInitialized = false
+
     /// The user's response, if they've responded.
     /// Setting this persists the response to SessionStore.
     public var response: ResponseType? {
         didSet {
+            guard isInitialized else { return }
             sessionStore?.setResponse(response, for: event.id)
         }
     }
@@ -28,8 +32,10 @@ final public class ResponseState {
     public init(event: HookEvent, sessionStore: SessionStore? = nil) {
         self.event = event
         self.sessionStore = sessionStore
-        // Restore any existing response from the store
+        // Restore any existing response from the store.
+        // isInitialized is false, so didSet won't trigger @Observable mutations.
         self.response = sessionStore?.response(for: event.id)
+        self.isInitialized = true
     }
 }
 

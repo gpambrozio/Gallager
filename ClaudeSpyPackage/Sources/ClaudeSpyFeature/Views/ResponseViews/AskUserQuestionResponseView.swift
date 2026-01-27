@@ -45,8 +45,6 @@ struct AskUserQuestionResponseView: View {
     @State private var customInputText = ""
     /// Whether we're showing the custom input field
     @State private var showingCustomInput = false
-    /// Whether we've submitted and are done
-    @State private var isSubmitted = false
     @FocusState private var isTextFieldFocused: Bool
 
     private var questions: [AskUserQuestionParameters.AskUserQuestion] {
@@ -64,7 +62,7 @@ struct AskUserQuestionResponseView: View {
     }
 
     var body: some View {
-        if isSubmitted {
+        if state.response != nil {
             completionFeedback
         } else if isReadyForReview {
             summaryView
@@ -452,7 +450,6 @@ struct AskUserQuestionResponseView: View {
 
         state.isSending = false
         state.response = .allQuestionsAnswered
-        isSubmitted = true
     }
 }
 
