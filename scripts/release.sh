@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Release Script for ClaudeSpy macOS App with Sparkle Auto-Update
-# Builds, notarizes, packages, and releases the app to GitHub
+# Builds, notarizes, packages, and uploads to FTP server
 
 set -e
 
@@ -19,11 +19,14 @@ ARCHIVE_PATH="$BUILD_DIR/ClaudeSpyServer.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
 APP_NAME="ClaudeSpyServer"
 
-# Sparkle configuration
+# Sparkle / FTP configuration
 APPCAST_DIR="$PROJECT_ROOT/docs"
 APPCAST_FILE="$APPCAST_DIR/appcast.xml"
-GITHUB_REPO="gpambrozio/ClaudeSpy"
-DOWNLOAD_URL_PREFIX="https://github.com/$GITHUB_REPO/releases/download"
+FTP_HOST="tirodinamico.com.br"
+FTP_REMOTE_DIR="/"
+ONEPASSWORD_ITEM="ClaudeSpy FTP"
+ONEPASSWORD_ACCOUNT="OKIDD7RZWVFWPDPZSBA4O4BSPI"
+DOWNLOAD_URL_PREFIX="https://updates.gustavo.eng.br"
 
 # =====================================================
 # Colors for output
@@ -39,6 +42,7 @@ NC='\033[0m'
 # =====================================================
 SKIP_NOTARIZE=false
 LOCAL_SIGNING=false
+SKIP_UPLOAD=false
 NOTARYTOOL_PROFILE="notarytool-profile"
 TEAM_ID="XG2WG7U93U"
 
@@ -53,6 +57,10 @@ while [[ $# -gt 0 ]]; do
             SKIP_NOTARIZE=true
             shift
             ;;
+        --skip-upload)
+            SKIP_UPLOAD=true
+            shift
+            ;;
         --notarytool-profile)
             NOTARYTOOL_PROFILE="$2"
             shift 2
@@ -63,6 +71,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Unknown option: $1"
+            echo "Usage: $0 [--skip-notarize] [--local-signing] [--skip-upload]"
             exit 1
             ;;
     esac
@@ -99,12 +108,12 @@ increment_version() {
 check_prerequisites() {
     log_info "Checking prerequisites..."
 
-    if ! command -v gh &> /dev/null; then
-        log_error "GitHub CLI (gh) is not installed. Install with: brew install gh"
+    if ! command -v lftp &> /dev/null; then
+        log_error "lftp is not installed. Install with: brew install lftp"
     fi
 
-    if ! gh auth status &> /dev/null; then
-        log_error "GitHub CLI is not authenticated. Run: gh auth login"
+    if ! command -v op &> /dev/null; then
+        log_error "1Password CLI is not installed. Install with: brew install --cask 1password-cli"
     fi
 
     if ! command -v create-dmg &> /dev/null; then
@@ -303,7 +312,7 @@ update_appcast() {
     local dmg_name
     dmg_name=$(basename "$dmg_path")
 
-    local download_url="$DOWNLOAD_URL_PREFIX/v$version/$dmg_name"
+    local download_url="$DOWNLOAD_URL_PREFIX/$dmg_name"
     local pub_date
     pub_date=$(date -R 2>/dev/null || date "+%a, %d %b %Y %H:%M:%S %z")
 
@@ -354,7 +363,7 @@ ITEMEOF
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
    <channel>
       <title>ClaudeSpy Updates</title>
-      <link>https://${GITHUB_REPO%%/*}.github.io/${GITHUB_REPO##*/}/appcast.xml</link>
+      <link>$DOWNLOAD_URL_PREFIX/appcast.xml</link>
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
 $(cat "$item_file")
@@ -373,47 +382,42 @@ EOF
 }
 
 # =====================================================
-# Create GitHub release
+# Upload to FTP server
 # =====================================================
-create_github_release() {
-    local version=$1
-    local dmg_path=$2
-    local release_notes=$3
-    local tag="v$version"
+upload_to_ftp() {
+    local dmg_path=$1
 
-    log_info "Creating GitHub release $tag..."
-
-    gh release create "$tag" \
-        --title "ClaudeSpy $version" \
-        --notes "$release_notes" \
-        "$dmg_path" \
-        || log_error "GitHub release creation failed"
-
-    log_success "GitHub release created: $tag"
-}
-
-# =====================================================
-# Commit and push appcast
-# =====================================================
-commit_appcast() {
-    local version=$1
-
-    if [ ! -f "$APPCAST_FILE" ]; then
-        log_warning "No appcast file to commit"
+    if [ "$SKIP_UPLOAD" = true ]; then
+        log_warning "Skipping FTP upload"
         return
     fi
 
-    log_info "Committing appcast.xml..."
+    log_info "Uploading to FTP server..."
 
-    git -C "$PROJECT_ROOT" add "$APPCAST_FILE"
+    # Get credentials from 1Password
+    log_info "Retrieving credentials from 1Password..."
+    op signin --account "$ONEPASSWORD_ACCOUNT" || log_error "1Password sign-in failed"
 
-    if git -C "$PROJECT_ROOT" diff --cached --quiet "$APPCAST_FILE"; then
-        log_info "No changes to appcast.xml"
-        return
-    fi
+    local FTP_USER FTP_PASS
+    FTP_USER=$(op item get "$ONEPASSWORD_ITEM" --fields username --account "$ONEPASSWORD_ACCOUNT") \
+        || log_error "Failed to get FTP username from 1Password. Create item '$ONEPASSWORD_ITEM' with username and password fields."
+    FTP_PASS=$(op item get "$ONEPASSWORD_ITEM" --fields password --reveal --account "$ONEPASSWORD_ACCOUNT") \
+        || log_error "Failed to get FTP password from 1Password"
 
-    git -C "$PROJECT_ROOT" commit -m "Update appcast.xml for version $version"
-    log_success "Appcast changes committed"
+    local dmg_name
+    dmg_name=$(basename "$dmg_path")
+
+    # Upload DMG and appcast.xml
+    lftp -c "
+set ssl:verify-certificate false;
+set cmd:fail-exit true;
+open ftp://$FTP_USER:$FTP_PASS@$FTP_HOST;
+cd $FTP_REMOTE_DIR;
+put -O . '$dmg_path';
+put -O . '$APPCAST_FILE';
+" || log_error "FTP upload failed"
+
+    log_success "Uploaded $dmg_name and appcast.xml to $FTP_HOST"
 }
 
 # =====================================================
@@ -487,16 +491,15 @@ main() {
     echo "----------------------------------------"
     echo ""
 
-    read -p "Proceed with GitHub release? (y/N) " -n 1 -r
+    read -p "Proceed with release? (y/N) " -n 1 -r
     echo ""
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        log_info "GitHub release cancelled. DMG available at: $dmg_path"
+        log_info "Release cancelled. DMG available at: $dmg_path"
         exit 0
     fi
 
     update_appcast "$version" "$build_number" "$dmg_path" "$sparkle_signature" "$release_notes"
-    create_github_release "$version" "$dmg_path" "$release_notes"
-    commit_appcast "$version"
+    upload_to_ftp "$dmg_path"
     bump_version "$version"
 
     git -C "$PROJECT_ROOT" push
@@ -509,10 +512,8 @@ main() {
     echo "=========================================="
     echo ""
     echo "Released: ClaudeSpy $version"
-    echo ""
-    echo "Next steps:"
-    echo "  - Ensure GitHub Pages is enabled for /docs folder"
-    echo "    (Settings > Pages > Source: Deploy from branch, /docs)"
+    echo "Download: $DOWNLOAD_URL_PREFIX/$(basename "$dmg_path")"
+    echo "Appcast:  $DOWNLOAD_URL_PREFIX/appcast.xml"
     echo ""
 }
 
