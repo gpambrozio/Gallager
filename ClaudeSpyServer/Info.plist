@@ -10,9 +10,7 @@
 	<key>SUFeedURL</key>
 	<string>https://gpambrozio.github.io/ClaudeSpy/appcast.xml</string>
 
-	<!-- Generate with: generate_keys (from brew install sparkle) -->
-	<!-- The public key below is a placeholder - replace with your actual key -->
 	<key>SUPublicEDKey</key>
-	<string>REPLACE_WITH_YOUR_PUBLIC_EDDSA_KEY</string>
+	<string>SgIzXu4JuQVHuQFIyVAPsy48BCLzF6nuCTRKUyPi+cc=</string>
 </dict>
 </plist>
