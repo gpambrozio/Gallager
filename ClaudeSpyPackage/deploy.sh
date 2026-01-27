@@ -7,31 +7,56 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Configuration
-HCLOUD_SERVER_NAME="cleancast"  # Reuse existing server
-REMOTE_DIR="/opt/claudespy"
-CADDY_CONF_D="/etc/caddy/conf.d"
-
-# Get server IP from hcloud
-get_server_ip() {
-    hcloud server ip "$HCLOUD_SERVER_NAME" 2>/dev/null
-}
+# Configuration via environment variables (with defaults)
+# Set these before running the script or export them in your shell
+DEPLOY_USER="${DEPLOY_USER:-root}"
+REMOTE_DIR="${REMOTE_DIR:-/opt/claudespy}"
+CADDY_CONF_D="${CADDY_CONF_D:-/etc/caddy/conf.d}"
 
 # Print colored output
 info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+# Get server IP/hostname
+get_server_host() {
+    # Priority: DEPLOY_HOST env var > hcloud (if available)
+    if [ -n "$DEPLOY_HOST" ]; then
+        echo "$DEPLOY_HOST"
+        return
+    fi
+
+    # Fallback to hcloud if configured (for backwards compatibility)
+    if [ -n "$HCLOUD_SERVER_NAME" ] && command -v hcloud &> /dev/null; then
+        hcloud server ip "$HCLOUD_SERVER_NAME" 2>/dev/null
+        return
+    fi
+
+    # No host configured
+    echo ""
+}
+
 # Check prerequisites
 check_prerequisites() {
-    if ! command -v hcloud &> /dev/null; then
-        error "hcloud CLI not found. Install with: brew install hcloud"
+    local server_host
+    server_host=$(get_server_host)
+
+    if [ -z "$server_host" ]; then
+        error "No deploy target configured."
+        echo ""
+        echo "Set one of these environment variables:"
+        echo "  export DEPLOY_HOST=your-server-ip-or-hostname"
+        echo ""
+        echo "Or for Hetzner Cloud:"
+        echo "  export HCLOUD_SERVER_NAME=your-server-name"
+        echo ""
         exit 1
     fi
 
-    if ! hcloud context active &> /dev/null; then
-        error "No active hcloud context. Run: hcloud context create <name>"
-        exit 1
+    # Verify SSH connectivity
+    if ! ssh -q -o BatchMode=yes -o ConnectTimeout=5 "${DEPLOY_USER}@${server_host}" exit 2>/dev/null; then
+        warn "Cannot connect to ${DEPLOY_USER}@${server_host}"
+        warn "Make sure SSH key authentication is configured."
     fi
 }
 
@@ -69,16 +94,15 @@ deploy() {
 
     info "Starting ClaudeSpy relay server deployment..."
 
-    # Get server IP
-    SERVER_IP=$(get_server_ip)
-    if [ -z "$SERVER_IP" ]; then
-        error "Could not get server IP for '$HCLOUD_SERVER_NAME'"
+    # Get server host
+    SERVER_HOST=$(get_server_host)
+    if [ -z "$SERVER_HOST" ]; then
+        error "Could not determine server host"
         exit 1
     fi
-    info "Deploying to server: $SERVER_IP"
+    info "Deploying to server: $SERVER_HOST"
 
-    REMOTE_USER="root"
-    REMOTE_HOST="$REMOTE_USER@$SERVER_IP"
+    REMOTE_HOST="$DEPLOY_USER@$SERVER_HOST"
 
     # Create remote directory if it doesn't exist
     info "Setting up remote directory..."
@@ -97,9 +121,17 @@ deploy() {
         "$(dirname "$0")/" \
         "$REMOTE_HOST:$REMOTE_DIR/"
 
-    # Copy Caddy config
-    info "Installing Caddy configuration..."
-    ssh -o LogLevel=ERROR "$REMOTE_HOST" "cp $REMOTE_DIR/caddy/claudespy.caddy $CADDY_CONF_D/"
+    # Copy Caddy config if directory exists on server
+    info "Checking for Caddy configuration..."
+    if ssh -o LogLevel=ERROR "$REMOTE_HOST" "test -d $CADDY_CONF_D" 2>/dev/null; then
+        if [ -f "$(dirname "$0")/caddy/claudespy.caddy" ]; then
+            info "Installing Caddy configuration..."
+            ssh -o LogLevel=ERROR "$REMOTE_HOST" "cp $REMOTE_DIR/caddy/claudespy.caddy $CADDY_CONF_D/"
+        fi
+    else
+        info "Caddy conf.d directory not found, skipping Caddy config installation."
+        info "You may need to configure your reverse proxy manually."
+    fi
 
     # Ensure data directory exists with correct permissions
     info "Ensuring data directory permissions..."
@@ -134,9 +166,11 @@ deploy() {
         echo "Starting container..."
         docker compose up -d 2>&1 | grep -v "^\$"
 
-        # Reload Caddy to pick up new config
-        echo "Reloading Caddy..."
-        systemctl reload caddy
+        # Reload Caddy if it's running
+        if systemctl is-active --quiet caddy 2>/dev/null; then
+            echo "Reloading Caddy..."
+            systemctl reload caddy
+        fi
 
         # Show container status
         echo ""
@@ -161,13 +195,17 @@ REMOTE_SCRIPT
 
     # Test the deployment
     info "Testing deployment..."
-    HEALTH_CHECK=$(curl -s "https://claudespy.gustavo.eng.br/health" 2>/dev/null || echo "failed")
+
+    # Determine health check URL
+    HEALTH_URL="${HEALTH_CHECK_URL:-http://${SERVER_HOST}:8080/health}"
+    HEALTH_CHECK=$(curl -s "$HEALTH_URL" 2>/dev/null || echo "failed")
 
     if echo "$HEALTH_CHECK" | grep -q '"status":"ok"'; then
         info "Deployment successful! Server is healthy."
         echo ""
-        echo -e "${GREEN}ClaudeSpy relay server is now running at:${NC}"
-        echo "  https://claudespy.gustavo.eng.br"
+        echo -e "${GREEN}ClaudeSpy relay server is now running.${NC}"
+        echo ""
+        echo "Health check: $HEALTH_URL"
         echo ""
         echo "Endpoints:"
         echo "  GET  /health                    - Health check"
@@ -175,21 +213,23 @@ REMOTE_SCRIPT
         echo "  POST /api/pairing/complete      - Complete pairing (iOS)"
         echo "  WS   /api/ws                    - WebSocket connection"
     else
-        warn "Health check failed. Server may still be starting."
-        echo "Check manually: curl https://claudespy.gustavo.eng.br/health"
+        warn "Health check failed or server is still starting."
+        echo "Check manually: curl $HEALTH_URL"
+        echo ""
+        echo "If using a reverse proxy, check: curl https://your-domain.com/health"
     fi
 }
 
 # Show logs (warnings and errors only by default)
 logs() {
-    SERVER_IP=$(get_server_ip)
-    REMOTE_HOST="root@$SERVER_IP"
+    SERVER_HOST=$(get_server_host)
+    REMOTE_HOST="$DEPLOY_USER@$SERVER_HOST"
 
     local mode="${1:-}"
 
     case "$mode" in
         all|info)
-            info "Fetching all logs from $SERVER_IP..."
+            info "Fetching all logs from $SERVER_HOST..."
             ssh -o LogLevel=ERROR "$REMOTE_HOST" "cd $REMOTE_DIR && docker compose logs -f --tail=100"
             ;;
         debug)
@@ -198,7 +238,7 @@ logs() {
             warn "Note: Container is now running with debug logging. Run 'deploy.sh restart' to restore normal logging."
             ;;
         *)
-            info "Fetching warnings and errors from $SERVER_IP..."
+            info "Fetching warnings and errors from $SERVER_HOST..."
             ssh -o LogLevel=ERROR "$REMOTE_HOST" "cd $REMOTE_DIR && docker compose logs -f --tail=500 2>&1 | grep -E '\[ (WARNING|ERROR|CRITICAL) \]|error|Error|ERROR|warning|Warning|WARNING'"
             ;;
     esac
@@ -206,8 +246,8 @@ logs() {
 
 # Stop the server
 stop() {
-    SERVER_IP=$(get_server_ip)
-    REMOTE_HOST="root@$SERVER_IP"
+    SERVER_HOST=$(get_server_host)
+    REMOTE_HOST="$DEPLOY_USER@$SERVER_HOST"
 
     info "Stopping ClaudeSpy relay server..."
     ssh -o LogLevel=ERROR "$REMOTE_HOST" "cd $REMOTE_DIR && docker compose down"
@@ -216,12 +256,21 @@ stop() {
 
 # Restart the server
 restart() {
-    SERVER_IP=$(get_server_ip)
-    REMOTE_HOST="root@$SERVER_IP"
+    SERVER_HOST=$(get_server_host)
+    REMOTE_HOST="$DEPLOY_USER@$SERVER_HOST"
 
     info "Restarting ClaudeSpy relay server..."
     ssh -o LogLevel=ERROR "$REMOTE_HOST" "cd $REMOTE_DIR && docker compose restart"
     info "Server restarted."
+}
+
+# Show status
+status() {
+    SERVER_HOST=$(get_server_host)
+    REMOTE_HOST="$DEPLOY_USER@$SERVER_HOST"
+
+    info "Checking ClaudeSpy relay server status..."
+    ssh -o LogLevel=ERROR "$REMOTE_HOST" "cd $REMOTE_DIR && docker compose ps && echo '' && docker compose logs --tail=10"
 }
 
 # Show help
@@ -237,7 +286,21 @@ usage() {
     echo "  logs debug    Restart with debug logging (use 'restart' to restore)"
     echo "  stop          Stop the server"
     echo "  restart       Restart the server"
+    echo "  status        Show container status and recent logs"
     echo "  help          Show this help message"
+    echo ""
+    echo "Environment variables:"
+    echo "  DEPLOY_HOST       Server IP or hostname (required)"
+    echo "  DEPLOY_USER       SSH user (default: root)"
+    echo "  REMOTE_DIR        Installation directory (default: /opt/claudespy)"
+    echo "  HEALTH_CHECK_URL  URL for health check (default: http://\$DEPLOY_HOST:8080/health)"
+    echo ""
+    echo "  # Legacy Hetzner Cloud support:"
+    echo "  HCLOUD_SERVER_NAME  Hetzner server name (alternative to DEPLOY_HOST)"
+    echo ""
+    echo "Example:"
+    echo "  export DEPLOY_HOST=192.168.1.100"
+    echo "  $0 deploy"
 }
 
 # Main
@@ -255,6 +318,9 @@ case "${1:-deploy}" in
         ;;
     restart)
         restart
+        ;;
+    status)
+        status
         ;;
     help|--help|-h)
         usage

@@ -17,15 +17,18 @@ ClaudeSpy/
 ├── ClaudeSpy/                     # iOS @main entry
 ├── ClaudeSpyServer/               # macOS @main entry
 ├── ClaudeSpyNotificationExtension/  # iOS push decryption extension
-├── ClaudeSpyPackage/              # ALL business logic
-│   └── Sources/
-│       ├── ClaudeSpyCommon/       # Shared UI (Symbols, extensions)
-│       ├── ClaudeSpyEncryption/   # E2EE (Mac/iOS only)
-│       ├── ClaudeSpyNetworking/   # Shared models (Mac/Server/iOS)
-│       ├── ClaudeSpyFeature/      # iOS feature module
-│       ├── ClaudeSpyServerFeature/  # macOS feature module
-│       └── ClaudeSpyExternalServer/ # Vapor relay server
-├── Dockerfile, docker-compose.yml, deploy.sh
+├── ClaudeSpyPackage/              # ALL business logic + server deployment
+│   ├── Sources/
+│   │   ├── ClaudeSpyCommon/       # Shared UI (Symbols, extensions)
+│   │   ├── ClaudeSpyEncryption/   # E2EE (Mac/iOS only)
+│   │   ├── ClaudeSpyNetworking/   # Shared models (Mac/Server/iOS)
+│   │   ├── ClaudeSpyFeature/      # iOS feature module
+│   │   ├── ClaudeSpyServerFeature/  # macOS feature module
+│   │   └── ClaudeSpyExternalServer/ # Vapor relay server
+│   ├── Dockerfile                 # Server container build
+│   ├── docker-compose.yml         # Server orchestration
+│   ├── deploy.sh                  # Deployment script
+│   └── caddy/                     # Reverse proxy configs
 └── docs/                          # Architecture docs
 ```
 
@@ -88,6 +91,7 @@ Use XcodeBuildTools skills. Scheme: `ClaudeSpyServer` (macOS), `ClaudeSpy` (iOS)
 - **Services:** `docs/services-reference.md` - TmuxService, PaneStream, etc.
 - **Architecture:** `docs/distributed-architecture-plan.md`
 - **Encryption:** `docs/e2ee-encryption-plan.md`
+- **Self-hosting:** `docs/self-hosting.md` - Deploy your own relay server
 - **Known issues:** `docs/known-issues.md`
 - **Terminal sizing (macOS):** `docs/swiftterm-sizing.md`
 - **Terminal scrolling (iOS):** `docs/swiftterm-ios-scrolling.md`

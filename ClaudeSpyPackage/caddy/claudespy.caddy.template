@@ -1,0 +1,40 @@
+# ClaudeSpy Relay Server - Caddy Configuration Template
+#
+# Instructions:
+# 1. Copy this file to /etc/caddy/conf.d/claudespy.caddy
+# 2. Replace YOUR_DOMAIN with your actual domain name
+# 3. Reload Caddy: sudo systemctl reload caddy
+#
+# Caddy automatically handles TLS certificates via Let's Encrypt.
+# Make sure your domain's DNS A record points to your server's IP.
+
+YOUR_DOMAIN.com {
+    # Reverse proxy to the relay server container
+    reverse_proxy localhost:8080
+
+    # WebSocket support is automatic in Caddy
+    # No special configuration needed for WSS
+
+    # Access logging (optional - uncomment to enable)
+    # log {
+    #     output file /var/log/caddy/claudespy-access.log
+    #     format json
+    # }
+
+    # Security headers
+    header {
+        # Prevent clickjacking
+        X-Frame-Options "DENY"
+        # Prevent MIME type sniffing
+        X-Content-Type-Options "nosniff"
+        # Enable XSS protection
+        X-XSS-Protection "1; mode=block"
+    }
+}
+
+# Alternative: Local network only (no HTTPS)
+# Uncomment and modify if using on a local network without a domain
+#
+# :8443 {
+#     reverse_proxy localhost:8080
+# }
