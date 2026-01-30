@@ -8,26 +8,27 @@
     /// Navigation value for the session list
     enum SessionNavigation: Hashable {
         /// Navigate to a Claude session detail view
-        case claudeSession(paneId: String)
+        case claudeSession(paneId: String, macId: String)
         /// Navigate directly to live terminal for a plain terminal (no Claude session)
-        case plainTerminal(paneId: String)
+        case plainTerminal(paneId: String, macId: String)
     }
 
-    /// View displaying a list of active Claude sessions and terminals from the Mac.
+    /// View displaying a list of active Claude sessions and terminals from all paired Macs.
     struct SessionListView: View {
         @Binding var navigationPath: NavigationPath
 
         @Environment(SessionStore.self) private var sessionStore
-        @Environment(RelayClient.self) private var relayClient
+        @Environment(ConnectionManager.self) private var connectionManager
         @Environment(IOSSettings.self) private var settings
 
         @State private var creatingSelection: ProjectPickerSelection?
         @State private var creationError: String?
         @State private var showProjectPicker = false
+        @State private var selectedMacForNewSession: PairedMac?
 
         var body: some View {
             Group {
-                if sessionStore.hasSessions {
+                if sessionStore.hasSessions || !settings.pairedMacs.isEmpty {
                     sessionsList
                 } else {
                     emptyStateView
@@ -36,26 +37,27 @@
             .navigationTitle("Sessions")
             .navigationDestination(for: SessionNavigation.self) { destination in
                 switch destination {
-                case let .claudeSession(paneId):
-                    SessionDetailView(
-                        paneId: paneId,
-                        sessionStore: sessionStore,
-                        relayClient: relayClient
-                    )
-                case let .plainTerminal(paneId):
-                    PlainTerminalView(
-                        paneId: paneId,
-                        relayClient: relayClient,
-                        settings: settings
-                    )
+                case let .claudeSession(paneId, macId):
+                    if let connection = connectionManager.connection(for: macId) {
+                        SessionDetailView(
+                            paneId: paneId,
+                            sessionStore: sessionStore,
+                            relayClient: connection.relayClient
+                        )
+                    }
+                case let .plainTerminal(paneId, macId):
+                    if let connection = connectionManager.connection(for: macId) {
+                        PlainTerminalView(
+                            paneId: paneId,
+                            relayClient: connection.relayClient,
+                            settings: settings
+                        )
+                    }
                 }
             }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    newSessionButton
-                }
                 ToolbarItem(placement: .topBarTrailing) {
-                    connectionStatusView
+                    overallConnectionStatusView
                 }
             }
             .alert("Session Creation Failed", isPresented: .init(
@@ -71,34 +73,94 @@
                 }
             }
             .sheet(isPresented: $showProjectPicker) {
-                ProjectPickerSheet(
-                    projects: sessionStore.claudeProjects,
-                    creatingSelection: creatingSelection
-                ) { selectedProject in
-                    Task {
-                        await createNewSession(inProject: selectedProject)
+                if let mac = selectedMacForNewSession {
+                    ProjectPickerSheet(
+                        mac: mac,
+                        projects: sessionStore.projects(for: mac.id),
+                        creatingSelection: creatingSelection
+                    ) { selectedProject in
+                        Task {
+                            await createNewSession(on: mac, inProject: selectedProject)
+                        }
                     }
                 }
             }
         }
 
-        // MARK: - New Session Button
+        // MARK: - Sessions List (Grouped by Mac)
 
-        private var newSessionButton: some View {
-            Button {
-                showProjectPicker = true
-            } label: {
-                if creatingSelection != nil {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Symbols.plus.image
+        private var sessionsList: some View {
+            List {
+                ForEach(settings.pairedMacs) { mac in
+                    MacSessionsSection(
+                        mac: mac,
+                        connection: connectionManager.connection(for: mac.id),
+                        sessions: sessionStore.sessions(for: mac.id),
+                        panes: sessionStore.panes(for: mac.id),
+                        onNewSession: {
+                            selectedMacForNewSession = mac
+                            showProjectPicker = true
+                        }
+                    )
                 }
             }
-            .disabled(!relayClient.isMacConnected || creatingSelection != nil)
+            .refreshable {
+                await connectionManager.requestAllSessionStates()
+            }
         }
 
-        private func createNewSession(inProject project: ClaudeProjectInfo?) async {
+        // MARK: - Empty State
+
+        private var emptyStateView: some View {
+            ContentUnavailableView {
+                Label("No Macs Paired", symbol: .laptopcomputer)
+            } description: {
+                Text("Pair your Mac to see sessions here")
+            }
+        }
+
+        // MARK: - Overall Connection Status
+
+        private var overallConnectionStatusView: some View {
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(overallConnectionStatusColor)
+                    .frame(width: 8, height: 8)
+
+                Text(overallConnectionStatusText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+
+        private var overallConnectionStatusColor: Color {
+            if connectionManager.anyMacConnected {
+                return .green
+            } else if connectionManager.isConnecting {
+                return .yellow
+            } else {
+                return .red
+            }
+        }
+
+        private var overallConnectionStatusText: String {
+            let connectedCount = connectionManager.activeConnections.filter(\.isMacConnected).count
+            let totalCount = settings.pairedMacs.count
+
+            if connectedCount == totalCount && totalCount > 0 {
+                return totalCount == 1 ? "Connected" : "All Connected"
+            } else if connectedCount > 0 {
+                return "\(connectedCount)/\(totalCount) Online"
+            } else if connectionManager.isConnecting {
+                return "Connecting..."
+            } else {
+                return "Disconnected"
+            }
+        }
+
+        // MARK: - New Session Creation
+
+        private func createNewSession(on mac: PairedMac, inProject project: ClaudeProjectInfo?) async {
             guard creatingSelection == nil else { return }
 
             // Track which item was selected for the spinner
@@ -115,20 +177,21 @@
             )
 
             // paneId is not used for session creation, pass empty string
-            let result = await relayClient.sendCommand(command, paneId: "")
+            let result = await connectionManager.sendCommand(command, paneId: "", macId: mac.id)
 
             switch result {
             case let .success(response):
                 // Session created - dismiss sheet and clear selection
                 creatingSelection = nil
                 showProjectPicker = false
+                selectedMacForNewSession = nil
 
                 // Request a refresh to update the session list
-                await relayClient.requestSessionState()
+                await connectionManager.requestSessionState(for: mac.id)
 
                 // Navigate to the new terminal if we got a pane ID
                 if let paneId = response.paneId {
-                    navigationPath.append(SessionNavigation.plainTerminal(paneId: paneId))
+                    navigationPath.append(SessionNavigation.plainTerminal(paneId: paneId, macId: mac.id))
                 }
             case let .failure(error):
                 // Include project name in error for context (sheet stays open)
@@ -137,95 +200,105 @@
                 creatingSelection = nil
             }
         }
+    }
 
-        // MARK: - Sessions List
+    // MARK: - Mac Sessions Section
 
-        private var sessionsList: some View {
-            List {
-                // Section 1: Claude Sessions (if any)
-                if !sessionStore.claudeSessionPanes.isEmpty {
-                    Section("Claude Code") {
-                        ForEach(sessionStore.claudeSessionPanes, id: \.paneId) { item in
-                            NavigationLink(value: SessionNavigation.claudeSession(paneId: item.paneId)) {
-                                SessionRowView(
-                                    paneId: item.paneId,
-                                    session: item.session,
-                                    isActive: sessionStore.isPaneActive(item.paneId)
-                                )
-                            }
-                        }
-                    }
-                }
+    /// A section displaying sessions and terminals from a single Mac
+    struct MacSessionsSection: View {
+        let mac: PairedMac
+        let connection: MacConnection?
+        let sessions: [(paneId: String, session: ClaudeSession)]
+        let panes: [PaneInfoMessage]
+        let onNewSession: () -> Void
 
-                // Section 2: Plain Terminals (if any)
-                if !sessionStore.plainTerminalPanes.isEmpty {
-                    Section("Terminals") {
-                        ForEach(sessionStore.plainTerminalPanes) { pane in
-                            NavigationLink(value: SessionNavigation.plainTerminal(paneId: pane.id)) {
-                                TerminalRowView(pane: pane)
-                            }
-                        }
-                    }
-                }
-            }
-            .refreshable {
-                await relayClient.requestSessionState()
-            }
+        @Environment(SessionStore.self) private var sessionStore
+
+        private var hasContent: Bool {
+            !sessions.isEmpty || !panes.isEmpty
         }
 
-        // MARK: - Empty State
+        var body: some View {
+            Section {
+                if hasContent {
+                    // Claude sessions for this Mac
+                    ForEach(sessions, id: \.paneId) { item in
+                        NavigationLink(value: SessionNavigation.claudeSession(paneId: item.paneId, macId: mac.id)) {
+                            SessionRowView(
+                                paneId: item.paneId,
+                                session: item.session,
+                                isActive: sessionStore.isPaneActive(item.paneId)
+                            )
+                        }
+                    }
 
-        private var emptyStateView: some View {
-            ContentUnavailableView {
-                Label("No Terminals", symbol: .terminal)
-            } description: {
-                if relayClient.isMacConnected {
-                    Text("No active terminals on your Mac")
+                    // Plain terminals for this Mac
+                    ForEach(panes) { pane in
+                        NavigationLink(value: SessionNavigation.plainTerminal(paneId: pane.id, macId: mac.id)) {
+                            TerminalRowView(pane: pane)
+                        }
+                    }
                 } else {
-                    Text("Waiting for Mac to connect...")
-                }
-            } actions: {
-                if relayClient.state.isConnected {
-                    Button("Refresh") {
-                        Task {
-                            await relayClient.requestSessionState()
-                        }
+                    // Empty state for this Mac
+                    if connection?.isMacConnected == true {
+                        Text("No active sessions")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Mac offline")
+                            .foregroundStyle(.secondary)
                     }
                 }
+            } header: {
+                MacSectionHeader(
+                    mac: mac,
+                    connection: connection,
+                    onNewSession: onNewSession
+                )
             }
         }
+    }
 
-        // MARK: - Connection Status
+    // MARK: - Mac Section Header
 
-        private var connectionStatusView: some View {
-            HStack(spacing: 4) {
+    /// Header for a Mac's session section showing name and connection status
+    struct MacSectionHeader: View {
+        let mac: PairedMac
+        let connection: MacConnection?
+        let onNewSession: () -> Void
+
+        var body: some View {
+            HStack {
+                // Mac name
+                Text(mac.displayName)
+
+                Spacer()
+
+                // New session button
+                Button {
+                    onNewSession()
+                } label: {
+                    Symbols.plus.image
+                        .font(.caption)
+                }
+                .disabled(connection?.isMacConnected != true)
+                .buttonStyle(.borderless)
+
+                // Connection status indicator
                 Circle()
-                    .fill(connectionStatusColor)
+                    .fill(statusColor)
                     .frame(width: 8, height: 8)
-
-                Text(connectionStatusText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
 
-        private var connectionStatusColor: Color {
-            if relayClient.isMacConnected {
+        private var statusColor: Color {
+            guard let connection else { return .gray }
+
+            if connection.isMacConnected {
                 return .green
-            } else if relayClient.state.isConnected {
+            } else if connection.isRelayConnected {
                 return .yellow
             } else {
                 return .red
-            }
-        }
-
-        private var connectionStatusText: String {
-            if relayClient.isMacConnected {
-                return "Mac Online"
-            } else if relayClient.state.isConnected {
-                return "Waiting for Mac"
-            } else {
-                return relayClient.state.statusText
             }
         }
     }
@@ -352,6 +425,7 @@
 
     /// Sheet for selecting a Claude project to create a new session in
     struct ProjectPickerSheet: View {
+        let mac: PairedMac
         let projects: [ClaudeProjectInfo]
         /// The currently selected item (shows spinner), nil if nothing selected yet
         let creatingSelection: ProjectPickerSelection?
@@ -430,7 +504,7 @@
                         }
                     }
                 }
-                .navigationTitle("New Session")
+                .navigationTitle("New Session on \(mac.displayName)")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
@@ -443,15 +517,5 @@
             }
             .presentationDetents([.medium, .large])
         }
-    }
-
-    #Preview {
-        @Previewable @State var path = NavigationPath()
-        NavigationStack(path: $path) {
-            SessionListView(navigationPath: $path)
-        }
-        .environment(SessionStore())
-        .environment(RelayClient())
-        .environment(IOSSettings.shared)
     }
 #endif

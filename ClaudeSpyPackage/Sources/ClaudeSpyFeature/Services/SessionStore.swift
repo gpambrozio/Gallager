@@ -2,10 +2,10 @@ import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import Foundation
 
-/// Manages local session state received from the Mac app.
+/// Manages local session state received from multiple Mac servers.
 ///
 /// This store maintains a synchronized view of Claude Code sessions and hook events
-/// that are relayed from the Mac through the external server.
+/// that are relayed from Macs through the external server, grouped by source Mac.
 @Observable
 @MainActor
 final public class SessionStore {
@@ -16,20 +16,25 @@ final public class SessionStore {
     /// Active Claude sessions by pane ID
     public private(set) var sessions: [String: ClaudeSession] = [:]
 
+    /// Maps pane ID to source Mac's pairId
+    private var paneToMacMap: [String: String] = [:]
+
     /// List of active pane IDs
     public private(set) var activePanes: [String] = []
 
-    /// All tmux panes (including those without Claude sessions)
-    public private(set) var panes: [PaneInfoMessage] = []
+    /// All tmux panes grouped by source Mac's pairId
+    public private(set) var panesByMac: [String: [PaneInfoMessage]] = [:]
 
-    /// Claude projects discovered on the Mac
-    public private(set) var claudeProjects: [ClaudeProjectInfo] = []
+    /// Claude projects grouped by source Mac's pairId
+    public private(set) var claudeProjectsByMac: [String: [ClaudeProjectInfo]] = [:]
 
     /// User responses to events, keyed by event ID
     /// This persists across navigation so responses aren't lost
     private var eventResponses: [UUID: ResponseType] = [:]
 
-    /// Claude sessions sorted by most recent event timestamp
+    // MARK: - Computed Properties (All Macs Combined)
+
+    /// Claude sessions sorted by most recent event timestamp (all Macs combined)
     public var sortedSessions: [(paneId: String, session: ClaudeSession)] {
         sessions
             .map { (paneId: $0.key, session: $0.value) }
@@ -41,12 +46,22 @@ final public class SessionStore {
             }
     }
 
-    /// Panes that have Claude sessions (for section 1)
+    /// Panes that have Claude sessions (for legacy compatibility)
     public var claudeSessionPanes: [(paneId: String, session: ClaudeSession)] {
         sortedSessions
     }
 
-    /// Panes without Claude sessions (plain terminals, for section 2)
+    /// All panes combined from all Macs
+    public var panes: [PaneInfoMessage] {
+        panesByMac.values.flatMap { $0 }
+    }
+
+    /// All Claude projects combined from all Macs
+    public var claudeProjects: [ClaudeProjectInfo] {
+        claudeProjectsByMac.values.flatMap { $0 }
+    }
+
+    /// Panes without Claude sessions (plain terminals, for legacy compatibility)
     public var plainTerminalPanes: [PaneInfoMessage] {
         let sessionPaneIds = Set(sessions.keys)
         return panes.filter { !sessionPaneIds.contains($0.id) }
@@ -54,7 +69,7 @@ final public class SessionStore {
 
     /// Whether there are any sessions or panes to display
     public var hasSessions: Bool {
-        !sessions.isEmpty || !panes.isEmpty
+        !sessions.isEmpty || !panesByMac.isEmpty
     }
 
     /// Total number of sessions
@@ -67,18 +82,60 @@ final public class SessionStore {
         sessions.count + plainTerminalPanes.count
     }
 
+    // MARK: - Per-Mac Computed Properties
+
+    /// Get Claude sessions for a specific Mac, sorted by most recent event
+    public func sessions(for macId: String) -> [(paneId: String, session: ClaudeSession)] {
+        sessions
+            .filter { paneToMacMap[$0.key] == macId }
+            .map { (paneId: $0.key, session: $0.value) }
+            .sorted { lhs, rhs in
+                let lhsTime = lhs.session.latestEvent?.timestamp ?? .distantPast
+                let rhsTime = rhs.session.latestEvent?.timestamp ?? .distantPast
+                return lhsTime > rhsTime
+            }
+    }
+
+    /// Get plain terminal panes (no Claude session) for a specific Mac
+    public func panes(for macId: String) -> [PaneInfoMessage] {
+        let macPanes = panesByMac[macId] ?? []
+        let sessionPaneIds = Set(sessions.keys.filter { paneToMacMap[$0] == macId })
+        return macPanes.filter { !sessionPaneIds.contains($0.id) }
+    }
+
+    /// Get Claude projects for a specific Mac
+    public func projects(for macId: String) -> [ClaudeProjectInfo] {
+        claudeProjectsByMac[macId] ?? []
+    }
+
+    /// Get the source Mac ID for a pane
+    public func macId(for paneId: String) -> String? {
+        paneToMacMap[paneId]
+    }
+
+    /// Check if a Mac has any sessions or panes
+    public func hasSessions(for macId: String) -> Bool {
+        let hasMacSessions = sessions.keys.contains { paneToMacMap[$0] == macId }
+        let hasMacPanes = !(panesByMac[macId]?.isEmpty ?? true)
+        return hasMacSessions || hasMacPanes
+    }
+
     // MARK: - Initialization
 
     public init() { }
 
     // MARK: - State Management
 
-    /// Handle a hook event from the Mac
+    /// Handle a hook event from a Mac
     public func handleEvent(_ eventMessage: HookEventMessage) {
         let event = eventMessage.event
+        let macId = eventMessage.pairId
         let paneId = event.tmuxPane ?? event.action.sessionId
 
-        logger.info("Handling hook event: \(event.action.eventName) for pane: \(paneId)")
+        logger.info("Handling hook event: \(event.action.eventName) for pane: \(paneId) from Mac: \(macId)")
+
+        // Track Mac source for this pane
+        paneToMacMap[paneId] = macId
 
         // Get or create session
         var session = sessions[paneId] ?? ClaudeSession(paneId: paneId)
@@ -96,6 +153,7 @@ final public class SessionStore {
         case .sessionEnd:
             activePanes.removeAll { $0 == paneId }
             sessions.removeValue(forKey: paneId)
+            paneToMacMap.removeValue(forKey: paneId)
             logger.info("Session ended for pane: \(paneId)")
 
         default:
@@ -103,16 +161,53 @@ final public class SessionStore {
         }
     }
 
-    /// Handle a full session state update from the Mac
+    /// Handle a full session state update from a Mac
     public func handleStateUpdate(_ state: SessionStateMessage) {
+        let macId = state.pairId
+
         logger.info(
-            "Received full session state: \(state.sessions.count) sessions, \(state.panes?.count ?? 0) panes, \(state.claudeProjects?.count ?? 0) projects"
+            "Received full session state from Mac \(macId): \(state.sessions.count) sessions, \(state.panes?.count ?? 0) panes, \(state.claudeProjects?.count ?? 0) projects"
         )
 
-        sessions = state.sessions
-        activePanes = state.activePanes
-        panes = state.panes ?? []
-        claudeProjects = state.claudeProjects ?? []
+        // Clear old data for this Mac
+        clearSessions(for: macId)
+
+        // Add sessions with Mac tracking
+        for (paneId, session) in state.sessions {
+            sessions[paneId] = session
+            paneToMacMap[paneId] = macId
+        }
+
+        // Update active panes (only for this Mac - preserve others)
+        let macActivePanes = state.activePanes
+        activePanes.removeAll { paneToMacMap[$0] == macId }
+        activePanes.append(contentsOf: macActivePanes)
+        for paneId in macActivePanes {
+            paneToMacMap[paneId] = macId
+        }
+
+        // Store panes and projects for this Mac
+        panesByMac[macId] = state.panes ?? []
+        claudeProjectsByMac[macId] = state.claudeProjects ?? []
+    }
+
+    /// Clear all sessions and panes for a specific Mac
+    public func clearSessions(for macId: String) {
+        // Remove sessions belonging to this Mac
+        let panesToRemove = paneToMacMap.filter { $0.value == macId }.keys
+        for paneId in panesToRemove {
+            sessions.removeValue(forKey: paneId)
+            paneToMacMap.removeValue(forKey: paneId)
+        }
+
+        // Remove active panes for this Mac
+        activePanes.removeAll { paneToMacMap[$0] == macId }
+
+        // Clear stored panes and projects
+        panesByMac.removeValue(forKey: macId)
+        claudeProjectsByMac.removeValue(forKey: macId)
+
+        logger.info("Cleared all sessions for Mac: \(macId)")
     }
 
     /// Get a session by pane ID

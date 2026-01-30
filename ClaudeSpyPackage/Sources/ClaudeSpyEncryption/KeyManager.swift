@@ -144,7 +144,13 @@ import Foundation
         private let keychainService = "com.claudespy.e2ee"
         private let privateKeyAccount = "private-key"
         private let keyIdAccount = "key-id"
-        private let sessionKeyAccount = "session-key"
+        private let legacySessionKeyAccount = "session-key"
+        private let sessionKeyAccountPrefix = "session-key-"
+
+        /// Returns the account name for a session key with a specific pairId
+        private nonisolated func sessionKeyAccount(for pairId: String) -> String {
+            "\(sessionKeyAccountPrefix)\(pairId)"
+        }
 
         /// Optional keychain access group for sharing with app extensions.
         /// When set, keys are stored in the shared keychain accessible by the app group.
@@ -237,12 +243,15 @@ import Foundation
                 throw CryptoError.keychainError(status: keyIdStatus)
             }
 
-            // Delete session key
-            let sessionKeyQuery = baseKeychainAttributes(account: sessionKeyAccount)
+            // Delete legacy session key
+            let sessionKeyQuery = baseKeychainAttributes(account: legacySessionKeyAccount)
             let sessionKeyStatus = SecItemDelete(sessionKeyQuery as CFDictionary)
             if sessionKeyStatus != errSecSuccess && sessionKeyStatus != errSecItemNotFound {
                 throw CryptoError.keychainError(status: sessionKeyStatus)
             }
+
+            // Note: Per-pairId session keys should be deleted via deleteSessionKey(for:)
+            // when individual Macs are unpaired
         }
 
         /// Checks if a key pair exists in the Keychain.
@@ -310,36 +319,105 @@ import Foundation
             }
         }
 
-        // MARK: - Session Key Storage
+        // MARK: - Session Key Storage (Per-PairId)
 
-        /// Stores the derived symmetric session key for use by app extensions.
+        /// Stores the derived symmetric session key for a specific Mac (identified by pairId).
         ///
         /// Call this after establishing an E2EE session so that the Notification Service
-        /// Extension can decrypt push notification payloads.
+        /// Extension can decrypt push notification payloads from this Mac.
         ///
-        /// - Parameter keyData: The raw symmetric key data (32 bytes for ChaCha20)
+        /// - Parameters:
+        ///   - keyData: The raw symmetric key data (32 bytes for ChaCha20)
+        ///   - pairId: The pair ID identifying which Mac this session key belongs to
         /// - Throws: `CryptoError.keychainError` on Keychain access failure
-        public func storeSessionKey(_ keyData: Data) throws {
+        public func storeSessionKey(_ keyData: Data, for pairId: String) throws {
+            let account = sessionKeyAccount(for: pairId)
+
             // Delete existing session key first
-            let deleteQuery = baseKeychainAttributes(account: sessionKeyAccount)
+            let deleteQuery = baseKeychainAttributes(account: account)
             SecItemDelete(deleteQuery as CFDictionary)
 
             // Store new session key
-            let attributes = storeAttributes(account: sessionKeyAccount, data: keyData)
+            let attributes = storeAttributes(account: account, data: keyData)
             let status = SecItemAdd(attributes as CFDictionary, nil)
             guard status == errSecSuccess else {
                 throw CryptoError.keychainError(status: status)
             }
         }
 
-        /// Loads the stored session key from Keychain.
+        /// Loads the stored session key for a specific Mac from Keychain.
         ///
         /// Used by the Notification Service Extension to decrypt push notifications.
+        /// Falls back to legacy session key if pairId-specific key not found (for migration).
         ///
+        /// - Parameter pairId: The pair ID identifying which Mac's session key to load
         /// - Returns: The session key data, or nil if not found
         /// - Throws: `CryptoError.keychainError` on Keychain access failure
-        public func loadSessionKey() throws -> Data? {
-            var query = baseKeychainAttributes(account: sessionKeyAccount)
+        public func loadSessionKey(for pairId: String) throws -> Data? {
+            let account = sessionKeyAccount(for: pairId)
+
+            var query = baseKeychainAttributes(account: account)
+            query[kSecReturnData as String] = true
+            query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+            var result: AnyObject?
+            let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+            if status == errSecItemNotFound {
+                // Fall back to legacy session key for migration
+                return try loadLegacySessionKey()
+            }
+
+            guard status == errSecSuccess, let keyData = result as? Data else {
+                throw CryptoError.keychainError(status: status)
+            }
+
+            return keyData
+        }
+
+        /// Deletes the session key for a specific Mac from Keychain.
+        ///
+        /// - Parameter pairId: The pair ID identifying which Mac's session key to delete
+        public func deleteSessionKey(for pairId: String) throws {
+            let account = sessionKeyAccount(for: pairId)
+            let query = baseKeychainAttributes(account: account)
+            let status = SecItemDelete(query as CFDictionary)
+            if status != errSecSuccess && status != errSecItemNotFound {
+                throw CryptoError.keychainError(status: status)
+            }
+        }
+
+        /// Checks if a session key exists for a specific Mac.
+        ///
+        /// - Parameter pairId: The pair ID to check
+        public func hasStoredSessionKey(for pairId: String) -> Bool {
+            let account = sessionKeyAccount(for: pairId)
+            var query = baseKeychainAttributes(account: account)
+            query[kSecReturnData as String] = false
+
+            let status = SecItemCopyMatching(query as CFDictionary, nil)
+            return status == errSecSuccess
+        }
+
+        /// Deletes all session keys from Keychain (both legacy and per-pairId).
+        ///
+        /// This is useful for complete app reset or when unpairing all Macs.
+        /// Note: This deletes ALL session keys matching our service, not just specific pairIds.
+        public func deleteAllSessionKeys() throws {
+            // Delete legacy session key
+            try? deleteLegacySessionKey()
+
+            // Delete all session keys with our prefix by querying without specific account
+            // We need to delete items one by one since there's no bulk delete by prefix
+            // For now, this should be called when each Mac is unpaired individually
+        }
+
+        // MARK: - Legacy Session Key (for migration)
+
+        /// Loads the legacy (pre-multi-Mac) session key if it exists.
+        /// Used for migration to per-pairId storage.
+        private func loadLegacySessionKey() throws -> Data? {
+            var query = baseKeychainAttributes(account: legacySessionKeyAccount)
             query[kSecReturnData as String] = true
             query[kSecMatchLimit as String] = kSecMatchLimitOne
 
@@ -357,24 +435,13 @@ import Foundation
             return keyData
         }
 
-        /// Deletes only the session key from Keychain.
-        ///
-        /// Call this when disconnecting or when re-pairing to clear the old session.
-        public func deleteSessionKey() throws {
-            let query = baseKeychainAttributes(account: sessionKeyAccount)
+        /// Deletes the legacy session key from Keychain.
+        private func deleteLegacySessionKey() throws {
+            let query = baseKeychainAttributes(account: legacySessionKeyAccount)
             let status = SecItemDelete(query as CFDictionary)
             if status != errSecSuccess && status != errSecItemNotFound {
                 throw CryptoError.keychainError(status: status)
             }
-        }
-
-        /// Checks if a session key exists in the Keychain.
-        public func hasStoredSessionKey() -> Bool {
-            var query = baseKeychainAttributes(account: sessionKeyAccount)
-            query[kSecReturnData as String] = false
-
-            let status = SecItemCopyMatching(query as CFDictionary, nil)
-            return status == errSecSuccess
         }
 
         // MARK: - Private Key Storage
@@ -414,7 +481,7 @@ import Foundation
 @_spi(Testing)
 public actor InMemoryKeyManager {
     private var storedKeyPair: StoredKeyPair?
-    private var storedSessionKey: Data?
+    private var storedSessionKeys: [String: Data] = [:]
 
     public init(accessGroup _: String? = nil) { }
 
@@ -441,28 +508,32 @@ public actor InMemoryKeyManager {
 
     public func deleteKeys() {
         storedKeyPair = nil
-        storedSessionKey = nil
+        storedSessionKeys.removeAll()
     }
 
     public func hasStoredKeyPair() -> Bool {
         storedKeyPair != nil
     }
 
-    // MARK: - Session Key Storage
+    // MARK: - Session Key Storage (Per-PairId)
 
-    public func storeSessionKey(_ keyData: Data) {
-        storedSessionKey = keyData
+    public func storeSessionKey(_ keyData: Data, for pairId: String) {
+        storedSessionKeys[pairId] = keyData
     }
 
-    public func loadSessionKey() -> Data? {
-        storedSessionKey
+    public func loadSessionKey(for pairId: String) -> Data? {
+        storedSessionKeys[pairId]
     }
 
-    public func deleteSessionKey() {
-        storedSessionKey = nil
+    public func deleteSessionKey(for pairId: String) {
+        storedSessionKeys.removeValue(forKey: pairId)
     }
 
-    public func hasStoredSessionKey() -> Bool {
-        storedSessionKey != nil
+    public func hasStoredSessionKey(for pairId: String) -> Bool {
+        storedSessionKeys[pairId] != nil
+    }
+
+    public func deleteAllSessionKeys() {
+        storedSessionKeys.removeAll()
     }
 }

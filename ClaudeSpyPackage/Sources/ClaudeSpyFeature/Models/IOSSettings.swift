@@ -11,10 +11,7 @@
 
         private enum Keys {
             static let deviceId = "deviceId"
-            static let pairId = "pairId"
-            static let pairedMacName = "pairedMacName"
-            static let partnerPublicKey = "partnerPublicKey"
-            static let partnerPublicKeyId = "partnerPublicKeyId"
+            static let pairedMacs = "pairedMacs"
             static let externalServerURL = "externalServerURL"
             static let autoReconnect = "autoReconnect"
             static let terminalFontName = "terminalFontName"
@@ -22,6 +19,12 @@
             static let newSessionName = "newSessionName"
             static let newSessionWidth = "newSessionWidth"
             static let newSessionHeight = "newSessionHeight"
+
+            // Legacy keys for migration
+            static let legacyPairId = "pairId"
+            static let legacyPairedMacName = "pairedMacName"
+            static let legacyPartnerPublicKey = "partnerPublicKey"
+            static let legacyPartnerPublicKeyId = "partnerPublicKeyId"
         }
 
         // MARK: - Singleton
@@ -35,24 +38,9 @@
             didSet { UserDefaults.standard.set(deviceId, forKey: Keys.deviceId) }
         }
 
-        /// The pair ID from successful device pairing
-        public var pairId: String? {
-            didSet { UserDefaults.standard.set(pairId, forKey: Keys.pairId) }
-        }
-
-        /// Name of the paired Mac device
-        public var pairedMacName: String? {
-            didSet { UserDefaults.standard.set(pairedMacName, forKey: Keys.pairedMacName) }
-        }
-
-        /// Partner's (Mac's) public key for E2EE (Base64-encoded)
-        public var partnerPublicKey: String? {
-            didSet { UserDefaults.standard.set(partnerPublicKey, forKey: Keys.partnerPublicKey) }
-        }
-
-        /// Partner's (Mac's) public key ID for E2EE
-        public var partnerPublicKeyId: String? {
-            didSet { UserDefaults.standard.set(partnerPublicKeyId, forKey: Keys.partnerPublicKeyId) }
+        /// All paired Mac servers
+        public private(set) var pairedMacs: [PairedMac] = [] {
+            didSet { savePairedMacs() }
         }
 
         /// External relay server URL
@@ -92,9 +80,9 @@
 
         // MARK: - Computed Properties
 
-        /// Whether the device is currently paired
+        /// Whether at least one Mac is paired
         public var isPaired: Bool {
-            pairId != nil
+            !pairedMacs.isEmpty
         }
 
         /// The display name for this iOS device
@@ -116,11 +104,7 @@
                 self.deviceId = newDeviceId
             }
 
-            // Load other settings
-            self.pairId = defaults.string(forKey: Keys.pairId)
-            self.pairedMacName = defaults.string(forKey: Keys.pairedMacName)
-            self.partnerPublicKey = defaults.string(forKey: Keys.partnerPublicKey)
-            self.partnerPublicKeyId = defaults.string(forKey: Keys.partnerPublicKeyId)
+            // Load settings
             self.externalServerURL = defaults.string(forKey: Keys.externalServerURL)
                 ?? "wss://claudespy.gustavo.eng.br"
             self.autoReconnect = defaults.bool(forKey: Keys.autoReconnect)
@@ -134,29 +118,98 @@
             self.newSessionName = defaults.string(forKey: Keys.newSessionName) ?? "claude"
             self.newSessionWidth = defaults.object(forKey: Keys.newSessionWidth) as? Int ?? 120
             self.newSessionHeight = defaults.object(forKey: Keys.newSessionHeight) as? Int ?? 40
+
+            // Load paired Macs (or migrate from legacy format)
+            self.pairedMacs = loadPairedMacs()
         }
 
-        // MARK: - Methods
+        // MARK: - Paired Macs Storage
 
-        /// Clear all pairing data
-        public func clearPairing() {
-            pairId = nil
-            pairedMacName = nil
-            partnerPublicKey = nil
-            partnerPublicKeyId = nil
+        private func loadPairedMacs() -> [PairedMac] {
+            let defaults = UserDefaults.standard
+
+            // Try to load from new format first
+            if let data = defaults.data(forKey: Keys.pairedMacs) {
+                do {
+                    let macs = try JSONDecoder().decode([PairedMac].self, from: data)
+                    return macs
+                } catch {
+                    // Corrupted data, start fresh
+                    return migrateFromLegacyPairing()
+                }
+            }
+
+            // No new format data - try to migrate from legacy single-pairing format
+            return migrateFromLegacyPairing()
         }
 
-        /// Save pairing information
-        public func savePairing(
-            pairId: String,
-            macName: String?,
-            partnerPublicKey: String? = nil,
-            partnerPublicKeyId: String? = nil
-        ) {
-            self.pairId = pairId
-            pairedMacName = macName
-            self.partnerPublicKey = partnerPublicKey
-            self.partnerPublicKeyId = partnerPublicKeyId
+        private func migrateFromLegacyPairing() -> [PairedMac] {
+            let defaults = UserDefaults.standard
+
+            // Check for legacy single-pairing data
+            guard let legacyPairId = defaults.string(forKey: Keys.legacyPairId) else {
+                return []
+            }
+
+            let legacyMac = PairedMac(
+                id: legacyPairId,
+                macName: defaults.string(forKey: Keys.legacyPairedMacName) ?? "Mac",
+                partnerPublicKey: defaults.string(forKey: Keys.legacyPartnerPublicKey) ?? "",
+                partnerPublicKeyId: defaults.string(forKey: Keys.legacyPartnerPublicKeyId) ?? "",
+                pairedAt: Date()
+            )
+
+            // Clear legacy keys
+            defaults.removeObject(forKey: Keys.legacyPairId)
+            defaults.removeObject(forKey: Keys.legacyPairedMacName)
+            defaults.removeObject(forKey: Keys.legacyPartnerPublicKey)
+            defaults.removeObject(forKey: Keys.legacyPartnerPublicKeyId)
+
+            // Save in new format
+            let macs = [legacyMac]
+            if let data = try? JSONEncoder().encode(macs) {
+                defaults.set(data, forKey: Keys.pairedMacs)
+            }
+
+            return macs
+        }
+
+        private func savePairedMacs() {
+            guard let data = try? JSONEncoder().encode(pairedMacs) else {
+                return
+            }
+            UserDefaults.standard.set(data, forKey: Keys.pairedMacs)
+        }
+
+        // MARK: - Pairing Management
+
+        /// Add a new paired Mac
+        public func addPairing(_ mac: PairedMac) {
+            // Remove any existing pairing with same ID (update case)
+            pairedMacs.removeAll { $0.id == mac.id }
+            pairedMacs.append(mac)
+        }
+
+        /// Remove a paired Mac by ID
+        public func removePairing(id: String) {
+            pairedMacs.removeAll { $0.id == id }
+        }
+
+        /// Get a paired Mac by ID
+        public func getPairing(id: String) -> PairedMac? {
+            pairedMacs.first { $0.id == id }
+        }
+
+        /// Update a paired Mac (e.g., custom name)
+        public func updatePairing(_ mac: PairedMac) {
+            if let index = pairedMacs.firstIndex(where: { $0.id == mac.id }) {
+                pairedMacs[index] = mac
+            }
+        }
+
+        /// Clear all pairings
+        public func clearAllPairings() {
+            pairedMacs = []
         }
     }
 #endif

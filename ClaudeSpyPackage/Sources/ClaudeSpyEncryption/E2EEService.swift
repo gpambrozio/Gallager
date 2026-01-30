@@ -227,7 +227,7 @@
                 do {
                     // Convert SymmetricKey to Data
                     let keyData = symmetricKey.withUnsafeBytes { Data($0) }
-                    try await keyManager.storeSessionKey(keyData)
+                    try await keyManager.storeSessionKey(keyData, for: pairId)
                 } catch {
                     // Log the error - session still works but push notification decryption will fail
                     print("WARNING: Failed to persist session key to Keychain: \(error)")
@@ -239,11 +239,14 @@
         /// Clears the current session, removing the derived key.
         /// Call this when disconnecting or unpairing.
         public func clearSession() async {
+            // Get pairId before clearing session state
+            let pairId = await sessionState.getPairId()
+
             await sessionState.clear()
 
             // Also clear persisted session key from Keychain
-            if let keyManager {
-                try? await keyManager.deleteSessionKey()
+            if let keyManager, let pairId {
+                try? await keyManager.deleteSessionKey(for: pairId)
             }
         }
 
