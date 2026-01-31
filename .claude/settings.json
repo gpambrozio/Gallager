@@ -15,14 +15,27 @@
   "extraKnownMarketplaces": {
     "ClaudeCodePlugins": {
       "source": {
-        "ref": "main",
-        "repo": "gpambrozio/ClaudeCodePlugins",
-        "source": "github"
+        "source": "github",
+        "repo": "gpambrozio/ClaudeCodePlugins"
+      }
+    },
+    "swift-concurrency-agent-skill": {
+      "source": {
+        "source": "github",
+        "repo": "AvdLee/Swift-Concurrency-Agent-Skill"
+      }
+    },
+    "swiftui-expert-skill": {
+      "source": {
+        "source": "github",
+        "repo": "AvdLee/SwiftUI-Agent-Skill"
       }
     }
   },
   "enabledPlugins": {
     "XcodeBuildTools@ClaudeCodePlugins": true,
-    "iOSSimulator@ClaudeCodePlugins": true
+    "iOSSimulator@ClaudeCodePlugins": true,
+    "swift-concurrency@swift-concurrency-agent-skill": true,
+    "swiftui-expert@swiftui-expert-skill": true
   }
 }
