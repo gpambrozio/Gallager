@@ -25,7 +25,8 @@
             )
 
             // Observe canCheckForUpdates using async/await
-            let stream = updaterController.updater.publisher(for: \.canCheckForUpdates).values
+            // Use .initial to get the current value immediately, not just changes
+            let stream = updaterController.updater.publisher(for: \.canCheckForUpdates, options: [.initial]).values
             Task { [weak self] in
                 for await value in stream {
                     // Check self and cancellation on each iteration to allow deallocation
