@@ -23,11 +23,11 @@
                 updaterDelegate: nil,
                 userDriverDelegate: nil
             )
-            // Observe canCheckForUpdates using async/await with Combine's .values
+
+            // Observe canCheckForUpdates using async/await
+            let stream = updaterController.updater.publisher(for: \.canCheckForUpdates).values
             Task { [weak self] in
-                // Capture publisher reference before loop (requires self to exist at start)
-                guard let publisher = self?.updaterController.updater.publisher(for: \.canCheckForUpdates) else { return }
-                for await value in publisher.values {
+                for await value in stream {
                     // Check self and cancellation on each iteration to allow deallocation
                     guard let self, !Task.isCancelled else { break }
                     self.canCheckForUpdates = value
