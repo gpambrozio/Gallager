@@ -95,3 +95,9 @@ custom_rules:
         regex: '\.data\(using:\s*\.utf8\)'
         message: "Use `Data(string.utf8)` instead of `string.data(using: .utf8)` - it's non-optional and cleaner"
         severity: error
+
+    custom_no_observable_object:
+        name: "Use @Observable instead of ObservableObject"
+        regex: ':\s*ObservableObject\b|@ObservedObject|@StateObject'
+        message: "Use @Observable macro with @State instead of ObservableObject/@StateObject/@ObservedObject (MV pattern)"
+        severity: error
