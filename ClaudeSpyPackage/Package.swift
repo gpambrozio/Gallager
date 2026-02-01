@@ -28,6 +28,10 @@ extension Target.Dependency {
         .product(name: "Logging", package: "swift-log")
     }
 
+    static var sparkle: Self {
+        .product(name: "Sparkle", package: "Sparkle", condition: .when(platforms: [.macOS]))
+    }
+
     static var claudeSpyNetworking: Self { "ClaudeSpyNetworking" }
     static var claudeSpyCommon: Self { "ClaudeSpyCommon" }
     static var claudeSpyEncryption: Self { "ClaudeSpyEncryption" }
@@ -74,6 +78,7 @@ let package = Package(
         .package(url: "https://github.com/vapor/apns.git", from: "4.0.0"),
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -118,6 +123,7 @@ let package = Package(
                 .claudeSpyEncryption,
                 .swiftTerm,
                 .vapor,
+                .sparkle,
             ]
         ),
         .executableTarget(
