@@ -55,12 +55,6 @@
             claudePluginsPath.appendingPathComponent("known_marketplaces.json")
         }
 
-        // MARK: - Common Claude Paths
-
-        private var claudePaths: [String] {
-            ClaudePathDetector.commonPaths
-        }
-
         // MARK: - Initialization
 
         public init() { }
@@ -207,15 +201,13 @@
         public var manualInstructions: String {
             guard let bundledPath = bundledPluginPath else {
                 return """
-                # Manual Plugin Installation
+                # Plugin Not Available
 
-                The bundled plugin was not found. Please install from GitHub:
+                The bundled plugin was not found in the app resources.
+                This indicates a corrupted installation.
 
-                1. Add the marketplace:
-                   claude plugins add-marketplace https://github.com/gpambrozio/ClaudeSpy
-
-                2. Install the plugin:
-                   claude plugins install claude-spy --user
+                Please download the latest version of ClaudeSpy from:
+                https://github.com/gpambrozio/ClaudeSpy/releases
                 """
             }
 
@@ -229,10 +221,6 @@
 
             2. Install the plugin:
                claude plugins install claude-spy --user
-
-            Alternatively, install directly from GitHub:
-               claude plugins add-marketplace https://github.com/gpambrozio/ClaudeSpy
-               claude plugins install claude-spy --user
             """
         }
 
@@ -243,24 +231,10 @@
         }
 
         private func runClaudeCommand(arguments: [String], description: String) async throws {
-            var claudePath: String?
-            for path in claudePaths where fileManager.isExecutableFile(atPath: path) {
-                claudePath = path
-                logger.debug("Found claude at: \(path)")
-                break
+            guard let executablePath = ClaudePathDetector.detectPath() else {
+                throw PluginError.claudeNotFound(attemptedPaths: ClaudePathDetector.commonPaths)
             }
-
-            // Try `which claude` as fallback
-            if claudePath == nil {
-                if let path = try? await findClaudeWithWhich() {
-                    claudePath = path
-                    logger.debug("Found claude via 'which': \(path)")
-                }
-            }
-
-            guard let executablePath = claudePath else {
-                throw PluginError.claudeNotFound(attemptedPaths: claudePaths)
-            }
+            logger.debug("Found claude at: \(executablePath)")
 
             logger.debug("Running claude command: \(arguments.joined(separator: " "))")
 
@@ -287,24 +261,6 @@
                     error: fullError
                 )
             }
-        }
-
-        private func findClaudeWithWhich() async throws -> String {
-            let result = try await processRunner.run(
-                executable: "/usr/bin/which",
-                arguments: ["claude"]
-            )
-
-            guard result.isSuccess else {
-                throw PluginError.claudeNotFound(attemptedPaths: claudePaths)
-            }
-
-            let path = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !path.isEmpty else {
-                throw PluginError.claudeNotFound(attemptedPaths: claudePaths)
-            }
-
-            return path
         }
     }
 

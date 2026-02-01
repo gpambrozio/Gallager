@@ -172,7 +172,7 @@ final public class AppSettings {
             self.claudeCommandPath = savedPath
         } else {
             // First launch - try to detect claude path
-            let detectedPath = Self.detectClaudePath() ?? Defaults.claudeCommandPath
+            let detectedPath = ClaudePathDetector.detectPath() ?? Defaults.claudeCommandPath
             self.claudeCommandPath = detectedPath
             defaults.set(detectedPath, forKey: Keys.claudeCommandPath)
         }
@@ -284,13 +284,6 @@ final public class AppSettings {
         pairedDeviceName = partnerDeviceName
         self.partnerPublicKey = partnerPublicKey
         self.partnerPublicKeyId = partnerPublicKeyId
-    }
-
-    // MARK: - Path Detection
-
-    /// Attempts to detect the claude command path using common locations and `which`
-    private static func detectClaudePath() -> String? {
-        ClaudePathDetector.detectPath()
     }
 }
 

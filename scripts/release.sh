@@ -141,6 +141,27 @@ check_prerequisites() {
 }
 
 # =====================================================
+# Verify bundled plugin exists in archive
+# =====================================================
+verify_bundled_plugin() {
+    local app_path="$EXPORT_PATH/$APP_NAME.app"
+    local plugin_path="$app_path/Contents/Resources/plugin"
+
+    log_info "Verifying bundled plugin..."
+
+    if [ ! -d "$plugin_path" ]; then
+        log_error "Bundled plugin not found at $plugin_path. The app cannot be released without the plugin."
+    fi
+
+    # Check for required plugin files
+    if [ ! -f "$plugin_path/plugin.json" ]; then
+        log_error "plugin.json not found in bundled plugin directory."
+    fi
+
+    log_success "Bundled plugin verified"
+}
+
+# =====================================================
 # Build archive
 # =====================================================
 build_archive() {
@@ -548,6 +569,7 @@ main() {
 
     build_archive
     export_archive
+    verify_bundled_plugin
     notarize_app
 
     local dmg_path
