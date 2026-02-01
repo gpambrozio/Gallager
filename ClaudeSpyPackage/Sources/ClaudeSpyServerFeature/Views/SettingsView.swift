@@ -32,6 +32,7 @@ public struct SettingsView: View {
 /// General settings tab
 struct GeneralSettingsView: View {
     @Environment(AppSettings.self) private var settings
+    @Environment(UpdaterController.self) private var updaterController
 
     var body: some View {
         @Bindable var settings = settings
@@ -141,6 +142,30 @@ struct GeneralSettingsView: View {
                         Button("Browse...") {
                             browseForClaude(settings: settings)
                         }
+                    }
+                }
+            }
+
+            Section("Updates") {
+                Toggle(
+                    "Automatically check for updates",
+                    isOn: Binding(
+                        get: { updaterController.automaticallyChecksForUpdates },
+                        set: { updaterController.automaticallyChecksForUpdates = $0 }
+                    )
+                )
+                .help("Periodically check for new versions in the background")
+
+                HStack {
+                    Button("Check for Updates Now") {
+                        updaterController.checkForUpdates()
+                    }
+                    .disabled(!updaterController.canCheckForUpdates)
+
+                    if let lastCheck = updaterController.lastUpdateCheckDate {
+                        Text("Last checked: \(lastCheck, format: .relative(presentation: .named))")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
                     }
                 }
             }
