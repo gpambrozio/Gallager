@@ -1,4 +1,5 @@
 #if canImport(Sparkle)
+    import Combine
     import Foundation
     import Sparkle
 
@@ -8,6 +9,7 @@
     @MainActor
     final public class UpdaterController {
         private let updaterController: SPUStandardUpdaterController
+        private var cancellable: AnyCancellable?
 
         /// Whether the user can check for updates (not currently checking)
         public private(set) var canCheckForUpdates = false
@@ -24,35 +26,24 @@
                 userDriverDelegate: nil
             )
 
-            // Observe canCheckForUpdates using async/await
-            // Use .initial to get the current value immediately, not just changes
-            let stream = updaterController.updater.publisher(for: \.canCheckForUpdates, options: [.initial]).values
-            Task { [weak self] in
-                for await value in stream {
-                    // Check self and cancellation on each iteration to allow deallocation
-                    guard let self, !Task.isCancelled else { break }
-                    self.canCheckForUpdates = value
+            // Use Combine's sink to observe canCheckForUpdates changes
+            // This is the pattern recommended by Sparkle's documentation for SwiftUI
+            self.cancellable = updaterController.updater.publisher(for: \.canCheckForUpdates)
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] newValue in
+                    self?.canCheckForUpdates = newValue
                 }
-            }
         }
 
+        /// Trigger a user-initiated update check
         public func checkForUpdates() {
             updaterController.checkForUpdates(nil)
         }
 
+        /// Whether to automatically check for updates
         public var automaticallyChecksForUpdates: Bool {
             get { updaterController.updater.automaticallyChecksForUpdates }
             set { updaterController.updater.automaticallyChecksForUpdates = newValue }
-        }
-
-        public var updateCheckInterval: TimeInterval {
-            get { updaterController.updater.updateCheckInterval }
-            set { updaterController.updater.updateCheckInterval = newValue }
-        }
-
-        public var automaticallyDownloadsUpdates: Bool {
-            get { updaterController.updater.automaticallyDownloadsUpdates }
-            set { updaterController.updater.automaticallyDownloadsUpdates = newValue }
         }
     }
 #endif
