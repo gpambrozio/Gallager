@@ -80,6 +80,7 @@ struct TmuxPaneMirrorApp: App {
         Settings {
             SettingsView()
                 .environment(coordinator.settings)
+                .environment(updaterController)
                 .environment(coordinator.getOrCreatePairingManager())
                 .environment(coordinator.externalServerClient)
                 .environment(\.e2eeService, coordinator.e2eeService)
