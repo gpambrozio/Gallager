@@ -58,12 +58,7 @@
         // MARK: - Common Claude Paths
 
         private var claudePaths: [String] {
-            [
-                "/usr/local/bin/claude",
-                "/opt/homebrew/bin/claude",
-                NSString("~/.local/bin/claude").expandingTildeInPath,
-                NSString("~/.claude/local/claude").expandingTildeInPath,
-            ]
+            ClaudePathDetector.commonPaths
         }
 
         // MARK: - Initialization

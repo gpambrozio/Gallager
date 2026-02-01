@@ -9,6 +9,7 @@
 
         @State private var showingInstructions = false
         @State private var showCopiedFeedback = false
+        @State private var feedbackResetTrigger: UUID?
 
         public init() { }
 
@@ -65,6 +66,11 @@
             .navigationTitle("Plugin")
             .task {
                 await pluginService.checkInstallation()
+            }
+            .task(id: feedbackResetTrigger) {
+                guard feedbackResetTrigger != nil else { return }
+                try? await Task.sleep(for: .seconds(2))
+                showCopiedFeedback = false
             }
         }
 
@@ -149,6 +155,7 @@
                     }
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(pluginService.state == .installing)
             case .unknown,
                  .checking,
                  .installing:
@@ -206,10 +213,7 @@
             NSPasteboard.general.setString(text, forType: .string)
 
             showCopiedFeedback = true
-            Task {
-                try? await Task.sleep(for: .seconds(2))
-                showCopiedFeedback = false
-            }
+            feedbackResetTrigger = UUID()
         }
     }
 #endif

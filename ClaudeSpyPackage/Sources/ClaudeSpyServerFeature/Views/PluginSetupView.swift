@@ -11,6 +11,7 @@
 
         @State private var showingInstructions = false
         @State private var showCopiedFeedback = false
+        @State private var feedbackResetTrigger: UUID?
 
         public init() { }
 
@@ -33,6 +34,11 @@
             .frame(width: 500, height: 450)
             .task {
                 await pluginService.checkInstallation()
+            }
+            .task(id: feedbackResetTrigger) {
+                guard feedbackResetTrigger != nil else { return }
+                try? await Task.sleep(for: .seconds(2))
+                showCopiedFeedback = false
             }
         }
 
@@ -229,10 +235,7 @@
             NSPasteboard.general.setString(text, forType: .string)
 
             showCopiedFeedback = true
-            Task {
-                try? await Task.sleep(for: .seconds(2))
-                showCopiedFeedback = false
-            }
+            feedbackResetTrigger = UUID()
         }
     }
 #endif
