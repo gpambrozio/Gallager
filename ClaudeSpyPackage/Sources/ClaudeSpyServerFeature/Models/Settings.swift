@@ -6,6 +6,7 @@ import SwiftUI
 public enum SettingsTab: String, Sendable {
     case general
     case remoteAccess
+    case plugin
 }
 
 /// Application settings with persistent storage
@@ -140,6 +141,13 @@ final public class AppSettings {
         didSet { UserDefaults.standard.set(deviceId, forKey: Keys.deviceId) }
     }
 
+    // MARK: - Plugin Settings
+
+    /// Whether the user has completed the plugin setup (or dismissed it)
+    public var hasCompletedPluginSetup: Bool {
+        didSet { UserDefaults.standard.set(hasCompletedPluginSetup, forKey: Keys.hasCompletedPluginSetup) }
+    }
+
     // MARK: - Initialization
 
     public init() {
@@ -187,6 +195,9 @@ final public class AppSettings {
             self.deviceId = newDeviceId
             defaults.set(newDeviceId, forKey: Keys.deviceId)
         }
+
+        // Plugin
+        self.hasCompletedPluginSetup = defaults.object(forKey: Keys.hasCompletedPluginSetup) as? Bool ?? Defaults.hasCompletedPluginSetup
     }
 
     // MARK: - Keys
@@ -216,6 +227,8 @@ final public class AppSettings {
         static let partnerPublicKeyId = "partnerPublicKeyId"
         static let autoConnectToServer = "autoConnectToServer"
         static let deviceId = "deviceId"
+        // Plugin
+        static let hasCompletedPluginSetup = "hasCompletedPluginSetup"
     }
 
     // MARK: - Defaults
@@ -241,6 +254,8 @@ final public class AppSettings {
         // Remote Access
         static let externalServerURL = "wss://claudespy.gustavo.eng.br"
         static let autoConnectToServer = true
+        // Plugin
+        static let hasCompletedPluginSetup = false
     }
 
     // MARK: - Computed Properties

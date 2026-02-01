@@ -24,6 +24,12 @@ public struct SettingsView: View {
                     Label("Remote Access", symbol: .iphone)
                 }
                 .tag(SettingsTab.remoteAccess)
+
+            PluginSettingsView()
+                .tabItem {
+                    Label("Plugin", symbol: .puzzlepiece)
+                }
+                .tag(SettingsTab.plugin)
         }
         .frame(minWidth: 500, minHeight: 400)
     }

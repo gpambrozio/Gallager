@@ -6,6 +6,7 @@ import SwiftUI
 @main
 struct TmuxPaneMirrorApp: App {
     @State private var coordinator: AppCoordinator
+    @State private var showingPluginSetup = false
 
     init() {
         // Bootstrap logging FIRST, before any Logger instances are created
@@ -26,7 +27,27 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator.windowManager.paneStreamManager)
                 .environment(coordinator.getOrCreatePairingManager())
                 .environment(coordinator.externalServerClient)
+                .environment(coordinator.pluginService)
                 .environment(\.e2eeService, coordinator.e2eeService)
+                .task {
+                    // Check if we should show the plugin setup on first launch
+                    if !coordinator.settings.hasCompletedPluginSetup {
+                        await coordinator.pluginService.checkInstallation()
+
+                        // Show setup only if plugin is not installed
+                        if case .notInstalled = coordinator.pluginService.state {
+                            showingPluginSetup = true
+                        } else if case .installed = coordinator.pluginService.state {
+                            // Plugin is installed, mark setup as complete
+                            coordinator.settings.hasCompletedPluginSetup = true
+                        }
+                    }
+                }
+                .sheet(isPresented: $showingPluginSetup) {
+                    PluginSetupView()
+                        .environment(coordinator.settings)
+                        .environment(coordinator.pluginService)
+                }
         }
         .defaultLaunchBehavior(.presented) // TODO: Change back to .suppressed
         .commands {
@@ -76,6 +97,7 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator.settings)
                 .environment(coordinator.getOrCreatePairingManager())
                 .environment(coordinator.externalServerClient)
+                .environment(coordinator.pluginService)
                 .environment(\.e2eeService, coordinator.e2eeService)
         }
 

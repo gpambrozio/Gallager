@@ -13,6 +13,7 @@
 		817BF9BA2F09C7CC00BD1D53 /* ClaudeSpyServerFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 817BF9B92F09C7CC00BD1D53 /* ClaudeSpyServerFeature */; };
 		8B41F6832DEDD23B001A66F9 /* ClaudeSpyFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6822DEDD23B001A66F9 /* ClaudeSpyFeature */; };
 		8B41F6852DEDD25C001A66F9 /* ClaudeSpyFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6842DEDD25C001A66F9 /* ClaudeSpyFeature */; };
+		AABBCC112F2A00000063PLGN /* plugin in Resources */ = {isa = PBXBuildFile; fileRef = AABBCC102F2A00000063PLGN /* plugin */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -67,6 +68,7 @@
 		815F9E732F09BFF9003791F7 /* ClaudeSpyServerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeSpyServerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8B41F6452DEDD0D5001A66F9 /* ClaudeSpy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeSpy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8B41F65C2DEDD0D6001A66F9 /* ClaudeSpy.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeSpy.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AABBCC102F2A00000063PLGN /* plugin */ = {isa = PBXFileReference; lastKnownFileType = folder; path = plugin; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -214,6 +216,7 @@
 				815F9E6C2F09BFF9003791F7 /* ClaudeSpyServerTests */,
 				815F9E762F09BFF9003791F7 /* ClaudeSpyServerUITests */,
 				81581B4B2F11B9BF005EA7FD /* ClaudeSpyNotificationExtension */,
+				AABBCC102F2A00000063PLGN /* plugin */,
 				8B41F6812DEDD23B001A66F9 /* Frameworks */,
 				8B41F6462DEDD0D5001A66F9 /* Products */,
 			);
@@ -456,6 +459,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AABBCC112F2A00000063PLGN /* plugin in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
