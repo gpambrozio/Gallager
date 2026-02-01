@@ -5,5 +5,12 @@
 	<!-- Apple Events Usage Description - required for AppleScript automation -->
 	<key>NSAppleEventsUsageDescription</key>
 	<string>ClaudeSpy needs to control terminal applications to open tmux sessions.</string>
+
+	<!-- Sparkle Auto-Update Configuration -->
+	<key>SUFeedURL</key>
+	<string>https://updates.gustavo.eng.br/ClaudeSpy.xml</string>
+
+	<key>SUPublicEDKey</key>
+	<string>SgIzXu4JuQVHuQFIyVAPsy48BCLzF6nuCTRKUyPi+cc=</string>
 </dict>
 </plist>
