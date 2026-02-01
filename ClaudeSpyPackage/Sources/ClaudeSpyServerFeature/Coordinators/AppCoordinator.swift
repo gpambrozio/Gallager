@@ -1,4 +1,5 @@
 #if os(macOS)
+    import AppKit
     import ClaudeSpyCommon
     import ClaudeSpyEncryption
     import ClaudeSpyNetworking
@@ -54,6 +55,9 @@
         private let projectScanner: ClaudeProjectScanner
         private var commandExecutor: TmuxCommandExecutor?
         private var isServiceSetupComplete = false
+
+        /// Task for observing system wake notifications
+        private var wakeObserverTask: Task<Void, Never>?
 
         private let logger = Logger(label: "com.claudespy.coordinator")
 
@@ -172,6 +176,9 @@
 
             // Initial sleep prevention update (in case there are already sessions)
             updateSleepPrevention()
+
+            // Start observing system wake notifications for reconnection
+            startWakeObserver()
         }
 
         // MARK: - Private Setup Methods
@@ -319,6 +326,24 @@
                 windowManager.activeSessions.count,
                 isEnabled: settings.preventSleepDuringSessions
             )
+        }
+
+        /// Starts observing system wake notifications to trigger immediate reconnection.
+        ///
+        /// When the Mac wakes from sleep, network connections are often stale or broken.
+        /// This triggers an immediate reconnection attempt instead of waiting for the
+        /// next scheduled retry.
+        private func startWakeObserver() {
+            let serverClient = externalServerClient
+            wakeObserverTask = Task {
+                // Using nil as object is valid - we only care about the notification name
+                let notifications = NotificationCenter.default.notifications(
+                    named: NSWorkspace.didWakeNotification
+                )
+                for await _ in notifications {
+                    await serverClient.reconnectImmediately()
+                }
+            }
         }
 
         private static func handleStartStream(

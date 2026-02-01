@@ -80,8 +80,14 @@ final public class ExternalServerClient {
     /// Current reconnection attempt
     private var reconnectionAttempt = 0
 
-    /// Maximum reconnection attempts before giving up
+    /// Maximum reconnection attempts before entering extended backoff
     private let maxReconnectionAttempts = 10
+
+    /// Extended backoff delay when max attempts reached (5 minutes)
+    private let extendedBackoffDelay = 300
+
+    /// Task for delayed reconnection (can be cancelled for immediate reconnect)
+    private var reconnectionDelayTask: Task<Void, Never>?
 
     /// Task for receiving messages
     private var receiveTask: Task<Void, Never>?
@@ -240,8 +246,37 @@ final public class ExternalServerClient {
     /// Disconnect from the relay server
     public func disconnect() async {
         shouldReconnect = false
+        reconnectionDelayTask?.cancel()
+        reconnectionDelayTask = nil
         await cleanupConnection()
         await updateState(.disconnected)
+    }
+
+    /// Attempt to reconnect immediately, cancelling any pending backoff.
+    ///
+    /// Call this when the system wakes from sleep or network becomes available
+    /// to avoid waiting for the next scheduled reconnection attempt.
+    public func reconnectImmediately() async {
+        // Only reconnect if we should be connected but aren't
+        guard shouldReconnect, !state.isConnected, state != .connecting else {
+            logger.debug("reconnectImmediately: no action needed", metadata: [
+                "shouldReconnect": "\(shouldReconnect)",
+                "state": "\(state)",
+            ])
+            return
+        }
+
+        logger.info("Reconnecting immediately (e.g., system wake)")
+
+        // Cancel any pending delayed reconnection
+        reconnectionDelayTask?.cancel()
+        reconnectionDelayTask = nil
+
+        // Reset attempt counter for fresh start
+        reconnectionAttempt = 0
+
+        // Attempt connection now
+        await performConnect()
     }
 
     // MARK: - Sending Messages
@@ -635,28 +670,48 @@ final public class ExternalServerClient {
 
         await cleanupConnection()
 
-        if shouldReconnect, reconnectionAttempt < maxReconnectionAttempts {
+        guard shouldReconnect else { return }
+
+        // Calculate delay based on attempt count
+        let delay: Int
+        if reconnectionAttempt < maxReconnectionAttempts {
             reconnectionAttempt += 1
-            await updateState(.reconnecting(attempt: reconnectionAttempt))
-
             // Exponential backoff: 1s, 2s, 4s, 8s, etc. up to 60s
-            let delay = min(60, Int(pow(2, Double(reconnectionAttempt - 1))))
+            delay = min(60, Int(pow(2, Double(reconnectionAttempt - 1))))
+            await updateState(.reconnecting(attempt: reconnectionAttempt))
             logger.info("Reconnecting in \(delay) seconds (attempt \(reconnectionAttempt))")
+        } else {
+            // After max attempts, use extended backoff (5 minutes) and reset counter
+            // This prevents giving up entirely while avoiding aggressive reconnection
+            delay = extendedBackoffDelay
+            logger.warning(
+                "Max reconnection attempts reached, entering extended backoff (\(delay)s)"
+            )
+            await updateState(.reconnecting(attempt: reconnectionAttempt))
+        }
 
-            // Spawn reconnection in a new task - the current task was cancelled by cleanupConnection()
-            // so we need a fresh task that won't have Task.isCancelled == true
-            Task { @MainActor [weak self] in
-                guard let self else { return }
+        // Spawn reconnection in a new task - the current task was cancelled by cleanupConnection()
+        // so we need a fresh task that won't have Task.isCancelled == true.
+        // Store the task so it can be cancelled for immediate reconnection.
+        reconnectionDelayTask = Task { @MainActor [weak self] in
+            guard let self else { return }
 
-                try? await Task.sleep(for: .seconds(delay))
-
-                if self.shouldReconnect {
-                    await self.performConnect()
-                }
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                // Task was cancelled (e.g., by reconnectImmediately or disconnect)
+                return
             }
-        } else if shouldReconnect {
-            logger.error("Max reconnection attempts reached")
-            await updateState(.error("Connection lost after \(maxReconnectionAttempts) attempts"))
+
+            guard self.shouldReconnect else { return }
+
+            // Reset attempt counter after extended backoff
+            if self.reconnectionAttempt >= self.maxReconnectionAttempts {
+                self.reconnectionAttempt = 0
+                self.logger.info("Resetting reconnection attempt counter after extended backoff")
+            }
+
+            await self.performConnect()
         }
     }
 
