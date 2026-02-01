@@ -25,19 +25,27 @@
 
         public var body: some View {
             Group {
-                if settings.isPaired {
-                    if let connectionManager {
+                if let connectionManager {
+                    if settings.isPaired {
                         MainView()
                             .environment(connectionManager)
+                    } else if let e2ee = connectionManager.pairingService {
+                        NavigationStack {
+                            PairingView { pairedMac in
+                                handlePairingComplete(pairedMac)
+                            }
+                            .e2eeService(e2ee)
+                        }
                     } else {
-                        ProgressView("Initializing...")
+                        // Key pair not available - shouldn't happen
+                        ContentUnavailableView(
+                            "Encryption Error",
+                            image: Symbols.lockTriangleBadgeExclamationmark.rawValue,
+                            description: Text("Unable to initialize encryption. Please restart the app.")
+                        )
                     }
                 } else {
-                    NavigationStack {
-                        PairingView { pairedMac in
-                            handlePairingComplete(pairedMac)
-                        }
-                    }
+                    ProgressView("Initializing...")
                 }
             }
             .environment(settings)

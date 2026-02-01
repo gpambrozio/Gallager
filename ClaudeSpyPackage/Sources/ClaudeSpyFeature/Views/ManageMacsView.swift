@@ -165,23 +165,32 @@
 
         var body: some View {
             NavigationStack {
-                PairingView { pairedMac in
-                    // Add the new pairing
-                    settings.addPairing(pairedMac)
+                if let e2ee = connectionManager.pairingService {
+                    PairingView { pairedMac in
+                        // Add the new pairing
+                        settings.addPairing(pairedMac)
 
-                    // Connect to the new Mac
-                    Task {
-                        await connectionManager.connect(to: pairedMac, settings: settings)
+                        // Connect to the new Mac
+                        Task {
+                            await connectionManager.connect(to: pairedMac, settings: settings)
+                        }
+
+                        dismiss()
                     }
-
-                    dismiss()
-                }
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") {
-                            dismiss()
+                    .e2eeService(e2ee)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") {
+                                dismiss()
+                            }
                         }
                     }
+                } else {
+                    ContentUnavailableView(
+                        "Encryption Error",
+                        image: Symbols.lockTriangleBadgeExclamationmark.rawValue,
+                        description: Text("Unable to initialize encryption.")
+                    )
                 }
             }
         }

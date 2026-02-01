@@ -58,6 +58,15 @@
             connections.values.contains { $0.state == .connecting }
         }
 
+        /// E2EE service for pairing operations (not tied to any specific Mac).
+        ///
+        /// Use this when you need to provide our public key for a new pairing,
+        /// before a Mac-specific session has been established.
+        public var pairingService: E2EEService? {
+            guard let keyPair else { return nil }
+            return E2EEService(keyPair: keyPair, keyManager: keyManager)
+        }
+
         // MARK: - Initialization
 
         /// Creates a new connection manager.

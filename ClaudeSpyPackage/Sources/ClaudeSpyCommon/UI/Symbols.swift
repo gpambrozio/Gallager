@@ -38,6 +38,7 @@ public enum Symbols: String {
     case linkCircleFill = "link.circle.fill"
     case listBulletClipboard = "list.bullet.clipboard"
     case lockFill = "lock.fill"
+    case lockTriangleBadgeExclamationmark = "lock.trianglebadge.exclamationmark"
     case macwindow
     case macwindowBadgePlus = "macwindow.badge.plus"
     case pause
