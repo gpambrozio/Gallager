@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+   <channel>
+      <title>ClaudeSpy Updates</title>
+      <link>https://updates.gustavo.eng.br/ClaudeSpy.xml</link>
+      <description>Most recent changes with links to updates.</description>
+      <language>en</language>
+      <item>
+         <title>Version 1.0</title>
+         <sparkle:version>1</sparkle:version>
+         <sparkle:shortVersionString>1.0</sparkle:shortVersionString>
+         <pubDate>Tue, 27 Jan 2026 12:18:20 -1000</pubDate>
+         <description><![CDATA[
+<h2>What's New in 1.0</h2>
+<ul>
+<li>Initial release with Sparkle auto-update support</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/ClaudeSpyServer-1.0.dmg"
+                    sparkle:edSignature="D3EBnN/4kfP9rpequRcRt0ojfvCTa4qiPZFfuLloY6AS9Fm6Xyx4/cJH8TWscBs5n6FoGOwFx1fY93G5/96mBQ=="
+                    length="18244201"
+                    type="application/octet-stream"/>
+      </item>
+   </channel>
+</rss>
