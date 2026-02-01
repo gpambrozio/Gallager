@@ -1,17 +1,20 @@
 import Foundation
 #if canImport(Sparkle)
+    import Combine
     import Sparkle
 #endif
 
 /// A controller class that manages the Sparkle updater for the application.
 /// This class wraps SPUStandardUpdaterController and provides SwiftUI-friendly bindings.
+@Observable
 @MainActor
-final public class UpdaterController: ObservableObject {
+final public class UpdaterController {
     #if canImport(Sparkle)
         private let updaterController: SPUStandardUpdaterController
+        private var cancellable: AnyCancellable?
 
         /// Whether the user can check for updates (not currently checking)
-        @Published public private(set) var canCheckForUpdates = false
+        public private(set) var canCheckForUpdates = false
 
         /// The date of the last update check, if any
         public var lastUpdateCheckDate: Date? {
@@ -24,8 +27,13 @@ final public class UpdaterController: ObservableObject {
                 updaterDelegate: nil,
                 userDriverDelegate: nil
             )
-            updaterController.updater.publisher(for: \.canCheckForUpdates)
-                .assign(to: &$canCheckForUpdates)
+            // Observe canCheckForUpdates using Combine (Sparkle uses KVO internally)
+            // We store the cancellable to keep the subscription alive
+            self.cancellable = updaterController.updater.publisher(for: \.canCheckForUpdates)
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] value in
+                    self?.canCheckForUpdates = value
+                }
         }
 
         public func checkForUpdates() {
@@ -48,7 +56,7 @@ final public class UpdaterController: ObservableObject {
         }
     #else
         // Stub implementation for non-macOS platforms
-        @Published public private(set) var canCheckForUpdates = false
+        public private(set) var canCheckForUpdates = false
         public var lastUpdateCheckDate: Date? { nil }
         public init() { }
         public func checkForUpdates() { }

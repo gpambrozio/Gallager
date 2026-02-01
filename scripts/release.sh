@@ -353,10 +353,20 @@ $html_notes
 ITEMEOF
 
     if [ -f "$APPCAST_FILE" ]; then
+        # Check that <language> tag exists before attempting the update
+        if ! grep -q "<language>" "$APPCAST_FILE"; then
+            log_error "Appcast file exists but missing <language> tag - cannot insert new version"
+        fi
+
         awk '
             /<language>/ { print; getline; while ((getline line < "'"$item_file"'") > 0) print line; }
             { print }
         ' "$APPCAST_FILE" > "$APPCAST_FILE.tmp" && mv "$APPCAST_FILE.tmp" "$APPCAST_FILE"
+
+        # Verify the new version was added
+        if ! grep -q "Version $version" "$APPCAST_FILE"; then
+            log_error "Failed to add version $version to appcast.xml"
+        fi
     else
         cat > "$APPCAST_FILE" << EOF
 <?xml version="1.0" encoding="utf-8"?>
@@ -444,6 +454,73 @@ bump_version() {
 }
 
 # =====================================================
+# Generate release notes using Claude
+# =====================================================
+generate_release_notes() {
+    local version=$1
+    log_info "Generating release notes with Claude..." >&2
+
+    # Check if claude CLI is available
+    if ! command -v claude &> /dev/null; then
+        log_warning "Claude CLI not found, using generic release notes" >&2
+        echo "## What's New in $version
+
+- Bug fixes and improvements"
+        return
+    fi
+
+    # Get the previous tag
+    local previous_tag
+    previous_tag=$(git -C "$PROJECT_ROOT" describe --tags --abbrev=0 2>/dev/null || echo "")
+
+    local commit_range
+    if [ -n "$previous_tag" ]; then
+        commit_range="$previous_tag..HEAD"
+        log_info "Analyzing commits from $previous_tag to HEAD" >&2
+    else
+        commit_range="HEAD~20..HEAD"
+        log_info "No previous tag found, analyzing last 20 commits" >&2
+    fi
+
+    # Get commit history
+    local commits
+    commits=$(git -C "$PROJECT_ROOT" log "$commit_range" --pretty=format:"- %s (%h)" 2>/dev/null || echo "Initial release")
+
+    # Use Claude to generate release notes
+    local prompt="You are a technical writer creating release notes for a software product.
+
+Generate professional release notes for version $version of ClaudeSpy, a macOS/iOS app for monitoring Claude Code sessions.
+
+IMPORTANT: This is an independent open source project. It is NOT affiliated with or built by Anthropic.
+
+Here are the commits since the last release:
+$commits
+
+Requirements:
+- Group changes by category (Features, Improvements, Bug Fixes) if applicable
+- Explain what each change means for users (not just the technical details)
+- Keep it concise but informative
+- Use markdown formatting
+- Maintain a professional, neutral tone throughout
+- Do NOT include any commentary, opinions, jokes, or meta-text
+- Do NOT include any preamble like 'Here are the release notes'
+- Do NOT add any URLs or links
+- Do NOT add 'for more information' sections or footer content
+- Do NOT assume or mention who built the app
+- Output ONLY the release notes content itself"
+
+    local release_notes
+    release_notes=$(claude -p "$prompt" 2>/dev/null) || {
+        log_warning "Claude failed to generate release notes, using commit list instead" >&2
+        release_notes="## What's New in $version
+
+$commits"
+    }
+
+    echo "$release_notes"
+}
+
+# =====================================================
 # Main
 # =====================================================
 main() {
@@ -479,13 +556,12 @@ main() {
     local sparkle_signature
     sparkle_signature=$(sign_dmg_for_sparkle "$dmg_path")
 
-    # Generate release notes (you can customize this)
-    local release_notes="## What's New in $version
-
-- Bug fixes and improvements"
+    # Generate release notes using Claude
+    local release_notes
+    release_notes=$(generate_release_notes "$version")
 
     echo ""
-    echo "Release notes:"
+    echo "Generated release notes:"
     echo "----------------------------------------"
     echo "$release_notes"
     echo "----------------------------------------"

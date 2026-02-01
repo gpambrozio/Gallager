@@ -1,7 +1,7 @@
 import SwiftUI
 
 public struct CheckForUpdatesView: View {
-    @ObservedObject private var updaterController: UpdaterController
+    private let updaterController: UpdaterController
 
     public init(updaterController: UpdaterController) {
         self.updaterController = updaterController

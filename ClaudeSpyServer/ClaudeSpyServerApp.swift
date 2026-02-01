@@ -6,7 +6,7 @@ import SwiftUI
 @main
 struct TmuxPaneMirrorApp: App {
     @State private var coordinator: AppCoordinator
-    @StateObject private var updaterController = UpdaterController()
+    @State private var updaterController = UpdaterController()
 
     init() {
         // Bootstrap logging FIRST, before any Logger instances are created
