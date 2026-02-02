@@ -1,5 +1,6 @@
 import AppKit
 import ClaudeSpyCommon
+import ClaudeSpyNetworking
 import SwiftTerm
 import SwiftUI
 
@@ -31,7 +32,7 @@ struct TerminalContainerView: NSViewRepresentable {
         Coordinator()
     }
 
-    func makeNSView(context: Context) -> ReadOnlyTerminalView {
+    func makeNSView(context: Context) -> InteractiveTerminalView {
         let coordinator = context.coordinator
 
         // Start the coordinator with all dependencies
@@ -47,7 +48,7 @@ struct TerminalContainerView: NSViewRepresentable {
         return coordinator.terminalView
     }
 
-    func updateNSView(_ nsView: ReadOnlyTerminalView, context: Context) {
+    func updateNSView(_ nsView: InteractiveTerminalView, context: Context) {
         let coordinator = context.coordinator
 
         // Update settings if changed
@@ -62,7 +63,7 @@ struct TerminalContainerView: NSViewRepresentable {
         }
     }
 
-    static func dismantleNSView(_ nsView: ReadOnlyTerminalView, coordinator: Coordinator) {
+    static func dismantleNSView(_ nsView: InteractiveTerminalView, coordinator: Coordinator) {
         coordinator.stop()
     }
 
@@ -72,12 +73,13 @@ struct TerminalContainerView: NSViewRepresentable {
     final class Coordinator: @unchecked Sendable {
         // MARK: Views
 
-        let terminalView: ReadOnlyTerminalView
+        let terminalView: InteractiveTerminalView
 
         // MARK: Services (held for lifetime)
 
         private weak var paneStreamManager: PaneStreamManager?
         private weak var windowManager: MirrorWindowManager?
+        private weak var tmuxService: TmuxService?
 
         // MARK: State
 
@@ -97,10 +99,14 @@ struct TerminalContainerView: NSViewRepresentable {
         // Track initial scroll state
         private var hasScrolledInitial = false
 
+        // Track consecutive key send failures for error reporting
+        private var consecutiveKeyFailures = 0
+        private let maxConsecutiveKeyFailures = 3
+
         // MARK: Initialization
 
         init() {
-            self.terminalView = ReadOnlyTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+            self.terminalView = InteractiveTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
             applyDarkTheme()
         }
 
@@ -117,6 +123,7 @@ struct TerminalContainerView: NSViewRepresentable {
             self.paneInfo = paneInfo
             self.paneStreamManager = paneStreamManager
             self.windowManager = windowManager
+            self.tmuxService = tmuxService
             self.onStateChange = onStateChange
             lastExternalWidth = paneInfo.width
 
@@ -124,9 +131,45 @@ struct TerminalContainerView: NSViewRepresentable {
             updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
             applyTheme(settings.theme)
 
+            // Wire up input handling
+            terminalView.onInput = { [weak self] keys in
+                guard let self, let paneInfo = self.paneInfo else { return }
+                Task {
+                    await self.sendKeysToTmux(keys, target: paneInfo.target)
+                }
+            }
+
             // Start connection
             Task {
                 await connect(paneInfo: paneInfo, tmuxService: tmuxService)
+            }
+        }
+
+        // MARK: - Input Handling
+
+        private func sendKeysToTmux(_ keys: [TmuxKey], target: String) async {
+            guard let tmuxService else { return }
+
+            for key in keys {
+                // Skip delays - they're for iOS relay, not needed for local
+                if case .delay = key { continue }
+
+                do {
+                    try await tmuxService.sendKeys(
+                        target,
+                        keys: key.tmuxKeyName,
+                        literal: key.requiresLiteralMode
+                    )
+                    consecutiveKeyFailures = 0
+                } catch {
+                    consecutiveKeyFailures += 1
+                    print("Failed to send key to tmux: \(error)")
+
+                    if consecutiveKeyFailures >= maxConsecutiveKeyFailures {
+                        updateState(.error("Failed to send keystrokes to tmux"))
+                        break
+                    }
+                }
             }
         }
 
