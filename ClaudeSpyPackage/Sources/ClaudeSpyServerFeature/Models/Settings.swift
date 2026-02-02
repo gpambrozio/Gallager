@@ -148,6 +148,18 @@ final public class AppSettings {
         didSet { UserDefaults.standard.set(hasCompletedPluginSetup, forKey: Keys.hasCompletedPluginSetup) }
     }
 
+    // MARK: - Launch at Login Settings
+
+    /// Whether the app should launch at login (synced with system login items)
+    public var launchAtLogin: Bool {
+        didSet { UserDefaults.standard.set(launchAtLogin, forKey: Keys.launchAtLogin) }
+    }
+
+    /// Whether the user has been asked about launching at login
+    public var hasAskedAboutLaunchAtLogin: Bool {
+        didSet { UserDefaults.standard.set(hasAskedAboutLaunchAtLogin, forKey: Keys.hasAskedAboutLaunchAtLogin) }
+    }
+
     // MARK: - Initialization
 
     public init() {
@@ -198,6 +210,10 @@ final public class AppSettings {
 
         // Plugin
         self.hasCompletedPluginSetup = defaults.object(forKey: Keys.hasCompletedPluginSetup) as? Bool ?? Defaults.hasCompletedPluginSetup
+
+        // Launch at Login
+        self.launchAtLogin = defaults.object(forKey: Keys.launchAtLogin) as? Bool ?? Defaults.launchAtLogin
+        self.hasAskedAboutLaunchAtLogin = defaults.object(forKey: Keys.hasAskedAboutLaunchAtLogin) as? Bool ?? Defaults.hasAskedAboutLaunchAtLogin
     }
 
     // MARK: - Keys
@@ -229,6 +245,9 @@ final public class AppSettings {
         static let deviceId = "deviceId"
         // Plugin
         static let hasCompletedPluginSetup = "hasCompletedPluginSetup"
+        // Launch at Login
+        static let launchAtLogin = "launchAtLogin"
+        static let hasAskedAboutLaunchAtLogin = "hasAskedAboutLaunchAtLogin"
     }
 
     // MARK: - Defaults
@@ -256,6 +275,9 @@ final public class AppSettings {
         static let autoConnectToServer = true
         // Plugin
         static let hasCompletedPluginSetup = false
+        // Launch at Login
+        static let launchAtLogin = false
+        static let hasAskedAboutLaunchAtLogin = false
     }
 
     // MARK: - Computed Properties
