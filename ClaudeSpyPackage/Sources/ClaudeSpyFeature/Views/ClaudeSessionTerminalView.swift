@@ -75,12 +75,7 @@
                 SessionInfoView(
                     session: service.session,
                     paneId: paneId,
-                    isPaneActive: service.isPaneActive,
-                    isMacConnected: service.isMacConnected,
-                    responseState: service.responseState,
-                    sendCommand: { command in
-                        await service.sendCommand(command)
-                    }
+                    isPaneActive: service.isPaneActive
                 )
                 .navigationTitle("Session Info")
                 .navigationBarTitleDisplayMode(.inline)
@@ -100,31 +95,15 @@
     // MARK: - Session Info View
 
     /// View displaying session information shown in the popover.
-    /// Contains recent events, session info, and response UI if applicable.
+    /// Contains recent events and session info.
     private struct SessionInfoView: View {
         let session: ClaudeSession?
         let paneId: String
         let isPaneActive: Bool
-        let isMacConnected: Bool
-        let responseState: ResponseState?
-        let sendCommand: CommandSender
 
         var body: some View {
             if let session {
                 List {
-                    // Context-sensitive response section based on latest event
-                    if
-                        let responseState,
-                        let responseView = responseState.event.responseView(
-                            isConnected: isMacConnected,
-                            sendCommand: sendCommand,
-                            state: responseState
-                        ) {
-                        Section("Response") {
-                            responseView
-                        }
-                    }
-
                     // Events section
                     Section("Recent Events") {
                         if session.events.isEmpty {
