@@ -103,6 +103,9 @@
             }
         }
 
+        // Using nonisolated(unsafe) for notification observer cleanup in deinit
+        private nonisolated(unsafe) var windowObserver: (any NSObjectProtocol)?
+
         override init(frame: NSRect) {
             self.terminalView = TerminalView(frame: NSRect(origin: .zero, size: frame.size))
             super.init(frame: frame)
@@ -120,6 +123,12 @@
         @available(*, unavailable)
         required init?(coder: NSCoder) {
             fatalError("init(coder:) has not been implemented")
+        }
+
+        deinit {
+            if let observer = windowObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
         }
 
         // MARK: - Setup
@@ -183,10 +192,29 @@
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+
+            // Clean up old observer
+            if let observer = windowObserver {
+                NotificationCenter.default.removeObserver(observer)
+                windowObserver = nil
+            }
+
+            guard let window else { return }
+
             // Auto-focus when added to a window
-            if window != nil {
-                DispatchQueue.main.async { [weak self] in
-                    self?.window?.makeFirstResponder(self)
+            DispatchQueue.main.async { [weak self] in
+                self?.window?.makeFirstResponder(self)
+            }
+
+            // Re-focus when window becomes key (e.g., after switching apps)
+            windowObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, let window = self.window else { return }
+                    window.makeFirstResponder(self)
                 }
             }
         }
