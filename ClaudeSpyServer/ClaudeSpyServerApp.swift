@@ -7,6 +7,7 @@ import SwiftUI
 struct TmuxPaneMirrorApp: App {
     @State private var coordinator: AppCoordinator
     @State private var showingPluginSetup = false
+    @State private var showingLaunchAtLoginPrompt = false
     @State private var updaterController = UpdaterController()
 
     init() {
@@ -29,6 +30,7 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator.getOrCreatePairingManager())
                 .environment(coordinator.externalServerClient)
                 .environment(coordinator.pluginService)
+                .environment(\.claudeProjectScanner, coordinator.projectScanner)
                 .environment(\.e2eeService, coordinator.e2eeService)
                 .task {
                     // Check if we should show the plugin setup on first launch
@@ -41,13 +43,25 @@ struct TmuxPaneMirrorApp: App {
                         } else if case .installed = coordinator.pluginService.state {
                             // Plugin is installed, mark setup as complete
                             coordinator.settings.hasCompletedPluginSetup = true
+                            // Check if we should show launch at login prompt
+                            checkForLaunchAtLoginPrompt()
                         }
+                    } else {
+                        // Plugin setup already done, check for launch at login prompt
+                        checkForLaunchAtLoginPrompt()
                     }
                 }
-                .sheet(isPresented: $showingPluginSetup) {
+                .sheet(isPresented: $showingPluginSetup, onDismiss: {
+                    // After plugin setup is dismissed, check for launch at login prompt
+                    checkForLaunchAtLoginPrompt()
+                }) {
                     PluginSetupView()
                         .environment(coordinator.settings)
                         .environment(coordinator.pluginService)
+                }
+                .sheet(isPresented: $showingLaunchAtLoginPrompt) {
+                    LaunchAtLoginPromptView()
+                        .environment(coordinator.settings)
                 }
         }
         .defaultLaunchBehavior(.presented) // TODO: Change back to .suppressed
@@ -117,6 +131,18 @@ struct TmuxPaneMirrorApp: App {
                 .task {
                     await coordinator.setupAllServices()
                 }
+        }
+    }
+
+    /// Checks if we should show the launch at login prompt.
+    /// Called after plugin setup is complete or skipped.
+    private func checkForLaunchAtLoginPrompt() {
+        // Only show if user hasn't been asked yet
+        guard !coordinator.settings.hasAskedAboutLaunchAtLogin else { return }
+
+        // Small delay to avoid sheet animation conflicts
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            showingLaunchAtLoginPrompt = true
         }
     }
 }

@@ -40,6 +40,10 @@ struct GeneralSettingsView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(UpdaterController.self) private var updaterController
 
+    @State private var launchAtLoginEnabled = LoginItemService.isEnabled
+    @State private var showingLoginItemError = false
+    @State private var loginItemErrorMessage = ""
+
     var body: some View {
         @Bindable var settings = settings
 
@@ -98,6 +102,20 @@ struct GeneralSettingsView: View {
             }
 
             Section("Behavior") {
+                Toggle("Launch at login", isOn: $launchAtLoginEnabled)
+                    .help("Start ClaudeSpy automatically when you log in")
+                    .onChange(of: launchAtLoginEnabled) { _, newValue in
+                        do {
+                            try LoginItemService.setEnabled(newValue)
+                            settings.launchAtLogin = newValue
+                        } catch {
+                            // Revert toggle state on failure
+                            launchAtLoginEnabled = LoginItemService.isEnabled
+                            loginItemErrorMessage = error.localizedDescription
+                            showingLoginItemError = true
+                        }
+                    }
+
                 Toggle("Restore windows on launch", isOn: $settings.restoreWindowsOnLaunch)
 
                 Toggle("Show status bar", isOn: $settings.showStatusBar)
@@ -177,6 +195,15 @@ struct GeneralSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear {
+            // Sync with actual system state (in case user changed it in System Settings)
+            launchAtLoginEnabled = LoginItemService.isEnabled
+        }
+        .alert("Login Item Error", isPresented: $showingLoginItemError) {
+            Button("OK") { }
+        } message: {
+            Text(loginItemErrorMessage)
+        }
     }
 }
 

@@ -55,7 +55,9 @@
         // MARK: - Private Services
 
         private let hookServer: HookServerService
-        private let projectScanner: ClaudeProjectScanner
+
+        /// Claude project scanner for discovering Claude Code projects
+        public let projectScanner: ClaudeProjectScanner
         private var commandExecutor: TmuxCommandExecutor?
         private var isServiceSetupComplete = false
 

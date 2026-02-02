@@ -145,7 +145,7 @@ check_prerequisites() {
 # =====================================================
 verify_bundled_plugin() {
     local app_path="$EXPORT_PATH/$APP_NAME.app"
-    local plugin_path="$app_path/Contents/Resources/plugin"
+    local plugin_path="$app_path/Contents/Resources/plugin/claude-spy/.claude-plugin"
 
     log_info "Verifying bundled plugin..."
 
@@ -597,10 +597,21 @@ main() {
     fi
 
     update_appcast "$version" "$build_number" "$dmg_path" "$sparkle_signature" "$release_notes"
+
+    log_info "Committing appcast..."
+    git -C "$PROJECT_ROOT" add "$APPCAST_FILE"
+    git -C "$PROJECT_ROOT" commit -m "Update appcast for version $version"
+
     upload_to_ftp "$dmg_path"
+
+    log_info "Creating release tag v$version..."
+    git -C "$PROJECT_ROOT" tag -a "v$version" -m "Release $version"
+    log_success "Tagged release v$version"
+
     bump_version "$version"
 
     git -C "$PROJECT_ROOT" push
+    git -C "$PROJECT_ROOT" push origin "v$version"
 
     rm -rf "$BUILD_DIR"
 

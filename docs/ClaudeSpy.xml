@@ -6,6 +6,35 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.1</title>
+         <sparkle:version>2</sparkle:version>
+         <sparkle:shortVersionString>1.1</sparkle:shortVersionString>
+         <pubDate>Sun, 01 Feb 2026 19:46:09 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.1 Release Notes
+
+<h2>Features</h2>
+
+<h3>Interactive Terminal Input (macOS)</h3>
+Terminal mirrors on macOS now support keyboard input, allowing you to interact directly with monitored Claude Code sessions rather than just observing them.
+
+<h3>Multi-Mac Server Support (iOS)</h3>
+The iOS app can now connect to and monitor multiple Mac servers simultaneously, making it easier to keep track of Claude Code sessions running across different machines.
+
+<h3>Plugin Installation Guide</h3>
+First-time users on macOS will now see clear instructions for installing the Claude Code plugin, streamlining the initial setup process.
+
+<h2>Bug Fixes</h2>
+
+<h3>Improved Connection Reliability (macOS)</h3>
+Fixed an issue where the Mac app would disconnect from the server and fail to automatically reconnect. The app now properly retries connections when they are interrupted.
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/ClaudeSpyServer-1.1.dmg"
+                    sparkle:edSignature="QmuedF/7rjTjxcDp+VJTj1slue3SJqBTjqrWHQNgYdtQz3oQ/Z9PBW26gr2caCv/VXK+oc4TJFiy51c4lko+Bw=="
+                    length="18381930"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.0</title>
          <sparkle:version>1</sparkle:version>
          <sparkle:shortVersionString>1.0</sparkle:shortVersionString>
