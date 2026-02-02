@@ -99,6 +99,10 @@ struct TerminalContainerView: NSViewRepresentable {
         // Track initial scroll state
         private var hasScrolledInitial = false
 
+        // Track consecutive key send failures for error reporting
+        private var consecutiveKeyFailures = 0
+        private let maxConsecutiveKeyFailures = 3
+
         // MARK: Initialization
 
         init() {
@@ -156,9 +160,15 @@ struct TerminalContainerView: NSViewRepresentable {
                         keys: key.tmuxKeyName,
                         literal: key.requiresLiteralMode
                     )
+                    consecutiveKeyFailures = 0
                 } catch {
-                    // Log error but continue - don't let one failed key block the rest
+                    consecutiveKeyFailures += 1
                     print("Failed to send key to tmux: \(error)")
+
+                    if consecutiveKeyFailures >= maxConsecutiveKeyFailures {
+                        updateState(.error("Failed to send keystrokes to tmux"))
+                        break
+                    }
                 }
             }
         }

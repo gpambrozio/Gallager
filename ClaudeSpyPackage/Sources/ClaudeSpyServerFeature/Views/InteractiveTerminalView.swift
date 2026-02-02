@@ -202,8 +202,9 @@
             guard let window else { return }
 
             // Auto-focus when added to a window
-            DispatchQueue.main.async { [weak self] in
-                self?.window?.makeFirstResponder(self)
+            Task { [weak self] in
+                guard let self else { return }
+                self.window?.makeFirstResponder(self)
             }
 
             // Re-focus when window becomes key (e.g., after switching apps)
