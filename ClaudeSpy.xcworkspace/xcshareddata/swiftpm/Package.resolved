@@ -1,5 +1,5 @@
 {
-  "originHash" : "bfc77b4cac983d90ed19d34ead89e8fee37205344a05ecb750530d481447b4a7",
+  "originHash" : "eeeba5ce2c12642455dfe4108282afa2f85682a69efc1253c31208d1b2381a3b",
   "pins" : [
     {
       "identity" : "apns",
@@ -272,14 +272,6 @@
       }
     },
     {
-      "identity" : "swift-subprocess",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/swiftlang/swift-subprocess",
-      "state" : {
-        "revision" : "426790f3f24afa60b418450da0afaa20a8b3bdd4"
-      }
-    },
-    {
       "identity" : "swift-syntax",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/swiftlang/swift-syntax",
@@ -311,7 +303,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/migueldeicaza/SwiftTerm.git",
       "state" : {
-        "revision" : "8840e3596739adfe9599c0e7fff89f4fa88bedcf"
+        "revision" : "ca6f80ef534248d2f65c1b640656e3c9a270bfeb",
+        "version" : "1.10.0"
       }
     },
     {
