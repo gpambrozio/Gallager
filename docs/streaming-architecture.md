@@ -120,11 +120,12 @@ The local Mac mirror receives data through a PaneStreamManager subscription:
 
 ```mermaid
 flowchart LR
-    PSM[PaneStreamManager] -->|onData| ROTV[ReadOnlyTerminalView]
-    ROTV --> ST[SwiftTerm]
+    PSM[PaneStreamManager] -->|onData| ITV[InteractiveTerminalView]
+    ITV --> ST[SwiftTerm]
+    ITV -->|onInput| TS[TmuxService.sendKeys]
 ```
 
-**Key File:** `ClaudeSpyServerFeature/Views/ReadOnlyTerminalView.swift`
+**Key File:** `ClaudeSpyServerFeature/Views/InteractiveTerminalView.swift`
 
 ### 4. Remote Streaming (Mac → Server)
 
