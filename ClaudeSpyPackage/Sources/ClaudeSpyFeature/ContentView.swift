@@ -263,7 +263,7 @@
         /// Navigate to a specific session when a deep link is received.
         ///
         /// Note: If the session no longer exists (e.g., notification was delayed and session ended),
-        /// SessionDetailView will show an appropriate empty state.
+        /// ClaudeSessionTerminalView will show an appropriate empty state.
         private func handleDeepLink(paneId: String?) {
             guard let paneId else { return }
 

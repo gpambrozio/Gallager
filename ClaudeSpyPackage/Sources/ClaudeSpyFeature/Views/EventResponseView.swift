@@ -3,7 +3,7 @@ import ClaudeSpyNetworking
 import SwiftUI
 
 /// Closure type for sending commands from response views.
-/// Takes a CommandType directly - SessionDetailView adds the paneId when sending.
+/// Takes a CommandType directly - the calling view adds the paneId when sending.
 typealias CommandSender = @MainActor (CommandType) async -> Void
 
 // MARK: - Event Response Extension

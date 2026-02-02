@@ -7,9 +7,9 @@
 
     /// Navigation value for the session list
     enum SessionNavigation: Hashable {
-        /// Navigate to a Claude session detail view
+        /// Navigate to live terminal for a Claude session
         case claudeSession(paneId: String, macId: String)
-        /// Navigate directly to live terminal for a plain terminal (no Claude session)
+        /// Navigate to live terminal for a plain terminal (no Claude session)
         case plainTerminal(paneId: String, macId: String)
     }
 
@@ -39,10 +39,11 @@
                 switch destination {
                 case let .claudeSession(paneId, macId):
                     if let connection = connectionManager.connection(for: macId) {
-                        SessionDetailView(
+                        ClaudeSessionTerminalView(
                             paneId: paneId,
                             sessionStore: sessionStore,
-                            relayClient: connection.relayClient
+                            relayClient: connection.relayClient,
+                            settings: settings
                         )
                     } else {
                         macDisconnectedView
