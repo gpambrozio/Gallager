@@ -6,7 +6,6 @@
     /// View for entering a pairing code to connect with a Mac.
     struct PairingView: View {
         @Environment(IOSSettings.self) private var settings
-        @Environment(RelayClient.self) private var relayClient
         @Environment(\.e2eeService) private var e2eeService
 
         @State private var pairingCode = ""
@@ -14,35 +13,33 @@
         @State private var errorMessage: String?
         @FocusState private var isInputFocused: Bool
 
-        /// Called when pairing is successful
-        var onPaired: ((String, String?) -> Void)?
+        /// Called when pairing is successful with the new PairedMac
+        var onPaired: ((PairedMac) -> Void)?
 
         private let codeLength = 6
 
         var body: some View {
-            NavigationStack {
-                ScrollView {
-                    VStack(spacing: 24) {
-                        compactHeaderSection
+            ScrollView {
+                VStack(spacing: 24) {
+                    compactHeaderSection
 
-                        codeInputSection
+                    codeInputSection
 
-                        if isLoading {
-                            ProgressView("Pairing...")
-                        }
-
-                        if let error = errorMessage {
-                            errorSection(error)
-                        }
-
-                        instructionsSection
+                    if isLoading {
+                        ProgressView("Pairing...")
                     }
-                    .padding()
+
+                    if let error = errorMessage {
+                        errorSection(error)
+                    }
+
+                    instructionsSection
                 }
-                .scrollDismissesKeyboard(.interactively)
-                .navigationTitle("Pair with Mac")
-                .navigationBarTitleDisplayMode(.large)
+                .padding()
             }
+            .scrollDismissesKeyboard(.interactively)
+            .navigationTitle("Pair with Mac")
+            .navigationBarTitleDisplayMode(.large)
         }
 
         private var compactHeaderSection: some View {
@@ -180,14 +177,16 @@
                 let response = try await completePairing(code: pairingCode)
 
                 if response.success, let pairId = response.pairId {
-                    // Save pairing with partner's public key for E2EE
-                    settings.savePairing(
-                        pairId: pairId,
-                        macName: response.partnerDeviceName,
-                        partnerPublicKey: response.partnerPublicKey,
-                        partnerPublicKeyId: response.partnerPublicKeyId
+                    // Create the PairedMac struct
+                    let pairedMac = PairedMac(
+                        id: pairId,
+                        macName: response.partnerDeviceName ?? "Mac",
+                        partnerPublicKey: response.partnerPublicKey ?? "",
+                        partnerPublicKeyId: response.partnerPublicKeyId ?? "",
+                        pairedAt: Date()
                     )
-                    onPaired?(pairId, response.partnerDeviceName)
+
+                    onPaired?(pairedMac)
                 } else {
                     errorMessage = response.error ?? "Pairing failed"
                     pairingCode = ""
@@ -266,8 +265,9 @@
     }
 
     #Preview {
-        PairingView()
-            .environment(IOSSettings.shared)
-            .environment(RelayClient())
+        NavigationStack {
+            PairingView()
+        }
+        .environment(IOSSettings.shared)
     }
 #endif

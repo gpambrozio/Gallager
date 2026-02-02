@@ -45,6 +45,7 @@
                                 await service.sendCommand(command)
                             }
                         )
+                        .environment(service.client)
                     }
             } else {
                 ContentUnavailableView(

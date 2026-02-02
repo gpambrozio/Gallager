@@ -8,15 +8,15 @@
     /// Main entry point for the ClaudeSpy iOS app.
     ///
     /// Manages the app's primary state:
-    /// - Shows pairing view if not paired
-    /// - Shows main session view once paired
-    /// - Handles WebSocket connection lifecycle
-    /// - Manages background task to keep connection alive when backgrounded
+    /// - Shows pairing view if no Macs are paired
+    /// - Shows main session view once at least one Mac is paired
+    /// - Handles WebSocket connections for all paired Macs
+    /// - Manages background task to keep connections alive when backgrounded
     public struct ContentView: View {
         @State private var settings = IOSSettings.shared
-        @State private var relayClient = RelayClient()
+        @State private var connectionManager: ConnectionManager?
         @State private var sessionStore = SessionStore()
-        @State private var e2eeService: E2EEService?
+        @State private var initializationError: String?
 
         @Environment(\.scenePhase) private var scenePhase
         @State private var pushService = PushNotificationService.shared
@@ -26,21 +26,40 @@
 
         public var body: some View {
             Group {
-                if settings.isPaired {
-                    MainView()
+                if let error = initializationError {
+                    ContentUnavailableView(
+                        "Initialization Failed",
+                        image: Symbols.exclamationmarkTriangle.rawValue,
+                        description: Text(error)
+                    )
+                } else if let connectionManager {
+                    if settings.isPaired {
+                        MainView()
+                            .environment(connectionManager)
+                    } else if let e2ee = connectionManager.pairingService {
+                        NavigationStack {
+                            PairingView { pairedMac in
+                                handlePairingComplete(pairedMac)
+                            }
+                            .e2eeService(e2ee)
+                        }
+                    } else {
+                        // Key pair not available - shouldn't happen
+                        ContentUnavailableView(
+                            "Encryption Error",
+                            image: Symbols.lockTriangleBadgeExclamationmark.rawValue,
+                            description: Text("Unable to initialize encryption. Please restart the app.")
+                        )
+                    }
                 } else {
-                    PairingView(onPaired: { pairId, macName in
-                        handlePairingComplete(pairId: pairId, macName: macName)
-                    })
+                    ProgressView("Initializing...")
                 }
             }
             .environment(settings)
-            .environment(relayClient)
             .environment(sessionStore)
-            .environment(\.e2eeService, e2eeService)
             .task {
-                await initializeE2EEService()
-                setupRelayClientHandlers()
+                await initializeConnectionManager()
+                setupConnectionManagerHandlers()
                 await autoConnectIfNeeded()
             }
             .onChange(of: scenePhase) { _, newPhase in
@@ -51,7 +70,7 @@
         /// Handle scene phase changes to manage background task lifecycle.
         ///
         /// When the app enters the background, we start a background task to keep
-        /// the WebSocket connection alive for ~30 seconds. This allows receiving
+        /// the WebSocket connections alive for ~30 seconds. This allows receiving
         /// any pending events before iOS suspends the app.
         ///
         /// When returning to foreground, we immediately attempt reconnection to avoid
@@ -59,18 +78,17 @@
         private func handleScenePhaseChange(_ phase: ScenePhase) {
             switch phase {
             case .background:
-                // Only start background task if we're connected
-                if relayClient.state.isConnected {
+                // Only start background task if we have any active connections
+                if connectionManager?.anyMacConnected == true {
                     backgroundTaskService.startBackgroundTask()
                 }
             case .active:
                 // End background task when returning to foreground
                 backgroundTaskService.endBackgroundTask()
 
-                // If we're in a reconnecting state or disconnected, immediately try to connect
-                // rather than waiting for exponential backoff
+                // Immediately try to reconnect all connections
                 Task {
-                    await relayClient.reconnectImmediately()
+                    await connectionManager?.reconnectAllImmediately()
                 }
             case .inactive:
                 // Transitional state - no action needed
@@ -82,8 +100,10 @@
 
         // MARK: - Setup
 
-        private func setupRelayClientHandlers() {
-            relayClient.onHookEvent = { [sessionStore] event in
+        private func setupConnectionManagerHandlers() {
+            guard let connectionManager else { return }
+
+            connectionManager.onHookEvent = { [sessionStore] event in
                 Task { @MainActor in
                     sessionStore.handleEvent(event)
 
@@ -102,16 +122,10 @@
                 }
             }
 
-            relayClient.onSessionState = { [sessionStore] state in
+            connectionManager.onSessionState = { [sessionStore] state in
                 Task { @MainActor in
                     sessionStore.handleStateUpdate(state)
                 }
-            }
-
-            // Set up partner key handler to persist Mac's public key for reconnection
-            relayClient.onPartnerKeyReceived = { [settings] publicKey, publicKeyId in
-                settings.partnerPublicKey = publicKey
-                settings.partnerPublicKeyId = publicKeyId
             }
         }
 
@@ -119,85 +133,49 @@
             guard
                 settings.isPaired,
                 settings.autoReconnect,
-                let pairId = settings.pairId,
-                let serverURL = URL(string: settings.externalServerURL),
-                let keyInfo = publicKeyInfo,
-                let service = e2eeService
+                let connectionManager
             else {
                 return
             }
 
-            await relayClient.connect(
-                serverURL: serverURL,
-                pairId: pairId,
-                deviceId: settings.deviceId,
-                deviceName: settings.deviceName,
-                publicKey: keyInfo.key,
-                publicKeyId: keyInfo.keyId,
-                e2eeService: service,
-                partnerPublicKey: settings.partnerPublicKey,
-                partnerPublicKeyId: settings.partnerPublicKeyId
-            )
+            await connectionManager.connectAll(settings: settings)
 
             // Request push permissions if not already authorized
             if pushService.permissionStatus != .authorized {
                 await requestPushNotificationPermissions()
             }
 
-            // Send push token if we have one and are now connected
-            if let token = pushService.tokenString, relayClient.state.isConnected {
-                await relayClient.sendPushToken(token)
+            // Send push token to all connected Macs
+            if let token = pushService.tokenString {
+                await connectionManager.sendPushTokenToAll(token)
             }
         }
 
-        // MARK: - E2EE Initialization
+        // MARK: - Connection Manager Initialization
 
-        private func initializeE2EEService() async {
-            guard e2eeService == nil else { return }
+        private func initializeConnectionManager() async {
+            guard connectionManager == nil else { return }
 
             do {
                 // Use shared keychain access group so Notification Service Extension can decrypt
                 let keyManager = KeyManager(accessGroup: sharedKeychainAccessGroup)
-                e2eeService = try await E2EEService(keyManager: keyManager)
+                connectionManager = try await ConnectionManager(keyManager: keyManager)
             } catch {
-                // Log error but continue - encryption won't work
-                // In production, might want to show an error to the user
-                print("Failed to initialize E2EEService: \(error)")
+                initializationError = "Failed to initialize encryption: \(error.localizedDescription)"
             }
-        }
-
-        /// Helper to get public key info for connection.
-        private var publicKeyInfo: (key: String, keyId: String)? {
-            guard let service = e2eeService else { return nil }
-            return (
-                key: service.publicKey.base64EncodedString(),
-                keyId: service.keyId
-            )
         }
 
         // MARK: - Pairing
 
-        private func handlePairingComplete(pairId: String, macName: String?) {
-            settings.savePairing(pairId: pairId, macName: macName)
+        private func handlePairingComplete(_ pairedMac: PairedMac) {
+            // Add the new pairing to settings
+            settings.addPairing(pairedMac)
 
-            // Connect to relay server and set up push notifications
+            // Connect to the new Mac
             Task {
-                guard
-                    let serverURL = URL(string: settings.externalServerURL),
-                    let keyInfo = publicKeyInfo,
-                    let service = e2eeService
-                else { return }
+                guard let connectionManager else { return }
 
-                await relayClient.connect(
-                    serverURL: serverURL,
-                    pairId: pairId,
-                    deviceId: settings.deviceId,
-                    deviceName: settings.deviceName,
-                    publicKey: keyInfo.key,
-                    publicKeyId: keyInfo.keyId,
-                    e2eeService: service
-                    // Note: No partner keys yet - will be received via WebSocket
-                )
+                await connectionManager.connect(to: pairedMac, settings: settings)
 
                 // Request push notification permissions after successful pairing
                 await requestPushNotificationPermissions()
@@ -212,9 +190,9 @@
                 // Wait a brief moment for the token to be received from APNs
                 try? await Task.sleep(for: .milliseconds(500))
 
-                // If we have a token and are connected, send it to the server
-                if let token = pushService.tokenString, relayClient.state.isConnected {
-                    await relayClient.sendPushToken(token)
+                // If we have a token and have connections, send it to all servers
+                if let token = pushService.tokenString, let connectionManager {
+                    await connectionManager.sendPushTokenToAll(token)
                 }
             } catch {
                 // Permission denied or error - not critical, app still works without push
@@ -228,8 +206,8 @@
     /// The main tabbed interface after pairing.
     struct MainView: View {
         @Environment(IOSSettings.self) private var settings
-        @Environment(RelayClient.self) private var relayClient
-        @Environment(\.e2eeService) private var e2eeService
+        @Environment(ConnectionManager.self) private var connectionManager
+        @Environment(SessionStore.self) private var sessionStore
 
         @State private var selectedTab: Tab = .sessions
         @State private var sessionsNavigationPath = NavigationPath()
@@ -304,6 +282,12 @@
                 return
             }
 
+            // Look up which Mac this pane belongs to
+            guard let macId = sessionStore.macId(for: paneId) else {
+                // Pane not found in any Mac's session list - possibly stale notification
+                return
+            }
+
             // Navigate to the session detail after a brief delay. This delay is necessary
             // because NavigationStack may ignore path appends if the tab transition hasn't
             // completed. 100ms provides reliable behavior across device types.
@@ -314,34 +298,16 @@
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(100))
                 sessionsNavigationPath = NavigationPath()
-                sessionsNavigationPath.append(SessionNavigation.claudeSession(paneId: paneId))
+                sessionsNavigationPath.append(SessionNavigation.claudeSession(paneId: paneId, macId: macId))
                 currentlyDisplayedPaneId = paneId
             }
         }
 
         private func connectIfNeeded() async {
-            // Connect if paired but not already connected
-            guard
-                !relayClient.state.isConnected,
-                relayClient.state != .connecting,
-                let pairId = settings.pairId,
-                let serverURL = URL(string: settings.externalServerURL),
-                let service = e2eeService
-            else {
-                return
-            }
+            // Connect all paired Macs if not already connected
+            guard !connectionManager.isConnecting else { return }
 
-            await relayClient.connect(
-                serverURL: serverURL,
-                pairId: pairId,
-                deviceId: settings.deviceId,
-                deviceName: settings.deviceName,
-                publicKey: service.publicKey.base64EncodedString(),
-                publicKeyId: service.keyId,
-                e2eeService: service,
-                partnerPublicKey: settings.partnerPublicKey,
-                partnerPublicKeyId: settings.partnerPublicKeyId
-            )
+            await connectionManager.connectAll(settings: settings)
         }
     }
 
@@ -349,10 +315,7 @@
 
     struct SettingsView: View {
         @Environment(IOSSettings.self) private var settings
-        @Environment(RelayClient.self) private var relayClient
-        @Environment(\.e2eeService) private var e2eeService
-
-        @State private var showingUnpairConfirmation = false
+        @Environment(ConnectionManager.self) private var connectionManager
 
         /// Available monospace fonts for terminal display
         static let availableFonts = [
@@ -372,51 +335,36 @@
                             Circle()
                                 .fill(connectionStatusColor)
                                 .frame(width: 8, height: 8)
-                            Text(relayClient.state.statusText)
+                            Text(connectionStatusText)
                         }
                     }
 
-                    LabeledContent("Mac Status") {
-                        HStack {
-                            Circle()
-                                .fill(relayClient.isMacConnected ? Color.green : Color.gray)
-                                .frame(width: 8, height: 8)
-                            Text(relayClient.isMacConnected ? "Connected" : "Disconnected")
-                        }
-                    }
-
-                    if !relayClient.state.isConnected {
-                        Button("Connect") {
+                    if !connectionManager.anyMacConnected {
+                        Button("Connect All") {
                             Task {
-                                await connect()
+                                await connectionManager.connectAll(settings: settings)
                             }
                         }
                     } else {
-                        Button("Disconnect") {
+                        Button("Disconnect All") {
                             Task {
-                                await relayClient.disconnect()
+                                await connectionManager.disconnectAll()
                             }
                         }
                     }
                 }
 
-                // Pairing Section
-                Section("Pairing") {
-                    if let macName = settings.pairedMacName {
-                        LabeledContent("Paired Mac", value: macName)
-                    }
-
-                    if let pairId = settings.pairId {
-                        LabeledContent("Pair ID") {
-                            Text(pairId)
-                                .font(.caption)
+                // Paired Macs Section
+                Section {
+                    NavigationLink {
+                        ManageMacsView()
+                    } label: {
+                        HStack {
+                            Text("Paired Macs")
+                            Spacer()
+                            Text("\(settings.pairedMacs.count)")
                                 .foregroundStyle(.secondary)
-                                .lineLimit(1)
                         }
-                    }
-
-                    Button("Unpair", role: .destructive) {
-                        showingUnpairConfirmation = true
                     }
                 }
 
@@ -499,61 +447,31 @@
                 }
             }
             .navigationTitle("Settings")
-            .confirmationDialog(
-                "Unpair from Mac?",
-                isPresented: $showingUnpairConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("Unpair", role: .destructive) {
-                    Task {
-                        await unpair()
-                    }
-                }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("You will need to pair again to reconnect.")
-            }
         }
 
         private var connectionStatusColor: Color {
-            switch relayClient.state {
-            case .connected:
+            if connectionManager.anyMacConnected {
                 return .green
-            case .connecting,
-                 .reconnecting:
+            } else if connectionManager.isConnecting {
                 return .yellow
-            case .error:
-                return .red
-            case .disconnected:
+            } else {
                 return .gray
             }
         }
 
-        private func connect() async {
-            guard
-                let pairId = settings.pairId,
-                let serverURL = URL(string: settings.externalServerURL),
-                let service = e2eeService
-            else {
-                return
+        private var connectionStatusText: String {
+            let connectedCount = connectionManager.activeConnections.filter(\.isMacConnected).count
+            let totalCount = settings.pairedMacs.count
+
+            if connectedCount == totalCount && totalCount > 0 {
+                return totalCount == 1 ? "Connected" : "All Connected"
+            } else if connectedCount > 0 {
+                return "\(connectedCount)/\(totalCount) Online"
+            } else if connectionManager.isConnecting {
+                return "Connecting..."
+            } else {
+                return "Disconnected"
             }
-
-            await relayClient.connect(
-                serverURL: serverURL,
-                pairId: pairId,
-                deviceId: settings.deviceId,
-                deviceName: settings.deviceName,
-                publicKey: service.publicKey.base64EncodedString(),
-                publicKeyId: service.keyId,
-                e2eeService: service,
-                partnerPublicKey: settings.partnerPublicKey,
-                partnerPublicKeyId: settings.partnerPublicKeyId
-            )
-        }
-
-        private func unpair() async {
-            await relayClient.disconnect()
-            settings.clearPairing()
         }
     }
 

@@ -33,10 +33,12 @@ public enum Symbols: String {
     case iphone
     case keyboard
     case keyboardChevronCompactDown = "keyboard.chevron.compact.down"
+    case laptopcomputer
     case linkCircle = "link.circle"
     case linkCircleFill = "link.circle.fill"
     case listBulletClipboard = "list.bullet.clipboard"
     case lockFill = "lock.fill"
+    case lockTriangleBadgeExclamationmark = "lock.trianglebadge.exclamationmark"
     case macwindow
     case macwindowBadgePlus = "macwindow.badge.plus"
     case pause

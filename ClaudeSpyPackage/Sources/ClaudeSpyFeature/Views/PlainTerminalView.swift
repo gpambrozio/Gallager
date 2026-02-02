@@ -28,6 +28,7 @@
                 settings: settings,
                 sendCommand: sendCommand
             )
+            .environment(relayClient)
             .navigationTitle("Terminal")
             .navigationBarTitleDisplayMode(.inline)
         }

@@ -49,6 +49,11 @@ final public class SessionDetailService {
         relayClient.isMacConnected
     }
 
+    /// The relay client for this session (needed for environment injection)
+    public var client: RelayClient {
+        relayClient
+    }
+
     // MARK: - Observable State
 
     /// Whether to show the live terminal view
