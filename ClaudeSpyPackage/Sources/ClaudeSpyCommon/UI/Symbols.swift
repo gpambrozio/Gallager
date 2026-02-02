@@ -44,6 +44,7 @@ public enum Symbols: String {
     case play
     case playFill = "play.fill"
     case plus
+    case puzzlepiece
     case qrcode
     case questionmark
     case sparkles
