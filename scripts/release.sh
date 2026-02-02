@@ -145,7 +145,7 @@ check_prerequisites() {
 # =====================================================
 verify_bundled_plugin() {
     local app_path="$EXPORT_PATH/$APP_NAME.app"
-    local plugin_path="$app_path/Contents/Resources/plugin"
+    local plugin_path="$app_path/Contents/Resources/plugin/claude-spy/.claude-plugin"
 
     log_info "Verifying bundled plugin..."
 
