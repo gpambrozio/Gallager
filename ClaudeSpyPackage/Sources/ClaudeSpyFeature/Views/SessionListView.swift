@@ -44,6 +44,8 @@
                             sessionStore: sessionStore,
                             relayClient: connection.relayClient
                         )
+                    } else {
+                        macDisconnectedView
                     }
                 case let .plainTerminal(paneId, macId):
                     if let connection = connectionManager.connection(for: macId) {
@@ -52,6 +54,8 @@
                             relayClient: connection.relayClient,
                             settings: settings
                         )
+                    } else {
+                        macDisconnectedView
                     }
                 }
             }
@@ -116,6 +120,15 @@
                 Label("No Macs Paired", symbol: .laptopcomputer)
             } description: {
                 Text("Pair your Mac to see sessions here")
+            }
+        }
+
+        /// Shown when navigating to a session whose Mac is no longer connected
+        private var macDisconnectedView: some View {
+            ContentUnavailableView {
+                Label("Mac Disconnected", symbol: .wifiSlash)
+            } description: {
+                Text("This Mac is no longer connected. Go back and reconnect to view this session.")
             }
         }
 

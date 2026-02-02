@@ -169,24 +169,29 @@ final public class SessionStore {
             "Received full session state from Mac \(macId): \(state.sessions.count) sessions, \(state.panes?.count ?? 0) panes, \(state.claudeProjects?.count ?? 0) projects"
         )
 
-        // Clear old data for this Mac
-        clearSessions(for: macId)
+        // Build new state atomically to avoid UI flicker from clear-then-repopulate
+        // First, filter out old data for this Mac
+        var newSessions = sessions.filter { paneToMacMap[$0.key] != macId }
+        var newPaneToMacMap = paneToMacMap.filter { $0.value != macId }
+        var newActivePanes = activePanes.filter { paneToMacMap[$0] != macId }
 
         // Add sessions with Mac tracking
         for (paneId, session) in state.sessions {
-            sessions[paneId] = session
-            paneToMacMap[paneId] = macId
+            newSessions[paneId] = session
+            newPaneToMacMap[paneId] = macId
         }
 
-        // Update active panes (only for this Mac - preserve others)
+        // Update active panes
         let macActivePanes = state.activePanes
-        activePanes.removeAll { paneToMacMap[$0] == macId }
-        activePanes.append(contentsOf: macActivePanes)
+        newActivePanes.append(contentsOf: macActivePanes)
         for paneId in macActivePanes {
-            paneToMacMap[paneId] = macId
+            newPaneToMacMap[paneId] = macId
         }
 
-        // Store panes and projects for this Mac
+        // Atomically swap all state
+        sessions = newSessions
+        paneToMacMap = newPaneToMacMap
+        activePanes = newActivePanes
         panesByMac[macId] = state.panes ?? []
         claudeProjectsByMac[macId] = state.claudeProjects ?? []
     }
