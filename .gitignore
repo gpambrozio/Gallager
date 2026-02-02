@@ -71,3 +71,4 @@ ClaudeSpyPackage/secrets/
 ClaudeSpyPackage/.env
 .claude/iOSSimulator.json
 build/
+build-ios/
