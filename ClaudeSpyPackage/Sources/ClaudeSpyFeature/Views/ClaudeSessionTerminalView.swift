@@ -87,8 +87,6 @@
                     }
                 }
             }
-            .presentationDetents([.medium, .large])
-            .frame(minWidth: 320, idealWidth: 380, minHeight: 400)
         }
     }
 
