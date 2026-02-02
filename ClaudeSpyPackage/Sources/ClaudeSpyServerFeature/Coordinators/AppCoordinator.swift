@@ -43,6 +43,9 @@
         /// E2EE service for encryption
         public private(set) var e2eeService: E2EEService?
 
+        /// Plugin service for Claude Code plugin management
+        public let pluginService: PluginService
+
         /// Dock icon visibility manager
         public let dockIconManager: DockIconManager
 
@@ -115,6 +118,9 @@
 
             // Create sleep prevention manager
             self.sleepPreventionManager = SleepPreventionManager()
+
+            // Create plugin service
+            self.pluginService = PluginService()
 
             // CRITICAL: Load E2EEService synchronously from Keychain BEFORE any view rendering.
             // This prevents createPairingManager() from generating temporary keys.
