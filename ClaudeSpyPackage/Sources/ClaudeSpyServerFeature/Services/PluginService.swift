@@ -164,7 +164,7 @@
                 if await !isMarketplaceRegistered() {
                     appendOutput("Adding ClaudeSpy marketplace...")
                     try await runClaudeCommand(
-                        arguments: ["plugins", "add-marketplace", bundledPath.path],
+                        arguments: ["plugin", "marketplace", "add", bundledPath.path],
                         description: "add marketplace"
                     )
                     appendOutput("Marketplace added successfully.\n")
@@ -172,10 +172,10 @@
                     appendOutput("Marketplace already registered.\n")
                 }
 
-                // Step 2: Install the plugin with --user scope
+                // Step 2: Install the plugin with user scope
                 appendOutput("Installing claude-spy plugin...")
                 try await runClaudeCommand(
-                    arguments: ["plugins", "install", "claude-spy", "--user"],
+                    arguments: ["plugin", "install", "claude-spy", "--scope", "user"],
                     description: "install plugin"
                 )
                 appendOutput("Plugin installed successfully.\n")
@@ -217,10 +217,10 @@
             Run these commands in your terminal:
 
             1. Add the marketplace:
-               claude plugins add-marketplace "\(bundledPath.path)"
+               claude plugin marketplace add "\(bundledPath.path)"
 
             2. Install the plugin:
-               claude plugins install claude-spy --user
+               claude plugin install claude-spy --scope user
             """
         }
 
