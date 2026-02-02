@@ -178,12 +178,14 @@ actor RelayService {
 
         // Notify Mac if iOS is already connected (only if we have their public key)
         if isIOSConnected, let iosKeyInfo {
-            logger.info("Notifying Mac that iOS is connected")
+            logger.info("Notifying Mac that iOS is connected, requesting session state")
             let connectedMessage = DeviceConnectedMessage(
                 publicKey: iosKeyInfo.key,
                 publicKeyId: iosKeyInfo.keyId
             )
             await connectionHub.send(.iosConnected(connectedMessage), to: pairId, deviceType: .mac)
+            // Also request current session state from Mac
+            await connectionHub.send(.requestSessionState, to: pairId, deviceType: .mac)
         }
     }
 

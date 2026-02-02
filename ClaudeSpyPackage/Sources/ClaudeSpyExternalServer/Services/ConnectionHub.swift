@@ -83,11 +83,19 @@ actor ConnectionHub {
                 "messageType": "\(message.messageType)",
             ])
         } catch {
-            logger.error("Failed to send message", metadata: [
+            logger.error("Failed to send message, cleaning up dead connection", metadata: [
                 "pairId": "\(pairId)",
                 "targetDevice": "\(deviceType)",
                 "error": "\(error)",
             ])
+
+            // Unregister the dead connection
+            unregister(pairId: pairId, deviceType: deviceType)
+
+            // Notify the peer device that this device disconnected
+            let peerDevice: DeviceType = deviceType == .mac ? .ios : .mac
+            let disconnectMessage: WebSocketMessage = deviceType == .mac ? .macDisconnected : .iosDisconnected
+            await send(disconnectMessage, to: pairId, deviceType: peerDevice)
         }
     }
 
@@ -95,17 +103,10 @@ actor ConnectionHub {
     func broadcast(_ message: WebSocketMessage, to pairId: String, excluding: DeviceType? = nil) async {
         guard let pairConnections = connections[pairId] else { return }
 
-        for (deviceType, connection) in pairConnections {
+        for (deviceType, _) in pairConnections {
             if deviceType == excluding { continue }
-
-            do {
-                let encoder = JSONEncoder()
-                encoder.dateEncodingStrategy = .iso8601
-                let data = try encoder.encode(message)
-                try await connection.webSocket.send(raw: data, opcode: .text)
-            } catch {
-                // Connection may have closed
-            }
+            // Use send() which handles dead connection cleanup
+            await send(message, to: pairId, deviceType: deviceType)
         }
     }
 }
