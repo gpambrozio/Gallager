@@ -67,6 +67,9 @@ final public class ExternalServerClient {
     /// Device name for registration
     private var deviceName: String?
 
+    /// Username of the Mac user
+    private var username: String?
+
     /// Public key for E2EE (Base64-encoded)
     private var publicKey: String?
 
@@ -189,6 +192,7 @@ final public class ExternalServerClient {
     ///   - pairId: The pair ID from device pairing
     ///   - deviceId: Unique identifier for this Mac
     ///   - deviceName: Display name for this Mac
+    ///   - username: Username of the Mac user (e.g., "john")
     ///   - publicKey: Base64-encoded public key for E2EE
     ///   - publicKeyId: Unique identifier for the public key
     ///   - e2eeService: E2EE service for encrypting/decrypting messages
@@ -199,6 +203,7 @@ final public class ExternalServerClient {
         pairId: String,
         deviceId: String,
         deviceName: String,
+        username: String? = nil,
         publicKey: String,
         publicKeyId: String,
         e2eeService: E2EEService,
@@ -214,6 +219,7 @@ final public class ExternalServerClient {
         self.pairId = pairId
         self.deviceId = deviceId
         self.deviceName = deviceName
+        self.username = username
         self.publicKey = publicKey
         self.publicKeyId = publicKeyId
         self.e2eeService = e2eeService
@@ -444,7 +450,8 @@ final public class ExternalServerClient {
                 deviceId: deviceId,
                 deviceName: deviceName,
                 publicKey: publicKey,
-                publicKeyId: publicKeyId
+                publicKeyId: publicKeyId,
+                username: username
             )
         )
         await send(registerMessage)

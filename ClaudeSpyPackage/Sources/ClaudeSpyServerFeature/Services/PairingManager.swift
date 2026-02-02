@@ -172,7 +172,8 @@ final public class PairingManager {
             deviceName: deviceName,
             pairingCode: code,
             publicKey: e2eeService.publicKey.base64EncodedString(),
-            publicKeyId: e2eeService.keyId
+            publicKeyId: e2eeService.keyId,
+            username: ProcessInfo.processInfo.userName
         )
 
         let encoder = JSONEncoder()

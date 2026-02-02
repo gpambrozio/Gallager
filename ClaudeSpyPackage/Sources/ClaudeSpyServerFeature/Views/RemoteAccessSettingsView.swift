@@ -307,6 +307,7 @@ public struct RemoteAccessSettingsView: View {
             pairId: pairId,
             deviceId: settings.deviceId,
             deviceName: Host.current().localizedName ?? "Mac",
+            username: ProcessInfo.processInfo.userName,
             publicKey: keyInfo.publicKey.base64EncodedString(),
             publicKeyId: keyInfo.keyId,
             e2eeService: e2eeService,

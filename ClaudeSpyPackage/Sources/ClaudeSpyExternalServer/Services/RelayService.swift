@@ -136,11 +136,12 @@ actor RelayService {
     // MARK: - Registration Handlers
 
     private func handleMacRegistration(_ registration: RegisterMacMessage, pairId: String) async {
-        // Store Mac's public key for the pair
+        // Store Mac's public key and username for the pair
         await pairingService.updateMacPublicKey(
             pairId: pairId,
             publicKey: registration.publicKey,
-            publicKeyId: registration.publicKeyId
+            publicKeyId: registration.publicKeyId,
+            username: registration.username
         )
 
         let iosDeviceName = await pairingService.getIOSDeviceName(pairId: pairId)
@@ -195,6 +196,7 @@ actor RelayService {
         )
 
         let macDeviceName = await pairingService.getMacDeviceName(pairId: pairId)
+        let macUsername = await pairingService.getMacUsername(pairId: pairId)
         let isMacConnected = await connectionHub.isMacConnected(pairId: pairId)
 
         // Get Mac public key if available
@@ -211,7 +213,8 @@ actor RelayService {
             success: true,
             macDeviceName: macDeviceName,
             macPublicKey: macKeyInfo?.key,
-            macPublicKeyId: macKeyInfo?.keyId
+            macPublicKeyId: macKeyInfo?.keyId,
+            macUsername: macUsername
         )
 
         await connectionHub.send(.iosRegistered(response), to: pairId, deviceType: .ios)

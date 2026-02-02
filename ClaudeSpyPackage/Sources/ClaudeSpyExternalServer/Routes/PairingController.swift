@@ -22,6 +22,7 @@ struct PairingController: RouteCollection {
             code: registration.pairingCode,
             deviceId: registration.deviceId,
             deviceName: registration.deviceName,
+            username: registration.username,
             publicKey: registration.publicKey,
             publicKeyId: registration.publicKeyId
         )

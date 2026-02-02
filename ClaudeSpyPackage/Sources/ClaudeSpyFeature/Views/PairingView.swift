@@ -181,6 +181,7 @@
                     let pairedMac = PairedMac(
                         id: pairId,
                         macName: response.partnerDeviceName ?? "Mac",
+                        username: response.partnerUsername,
                         partnerPublicKey: response.partnerPublicKey ?? "",
                         partnerPublicKeyId: response.partnerPublicKeyId ?? "",
                         pairedAt: Date()

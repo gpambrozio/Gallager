@@ -101,6 +101,7 @@
                         connection: connectionManager.connection(for: mac.id),
                         sessions: sessionStore.sessions(for: mac.id),
                         panes: sessionStore.panes(for: mac.id),
+                        showUsername: settings.hasDuplicateMacName(for: mac),
                         onNewSession: {
                             selectedMacForNewSession = mac
                             showProjectPicker = true
@@ -223,6 +224,7 @@
         let connection: MacConnection?
         let sessions: [(paneId: String, session: ClaudeSession)]
         let panes: [PaneInfoMessage]
+        var showUsername: Bool = false
         let onNewSession: () -> Void
 
         @Environment(SessionStore.self) private var sessionStore
@@ -265,6 +267,7 @@
                 MacSectionHeader(
                     mac: mac,
                     connection: connection,
+                    showUsername: showUsername,
                     onNewSession: onNewSession
                 )
             }
@@ -277,12 +280,13 @@
     struct MacSectionHeader: View {
         let mac: PairedMac
         let connection: MacConnection?
+        var showUsername: Bool = false
         let onNewSession: () -> Void
 
         var body: some View {
             HStack {
                 // Mac name
-                Text(mac.displayName)
+                Text(mac.displayName(showUsername: showUsername))
 
                 Spacer()
 
