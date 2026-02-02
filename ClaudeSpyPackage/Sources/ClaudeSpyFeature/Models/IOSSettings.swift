@@ -178,7 +178,7 @@
         /// - Parameter mac: The Mac to check
         /// - Returns: True if another paired Mac has the same macName
         public func hasDuplicateMacName(for mac: PairedMac) -> Bool {
-            pairedMacs.filter { $0.macName == mac.macName }.count > 1
+            pairedMacs.contains { $0.id != mac.id && $0.macName == mac.macName }
         }
     }
 #endif
