@@ -59,7 +59,8 @@
         private var commandExecutor: TmuxCommandExecutor?
         private var isServiceSetupComplete = false
 
-        /// Task for observing system wake notifications
+        /// Task for observing system wake notifications.
+        @ObservationIgnored
         private var wakeObserverTask: Task<Void, Never>?
 
         private let logger = Logger(label: "com.claudespy.coordinator")
@@ -347,9 +348,14 @@
                     named: NSWorkspace.didWakeNotification
                 )
                 for await _ in notifications {
+                    guard !Task.isCancelled else { break }
                     await serverClient.reconnectImmediately()
                 }
             }
+        }
+
+        deinit {
+            wakeObserverTask?.cancel()
         }
 
         private static func handleStartStream(

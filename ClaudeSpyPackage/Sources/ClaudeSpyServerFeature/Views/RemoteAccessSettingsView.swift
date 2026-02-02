@@ -96,7 +96,8 @@ public struct RemoteAccessSettingsView: View {
             Symbols.wifiSlash.image
                 .foregroundStyle(.secondary)
         case .connecting,
-             .reconnecting:
+             .reconnecting,
+             .extendedBackoff:
             ProgressView()
                 .controlSize(.small)
         case .connected:

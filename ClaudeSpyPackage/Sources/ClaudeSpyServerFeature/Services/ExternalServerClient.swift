@@ -19,6 +19,7 @@ final public class ExternalServerClient {
         case connecting
         case connected
         case reconnecting(attempt: Int)
+        case extendedBackoff
         case error(String)
 
         public var isConnected: Bool {
@@ -32,6 +33,7 @@ final public class ExternalServerClient {
             case .connecting: "Connecting..."
             case .connected: "Connected"
             case let .reconnecting(attempt): "Reconnecting (\(attempt))..."
+            case .extendedBackoff: "Reconnecting in 5 min..."
             case let .error(message): "Error: \(message)"
             }
         }
@@ -375,6 +377,12 @@ final public class ExternalServerClient {
     // MARK: - Private Methods
 
     private func performConnect() async {
+        // Guard against concurrent connection attempts (e.g., rapid wake notifications)
+        guard state != .connecting, !state.isConnected else {
+            logger.debug("performConnect: already connecting or connected, skipping")
+            return
+        }
+
         guard
             let serverURL, let pairId, let deviceId, let deviceName,
             let publicKey, let publicKeyId
@@ -687,7 +695,7 @@ final public class ExternalServerClient {
             logger.warning(
                 "Max reconnection attempts reached, entering extended backoff (\(delay)s)"
             )
-            await updateState(.reconnecting(attempt: reconnectionAttempt))
+            await updateState(.extendedBackoff)
         }
 
         // Spawn reconnection in a new task - the current task was cancelled by cleanupConnection()
