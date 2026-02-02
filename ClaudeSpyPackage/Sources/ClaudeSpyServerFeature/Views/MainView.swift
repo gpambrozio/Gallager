@@ -98,9 +98,31 @@ public struct MainView: View {
     }
 
     private var paneList: some View {
-        List(tmuxService.panes, selection: $selectedPane) { pane in
-            PaneSidebarRow(pane: pane)
-                .tag(pane)
+        let panesWithClaude = tmuxService.panes.filter { windowManager.activeSessions[$0.paneId] != nil }
+        let panesWithoutClaude = tmuxService.panes.filter { windowManager.activeSessions[$0.paneId] == nil }
+
+        return List(selection: $selectedPane) {
+            if !panesWithClaude.isEmpty {
+                Section {
+                    ForEach(panesWithClaude) { pane in
+                        PaneSidebarRow(pane: pane)
+                            .tag(pane)
+                    }
+                } header: {
+                    SectionHeader(title: "Claude Sessions", symbol: .sparkles)
+                }
+            }
+
+            if !panesWithoutClaude.isEmpty {
+                Section {
+                    ForEach(panesWithoutClaude) { pane in
+                        PaneSidebarRow(pane: pane)
+                            .tag(pane)
+                    }
+                } header: {
+                    SectionHeader(title: "Terminals", symbol: .terminal)
+                }
+            }
         }
         .listStyle(.sidebar)
         .refreshable {
@@ -328,6 +350,27 @@ public struct MainView: View {
         if NSApp.responds(to: selector) {
             NSApp.sendAction(selector, to: nil, from: nil)
         }
+    }
+}
+
+// MARK: - Section Header
+
+/// A prominent section header with icon and title
+private struct SectionHeader: View {
+    let title: String
+    let symbol: Symbols
+
+    var body: some View {
+        HStack(spacing: 6) {
+            symbol.image
+                .font(.headline.weight(.semibold))
+
+            Text(title)
+                .font(.headline.weight(.semibold))
+        }
+        .foregroundStyle(.primary)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
     }
 }
 
