@@ -56,9 +56,6 @@ final public class SessionDetailService {
 
     // MARK: - Observable State
 
-    /// Whether to show the live terminal view
-    public var showLiveTerminal = false
-
     /// Response state for the current event
     public var responseState: ResponseState?
 

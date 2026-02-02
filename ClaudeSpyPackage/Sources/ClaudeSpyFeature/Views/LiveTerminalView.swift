@@ -75,8 +75,6 @@
                 // Terminal content
                 terminalContent
             }
-            .navigationTitle("Live Terminal")
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
