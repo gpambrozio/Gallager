@@ -6,6 +6,7 @@ import SwiftUI
 public enum SettingsTab: String, Sendable {
     case general
     case remoteAccess
+    case plugin
 }
 
 /// Application settings with persistent storage
@@ -140,6 +141,13 @@ final public class AppSettings {
         didSet { UserDefaults.standard.set(deviceId, forKey: Keys.deviceId) }
     }
 
+    // MARK: - Plugin Settings
+
+    /// Whether the user has completed the plugin setup (or dismissed it)
+    public var hasCompletedPluginSetup: Bool {
+        didSet { UserDefaults.standard.set(hasCompletedPluginSetup, forKey: Keys.hasCompletedPluginSetup) }
+    }
+
     // MARK: - Initialization
 
     public init() {
@@ -164,7 +172,7 @@ final public class AppSettings {
             self.claudeCommandPath = savedPath
         } else {
             // First launch - try to detect claude path
-            let detectedPath = Self.detectClaudePath() ?? Defaults.claudeCommandPath
+            let detectedPath = ClaudePathDetector.detectPath() ?? Defaults.claudeCommandPath
             self.claudeCommandPath = detectedPath
             defaults.set(detectedPath, forKey: Keys.claudeCommandPath)
         }
@@ -187,6 +195,9 @@ final public class AppSettings {
             self.deviceId = newDeviceId
             defaults.set(newDeviceId, forKey: Keys.deviceId)
         }
+
+        // Plugin
+        self.hasCompletedPluginSetup = defaults.object(forKey: Keys.hasCompletedPluginSetup) as? Bool ?? Defaults.hasCompletedPluginSetup
     }
 
     // MARK: - Keys
@@ -216,6 +227,8 @@ final public class AppSettings {
         static let partnerPublicKeyId = "partnerPublicKeyId"
         static let autoConnectToServer = "autoConnectToServer"
         static let deviceId = "deviceId"
+        // Plugin
+        static let hasCompletedPluginSetup = "hasCompletedPluginSetup"
     }
 
     // MARK: - Defaults
@@ -241,6 +254,8 @@ final public class AppSettings {
         // Remote Access
         static let externalServerURL = "wss://claudespy.gustavo.eng.br"
         static let autoConnectToServer = true
+        // Plugin
+        static let hasCompletedPluginSetup = false
     }
 
     // MARK: - Computed Properties
@@ -269,53 +284,6 @@ final public class AppSettings {
         pairedDeviceName = partnerDeviceName
         self.partnerPublicKey = partnerPublicKey
         self.partnerPublicKeyId = partnerPublicKeyId
-    }
-
-    // MARK: - Path Detection
-
-    /// Attempts to detect the claude command path using common locations and `which`
-    private static func detectClaudePath() -> String? {
-        // Common installation paths for Claude Code
-        let commonPaths = [
-            "/usr/local/bin/claude",
-            "/opt/homebrew/bin/claude",
-            NSString("~/.local/bin/claude").expandingTildeInPath,
-            NSString("~/.claude/local/claude").expandingTildeInPath,
-        ]
-
-        let fileManager = FileManager.default
-
-        // Check common paths first
-        for path in commonPaths where fileManager.isExecutableFile(atPath: path) {
-            return path
-        }
-
-        // Try using `which` command as fallback
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        process.arguments = ["claude"]
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-
-            if process.terminationStatus == 0 {
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                if
-                    let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                    !path.isEmpty {
-                    return path
-                }
-            }
-        } catch {
-            // which failed, return nil
-        }
-
-        return nil
     }
 }
 
