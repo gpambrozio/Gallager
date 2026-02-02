@@ -181,6 +181,16 @@
             return super.resignFirstResponder()
         }
 
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            // Auto-focus when added to a window
+            if window != nil {
+                DispatchQueue.main.async { [weak self] in
+                    self?.window?.makeFirstResponder(self)
+                }
+            }
+        }
+
         // MARK: - Keyboard Events
 
         override func keyDown(with event: NSEvent) {
