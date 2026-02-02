@@ -12,7 +12,7 @@ public struct PairingRegistration: Codable, Sendable {
     /// Unique identifier for the public key
     public let publicKeyId: String
     /// Username of the Mac user (e.g., "john")
-    public let username: String?
+    public let username: String
 
     public init(
         deviceId: String,
@@ -20,7 +20,7 @@ public struct PairingRegistration: Codable, Sendable {
         pairingCode: String,
         publicKey: String,
         publicKeyId: String,
-        username: String? = nil
+        username: String
     ) {
         self.deviceId = deviceId
         self.deviceName = deviceName
@@ -121,7 +121,7 @@ public struct RegisterMacMessage: Codable, Sendable {
     /// Unique identifier for the public key
     public let publicKeyId: String
     /// Username of the Mac user (e.g., "john")
-    public let username: String?
+    public let username: String
 
     public init(
         pairId: String,
@@ -129,7 +129,7 @@ public struct RegisterMacMessage: Codable, Sendable {
         deviceName: String,
         publicKey: String,
         publicKeyId: String,
-        username: String? = nil
+        username: String
     ) {
         self.pairId = pairId
         self.deviceId = deviceId

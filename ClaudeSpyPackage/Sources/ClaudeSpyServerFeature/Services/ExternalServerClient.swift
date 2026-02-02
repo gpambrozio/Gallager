@@ -68,7 +68,7 @@ final public class ExternalServerClient {
     private var deviceName: String?
 
     /// Username of the Mac user
-    private var username: String?
+    private var username: String = ""
 
     /// Public key for E2EE (Base64-encoded)
     private var publicKey: String?
@@ -203,7 +203,7 @@ final public class ExternalServerClient {
         pairId: String,
         deviceId: String,
         deviceName: String,
-        username: String? = nil,
+        username: String,
         publicKey: String,
         publicKeyId: String,
         e2eeService: E2EEService,

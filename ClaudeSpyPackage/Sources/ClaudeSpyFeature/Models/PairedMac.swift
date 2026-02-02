@@ -15,7 +15,7 @@
         public let macName: String
 
         /// Username of the Mac user (e.g., "john")
-        public let username: String?
+        public let username: String
 
         /// Partner's (Mac's) public key for E2EE (Base64-encoded)
         public let partnerPublicKey: String
@@ -43,8 +43,8 @@
             if let custom = customName {
                 return custom
             }
-            if showUsername, let user = username {
-                return "\(macName) (\(user))"
+            if showUsername {
+                return "\(macName) (\(username))"
             }
             return macName
         }
@@ -54,7 +54,7 @@
         public init(
             id: String,
             macName: String,
-            username: String? = nil,
+            username: String,
             partnerPublicKey: String,
             partnerPublicKeyId: String,
             pairedAt: Date = Date(),

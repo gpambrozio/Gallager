@@ -12,7 +12,7 @@ struct Pair: Sendable, Codable {
     let macDeviceName: String
 
     /// Mac username (e.g., "john")
-    var macUsername: String?
+    var macUsername: String
 
     /// Mac public key for E2EE (Base64-encoded)
     /// Mutable to allow key updates on reconnection

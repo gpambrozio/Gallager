@@ -234,9 +234,7 @@
 
                     Section {
                         LabeledContent("Mac Name", value: mac.macName)
-                        if let username = mac.username {
-                            LabeledContent("Username", value: username)
-                        }
+                        LabeledContent("Username", value: mac.username)
                         LabeledContent("Paired", value: DateFormatters.relativeTime(for: mac.pairedAt))
                     } header: {
                         Text("Mac Info")
