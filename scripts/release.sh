@@ -598,9 +598,15 @@ main() {
 
     update_appcast "$version" "$build_number" "$dmg_path" "$sparkle_signature" "$release_notes"
     upload_to_ftp "$dmg_path"
+
+    log_info "Creating release tag v$version..."
+    git -C "$PROJECT_ROOT" tag -a "v$version" -m "Release $version"
+    log_success "Tagged release v$version"
+
     bump_version "$version"
 
     git -C "$PROJECT_ROOT" push
+    git -C "$PROJECT_ROOT" push origin "v$version"
 
     rm -rf "$BUILD_DIR"
 
