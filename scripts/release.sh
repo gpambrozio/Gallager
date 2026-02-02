@@ -597,6 +597,11 @@ main() {
     fi
 
     update_appcast "$version" "$build_number" "$dmg_path" "$sparkle_signature" "$release_notes"
+
+    log_info "Committing appcast..."
+    git -C "$PROJECT_ROOT" add "$APPCAST_FILE"
+    git -C "$PROJECT_ROOT" commit -m "Update appcast for version $version"
+
     upload_to_ftp "$dmg_path"
 
     log_info "Creating release tag v$version..."
