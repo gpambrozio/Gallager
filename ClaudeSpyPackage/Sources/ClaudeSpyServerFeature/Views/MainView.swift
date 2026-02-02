@@ -1,6 +1,7 @@
 import AppKit
 import ClaudeSpyCommon
 import ClaudeSpyEncryption
+import ClaudeSpyNetworking
 import SwiftUI
 
 /// The main application view showing available tmux panes in a sidebar layout
@@ -10,6 +11,7 @@ public struct MainView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(ExternalServerClient.self) private var serverClient
     @Environment(PairingManager.self) private var pairingManager
+    @Environment(\.claudeProjectScanner) private var projectScanner
     @Environment(\.e2eeService) private var e2eeService: E2EEService?
 
     public init() { }
@@ -18,6 +20,11 @@ public struct MainView: View {
     @State private var attachError: String?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showingCloseConfirmation = false
+    @State private var showingNewSessionSheet = false
+    @State private var projects: [ClaudeProjectInfo] = []
+    @State private var isLoadingProjects = false
+    @State private var isCreatingSession = false
+    @State private var creatingProjectPath: String?
 
     public var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -33,6 +40,7 @@ public struct MainView: View {
         .task {
             // Initial load only - periodic refresh is handled by MirrorWindowManager
             await refreshPanes()
+            await loadProjects()
         }
         .alert("Terminal Error", isPresented: .init(
             get: { attachError != nil },
@@ -189,6 +197,25 @@ public struct MainView: View {
                 } message: {
                     Text("This will end all processes in the session.")
                 }
+            }
+
+            Button {
+                showingNewSessionSheet = true
+            } label: {
+                Symbols.plus.image
+            }
+            .help("Create new tmux session")
+            .keyboardShortcut("n", modifiers: [.command, .shift])
+            .popover(isPresented: $showingNewSessionSheet) {
+                NewSessionPopover(
+                    projects: projects,
+                    isLoadingProjects: isLoadingProjects,
+                    isCreatingSession: isCreatingSession,
+                    creatingProjectPath: creatingProjectPath,
+                    onCreate: { project in
+                        createNewSession(project: project)
+                    }
+                )
             }
 
             Button {
@@ -351,6 +378,56 @@ public struct MainView: View {
             NSApp.sendAction(selector, to: nil, from: nil)
         }
     }
+
+    // MARK: - New Session Actions
+
+    private func loadProjects() async {
+        guard let scanner = projectScanner else { return }
+        isLoadingProjects = true
+        projects = await scanner.scanProjects()
+        isLoadingProjects = false
+    }
+
+    private func createNewSession(project: ClaudeProjectInfo?) {
+        isCreatingSession = true
+        creatingProjectPath = project?.path
+
+        Task {
+            do {
+                // Determine session name and working directory
+                let sessionName = project?.name ?? "terminal"
+                let workingDirectory = project?.path
+
+                // Determine if we should run the claude command
+                let runCommand: String? = if workingDirectory != nil && settings.autoRunClaudeInProjects {
+                    settings.claudeCommandPath
+                } else {
+                    nil
+                }
+
+                // Create the session with reasonable default dimensions
+                let (_, paneId) = try await tmuxService.createSession(
+                    baseName: sessionName,
+                    width: 120,
+                    height: 40,
+                    workingDirectory: workingDirectory,
+                    runCommand: runCommand
+                )
+
+                // Find the new pane and select it
+                if let newPane = tmuxService.panes.first(where: { $0.paneId == paneId }) {
+                    selectedPane = newPane
+                }
+
+                showingNewSessionSheet = false
+            } catch {
+                attachError = "Failed to create session: \(error.localizedDescription)"
+            }
+
+            isCreatingSession = false
+            creatingProjectPath = nil
+        }
+    }
 }
 
 // MARK: - Section Header
@@ -416,5 +493,130 @@ private struct PaneSidebarRow: View {
         }
         .padding(.vertical, 4)
         .help(hasClaude ? "Claude Code session active" : "")
+    }
+}
+
+// MARK: - New Session Popover
+
+/// Popover for creating a new tmux session, optionally in a Claude project folder
+private struct NewSessionPopover: View {
+    let projects: [ClaudeProjectInfo]
+    let isLoadingProjects: Bool
+    let isCreatingSession: Bool
+    let creatingProjectPath: String?
+    let onCreate: (ClaudeProjectInfo?) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            Text("New Session")
+                .font(.headline)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+
+            Divider()
+
+            // Content
+            ScrollView {
+                VStack(spacing: 8) {
+                    // New Terminal option
+                    NewSessionRow(
+                        title: "New Terminal",
+                        subtitle: "Start in home directory",
+                        symbol: .terminal,
+                        isCreating: isCreatingSession && creatingProjectPath == nil,
+                        isDisabled: isCreatingSession
+                    ) {
+                        onCreate(nil)
+                    }
+
+                    if isLoadingProjects {
+                        HStack {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Loading projects...")
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 8)
+                    } else if !projects.isEmpty {
+                        Divider()
+                            .padding(.vertical, 4)
+
+                        Text("Claude Projects")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        ForEach(projects) { project in
+                            NewSessionRow(
+                                title: project.name,
+                                subtitle: project.path.abbreviatedPath,
+                                symbol: .folder,
+                                isCreating: creatingProjectPath == project.path,
+                                isDisabled: isCreatingSession
+                            ) {
+                                onCreate(project)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            }
+            .frame(maxHeight: 300)
+        }
+        .frame(width: 280)
+    }
+}
+
+/// A row in the new session sheet representing a selectable option
+private struct NewSessionRow: View {
+    let title: String
+    let subtitle: String
+    let symbol: Symbols
+    let isCreating: Bool
+    let isDisabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                symbol.image
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 28)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.primary)
+
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                Spacer()
+
+                if isCreating {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Symbols.chevronRight.image
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.primary.opacity(0.05))
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
     }
 }
