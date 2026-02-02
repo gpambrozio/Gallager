@@ -19,12 +19,6 @@
             static let newSessionName = "newSessionName"
             static let newSessionWidth = "newSessionWidth"
             static let newSessionHeight = "newSessionHeight"
-
-            // Legacy keys for migration
-            static let legacyPairId = "pairId"
-            static let legacyPairedMacName = "pairedMacName"
-            static let legacyPartnerPublicKey = "partnerPublicKey"
-            static let legacyPartnerPublicKeyId = "partnerPublicKeyId"
         }
 
         // MARK: - Singleton
@@ -126,52 +120,16 @@
         // MARK: - Paired Macs Storage
 
         private func loadPairedMacs() -> [PairedMac] {
-            let defaults = UserDefaults.standard
-
-            // Try to load from new format first
-            if let data = defaults.data(forKey: Keys.pairedMacs) {
-                do {
-                    let macs = try JSONDecoder().decode([PairedMac].self, from: data)
-                    return macs
-                } catch {
-                    // Corrupted data, start fresh
-                    return migrateFromLegacyPairing()
-                }
-            }
-
-            // No new format data - try to migrate from legacy single-pairing format
-            return migrateFromLegacyPairing()
-        }
-
-        private func migrateFromLegacyPairing() -> [PairedMac] {
-            let defaults = UserDefaults.standard
-
-            // Check for legacy single-pairing data
-            guard let legacyPairId = defaults.string(forKey: Keys.legacyPairId) else {
+            guard let data = UserDefaults.standard.data(forKey: Keys.pairedMacs) else {
                 return []
             }
 
-            let legacyMac = PairedMac(
-                id: legacyPairId,
-                macName: defaults.string(forKey: Keys.legacyPairedMacName) ?? "Mac",
-                partnerPublicKey: defaults.string(forKey: Keys.legacyPartnerPublicKey) ?? "",
-                partnerPublicKeyId: defaults.string(forKey: Keys.legacyPartnerPublicKeyId) ?? "",
-                pairedAt: Date()
-            )
-
-            // Clear legacy keys
-            defaults.removeObject(forKey: Keys.legacyPairId)
-            defaults.removeObject(forKey: Keys.legacyPairedMacName)
-            defaults.removeObject(forKey: Keys.legacyPartnerPublicKey)
-            defaults.removeObject(forKey: Keys.legacyPartnerPublicKeyId)
-
-            // Save in new format
-            let macs = [legacyMac]
-            if let data = try? JSONEncoder().encode(macs) {
-                defaults.set(data, forKey: Keys.pairedMacs)
+            do {
+                return try JSONDecoder().decode([PairedMac].self, from: data)
+            } catch {
+                // Corrupted data, start fresh
+                return []
             }
-
-            return macs
         }
 
         private func savePairedMacs() {

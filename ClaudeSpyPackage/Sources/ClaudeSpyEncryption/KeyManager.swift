@@ -144,7 +144,6 @@ import Foundation
         private let keychainService = "com.claudespy.e2ee"
         private let privateKeyAccount = "private-key"
         private let keyIdAccount = "key-id"
-        private let legacySessionKeyAccount = "session-key"
         private let sessionKeyAccountPrefix = "session-key-"
 
         /// Returns the account name for a session key with a specific pairId
@@ -241,13 +240,6 @@ import Foundation
             let keyIdStatus = SecItemDelete(keyIdQuery as CFDictionary)
             if keyIdStatus != errSecSuccess && keyIdStatus != errSecItemNotFound {
                 throw CryptoError.keychainError(status: keyIdStatus)
-            }
-
-            // Delete legacy session key
-            let sessionKeyQuery = baseKeychainAttributes(account: legacySessionKeyAccount)
-            let sessionKeyStatus = SecItemDelete(sessionKeyQuery as CFDictionary)
-            if sessionKeyStatus != errSecSuccess && sessionKeyStatus != errSecItemNotFound {
-                throw CryptoError.keychainError(status: sessionKeyStatus)
             }
 
             // Note: Per-pairId session keys should be deleted via deleteSessionKey(for:)
@@ -348,7 +340,6 @@ import Foundation
         /// Loads the stored session key for a specific Mac from Keychain.
         ///
         /// Used by the Notification Service Extension to decrypt push notifications.
-        /// Falls back to legacy session key if pairId-specific key not found (for migration).
         ///
         /// - Parameter pairId: The pair ID identifying which Mac's session key to load
         /// - Returns: The session key data, or nil if not found
@@ -364,8 +355,7 @@ import Foundation
             let status = SecItemCopyMatching(query as CFDictionary, &result)
 
             if status == errSecItemNotFound {
-                // Fall back to legacy session key for migration
-                return try loadLegacySessionKey()
+                return nil
             }
 
             guard status == errSecSuccess, let keyData = result as? Data else {
@@ -397,51 +387,6 @@ import Foundation
 
             let status = SecItemCopyMatching(query as CFDictionary, nil)
             return status == errSecSuccess
-        }
-
-        /// Deletes all session keys from Keychain (both legacy and per-pairId).
-        ///
-        /// This is useful for complete app reset or when unpairing all Macs.
-        /// Note: This deletes ALL session keys matching our service, not just specific pairIds.
-        public func deleteAllSessionKeys() throws {
-            // Delete legacy session key
-            try? deleteLegacySessionKey()
-
-            // Delete all session keys with our prefix by querying without specific account
-            // We need to delete items one by one since there's no bulk delete by prefix
-            // For now, this should be called when each Mac is unpaired individually
-        }
-
-        // MARK: - Legacy Session Key (for migration)
-
-        /// Loads the legacy (pre-multi-Mac) session key if it exists.
-        /// Used for migration to per-pairId storage.
-        private func loadLegacySessionKey() throws -> Data? {
-            var query = baseKeychainAttributes(account: legacySessionKeyAccount)
-            query[kSecReturnData as String] = true
-            query[kSecMatchLimit as String] = kSecMatchLimitOne
-
-            var result: AnyObject?
-            let status = SecItemCopyMatching(query as CFDictionary, &result)
-
-            if status == errSecItemNotFound {
-                return nil
-            }
-
-            guard status == errSecSuccess, let keyData = result as? Data else {
-                throw CryptoError.keychainError(status: status)
-            }
-
-            return keyData
-        }
-
-        /// Deletes the legacy session key from Keychain.
-        private func deleteLegacySessionKey() throws {
-            let query = baseKeychainAttributes(account: legacySessionKeyAccount)
-            let status = SecItemDelete(query as CFDictionary)
-            if status != errSecSuccess && status != errSecItemNotFound {
-                throw CryptoError.keychainError(status: status)
-            }
         }
 
         // MARK: - Private Key Storage

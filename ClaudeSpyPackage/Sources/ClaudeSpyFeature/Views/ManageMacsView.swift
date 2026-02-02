@@ -77,6 +77,10 @@
             // Disconnect from this Mac
             await connectionManager.disconnect(from: mac.id)
 
+            // Delete encryption session key for this Mac
+            let keyManager = KeyManager(accessGroup: sharedKeychainAccessGroup)
+            try? await keyManager.deleteSessionKey(for: mac.id)
+
             // Remove from settings
             settings.removePairing(id: mac.id)
 

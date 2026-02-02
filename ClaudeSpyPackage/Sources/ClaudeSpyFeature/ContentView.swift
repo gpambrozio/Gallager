@@ -16,6 +16,7 @@
         @State private var settings = IOSSettings.shared
         @State private var connectionManager: ConnectionManager?
         @State private var sessionStore = SessionStore()
+        @State private var initializationError: String?
 
         @Environment(\.scenePhase) private var scenePhase
         @State private var pushService = PushNotificationService.shared
@@ -25,7 +26,13 @@
 
         public var body: some View {
             Group {
-                if let connectionManager {
+                if let error = initializationError {
+                    ContentUnavailableView(
+                        "Initialization Failed",
+                        image: Symbols.exclamationmarkTriangle.rawValue,
+                        description: Text(error)
+                    )
+                } else if let connectionManager {
                     if settings.isPaired {
                         MainView()
                             .environment(connectionManager)
@@ -154,9 +161,7 @@
                 let keyManager = KeyManager(accessGroup: sharedKeychainAccessGroup)
                 connectionManager = try await ConnectionManager(keyManager: keyManager)
             } catch {
-                // Log error but continue - encryption won't work
-                // In production, might want to show an error to the user
-                print("Failed to initialize ConnectionManager: \(error)")
+                initializationError = "Failed to initialize encryption: \(error.localizedDescription)"
             }
         }
 

@@ -193,15 +193,15 @@ final public class SessionStore {
 
     /// Clear all sessions and panes for a specific Mac
     public func clearSessions(for macId: String) {
-        // Remove sessions belonging to this Mac
+        // Collect panes to remove first
         let panesToRemove = paneToMacMap.filter { $0.value == macId }.keys
+
+        // Remove sessions, tracking, and active panes together
         for paneId in panesToRemove {
             sessions.removeValue(forKey: paneId)
             paneToMacMap.removeValue(forKey: paneId)
+            activePanes.removeAll { $0 == paneId }
         }
-
-        // Remove active panes for this Mac
-        activePanes.removeAll { paneToMacMap[$0] == macId }
 
         // Clear stored panes and projects
         panesByMac.removeValue(forKey: macId)

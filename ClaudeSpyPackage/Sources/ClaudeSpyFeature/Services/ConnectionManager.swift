@@ -294,8 +294,8 @@
                     // Terminal streams are handled by individual views
                     // The callback is set by the terminal view when it needs streaming
                 },
-                onPartnerKeyReceived: { [weak self] publicKey, keyId in
-                    guard let self else { return }
+                onPartnerKeyReceived: { [weak self, weak settings] publicKey, keyId in
+                    guard let self, let settings else { return }
                     // Update the stored Mac with new partner key
                     if let mac = settings.getPairing(id: macId) {
                         let updatedMac = PairedMac(
