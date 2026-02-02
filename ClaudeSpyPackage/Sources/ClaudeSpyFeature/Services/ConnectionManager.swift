@@ -303,6 +303,7 @@
                         let updatedMac = PairedMac(
                             id: mac.id,
                             macName: mac.macName,
+                            username: mac.username,
                             partnerPublicKey: publicKey,
                             partnerPublicKeyId: keyId,
                             pairedAt: mac.pairedAt,

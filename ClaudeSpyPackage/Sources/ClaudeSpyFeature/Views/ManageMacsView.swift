@@ -14,6 +14,7 @@
         @State private var showPairingSheet = false
         @State private var macToDelete: PairedMac?
         @State private var showDeleteConfirmation = false
+        @State private var macToEdit: PairedMac?
 
         var body: some View {
             List {
@@ -26,8 +27,13 @@
                         ForEach(settings.pairedMacs) { mac in
                             MacRowView(
                                 mac: mac,
-                                connection: connectionManager.connection(for: mac.id)
+                                connection: connectionManager.connection(for: mac.id),
+                                showUsername: settings.hasDuplicateMacName(for: mac)
                             )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                macToEdit = mac
+                            }
                         }
                         .onDelete { indexSet in
                             if let index = indexSet.first {
@@ -39,7 +45,7 @@
                 } header: {
                     Text("Paired Macs")
                 } footer: {
-                    Text("Swipe left on a Mac to remove the pairing.")
+                    Text("Tap to edit name. Swipe left to remove.")
                 }
 
                 // Add Mac section
@@ -54,6 +60,9 @@
             .navigationTitle("Manage Macs")
             .sheet(isPresented: $showPairingSheet) {
                 AddMacSheet()
+            }
+            .sheet(item: $macToEdit) { mac in
+                EditMacSheet(mac: mac)
             }
             .confirmationDialog(
                 "Remove Pairing",
@@ -94,6 +103,7 @@
     struct MacRowView: View {
         let mac: PairedMac
         let connection: MacConnection?
+        var showUsername: Bool = false
 
         var body: some View {
             HStack(spacing: 12) {
@@ -114,7 +124,7 @@
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(mac.displayName)
+                    Text(mac.displayName(showUsername: showUsername))
                         .font(.headline)
 
                     Text(statusText)
@@ -124,8 +134,8 @@
 
                 Spacer()
 
-                // Paired date
-                Text(DateFormatters.relativeTime(for: mac.pairedAt))
+                // Edit indicator
+                Symbols.chevronRight.image
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -197,6 +207,72 @@
                     )
                 }
             }
+        }
+    }
+
+    // MARK: - Edit Mac Sheet
+
+    /// Sheet for editing a Mac's custom name
+    struct EditMacSheet: View {
+        @Environment(\.dismiss) private var dismiss
+        @Environment(IOSSettings.self) private var settings
+
+        let mac: PairedMac
+
+        @State private var customName: String = ""
+
+        var body: some View {
+            NavigationStack {
+                Form {
+                    Section {
+                        TextField("Custom Name", text: $customName, prompt: Text(mac.macName))
+                    } header: {
+                        Text("Display Name")
+                    } footer: {
+                        Text("Leave empty to use the default Mac name.")
+                    }
+
+                    Section {
+                        LabeledContent("Mac Name", value: mac.macName)
+                        LabeledContent("Username", value: mac.username)
+                        LabeledContent("Paired", value: DateFormatters.relativeTime(for: mac.pairedAt))
+                    } header: {
+                        Text("Mac Info")
+                    }
+                }
+                .navigationTitle("Edit Mac")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            dismiss()
+                        }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save") {
+                            saveMac()
+                            dismiss()
+                        }
+                    }
+                }
+                .onAppear {
+                    customName = mac.customName ?? ""
+                }
+            }
+        }
+
+        private func saveMac() {
+            let trimmedName = customName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let updatedMac = PairedMac(
+                id: mac.id,
+                macName: mac.macName,
+                username: mac.username,
+                partnerPublicKey: mac.partnerPublicKey,
+                partnerPublicKeyId: mac.partnerPublicKeyId,
+                pairedAt: mac.pairedAt,
+                customName: trimmedName.isEmpty ? nil : trimmedName
+            )
+            settings.updatePairing(updatedMac)
         }
     }
 #endif

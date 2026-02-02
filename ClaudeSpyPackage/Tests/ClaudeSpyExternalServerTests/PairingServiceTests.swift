@@ -17,6 +17,7 @@ struct PairingServiceTests {
             code: "ABC123",
             deviceId: "mac-device-id",
             deviceName: "My Mac",
+            username: "testuser",
             publicKey: testMacPublicKey,
             publicKeyId: testMacKeyId
         )
@@ -35,6 +36,7 @@ struct PairingServiceTests {
             code: "XYZ789",
             deviceId: "mac-device-id",
             deviceName: "My Mac",
+            username: "testuser",
             publicKey: testMacPublicKey,
             publicKeyId: testMacKeyId
         )
@@ -56,6 +58,8 @@ struct PairingServiceTests {
         // Verify partner's public key is returned
         #expect(result.partnerPublicKey == testMacPublicKey)
         #expect(result.partnerPublicKeyId == testMacKeyId)
+        // Verify partner's username is returned
+        #expect(result.partnerUsername == "testuser")
     }
 
     @Test("Completing pairing with invalid code fails")
@@ -83,6 +87,7 @@ struct PairingServiceTests {
             code: "SAME01",
             deviceId: "mac-1",
             deviceName: "Mac 1",
+            username: "user1",
             publicKey: testMacPublicKey,
             publicKeyId: testMacKeyId
         )
@@ -93,6 +98,7 @@ struct PairingServiceTests {
             code: "SAME01",
             deviceId: "mac-2",
             deviceName: "Mac 2",
+            username: "user2",
             publicKey: "other-public-key",
             publicKeyId: "other-key-id"
         )

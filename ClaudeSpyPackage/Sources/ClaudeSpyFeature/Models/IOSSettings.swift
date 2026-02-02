@@ -169,5 +169,16 @@
         public func clearAllPairings() {
             pairedMacs = []
         }
+
+        // MARK: - Display Helpers
+
+        /// Check if a Mac's name is duplicated among paired Macs.
+        ///
+        /// Use this to determine whether to show the username for disambiguation.
+        /// - Parameter mac: The Mac to check
+        /// - Returns: True if another paired Mac has the same macName
+        public func hasDuplicateMacName(for mac: PairedMac) -> Bool {
+            pairedMacs.contains { $0.id != mac.id && $0.macName == mac.macName }
+        }
     }
 #endif

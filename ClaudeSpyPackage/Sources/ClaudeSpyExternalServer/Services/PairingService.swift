@@ -70,6 +70,7 @@ actor PairingService {
         code: String,
         deviceId: String,
         deviceName: String,
+        username: String,
         publicKey: String,
         publicKeyId: String
     ) -> PairingResponse {
@@ -89,6 +90,7 @@ actor PairingService {
             pairId: pairId,
             macDeviceId: deviceId,
             macDeviceName: deviceName,
+            macUsername: username,
             macPublicKey: publicKey,
             macPublicKeyId: publicKeyId,
             createdAt: Date()
@@ -120,6 +122,7 @@ actor PairingService {
             id: pending.pairId,
             macDeviceId: pending.macDeviceId,
             macDeviceName: pending.macDeviceName,
+            macUsername: pending.macUsername,
             macPublicKey: pending.macPublicKey,
             macPublicKeyId: pending.macPublicKeyId,
             iosDeviceId: deviceId,
@@ -138,7 +141,8 @@ actor PairingService {
             pairId: pending.pairId,
             partnerDeviceName: pending.macDeviceName,
             partnerPublicKey: pending.macPublicKey,
-            partnerPublicKeyId: pending.macPublicKeyId
+            partnerPublicKeyId: pending.macPublicKeyId,
+            partnerUsername: pending.macUsername
         )
     }
 
@@ -169,6 +173,11 @@ actor PairingService {
         activePairs[pairId]?.macDeviceName
     }
 
+    /// Get Mac username for a pair
+    func getMacUsername(pairId: String) -> String {
+        activePairs[pairId]?.macUsername ?? ""
+    }
+
     /// Get iOS device name for a pair
     func getIOSDeviceName(pairId: String) -> String? {
         activePairs[pairId]?.iosDeviceName
@@ -186,11 +195,12 @@ actor PairingService {
         return (pair.iosPublicKey, pair.iosPublicKeyId)
     }
 
-    /// Update Mac public key for a pair (called when Mac reconnects)
-    func updateMacPublicKey(pairId: String, publicKey: String, publicKeyId: String) {
+    /// Update Mac public key and username for a pair (called when Mac reconnects)
+    func updateMacPublicKey(pairId: String, publicKey: String, publicKeyId: String, username: String) {
         guard var pair = activePairs[pairId] else { return }
         pair.macPublicKey = publicKey
         pair.macPublicKeyId = publicKeyId
+        pair.macUsername = username
         activePairs[pairId] = pair
         savePairs()
         logger.debug("Updated Mac public key for pair", metadata: ["pairId": "\(pairId)"])
@@ -276,6 +286,7 @@ struct PendingPairing {
     let pairId: String
     let macDeviceId: String
     let macDeviceName: String
+    let macUsername: String
     let macPublicKey: String
     let macPublicKeyId: String
     let createdAt: Date

@@ -11,19 +11,23 @@ public struct PairingRegistration: Codable, Sendable {
     public let publicKey: String
     /// Unique identifier for the public key
     public let publicKeyId: String
+    /// Username of the Mac user (e.g., "john")
+    public let username: String
 
     public init(
         deviceId: String,
         deviceName: String,
         pairingCode: String,
         publicKey: String,
-        publicKeyId: String
+        publicKeyId: String,
+        username: String
     ) {
         self.deviceId = deviceId
         self.deviceName = deviceName
         self.pairingCode = pairingCode
         self.publicKey = publicKey
         self.publicKeyId = publicKeyId
+        self.username = username
     }
 }
 
@@ -61,6 +65,8 @@ public struct PairingResponse: Codable, Sendable {
     public let partnerPublicKey: String?
     /// Unique identifier for the partner's public key (nil on failure)
     public let partnerPublicKeyId: String?
+    /// Username of the Mac user (nil on failure or if not provided)
+    public let partnerUsername: String?
     public let error: String?
 
     public init(
@@ -69,6 +75,7 @@ public struct PairingResponse: Codable, Sendable {
         partnerDeviceName: String? = nil,
         partnerPublicKey: String? = nil,
         partnerPublicKeyId: String? = nil,
+        partnerUsername: String? = nil,
         error: String? = nil
     ) {
         self.success = success
@@ -76,6 +83,7 @@ public struct PairingResponse: Codable, Sendable {
         self.partnerDeviceName = partnerDeviceName
         self.partnerPublicKey = partnerPublicKey
         self.partnerPublicKeyId = partnerPublicKeyId
+        self.partnerUsername = partnerUsername
         self.error = error
     }
 
@@ -83,14 +91,16 @@ public struct PairingResponse: Codable, Sendable {
         pairId: String,
         partnerDeviceName: String,
         partnerPublicKey: String,
-        partnerPublicKeyId: String
+        partnerPublicKeyId: String,
+        partnerUsername: String? = nil
     ) -> PairingResponse {
         PairingResponse(
             success: true,
             pairId: pairId,
             partnerDeviceName: partnerDeviceName,
             partnerPublicKey: partnerPublicKey,
-            partnerPublicKeyId: partnerPublicKeyId
+            partnerPublicKeyId: partnerPublicKeyId,
+            partnerUsername: partnerUsername
         )
     }
 
@@ -110,19 +120,23 @@ public struct RegisterMacMessage: Codable, Sendable {
     public let publicKey: String
     /// Unique identifier for the public key
     public let publicKeyId: String
+    /// Username of the Mac user (e.g., "john")
+    public let username: String
 
     public init(
         pairId: String,
         deviceId: String,
         deviceName: String,
         publicKey: String,
-        publicKeyId: String
+        publicKeyId: String,
+        username: String
     ) {
         self.pairId = pairId
         self.deviceId = deviceId
         self.deviceName = deviceName
         self.publicKey = publicKey
         self.publicKeyId = publicKeyId
+        self.username = username
     }
 }
 
@@ -186,6 +200,8 @@ public struct IOSRegisteredMessage: Codable, Sendable {
     public let macPublicKey: String?
     /// Unique identifier for the Mac device's public key (nil if Mac not connected yet)
     public let macPublicKeyId: String?
+    /// Username of the Mac user (nil if Mac not connected yet or not provided)
+    public let macUsername: String?
     public let error: String?
 
     public init(
@@ -193,12 +209,14 @@ public struct IOSRegisteredMessage: Codable, Sendable {
         macDeviceName: String? = nil,
         macPublicKey: String? = nil,
         macPublicKeyId: String? = nil,
+        macUsername: String? = nil,
         error: String? = nil
     ) {
         self.success = success
         self.macDeviceName = macDeviceName
         self.macPublicKey = macPublicKey
         self.macPublicKeyId = macPublicKeyId
+        self.macUsername = macUsername
         self.error = error
     }
 }
