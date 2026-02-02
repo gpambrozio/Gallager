@@ -176,20 +176,25 @@
             do {
                 let response = try await completePairing(code: pairingCode)
 
-                if response.success, let pairId = response.pairId {
+                switch response {
+                case let .paired(info):
                     // Create the PairedMac struct
                     let pairedMac = PairedMac(
-                        id: pairId,
-                        macName: response.partnerDeviceName ?? "Mac",
-                        username: response.partnerUsername ?? "unknown",
-                        partnerPublicKey: response.partnerPublicKey ?? "",
-                        partnerPublicKeyId: response.partnerPublicKeyId ?? "",
+                        id: info.pairId,
+                        macName: info.partnerDeviceName,
+                        username: info.partnerUsername,
+                        partnerPublicKey: info.partnerPublicKey,
+                        partnerPublicKeyId: info.partnerPublicKeyId,
                         pairedAt: Date()
                     )
 
                     onPaired?(pairedMac)
-                } else {
-                    errorMessage = response.error ?? "Pairing failed"
+                case .registered:
+                    // Unexpected - completion should return paired status
+                    errorMessage = "Unexpected response from server"
+                    pairingCode = ""
+                case let .error(errorInfo):
+                    errorMessage = errorInfo.message
                     pairingCode = ""
                 }
             } catch {

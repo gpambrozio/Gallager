@@ -56,56 +56,83 @@ public struct PairingCompletion: Codable, Sendable {
     }
 }
 
-/// Response from pairing operations
-public struct PairingResponse: Codable, Sendable {
-    public let success: Bool
-    public let pairId: String?
-    public let partnerDeviceName: String?
-    /// Base64-encoded public key of the partner device for E2EE (nil on failure)
-    public let partnerPublicKey: String?
-    /// Unique identifier for the partner's public key (nil on failure)
-    public let partnerPublicKeyId: String?
-    /// Username of the Mac user (nil on failure or if not provided)
-    public let partnerUsername: String?
-    public let error: String?
+/// Response from pairing operations using a Result-style enum
+public enum PairingResponse: Codable, Sendable, Equatable {
+    /// Mac successfully registered a pairing code, waiting for iOS to complete
+    case registered(RegistrationInfo)
+    /// Pairing completed successfully with partner device info
+    case paired(PairedDeviceInfo)
+    /// Pairing operation failed
+    case error(ErrorInfo)
 
-    public init(
-        success: Bool,
-        pairId: String? = nil,
-        partnerDeviceName: String? = nil,
-        partnerPublicKey: String? = nil,
-        partnerPublicKeyId: String? = nil,
-        partnerUsername: String? = nil,
-        error: String? = nil
-    ) {
-        self.success = success
-        self.pairId = pairId
-        self.partnerDeviceName = partnerDeviceName
-        self.partnerPublicKey = partnerPublicKey
-        self.partnerPublicKeyId = partnerPublicKeyId
-        self.partnerUsername = partnerUsername
-        self.error = error
+    // MARK: - Convenience Factory Methods
+
+    public static func registered(pairId: String) -> PairingResponse {
+        .registered(RegistrationInfo(pairId: pairId))
     }
 
-    public static func success(
+    public static func paired(
         pairId: String,
         partnerDeviceName: String,
         partnerPublicKey: String,
         partnerPublicKeyId: String,
-        partnerUsername: String? = nil
+        partnerUsername: String
     ) -> PairingResponse {
-        PairingResponse(
-            success: true,
+        .paired(PairedDeviceInfo(
             pairId: pairId,
             partnerDeviceName: partnerDeviceName,
             partnerPublicKey: partnerPublicKey,
             partnerPublicKeyId: partnerPublicKeyId,
             partnerUsername: partnerUsername
-        )
+        ))
     }
 
-    public static func failure(_ error: String) -> PairingResponse {
-        PairingResponse(success: false, error: error)
+    public static func error(_ message: String) -> PairingResponse {
+        .error(ErrorInfo(message: message))
+    }
+}
+
+/// Info returned when Mac successfully registers a pairing code
+public struct RegistrationInfo: Codable, Sendable, Equatable {
+    public let pairId: String
+
+    public init(pairId: String) {
+        self.pairId = pairId
+    }
+}
+
+/// Info returned when pairing is completed successfully
+public struct PairedDeviceInfo: Codable, Sendable, Equatable {
+    public let pairId: String
+    public let partnerDeviceName: String
+    /// Base64-encoded public key of the partner device for E2EE
+    public let partnerPublicKey: String
+    /// Unique identifier for the partner's public key
+    public let partnerPublicKeyId: String
+    /// Username of the Mac user
+    public let partnerUsername: String
+
+    public init(
+        pairId: String,
+        partnerDeviceName: String,
+        partnerPublicKey: String,
+        partnerPublicKeyId: String,
+        partnerUsername: String
+    ) {
+        self.pairId = pairId
+        self.partnerDeviceName = partnerDeviceName
+        self.partnerPublicKey = partnerPublicKey
+        self.partnerPublicKeyId = partnerPublicKeyId
+        self.partnerUsername = partnerUsername
+    }
+}
+
+/// Error info for failed pairing operations
+public struct ErrorInfo: Codable, Sendable, Equatable {
+    public let message: String
+
+    public init(message: String) {
+        self.message = message
     }
 }
 

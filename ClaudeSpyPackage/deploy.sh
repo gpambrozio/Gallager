@@ -12,6 +12,7 @@ NC='\033[0m' # No Color
 DEPLOY_USER="${DEPLOY_USER:-root}"
 REMOTE_DIR="${REMOTE_DIR:-/opt/claudespy}"
 CADDY_CONF_D="${CADDY_CONF_D:-/etc/caddy/conf.d}"
+HCLOUD_SERVER_NAME="${HCLOUD_SERVER_NAME:-cleancast}"
 
 # Print colored output
 info() { echo -e "${GREEN}[INFO]${NC} $1"; }

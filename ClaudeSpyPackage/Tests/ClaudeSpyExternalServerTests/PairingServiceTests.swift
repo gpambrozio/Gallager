@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Testing
 @testable import ClaudeSpyExternalServer
 
@@ -22,9 +23,11 @@ struct PairingServiceTests {
             publicKeyId: testMacKeyId
         )
 
-        #expect(result.success)
-        #expect(result.pairId != nil)
-        // pairId is now a UUID, not the code itself
+        guard case let .registered(info) = result else {
+            Issue.record("Expected .registered, got \(result)")
+            return
+        }
+        #expect(!info.pairId.isEmpty)
     }
 
     @Test("Completing pairing with valid code succeeds")
@@ -41,6 +44,11 @@ struct PairingServiceTests {
             publicKeyId: testMacKeyId
         )
 
+        guard case let .registered(registerInfo) = registerResult else {
+            Issue.record("Expected .registered, got \(registerResult)")
+            return
+        }
+
         // Then complete pairing from iOS
         let result = await service.completePairing(
             code: "XYZ789",
@@ -50,16 +58,19 @@ struct PairingServiceTests {
             publicKeyId: testIOSKeyId
         )
 
-        #expect(result.success)
-        #expect(result.pairId != nil)
-        #expect(result.partnerDeviceName == "My Mac")
+        guard case let .paired(pairedInfo) = result else {
+            Issue.record("Expected .paired, got \(result)")
+            return
+        }
+
+        #expect(pairedInfo.partnerDeviceName == "My Mac")
         // Critical: both Mac and iOS should get the same pairId
-        #expect(result.pairId == registerResult.pairId)
+        #expect(pairedInfo.pairId == registerInfo.pairId)
         // Verify partner's public key is returned
-        #expect(result.partnerPublicKey == testMacPublicKey)
-        #expect(result.partnerPublicKeyId == testMacKeyId)
+        #expect(pairedInfo.partnerPublicKey == testMacPublicKey)
+        #expect(pairedInfo.partnerPublicKeyId == testMacKeyId)
         // Verify partner's username is returned
-        #expect(result.partnerUsername == "testuser")
+        #expect(pairedInfo.partnerUsername == "testuser")
     }
 
     @Test("Completing pairing with invalid code fails")
@@ -74,8 +85,11 @@ struct PairingServiceTests {
             publicKeyId: testIOSKeyId
         )
 
-        #expect(!result.success)
-        #expect(result.error != nil)
+        guard case let .error(errorInfo) = result else {
+            Issue.record("Expected .error, got \(result)")
+            return
+        }
+        #expect(!errorInfo.message.isEmpty)
     }
 
     @Test("Duplicate pairing code registration fails")
@@ -91,7 +105,11 @@ struct PairingServiceTests {
             publicKey: testMacPublicKey,
             publicKeyId: testMacKeyId
         )
-        #expect(first.success)
+
+        guard case .registered = first else {
+            Issue.record("Expected .registered, got \(first)")
+            return
+        }
 
         // Try to register same code again
         let second = await service.registerCode(
@@ -102,6 +120,10 @@ struct PairingServiceTests {
             publicKey: "other-public-key",
             publicKeyId: "other-key-id"
         )
-        #expect(!second.success)
+
+        guard case .error = second else {
+            Issue.record("Expected .error, got \(second)")
+            return
+        }
     }
 }

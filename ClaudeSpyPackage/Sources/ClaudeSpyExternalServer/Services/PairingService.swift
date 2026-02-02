@@ -79,7 +79,7 @@ actor PairingService {
 
         // Check if code is already in use
         if pendingCodes[code] != nil {
-            return .failure("Pairing code already in use")
+            return .error("Pairing code already in use")
         }
 
         // Generate the pairId upfront so Mac and iOS use the same ID
@@ -99,7 +99,7 @@ actor PairingService {
         pendingCodes[code] = pending
 
         // Mac doesn't get partner key yet (iOS hasn't paired)
-        return PairingResponse(success: true, pairId: pairId)
+        return .registered(pairId: pairId)
     }
 
     /// Complete pairing from iOS
@@ -114,7 +114,7 @@ actor PairingService {
         cleanupExpiredCodes()
 
         guard let pending = pendingCodes[code] else {
-            return .failure("Invalid or expired pairing code")
+            return .error("Invalid or expired pairing code")
         }
 
         // Create the pair using the pairId from registration
@@ -137,7 +137,7 @@ actor PairingService {
         savePairs()
 
         // iOS gets Mac's public key in response
-        return .success(
+        return .paired(
             pairId: pending.pairId,
             partnerDeviceName: pending.macDeviceName,
             partnerPublicKey: pending.macPublicKey,

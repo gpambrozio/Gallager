@@ -92,17 +92,22 @@ final public class PairingManager {
                 deviceName: Host.current().localizedName ?? "Mac"
             )
 
-            if response.success, let pairId = response.pairId {
+            switch response {
+            case let .registered(info):
                 // Code registered, now wait for iOS to complete pairing
                 state = .waitingForPairing(code: code, expiresAt: expiresAt)
 
                 // Start polling for pairing completion
-                startPollingForCompletion(pairId: pairId)
+                startPollingForCompletion(pairId: info.pairId)
 
                 logger.info("Pairing code registered", metadata: ["code": "\(code)"])
-            } else {
-                state = .error(response.error ?? "Failed to register pairing code")
-                logger.error("Failed to register pairing code: \(response.error ?? "unknown")")
+            case .paired:
+                // Unexpected - registration shouldn't return paired status
+                state = .error("Unexpected response from server")
+                logger.error("Unexpected paired response during registration")
+            case let .error(errorInfo):
+                state = .error(errorInfo.message)
+                logger.error("Failed to register pairing code: \(errorInfo.message)")
             }
         } catch {
             state = .error("Network error: \(error.localizedDescription)")
