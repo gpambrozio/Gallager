@@ -3,7 +3,7 @@ import Foundation
 import SwiftUI
 
 /// Manages the state of an event response (permission request, prompt, etc.)
-/// This allows response state to be shared between SessionDetailView and TerminalSnapshotView.
+/// This allows response state to be shared between ClaudeSessionTerminalView and LiveTerminalView.
 /// Responses are persisted to SessionStore so they survive navigation.
 @MainActor
 @Observable

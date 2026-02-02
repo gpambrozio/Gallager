@@ -28,7 +28,11 @@
         }
 
         var body: some View {
-            terminalContent
+            @Bindable var bindableService = service
+
+            terminalContent(responseStateBinding: $bindableService.responseState)
+                .navigationTitle(service.session?.displayName ?? "Session")
+                .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
@@ -45,13 +49,11 @@
         }
 
         @ViewBuilder
-        private var terminalContent: some View {
+        private func terminalContent(responseStateBinding: Binding<ResponseState?>) -> some View {
             if service.session != nil {
-                @Bindable var bindableService = service
-
                 LiveTerminalView(
                     paneId: paneId,
-                    responseState: $bindableService.responseState,
+                    responseState: responseStateBinding,
                     isConnected: service.isMacConnected,
                     settings: settings,
                     sendCommand: { command in
@@ -117,8 +119,7 @@
                             isConnected: isMacConnected,
                             sendCommand: sendCommand,
                             state: responseState
-                        )
-                    {
+                        ) {
                         Section("Response") {
                             responseView
                         }
