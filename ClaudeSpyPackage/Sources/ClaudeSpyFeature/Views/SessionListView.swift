@@ -16,6 +16,10 @@
     /// View displaying a list of active Claude sessions and terminals from all paired Macs.
     struct SessionListView: View {
         @Binding var navigationPath: NavigationPath
+        /// Binding to show settings sheet (used in landscape mode when tab bar is hidden)
+        @Binding var showSettingsSheet: Bool
+        /// Whether the device is in landscape orientation
+        var isLandscape: Bool
 
         @Environment(SessionStore.self) private var sessionStore
         @Environment(ConnectionManager.self) private var connectionManager
@@ -35,6 +39,7 @@
                 }
             }
             .navigationTitle("Sessions")
+            .navigationBarTitleDisplayMode(isLandscape ? .inline : .automatic)
             .navigationDestination(for: SessionNavigation.self) { destination in
                 switch destination {
                 case let .claudeSession(paneId, macId):
@@ -61,6 +66,17 @@
                 }
             }
             .toolbar {
+                // Show settings button in landscape (tab bar is hidden)
+                if isLandscape {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button {
+                            showSettingsSheet = true
+                        } label: {
+                            Label("Settings", symbol: .gearshape)
+                        }
+                    }
+                }
+
                 ToolbarItem(placement: .topBarTrailing) {
                     overallConnectionStatusView
                 }

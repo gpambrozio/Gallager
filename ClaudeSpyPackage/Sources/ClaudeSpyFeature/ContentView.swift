@@ -208,6 +208,7 @@
         @Environment(IOSSettings.self) private var settings
         @Environment(ConnectionManager.self) private var connectionManager
         @Environment(SessionStore.self) private var sessionStore
+        @Environment(\.verticalSizeClass) private var verticalSizeClass
 
         @State private var selectedTab: Tab = .sessions
         @State private var sessionsNavigationPath = NavigationPath()
@@ -216,16 +217,27 @@
         /// Tracks the currently displayed session pane ID for deep link deduplication.
         /// Set when navigating to a session, cleared when popping back to the list.
         @State private var currentlyDisplayedPaneId: String?
+        /// Shows settings sheet in landscape mode (since tab bar is hidden)
+        @State private var showSettingsSheet = false
 
         enum Tab {
             case sessions
             case settings
         }
 
+        /// Whether we're in landscape orientation (compact vertical size class on iPhone)
+        private var isLandscape: Bool {
+            verticalSizeClass == .compact
+        }
+
         var body: some View {
             TabView(selection: $selectedTab) {
                 NavigationStack(path: $sessionsNavigationPath) {
-                    SessionListView(navigationPath: $sessionsNavigationPath)
+                    SessionListView(
+                        navigationPath: $sessionsNavigationPath,
+                        showSettingsSheet: $showSettingsSheet,
+                        isLandscape: isLandscape
+                    )
                 }
                 .tabItem {
                     Label("Sessions", symbol: .terminal)
@@ -239,6 +251,19 @@
                     Label("Settings", symbol: .gearshape)
                 }
                 .tag(Tab.settings)
+            }
+            .toolbarVisibility(isLandscape ? .hidden : .automatic, for: .tabBar)
+            .sheet(isPresented: $showSettingsSheet) {
+                NavigationStack {
+                    SettingsView()
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") {
+                                    showSettingsSheet = false
+                                }
+                            }
+                        }
+                }
             }
             .task {
                 await connectIfNeeded()
