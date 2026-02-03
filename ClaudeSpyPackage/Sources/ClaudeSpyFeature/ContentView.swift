@@ -209,7 +209,6 @@
         @Environment(ConnectionManager.self) private var connectionManager
         @Environment(SessionStore.self) private var sessionStore
         @Environment(\.verticalSizeClass) private var verticalSizeClass
-        @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
         @State private var selectedTab: Tab = .sessions
         @State private var sessionsNavigationPath = NavigationPath()
@@ -226,10 +225,10 @@
             case settings
         }
 
-        /// Whether we're in landscape orientation on iPhone (both size classes are compact).
-        /// iPad in landscape has regular horizontal size class, so this only triggers on iPhone.
+        /// Whether we're in landscape orientation on iPhone.
+        /// Only iPhone has compact vertical size class in landscape; iPad stays regular.
         private var isLandscape: Bool {
-            verticalSizeClass == .compact && horizontalSizeClass == .compact
+            verticalSizeClass == .compact
         }
 
         var body: some View {
