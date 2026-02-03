@@ -18,8 +18,8 @@
         @Binding var navigationPath: NavigationPath
         /// Binding to show settings sheet (used in landscape mode when tab bar is hidden)
         @Binding var showSettingsSheet: Bool
-        /// Whether the device is in landscape orientation
-        var isLandscape: Bool
+        /// Whether to show the settings button (landscape on iPhone, not already on settings tab)
+        var showSettingsButton: Bool
 
         @Environment(SessionStore.self) private var sessionStore
         @Environment(ConnectionManager.self) private var connectionManager
@@ -39,7 +39,7 @@
                 }
             }
             .navigationTitle("Sessions")
-            .navigationBarTitleDisplayMode(isLandscape ? .inline : .automatic)
+            .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: SessionNavigation.self) { destination in
                 switch destination {
                 case let .claudeSession(paneId, macId):
@@ -66,8 +66,8 @@
                 }
             }
             .toolbar {
-                // Show settings button in landscape (tab bar is hidden)
-                if isLandscape {
+                // Show settings button in landscape when tab bar is hidden and not already on settings
+                if showSettingsButton {
                     ToolbarItem(placement: .topBarLeading) {
                         Button {
                             showSettingsSheet = true
@@ -241,7 +241,7 @@
         let connection: MacConnection?
         let sessions: [(paneId: String, session: ClaudeSession)]
         let panes: [PaneInfoMessage]
-        var showUsername: Bool = false
+        var showUsername = false
         let onNewSession: () -> Void
 
         @Environment(SessionStore.self) private var sessionStore
@@ -297,7 +297,7 @@
     struct MacSectionHeader: View {
         let mac: PairedMac
         let connection: MacConnection?
-        var showUsername: Bool = false
+        var showUsername = false
         let onNewSession: () -> Void
 
         var body: some View {
