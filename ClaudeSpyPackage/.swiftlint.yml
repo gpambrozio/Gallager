@@ -44,6 +44,7 @@ opt_in_rules:
 class_delegate_protocol: error
 fatal_error_message: error # Force a message when using fatalError()
 sorted_first_last: warning # max() or min() vs sort().first()
+todo: warning # Flag TODO comments as warnings
 weak_delegate: error
 
 generic_type_name:

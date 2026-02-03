@@ -64,7 +64,7 @@ struct TmuxPaneMirrorApp: App {
                         .environment(coordinator.settings)
                 }
         }
-        .defaultLaunchBehavior(.presented) // TODO: Change back to .suppressed
+        .defaultLaunchBehavior(.suppressed)
         .commands {
             // App menu - Check for Updates
             CommandGroup(after: .appInfo) {
