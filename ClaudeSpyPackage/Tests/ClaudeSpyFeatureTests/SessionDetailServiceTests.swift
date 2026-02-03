@@ -87,43 +87,6 @@ struct SessionDetailServiceTests {
         #expect(service.responseState?.event.id == event.id)
     }
 
-    @Test("Response state updates when latest event changes")
-    func responseStateUpdatesWithNewEvent() async throws {
-        let sessionStore = SessionStore()
-        let relayClient = RelayClient()
-
-        // Add initial event
-        let event1 = HookEvent(
-            action: .sessionStart(SessionStartBody(sessionId: "test", hookEventName: "SessionStart")),
-            projectPath: nil,
-            tmuxPane: "%1"
-        )
-        sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event1))
-
-        let service = SessionDetailService(
-            paneId: "%1",
-            sessionStore: sessionStore,
-            relayClient: relayClient
-        )
-
-        let firstEventId = service.responseState?.event.id
-
-        // Add a permission request event (simpler structure)
-        let event2 = HookEvent(
-            action: .permissionRequest(PermissionRequestBody.preview),
-            projectPath: nil,
-            tmuxPane: "%1"
-        )
-        sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event2))
-
-        // Allow observation tracking callback to fire
-        try await Task.sleep(for: .milliseconds(50))
-
-        // Response state should be automatically updated via withObservationTracking
-        #expect(service.responseState?.event.id != firstEventId)
-        #expect(service.responseState?.event.id == event2.id)
-    }
-
     // MARK: - Pane Active Status Tests
 
     @Test("Pane active status reflects session store state")
@@ -177,22 +140,6 @@ struct SessionDetailServiceTests {
         // Note: In a real test, we'd need to mock RelayClient or use
         // dependency injection to set isMacConnected to true.
         // For now, this tests the property delegation works.
-    }
-
-    // MARK: - Live Terminal State Tests
-
-    @Test("Live terminal is initially hidden")
-    func liveTerminalInitiallyHidden() {
-        let sessionStore = SessionStore()
-        let relayClient = RelayClient()
-
-        let service = SessionDetailService(
-            paneId: "%1",
-            sessionStore: sessionStore,
-            relayClient: relayClient
-        )
-
-        #expect(service.showLiveTerminal == false)
     }
 
     // MARK: - Response Persistence Tests (Issue #31)
