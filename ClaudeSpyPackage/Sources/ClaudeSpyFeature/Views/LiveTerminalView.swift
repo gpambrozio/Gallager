@@ -263,6 +263,11 @@
                 terminalState?.resize(width: dims.width, height: dims.height)
 
             case .streamEnd:
+                // Only process streamEnd if we're actually streaming.
+                // Ignore if we're still connecting - this can happen when the Mac restarts
+                // a stale stream (stops old, starts new) and the streamEnd from the old
+                // stream arrives before our new initialState.
+                guard streamState == .streaming else { return }
                 streamState = .ended
             }
         }

@@ -79,9 +79,11 @@ final public class TerminalStreamService {
         paneId: String,
         target: String
     ) async throws {
-        guard activeStreams[paneId] == nil else {
-            logger.info("Stream already active for pane \(paneId)")
-            return
+        // If a stream is already active for this pane, stop it first.
+        // This handles cases where iOS disconnected without properly stopping the stream
+        // (navigation, connection loss, etc.) and is now trying to reconnect.
+        if activeStreams[paneId] != nil {
+            await stopStreaming(paneId: paneId)
         }
 
         guard let serverClient else {
