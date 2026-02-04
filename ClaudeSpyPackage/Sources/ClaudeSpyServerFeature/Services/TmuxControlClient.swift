@@ -57,7 +57,6 @@ actor TmuxControlClient {
     private var process: Process?
     private var stdin: FileHandle?
     private var stdoutPipe: Pipe?
-    private var readTask: Task<Void, Never>?
 
     // Cached dimensions for change detection
     private var cachedDimensions: [String: (width: Int, height: Int)] = [:]
@@ -168,8 +167,16 @@ actor TmuxControlClient {
         self.stdoutPipe = stdoutPipe
 
         // Start reading output
-        readTask = Task { [weak self] in
-            await self?.readLoop(pipe: stdoutPipe)
+        let handle = stdoutPipe.fileHandleForReading
+
+        // Set up readability handler
+        handle.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+
+            Task { [weak self] in
+                await self?.processIncomingData(data)
+            }
         }
 
         logger.info("Connected to tmux control mode")
@@ -179,8 +186,7 @@ actor TmuxControlClient {
     func disconnect() async {
         logger.info("Disconnecting from tmux control mode")
 
-        readTask?.cancel()
-        readTask = nil
+        stdoutPipe?.fileHandleForReading.readabilityHandler = nil
 
         // Cancel all pending commands
         for (_, continuation) in pendingCommands {
@@ -266,27 +272,6 @@ actor TmuxControlClient {
     }
 
     // MARK: - Read Loop
-
-    private func readLoop(pipe: Pipe) async {
-        let handle = pipe.fileHandleForReading
-
-        // Set up readability handler
-        handle.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-
-            Task { [weak self] in
-                await self?.processIncomingData(data)
-            }
-        }
-
-        // Keep task alive until cancelled
-        while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(1))
-        }
-
-        handle.readabilityHandler = nil
-    }
 
     private func processIncomingData(_ data: Data) async {
         // Append raw bytes to buffer first (handles chunk splitting)
