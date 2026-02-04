@@ -217,8 +217,6 @@
         /// Tracks the currently displayed session pane ID for deep link deduplication.
         /// Set when navigating to a session, cleared when popping back to the list.
         @State private var currentlyDisplayedPaneId: String?
-        /// Shows settings sheet in landscape mode (since tab bar is hidden)
-        @State private var showSettingsSheet = false
 
         enum Tab {
             case sessions
@@ -235,9 +233,7 @@
             TabView(selection: $selectedTab) {
                 NavigationStack(path: $sessionsNavigationPath) {
                     SessionListView(
-                        navigationPath: $sessionsNavigationPath,
-                        showSettingsSheet: $showSettingsSheet,
-                        showSettingsButton: hideTabBar && selectedTab != .settings
+                        navigationPath: $sessionsNavigationPath
                     )
                     .toolbar(hideTabBar ? .hidden : .visible, for: .tabBar)
                 }
@@ -254,18 +250,6 @@
                     Label("Settings", symbol: .gearshape)
                 }
                 .tag(Tab.settings)
-            }
-            .sheet(isPresented: $showSettingsSheet) {
-                NavigationStack {
-                    SettingsView()
-                        .toolbar {
-                            ToolbarItem(placement: .confirmationAction) {
-                                Button("Done") {
-                                    showSettingsSheet = false
-                                }
-                            }
-                        }
-                }
             }
             .task {
                 await connectIfNeeded()
