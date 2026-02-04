@@ -223,14 +223,33 @@
         // MARK: - Keyboard Events
 
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
-            // Forward Cmd+key combinations to tmux as CSI u escape sequences
+            // Only handle events with Command modifier
             guard
                 event.modifierFlags.contains(.command),
                 let chars = event.charactersIgnoringModifiers,
                 let char = chars.first else {
                 return false
             }
-            onInput?([.cmd(char)])
+
+            // Exclude app-level shortcuts that should continue to work normally
+            let excludedKeys: Set<Character> = ["q", "w", "h", "m", ",", "n"]
+            if excludedKeys.contains(Character(char.lowercased())) {
+                return false
+            }
+
+            // Build CSI u modifier bits: Shift=1, Alt=2, Ctrl=4, Super/Cmd=8
+            var modifierBits: UInt8 = 0
+            let flags = event.modifierFlags
+            if flags.contains(.shift) { modifierBits |= 1 }
+            if flags.contains(.option) { modifierBits |= 2 }
+            if flags.contains(.control) { modifierBits |= 4 }
+            if flags.contains(.command) { modifierBits |= 8 }
+
+            // CSI u format: ESC [ keycode ; (modifier_bits + 1) u
+            let keycode = char.asciiValue ?? 0
+            let escapeSequence = "\u{1b}[\(keycode);\(modifierBits + 1)u"
+
+            onInput?([.text(escapeSequence)])
             return true
         }
 
