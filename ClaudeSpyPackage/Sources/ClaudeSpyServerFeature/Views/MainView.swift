@@ -25,6 +25,7 @@ public struct MainView: View {
     @State private var isLoadingProjects = false
     @State private var isCreatingSession = false
     @State private var creatingProjectPath: String?
+    @State private var detailPaneSize: CGSize = .zero
 
     public var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -142,15 +143,26 @@ public struct MainView: View {
 
     @ViewBuilder
     private var detailContent: some View {
-        if let pane = selectedPane {
-            MirrorWindowView(paneInfo: pane)
-                .id(pane.id)
-        } else {
-            ContentUnavailableView(
-                "Select a Pane",
-                symbol: .terminal,
-                description: "Choose a pane from the sidebar to view its mirror."
-            )
+        GeometryReader { geometry in
+            Group {
+                if let pane = selectedPane {
+                    MirrorWindowView(paneInfo: pane)
+                        .id(pane.id)
+                } else {
+                    ContentUnavailableView(
+                        "Select a Pane",
+                        symbol: .terminal,
+                        description: "Choose a pane from the sidebar to view its mirror."
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onChange(of: geometry.size) { _, newSize in
+                detailPaneSize = newSize
+            }
+            .onAppear {
+                detailPaneSize = geometry.size
+            }
         }
     }
 
@@ -389,6 +401,48 @@ public struct MainView: View {
         isLoadingProjects = false
     }
 
+    /// Calculates optimal terminal dimensions based on available detail pane space.
+    ///
+    /// Uses the current font settings to determine character cell size and calculates
+    /// how many columns and rows fit in the available space, accounting for UI padding.
+    ///
+    /// - Returns: A tuple of (columns, rows) for the terminal dimensions
+    private func calculateOptimalTerminalDimensions() -> (columns: Int, rows: Int) {
+        // Calculate cell size using current font settings
+        let cellSize = FontMetrics.calculateCellSize(
+            fontName: settings.fontName,
+            fontSize: CGFloat(settings.fontSize)
+        )
+
+        // Horizontal padding: SwiftTerm scroller buffer
+        let horizontalPadding = FontMetrics.horizontalBuffer
+
+        // Vertical padding: status bar (~28px) + some buffer for spacing
+        let verticalPadding: CGFloat = 40
+
+        // Calculate available content area
+        let availableWidth = max(0, detailPaneSize.width - horizontalPadding)
+        let availableHeight = max(0, detailPaneSize.height - verticalPadding)
+
+        // Calculate columns and rows that fit
+        var columns = Int(availableWidth / cellSize.width)
+        var rows = Int(availableHeight / cellSize.height)
+
+        // Apply reasonable bounds
+        // Minimum: 80x24 (standard terminal size)
+        // Maximum: 300x100 (prevent unreasonably large terminals)
+        columns = max(80, min(300, columns))
+        rows = max(24, min(100, rows))
+
+        // If we don't have valid size information yet, fall back to defaults
+        if detailPaneSize.width < 100 || detailPaneSize.height < 100 {
+            columns = 120
+            rows = 40
+        }
+
+        return (columns, rows)
+    }
+
     private func createNewSession(project: ClaudeProjectInfo?) {
         isCreatingSession = true
         creatingProjectPath = project?.path
@@ -406,11 +460,14 @@ public struct MainView: View {
                     nil
                 }
 
-                // Create the session with reasonable default dimensions
+                // Calculate optimal dimensions based on available space
+                let dimensions = calculateOptimalTerminalDimensions()
+
+                // Create the session with calculated dimensions
                 let (_, paneId) = try await tmuxService.createSession(
                     baseName: sessionName,
-                    width: 120,
-                    height: 40,
+                    width: dimensions.columns,
+                    height: dimensions.rows,
                     workingDirectory: workingDirectory,
                     runCommand: runCommand
                 )
