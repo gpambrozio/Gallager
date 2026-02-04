@@ -223,9 +223,14 @@
         // MARK: - Keyboard Events
 
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
-            // Forward key equivalents (Cmd+key combinations) to the terminal as regular key events.
-            // This allows the terminal/tmux to handle shortcuts like Cmd+V for paste.
-            terminalView.keyDown(with: event)
+            // Forward Cmd+key combinations to tmux as CSI u escape sequences
+            guard
+                event.modifierFlags.contains(.command),
+                let chars = event.charactersIgnoringModifiers,
+                let char = chars.first else {
+                return false
+            }
+            onInput?([.cmd(char)])
             return true
         }
 

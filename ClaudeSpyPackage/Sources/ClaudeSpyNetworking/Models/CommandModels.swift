@@ -52,6 +52,10 @@ public enum TmuxKey: Codable, Sendable, Equatable {
     /// Control key combinations (e.g., .ctrl("c") for Ctrl+C)
     case ctrl(Character)
 
+    /// Command key combinations (e.g., .cmd("v") for Cmd+V)
+    /// Sent as CSI u escape sequence for modern terminal support
+    case cmd(Character)
+
     /// Delay in milliseconds (not a real key, handled specially by executor)
     case delay(Int)
 
@@ -74,15 +78,20 @@ public enum TmuxKey: Codable, Sendable, Equatable {
         case .pageUp: "PageUp"
         case .pageDown: "PageDown"
         case let .ctrl(char): "C-\(char)"
+        // CSI u format: ESC [ keycode ; modifier u (modifier 9 = Super/Cmd)
+        case let .cmd(char): "\u{1b}[\(char.asciiValue ?? 0);9u"
         case .delay: "" // Not a real key, handled by executor
         }
     }
 
     /// Whether this key requires tmux literal mode (sends text as-is without interpretation).
-    /// Only applies to `.text` - other cases like `.delay` are handled specially by the executor.
+    /// Applies to `.text` and `.cmd` (escape sequences must be sent literally).
     public var requiresLiteralMode: Bool {
-        if case .text = self { return true }
-        return false
+        switch self {
+        case .text,
+             .cmd: true
+        default: false
+        }
     }
 }
 
