@@ -222,6 +222,44 @@
 
         // MARK: - Keyboard Events
 
+        override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            guard event.modifierFlags.contains(.command) else {
+                return false
+            }
+
+            switch event.charactersIgnoringModifiers {
+            case "v":
+                // Handle Cmd+V paste
+                let pasteboard = NSPasteboard.general
+
+                // If clipboard has text, send it directly to tmux
+                if let clipboardString = pasteboard.string(forType: .string), !clipboardString.isEmpty {
+                    onInput?([.text(clipboardString)])
+                    return true
+                }
+
+                // If clipboard has an image, send Ctrl+V so the terminal app can handle it
+                if pasteboard.data(forType: .png) != nil || pasteboard.data(forType: .tiff) != nil {
+                    onInput?([.ctrl("v")])
+                    return true
+                }
+
+                return false
+
+            case "c":
+                // Copy selected text to clipboard
+                if let selectedText = terminalView.getSelection() {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(selectedText, forType: .string)
+                    return true
+                }
+                return false
+
+            default:
+                return false
+            }
+        }
+
         override func keyDown(with event: NSEvent) {
             // Let the terminal view interpret the key
             terminalView.keyDown(with: event)
