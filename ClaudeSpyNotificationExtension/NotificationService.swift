@@ -114,6 +114,7 @@ class NotificationService: UNNotificationServiceExtension {
             // Add context to userInfo for deep linking and analytics
             content.userInfo["eventType"] = notificationContent.eventType
             content.userInfo["decrypted"] = true
+            content.userInfo["pairId"] = notificationContent.pairId
             if let paneId = notificationContent.paneId {
                 content.userInfo["paneId"] = paneId
             }

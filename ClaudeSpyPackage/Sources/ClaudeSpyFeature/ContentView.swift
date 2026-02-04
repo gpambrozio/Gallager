@@ -115,7 +115,8 @@
                             PushNotificationService.shared.scheduleLocalNotification(
                                 title: notification.title,
                                 body: notification.body,
-                                paneId: event.event.tmuxPane
+                                paneId: event.event.tmuxPane,
+                                macId: event.pairId
                             )
                         }
                     }
@@ -254,8 +255,8 @@
             .task {
                 await connectIfNeeded()
             }
-            .onChange(of: pushService.pendingDeepLinkPaneId) { _, paneId in
-                handleDeepLink(paneId: paneId)
+            .onChange(of: pushService.pendingDeepLink) { _, deepLink in
+                handleDeepLink(deepLink)
             }
             .onChange(of: sessionsNavigationPath.count) { _, count in
                 // Clear the currently displayed pane ID when user pops back to session list
@@ -265,8 +266,8 @@
             }
             .onAppear {
                 // Check for pending deep link when view appears (e.g., app launched from notification)
-                if let paneId = pushService.consumePendingDeepLink() {
-                    handleDeepLink(paneId: paneId)
+                if let deepLink = pushService.consumePendingDeepLink() {
+                    handleDeepLink(deepLink)
                 }
             }
         }
@@ -275,13 +276,8 @@
         ///
         /// Note: If the session no longer exists (e.g., notification was delayed and session ended),
         /// ClaudeSessionTerminalView will show an appropriate empty state.
-        private func handleDeepLink(paneId: String?) {
-            guard let paneId else { return }
-
-            // Clear the pending deep link. This is intentionally called here even though
-            // onAppear may have already consumed it—ensures state is cleared regardless
-            // of which code path triggered the navigation.
-            _ = pushService.consumePendingDeepLink()
+        private func handleDeepLink(_ deepLink: PushNotificationService.DeepLinkInfo?) {
+            guard let deepLink else { return }
 
             // Switch to sessions tab
             selectedTab = .sessions
@@ -289,13 +285,7 @@
             // If we're already displaying this session, don't navigate again.
             // This prevents redundant navigation when receiving multiple push
             // notifications for the same session.
-            guard currentlyDisplayedPaneId != paneId else {
-                return
-            }
-
-            // Look up which Mac this pane belongs to
-            guard let macId = sessionStore.macId(for: paneId) else {
-                // Pane not found in any Mac's session list - possibly stale notification
+            guard currentlyDisplayedPaneId != deepLink.paneId else {
                 return
             }
 
@@ -309,8 +299,8 @@
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(100))
                 sessionsNavigationPath = NavigationPath()
-                sessionsNavigationPath.append(SessionNavigation.claudeSession(paneId: paneId, macId: macId))
-                currentlyDisplayedPaneId = paneId
+                sessionsNavigationPath.append(SessionNavigation.claudeSession(paneId: deepLink.paneId, macId: deepLink.macId))
+                currentlyDisplayedPaneId = deepLink.paneId
             }
         }
 

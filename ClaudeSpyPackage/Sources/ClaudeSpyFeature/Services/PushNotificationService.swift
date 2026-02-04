@@ -22,9 +22,15 @@
         /// Current notification permission status
         public private(set) var permissionStatus: UNAuthorizationStatus = .notDetermined
 
-        /// The pane ID from a tapped notification, used for deep linking.
+        /// Deep link info from a tapped notification.
         /// Set when user taps a notification, consumed by MainView to navigate to the session.
-        public var pendingDeepLinkPaneId: String?
+        public var pendingDeepLink: DeepLinkInfo?
+
+        /// Information needed to deep link to a specific session
+        public struct DeepLinkInfo: Equatable {
+            public let paneId: String
+            public let macId: String
+        }
 
         /// Whether we've successfully registered for remote notifications
         public var isRegistered: Bool {
@@ -91,7 +97,7 @@
         /// Schedule a local notification immediately.
         /// Used when app receives WebSocket events while backgrounded - the server
         /// won't send a push (since we're "connected"), so we show a local notification instead.
-        public func scheduleLocalNotification(title: String, body: String, paneId: String? = nil) {
+        public func scheduleLocalNotification(title: String, body: String, paneId: String? = nil, macId: String? = nil) {
             guard permissionStatus == .authorized else { return }
 
             let content = UNMutableNotificationContent()
@@ -100,9 +106,12 @@
             content.sound = .default
             content.badge = 1
 
-            // Include paneId for deep linking when notification is tapped
+            // Include paneId and macId for deep linking when notification is tapped
             if let paneId {
                 content.userInfo["paneId"] = paneId
+            }
+            if let macId {
+                content.userInfo["pairId"] = macId
             }
 
             // Trigger immediately
@@ -122,26 +131,28 @@
         // MARK: - Deep Linking
 
         /// Handle a notification response (user tapped on notification).
-        /// Extracts paneId from userInfo and sets it for deep linking.
+        /// Extracts paneId and macId from userInfo and sets it for deep linking.
         ///
         /// - Parameter response: The notification response from UNUserNotificationCenterDelegate
         public func handleNotificationResponse(_ response: UNNotificationResponse) {
             let userInfo = response.notification.request.content.userInfo
 
-            // Extract paneId from notification payload
-            if let paneId = userInfo["paneId"] as? String {
-                pendingDeepLinkPaneId = paneId
+            // Extract paneId and macId from notification payload for deep linking
+            if let paneId = userInfo["paneId"] as? String,
+               let macId = userInfo["pairId"] as? String
+            {
+                pendingDeepLink = DeepLinkInfo(paneId: paneId, macId: macId)
             }
         }
 
-        /// Consume the pending deep link, returning and clearing the paneId.
+        /// Consume the pending deep link, returning and clearing the deep link info.
         /// Call this after navigation has been performed.
         ///
-        /// - Returns: The paneId to navigate to, or nil if no pending deep link
-        public func consumePendingDeepLink() -> String? {
-            let paneId = pendingDeepLinkPaneId
-            pendingDeepLinkPaneId = nil
-            return paneId
+        /// - Returns: The deep link info to navigate to, or nil if no pending deep link
+        public func consumePendingDeepLink() -> DeepLinkInfo? {
+            let deepLink = pendingDeepLink
+            pendingDeepLink = nil
+            return deepLink
         }
     }
 #endif
