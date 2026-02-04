@@ -268,11 +268,6 @@
         private func handleDeepLink(_ deepLink: PushNotificationService.DeepLinkInfo?) {
             guard let deepLink else { return }
 
-            // Clear the pending deep link. This is intentionally called here even though
-            // onAppear may have already consumed it—ensures state is cleared regardless
-            // of which code path triggered the navigation.
-            _ = pushService.consumePendingDeepLink()
-
             // Switch to sessions tab
             selectedTab = .sessions
 
