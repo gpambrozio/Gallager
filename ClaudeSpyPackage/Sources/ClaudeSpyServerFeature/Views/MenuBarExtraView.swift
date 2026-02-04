@@ -25,16 +25,21 @@ public struct MenuBarExtraView: View {
         Divider()
 
         Button {
-            openWindow(id: "panes")
+            // Activate app FIRST to ensure it's in foreground before opening window
+            // Set to regular activation policy to ensure proper window focus
+            NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
+            openWindow(id: "panes")
         } label: {
             Label("Show Panes Window", symbol: .terminal)
         }
         .keyboardShortcut("p", modifiers: [.command, .shift])
 
         Button {
-            openSettings()
+            // Activate app FIRST to ensure it's in foreground before opening settings
+            NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
+            openSettings()
         } label: {
             Label("Settings...", symbol: .gearshape)
         }
@@ -53,9 +58,11 @@ public struct MenuBarExtraView: View {
     @ViewBuilder
     private func sessionButton(for session: ClaudeSession) -> some View {
         Button {
+            // Activate app FIRST to ensure it's in foreground before opening window
+            NSApp.setActivationPolicy(.regular)
+            NSApp.activate(ignoringOtherApps: true)
             Task {
                 await windowManager.openMirrorForPane(session.paneId)
-                NSApp.activate(ignoringOtherApps: true)
             }
         } label: {
             let title = if let latestEvent = session.latestEvent {

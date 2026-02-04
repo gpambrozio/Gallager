@@ -162,8 +162,10 @@ final public class DockIconManager {
             // Show dock icon when windows are visible
             if currentPolicy != .regular {
                 NSApp.setActivationPolicy(.regular)
-                // Ensure the app is properly activated
-                NSApp.activate(ignoringOtherApps: false)
+                // Note: We don't call NSApp.activate() here because the menu bar
+                // button actions already handle activation. Calling it here with
+                // ignoringOtherApps: false would interfere with the stronger
+                // activation (ignoringOtherApps: true) that was already triggered.
             }
         } else {
             // Hide dock icon when no windows are visible
