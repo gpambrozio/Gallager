@@ -72,3 +72,4 @@ ClaudeSpyPackage/.env
 .claude/iOSSimulator.json
 build/
 build-ios/
+.DS_Store
