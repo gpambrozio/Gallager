@@ -223,13 +223,9 @@
         // MARK: - Keyboard Events
 
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
-            // Handle Cmd+V paste by sending clipboard content to tmux
-            if
-                event.modifierFlags.contains(.command),
-                event.charactersIgnoringModifiers == "v",
-                let clipboardString = NSPasteboard.general.string(forType: .string),
-                !clipboardString.isEmpty {
-                onInput?([.text(clipboardString)])
+            // Handle Cmd+V by sending Ctrl+V to tmux, allowing Claude Code to handle clipboard (including images)
+            if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "v" {
+                onInput?([.ctrl("v")])
                 return true
             }
             return false
