@@ -223,8 +223,16 @@
         // MARK: - Keyboard Events
 
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
-            // Forward key equivalents (like Cmd+V for paste) to the terminal view
-            terminalView.performKeyEquivalent(with: event)
+            // Handle Cmd+V paste by sending clipboard content to tmux
+            if
+                event.modifierFlags.contains(.command),
+                event.charactersIgnoringModifiers == "v",
+                let clipboardString = NSPasteboard.general.string(forType: .string),
+                !clipboardString.isEmpty {
+                onInput?([.text(clipboardString)])
+                return true
+            }
+            return false
         }
 
         override func keyDown(with event: NSEvent) {
