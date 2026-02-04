@@ -6,23 +6,18 @@ import Logging
 /// Manages device pairing between the Mac app and iOS app via the external server.
 ///
 /// Handles pairing code generation, registration, and the overall pairing flow.
+/// Supports pairing with multiple iOS devices.
 @Observable
 @MainActor
 final public class PairingManager {
     // MARK: - Pairing State
 
-    /// Current state of the pairing process
+    /// Current state of the pairing process (for the active pairing operation)
     public enum State: Equatable, Sendable {
-        case unpaired
+        case idle
         case generatingCode
         case waitingForPairing(code: String, expiresAt: Date)
-        case paired(pairId: String, deviceName: String)
         case error(String)
-
-        public var isPaired: Bool {
-            if case .paired = self { return true }
-            return false
-        }
 
         public var isWaiting: Bool {
             if case .waitingForPairing = self { return true }
@@ -34,8 +29,8 @@ final public class PairingManager {
 
     private let logger = Logger(label: "com.claudespy.pairing")
 
-    /// Current pairing state
-    public private(set) var state: State = .unpaired
+    /// Current pairing state (for adding new devices)
+    public private(set) var state: State = .idle
 
     /// The app settings for storing pairing data
     private weak var settings: AppSettings?
@@ -49,17 +44,14 @@ final public class PairingManager {
     /// Code expiry duration in seconds (matches server)
     private let codeExpirySeconds: TimeInterval = 300
 
+    /// Callback when a new device is successfully paired
+    public var onDevicePaired: ((PairedDevice) -> Void)?
+
     // MARK: - Initialization
 
     public init(settings: AppSettings, e2eeService: E2EEService) {
         self.settings = settings
         self.e2eeService = e2eeService
-
-        // Restore state from settings
-        if let pairId = settings.pairId {
-            let deviceName = settings.pairedDeviceName ?? "iOS Device"
-            self.state = .paired(pairId: pairId, deviceName: deviceName)
-        }
     }
 
     // MARK: - Public Properties
@@ -67,6 +59,16 @@ final public class PairingManager {
     /// Our public key info for E2EE
     public var publicKeyInfo: PublicKeyInfo {
         e2eeService.publicKeyInfo
+    }
+
+    /// All paired devices (convenience accessor)
+    public var pairedDevices: [PairedDevice] {
+        settings?.pairedDevices ?? []
+    }
+
+    /// Whether at least one device is paired
+    public var hasPairedDevices: Bool {
+        settings?.isPaired ?? false
     }
 
     // MARK: - Pairing Flow
@@ -119,32 +121,69 @@ final public class PairingManager {
     public func cancelPairing() {
         pollingTask?.cancel()
         pollingTask = nil
-        state = .unpaired
+        state = .idle
         logger.info("Pairing cancelled")
     }
 
-    /// Unpair from the current iOS device
-    public func unpair() async {
-        guard let settings, let pairId = settings.pairId else {
+    /// Unpair from a specific iOS device
+    public func unpair(deviceId: String) async {
+        guard let settings else {
             return
         }
+
+        // Notify server (best effort, don't wait for response)
+        Task {
+            try? await deletePairing(pairId: deviceId)
+        }
+
+        // Clear E2EE session for this device
+        await e2eeService.clearSession()
+
+        // Remove from local state
+        settings.removePairing(id: deviceId)
+
+        logger.info("Device unpaired", metadata: ["deviceId": "\(deviceId)"])
+    }
+
+    /// Unpair from all iOS devices
+    public func unpairAll() async {
+        guard let settings else { return }
 
         pollingTask?.cancel()
         pollingTask = nil
 
-        // Notify server (best effort, don't wait for response)
-        Task {
-            try? await deletePairing(pairId: pairId)
+        // Notify server for each device (best effort)
+        for device in settings.pairedDevices {
+            Task {
+                try? await deletePairing(pairId: device.id)
+            }
         }
 
         // Clear E2EE session
         await e2eeService.clearSession()
 
-        // Clear local state
-        settings.clearPairing()
-        state = .unpaired
+        // Clear all local state
+        settings.clearAllPairings()
+        state = .idle
 
-        logger.info("Device unpaired")
+        logger.info("All devices unpaired")
+    }
+
+    /// Update partner's public key info after receiving it via WebSocket.
+    /// Called by DeviceConnectionManager when iOS connects and sends its key.
+    public func updatePartnerPublicKey(deviceId: String, publicKey: String, publicKeyId: String) {
+        guard let settings, var device = settings.getPairing(id: deviceId) else { return }
+
+        device = PairedDevice(
+            id: device.id,
+            deviceName: device.deviceName,
+            partnerPublicKey: publicKey,
+            partnerPublicKeyId: publicKeyId,
+            pairedAt: device.pairedAt,
+            customName: device.customName
+        )
+        settings.updatePairing(device)
+        logger.info("Partner public key updated for E2EE", metadata: ["deviceId": "\(deviceId)"])
     }
 
     // MARK: - Private Methods
@@ -281,30 +320,26 @@ final public class PairingManager {
     private func completePairing(pairId: String) async {
         guard let settings else { return }
 
-        // Save pairing info. Partner's public key will be obtained via WebSocket
+        // Create new paired device. Partner's public key will be obtained via WebSocket
         // when both devices connect and exchange keys during registration.
-        settings.savePairing(
-            pairId: pairId,
-            partnerDeviceName: "iOS Device",
-            partnerPublicKey: nil,
-            partnerPublicKeyId: nil
+        let device = PairedDevice(
+            id: pairId,
+            deviceName: "iOS Device",
+            partnerPublicKey: "",
+            partnerPublicKeyId: "",
+            pairedAt: Date()
         )
+        settings.addPairing(device)
 
-        state = .paired(pairId: pairId, deviceName: "iOS Device")
+        state = .idle
 
         pollingTask?.cancel()
         pollingTask = nil
 
-        logger.info("Pairing completed", metadata: ["pairId": "\(pairId)"])
-    }
+        // Notify callback
+        onDevicePaired?(device)
 
-    /// Update partner's public key info after receiving it via WebSocket.
-    /// Called by ExternalServerClient when iOS connects and sends its key.
-    public func updatePartnerPublicKey(publicKey: String, publicKeyId: String) {
-        guard let settings else { return }
-        settings.partnerPublicKey = publicKey
-        settings.partnerPublicKeyId = publicKeyId
-        logger.info("Partner public key updated for E2EE")
+        logger.info("Pairing completed", metadata: ["pairId": "\(pairId)"])
     }
 }
 

@@ -21,8 +21,8 @@ final public class TerminalStreamService {
 
     private let logger = Logger(label: "com.claudespy.terminalstream")
 
-    /// Reference to the external server client for sending messages
-    private weak var serverClient: ExternalServerClient?
+    /// Reference to the device connection manager for sending messages
+    private weak var connectionManager: DeviceConnectionManager?
 
     /// Reference to the pane stream manager
     private weak var paneStreamManager: PaneStreamManager?
@@ -42,15 +42,18 @@ final public class TerminalStreamService {
 
     public init() { }
 
-    /// Configure the service with required dependencies.
+    /// Configure the service with required dependencies for multi-device support.
     ///
     /// Must be called before starting any streams.
     ///
     /// - Parameters:
-    ///   - serverClient: The ExternalServerClient to use for sending stream data
+    ///   - connectionManager: The DeviceConnectionManager to use for sending stream data to all devices
     ///   - paneStreamManager: The PaneStreamManager to subscribe to for data
-    public func configure(serverClient: ExternalServerClient, paneStreamManager: PaneStreamManager) {
-        self.serverClient = serverClient
+    public func configureWithConnectionManager(
+        connectionManager: DeviceConnectionManager,
+        paneStreamManager: PaneStreamManager
+    ) {
+        self.connectionManager = connectionManager
         self.paneStreamManager = paneStreamManager
     }
 
@@ -86,8 +89,8 @@ final public class TerminalStreamService {
             await stopStreaming(paneId: paneId)
         }
 
-        guard let serverClient else {
-            logger.error("Server client not configured, cannot start streaming")
+        guard let connectionManager else {
+            logger.error("Connection manager not configured, cannot start streaming")
             throw StreamError.notConfigured
         }
 
@@ -143,7 +146,7 @@ final public class TerminalStreamService {
             "bufferSize": "\(result.initialContent.count)",
         ])
 
-        // Send initial state to iOS
+        // Send initial state to all iOS devices
         // The content was captured atomically with the subscription,
         // so there's no gap between this state and incoming live updates
         let initialMessage = TerminalStreamMessage.initialState(
@@ -152,7 +155,7 @@ final public class TerminalStreamService {
             height: result.height,
             content: result.initialContent
         )
-        await serverClient.sendTerminalStream(initialMessage)
+        await connectionManager.sendTerminalStreamToAll(initialMessage)
     }
 
     /// Errors that can occur during streaming
@@ -184,10 +187,10 @@ final public class TerminalStreamService {
         // Flush any pending data
         await flushPendingData(for: context, paneId: paneId)
 
-        // Send stream end
-        guard let serverClient else { return }
+        // Send stream end to all iOS devices
+        guard let connectionManager else { return }
         let endMessage = TerminalStreamMessage.streamEnd(paneId: paneId)
-        await serverClient.sendTerminalStream(endMessage)
+        await connectionManager.sendTerminalStreamToAll(endMessage)
     }
 
     /// Stop all active streams.
@@ -233,9 +236,9 @@ final public class TerminalStreamService {
         let dataToSend = context.flushPendingData()
         guard !dataToSend.isEmpty else { return }
 
-        guard let serverClient else { return }
+        guard let connectionManager else { return }
         let message = TerminalStreamMessage.dataChunk(paneId: paneId, data: dataToSend)
-        await serverClient.sendTerminalStream(message)
+        await connectionManager.sendTerminalStreamToAll(message)
     }
 
     /// Handle incoming data from PaneStreamManager
@@ -253,7 +256,7 @@ final public class TerminalStreamService {
     /// Handle dimension change from PaneStreamManager
     private func handleDimensionChange(paneId: String, width: Int, height: Int) async {
         guard activeStreams[paneId] != nil else { return }
-        guard let serverClient else { return }
+        guard let connectionManager else { return }
 
         logger.info("Sending dimension change", metadata: [
             "paneId": "\(paneId)",
@@ -261,7 +264,7 @@ final public class TerminalStreamService {
         ])
 
         let message = TerminalStreamMessage.dimensionChange(paneId: paneId, width: width, height: height)
-        await serverClient.sendTerminalStream(message)
+        await connectionManager.sendTerminalStreamToAll(message)
     }
 }
 

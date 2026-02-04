@@ -9,6 +9,59 @@ public enum SettingsTab: String, Sendable {
     case plugin
 }
 
+// MARK: - Paired Device Model
+
+/// Represents a paired iOS device with all connection details.
+///
+/// Each iOS device paired with the Mac app has its own unique `pairId`,
+/// cryptographic keys for E2EE, and connection state.
+public struct PairedDevice: Codable, Identifiable, Sendable, Hashable {
+    // MARK: - Properties
+
+    /// Unique pair identifier (also serves as Identifiable id)
+    public let id: String
+
+    /// Display name of the iOS device
+    public let deviceName: String
+
+    /// Partner's (iOS) public key for E2EE (Base64-encoded)
+    public let partnerPublicKey: String
+
+    /// Partner's (iOS) public key ID for E2EE
+    public let partnerPublicKeyId: String
+
+    /// When this pairing was established
+    public let pairedAt: Date
+
+    /// Optional custom name set by user for this device
+    public var customName: String?
+
+    // MARK: - Computed Properties
+
+    /// Display name for UI (custom name if set, otherwise device name)
+    public var displayName: String {
+        customName ?? deviceName
+    }
+
+    // MARK: - Initialization
+
+    public init(
+        id: String,
+        deviceName: String,
+        partnerPublicKey: String,
+        partnerPublicKeyId: String,
+        pairedAt: Date = Date(),
+        customName: String? = nil
+    ) {
+        self.id = id
+        self.deviceName = deviceName
+        self.partnerPublicKey = partnerPublicKey
+        self.partnerPublicKeyId = partnerPublicKeyId
+        self.pairedAt = pairedAt
+        self.customName = customName
+    }
+}
+
 /// Application settings with persistent storage
 @Observable
 @MainActor
@@ -111,24 +164,9 @@ final public class AppSettings {
         didSet { UserDefaults.standard.set(externalServerURL, forKey: Keys.externalServerURL) }
     }
 
-    /// Pair ID from successful device pairing (nil if not paired)
-    public var pairId: String? {
-        didSet { UserDefaults.standard.set(pairId, forKey: Keys.pairId) }
-    }
-
-    /// Name of paired iOS device (nil if not paired)
-    public var pairedDeviceName: String? {
-        didSet { UserDefaults.standard.set(pairedDeviceName, forKey: Keys.pairedDeviceName) }
-    }
-
-    /// Base64-encoded public key of paired iOS device for E2EE (nil if not paired)
-    public var partnerPublicKey: String? {
-        didSet { UserDefaults.standard.set(partnerPublicKey, forKey: Keys.partnerPublicKey) }
-    }
-
-    /// Public key ID of paired iOS device for E2EE (nil if not paired)
-    public var partnerPublicKeyId: String? {
-        didSet { UserDefaults.standard.set(partnerPublicKeyId, forKey: Keys.partnerPublicKeyId) }
+    /// All paired iOS devices
+    public private(set) var pairedDevices: [PairedDevice] = [] {
+        didSet { savePairedDevices() }
     }
 
     /// Whether to automatically connect to relay server on launch
@@ -193,11 +231,10 @@ final public class AppSettings {
 
         // Remote Access
         self.externalServerURL = defaults.string(forKey: Keys.externalServerURL) ?? Defaults.externalServerURL
-        self.pairId = defaults.string(forKey: Keys.pairId)
-        self.pairedDeviceName = defaults.string(forKey: Keys.pairedDeviceName)
-        self.partnerPublicKey = defaults.string(forKey: Keys.partnerPublicKey)
-        self.partnerPublicKeyId = defaults.string(forKey: Keys.partnerPublicKeyId)
         self.autoConnectToServer = defaults.object(forKey: Keys.autoConnectToServer) as? Bool ?? Defaults.autoConnectToServer
+
+        // Load paired devices (or migrate from legacy single-device format)
+        self.pairedDevices = Self.loadPairedDevices(from: defaults)
 
         // Generate device ID if not already set
         if let existingDeviceId = defaults.string(forKey: Keys.deviceId) {
@@ -237,12 +274,14 @@ final public class AppSettings {
         static let customTerminalPath = "customTerminalPath"
         // Remote Access
         static let externalServerURL = "externalServerURL"
-        static let pairId = "pairId"
-        static let pairedDeviceName = "pairedDeviceName"
-        static let partnerPublicKey = "partnerPublicKey"
-        static let partnerPublicKeyId = "partnerPublicKeyId"
+        static let pairedDevices = "pairedDevices"
         static let autoConnectToServer = "autoConnectToServer"
         static let deviceId = "deviceId"
+        // Legacy keys (for migration)
+        static let legacyPairId = "pairId"
+        static let legacyPairedDeviceName = "pairedDeviceName"
+        static let legacyPartnerPublicKey = "partnerPublicKey"
+        static let legacyPartnerPublicKeyId = "partnerPublicKeyId"
         // Plugin
         static let hasCompletedPluginSetup = "hasCompletedPluginSetup"
         // Launch at Login
@@ -282,30 +321,87 @@ final public class AppSettings {
 
     // MARK: - Computed Properties
 
-    /// Whether the device is paired with an iOS device
+    /// Whether at least one iOS device is paired
     public var isPaired: Bool {
-        pairId != nil
+        !pairedDevices.isEmpty
     }
 
-    /// Clear pairing data (for unpair operation)
-    public func clearPairing() {
-        pairId = nil
-        pairedDeviceName = nil
-        partnerPublicKey = nil
-        partnerPublicKeyId = nil
+    // MARK: - Paired Devices Storage
+
+    private static func loadPairedDevices(from defaults: UserDefaults) -> [PairedDevice] {
+        // Try loading new format first
+        if let data = defaults.data(forKey: Keys.pairedDevices) {
+            do {
+                let devices = try JSONDecoder().decode([PairedDevice].self, from: data)
+                return devices
+            } catch {
+                // Corrupted data, will try migration
+            }
+        }
+
+        // Migrate from legacy single-device format
+        if let legacyPairId = defaults.string(forKey: Keys.legacyPairId) {
+            let device = PairedDevice(
+                id: legacyPairId,
+                deviceName: defaults.string(forKey: Keys.legacyPairedDeviceName) ?? "iOS Device",
+                partnerPublicKey: defaults.string(forKey: Keys.legacyPartnerPublicKey) ?? "",
+                partnerPublicKeyId: defaults.string(forKey: Keys.legacyPartnerPublicKeyId) ?? "",
+                pairedAt: Date()
+            )
+
+            // Clear legacy keys
+            defaults.removeObject(forKey: Keys.legacyPairId)
+            defaults.removeObject(forKey: Keys.legacyPairedDeviceName)
+            defaults.removeObject(forKey: Keys.legacyPartnerPublicKey)
+            defaults.removeObject(forKey: Keys.legacyPartnerPublicKeyId)
+
+            // Save in new format
+            if let data = try? JSONEncoder().encode([device]) {
+                defaults.set(data, forKey: Keys.pairedDevices)
+            }
+
+            return [device]
+        }
+
+        return []
     }
 
-    /// Save pairing data including partner's public key for E2EE
-    public func savePairing(
-        pairId: String,
-        partnerDeviceName: String?,
-        partnerPublicKey: String?,
-        partnerPublicKeyId: String?
-    ) {
-        self.pairId = pairId
-        pairedDeviceName = partnerDeviceName
-        self.partnerPublicKey = partnerPublicKey
-        self.partnerPublicKeyId = partnerPublicKeyId
+    private func savePairedDevices() {
+        guard let data = try? JSONEncoder().encode(pairedDevices) else {
+            return
+        }
+        UserDefaults.standard.set(data, forKey: Keys.pairedDevices)
+    }
+
+    // MARK: - Pairing Management
+
+    /// Add a new paired device
+    public func addPairing(_ device: PairedDevice) {
+        // Remove any existing pairing with same ID (update case)
+        pairedDevices.removeAll { $0.id == device.id }
+        pairedDevices.append(device)
+    }
+
+    /// Remove a paired device by ID
+    public func removePairing(id: String) {
+        pairedDevices.removeAll { $0.id == id }
+    }
+
+    /// Get a paired device by ID
+    public func getPairing(id: String) -> PairedDevice? {
+        pairedDevices.first { $0.id == id }
+    }
+
+    /// Update a paired device (e.g., custom name or partner key)
+    public func updatePairing(_ device: PairedDevice) {
+        if let index = pairedDevices.firstIndex(where: { $0.id == device.id }) {
+            pairedDevices[index] = device
+        }
+    }
+
+    /// Clear all pairings
+    public func clearAllPairings() {
+        pairedDevices = []
     }
 }
 
