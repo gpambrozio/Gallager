@@ -225,10 +225,10 @@
             case settings
         }
 
-        /// Whether we're in landscape orientation on iPhone.
-        /// Only iPhone has compact vertical size class in landscape; iPad stays regular.
-        private var isLandscape: Bool {
-            verticalSizeClass == .compact
+        /// Whether to hide the tab bar (iPhone in landscape only).
+        /// iPad keeps the tab bar visible in all orientations since it has more screen space.
+        private var hideTabBar: Bool {
+            UIDevice.current.userInterfaceIdiom == .phone && verticalSizeClass == .compact
         }
 
         var body: some View {
@@ -237,8 +237,9 @@
                     SessionListView(
                         navigationPath: $sessionsNavigationPath,
                         showSettingsSheet: $showSettingsSheet,
-                        showSettingsButton: isLandscape && selectedTab != .settings
+                        showSettingsButton: hideTabBar && selectedTab != .settings
                     )
+                    .toolbar(hideTabBar ? .hidden : .visible, for: .tabBar)
                 }
                 .tabItem {
                     Label("Sessions", symbol: .terminal)
@@ -247,13 +248,13 @@
 
                 NavigationStack {
                     SettingsView()
+                        .toolbar(hideTabBar ? .hidden : .visible, for: .tabBar)
                 }
                 .tabItem {
                     Label("Settings", symbol: .gearshape)
                 }
                 .tag(Tab.settings)
             }
-            .toolbarVisibility(isLandscape ? .hidden : .automatic, for: .tabBar)
             .sheet(isPresented: $showSettingsSheet) {
                 NavigationStack {
                     SettingsView()
