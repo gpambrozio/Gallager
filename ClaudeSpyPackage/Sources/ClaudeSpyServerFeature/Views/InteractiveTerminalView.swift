@@ -247,8 +247,13 @@
                 return false
 
             case "c":
-                // Forward Cmd+C to terminal view for copy handling
-                return terminalView.performKeyEquivalent(with: event)
+                // Copy selected text to clipboard
+                if let selectedText = terminalView.getSelection() {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(selectedText, forType: .string)
+                    return true
+                }
+                return false
 
             default:
                 return false
