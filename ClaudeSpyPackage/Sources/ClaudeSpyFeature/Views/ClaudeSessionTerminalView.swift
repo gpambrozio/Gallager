@@ -9,8 +9,15 @@
         let paneId: String
         let settings: IOSSettings
 
+        @Environment(\.verticalSizeClass) private var verticalSizeClass
+
         @State private var service: SessionDetailService
         @State private var showSessionInfo = false
+
+        /// Hide navigation bar on iPhone in landscape to maximize terminal space
+        private var hideNavigationBar: Bool {
+            UIDevice.current.userInterfaceIdiom == .phone && verticalSizeClass == .compact
+        }
 
         init(
             paneId: String,
@@ -31,6 +38,7 @@
             terminalContent
                 .navigationTitle(service.session?.displayName ?? "Session")
                 .navigationBarTitleDisplayMode(.inline)
+                .toolbar(hideNavigationBar ? .hidden : .visible, for: .navigationBar)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
@@ -53,6 +61,7 @@
                     paneId: paneId,
                     responseState: $service.responseState,
                     isConnected: service.isMacConnected,
+                    hideNavigationBar: hideNavigationBar,
                     settings: settings,
                     sendCommand: { command in
                         await service.sendCommand(command)

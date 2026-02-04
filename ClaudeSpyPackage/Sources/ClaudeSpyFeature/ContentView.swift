@@ -208,6 +208,7 @@
         @Environment(IOSSettings.self) private var settings
         @Environment(ConnectionManager.self) private var connectionManager
         @Environment(SessionStore.self) private var sessionStore
+        @Environment(\.verticalSizeClass) private var verticalSizeClass
 
         @State private var selectedTab: Tab = .sessions
         @State private var sessionsNavigationPath = NavigationPath()
@@ -222,10 +223,19 @@
             case settings
         }
 
+        /// Whether to hide the tab bar (iPhone in landscape only).
+        /// iPad keeps the tab bar visible in all orientations since it has more screen space.
+        private var hideTabBar: Bool {
+            UIDevice.current.userInterfaceIdiom == .phone && verticalSizeClass == .compact
+        }
+
         var body: some View {
             TabView(selection: $selectedTab) {
                 NavigationStack(path: $sessionsNavigationPath) {
-                    SessionListView(navigationPath: $sessionsNavigationPath)
+                    SessionListView(
+                        navigationPath: $sessionsNavigationPath
+                    )
+                    .toolbar(hideTabBar ? .hidden : .visible, for: .tabBar)
                 }
                 .tabItem {
                     Label("Sessions", symbol: .terminal)
@@ -234,6 +244,7 @@
 
                 NavigationStack {
                     SettingsView()
+                        .toolbar(hideTabBar ? .hidden : .visible, for: .tabBar)
                 }
                 .tabItem {
                     Label("Settings", symbol: .gearshape)

@@ -21,6 +21,9 @@
         /// Whether the Mac is connected
         let isConnected: Bool
 
+        /// Whether the navigation bar is hidden (show overlay keyboard button)
+        let hideNavigationBar: Bool
+
         /// Command sender for response actions
         let sendCommand: CommandSender
 
@@ -38,12 +41,14 @@
             paneId: String,
             responseState: Binding<ResponseState?>,
             isConnected: Bool,
+            hideNavigationBar: Bool = false,
             settings: IOSSettings,
             sendCommand: @escaping CommandSender
         ) {
             self.paneId = paneId
             self._responseState = responseState
             self.isConnected = isConnected
+            self.hideNavigationBar = hideNavigationBar
             self.sendCommand = sendCommand
             self.coordinator = StreamCoordinator(
                 paneId: paneId,
@@ -72,8 +77,13 @@
                     Divider()
                 }
 
-                // Terminal content
+                // Terminal content with overlay keyboard button when nav bar is hidden
                 terminalContent
+                    .overlay(alignment: .topTrailing) {
+                        if hideNavigationBar {
+                            keyboardOverlayButton
+                        }
+                    }
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -113,6 +123,23 @@
                     dismiss()
                 }
             }
+        }
+
+        /// Overlay button for keyboard toggle when navigation bar is hidden
+        @ViewBuilder
+        private var keyboardOverlayButton: some View {
+            Button {
+                isInteractive.toggle()
+            } label: {
+                (keyboardVisible ? Symbols.keyboardChevronCompactDown.image : Symbols.keyboard.image)
+                    .font(.system(size: 20))
+                    .foregroundStyle(.white)
+                    .padding(8)
+                    .background(.black.opacity(0.5))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .disabled(!isConnected || coordinator.streamState != .streaming)
+            .padding(8)
         }
 
         @ViewBuilder

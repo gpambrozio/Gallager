@@ -35,6 +35,7 @@
                 }
             }
             .navigationTitle("Sessions")
+            .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: SessionNavigation.self) { destination in
                 switch destination {
                 case let .claudeSession(paneId, macId):
@@ -225,7 +226,7 @@
         let connection: MacConnection?
         let sessions: [(paneId: String, session: ClaudeSession)]
         let panes: [PaneInfoMessage]
-        var showUsername: Bool = false
+        var showUsername = false
         let onNewSession: () -> Void
 
         @Environment(SessionStore.self) private var sessionStore
@@ -281,7 +282,7 @@
     struct MacSectionHeader: View {
         let mac: PairedMac
         let connection: MacConnection?
-        var showUsername: Bool = false
+        var showUsername = false
         let onNewSession: () -> Void
 
         var body: some View {
