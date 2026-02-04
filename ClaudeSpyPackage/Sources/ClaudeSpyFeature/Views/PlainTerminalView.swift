@@ -12,6 +12,8 @@
         let relayClient: RelayClient
         let settings: IOSSettings
 
+        @Environment(\.verticalSizeClass) private var verticalSizeClass
+
         /// Always nil for plain terminals - no response state
         @State private var responseState: ResponseState?
 
@@ -20,17 +22,24 @@
             relayClient.isMacConnected
         }
 
+        /// Hide navigation bar on iPhone in landscape to maximize terminal space
+        private var hideNavigationBar: Bool {
+            UIDevice.current.userInterfaceIdiom == .phone && verticalSizeClass == .compact
+        }
+
         var body: some View {
             LiveTerminalView(
                 paneId: paneId,
                 responseState: $responseState,
                 isConnected: isConnected,
+                hideNavigationBar: hideNavigationBar,
                 settings: settings,
                 sendCommand: sendCommand
             )
             .environment(relayClient)
             .navigationTitle("Terminal")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(hideNavigationBar ? .hidden : .visible, for: .navigationBar)
         }
 
         /// Send a command to the Mac for this pane
