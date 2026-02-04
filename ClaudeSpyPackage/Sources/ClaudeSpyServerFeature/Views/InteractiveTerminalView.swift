@@ -222,6 +222,11 @@
 
         // MARK: - Keyboard Events
 
+        override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            // Forward key equivalents (like Cmd+V for paste) to the terminal view
+            terminalView.performKeyEquivalent(with: event)
+        }
+
         override func keyDown(with event: NSEvent) {
             // Let the terminal view interpret the key
             terminalView.keyDown(with: event)
