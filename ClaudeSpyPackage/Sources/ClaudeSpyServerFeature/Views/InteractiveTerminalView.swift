@@ -223,12 +223,10 @@
         // MARK: - Keyboard Events
 
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
-            // Handle Cmd+V by sending Ctrl+V to tmux, allowing Claude Code to handle clipboard (including images)
-            if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "v" {
-                onInput?([.ctrl("v")])
-                return true
-            }
-            return false
+            // Forward key equivalents (Cmd+key combinations) to the terminal as regular key events.
+            // This allows the terminal/tmux to handle shortcuts like Cmd+V for paste.
+            terminalView.keyDown(with: event)
+            return true
         }
 
         override func keyDown(with event: NSEvent) {
