@@ -223,34 +223,28 @@
         // MARK: - Keyboard Events
 
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
-            // Only handle events with Command modifier
+            // Handle Cmd+V paste
             guard
                 event.modifierFlags.contains(.command),
-                let chars = event.charactersIgnoringModifiers,
-                let char = chars.first else {
+                event.charactersIgnoringModifiers == "v" else {
                 return false
             }
 
-            // Exclude app-level shortcuts that should continue to work normally
-            let excludedKeys: Set<Character> = ["q", "w", "h", "m", ",", "n"]
-            if excludedKeys.contains(Character(char.lowercased())) {
-                return false
+            let pasteboard = NSPasteboard.general
+
+            // If clipboard has text, send it directly to tmux
+            if let clipboardString = pasteboard.string(forType: .string), !clipboardString.isEmpty {
+                onInput?([.text(clipboardString)])
+                return true
             }
 
-            // Build CSI u modifier bits: Shift=1, Alt=2, Ctrl=4, Super/Cmd=8
-            var modifierBits: UInt8 = 0
-            let flags = event.modifierFlags
-            if flags.contains(.shift) { modifierBits |= 1 }
-            if flags.contains(.option) { modifierBits |= 2 }
-            if flags.contains(.control) { modifierBits |= 4 }
-            if flags.contains(.command) { modifierBits |= 8 }
+            // If clipboard has an image, send Ctrl+V so the terminal app can handle it
+            if pasteboard.data(forType: .png) != nil || pasteboard.data(forType: .tiff) != nil {
+                onInput?([.ctrl("v")])
+                return true
+            }
 
-            // CSI u format: ESC [ keycode ; (modifier_bits + 1) u
-            let keycode = char.asciiValue ?? 0
-            let escapeSequence = "\u{1b}[\(keycode);\(modifierBits + 1)u"
-
-            onInput?([.text(escapeSequence)])
-            return true
+            return false
         }
 
         override func keyDown(with event: NSEvent) {
