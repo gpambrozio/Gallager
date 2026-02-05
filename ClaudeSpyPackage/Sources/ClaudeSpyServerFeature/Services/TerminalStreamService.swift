@@ -82,13 +82,6 @@ final public class TerminalStreamService {
         paneId: String,
         target: String
     ) async throws {
-        // If a stream is already active for this pane, stop it first.
-        // This handles cases where iOS disconnected without properly stopping the stream
-        // (navigation, connection loss, etc.) and is now trying to reconnect.
-        if activeStreams[paneId] != nil {
-            await stopStreaming(paneId: paneId)
-        }
-
         guard let connectionManager else {
             logger.error("Connection manager not configured, cannot start streaming")
             throw StreamError.notConfigured
@@ -97,6 +90,39 @@ final public class TerminalStreamService {
         guard let paneStreamManager else {
             logger.error("Pane stream manager not configured, cannot start streaming")
             throw StreamError.notConfigured
+        }
+
+        // If a stream is already active for this pane, reuse it.
+        // Multiple iOS devices can watch the same pane simultaneously.
+        // We just increment the subscriber count and send the current state.
+        if let context = activeStreams[paneId] {
+            // Capture current content first — only increment count if we succeed.
+            // This avoids inflating the count when the pane is no longer available.
+            guard let current = await paneStreamManager.currentContent(for: paneId) else {
+                logger.error("Failed to capture content for existing stream", metadata: [
+                    "paneId": "\(paneId)",
+                ])
+                throw StreamError.paneNotAvailable
+            }
+
+            context.deviceSubscriberCount += 1
+
+            logger.info("Additional device subscribing to existing stream", metadata: [
+                "paneId": "\(paneId)",
+                "subscriberCount": "\(context.deviceSubscriberCount)",
+            ])
+
+            // Send current state as initialState to all devices.
+            // Existing viewers get a content refresh (cosmetic), new viewer gets the full state.
+            let initialMessage = TerminalStreamMessage.initialState(
+                paneId: paneId,
+                width: current.width,
+                height: current.height,
+                content: current.content
+            )
+            await connectionManager.sendTerminalStreamToAll(initialMessage)
+
+            return
         }
 
         logger.info("Starting terminal stream", metadata: [
@@ -161,18 +187,42 @@ final public class TerminalStreamService {
     /// Errors that can occur during streaming
     public enum StreamError: Error {
         case notConfigured
+        case paneNotAvailable
     }
 
     /// Stop streaming a pane.
     ///
-    /// Unsubscribes from PaneStreamManager, flushes any pending data, and sends the stream end message.
+    /// Decrements the device subscriber count. Only truly stops (unsubscribes, sends streamEnd)
+    /// when the last subscriber leaves or when `force` is true.
     ///
-    /// - Parameter paneId: The pane identifier
-    public func stopStreaming(paneId: String) async {
-        guard let context = activeStreams.removeValue(forKey: paneId) else {
+    /// - Parameters:
+    ///   - paneId: The pane identifier
+    ///   - force: If true, stop immediately regardless of subscriber count (used for system cleanup)
+    public func stopStreaming(paneId: String, force: Bool = false) async {
+        guard let context = activeStreams[paneId] else {
             logger.debug("No active stream for pane \(paneId)")
             return
         }
+
+        if !force {
+            if context.deviceSubscriberCount <= 0 {
+                // Count already at or below zero — force-stop to clean up inconsistent state
+                logger.warning("Subscriber count already at \(context.deviceSubscriberCount), force-stopping", metadata: [
+                    "paneId": "\(paneId)",
+                ])
+            } else {
+                context.deviceSubscriberCount -= 1
+                if context.deviceSubscriberCount > 0 {
+                    logger.info("Device unsubscribed from stream, others still watching", metadata: [
+                        "paneId": "\(paneId)",
+                        "remainingSubscribers": "\(context.deviceSubscriberCount)",
+                    ])
+                    return
+                }
+            }
+        }
+
+        activeStreams.removeValue(forKey: paneId)
 
         logger.info("Stopping terminal stream", metadata: ["paneId": "\(paneId)"])
 
@@ -196,10 +246,11 @@ final public class TerminalStreamService {
     /// Stop all active streams.
     ///
     /// Called when iOS disconnects or the app is shutting down.
+    /// Uses force to bypass subscriber count since this is a system-level cleanup.
     public func stopAllStreams() async {
         let paneIds = Array(activeStreams.keys)
         for paneId in paneIds {
-            await stopStreaming(paneId: paneId)
+            await stopStreaming(paneId: paneId, force: true)
         }
     }
 
@@ -215,7 +266,7 @@ final public class TerminalStreamService {
 
         for paneId in streamsToStop {
             logger.info("Stopping stream for closed pane", metadata: ["paneId": "\(paneId)"])
-            await stopStreaming(paneId: paneId)
+            await stopStreaming(paneId: paneId, force: true)
         }
     }
 
@@ -277,6 +328,10 @@ final private class StreamContext {
     var subscriptionId: UUID?
     private var pendingData = Data()
     var batchTask: Task<Void, Never>?
+
+    /// Number of iOS devices currently watching this pane's stream.
+    /// The stream is only truly stopped when this reaches 0 (or forced).
+    var deviceSubscriberCount = 1
 
     var pendingDataSize: Int { pendingData.count }
 
