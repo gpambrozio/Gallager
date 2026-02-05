@@ -75,19 +75,19 @@ final public class DeviceConnection: Identifiable {
     private var urlSession: URLSession?
 
     /// Device ID for registration
-    private var macDeviceId: String = ""
+    private var macDeviceId = ""
 
     /// Device name for registration
-    private var macDeviceName: String = ""
+    private var macDeviceName = ""
 
     /// Username of the Mac user
     private var username = ""
 
     /// Public key for E2EE (Base64-encoded)
-    private var publicKey: String = ""
+    private var publicKey = ""
 
     /// Public key ID for E2EE
-    private var publicKeyId: String = ""
+    private var publicKeyId = ""
 
     /// Server URL for reconnection
     private var serverURL: URL?
@@ -173,8 +173,8 @@ final public class DeviceConnection: Identifiable {
         }
 
         self.serverURL = serverURL
-        self.macDeviceId = deviceId
-        self.macDeviceName = deviceName
+        macDeviceId = deviceId
+        macDeviceName = deviceName
         self.username = username
         self.publicKey = publicKey
         self.publicKeyId = publicKeyId
@@ -268,7 +268,15 @@ final public class DeviceConnection: Identifiable {
             return
         }
 
-        let sessionState = await onSessionStateRequest()
+        var sessionState = await onSessionStateRequest()
+        // Set the pairId for this specific connection
+        sessionState = SessionStateMessage(
+            pairId: id,
+            sessions: sessionState.sessions,
+            activePanes: sessionState.activePanes,
+            panes: sessionState.panes,
+            claudeProjects: sessionState.claudeProjects
+        )
         logger.info("Pushing session state to iOS device: \(deviceName)")
         await sendEncrypted(.sessionState(sessionState))
     }

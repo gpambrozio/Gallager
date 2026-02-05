@@ -73,19 +73,21 @@ final public class DeviceConnectionManager {
         if connections.values.contains(where: { $0.state == .connecting }) {
             return .connecting
         }
-        if let reconnecting = connections.values.first(where: {
-            if case .reconnecting = $0.state { return true }
-            return false
-        }) {
+        if
+            let reconnecting = connections.values.first(where: {
+                if case .reconnecting = $0.state { return true }
+                return false
+            }) {
             return reconnecting.state
         }
         if connections.values.contains(where: { $0.state == .extendedBackoff }) {
             return .extendedBackoff
         }
-        if let error = connections.values.first(where: {
-            if case .error = $0.state { return true }
-            return false
-        }) {
+        if
+            let error = connections.values.first(where: {
+                if case .error = $0.state { return true }
+                return false
+            }) {
             return error.state
         }
         return .disconnected
