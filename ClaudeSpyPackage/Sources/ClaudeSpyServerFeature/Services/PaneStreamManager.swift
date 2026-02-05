@@ -258,7 +258,9 @@
         /// - Returns: Current content, width, and height if the pane is streaming; nil otherwise
         public func currentContent(for paneId: String) async -> (content: Data, width: Int, height: Int)? {
             guard let context = streams[paneId] else { return nil }
-            let content = (try? await tmuxService.capturePaneWithScrollbackForStreaming(context.target)) ?? Data()
+            guard let content = try? await tmuxService.capturePaneWithScrollbackForStreaming(context.target) else {
+                return nil
+            }
             return (content, context.stream.width, context.stream.height)
         }
 
