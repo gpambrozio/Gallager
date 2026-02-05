@@ -233,7 +233,7 @@ final public class AppSettings {
         self.externalServerURL = defaults.string(forKey: Keys.externalServerURL) ?? Defaults.externalServerURL
         self.autoConnectToServer = defaults.object(forKey: Keys.autoConnectToServer) as? Bool ?? Defaults.autoConnectToServer
 
-        // Load paired devices (or migrate from legacy single-device format)
+        // Load paired devices
         self.pairedDevices = Self.loadPairedDevices(from: defaults)
 
         // Generate device ID if not already set
@@ -277,11 +277,6 @@ final public class AppSettings {
         static let pairedDevices = "pairedDevices"
         static let autoConnectToServer = "autoConnectToServer"
         static let deviceId = "deviceId"
-        // Legacy keys (for migration)
-        static let legacyPairId = "pairId"
-        static let legacyPairedDeviceName = "pairedDeviceName"
-        static let legacyPartnerPublicKey = "partnerPublicKey"
-        static let legacyPartnerPublicKeyId = "partnerPublicKeyId"
         // Plugin
         static let hasCompletedPluginSetup = "hasCompletedPluginSetup"
         // Launch at Login
@@ -329,41 +324,10 @@ final public class AppSettings {
     // MARK: - Paired Devices Storage
 
     private static func loadPairedDevices(from defaults: UserDefaults) -> [PairedDevice] {
-        // Try loading new format first
-        if let data = defaults.data(forKey: Keys.pairedDevices) {
-            do {
-                let devices = try JSONDecoder().decode([PairedDevice].self, from: data)
-                return devices
-            } catch {
-                // Corrupted data, will try migration
-            }
+        guard let data = defaults.data(forKey: Keys.pairedDevices) else {
+            return []
         }
-
-        // Migrate from legacy single-device format
-        if let legacyPairId = defaults.string(forKey: Keys.legacyPairId) {
-            let device = PairedDevice(
-                id: legacyPairId,
-                deviceName: defaults.string(forKey: Keys.legacyPairedDeviceName) ?? "iOS Device",
-                partnerPublicKey: defaults.string(forKey: Keys.legacyPartnerPublicKey) ?? "",
-                partnerPublicKeyId: defaults.string(forKey: Keys.legacyPartnerPublicKeyId) ?? "",
-                pairedAt: Date()
-            )
-
-            // Clear legacy keys
-            defaults.removeObject(forKey: Keys.legacyPairId)
-            defaults.removeObject(forKey: Keys.legacyPairedDeviceName)
-            defaults.removeObject(forKey: Keys.legacyPartnerPublicKey)
-            defaults.removeObject(forKey: Keys.legacyPartnerPublicKeyId)
-
-            // Save in new format
-            if let data = try? JSONEncoder().encode([device]) {
-                defaults.set(data, forKey: Keys.pairedDevices)
-            }
-
-            return [device]
-        }
-
-        return []
+        return (try? JSONDecoder().decode([PairedDevice].self, from: data)) ?? []
     }
 
     private func savePairedDevices() {
