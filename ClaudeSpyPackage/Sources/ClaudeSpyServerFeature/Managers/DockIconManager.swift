@@ -74,17 +74,23 @@ final public class DockIconManager {
     }
 
     private func observeWindowWillClose() async {
-        for await _ in NotificationCenter.default.notifications(
+        for await notification in NotificationCenter.default.notifications(
             named: NSWindow.willCloseNotification
         ) {
+            guard
+                let window = notification.object as? NSWindow,
+                isRelevantWindow(window) else { continue }
             handleWindowClosing()
         }
     }
 
     private func observeWindowResignedKey() async {
-        for await _ in NotificationCenter.default.notifications(
+        for await notification in NotificationCenter.default.notifications(
             named: NSWindow.didResignKeyNotification
         ) {
+            guard
+                let window = notification.object as? NSWindow,
+                isRelevantWindow(window) else { continue }
             handleWindowClosing()
         }
     }
@@ -171,10 +177,9 @@ final public class DockIconManager {
             // Show dock icon when windows are visible
             if currentPolicy != .regular {
                 NSApp.setActivationPolicy(.regular)
-                // Note: We don't call NSApp.activate() here because the menu bar
-                // button actions already handle activation. Calling it here with
-                // ignoringOtherApps: false would interfere with the stronger
-                // activation (ignoringOtherApps: true) that was already triggered.
+                // Note: We don't call NSApp.activate() here because
+                // handleWindowVisible already handles activation when
+                // a window becomes key/main.
             }
         } else {
             // Hide dock icon when no windows are visible
