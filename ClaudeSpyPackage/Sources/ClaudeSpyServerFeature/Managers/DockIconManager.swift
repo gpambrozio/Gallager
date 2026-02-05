@@ -95,6 +95,15 @@ final public class DockIconManager {
         guard let window = notification.object as? NSWindow else { return }
         guard isRelevantWindow(window) else { return }
         updateActivationPolicy()
+
+        // Always force the window to front when it becomes key/main.
+        // This ensures windows opened from menu bar actions appear above
+        // other applications. orderFrontRegardless() works regardless of
+        // whether the app is active.
+        window.orderFrontRegardless()
+        if !NSApp.isActive {
+            NSApp.activate()
+        }
     }
 
     private func handleWindowClosing() {

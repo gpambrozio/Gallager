@@ -25,21 +25,18 @@ public struct MenuBarExtraView: View {
         Divider()
 
         Button {
-            // Activate app FIRST to ensure it's in foreground before opening window
-            // Set to regular activation policy to ensure proper window focus
             NSApp.setActivationPolicy(.regular)
-            NSApp.activate(ignoringOtherApps: true)
             openWindow(id: "panes")
+            Self.bringAppToFront()
         } label: {
             Label("Show Panes Window", symbol: .terminal)
         }
         .keyboardShortcut("p", modifiers: [.command, .shift])
 
         Button {
-            // Activate app FIRST to ensure it's in foreground before opening settings
             NSApp.setActivationPolicy(.regular)
-            NSApp.activate(ignoringOtherApps: true)
             openSettings()
+            Self.bringAppToFront()
         } label: {
             Label("Settings...", symbol: .gearshape)
         }
@@ -53,14 +50,28 @@ public struct MenuBarExtraView: View {
         .keyboardShortcut("q", modifiers: .command)
     }
 
+    // MARK: - Helpers
+
+    /// Activates the app and forces all visible windows to the front.
+    /// SwiftUI's openWindow/openSettings defer window creation, so we
+    /// schedule a delayed force-front to catch windows after they appear.
+    static func bringAppToFront() {
+        NSApp.activate()
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(200))
+            NSApp.activate()
+            for window in NSApp.windows where window.isVisible && window.level == .normal {
+                window.orderFrontRegardless()
+            }
+        }
+    }
+
     // MARK: - Session Button
 
     @ViewBuilder
     private func sessionButton(for session: ClaudeSession) -> some View {
         Button {
-            // Activate app FIRST to ensure it's in foreground before opening window
             NSApp.setActivationPolicy(.regular)
-            NSApp.activate(ignoringOtherApps: true)
             Task {
                 await windowManager.openMirrorForPane(session.paneId)
             }
