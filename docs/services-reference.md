@@ -4,6 +4,17 @@ Detailed documentation for ClaudeSpy services. Reference when modifying specific
 
 ## macOS Services
 
+### AppCoordinator (`ClaudeSpyServerFeature/Coordinators/AppCoordinator.swift`)
+
+`@Observable @MainActor` central coordinator for all services.
+
+**Responsibilities:**
+- Creates and owns all services
+- Wires callbacks between services (hook events, pane changes, commands)
+- Two-phase init: sync (core services) + async (`setupAllServices()` for E2EE, connections)
+- Auto-connects to paired devices on startup
+- Observes system wake for reconnection
+
 ### TmuxService (`ClaudeSpyServerFeature/Services/TmuxService.swift`)
 
 `@Observable @MainActor` class abstracting tmux CLI interactions.
@@ -28,9 +39,10 @@ Actor managing a `tmux -C attach` control mode connection.
 - Parses control protocol: `%output`, `%layout-change`, `%begin/%end/%error`, `%exit`
 - Unescapes octal-encoded output (`\033` → ESC character)
 - Buffers output during resize to ensure clients get dimensions before new content
+- Per-pane UTF-8 buffering for sequences split across `%output` lines
 - Sends commands and receives responses via `%begin/%end` blocks
 
-**Notifications:**
+**Callbacks:**
 - `onOutput(paneId, data)` - terminal output for a pane
 - `onDimensionChange(paneId, width, height)` - pane resized
 - `onExit(reason)` - control mode connection closed
@@ -42,6 +54,8 @@ Actor managing a `tmux -C attach` control mode connection.
 **Methods:**
 - `getClient(for:)` - returns existing or creates new client for session
 - `registerPane()` / `unregisterPane()` - subscribe/unsubscribe to pane output
+- `setOnDimensionChange()` - forward dimension changes to PaneStreamManager
+- `setOnPanesChanged()` - callback when panes exit (for cleanup)
 - `extractSessionName(from:)` - parses session from pane target
 
 Multiple panes in the same session share one control client connection.
@@ -58,7 +72,7 @@ TmuxControlClient ──%output──→ TmuxControlClientManager
                                         ↓
                               PaneStream.onData callback
                                         ↓
-                               TerminalController.feed(data)
+                               subscriber callbacks
 
 TmuxControlClient ──%layout-change──→ buffers output
                                         ↓
@@ -71,16 +85,34 @@ TmuxControlClient ──%layout-change──→ buffers output
 
 **Features:** Initial content capture, real-time dimension updates via control mode
 
+### PaneStreamManager (`ClaudeSpyServerFeature/Services/PaneStreamManager.swift`)
+
+`@Observable @MainActor` multiplexing streams to multiple subscribers.
+
+**Subscription Model:**
+- Multiple consumers (mirror windows, TerminalStreamService) subscribe to the same pane
+- Single PaneStream per pane, shared by all subscribers
+- Returns `SubscriptionResult` with initial content captured atomically with subscription
+- Stream auto-disconnects when last subscriber unsubscribes
+
+**Methods:**
+- `subscribe(paneId:target:onData:onDimensionChange:)` - subscribe with callbacks
+- `unsubscribe(_:)` - remove subscription (disconnects stream if last)
+- `currentContent(for:)` - capture current terminal content without subscribing (for multi-device initial state)
+- `updateDimensions(paneId:width:height:)` - propagate dimension changes
+- `disconnectAll()` - shutdown cleanup
+
 ### MirrorWindowManager (`ClaudeSpyServerFeature/Managers/MirrorWindowManager.swift`)
 
 `@Observable @MainActor` managing NSWindow lifecycle.
 
-- Creates windows sized via `FontMetrics`
-- Tracks windows by pane target: `[String: NSWindow]`
-- Reuses existing windows (bring to front)
-- Supports programmatic open/close via `HookServerService`
+- Tracks sessions and windows by pane target
+- Handles hook events (SessionStart opens window, SessionEnd closes)
+- Respects user-closed state (won't reopen until session ends)
+- Periodic session validation cleans up stale sessions
+- `cleanupStaleSessions(currentPanes:)` removes sessions for closed panes
 
-### TerminalController (`ClaudeSpyServerFeature/Views/TerminalContainerView.swift`)
+### TerminalContainerView (`ClaudeSpyServerFeature/Views/TerminalContainerView.swift`)
 
 `@Observable @MainActor` bridging SwiftTerm to SwiftUI.
 
@@ -92,7 +124,11 @@ TmuxControlClient ──%layout-change──→ buffers output
 
 ### HookServerService (`ClaudeSpyServerFeature/Hooks/HookServerService.swift`)
 
-`@Observable @MainActor` Vapor HTTP server on port 6111.
+`actor` HTTP server on port 6111.
+
+**Endpoints:**
+- `GET /health` - Health check
+- `POST /api/hooks` - Hook event receiver
 
 **Events:**
 - `SessionStart` - auto-opens mirror window
@@ -100,36 +136,147 @@ TmuxControlClient ──%layout-change──→ buffers output
 - `NotificationSend` - notification events
 - `Stop` - stop events
 
-### ExternalServerClient (`ClaudeSpyServerFeature/Services/ExternalServerClient.swift`)
+### DeviceConnectionManager (`ClaudeSpyServerFeature/Services/DeviceConnectionManager.swift`)
 
-`@Observable @MainActor` managing WebSocket to relay server.
+`@Observable @MainActor` managing connections to all paired iOS devices.
 
-- Connect/disconnect with pairId
-- Send `WebSocketMessage` for iOS relay
-- Handle incoming commands
-- Track iOS connection status
+**Features:**
+- Wraps multiple `DeviceConnection` instances (one per paired device)
+- Broadcasts events to all connected devices
+- Combined state for UI display (`combinedState`)
+- Auto-reconnect on system wake
+
+**Broadcasting Methods:**
+- `sendHookEventToAll()` - forward hook events
+- `sendTerminalStreamToAll()` - forward terminal data
+- `pushSessionStateToAll()` - sync session state
+
+**Callbacks (set by AppCoordinator):**
+- `onCommand` - handle commands from any iOS device
+- `onSessionStateRequest` - provide current session state
+- `onPartnerKeyReceived` - persist E2EE partner keys
+
+### DeviceConnection (`ClaudeSpyServerFeature/Services/DeviceConnection.swift`)
+
+`@Observable @MainActor` WebSocket connection to a single paired iOS device.
+
+**States:** `disconnected` → `connecting` → `connected` | `reconnecting(attempt)` | `extendedBackoff` | `error`
+
+- Manages WebSocket lifecycle with relay server
+- E2EE encryption per device
+- Auto-reconnects with exponential backoff
+- Sends/receives all message types (hook events, commands, terminal stream, session state)
 
 ### PairingManager (`ClaudeSpyServerFeature/Services/PairingManager.swift`)
 
 `@Observable @MainActor` managing device pairing.
 
-**States:** `unpaired` → `generatingCode` → `waitingForPairing` → `paired`
+**States:** `idle` → `generatingCode` → `waitingForPairing(code, expiresAt)` | `error`
 
-- Generates 6-char codes
-- Registers with external server
-- Polls for completion
-- Persists to UserDefaults
+- Generates 6-char alphanumeric codes (excludes I and O)
+- Registers with external server (includes E2EE public key)
+- Polls for pairing completion
+- Supports multiple paired devices
+- `onDevicePaired` callback triggers connection to newly paired device
+- Partner public keys received via WebSocket after pairing
+
+### TerminalStreamService (`ClaudeSpyServerFeature/Services/TerminalStreamService.swift`)
+
+`@Observable @MainActor` streaming terminal data to iOS devices.
+
+**Batching:** 50ms minimum interval, 8KB max batch size (20 updates/sec max)
+
+**Multi-Device Support:**
+- Reference-counted streams (`deviceSubscriberCount` per pane)
+- `startStreaming()` reuses existing stream if one exists (increments count, sends current content)
+- `stopStreaming()` decrements count; only fully stops when count reaches 0
+- `stopStreaming(force: true)` bypasses count for system-level cleanup
+- `stopAllStreams()` / `stopStreamsForClosedPanes()` always use `force: true`
+
+**Message Types:** `initialState`, `dataChunk`, `dimensionChange`, `streamEnd`
+
+### TmuxCommandExecutor (`ClaudeSpyServerFeature/Services/TmuxCommandExecutor.swift`)
+
+Actor executing commands from iOS devices.
+
+- Receives `CommandMessage` from `DeviceConnectionManager`
+- Dispatches to `TmuxService` (sendKeys, sendInterrupt, etc.)
+- Returns `CommandResponseMessage` (success/failure)
+
+### PluginService (`ClaudeSpyServerFeature/Services/PluginService.swift`)
+
+`@Observable @MainActor` managing Claude Code plugin detection and installation.
+
+**States:** `unknown` → `checking` → `installed(version)` | `notInstalled` → `installing` → `installed` | `installationFailed`
+
+- Detects plugin at `~/.claude/plugins/`
+- Installs bundled plugin from app resources
+- First-launch setup flow via `PluginSetupView`
+
+### ClaudeProjectScanner (`ClaudeSpyServerFeature/Services/ClaudeProjectScanner.swift`)
+
+Actor scanning for Claude Code projects.
+
+- Reads `~/.claude.json` for project paths
+- Validates projects have `.claude` subdirectory
+- Sorts by most recently used (session timestamps)
+- Results sent to iOS for project list display
+
+### ClaudePathDetector (`ClaudeSpyServerFeature/Services/ClaudePathDetector.swift`)
+
+Static utility detecting the `claude` CLI path.
+
+- Checks common locations (`/usr/local/bin/claude`, homebrew paths, etc.)
+- Used by `TerminalLauncher` for auto-running Claude in new sessions
+
+### TerminalLauncher (`ClaudeSpyServerFeature/Services/TerminalLauncher.swift`)
+
+`@MainActor` utility for launching tmux sessions in external terminals.
+
+- Supports Terminal.app, iTerm2, Warp, Kitty, Alacritty, custom
+- Attaches to existing tmux sessions
+- Used from iOS "open in terminal" commands
+
+### DockIconManager (`ClaudeSpyServerFeature/Managers/DockIconManager.swift`)
+
+`@MainActor` managing dock icon visibility.
+
+- App runs as accessory (no dock icon) when no windows visible
+- Switches to regular mode when windows open
+- Ignores menu bar and popover windows
+
+### SleepPreventionManager (`ClaudeSpyServerFeature/Managers/SleepPreventionManager.swift`)
+
+`@MainActor` preventing Mac sleep during active sessions.
+
+- Uses IOKit `IOPMAssertionCreateWithName` assertions
+- Enabled/disabled via settings toggle
+- Automatically releases when all sessions end
+
+### LoginItemService (`ClaudeSpyServerFeature/Services/LoginItemService.swift`)
+
+Static utility for launch-at-login management.
+
+- Uses `SMAppService.mainApp` for registration
+- Appears in System Settings > General > Login Items
+
+### UpdaterController (`ClaudeSpyServerFeature/Services/UpdaterController.swift`)
+
+`@Observable @MainActor` wrapping Sparkle updater for SwiftUI.
+
+- Exposes `canCheckForUpdates` binding
+- `checkForUpdates()` action
 
 ## iOS Services
 
 ### RelayClient (`ClaudeSpyFeature/Services/RelayClient.swift`)
 
-`@Observable @MainActor` managing WebSocket from iOS.
+`@Observable @MainActor` managing WebSocket from iOS to relay server.
 
-- Connects after pairing
-- Receives session state and events
-- Sends commands (keystroke, cancel)
-- Auto-reconnects with backoff
+- Connects via `MacConnection` wrapper per paired Mac
+- Receives session state, hook events, terminal stream data
+- Sends commands (keystroke, cancel, start/stop stream)
+- Auto-reconnects with exponential backoff
 
 ### SessionStore (`ClaudeSpyFeature/Services/SessionStore.swift`)
 
@@ -141,14 +288,6 @@ TmuxControlClient ──%layout-change──→ buffers output
 - Clears on disconnect
 
 ## Utilities
-
-### FontMetrics (`ClaudeSpyServerFeature/Utilities/FontMetrics.swift`)
-
-- `calculateCellSize(fontName:fontSize:)` - CoreText cell dimensions
-- `swiftTermScrollerWidth` - SwiftTerm scroller width
-- `horizontalBuffer` - scroller compensation (width + 4px)
-
-See `docs/swiftterm-sizing.md` for sizing analysis.
 
 ### ProcessRunner (`ClaudeSpyServerFeature/Utilities/ProcessRunner.swift`)
 
@@ -172,8 +311,19 @@ command, currentPath, width, height, isActive
 `@Observable @MainActor` with UserDefaults:
 
 - **Terminal:** fontName, fontSize, scrollbackLines, theme
-- **Behavior:** restoreWindowsOnLaunch, showStatusBar, autoReconnect
+- **Behavior:** restoreWindowsOnLaunch, showStatusBar, autoConnectToServer, preventSleepDuringSessions
 - **Tmux:** tmuxPath, tmuxSocket
+- **Remote Access:** externalServerURL, deviceId, pairedDevices
+- **Claude:** autoRunClaudeInProjects, claudeCommandPath
+- **Plugin:** hasCompletedPluginSetup
+
+### PairedDevice (`ClaudeSpyServerFeature/Models/Settings.swift`)
+
+```swift
+id, deviceName, partnerPublicKey, partnerPublicKeyId, pairedAt, customName
+```
+
+Represents a paired iOS device with E2EE key info.
 
 ## Push Notifications
 

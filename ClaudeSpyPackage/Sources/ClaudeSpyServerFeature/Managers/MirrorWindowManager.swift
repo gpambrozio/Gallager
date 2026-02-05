@@ -120,6 +120,8 @@ final public class MirrorWindowManager {
         // If window already exists for this pane, bring it to front
         if let existingWindow = openWindows[paneInfo.target] {
             existingWindow.makeKeyAndOrderFront(nil)
+            existingWindow.orderFrontRegardless()
+            NSApp.activate()
             return existingWindow
         }
 
@@ -180,6 +182,8 @@ final public class MirrorWindowManager {
         // Center and show window
         window.center()
         window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+        NSApp.activate()
 
         return window
     }
@@ -262,7 +266,11 @@ final public class MirrorWindowManager {
 
     /// Brings a mirror window to front if it exists
     public func bringToFront(target: String) {
-        openWindows[target]?.makeKeyAndOrderFront(nil)
+        if let window = openWindows[target] {
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+            NSApp.activate()
+        }
     }
 
     /// Returns whether a mirror is open for the given target

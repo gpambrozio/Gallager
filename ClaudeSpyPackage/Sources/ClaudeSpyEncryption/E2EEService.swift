@@ -146,6 +146,11 @@
             PublicKeyInfo(publicKey: keyPair.publicKeyData, keyId: keyPair.keyId)
         }
 
+        /// Access to the stored key pair for creating per-device E2EE services.
+        public var storedKeyPair: StoredKeyPair {
+            keyPair
+        }
+
         // MARK: - Session Management
 
         /// Establishes an encryption session with a partner device.

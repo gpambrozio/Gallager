@@ -7,7 +7,7 @@ import SwiftUI
 public struct RemoteAccessSettingsView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(PairingManager.self) private var pairingManager
-    @Environment(ExternalServerClient.self) private var serverClient
+    @Environment(AppCoordinator.self) private var coordinator
     @Environment(\.e2eeService) private var e2eeService: E2EEService?
 
     @State private var showCopiedFeedback = false
@@ -25,11 +25,11 @@ public struct RemoteAccessSettingsView: View {
                 Text("Connection Status")
             }
 
-            // Pairing Section
+            // Paired Devices Section
             Section {
-                pairingContent
+                pairedDevicesContent
             } header: {
-                Text("Device Pairing")
+                Text("Paired Devices")
             }
 
             // Server Configuration
@@ -49,36 +49,28 @@ public struct RemoteAccessSettingsView: View {
         .formStyle(.grouped)
         .frame(minWidth: 400, minHeight: 300)
         .navigationTitle("Remote Access")
-        .onChange(of: pairingManager.state) { oldState, newState in
-            // Auto-connect when pairing completes
-            if case .paired = newState, case .waitingForPairing = oldState {
-                Task {
-                    await connectToServer()
-                }
-            }
-        }
     }
 
     // MARK: - Connection Status Row
 
     @ViewBuilder
     private var connectionStatusRow: some View {
+        let connectionManager = coordinator.deviceConnectionManager
+        let combinedState = connectionManager?.combinedState ?? .disconnected
+
         HStack(spacing: 12) {
-            connectionStatusIcon
+            connectionStatusIcon(for: combinedState)
                 .font(.title2)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(serverClient.state.statusText)
+                Text(statusText(for: combinedState))
                     .font(.headline)
 
-                if serverClient.isIOSConnected {
-                    HStack(spacing: 4) {
-                        Symbols.iphone.image
-                            .font(.caption)
-                        Text(serverClient.connectedIOSDeviceName ?? "iOS Device")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                if let connectedCount = connectionManager?.activeConnections.filter({ $0.isIOSConnected }).count,
+                   connectedCount > 0 {
+                    Text("\(connectedCount) device\(connectedCount == 1 ? "" : "s") connected")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -90,8 +82,8 @@ public struct RemoteAccessSettingsView: View {
     }
 
     @ViewBuilder
-    private var connectionStatusIcon: some View {
-        switch serverClient.state {
+    private func connectionStatusIcon(for state: DeviceConnection.ConnectionState) -> some View {
+        switch state {
         case .disconnected:
             Symbols.wifiSlash.image
                 .foregroundStyle(.secondary)
@@ -109,40 +101,50 @@ public struct RemoteAccessSettingsView: View {
         }
     }
 
+    private func statusText(for state: DeviceConnection.ConnectionState) -> String {
+        state.statusText
+    }
+
     @ViewBuilder
     private var connectionActionButton: some View {
-        if serverClient.state.isConnected {
+        let connectionManager = coordinator.deviceConnectionManager
+        let combinedState = connectionManager?.combinedState ?? .disconnected
+
+        if combinedState.isConnected {
             Button("Disconnect") {
                 Task {
-                    await serverClient.disconnect()
+                    await connectionManager?.disconnectAll()
                 }
             }
-        } else if case .connecting = serverClient.state {
+        } else if case .connecting = combinedState {
             // No button while connecting
             EmptyView()
-        } else if case .reconnecting = serverClient.state {
+        } else if case .reconnecting = combinedState {
             Button("Cancel") {
                 Task {
-                    await serverClient.disconnect()
+                    await connectionManager?.disconnectAll()
                 }
             }
         } else if settings.isPaired {
             Button("Connect") {
                 Task {
-                    await connectToServer()
+                    await connectionManager?.connectAll()
                 }
             }
-            .disabled(settings.pairId == nil)
         }
     }
 
-    // MARK: - Pairing Content
+    // MARK: - Paired Devices Content
 
     @ViewBuilder
-    private var pairingContent: some View {
+    private var pairedDevicesContent: some View {
         switch pairingManager.state {
-        case .unpaired:
-            unpairedView
+        case .idle:
+            if pairingManager.hasPairedDevices {
+                pairedDevicesListView
+            } else {
+                unpairedView
+            }
 
         case .generatingCode:
             HStack {
@@ -154,12 +156,35 @@ public struct RemoteAccessSettingsView: View {
         case let .waitingForPairing(code, expiresAt):
             pairingCodeView(code: code, expiresAt: expiresAt)
 
-        case let .paired(_, deviceName):
-            pairedView(deviceName: deviceName)
-
         case let .error(message):
             errorView(message: message)
         }
+    }
+
+    @ViewBuilder
+    private var pairedDevicesListView: some View {
+        ForEach(pairingManager.pairedDevices) { device in
+            DeviceRow(
+                device: device,
+                connection: coordinator.deviceConnectionManager?.connection(for: device.id),
+                onUnpair: {
+                    Task {
+                        await pairingManager.unpair(deviceId: device.id)
+                        await coordinator.deviceConnectionManager?.disconnect(from: device.id)
+                    }
+                }
+            )
+        }
+
+        Button {
+            Task {
+                await pairingManager.generatePairingCode()
+            }
+        } label: {
+            Label("Add Device", symbol: .plus)
+        }
+        .buttonStyle(.borderless)
+        .padding(.top, 4)
     }
 
     @ViewBuilder
@@ -228,33 +253,6 @@ public struct RemoteAccessSettingsView: View {
     }
 
     @ViewBuilder
-    private func pairedView(deviceName: String) -> some View {
-        HStack(spacing: 12) {
-            Symbols.checkmarkCircleFill.image
-                .font(.title2)
-                .foregroundStyle(.green)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Paired with iOS")
-                    .font(.headline)
-                Text(deviceName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            Button("Unpair") {
-                Task {
-                    await pairingManager.unpair()
-                }
-            }
-            .buttonStyle(.bordered)
-        }
-        .padding(.vertical, 4)
-    }
-
-    @ViewBuilder
     private func errorView(message: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -291,36 +289,91 @@ public struct RemoteAccessSettingsView: View {
         let secs = Int(seconds) % 60
         return String(format: "%d:%02d", minutes, secs)
     }
-
-    private func connectToServer() async {
-        guard
-            let pairId = settings.pairId,
-            let serverURL = URL(string: settings.externalServerURL),
-            let e2eeService
-        else {
-            return
-        }
-
-        let keyInfo = pairingManager.publicKeyInfo
-        await serverClient.connect(
-            serverURL: serverURL,
-            pairId: pairId,
-            deviceId: settings.deviceId,
-            deviceName: Host.current().localizedName ?? "Mac",
-            username: ProcessInfo.processInfo.userName,
-            publicKey: keyInfo.publicKey.base64EncodedString(),
-            publicKeyId: keyInfo.keyId,
-            e2eeService: e2eeService,
-            partnerPublicKey: settings.partnerPublicKey,
-            partnerPublicKeyId: settings.partnerPublicKeyId
-        )
-    }
 }
 
-// Preview disabled - E2EEService requires async initialization
-// #Preview {
-//     RemoteAccessSettingsView()
-//         .environment(AppSettings())
-//         .environment(PairingManager(settings: AppSettings(), e2eeService: ...))
-//         .environment(ExternalServerClient())
-// }
+// MARK: - Device Row
+
+private struct DeviceRow: View {
+    let device: PairedDevice
+    let connection: DeviceConnection?
+    let onUnpair: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            connectionIndicator
+                .font(.title3)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(device.displayName)
+                    .font(.headline)
+
+                Text("Paired \(device.pairedAt.formatted(date: .abbreviated, time: .omitted))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            connectionStatusText
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Menu {
+                Button("Unpair", role: .destructive, action: onUnpair)
+            } label: {
+                Symbols.ellipsisCircle.image
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private var connectionIndicator: some View {
+        if let connection {
+            switch connection.state {
+            case .connected where connection.isIOSConnected:
+                Symbols.checkmarkCircleFill.image
+                    .foregroundStyle(.green)
+            case .connected:
+                Symbols.circle.image
+                    .foregroundStyle(.yellow)
+            case .connecting, .reconnecting:
+                ProgressView()
+                    .controlSize(.small)
+            default:
+                Symbols.circle.image
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            Symbols.circle.image
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var connectionStatusText: some View {
+        if let connection {
+            switch connection.state {
+            case .connected where connection.isIOSConnected:
+                Text("Connected")
+            case .connected:
+                Text("Waiting for iOS")
+            case .connecting:
+                Text("Connecting...")
+            case let .reconnecting(attempt):
+                Text("Reconnecting (\(attempt))")
+            case .extendedBackoff:
+                Text("Reconnecting...")
+            case let .error(message):
+                Text(message)
+                    .foregroundStyle(.red)
+            case .disconnected:
+                Text("Disconnected")
+            }
+        } else {
+            Text("Not connected")
+        }
+    }
+}
