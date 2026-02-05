@@ -28,6 +28,9 @@
         /// Device connection manager for multiple iOS device connections
         public private(set) var deviceConnectionManager: DeviceConnectionManager?
 
+        /// Error message if service setup failed (e.g., E2EE initialization)
+        public private(set) var setupError: String?
+
         /// Terminal stream service for iOS live streaming
         public let terminalStreamService: TerminalStreamService
 
@@ -242,7 +245,9 @@
 
         private func setupDeviceConnectionManager() async {
             guard let e2eeService, let keyPair else {
+                let errorMsg = "Remote access unavailable: encryption failed to initialize"
                 logger.error("Cannot setup DeviceConnectionManager: E2EE not initialized")
+                setupError = errorMsg
                 return
             }
 

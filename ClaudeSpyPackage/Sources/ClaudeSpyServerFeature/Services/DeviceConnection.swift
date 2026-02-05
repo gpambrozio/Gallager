@@ -183,21 +183,7 @@ final public class DeviceConnection: Identifiable {
 
         // Establish E2EE session if we have partner's public key from pairing
         if !partnerPublicKey.isEmpty {
-            guard let keyData = Data(base64Encoded: partnerPublicKey) else {
-                logger.error("Failed to decode partner public key from base64")
-                await performConnect()
-                return
-            }
-            do {
-                try await e2eeService.establishSession(
-                    partnerPublicKey: keyData,
-                    partnerKeyId: partnerPublicKeyId,
-                    pairId: id
-                )
-                logger.info("E2EE session established with partner from pairing info")
-            } catch {
-                logger.error("Failed to establish E2EE session: \(error)")
-            }
+            await establishE2EEWithPartner(publicKey: partnerPublicKey, keyId: partnerPublicKeyId)
         }
 
         await performConnect()
@@ -417,24 +403,8 @@ final public class DeviceConnection: Identifiable {
                 // Establish E2EE session if iOS is connected and we have their public key
                 if
                     let iosPublicKey = response.iosPublicKey,
-                    let iosPublicKeyId = response.iosPublicKeyId,
-                    let keyData = Data(base64Encoded: iosPublicKey) {
-                    do {
-                        try await e2eeService.establishSession(
-                            partnerPublicKey: keyData,
-                            partnerKeyId: iosPublicKeyId,
-                            pairId: id
-                        )
-                        partnerPublicKey = iosPublicKey
-                        partnerPublicKeyId = iosPublicKeyId
-                        logger.info("E2EE session established with iOS")
-
-                        if let onPartnerKeyReceived {
-                            await onPartnerKeyReceived(iosPublicKey, iosPublicKeyId)
-                        }
-                    } catch {
-                        logger.error("Failed to establish E2EE session: \(error)")
-                    }
+                    let iosPublicKeyId = response.iosPublicKeyId {
+                    await establishE2EEWithPartner(publicKey: iosPublicKey, keyId: iosPublicKeyId)
                 }
             } else {
                 logger.error("Registration failed: \(response.error ?? "Unknown error")")
@@ -452,26 +422,10 @@ final public class DeviceConnection: Identifiable {
             logger.info("iOS device connected")
             isIOSConnected = true
 
-            let iosPublicKey = connectedMessage.publicKey
-            let iosPublicKeyId = connectedMessage.publicKeyId
-            if let keyData = Data(base64Encoded: iosPublicKey) {
-                do {
-                    try await e2eeService.establishSession(
-                        partnerPublicKey: keyData,
-                        partnerKeyId: iosPublicKeyId,
-                        pairId: id
-                    )
-                    partnerPublicKey = iosPublicKey
-                    partnerPublicKeyId = iosPublicKeyId
-                    logger.info("E2EE session established with iOS on connect notification")
-
-                    if let onPartnerKeyReceived {
-                        await onPartnerKeyReceived(iosPublicKey, iosPublicKeyId)
-                    }
-                } catch {
-                    logger.error("Failed to establish E2EE session: \(error)")
-                }
-            }
+            await establishE2EEWithPartner(
+                publicKey: connectedMessage.publicKey,
+                keyId: connectedMessage.publicKeyId
+            )
 
             await pushSessionState()
 
@@ -499,6 +453,41 @@ final public class DeviceConnection: Identifiable {
 
         default:
             logger.debug("Received unhandled message type")
+        }
+    }
+
+    /// Establish an E2EE session with the partner's public key.
+    ///
+    /// Updates local state and notifies via callback on success.
+    ///
+    /// - Parameters:
+    ///   - publicKey: Base64-encoded public key
+    ///   - keyId: Public key identifier
+    /// - Returns: Whether the session was established successfully
+    @discardableResult
+    private func establishE2EEWithPartner(publicKey: String, keyId: String) async -> Bool {
+        guard let keyData = Data(base64Encoded: publicKey) else {
+            logger.error("Failed to decode partner public key from base64")
+            return false
+        }
+
+        do {
+            try await e2eeService.establishSession(
+                partnerPublicKey: keyData,
+                partnerKeyId: keyId,
+                pairId: id
+            )
+            partnerPublicKey = publicKey
+            partnerPublicKeyId = keyId
+            logger.info("E2EE session established with iOS")
+
+            if let onPartnerKeyReceived {
+                await onPartnerKeyReceived(publicKey, keyId)
+            }
+            return true
+        } catch {
+            logger.error("Failed to establish E2EE session: \(error)")
+            return false
         }
     }
 
@@ -604,7 +593,7 @@ final public class DeviceConnection: Identifiable {
                 return
             }
 
-            guard self.shouldReconnect else { return }
+            guard !Task.isCancelled, self.shouldReconnect else { return }
 
             if self.reconnectionAttempt >= self.maxReconnectionAttempts {
                 self.reconnectionAttempt = 0

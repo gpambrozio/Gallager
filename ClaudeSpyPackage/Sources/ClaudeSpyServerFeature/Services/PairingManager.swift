@@ -136,10 +136,8 @@ final public class PairingManager {
             try? await deletePairing(pairId: deviceId)
         }
 
-        // Clear E2EE session for this device
-        await e2eeService.clearSession()
-
         // Remove from local state
+        // Note: E2EE session cleanup happens in DeviceConnectionManager when the connection is removed
         settings.removePairing(id: deviceId)
 
         logger.info("Device unpaired", metadata: ["deviceId": "\(deviceId)"])
@@ -159,10 +157,8 @@ final public class PairingManager {
             }
         }
 
-        // Clear E2EE session
-        await e2eeService.clearSession()
-
         // Clear all local state
+        // Note: E2EE session cleanup happens in DeviceConnectionManager when connections are removed
         settings.clearAllPairings()
         state = .idle
 
@@ -320,8 +316,12 @@ final public class PairingManager {
     private func completePairing(pairId: String) async {
         guard let settings else { return }
 
-        // Create new paired device. Partner's public key will be obtained via WebSocket
-        // when both devices connect and exchange keys during registration.
+        // Create new paired device without partner's public key.
+        // The key will be received via WebSocket when both devices connect:
+        // 1. Mac registers → server responds with iOS public key in macRegistered
+        // 2. iOS connects → server sends iosConnected with iOS public key
+        // Either path calls DeviceConnection.establishE2EEWithPartner() and
+        // persists the key via onPartnerKeyReceived → updatePartnerPublicKey().
         let device = PairedDevice(
             id: pairId,
             deviceName: "iOS Device",
@@ -339,7 +339,7 @@ final public class PairingManager {
         // Notify callback
         onDevicePaired?(device)
 
-        logger.info("Pairing completed", metadata: ["pairId": "\(pairId)"])
+        logger.info("Pairing completed (partner key will be received via WebSocket)", metadata: ["pairId": "\(pairId)"])
     }
 }
 

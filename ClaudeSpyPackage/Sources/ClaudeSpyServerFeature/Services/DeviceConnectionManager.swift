@@ -210,22 +210,28 @@ final public class DeviceConnectionManager {
 
     /// Send a hook event to all connected iOS devices.
     public func sendHookEventToAll(_ event: HookEvent) async {
-        for connection in connections.values where connection.state.isConnected {
-            await connection.sendHookEvent(event)
+        await withTaskGroup(of: Void.self) { group in
+            for connection in connections.values where connection.state.isConnected {
+                group.addTask { await connection.sendHookEvent(event) }
+            }
         }
     }
 
     /// Send terminal stream data to all connected iOS devices.
     public func sendTerminalStreamToAll(_ streamMessage: TerminalStreamMessage) async {
-        for connection in connections.values where connection.state.isConnected {
-            await connection.sendTerminalStream(streamMessage)
+        await withTaskGroup(of: Void.self) { group in
+            for connection in connections.values where connection.state.isConnected {
+                group.addTask { await connection.sendTerminalStream(streamMessage) }
+            }
         }
     }
 
     /// Push session state to all connected iOS devices.
     public func pushSessionStateToAll() async {
-        for connection in connections.values where connection.state.isConnected && connection.isIOSConnected {
-            await connection.pushSessionState()
+        await withTaskGroup(of: Void.self) { group in
+            for connection in connections.values where connection.state.isConnected && connection.isIOSConnected {
+                group.addTask { await connection.pushSessionState() }
+            }
         }
     }
 
