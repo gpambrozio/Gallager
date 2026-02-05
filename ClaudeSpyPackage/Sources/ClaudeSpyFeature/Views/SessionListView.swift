@@ -82,7 +82,6 @@
                 if let mac = selectedMacForNewSession {
                     ProjectPickerSheet(
                         mac: mac,
-                        projects: sessionStore.projects(for: mac.id),
                         creatingSelection: creatingSelection
                     ) { selectedProject in
                         Task {
@@ -445,15 +444,20 @@
     /// Sheet for selecting a Claude project to create a new session in
     struct ProjectPickerSheet: View {
         let mac: PairedMac
-        let projects: [ClaudeProjectInfo]
         /// The currently selected item (shows spinner), nil if nothing selected yet
         let creatingSelection: ProjectPickerSelection?
         let onSelect: (ClaudeProjectInfo?) -> Void
 
         @Environment(\.dismiss) private var dismiss
+        @Environment(SessionStore.self) private var sessionStore
 
         private var isCreating: Bool {
             creatingSelection != nil
+        }
+
+        /// Projects for this Mac, read from SessionStore to auto-update when state arrives
+        private var projects: [ClaudeProjectInfo] {
+            sessionStore.projects(for: mac.id)
         }
 
         var body: some View {
