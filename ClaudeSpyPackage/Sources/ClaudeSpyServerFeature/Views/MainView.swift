@@ -9,7 +9,7 @@ public struct MainView: View {
     @Environment(TmuxService.self) private var tmuxService
     @Environment(MirrorWindowManager.self) private var windowManager
     @Environment(AppSettings.self) private var settings
-    @Environment(ExternalServerClient.self) private var serverClient
+    @Environment(AppCoordinator.self) private var coordinator
     @Environment(PairingManager.self) private var pairingManager
     @Environment(\.claudeProjectScanner) private var projectScanner
     @Environment(\.e2eeService) private var e2eeService: E2EEService?
@@ -245,7 +245,11 @@ public struct MainView: View {
 
     @ViewBuilder
     private var connectionStatusIcon: some View {
-        switch serverClient.state {
+        let connectionManager = coordinator.deviceConnectionManager
+        let combinedState = connectionManager?.combinedState ?? .disconnected
+        let anyDeviceConnected = connectionManager?.anyDeviceConnected ?? false
+
+        switch combinedState {
         case .disconnected:
             Symbols.wifiSlash.image
                 .foregroundStyle(.secondary)
@@ -265,7 +269,7 @@ public struct MainView: View {
         case .connected:
             Symbols.wifi.image
                 .foregroundStyle(.green)
-                .help(serverClient.isIOSConnected
+                .help(anyDeviceConnected
                     ? "Connected - iOS device online"
                     : "Connected - waiting for iOS")
         case let .error(message):
@@ -277,6 +281,9 @@ public struct MainView: View {
 
     @ViewBuilder
     private var connectionActionButton: some View {
+        let connectionManager = coordinator.deviceConnectionManager
+        let combinedState = connectionManager?.combinedState ?? .disconnected
+
         if !settings.isPaired {
             // Not paired - show generate pair button
             Button("Generate Pair") {
@@ -284,23 +291,23 @@ public struct MainView: View {
             }
             .controlSize(.small)
             .help("Open Remote Access settings to pair with iOS")
-        } else if serverClient.state.isConnected {
+        } else if combinedState.isConnected {
             // Connected - show disconnect button
             Button("Disconnect") {
                 Task {
-                    await serverClient.disconnect()
+                    await connectionManager?.disconnectAll()
                 }
             }
             .controlSize(.small)
             .help("Disconnect from relay server")
-        } else if case .connecting = serverClient.state {
+        } else if case .connecting = combinedState {
             // Connecting - no button
             EmptyView()
-        } else if case .reconnecting = serverClient.state {
+        } else if case .reconnecting = combinedState {
             // Reconnecting - show cancel button
             Button("Cancel") {
                 Task {
-                    await serverClient.disconnect()
+                    await connectionManager?.disconnectAll()
                 }
             }
             .controlSize(.small)
@@ -309,7 +316,7 @@ public struct MainView: View {
             // Disconnected but paired - show connect button
             Button("Connect") {
                 Task {
-                    await connectToServer()
+                    await connectionManager?.connectAll()
                 }
             }
             .controlSize(.small)
@@ -342,30 +349,6 @@ public struct MainView: View {
                 attachError = error.localizedDescription
             }
         }
-    }
-
-    private func connectToServer() async {
-        guard
-            let pairId = settings.pairId,
-            let serverURL = URL(string: settings.externalServerURL),
-            let e2eeService
-        else {
-            return
-        }
-
-        let keyInfo = pairingManager.publicKeyInfo
-        await serverClient.connect(
-            serverURL: serverURL,
-            pairId: pairId,
-            deviceId: settings.deviceId,
-            deviceName: Host.current().localizedName ?? "Mac",
-            username: ProcessInfo.processInfo.userName,
-            publicKey: keyInfo.publicKey.base64EncodedString(),
-            publicKeyId: keyInfo.keyId,
-            e2eeService: e2eeService,
-            partnerPublicKey: settings.partnerPublicKey,
-            partnerPublicKeyId: settings.partnerPublicKeyId
-        )
     }
 
     private func openSettingsToRemoteAccess() {

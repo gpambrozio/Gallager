@@ -28,7 +28,7 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator.windowManager)
                 .environment(coordinator.windowManager.paneStreamManager)
                 .environment(coordinator.getOrCreatePairingManager())
-                .environment(coordinator.externalServerClient)
+                .environment(coordinator)
                 .environment(coordinator.pluginService)
                 .environment(\.claudeProjectScanner, coordinator.projectScanner)
                 .environment(\.e2eeService, coordinator.e2eeService)
@@ -117,7 +117,7 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator.settings)
                 .environment(updaterController)
                 .environment(coordinator.getOrCreatePairingManager())
-                .environment(coordinator.externalServerClient)
+                .environment(coordinator)
                 .environment(coordinator.pluginService)
                 .environment(\.e2eeService, coordinator.e2eeService)
         }
