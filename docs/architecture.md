@@ -1,341 +1,265 @@
-# ClaudeSpy Architecture
+# ClaudeSpy Mac App Architecture
 
-ClaudeSpy is a native macOS application that displays real-time mirrors of tmux panes in dedicated windows. It integrates with Claude Code via HTTP hooks to automatically open and close mirror windows when Claude Code sessions start and end.
+ClaudeSpy is a native macOS application that mirrors tmux panes in dedicated windows, integrates with Claude Code via HTTP hooks, and streams terminal data to paired iOS devices over encrypted WebSocket connections.
 
 ## Component Overview
 
-### Core Services
+### Coordination
 
 | Component | Type | Responsibility |
 |-----------|------|----------------|
-| **TmuxService** | `@Observable @MainActor` | Abstracts all tmux CLI interactions - pane discovery, content capture, streaming setup |
-| **PaneStream** | `@Observable @MainActor` | Manages streaming connection lifecycle for a single tmux pane |
-| **MirrorWindowManager** | `@Observable @MainActor` | NSWindow lifecycle management and hook event routing |
+| **AppCoordinator** | `@Observable @MainActor` | Central service coordinator — creates, wires, and manages all services |
+
+### Tmux Layer
+
+| Component | Type | Responsibility |
+|-----------|------|----------------|
+| **TmuxService** | `@Observable @MainActor` | Abstracts all tmux CLI interactions — pane discovery, content capture, session creation |
+| **TmuxControlClient** | `actor` | Maintains long-lived `tmux -C attach` process, parses control mode events |
+| **TmuxControlClientManager** | `@Observable @MainActor` | Manages TmuxControlClient instances per tmux session (one client per session) |
+| **PaneStream** | `@Observable @MainActor` | Manages streaming connection lifecycle for a single pane |
+| **PaneStreamManager** | `@Observable @MainActor` | Multiplexes streams to subscribers (mirror windows, iOS streaming) |
+
+### Window Management
+
+| Component | Type | Responsibility |
+|-----------|------|----------------|
+| **MirrorWindowManager** | `@Observable @MainActor` | NSWindow lifecycle, hook event routing, session tracking |
+| **DockIconManager** | `@MainActor` | Toggles dock icon visibility based on open windows |
+
+### Remote Access (iOS Communication)
+
+| Component | Type | Responsibility |
+|-----------|------|----------------|
+| **DeviceConnectionManager** | `@Observable @MainActor` | Manages connections to all paired iOS devices |
+| **DeviceConnection** | `@Observable @MainActor` | WebSocket connection to a single paired iOS device |
+| **PairingManager** | `@Observable @MainActor` | Device pairing flow — code generation, server registration, polling |
+| **TerminalStreamService** | `@Observable @MainActor` | Batches and streams terminal data to iOS devices via DeviceConnectionManager |
+| **TmuxCommandExecutor** | `actor` | Executes commands from iOS (keystrokes, cancel, session creation) |
+
+### Hook Integration
+
+| Component | Type | Responsibility |
+|-----------|------|----------------|
 | **HookServerService** | `actor` | HTTP server (port 6111) receiving Claude Code hook events |
-| **TerminalController** | `@Observable @MainActor` | Bridges SwiftTerm to SwiftUI with fixed terminal dimensions |
-| **AppSettings** | `@Observable @MainActor` | Persistent configuration via UserDefaults |
+
+### Plugin & Claude Integration
+
+| Component | Type | Responsibility |
+|-----------|------|----------------|
+| **PluginService** | `@Observable @MainActor` | Manages Claude Code plugin detection and installation |
+| **ClaudeProjectScanner** | `actor` | Scans `~/.claude.json` to discover Claude Code projects |
+| **ClaudePathDetector** | `enum` (static) | Detects the `claude` CLI path for auto-running in new sessions |
+| **TerminalLauncher** | `@MainActor` | Launches tmux sessions in external terminal apps (Terminal, iTerm2, Warp, etc.) |
+
+### System Integration
+
+| Component | Type | Responsibility |
+|-----------|------|----------------|
+| **SleepPreventionManager** | `@MainActor` | Prevents Mac sleep during active sessions via IOKit assertions |
+| **LoginItemService** | `enum` (static) | Manages launch-at-login via SMAppService |
+| **UpdaterController** | `@Observable @MainActor` | Wraps Sparkle updater for SwiftUI |
 
 ### Utilities
 
 | Component | Type | Responsibility |
 |-----------|------|----------------|
 | **ProcessRunner** | `actor` | Executes external processes asynchronously |
-| **FIFOReader** | `actor` | Manages named pipes for streaming tmux output |
-| **FontMetrics** | `enum` | Calculates terminal font metrics matching SwiftTerm |
 
-## Component Relationships
+## App Bootstrap
 
-```mermaid
-graph TB
-    subgraph "App Entry Point"
-        App[TmuxPaneMirrorApp]
-    end
+The app entry point (`TmuxPaneMirrorApp`) creates the coordinator and defines three scenes:
 
-    subgraph "Services"
-        TS[TmuxService]
-        HS[HookServerService]
-        MWM[MirrorWindowManager]
-        AS[AppSettings]
-    end
-
-    subgraph "Utilities"
-        PR[ProcessRunner]
-        FR[FIFOReader]
-        FM[FontMetrics]
-    end
-
-    subgraph "Views"
-        MV[MainView]
-        MWV[MirrorWindowView]
-        TC[TerminalController]
-        PS[PaneStream]
-    end
-
-    App -->|creates| TS
-    App -->|creates| HS
-    App -->|creates| MWM
-    App -->|creates| AS
-
-    HS -->|hook events| MWM
-    MWM -->|uses| TS
-    MWM -->|uses| AS
-    MWM -->|creates| MWV
-
-    MV -->|uses| TS
-    MV -->|uses| MWM
-
-    MWV -->|creates| PS
-    MWV -->|creates| TC
-    MWV -->|uses| AS
-
-    PS -->|uses| TS
-    TS -->|uses| PR
-    TS -->|uses| FR
-
-    TC -->|uses| FM
+```
+@main TmuxPaneMirrorApp
+├── init() → LoggingConfiguration.bootstrap() → AppCoordinator()
+├── Window("Panes") → ContentView + environment injection
+├── Settings → SettingsView
+└── MenuBarExtra → .task { coordinator.setupAllServices() }
 ```
 
-## Service Details
+**AppCoordinator** has a two-phase initialization:
 
-### TmuxService
+1. **Synchronous (`init`)** — Creates core services that don't need async:
+   TmuxService, TmuxControlClientManager, PaneStreamManager, MirrorWindowManager,
+   TerminalStreamService, HookServerService, ClaudeProjectScanner, DockIconManager,
+   SleepPreventionManager, PluginService, E2EEService (from Keychain if available)
 
-Central abstraction for all tmux CLI interactions.
+2. **Async (`setupAllServices`)** — Completes initialization requiring async work:
+   E2EEService (if not loaded), PairingManager, DeviceConnectionManager,
+   TmuxCommandExecutor, hook server start, auto-connect to paired devices,
+   periodic session validation, system wake observer
 
-```mermaid
-graph LR
-    subgraph "TmuxService"
-        direction TB
-        A[checkAvailability]
-        B[refreshPanes]
-        C[capturePane]
-        D[capturePaneWithPositioning]
-        E[startPipePipe]
-        F[stopPipePipe]
-        G[getPaneDimensions]
-    end
+## Service Wiring
 
-    PR[ProcessRunner] --> A
-    PR --> B
-    PR --> C
-    PR --> D
-    PR --> E
-    PR --> F
-    PR --> G
+AppCoordinator connects services via callbacks:
 
-    E --> FR[FIFOReader]
 ```
+HookServerService events → MirrorWindowManager.handleHookEvent()
+                         → DeviceConnectionManager.sendHookEventToAll()
+                         → SleepPreventionManager.updateForSessionCount()
 
-**Key Operations:**
-- **Pane Discovery:** `list-panes -a` to enumerate all panes
-- **Content Capture:** `capture-pane -p -e` for ANSI-preserved content
-- **Streaming:** `pipe-pane` to FIFO for live output
+TmuxControlClientManager dimension changes → PaneStreamManager.updateDimensions()
+TmuxControlClientManager pane exits       → MirrorWindowManager.cleanupStaleSessions()
+                                          → TerminalStreamService.stopStreamsForClosedPanes()
+                                          → SleepPreventionManager.updateForSessionCount()
 
-### PaneStream
+TmuxService pane changes → DeviceConnectionManager.pushSessionStateToAll()
 
-Manages the streaming connection lifecycle for a single pane.
+iOS commands → TmuxCommandExecutor.execute()
+             → TerminalStreamService.startStreaming() / stopStreaming()
 
-```mermaid
-stateDiagram-v2
-    [*] --> disconnected
-    disconnected --> connecting: connect()
-    connecting --> connected: success
-    connecting --> error: failure
-    connected --> paused: pause()
-    paused --> connected: resume()
-    connected --> disconnected: disconnect()
-    paused --> disconnected: disconnect()
-    error --> disconnected: disconnect()
-```
-
-### MirrorWindowManager
-
-Manages NSWindow instances and handles hook events.
-
-```mermaid
-graph TB
-    subgraph "Window Tracking"
-        OW[openWindows: Dictionary]
-        AP[activePanes: Set]
-        UC[userClosedPanes: Set]
-    end
-
-    subgraph "Operations"
-        HE[handleHookEvent]
-        OM[openMirror]
-        CM[closeMirror]
-        BTF[bringToFront]
-    end
-
-    HE -->|SessionStart/PreToolUse| AP
-    HE -->|if not user-closed| OM
-    HE -->|SessionEnd| CM
-
-    OM --> OW
-    CM --> OW
-
-    UC -->|prevents auto-reopen| OM
-```
-
-### HookServerService
-
-Vapor-based HTTP server receiving Claude Code events.
-
-**Endpoints:**
-- `GET /health` - Health check
-- `POST /api/hooks` - Hook event receiver
-
-**Query Parameters:**
-- `project_path` - Project directory
-- `tmux_pane` - Target pane (e.g., `main:0.1`)
-
-## Hook Event Flow
-
-This diagram shows the complete flow from a Claude Code event to a rendered mirror window.
-
-```mermaid
-sequenceDiagram
-    participant CC as Claude Code
-    participant HS as HookServerService
-    participant MWM as MirrorWindowManager
-    participant TS as TmuxService
-    participant MWV as MirrorWindowView
-    participant PS as PaneStream
-    participant TC as TerminalController
-    participant FR as FIFOReader
-
-    CC->>HS: POST /api/hooks?tmux_pane=main:0.1
-    Note over HS: Parse JSON body<br/>Extract hook_event_name
-
-    HS->>MWM: handleHookEvent(event)
-
-    alt SessionStart or PreToolUse
-        MWM->>MWM: Add to activePanes
-        MWM->>MWM: Check userClosedPanes
-
-        opt Not user-closed
-            MWM->>TS: refreshPanes()
-            TS-->>MWM: [PaneInfo]
-            MWM->>MWM: Find pane by ID
-            MWM->>MWV: Create MirrorWindowView
-            MWM->>MWM: Create NSWindow
-            MWM->>MWM: Store in openWindows
-
-            MWV->>PS: Create PaneStream
-            MWV->>TC: Create TerminalController
-
-            PS->>TS: validatePane()
-            PS->>TS: getPaneDimensions()
-            PS->>TS: capturePaneWithPositioning()
-            TS-->>PS: Initial content
-            PS->>TC: feed(initialContent)
-
-            PS->>TS: startPipePipe()
-            TS->>FR: createFIFO()
-            TS->>FR: startReading()
-
-            loop Streaming
-                FR-->>PS: AsyncStream<Data>
-                PS->>TC: feed(data)
-                TC->>TC: SwiftTerm renders
-            end
-        end
-
-    else SessionEnd
-        MWM->>MWM: Remove from activePanes
-        MWM->>MWM: Clear from userClosedPanes
-        MWM->>MWM: closeMirror(target)
-        MWM->>PS: disconnect()
-        PS->>TS: stopPipePipe()
-        TS->>FR: stop()
-    end
-
-    HS-->>CC: HookResponse(approve)
+System wake → DeviceConnectionManager.reconnectAllImmediately()
 ```
 
 ## Data Flow: Tmux Output to Terminal Display
 
-```mermaid
-flowchart LR
-    subgraph Tmux
-        TP[Tmux Pane]
-    end
-
-    subgraph ClaudeSpy
-        PP[pipe-pane command]
-        FIFO[Named Pipe<br/>/tmp/tmux-mirror-*.fifo]
-        FR[FIFOReader]
-        PS[PaneStream]
-        TC[TerminalController]
-        ST[SwiftTerm<br/>TerminalView]
-    end
-
-    TP -->|output| PP
-    PP -->|cat >| FIFO
-    FIFO -->|FileHandle| FR
-    FR -->|AsyncStream<Data>| PS
-    PS -->|onData callback| TC
-    TC -->|feed()| ST
-    ST -->|renders| Display[Mirror Window]
+```
+tmux session
+    │
+    ├── tmux -C attach (control mode)
+    │
+    ▼
+TmuxControlClient (actor)
+    │ Parses %output events, unescapes octal, buffers split UTF-8
+    │
+    ▼
+TmuxControlClientManager
+    │ Routes to registered pane handlers
+    │
+    ▼
+PaneStream (per-pane lifecycle)
+    │ onData callback
+    │
+    ▼
+PaneStreamManager (multiplexer)
+    │
+    ├──→ Mirror Window (SwiftTerm) — immediate display
+    │
+    └──→ TerminalStreamService — batches (8KB / 50ms)
+              │
+              ▼
+         DeviceConnectionManager.sendTerminalStreamToAll()
+              │ WebSocket per device, E2EE encrypted
+              │
+              ▼
+         Relay Server → iOS devices
 ```
 
-## Window Lifecycle
+## Hook Event Flow
 
-```mermaid
-stateDiagram-v2
-    [*] --> Closed
-
-    Closed --> Opening: Hook event received
-    Opening --> Open: Window created
-
-    Open --> Closed: SessionEnd hook
-    Open --> UserClosed: User closes window
-
-    UserClosed --> Closed: SessionEnd hook
-    UserClosed --> UserClosed: Hook events ignored
-
-    note right of UserClosed
-        Window stays closed until
-        session ends, then state
-        resets for next session
-    end note
 ```
+Claude Code → POST localhost:6111/api/hooks?tmux_pane=main:0.1
+    │
+    ▼
+HookServerService (actor)
+    │ Parses JSON, creates HookEvent
+    │
+    ▼
+AppCoordinator event handler
+    │
+    ├──→ MirrorWindowManager.handleHookEvent()
+    │       SessionStart → add to activeSessions, open mirror window
+    │       SessionEnd   → remove from activeSessions, close window
+    │
+    ├──→ DeviceConnectionManager.sendHookEventToAll()
+    │       Forwards to all connected iOS devices (E2EE encrypted)
+    │
+    └──→ SleepPreventionManager.updateForSessionCount()
+```
+
+## Multi-Device Terminal Streaming
+
+Multiple iOS devices can watch the same pane simultaneously:
+
+- **TerminalStreamService** uses reference counting (`deviceSubscriberCount` per stream)
+- First subscriber creates the PaneStreamManager subscription
+- Additional subscribers reuse the existing stream and receive current content
+- Each `stopStreaming` decrements the count; stream only stops when count reaches 0
+- System-level cleanups (`stopAllStreams`, `stopStreamsForClosedPanes`) use `force: true` to bypass count
+
+**DeviceConnectionManager** broadcasts to all connected devices:
+- `sendHookEventToAll()` — hook events
+- `sendTerminalStreamToAll()` — terminal data
+- `pushSessionStateToAll()` — session state sync
+
+See `docs/streaming-architecture.md` for the full streaming data flow.
 
 ## Concurrency Model
 
-ClaudeSpy uses Swift 6 strict concurrency with a clear isolation strategy:
-
-```mermaid
-graph TB
-    subgraph "@MainActor (UI Thread)"
-        TS[TmuxService]
-        PS[PaneStream]
-        MWM[MirrorWindowManager]
-        TC[TerminalController]
-        AS[AppSettings]
-        Views[All SwiftUI Views]
-    end
-
-    subgraph "Actor-Isolated (Background)"
-        PR[ProcessRunner]
-        FR[FIFOReader]
-        HS[HookServerService]
-    end
-
-    PR -.->|async calls| TS
-    FR -.->|AsyncStream| PS
-    HS -.->|callback on MainActor| MWM
+```
+@MainActor (UI thread)                    Actor-Isolated (background)
+─────────────────────                    ─────────────────────────────
+TmuxService                              ProcessRunner
+PaneStream                               TmuxControlClient
+PaneStreamManager                        TmuxCommandExecutor
+MirrorWindowManager                      HookServerService
+TerminalStreamService                    ClaudeProjectScanner
+DeviceConnectionManager
+DeviceConnection
+PairingManager
+AppCoordinator
+AppSettings
+DockIconManager
+SleepPreventionManager
+PluginService
+All SwiftUI Views
 ```
 
-**Key Points:**
 - All UI-bound services are `@MainActor` isolated
-- Background I/O uses dedicated actors
-- Hook server runs independently but dispatches to `@MainActor` for UI updates
-- All cross-isolation communication uses async/await
+- I/O and process work runs in dedicated actors
+- Cross-isolation uses async/await exclusively (no GCD)
+- All types crossing isolation boundaries are `Sendable`
 
 ## File Structure
 
 ```
 ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/
+├── Coordinators/
+│   └── AppCoordinator.swift           # Central service coordinator
 ├── Hooks/
-│   ├── HookModels.swift          # Event types, ToolInput enum
-│   └── HookServerService.swift   # Vapor HTTP server
+│   ├── HookModels.swift               # Event types, ToolInput enum
+│   └── HookServerService.swift        # HTTP server (port 6111)
 ├── Managers/
-│   └── MirrorWindowManager.swift # Window lifecycle
+│   ├── DockIconManager.swift          # Dock icon visibility
+│   ├── MirrorWindowManager.swift      # Window lifecycle
+│   └── SleepPreventionManager.swift   # IOKit sleep prevention
 ├── Models/
-│   ├── PaneInfo.swift            # Tmux pane representation
-│   └── Settings.swift            # AppSettings
+│   ├── PaneInfo.swift                 # Tmux pane representation
+│   └── Settings.swift                 # AppSettings, PairedDevice
 ├── Services/
-│   ├── PaneStream.swift          # Stream management
-│   └── TmuxService.swift         # Tmux abstraction
+│   ├── ClaudePathDetector.swift       # Claude CLI path detection
+│   ├── ClaudeProjectScanner.swift     # Project discovery from ~/.claude.json
+│   ├── DeviceConnection.swift         # Single iOS device WebSocket
+│   ├── DeviceConnectionManager.swift  # Multi-device coordinator
+│   ├── ExternalServerClient.swift     # Legacy single-device client
+│   ├── LoginItemService.swift         # Launch at login (SMAppService)
+│   ├── PairingManager.swift           # Device pairing flow
+│   ├── PaneStream.swift               # Single pane stream lifecycle
+│   ├── PaneStreamManager.swift        # Multi-subscriber stream multiplexer
+│   ├── PluginService.swift            # Claude Code plugin management
+│   ├── TerminalLauncher.swift         # External terminal app integration
+│   ├── TerminalStreamService.swift    # iOS streaming with batching
+│   ├── TmuxCommandExecutor.swift      # Remote command execution
+│   ├── TmuxControlClient.swift        # tmux control mode connection
+│   ├── TmuxControlClientManager.swift # Control client per session
+│   ├── TmuxService.swift              # Tmux CLI abstraction
+│   └── UpdaterController.swift        # Sparkle updater wrapper
 ├── Utilities/
-│   ├── FIFOReader.swift          # Named pipe handling
-│   ├── FontMetrics.swift         # Terminal sizing
-│   └── ProcessRunner.swift       # Process execution
-└── Views/
-    ├── ContentView.swift         # Root view
-    ├── MainView.swift            # Pane list
-    ├── MirrorWindowView.swift    # Mirror display
-    ├── PaneListView.swift        # Pane list items
-    ├── SettingsView.swift        # Settings UI
-    └── TerminalContainerView.swift # SwiftTerm bridge
+│   ├── NotificationNames.swift        # NotificationCenter names
+│   └── ProcessRunner.swift            # Process execution
+├── Views/
+│   ├── CheckForUpdatesView.swift      # Sparkle update UI
+│   ├── InteractiveTerminalView.swift  # Interactive terminal (SwiftTerm)
+│   ├── LaunchAtLoginPromptView.swift  # Login item prompt
+│   ├── MainView.swift                 # Pane list
+│   ├── MenuBarExtraView.swift         # Menu bar dropdown
+│   ├── MirrorWindowView.swift         # Mirror window display
+│   ├── PaneListView.swift             # Pane list items
+│   ├── PluginSettingsView.swift       # Plugin settings
+│   ├── PluginSetupView.swift          # First-launch plugin setup
+│   ├── RemoteAccessSettingsView.swift # Pairing & connection UI
+│   ├── SettingsView.swift             # Settings tabs
+│   └── TerminalContainerView.swift    # SwiftTerm bridge
+└── ContentView.swift                  # Root view
 ```

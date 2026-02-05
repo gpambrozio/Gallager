@@ -12,7 +12,7 @@ graph TB
         PS[PaneStream]
         PSM[PaneStreamManager]
         TSS[TerminalStreamService]
-        ESC[ExternalServerClient]
+        DCM[DeviceConnectionManager]
         MV[Mac Mirror View<br/>SwiftTerm]
     end
 
@@ -33,10 +33,10 @@ graph TB
     PS -->|onData callback| PSM
     PSM -->|subscriber| MV
     PSM -->|subscriber| TSS
-    TSS -->|batched + encrypted| ESC
-    ESC <-->|WebSocket| CH
+    TSS -->|batched| DCM
+    DCM -->|encrypted per device| CH
     CH <--> RS
-    CH <-->|WebSocket| RC
+    CH <-->|WebSocket per pairId| RC
     RC -->|onTerminalStream| SC
     SC --> TS
     TS --> IV
@@ -129,24 +129,26 @@ flowchart LR
 
 ### 4. Remote Streaming (Mac → Server)
 
-**TerminalStreamService** bridges local streams to the external server:
+**TerminalStreamService** bridges local streams to all connected iOS devices via **DeviceConnectionManager**:
 
 ```mermaid
 sequenceDiagram
     participant PSM as PaneStreamManager
     participant TSS as TerminalStreamService
-    participant ESC as ExternalServerClient
-    participant E2E as E2EE
+    participant DCM as DeviceConnectionManager
+    participant DC1 as DeviceConnection A
+    participant DC2 as DeviceConnection B
 
     PSM->>TSS: onData (raw bytes)
     TSS->>TSS: Buffer data
 
     alt Batch ready (8KB or 50ms)
         TSS->>TSS: Create TerminalStreamMessage
-        TSS->>E2E: Encrypt message
-        E2E-->>TSS: Encrypted payload
-        TSS->>ESC: sendTerminalStream()
-        ESC->>ESC: WebSocket send
+        TSS->>DCM: sendTerminalStreamToAll()
+        par Encrypt & send per device
+            DCM->>DC1: sendTerminalStream() (E2EE)
+            DCM->>DC2: sendTerminalStream() (E2EE)
+        end
     end
 ```
 
@@ -154,6 +156,13 @@ sequenceDiagram
 - Minimum interval: 50ms (max 20 updates/sec)
 - Maximum batch size: 8KB
 - Prevents network saturation from high-frequency terminal updates
+
+**Multi-Device Reference Counting:**
+- `TerminalStreamService` tracks `deviceSubscriberCount` per pane
+- First iOS device subscribing creates the PaneStreamManager subscription
+- Additional devices reuse the existing stream (count incremented, current content sent)
+- `stopStreaming()` decrements count; stream only fully stops when count reaches 0
+- System-level cleanups (`stopAllStreams`, `stopStreamsForClosedPanes`) use `force: true`
 
 **Message Types:**
 ```swift
@@ -167,17 +176,20 @@ enum StreamUpdateType {
 
 **Key Files:**
 - `ClaudeSpyServerFeature/Services/TerminalStreamService.swift`
-- `ClaudeSpyServerFeature/Services/ExternalServerClient.swift`
+- `ClaudeSpyServerFeature/Services/DeviceConnectionManager.swift`
+- `ClaudeSpyServerFeature/Services/DeviceConnection.swift`
 
 ### 5. External Relay Server
 
-The Vapor server routes messages between paired Mac and iOS devices:
+The Vapor server routes messages between paired Mac and iOS devices. Each pairing (pairId) represents one Mac-iOS device pair. A Mac can have multiple pairings (one per iOS device), and each pairing has its own WebSocket connection.
 
 ```mermaid
 flowchart TB
     subgraph WebSocket Connections
-        MAC[Mac Client]
-        IOS[iOS Client]
+        MAC1[Mac Connection<br/>pairId=A]
+        MAC2[Mac Connection<br/>pairId=B]
+        IOS1[iOS Device A<br/>pairId=A]
+        IOS2[iOS Device B<br/>pairId=B]
     end
 
     subgraph Server Logic
@@ -186,8 +198,10 @@ flowchart TB
         CH[ConnectionHub]
     end
 
-    MAC <-->|/api/ws?pairId=X&deviceType=mac| WC
-    IOS <-->|/api/ws?pairId=X&deviceType=ios| WC
+    MAC1 <-->|/api/ws?pairId=A&deviceType=mac| WC
+    MAC2 <-->|/api/ws?pairId=B&deviceType=mac| WC
+    IOS1 <-->|/api/ws?pairId=A&deviceType=ios| WC
+    IOS2 <-->|/api/ws?pairId=B&deviceType=ios| WC
     WC <--> RS
     RS <--> CH
 ```
@@ -197,11 +211,11 @@ flowchart TB
 ```mermaid
 graph TB
     subgraph "connections[pairId]"
-        subgraph "pair-abc123"
+        subgraph "pair-A (Mac ↔ iOS Device A)"
             M1[mac: Connection]
             I1[ios: Connection]
         end
-        subgraph "pair-xyz789"
+        subgraph "pair-B (Mac ↔ iOS Device B)"
             M2[mac: Connection]
             I2[ios: Connection]
         end
@@ -209,10 +223,11 @@ graph TB
 ```
 
 **Message Routing:**
-1. Mac sends encrypted `WebSocketMessage.terminalStream(...)`
-2. RelayService receives message, looks up iOS connection by pairId
-3. ConnectionHub forwards to iOS (encrypted payload is pass-through)
-4. Server cannot decrypt—true end-to-end encryption
+1. Mac's `DeviceConnectionManager` sends encrypted terminal data per device
+2. Each `DeviceConnection` sends via its own WebSocket (unique pairId)
+3. RelayService receives message, looks up iOS connection by pairId
+4. ConnectionHub forwards to iOS (encrypted payload is pass-through)
+5. Server cannot decrypt—true end-to-end encryption
 
 **Key Files:**
 - `ClaudeSpyExternalServer/Routes/WebSocketController.swift`
@@ -275,17 +290,17 @@ sequenceDiagram
     participant PSM as PaneStreamManager
     participant MV as Mac Mirror
     participant TSS as TerminalStreamService
-    participant ESC as ExternalServerClient
+    participant DCM as DeviceConnectionManager
     participant SRV as Relay Server
     participant RC as RelayClient
     participant SC as StreamCoordinator
     participant IV as iOS Terminal
 
-    Note over TMUX,IV: Initial Stream Setup
+    Note over TMUX,IV: Initial Stream Setup (first device)
 
     RC->>SRV: StartTerminalStream command
-    SRV->>ESC: Forward command
-    ESC->>TSS: Start stream for pane
+    SRV->>DCM: Forward command
+    DCM->>TSS: Start stream for pane
     TSS->>PSM: subscribe(paneId)
     PSM->>PS: connect()
     PS->>TCC: registerPaneHandler()
@@ -293,13 +308,23 @@ sequenceDiagram
     PS->>PS: capturePaneWithScrollbackForStreaming()
     PS-->>PSM: onData(initial content)
     PSM-->>TSS: subscriber callback
-    TSS->>ESC: sendTerminalStream(initialState)
-    ESC->>SRV: Encrypted message
+    TSS->>DCM: sendTerminalStreamToAll(initialState)
+    DCM->>SRV: Encrypted per device
     SRV->>RC: Forward to iOS
     RC->>SC: onTerminalStream(initialState)
     SC->>IV: feed(content)
 
-    Note over TMUX,IV: Live Updates
+    Note over TMUX,IV: Second Device Subscribes
+
+    RC->>SRV: StartTerminalStream (same pane)
+    SRV->>DCM: Forward command
+    DCM->>TSS: startStreaming() — stream exists
+    TSS->>PSM: currentContent(for: paneId)
+    PSM-->>TSS: current terminal content
+    TSS->>TSS: Increment deviceSubscriberCount
+    TSS->>DCM: sendTerminalStreamToAll(initialState)
+
+    Note over TMUX,IV: Live Updates (to all devices)
 
     loop Terminal Output
         TMUX->>TCC: %output %0 <data>
@@ -308,8 +333,8 @@ sequenceDiagram
         PSM-->>MV: subscriber callback (immediate)
         PSM-->>TSS: subscriber callback
         TSS->>TSS: Buffer (batch)
-        TSS->>ESC: sendTerminalStream(dataChunk)
-        ESC->>SRV: Encrypted
+        TSS->>DCM: sendTerminalStreamToAll(dataChunk)
+        DCM->>SRV: Encrypted per device
         SRV->>RC: Forward
         RC->>SC: onTerminalStream(dataChunk)
         SC->>IV: feed(data)
@@ -325,7 +350,8 @@ sequenceDiagram
 | **Stream manager decoupling** | Streaming works without mirror window open, only needs iOS connection |
 | **Data batching (8KB/50ms)** | Prevents network saturation from high-frequency output |
 | **Subscription model** | Multiple consumers (UI + remote) share one stream efficiently |
-| **E2EE encryption** | Server cannot decrypt terminal content—true end-to-end security |
+| **Multi-device ref counting** | Multiple iOS devices watch the same pane without interfering; iOS ignores duplicate `initialState` when already streaming |
+| **Per-device E2EE** | Each DeviceConnection has its own E2EE session; server cannot decrypt |
 | **Session ID validation** | Prevents stale callbacks from old sessions affecting new ones |
 | **Fail-closed E2EE** | Refuses to send sensitive data if encryption session not established |
 
@@ -336,8 +362,9 @@ sequenceDiagram
 | `TmuxControlClient` | ServerFeature | Long-lived tmux control mode, parses `%output` |
 | `PaneStream` | ServerFeature | Single pane stream with lifecycle |
 | `PaneStreamManager` | ServerFeature | Multiplexes streams to subscribers |
-| `TerminalStreamService` | ServerFeature | Batches and sends to remote |
-| `ExternalServerClient` | ServerFeature | Mac's WebSocket client |
+| `TerminalStreamService` | ServerFeature | Batches and sends to remote, ref-counted per device |
+| `DeviceConnectionManager` | ServerFeature | Multi-device WebSocket coordinator |
+| `DeviceConnection` | ServerFeature | Single iOS device WebSocket + E2EE |
 | `ConnectionHub` | ExternalServer | Server-side routing |
 | `RelayService` | ExternalServer | Message handling |
 | `RelayClient` | Feature (iOS) | iOS WebSocket client |

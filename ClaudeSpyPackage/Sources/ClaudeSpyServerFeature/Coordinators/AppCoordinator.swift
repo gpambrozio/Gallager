@@ -25,8 +25,11 @@
         /// Window manager for pane mirroring
         public let windowManager: MirrorWindowManager
 
-        /// External relay server client
-        public let externalServerClient: ExternalServerClient
+        /// Device connection manager for multiple iOS device connections
+        public private(set) var deviceConnectionManager: DeviceConnectionManager?
+
+        /// Error message if service setup failed (e.g., E2EE initialization)
+        public private(set) var setupError: String?
 
         /// Terminal stream service for iOS live streaming
         public let terminalStreamService: TerminalStreamService
@@ -42,6 +45,9 @@
 
         /// E2EE service for encryption
         public private(set) var e2eeService: E2EEService?
+
+        /// Stored key pair for E2EE
+        public private(set) var keyPair: StoredKeyPair?
 
         /// Plugin service for Claude Code plugin management
         public let pluginService: PluginService
@@ -104,9 +110,6 @@
                 paneStreamManager: paneStreamManager
             )
 
-            // Create external server client
-            self.externalServerClient = ExternalServerClient()
-
             // Create terminal stream service
             self.terminalStreamService = TerminalStreamService()
 
@@ -129,6 +132,7 @@
             // This prevents createPairingManager() from generating temporary keys.
             if let e2ee = try? E2EEService.loadFromKeychainSync() {
                 self.e2eeService = e2ee
+                self.keyPair = e2ee.storedKeyPair
             }
         }
 
@@ -155,13 +159,7 @@
             // Start dock icon management (hides dock icon initially, shows when windows open)
             dockIconManager.startObserving()
 
-            // Set up session state handler for external server
-            setupSessionStateHandler()
-
-            // Push session state to iOS whenever panes change
-            setupPanesChangedHandler()
-
-            // Forward hook events to window manager AND external server
+            // Forward hook events to window manager AND all connected iOS devices
             await hookServer.setEventHandler { [weak self] event in
                 guard let self else { return }
                 // Handle locally
@@ -171,13 +169,13 @@
                 await updateSleepPrevention()
 
                 guard event.action.body.shouldSendToServer else { return }
-                // Forward to iOS via external server
-                await externalServerClient.sendHookEvent(event)
+                // Forward to all connected iOS devices
+                await deviceConnectionManager?.sendHookEventToAll(event)
             }
 
             await initializeServices()
             await hookServer.startServer()
-            await setupExternalServerClient()
+            await setupDeviceConnectionManager()
             await autoConnectIfConfigured()
 
             // Start periodic validation to clean up stale sessions
@@ -196,7 +194,9 @@
             // Create E2EEService if not already created
             if e2eeService == nil {
                 do {
-                    e2eeService = try await E2EEService()
+                    let e2ee = try await E2EEService()
+                    e2eeService = e2ee
+                    keyPair = e2ee.storedKeyPair
                 } catch {
                     logger.error("Failed to create E2EEService: \(error)")
                 }
@@ -204,7 +204,15 @@
 
             // Ensure PairingManager has the E2EEService
             if let service = e2eeService, pairingManager == nil {
-                pairingManager = PairingManager(settings: settings, e2eeService: service)
+                let manager = PairingManager(settings: settings, e2eeService: service)
+                pairingManager = manager
+
+                // Set up callback for when new devices are paired
+                manager.onDevicePaired = { [weak self] device in
+                    Task { @MainActor in
+                        await self?.connectToNewlyPairedDevice(device)
+                    }
+                }
             }
         }
 
@@ -216,20 +224,43 @@
                 service = existingService
             } else {
                 // Generate a temporary key pair for initial setup
-                let keyPair = StoredKeyPair.generateNew()
-                service = E2EEService(keyPair: keyPair)
+                let newKeyPair = StoredKeyPair.generateNew()
+                service = E2EEService(keyPair: newKeyPair)
                 e2eeService = service
+                keyPair = newKeyPair
             }
 
             let manager = PairingManager(settings: settings, e2eeService: service)
             pairingManager = manager
+
+            // Set up callback for when new devices are paired
+            manager.onDevicePaired = { [weak self] device in
+                Task { @MainActor in
+                    await self?.connectToNewlyPairedDevice(device)
+                }
+            }
+
             return manager
         }
 
-        private func setupExternalServerClient() async {
-            // Configure terminal stream service with pane stream manager
-            terminalStreamService.configure(
-                serverClient: externalServerClient,
+        private func setupDeviceConnectionManager() async {
+            guard let e2eeService, let keyPair else {
+                let errorMsg = "Remote access unavailable: encryption failed to initialize"
+                logger.error("Cannot setup DeviceConnectionManager: E2EE not initialized")
+                setupError = errorMsg
+                return
+            }
+
+            let connectionManager = DeviceConnectionManager(
+                settings: settings,
+                e2eeService: e2eeService,
+                keyPair: keyPair
+            )
+            deviceConnectionManager = connectionManager
+
+            // Configure terminal stream service with connection manager
+            terminalStreamService.configureWithConnectionManager(
+                connectionManager: connectionManager,
                 paneStreamManager: paneStreamManager
             )
 
@@ -237,7 +268,6 @@
             windowManager.paneStreamManager = paneStreamManager
 
             // Set up real-time session cleanup when panes change
-            // When a pane exits or session disconnects, refresh panes and clean up stale sessions
             let winManager = windowManager
             let tmuxForCleanup = tmuxService
             let terminalStreaming = terminalStreamService
@@ -245,9 +275,7 @@
                 Task {
                     let panes = await tmuxForCleanup.refreshPanes()
                     winManager.cleanupStaleSessions(currentPanes: panes)
-                    // Stop iOS streams for panes that no longer exist (sends streamEnd to iOS)
                     await terminalStreaming.stopStreamsForClosedPanes(currentPanes: panes)
-                    // Update sleep prevention after session cleanup
                     self?.updateSleepPrevention()
                 }
             }
@@ -256,11 +284,11 @@
             let executor = TmuxCommandExecutor(tmuxService: tmuxService)
             commandExecutor = executor
 
-            // Set up command handler - called when iOS sends a command
+            // Set up command handler - called when any iOS device sends a command
             let streamService = terminalStreamService
             let tmux = tmuxService
             let appSettings = settings
-            externalServerClient.setCommandHandler { [executor, streamService, tmux, appSettings] command in
+            connectionManager.onCommand = { [executor, streamService, tmux, appSettings] command in
                 // Handle stream commands
                 if case .startTerminalStream = command.command {
                     return await Self.handleStartStream(
@@ -287,44 +315,40 @@
                 return await executor.execute(command)
             }
 
-            // Set up partner key handler to persist keys to settings
-            externalServerClient.setPartnerKeyHandler { [settings] publicKey, publicKeyId in
-                settings.partnerPublicKey = publicKey
-                settings.partnerPublicKeyId = publicKeyId
-            }
-        }
-
-        private func setupSessionStateHandler() {
+            // Set up session state handler
             let scanner = projectScanner
-            externalServerClient.setSessionStateHandler { [settings, weak windowManager, tmuxService, scanner] in
+            connectionManager.onSessionStateRequest = { [weak windowManager, tmuxService, scanner] in
                 guard let windowManager else {
                     return SessionStateMessage(pairId: "", sessions: [:], activePanes: [], panes: [])
                 }
-                let pairId = await settings.pairId ?? ""
                 let sessions = await windowManager.activeSessions
                 let activePaneIds = await Array(windowManager.activeSessions.keys)
-
-                // Refresh and include all panes for iOS to display
                 let allPanes = await tmuxService.refreshPanes()
                 let paneMessages = allPanes.map { $0.asPaneInfoMessage }
-
-                // Scan for Claude projects
                 let claudeProjects = await scanner.scanProjects()
 
+                // Note: pairId in SessionStateMessage is per-connection, will be set by individual connections
                 return SessionStateMessage(
-                    pairId: pairId,
+                    pairId: "",
                     sessions: sessions,
                     activePanes: activePaneIds,
                     panes: paneMessages,
                     claudeProjects: claudeProjects
                 )
             }
-        }
 
-        private func setupPanesChangedHandler() {
-            let serverClient = externalServerClient
-            tmuxService.setPanesChangedHandler { [serverClient] in
-                await serverClient.pushSessionState()
+            // Set up partner key handler to persist keys to settings
+            connectionManager.onPartnerKeyReceived = { [weak self] deviceId, publicKey, publicKeyId in
+                self?.pairingManager?.updatePartnerPublicKey(
+                    deviceId: deviceId,
+                    publicKey: publicKey,
+                    publicKeyId: publicKeyId
+                )
+            }
+
+            // Push session state to all iOS devices whenever panes change
+            tmuxService.setPanesChangedHandler { [weak connectionManager] in
+                await connectionManager?.pushSessionStateToAll()
             }
         }
 
@@ -343,15 +367,13 @@
         /// This triggers an immediate reconnection attempt instead of waiting for the
         /// next scheduled retry.
         private func startWakeObserver() {
-            let serverClient = externalServerClient
-            wakeObserverTask = Task {
-                // Using nil as object is valid - we only care about the notification name
+            wakeObserverTask = Task { [weak self] in
                 let notifications = NotificationCenter.default.notifications(
                     named: NSWorkspace.didWakeNotification
                 )
                 for await _ in notifications {
                     guard !Task.isCancelled else { break }
-                    await serverClient.reconnectImmediately()
+                    await self?.deviceConnectionManager?.reconnectAllImmediately()
                 }
             }
         }
@@ -365,12 +387,9 @@
             streamService: TerminalStreamService
         ) async -> CommandResponseMessage? {
             let paneId = command.paneId
-            let paneTarget = paneId // paneId is the tmux target (e.g., "%1")
+            let paneTarget = paneId
 
             do {
-                // Start streaming - TerminalStreamService subscribes to PaneStreamManager
-                // which captures initial content atomically with the subscription,
-                // ensuring no timing gap between initial state and live updates
                 try await streamService.startStreaming(
                     paneId: paneId,
                     target: paneTarget
@@ -389,15 +408,12 @@
             settings: AppSettings
         ) async -> CommandResponseMessage {
             do {
-                // If creating in a project folder and auto-run is enabled, run the configured command
                 let runCommand: String? = if spec.workingDirectory != nil && settings.autoRunClaudeInProjects {
                     settings.claudeCommandPath
                 } else {
                     nil
                 }
 
-                // Create the session - TmuxService.createSession calls refreshPanes(),
-                // which triggers the panes changed handler to push state to iOS
                 let (_, paneId) = try await tmuxService.createSession(
                     baseName: spec.sessionName,
                     width: spec.width,
@@ -406,7 +422,6 @@
                     runCommand: runCommand
                 )
 
-                // Brief delay to let tmux fully initialize the pane before iOS starts mirroring
                 try? await Task.sleep(for: .milliseconds(500))
 
                 return .success(for: command.id, paneId: paneId)
@@ -416,30 +431,27 @@
         }
 
         private func autoConnectIfConfigured() async {
-            // Auto-connect to relay server if configured and paired
+            // Auto-connect to all paired devices if configured
             guard
                 settings.autoConnectToServer,
-                let pairId = settings.pairId,
-                let serverURL = URL(string: settings.externalServerURL),
-                let manager = pairingManager,
-                let e2eeService
+                settings.isPaired,
+                let connectionManager = deviceConnectionManager
             else {
                 return
             }
 
-            let keyInfo = manager.publicKeyInfo
-            await externalServerClient.connect(
-                serverURL: serverURL,
-                pairId: pairId,
-                deviceId: settings.deviceId,
-                deviceName: Host.current().localizedName ?? "Mac",
-                username: ProcessInfo.processInfo.userName,
-                publicKey: keyInfo.publicKey.base64EncodedString(),
-                publicKeyId: keyInfo.keyId,
-                e2eeService: e2eeService,
-                partnerPublicKey: settings.partnerPublicKey,
-                partnerPublicKeyId: settings.partnerPublicKeyId
-            )
+            await connectionManager.connectAll()
+        }
+
+        /// Connect to a newly paired device
+        private func connectToNewlyPairedDevice(_ device: PairedDevice) async {
+            guard let connectionManager = deviceConnectionManager else {
+                logger.warning("Cannot connect to new device: connection manager not initialized")
+                return
+            }
+
+            logger.info("Connecting to newly paired device: \(device.displayName)")
+            await connectionManager.connect(to: device)
         }
     }
 #endif
