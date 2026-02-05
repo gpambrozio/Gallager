@@ -74,23 +74,17 @@ final public class DockIconManager {
     }
 
     private func observeWindowWillClose() async {
-        for await notification in NotificationCenter.default.notifications(
+        for await _ in NotificationCenter.default.notifications(
             named: NSWindow.willCloseNotification
         ) {
-            guard
-                let window = notification.object as? NSWindow,
-                isRelevantWindow(window) else { continue }
             handleWindowClosing()
         }
     }
 
     private func observeWindowResignedKey() async {
-        for await notification in NotificationCenter.default.notifications(
+        for await _ in NotificationCenter.default.notifications(
             named: NSWindow.didResignKeyNotification
         ) {
-            guard
-                let window = notification.object as? NSWindow,
-                isRelevantWindow(window) else { continue }
             handleWindowClosing()
         }
     }
@@ -101,15 +95,6 @@ final public class DockIconManager {
         guard let window = notification.object as? NSWindow else { return }
         guard isRelevantWindow(window) else { return }
         updateActivationPolicy()
-
-        // Always force the window to front when it becomes key/main.
-        // This ensures windows opened from menu bar actions appear above
-        // other applications. orderFrontRegardless() works regardless of
-        // whether the app is active.
-        window.orderFrontRegardless()
-        if !NSApp.isActive {
-            NSApp.activate()
-        }
     }
 
     private func handleWindowClosing() {
@@ -177,9 +162,8 @@ final public class DockIconManager {
             // Show dock icon when windows are visible
             if currentPolicy != .regular {
                 NSApp.setActivationPolicy(.regular)
-                // Note: We don't call NSApp.activate() here because
-                // handleWindowVisible already handles activation when
-                // a window becomes key/main.
+                // Ensure the app is properly activated
+                NSApp.activate(ignoringOtherApps: false)
             }
         } else {
             // Hide dock icon when no windows are visible
