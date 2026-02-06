@@ -3,7 +3,7 @@ import ClaudeSpyEncryption
 import Foundation
 import Logging
 
-/// Manages device pairing between the Mac app and iOS app via the external server.
+/// Manages device pairing between the host app and iOS app via the external server.
 ///
 /// Handles pairing code generation, registration, and the overall pairing flow.
 /// Supports pairing with multiple iOS devices.
@@ -318,7 +318,7 @@ final public class PairingManager {
 
         // Create new paired device without partner's public key.
         // The key will be received via WebSocket when both devices connect:
-        // 1. Mac registers → server responds with iOS public key in macRegistered
+        // 1. Host registers → server responds with iOS public key in macRegistered
         // 2. iOS connects → server sends iosConnected with iOS public key
         // Either path calls DeviceConnection.establishE2EEWithPartner() and
         // persists the key via onPartnerKeyReceived → updatePartnerPublicKey().

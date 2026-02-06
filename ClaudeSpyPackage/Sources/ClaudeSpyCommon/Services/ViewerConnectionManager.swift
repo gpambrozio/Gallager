@@ -1,19 +1,18 @@
-import ClaudeSpyCommon
 import ClaudeSpyEncryption
 import ClaudeSpyNetworking
 import Foundation
 
-/// Manages connections to all paired Mac hosts (when this Mac is acting as a viewer).
+/// Manages connections to all paired hosts (when acting as a viewer).
 ///
 /// This class coordinates multiple `ViewerConnection` instances, handling
 /// connection lifecycle, event routing, and command dispatch to the correct host.
-/// This is the Mac-side equivalent of `ConnectionManager` on iOS.
+/// Used by both iOS and macOS when connecting to remote Mac hosts.
 @Observable
 @MainActor
-final public class HostConnectionManager {
+final public class ViewerConnectionManager {
     // MARK: - Properties
 
-    private let logger = Logger(label: "com.claudespy.hostconnectionmanager")
+    private let logger = Logger(label: "com.claudespy.viewerconnectionmanager")
 
     /// Active connections keyed by pairId
     private var connections: [String: ViewerConnection] = [:]
@@ -27,6 +26,11 @@ final public class HostConnectionManager {
     /// Our stored key pair for E2EE
     private var keyPair: StoredKeyPair?
 
+    #if os(iOS)
+        /// Pending push token to send when connections are established
+        private var pendingPushToken: String?
+    #endif
+
     // MARK: - Public Callbacks
 
     /// Called when a hook event is received from any host
@@ -34,6 +38,11 @@ final public class HostConnectionManager {
 
     /// Called when session state is received from any host
     public var onSessionState: ((SessionStateMessage) -> Void)?
+
+    /// Called when a partner's public key is received or updated.
+    ///
+    /// Parameters are: hostId, publicKey (base64), keyId
+    public var onPartnerKeyReceived: ((_ hostId: String, _ publicKey: String, _ keyId: String) async -> Void)?
 
     // MARK: - Computed Properties
 
@@ -66,7 +75,7 @@ final public class HostConnectionManager {
 
     // MARK: - Initialization
 
-    /// Creates a new host connection manager.
+    /// Creates a new viewer connection manager.
     ///
     /// - Parameter keyManager: Key manager for E2EE key operations
     /// - Throws: If key pair initialization fails
@@ -95,8 +104,8 @@ final public class HostConnectionManager {
     /// - Parameters:
     ///   - pairedHosts: List of paired hosts to connect to
     ///   - serverURL: The relay server URL
-    ///   - deviceId: This Mac's device ID
-    ///   - deviceName: This Mac's display name
+    ///   - deviceId: This device's ID
+    ///   - deviceName: This device's display name
     public func connectAll(
         pairedHosts: [PairedHost],
         serverURL: URL,
@@ -115,8 +124,8 @@ final public class HostConnectionManager {
     /// - Parameters:
     ///   - host: The paired host to connect to
     ///   - serverURL: The relay server URL
-    ///   - deviceId: This Mac's device ID
-    ///   - deviceName: This Mac's display name
+    ///   - deviceId: This device's ID
+    ///   - deviceName: This device's display name
     public func connect(
         to host: PairedHost,
         serverURL: URL,
@@ -159,6 +168,13 @@ final public class HostConnectionManager {
             publicKey: keyPair.publicKeyData.base64EncodedString(),
             publicKeyId: keyPair.keyId
         )
+
+        #if os(iOS)
+            // Send pending push token if we have one
+            if let token = pendingPushToken {
+                await connection.sendPushToken(token)
+            }
+        #endif
     }
 
     /// Disconnect from a specific host.
@@ -234,6 +250,21 @@ final public class HostConnectionManager {
         await connection.requestSessionState()
     }
 
+    // MARK: - Push Notifications
+
+    #if os(iOS)
+        /// Send push notification token to all connected hosts.
+        ///
+        /// - Parameter token: The APNs device token as a hex string
+        public func sendPushTokenToAll(_ token: String) async {
+            pendingPushToken = token
+
+            for connection in connections.values where connection.isRelayConnected {
+                await connection.sendPushToken(token)
+            }
+        }
+    #endif
+
     // MARK: - Private Helpers
 
     private func createE2EEService(for host: PairedHost) async -> E2EEService? {
@@ -265,6 +296,8 @@ final public class HostConnectionManager {
     }
 
     private func setupConnectionCallbacks(_ connection: ViewerConnection) {
+        let hostId = connection.id
+
         connection.setupCallbacks(
             onHookEvent: { [weak self] event in
                 Task { @MainActor [weak self] in
@@ -279,9 +312,9 @@ final public class HostConnectionManager {
             onTerminalStream: { _ in
                 // Terminal streams are handled by individual views
             },
-            onPartnerKeyReceived: { _, _ in
-                // Partner key updates would be persisted to settings
-                // (implementation depends on MacSettings which will be added in Phase 4)
+            onPartnerKeyReceived: { [weak self] publicKey, keyId in
+                guard let self else { return }
+                await self.onPartnerKeyReceived?(hostId, publicKey, keyId)
             }
         )
     }

@@ -15,7 +15,7 @@ public enum SettingsTab: String, Sendable {
 
 /// Represents a paired iOS device with all connection details.
 ///
-/// Each iOS device paired with the Mac app has its own unique `pairId`,
+/// Each iOS device paired with the host app has its own unique `pairId`,
 /// cryptographic keys for E2EE, and connection state.
 public struct PairedDevice: Codable, Identifiable, Sendable, Hashable {
     // MARK: - Properties
@@ -117,7 +117,7 @@ final public class AppSettings {
         didSet { UserDefaults.standard.set(autoOpenMirrorOnSession, forKey: Keys.autoOpenMirrorOnSession) }
     }
 
-    /// Whether to prevent Mac from sleeping while Claude sessions are active
+    /// Whether to prevent host from sleeping while Claude sessions are active
     public var preventSleepDuringSessions: Bool {
         didSet { UserDefaults.standard.set(preventSleepDuringSessions, forKey: Keys.preventSleepDuringSessions) }
     }
@@ -171,7 +171,7 @@ final public class AppSettings {
         didSet { savePairedViewers() }
     }
 
-    /// All paired Mac hosts (for viewing remote Macs)
+    /// All paired hosts (for viewing remote hosts)
     public private(set) var pairedHosts: [PairedHost] = [] {
         didSet { savePairedHosts() }
     }
@@ -181,7 +181,7 @@ final public class AppSettings {
         didSet { UserDefaults.standard.set(autoConnectToServer, forKey: Keys.autoConnectToServer) }
     }
 
-    /// Unique device identifier for this Mac (generated on first launch)
+    /// Unique device identifier for this host (generated on first launch)
     public var deviceId: String {
         didSet { UserDefaults.standard.set(deviceId, forKey: Keys.deviceId) }
     }
@@ -330,7 +330,7 @@ final public class AppSettings {
         !pairedViewers.isEmpty
     }
 
-    /// Whether at least one remote Mac host is paired
+    /// Whether at least one remote host is paired
     public var hasRemoteHosts: Bool {
         !pairedHosts.isEmpty
     }
@@ -400,7 +400,7 @@ final public class AppSettings {
 
     // MARK: - Host Pairing Management
 
-    /// Add a new paired host (remote Mac to view)
+    /// Add a new paired host (remote host to view)
     public func addHostPairing(_ host: PairedHost) {
         // Remove any existing pairing with same ID (update case)
         pairedHosts.removeAll { $0.id == host.id }

@@ -3,8 +3,8 @@ import ClaudeSpyCommon
 import ClaudeSpyEncryption
 import SwiftUI
 
-/// Settings view for managing paired Mac hosts (other Macs this Mac can view)
-public struct RemoteMacsSettingsView: View {
+/// Settings view for managing paired hosts (other hosts this host can view)
+public struct RemoteHostsSettingsView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(\.e2eeService) private var e2eeService: E2EEService?
@@ -29,9 +29,9 @@ public struct RemoteMacsSettingsView: View {
             Section {
                 pairedHostsContent
             } header: {
-                Text("Paired Mac Hosts")
+                Text("Paired Hosts")
             } footer: {
-                Text("Mac hosts you can connect to for viewing their Claude sessions remotely.")
+                Text("Hosts you can connect to for viewing their Claude sessions remotely.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -51,7 +51,7 @@ public struct RemoteMacsSettingsView: View {
         }
         .formStyle(.grouped)
         .frame(minWidth: 400, minHeight: 300)
-        .navigationTitle("Remote Macs")
+        .navigationTitle("Remote Hosts")
         .sheet(isPresented: $showAddHostSheet) {
             AddHostSheet()
         }
@@ -72,7 +72,7 @@ public struct RemoteMacsSettingsView: View {
                 hostToDelete = nil
             }
         } message: { host in
-            Text("This will remove the pairing with \(host.displayName). You can pair again using a new code from that Mac.")
+            Text("This will remove the pairing with \(host.displayName). You can pair again using a new code from that host.")
         }
     }
 
@@ -80,7 +80,7 @@ public struct RemoteMacsSettingsView: View {
 
     @ViewBuilder
     private var connectionStatusRow: some View {
-        let hostManager = coordinator.hostConnectionManager
+        let hostManager = coordinator.viewerConnectionManager
         let anyConnected = hostManager?.anyHostConnected ?? false
         let isConnecting = hostManager?.isConnecting ?? false
 
@@ -120,7 +120,7 @@ public struct RemoteMacsSettingsView: View {
 
     @ViewBuilder
     private var connectionActionButton: some View {
-        let hostManager = coordinator.hostConnectionManager
+        let hostManager = coordinator.viewerConnectionManager
         let anyConnected = hostManager?.anyHostConnected ?? false
         let isConnecting = hostManager?.isConnecting ?? false
 
@@ -137,7 +137,7 @@ public struct RemoteMacsSettingsView: View {
                 Task {
                     guard
                         let serverURL = URL(string: settings.externalServerURL),
-                        let hostManager = coordinator.hostConnectionManager
+                        let hostManager = coordinator.viewerConnectionManager
                     else { return }
 
                     await hostManager.connectAll(
@@ -157,17 +157,17 @@ public struct RemoteMacsSettingsView: View {
     private var pairedHostsContent: some View {
         if settings.pairedHosts.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                Text("No Mac hosts paired")
+                Text("No hosts paired")
                     .foregroundStyle(.secondary)
 
-                Text("Get a pairing code from another Mac running ClaudeSpy to connect.")
+                Text("Get a pairing code from another host running ClaudeSpy to connect.")
                     .foregroundStyle(.secondary)
                     .font(.caption)
 
                 Button {
                     showAddHostSheet = true
                 } label: {
-                    Label("Add Mac Host", symbol: .plus)
+                    Label("Add Host", symbol: .plus)
                 }
                 .buttonStyle(.borderedProminent)
             }
@@ -175,7 +175,7 @@ public struct RemoteMacsSettingsView: View {
             ForEach(settings.pairedHosts) { host in
                 HostRow(
                     host: host,
-                    connection: coordinator.hostConnectionManager?.connection(for: host.id),
+                    connection: coordinator.viewerConnectionManager?.connection(for: host.id),
                     showUsername: settings.hasDuplicateHostName(for: host),
                     onEdit: {
                         hostToEdit = host
@@ -190,7 +190,7 @@ public struct RemoteMacsSettingsView: View {
             Button {
                 showAddHostSheet = true
             } label: {
-                Label("Add Mac Host", symbol: .plus)
+                Label("Add Host", symbol: .plus)
             }
             .buttonStyle(.borderless)
             .padding(.top, 4)
@@ -201,7 +201,7 @@ public struct RemoteMacsSettingsView: View {
 
     private func removeHost(_ host: PairedHost) async {
         // Disconnect from this host
-        await coordinator.hostConnectionManager?.disconnect(from: host.id)
+        await coordinator.viewerConnectionManager?.disconnect(from: host.id)
 
         // Remove from settings
         settings.removeHostPairing(id: host.id)
@@ -312,10 +312,10 @@ private struct AddHostSheet: View {
 
     var body: some View {
         VStack(spacing: 20) {
-            Text("Add Mac Host")
+            Text("Add Host")
                 .font(.headline)
 
-            Text("Enter the 6-digit pairing code from the Mac you want to connect to.")
+            Text("Enter the 6-digit pairing code from the host you want to connect to.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
@@ -357,7 +357,7 @@ private struct AddHostSheet: View {
     }
 
     private func submitPairingCode() {
-        errorMessage = "Mac-to-Mac pairing is coming in a future update."
+        errorMessage = "Host-to-host pairing is coming in a future update."
     }
 }
 
@@ -373,7 +373,7 @@ private struct EditHostSheet: View {
 
     var body: some View {
         VStack(spacing: 20) {
-            Text("Edit Mac Host")
+            Text("Edit Host")
                 .font(.headline)
 
             Form {

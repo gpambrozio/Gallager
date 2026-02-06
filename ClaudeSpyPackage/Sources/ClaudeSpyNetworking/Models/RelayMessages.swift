@@ -23,14 +23,14 @@ public struct HookEventMessage: Codable, Sendable {
 
 // MARK: - Session State
 
-/// Complete session state for sync between Mac and iOS
+/// Complete session state for sync between host and viewer
 public struct SessionStateMessage: Codable, Sendable {
     public let pairId: String
     public let sessions: [String: ClaudeSession]
     public let activePanes: [String]
     /// All tmux panes (including those without Claude sessions)
     public let panes: [PaneInfoMessage]?
-    /// Discovered Claude projects on the Mac
+    /// Discovered Claude projects on the host
     public let claudeProjects: [ClaudeProjectInfo]?
 
     public init(

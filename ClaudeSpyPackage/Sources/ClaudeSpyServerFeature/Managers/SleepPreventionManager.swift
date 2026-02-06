@@ -4,7 +4,7 @@ import Logging
 
 /// Manages system sleep prevention based on active Claude Code sessions.
 ///
-/// When Claude Code sessions are active, this manager prevents the Mac from sleeping
+/// When Claude Code sessions are active, this manager prevents the host from sleeping
 /// so users can monitor sessions remotely without interruption. The assertion is
 /// automatically released when all sessions end.
 @MainActor

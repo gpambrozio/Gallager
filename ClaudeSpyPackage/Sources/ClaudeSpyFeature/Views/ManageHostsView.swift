@@ -3,13 +3,13 @@
     import ClaudeSpyEncryption
     import SwiftUI
 
-    /// View for managing paired Mac servers.
+    /// View for managing paired hosts.
     ///
-    /// Displays a list of paired Macs with connection status and allows
-    /// adding new Macs or removing existing pairings.
-    struct ManageMacsView: View {
+    /// Displays a list of paired hosts with connection status and allows
+    /// adding new hosts or removing existing pairings.
+    struct ManageHostsView: View {
         @Environment(IOSSettings.self) private var settings
-        @Environment(ConnectionManager.self) private var connectionManager
+        @Environment(ViewerConnectionManager.self) private var connectionManager
 
         @State private var showPairingSheet = false
         @State private var hostToDelete: PairedHost?
@@ -18,14 +18,14 @@
 
         var body: some View {
             List {
-                // Paired Macs section
+                // Paired hosts section
                 Section {
                     if settings.pairedHosts.isEmpty {
-                        Text("No Macs paired")
+                        Text("No hosts paired")
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(settings.pairedHosts) { host in
-                            MacRowView(
+                            HostRowView(
                                 host: host,
                                 connection: connectionManager.connection(for: host.id),
                                 showUsername: settings.hasDuplicateHostName(for: host)
@@ -43,26 +43,26 @@
                         }
                     }
                 } header: {
-                    Text("Paired Macs")
+                    Text("Paired Hosts")
                 } footer: {
                     Text("Tap to edit name. Swipe left to remove.")
                 }
 
-                // Add Mac section
+                // Add host section
                 Section {
                     Button {
                         showPairingSheet = true
                     } label: {
-                        Label("Add Mac", symbol: .plus)
+                        Label("Add Host", symbol: .plus)
                     }
                 }
             }
-            .navigationTitle("Manage Macs")
+            .navigationTitle("Manage Hosts")
             .sheet(isPresented: $showPairingSheet) {
-                AddMacSheet()
+                AddHostSheet()
             }
             .sheet(item: $hostToEdit) { host in
-                EditMacSheet(host: host)
+                EditHostSheet(host: host)
             }
             .confirmationDialog(
                 "Remove Pairing",
@@ -78,15 +78,15 @@
                     hostToDelete = nil
                 }
             } message: { host in
-                Text("This will remove the pairing with \(host.displayName). You can pair again using a new code from the Mac app.")
+                Text("This will remove the pairing with \(host.displayName). You can pair again using a new code from the host app.")
             }
         }
 
         private func removeHost(_ host: PairedHost) async {
-            // Disconnect from this Mac
+            // Disconnect from this host
             await connectionManager.disconnect(from: host.id)
 
-            // Delete encryption session key for this Mac
+            // Delete encryption session key for this host
             let keyManager = KeyManager(accessGroup: sharedKeychainAccessGroup)
             try? await keyManager.deleteSessionKey(for: host.id)
 
@@ -97,17 +97,17 @@
         }
     }
 
-    // MARK: - Mac Row View
+    // MARK: - Host Row View
 
-    /// Row view displaying a paired Mac with connection status
-    struct MacRowView: View {
+    /// Row view displaying a paired host with connection status
+    struct HostRowView: View {
         let host: PairedHost
         let connection: ViewerConnection?
         var showUsername = false
 
         var body: some View {
             HStack(spacing: 12) {
-                // Mac icon with connection indicator
+                // Host icon with connection indicator
                 ZStack(alignment: .bottomTrailing) {
                     Symbols.laptopcomputer.image
                         .font(.title2)
@@ -162,20 +162,20 @@
             if connection.isHostConnected {
                 return "Online"
             } else if connection.isRelayConnected {
-                return "Waiting for Mac..."
+                return "Waiting for host..."
             } else {
                 return connection.state.statusText
             }
         }
     }
 
-    // MARK: - Add Mac Sheet
+    // MARK: - Add Host Sheet
 
-    /// Sheet for adding a new Mac pairing
-    struct AddMacSheet: View {
+    /// Sheet for adding a new host pairing
+    struct AddHostSheet: View {
         @Environment(\.dismiss) private var dismiss
         @Environment(IOSSettings.self) private var settings
-        @Environment(ConnectionManager.self) private var connectionManager
+        @Environment(ViewerConnectionManager.self) private var connectionManager
 
         var body: some View {
             NavigationStack {
@@ -184,9 +184,15 @@
                         // Add the new pairing
                         settings.addPairing(pairedHost)
 
-                        // Connect to the new Mac
+                        // Connect to the new host
                         Task {
-                            await connectionManager.connect(to: pairedHost, settings: settings)
+                            guard let serverURL = URL(string: settings.externalServerURL) else { return }
+                            await connectionManager.connect(
+                                to: pairedHost,
+                                serverURL: serverURL,
+                                deviceId: settings.deviceId,
+                                deviceName: settings.deviceName
+                            )
                         }
 
                         dismiss()
@@ -210,10 +216,10 @@
         }
     }
 
-    // MARK: - Edit Mac Sheet
+    // MARK: - Edit Host Sheet
 
-    /// Sheet for editing a Mac's custom name
-    struct EditMacSheet: View {
+    /// Sheet for editing a host's custom name
+    struct EditHostSheet: View {
         @Environment(\.dismiss) private var dismiss
         @Environment(IOSSettings.self) private var settings
 
@@ -229,18 +235,18 @@
                     } header: {
                         Text("Display Name")
                     } footer: {
-                        Text("Leave empty to use the default Mac name.")
+                        Text("Leave empty to use the default host name.")
                     }
 
                     Section {
-                        LabeledContent("Mac Name", value: host.hostName)
+                        LabeledContent("Host Name", value: host.hostName)
                         LabeledContent("Username", value: host.username)
                         LabeledContent("Paired", value: DateFormatters.relativeTime(for: host.pairedAt))
                     } header: {
-                        Text("Mac Info")
+                        Text("Host Info")
                     }
                 }
-                .navigationTitle("Edit Mac")
+                .navigationTitle("Edit Host")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
@@ -250,7 +256,7 @@
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Save") {
-                            saveMac()
+                            saveHost()
                             dismiss()
                         }
                     }
@@ -261,7 +267,7 @@
             }
         }
 
-        private func saveMac() {
+        private func saveHost() {
             let trimmedName = customName.trimmingCharacters(in: .whitespacesAndNewlines)
             let updatedHost = PairedHost(
                 id: host.id,

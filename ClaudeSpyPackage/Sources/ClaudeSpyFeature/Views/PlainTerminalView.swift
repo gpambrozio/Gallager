@@ -17,7 +17,7 @@
         /// Always nil for plain terminals - no response state
         @State private var responseState: ResponseState?
 
-        /// Whether the Mac is connected
+        /// Whether the host is connected
         private var isConnected: Bool {
             relayClient.isHostConnected
         }
@@ -42,7 +42,7 @@
             .toolbar(hideNavigationBar ? .hidden : .visible, for: .navigationBar)
         }
 
-        /// Send a command to the Mac for this pane
+        /// Send a command to the host for this pane
         private func sendCommand(_ command: CommandType) async {
             switch command {
             case let .sendKeystroke(spec):

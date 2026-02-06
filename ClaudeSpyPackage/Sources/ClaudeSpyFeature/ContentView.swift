@@ -8,13 +8,13 @@
     /// Main entry point for the ClaudeSpy iOS app.
     ///
     /// Manages the app's primary state:
-    /// - Shows pairing view if no Macs are paired
-    /// - Shows main session view once at least one Mac is paired
-    /// - Handles WebSocket connections for all paired Macs
+    /// - Shows pairing view if no hosts are paired
+    /// - Shows main session view once at least one host is paired
+    /// - Handles WebSocket connections for all paired hosts
     /// - Manages background task to keep connections alive when backgrounded
     public struct ContentView: View {
         @State private var settings = IOSSettings.shared
-        @State private var connectionManager: ConnectionManager?
+        @State private var connectionManager: ViewerConnectionManager?
         @State private var sessionStore = SessionStore()
         @State private var initializationError: String?
 
@@ -128,25 +128,47 @@
                     sessionStore.handleStateUpdate(state)
                 }
             }
+
+            connectionManager.onPartnerKeyReceived = { hostId, publicKey, keyId in
+                let settings = IOSSettings.shared
+                if let host = settings.getPairing(id: hostId) {
+                    let updatedHost = PairedHost(
+                        id: host.id,
+                        hostName: host.hostName,
+                        username: host.username,
+                        partnerPublicKey: publicKey,
+                        partnerPublicKeyId: keyId,
+                        pairedAt: host.pairedAt,
+                        customName: host.customName
+                    )
+                    settings.updatePairing(updatedHost)
+                }
+            }
         }
 
         private func autoConnectIfNeeded() async {
             guard
                 settings.isPaired,
                 settings.autoReconnect,
-                let connectionManager
+                let connectionManager,
+                let serverURL = URL(string: settings.externalServerURL)
             else {
                 return
             }
 
-            await connectionManager.connectAll(settings: settings)
+            await connectionManager.connectAll(
+                pairedHosts: settings.pairedHosts,
+                serverURL: serverURL,
+                deviceId: settings.deviceId,
+                deviceName: settings.deviceName
+            )
 
             // Request push permissions if not already authorized
             if pushService.permissionStatus != .authorized {
                 await requestPushNotificationPermissions()
             }
 
-            // Send push token to all connected Macs
+            // Send push token to all connected hosts
             if let token = pushService.tokenString {
                 await connectionManager.sendPushTokenToAll(token)
             }
@@ -160,7 +182,7 @@
             do {
                 // Use shared keychain access group so Notification Service Extension can decrypt
                 let keyManager = KeyManager(accessGroup: sharedKeychainAccessGroup)
-                connectionManager = try await ConnectionManager(keyManager: keyManager)
+                connectionManager = try await ViewerConnectionManager(keyManager: keyManager)
             } catch {
                 initializationError = "Failed to initialize encryption: \(error.localizedDescription)"
             }
@@ -172,11 +194,16 @@
             // Add the new pairing to settings
             settings.addPairing(pairedHost)
 
-            // Connect to the new Mac
+            // Connect to the new host
             Task {
-                guard let connectionManager else { return }
+                guard let connectionManager, let serverURL = URL(string: settings.externalServerURL) else { return }
 
-                await connectionManager.connect(to: pairedHost, settings: settings)
+                await connectionManager.connect(
+                    to: pairedHost,
+                    serverURL: serverURL,
+                    deviceId: settings.deviceId,
+                    deviceName: settings.deviceName
+                )
 
                 // Request push notification permissions after successful pairing
                 await requestPushNotificationPermissions()
@@ -207,7 +234,7 @@
     /// The main tabbed interface after pairing.
     struct MainView: View {
         @Environment(IOSSettings.self) private var settings
-        @Environment(ConnectionManager.self) private var connectionManager
+        @Environment(ViewerConnectionManager.self) private var connectionManager
         @Environment(SessionStore.self) private var sessionStore
         @Environment(\.verticalSizeClass) private var verticalSizeClass
 
@@ -305,10 +332,18 @@
         }
 
         private func connectIfNeeded() async {
-            // Connect all paired Macs if not already connected
-            guard !connectionManager.isConnecting else { return }
+            // Connect all paired hosts if not already connected
+            guard
+                !connectionManager.isConnecting,
+                let serverURL = URL(string: settings.externalServerURL)
+            else { return }
 
-            await connectionManager.connectAll(settings: settings)
+            await connectionManager.connectAll(
+                pairedHosts: settings.pairedHosts,
+                serverURL: serverURL,
+                deviceId: settings.deviceId,
+                deviceName: settings.deviceName
+            )
         }
     }
 
@@ -316,7 +351,7 @@
 
     struct SettingsView: View {
         @Environment(IOSSettings.self) private var settings
-        @Environment(ConnectionManager.self) private var connectionManager
+        @Environment(ViewerConnectionManager.self) private var connectionManager
 
         /// Available monospace fonts for terminal display
         static let availableFonts = [
@@ -343,7 +378,13 @@
                     if !connectionManager.anyHostConnected {
                         Button("Connect All") {
                             Task {
-                                await connectionManager.connectAll(settings: settings)
+                                guard let serverURL = URL(string: settings.externalServerURL) else { return }
+                                await connectionManager.connectAll(
+                                    pairedHosts: settings.pairedHosts,
+                                    serverURL: serverURL,
+                                    deviceId: settings.deviceId,
+                                    deviceName: settings.deviceName
+                                )
                             }
                         }
                     } else {
@@ -355,13 +396,13 @@
                     }
                 }
 
-                // Paired Macs Section
+                // Paired Hosts Section
                 Section {
                     NavigationLink {
-                        ManageMacsView()
+                        ManageHostsView()
                     } label: {
                         HStack {
-                            Text("Paired Macs")
+                            Text("Paired Hosts")
                             Spacer()
                             Text("\(settings.pairedHosts.count)")
                                 .foregroundStyle(.secondary)

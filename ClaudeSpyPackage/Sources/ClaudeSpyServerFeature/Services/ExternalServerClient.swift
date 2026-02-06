@@ -6,7 +6,7 @@ import Logging
 
 /// Client for connecting to the external relay server via WebSocket.
 ///
-/// Handles bidirectional communication between the Mac app and the relay server,
+/// Handles bidirectional communication between the host app and the relay server,
 /// forwarding hook events to iOS and receiving commands from iOS.
 @Observable
 @MainActor
@@ -67,7 +67,7 @@ final public class ExternalServerClient {
     /// Device name for registration
     private var deviceName: String?
 
-    /// Username of the Mac user
+    /// Username of the host user
     private var username = ""
 
     /// Public key for E2EE (Base64-encoded)
@@ -190,9 +190,9 @@ final public class ExternalServerClient {
     /// - Parameters:
     ///   - serverURL: WebSocket URL of the relay server
     ///   - pairId: The pair ID from device pairing
-    ///   - deviceId: Unique identifier for this Mac
-    ///   - deviceName: Display name for this Mac
-    ///   - username: Username of the Mac user (e.g., "john")
+    ///   - deviceId: Unique identifier for this host
+    ///   - deviceName: Display name for this host
+    ///   - username: Username of the host user (e.g., "john")
     ///   - publicKey: Base64-encoded public key for E2EE
     ///   - publicKeyId: Unique identifier for the public key
     ///   - e2eeService: E2EE service for encrypting/decrypting messages

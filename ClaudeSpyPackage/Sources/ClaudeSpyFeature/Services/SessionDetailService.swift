@@ -45,7 +45,7 @@ final public class SessionDetailService {
         sessionStore.isPaneActive(paneId)
     }
 
-    /// Whether the host (Mac) is connected to the relay
+    /// Whether the host is connected to the relay
     public var isHostConnected: Bool {
         relayClient.isHostConnected
     }
@@ -116,7 +116,7 @@ final public class SessionDetailService {
 
     // MARK: - Actions
 
-    /// Send a command to the Mac for this pane (fire-and-forget style)
+    /// Send a command to the host for this pane (fire-and-forget style)
     public func sendCommand(_ command: CommandType) async {
         // Extract the spec from the CommandType and send it
         switch command {

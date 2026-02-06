@@ -28,8 +28,8 @@
         /// Device connection manager for multiple viewer connections
         public private(set) var deviceConnectionManager: DeviceConnectionManager?
 
-        /// Host connection manager for connecting to remote Mac hosts (viewer mode)
-        public private(set) var hostConnectionManager: HostConnectionManager?
+        /// Viewer connection manager for connecting to remote hosts (viewer mode)
+        public private(set) var viewerConnectionManager: ViewerConnectionManager?
 
         /// Error message if service setup failed (e.g., E2EE initialization)
         public private(set) var setupError: String?
@@ -366,7 +366,7 @@
 
         /// Starts observing system wake notifications to trigger immediate reconnection.
         ///
-        /// When the Mac wakes from sleep, network connections are often stale or broken.
+        /// When the host wakes from sleep, network connections are often stale or broken.
         /// This triggers an immediate reconnection attempt instead of waiting for the
         /// next scheduled retry.
         private func startWakeObserver() {

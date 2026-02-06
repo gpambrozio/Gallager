@@ -358,7 +358,7 @@ public struct CreateTmuxSession: CommandSpec, Equatable {
 
 // MARK: - Command Types
 
-/// Commands that can be sent from iOS to Mac, with their associated data.
+/// Commands that can be sent from viewer to host, with their associated data.
 /// This enum is the wire format - it's what gets encoded and sent over the network.
 /// Each case holds its corresponding CommandSpec struct.
 public enum CommandType: Codable, Sendable, Equatable {
@@ -413,7 +413,7 @@ public enum CommandType: Codable, Sendable, Equatable {
 
 // MARK: - Command Message
 
-/// A command sent from iOS to Mac via the relay server
+/// A command sent from viewer to host via the relay server
 public struct CommandMessage: Codable, Sendable, Identifiable {
     public let id: UUID
     public let paneId: String

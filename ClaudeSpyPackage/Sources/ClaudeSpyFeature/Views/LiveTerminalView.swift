@@ -5,9 +5,9 @@
     import SwiftUI
     import UIKit
 
-    /// Displays a live streaming terminal from the Mac app.
+    /// Displays a live streaming terminal from the host app.
     ///
-    /// This view requests a terminal stream from the Mac, displays the live output,
+    /// This view requests a terminal stream from the host, displays the live output,
     /// and handles dimension changes. It replaces the static snapshot view.
     ///
     /// When `isInteractive` is true, the terminal accepts keyboard input which is
@@ -18,7 +18,7 @@
         /// Binding to the response state for displaying response options above the terminal
         @Binding var responseState: ResponseState?
 
-        /// Whether the Mac is connected
+        /// Whether the host is connected
         let isConnected: Bool
 
         /// Whether the navigation bar is hidden (show overlay keyboard button)
@@ -184,7 +184,7 @@
         private func startStreaming() async {
             guard isConnected else {
                 coordinator.streamState = .error
-                coordinator.error = "Mac is not connected"
+                coordinator.error = "Host is not connected"
                 return
             }
 
@@ -270,7 +270,7 @@
             case let .initialState(initial):
                 // If already streaming, ignore duplicate initialState.
                 // This happens when another iOS device subscribes to the same pane —
-                // the Mac broadcasts initialState to all devices. Replacing the
+                // the host broadcasts initialState to all devices. Replacing the
                 // TerminalState while streaming would break the UIKit onData wiring.
                 guard streamState != .streaming else { return }
 
@@ -297,7 +297,7 @@
 
             case .streamEnd:
                 // Only process streamEnd if we're actually streaming.
-                // Ignore if we're still connecting - this can happen when the Mac restarts
+                // Ignore if we're still connecting - this can happen when the host restarts
                 // a stale stream (stops old, starts new) and the streamEnd from the old
                 // stream arrives before our new initialState.
                 guard streamState == .streaming else { return }

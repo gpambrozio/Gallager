@@ -13,12 +13,12 @@
         case plainTerminal(paneId: String, hostId: String)
     }
 
-    /// View displaying a list of active Claude sessions and terminals from all paired Macs.
+    /// View displaying a list of active Claude sessions and terminals from all paired hosts.
     struct SessionListView: View {
         @Binding var navigationPath: NavigationPath
 
         @Environment(SessionStore.self) private var sessionStore
-        @Environment(ConnectionManager.self) private var connectionManager
+        @Environment(ViewerConnectionManager.self) private var connectionManager
         @Environment(IOSSettings.self) private var settings
 
         @State private var creatingSelection: ProjectPickerSelection?
@@ -46,7 +46,7 @@
                             settings: settings
                         )
                     } else {
-                        macDisconnectedView
+                        hostDisconnectedView
                     }
                 case let .plainTerminal(paneId, hostId):
                     if let connection = connectionManager.connection(for: hostId) {
@@ -56,7 +56,7 @@
                             settings: settings
                         )
                     } else {
-                        macDisconnectedView
+                        hostDisconnectedView
                     }
                 }
             }
@@ -89,12 +89,12 @@
             }
         }
 
-        // MARK: - Sessions List (Grouped by Mac)
+        // MARK: - Sessions List (Grouped by Host)
 
         private var sessionsList: some View {
             List {
                 ForEach(settings.pairedHosts) { host in
-                    MacSessionsSection(
+                    HostSessionsSection(
                         host: host,
                         connection: connectionManager.connection(for: host.id),
                         sessions: sessionStore.sessions(for: host.id),
@@ -115,18 +115,18 @@
 
         private var emptyStateView: some View {
             ContentUnavailableView {
-                Label("No Macs Paired", symbol: .laptopcomputer)
+                Label("No Hosts Paired", symbol: .laptopcomputer)
             } description: {
-                Text("Pair your Mac to see sessions here")
+                Text("Pair a host to see sessions here")
             }
         }
 
-        /// Shown when navigating to a session whose Mac is no longer connected
-        private var macDisconnectedView: some View {
+        /// Shown when navigating to a session whose host is no longer connected
+        private var hostDisconnectedView: some View {
             ContentUnavailableView {
-                Label("Mac Disconnected", symbol: .wifiSlash)
+                Label("Host Disconnected", symbol: .wifiSlash)
             } description: {
-                Text("This Mac is no longer connected. Go back and reconnect to view this session.")
+                Text("This host is no longer connected. Go back and reconnect to view this session.")
             }
         }
 
@@ -212,10 +212,10 @@
         }
     }
 
-    // MARK: - Mac Sessions Section
+    // MARK: - Host Sessions Section
 
-    /// A section displaying sessions and terminals from a single Mac
-    struct MacSessionsSection: View {
+    /// A section displaying sessions and terminals from a single host
+    struct HostSessionsSection: View {
         let host: PairedHost
         let connection: ViewerConnection?
         let sessions: [(paneId: String, session: ClaudeSession)]
@@ -232,7 +232,7 @@
         var body: some View {
             Section {
                 if hasContent {
-                    // Claude sessions for this Mac
+                    // Claude sessions for this host
                     ForEach(sessions, id: \.paneId) { item in
                         NavigationLink(value: SessionNavigation.claudeSession(paneId: item.paneId, hostId: host.id)) {
                             SessionRowView(
@@ -243,24 +243,24 @@
                         }
                     }
 
-                    // Plain terminals for this Mac
+                    // Plain terminals for this host
                     ForEach(panes) { pane in
                         NavigationLink(value: SessionNavigation.plainTerminal(paneId: pane.id, hostId: host.id)) {
                             TerminalRowView(pane: pane)
                         }
                     }
                 } else {
-                    // Empty state for this Mac
+                    // Empty state for this host
                     if connection?.isHostConnected == true {
                         Text("No active sessions")
                             .foregroundStyle(.secondary)
                     } else {
-                        Text("Mac offline")
+                        Text("Host offline")
                             .foregroundStyle(.secondary)
                     }
                 }
             } header: {
-                MacSectionHeader(
+                HostSectionHeader(
                     host: host,
                     connection: connection,
                     showUsername: showUsername,
@@ -270,10 +270,10 @@
         }
     }
 
-    // MARK: - Mac Section Header
+    // MARK: - Host Section Header
 
-    /// Header for a Mac's session section showing name and connection status
-    struct MacSectionHeader: View {
+    /// Header for a host's session section showing name and connection status
+    struct HostSectionHeader: View {
         let host: PairedHost
         let connection: ViewerConnection?
         var showUsername = false
@@ -281,7 +281,7 @@
 
         var body: some View {
             HStack {
-                // Mac name
+                // Host name
                 Text(host.displayName(showUsername: showUsername))
 
                 Spacer()
@@ -450,7 +450,7 @@
             creatingSelection != nil
         }
 
-        /// Projects for this Mac, read from SessionStore to auto-update when state arrives
+        /// Projects for this host, read from SessionStore to auto-update when state arrives
         private var projects: [ClaudeProjectInfo] {
             sessionStore.projects(for: host.id)
         }

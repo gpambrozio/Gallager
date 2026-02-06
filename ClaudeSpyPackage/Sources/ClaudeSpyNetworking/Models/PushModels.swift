@@ -3,7 +3,7 @@ import Foundation
 
 // MARK: - Notification Content
 
-/// The notification content that gets encrypted by Mac and decrypted by iOS Notification Service Extension.
+/// The notification content that gets encrypted by the host and decrypted by iOS Notification Service Extension.
 ///
 /// This struct contains the actual notification text that will be displayed to the user.
 /// It travels encrypted through the server and APNs infrastructure.
@@ -51,9 +51,9 @@ public struct NotificationContent: Codable, Sendable, Equatable {
 /// decrypts `encryptedContent` and updates the notification with the decrypted title/body.
 ///
 /// ## Flow
-/// 1. Mac creates `NotificationContent` with title, body, etc.
-/// 2. Mac encrypts it using E2EEService to produce `EncryptedPayload`
-/// 3. Mac wraps it in `EncryptedPushPayload` and sends to server
+/// 1. Host creates `NotificationContent` with title, body, etc.
+/// 2. Host encrypts it using E2EEService to produce `EncryptedPayload`
+/// 3. Host wraps it in `EncryptedPushPayload` and sends to server
 /// 4. Server sends to APNs with generic placeholder text + this payload
 /// 5. iOS Notification Service Extension receives push, decrypts, and displays
 public struct EncryptedPushPayload: Codable, Sendable, Equatable {

@@ -86,7 +86,7 @@ public enum WebSocketMessage: Codable, Sendable {
 
     // MARK: - Encrypted Push Notifications
 
-    /// Mac sends encrypted push notification payload to be relayed via APNs.
+    /// Host sends encrypted push notification payload to be relayed via APNs.
     /// Server forwards to APNs with generic placeholder text; iOS extension decrypts.
     case encryptedPush(EncryptedPushPayload)
 }

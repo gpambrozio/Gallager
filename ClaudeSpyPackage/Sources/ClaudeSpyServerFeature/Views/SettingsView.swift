@@ -25,9 +25,9 @@ public struct SettingsView: View {
                 }
                 .tag(SettingsTab.remoteAccess)
 
-            RemoteMacsSettingsView()
+            RemoteHostsSettingsView()
                 .tabItem {
-                    Label("Remote Macs", symbol: .laptopcomputer)
+                    Label("Remote Hosts", symbol: .laptopcomputer)
                 }
                 .tag(SettingsTab.remoteHosts)
 
@@ -129,7 +129,7 @@ struct GeneralSettingsView: View {
                 Toggle("Auto-open mirror on session start", isOn: $settings.autoOpenMirrorOnSession)
 
                 Toggle("Prevent sleep during active sessions", isOn: $settings.preventSleepDuringSessions)
-                    .help("Keep Mac awake while Claude Code sessions are running")
+                    .help("Keep host awake while Claude Code sessions are running")
 
                 Toggle("Auto-reconnect on connection loss", isOn: $settings.autoReconnect)
 

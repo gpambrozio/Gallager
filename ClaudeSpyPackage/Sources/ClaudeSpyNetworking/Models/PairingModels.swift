@@ -11,7 +11,7 @@ public struct PairingRegistration: Codable, Sendable {
     public let publicKey: String
     /// Unique identifier for the public key
     public let publicKeyId: String
-    /// Username of the Mac user (e.g., "john")
+    /// Username of the host user (e.g., "john")
     public let username: String
 
     public init(
@@ -58,7 +58,7 @@ public struct PairingCompletion: Codable, Sendable {
 
 /// Response from pairing operations using a Result-style enum
 public enum PairingResponse: Codable, Sendable, Equatable {
-    /// Mac successfully registered a pairing code, waiting for iOS to complete
+    /// Host successfully registered a pairing code, waiting for viewer to complete
     case registered(RegistrationInfo)
     /// Pairing completed successfully with partner device info
     case paired(PairedDeviceInfo)
@@ -92,7 +92,7 @@ public enum PairingResponse: Codable, Sendable, Equatable {
     }
 }
 
-/// Info returned when Mac successfully registers a pairing code
+/// Info returned when host successfully registers a pairing code
 public struct RegistrationInfo: Codable, Sendable, Equatable {
     public let pairId: String
 
@@ -109,7 +109,7 @@ public struct PairedDeviceInfo: Codable, Sendable, Equatable {
     public let partnerPublicKey: String
     /// Unique identifier for the partner's public key
     public let partnerPublicKeyId: String
-    /// Username of the Mac user
+    /// Username of the host user
     public let partnerUsername: String
 
     public init(
@@ -138,7 +138,7 @@ public struct ErrorInfo: Codable, Sendable, Equatable {
 
 // MARK: - Device Registration Messages
 
-/// Message sent by host (Mac) to register with the relay server
+/// Message sent by host to register with the relay server
 public struct RegisterHostMessage: Codable, Sendable {
     public let pairId: String
     public let deviceId: String
@@ -167,7 +167,7 @@ public struct RegisterHostMessage: Codable, Sendable {
     }
 }
 
-/// Message sent by viewer (iOS or Mac viewer) to register with the relay server
+/// Message sent by viewer (iOS or macOS viewer) to register with the relay server
 public struct RegisterViewerMessage: Codable, Sendable {
     public let pairId: String
     public let deviceId: String

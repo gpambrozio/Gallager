@@ -80,7 +80,7 @@ final public class DeviceConnection: Identifiable {
     /// Device name for registration
     private var hostDeviceName = ""
 
-    /// Username of the Mac user
+    /// Username of the host user
     private var username = ""
 
     /// Public key for E2EE (Base64-encoded)
@@ -154,11 +154,11 @@ final public class DeviceConnection: Identifiable {
     ///
     /// - Parameters:
     ///   - serverURL: The relay server URL
-    ///   - deviceId: This Mac's identifier
-    ///   - deviceName: This Mac's display name
-    ///   - username: Username of the Mac user
-    ///   - publicKey: This Mac's public key (Base64)
-    ///   - publicKeyId: This Mac's public key ID
+    ///   - deviceId: This host's identifier
+    ///   - deviceName: This host's display name
+    ///   - username: Username of the host user
+    ///   - publicKey: This host's public key (Base64)
+    ///   - publicKeyId: This host's public key ID
     public func connect(
         serverURL: URL,
         deviceId: String,

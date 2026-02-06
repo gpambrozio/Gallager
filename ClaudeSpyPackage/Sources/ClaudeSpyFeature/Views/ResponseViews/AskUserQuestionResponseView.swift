@@ -537,7 +537,7 @@ extension AskUserQuestionParameters {
                             description: "iOS calculates desired size based on screen space."
                         ),
                         AskUserQuestionOption(
-                            label: "Mac sends actual tmux pane dimensions",
+                            label: "Host sends actual tmux pane dimensions",
                             description: "iOS receives whatever size the tmux pane actually is."
                         ),
                         AskUserQuestionOption(

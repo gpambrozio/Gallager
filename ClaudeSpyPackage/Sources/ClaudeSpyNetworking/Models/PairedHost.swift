@@ -1,6 +1,6 @@
 import Foundation
 
-/// Represents a paired Mac host that a viewer device connects to.
+/// Represents a paired host that a viewer device connects to.
 ///
 /// Used by both iOS and macOS viewer apps. Each paired host has its own
 /// unique `pairId`, cryptographic keys for E2EE, and connection state.
@@ -10,10 +10,10 @@ public struct PairedHost: Codable, Identifiable, Sendable, Hashable {
     /// Unique pair identifier (also serves as Identifiable id)
     public let id: String
 
-    /// Display name of the host Mac
+    /// Display name of the host
     public let hostName: String
 
-    /// Username of the host Mac user (e.g., "john")
+    /// Username of the host user (e.g., "john")
     public let username: String
 
     /// Partner's (host's) public key for E2EE (Base64-encoded)

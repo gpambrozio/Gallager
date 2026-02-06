@@ -3,7 +3,7 @@
     import ClaudeSpyEncryption
     import SwiftUI
 
-    /// View for entering a pairing code to connect with a Mac.
+    /// View for entering a pairing code to connect with a host.
     struct PairingView: View {
         @Environment(IOSSettings.self) private var settings
         @Environment(\.e2eeService) private var e2eeService
@@ -38,12 +38,12 @@
                 .padding()
             }
             .scrollDismissesKeyboard(.interactively)
-            .navigationTitle("Pair with Mac")
+            .navigationTitle("Pair with Host")
             .navigationBarTitleDisplayMode(.large)
         }
 
         private var compactHeaderSection: some View {
-            Text("Enter the 6-character pairing code shown in the ClaudeSpy Mac app")
+            Text("Enter the 6-character pairing code shown in the ClaudeSpy host app")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -137,7 +137,7 @@
                     .font(.headline)
 
                 VStack(alignment: .leading, spacing: 8) {
-                    instructionRow(number: 1, text: "Open ClaudeSpy on your Mac")
+                    instructionRow(number: 1, text: "Open ClaudeSpy on your host")
                     instructionRow(number: 2, text: "Go to Settings > Remote Access")
                     instructionRow(number: 3, text: "Click \"Generate Pairing Code\"")
                     instructionRow(number: 4, text: "Enter the code above")
