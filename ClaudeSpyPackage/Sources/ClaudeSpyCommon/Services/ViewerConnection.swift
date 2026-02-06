@@ -144,4 +144,50 @@ final public class ViewerConnection: Identifiable {
         relayClient.onTerminalStream = onTerminalStream
         relayClient.onPartnerKeyReceived = onPartnerKeyReceived
     }
+
+    // MARK: - Terminal Stream Subscriptions
+
+    /// Registered terminal stream handlers keyed by subscription UUID, with their target pane ID.
+    private var terminalStreamSubscribers: [UUID: (paneId: String, handler: @MainActor (TerminalStreamMessage) -> Void)] = [:]
+
+    /// Subscribe to terminal stream messages for a specific pane.
+    ///
+    /// Multiple subscribers can be active simultaneously for different panes on the same host.
+    /// Each subscriber receives only messages matching its paneId.
+    ///
+    /// - Parameters:
+    ///   - paneId: The pane ID to receive stream data for
+    ///   - handler: Called on MainActor when a matching stream message arrives
+    /// - Returns: Subscription ID used to unsubscribe later
+    public func subscribeToTerminalStream(
+        paneId: String,
+        handler: @MainActor @escaping (TerminalStreamMessage) -> Void
+    ) -> UUID {
+        let subscriptionId = UUID()
+        terminalStreamSubscribers[subscriptionId] = (paneId: paneId, handler: handler)
+
+        // Install the multiplexing handler on the relay client if not already set up
+        installTerminalStreamMultiplexer()
+
+        return subscriptionId
+    }
+
+    /// Unsubscribe from terminal stream messages.
+    ///
+    /// - Parameter subscriptionId: The ID returned from `subscribeToTerminalStream`
+    public func unsubscribeFromTerminalStream(_ subscriptionId: UUID) {
+        terminalStreamSubscribers.removeValue(forKey: subscriptionId)
+    }
+
+    /// Installs a single onTerminalStream handler that routes messages to all matching subscribers.
+    private func installTerminalStreamMultiplexer() {
+        relayClient.onTerminalStream = { [weak self] message in
+            guard let self else { return }
+            for (_, subscriber) in self.terminalStreamSubscribers {
+                if subscriber.paneId == message.paneId {
+                    subscriber.handler(message)
+                }
+            }
+        }
+    }
 }

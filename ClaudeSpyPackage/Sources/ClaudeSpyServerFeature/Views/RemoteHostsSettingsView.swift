@@ -1,6 +1,7 @@
 import AppKit
 import ClaudeSpyCommon
 import ClaudeSpyEncryption
+import ClaudeSpyNetworking
 import SwiftUI
 
 /// Settings view for managing paired hosts (other hosts this host can view)
@@ -203,6 +204,9 @@ public struct RemoteHostsSettingsView: View {
         // Disconnect from this host
         await coordinator.viewerConnectionManager?.disconnect(from: host.id)
 
+        // Clear cached session data for this host
+        coordinator.remoteSessionStore?.clearSessions(for: host.id)
+
         // Remove from settings
         settings.removeHostPairing(id: host.id)
 
@@ -305,6 +309,8 @@ private struct HostRow: View {
 private struct AddHostSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppSettings.self) private var settings
+    @Environment(AppCoordinator.self) private var coordinator
+    @Environment(\.e2eeService) private var e2eeService: E2EEService?
 
     @State private var pairingCode = ""
     @State private var isSubmitting = false
@@ -315,7 +321,7 @@ private struct AddHostSheet: View {
             Text("Add Host")
                 .font(.headline)
 
-            Text("Enter the 6-digit pairing code from the host you want to connect to.")
+            Text("Enter the 6-letter pairing code from the host you want to connect to.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
@@ -325,12 +331,21 @@ private struct AddHostSheet: View {
                 .multilineTextAlignment(.center)
                 .font(.system(size: 24, weight: .bold, design: .monospaced))
                 .onChange(of: pairingCode) { _, newValue in
-                    // Only allow digits, max 6 characters
-                    let filtered = String(newValue.filter { $0.isNumber }.prefix(6))
+                    let filtered = String(
+                        newValue.uppercased().filter { $0.isLetter }.prefix(6)
+                    )
                     if filtered != newValue {
                         pairingCode = filtered
                     }
+                    if errorMessage != nil {
+                        errorMessage = nil
+                    }
                 }
+
+            if isSubmitting {
+                ProgressView("Pairing...")
+                    .controlSize(.small)
+            }
 
             if let error = errorMessage {
                 Text(error)
@@ -345,7 +360,9 @@ private struct AddHostSheet: View {
                 .keyboardShortcut(.cancelAction)
 
                 Button("Connect") {
-                    submitPairingCode()
+                    Task {
+                        await submitPairingCode()
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(pairingCode.count != 6 || isSubmitting)
@@ -356,8 +373,103 @@ private struct AddHostSheet: View {
         .frame(width: 350)
     }
 
-    private func submitPairingCode() {
-        errorMessage = "Host-to-host pairing is coming in a future update."
+    private func submitPairingCode() async {
+        guard pairingCode.count == 6, !isSubmitting else { return }
+
+        isSubmitting = true
+        errorMessage = nil
+
+        do {
+            let response = try await completePairing(code: pairingCode)
+
+            switch response {
+            case let .paired(info):
+                let pairedHost = PairedHost(
+                    id: info.pairId,
+                    hostName: info.partnerDeviceName,
+                    username: info.partnerUsername,
+                    partnerPublicKey: info.partnerPublicKey,
+                    partnerPublicKeyId: info.partnerPublicKeyId,
+                    pairedAt: Date()
+                )
+                settings.addHostPairing(pairedHost)
+                await coordinator.connectToNewlyPairedHost(pairedHost)
+                dismiss()
+            case .registered:
+                errorMessage = "Unexpected response from server"
+                pairingCode = ""
+            case let .error(errorInfo):
+                errorMessage = errorInfo.message
+                pairingCode = ""
+            }
+        } catch {
+            errorMessage = "Network error: \(error.localizedDescription)"
+            pairingCode = ""
+        }
+
+        isSubmitting = false
+    }
+
+    private func completePairing(code: String) async throws -> PairingResponse {
+        let serverURL = settings.externalServerURL
+            .replacingOccurrences(of: "wss://", with: "https://")
+            .replacingOccurrences(of: "ws://", with: "http://")
+
+        guard let url = URL(string: "\(serverURL)/api/pairing/complete") else {
+            throw HostPairingError.invalidURL
+        }
+
+        guard let e2eeService else {
+            throw HostPairingError.encryptionNotAvailable
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let completion = PairingCompletion(
+            pairingCode: code,
+            deviceId: settings.deviceId,
+            deviceName: Host.current().localizedName ?? "Mac",
+            publicKey: e2eeService.publicKey.base64EncodedString(),
+            publicKeyId: e2eeService.keyId
+        )
+
+        request.httpBody = try JSONEncoder().encode(completion)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw HostPairingError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            throw HostPairingError.serverError(statusCode: httpResponse.statusCode)
+        }
+
+        return try JSONDecoder().decode(PairingResponse.self, from: data)
+    }
+}
+
+// MARK: - Host Pairing Errors
+
+enum HostPairingError: LocalizedError {
+    case invalidURL
+    case invalidResponse
+    case serverError(statusCode: Int)
+    case encryptionNotAvailable
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL:
+            "Invalid server URL"
+        case .invalidResponse:
+            "Invalid server response"
+        case let .serverError(statusCode):
+            "Server error (status \(statusCode))"
+        case .encryptionNotAvailable:
+            "Encryption service not available"
+        }
     }
 }
 
