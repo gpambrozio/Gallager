@@ -73,3 +73,4 @@ ClaudeSpyPackage/.env
 build/
 build-ios/
 .DS_Store
+/.claude/swiftDevelopment.json
