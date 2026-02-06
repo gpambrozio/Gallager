@@ -1,11 +1,12 @@
 #if os(iOS)
+    import ClaudeSpyNetworking
     import Foundation
 
     /// Represents a paired Mac server with all connection details.
     ///
     /// Each Mac server paired with the iOS app has its own unique `pairId`,
     /// cryptographic keys for E2EE, and connection state.
-    public struct PairedMac: Codable, Identifiable, Sendable, Hashable {
+    public struct PairedMac: ViewerPairedDevice {
         // MARK: - Properties
 
         /// Unique pair identifier (also serves as Identifiable id)
@@ -31,23 +32,8 @@
 
         // MARK: - Computed Properties
 
-        /// Display name for UI (custom name if set, otherwise Mac name)
-        public var displayName: String {
-            customName ?? macName
-        }
-
-        /// Display name including username if available (for disambiguation)
-        /// - Parameter showUsername: Whether to append username in parentheses
-        /// - Returns: The display name, optionally with username suffix
-        public func displayName(showUsername: Bool) -> String {
-            if let custom = customName {
-                return custom
-            }
-            if showUsername {
-                return "\(macName) (\(username))"
-            }
-            return macName
-        }
+        /// Device name for the `ViewerPairedDevice` protocol (maps to `macName`)
+        public var deviceName: String { macName }
 
         // MARK: - Initialization
 

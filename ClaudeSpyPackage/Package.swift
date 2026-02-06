@@ -96,6 +96,7 @@ let package = Package(
             name: "ClaudeSpyCommon",
             dependencies: [
                 .claudeSpyNetworking,
+                .claudeSpyEncryption,
                 .sfSymbolsMacro,
                 .logging,
             ]

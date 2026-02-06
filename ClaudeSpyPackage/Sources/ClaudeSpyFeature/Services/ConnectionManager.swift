@@ -129,7 +129,7 @@
                     return
                 }
 
-                connection = MacConnection(pairedMac: mac, e2eeService: e2eeService)
+                connection = MacConnection(pairedDevice: mac, e2eeService: e2eeService)
                 setupConnectionCallbacks(connection, settings: settings)
                 connections[mac.id] = connection
                 logger.info("Created new connection for Mac: \(mac.displayName)")
@@ -171,7 +171,7 @@
 
             await connection.disconnect()
             connections.removeValue(forKey: hostId)
-            logger.info("Disconnected from host: \(connection.macName)")
+            logger.info("Disconnected from host: \(connection.deviceName)")
         }
 
         /// Disconnect from all Macs.

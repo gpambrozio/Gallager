@@ -146,7 +146,7 @@ final public class HostConnectionManager {
                 return
             }
 
-            connection = HostConnection(pairedHost: host, e2eeService: e2eeService)
+            connection = HostConnection(pairedDevice: host, e2eeService: e2eeService)
             setupConnectionCallbacks(connection)
             connections[host.id] = connection
             logger.info("Created new connection for host: \(host.displayName)")
@@ -172,7 +172,7 @@ final public class HostConnectionManager {
 
         await connection.disconnect()
         connections.removeValue(forKey: hostId)
-        logger.info("Disconnected from host: \(connection.hostName)")
+        logger.info("Disconnected from host: \(connection.deviceName)")
     }
 
     /// Disconnect from all hosts.

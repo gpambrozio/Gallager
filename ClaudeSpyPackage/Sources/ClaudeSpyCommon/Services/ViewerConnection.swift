@@ -1,37 +1,36 @@
-import ClaudeSpyCommon
 import ClaudeSpyEncryption
 import ClaudeSpyNetworking
 import Foundation
 
-/// Represents a connection to a single paired Mac host (as viewed from another Mac).
+/// Represents a connection to a single paired device, wrapping a `ViewerRelayClient`
+/// with device-specific metadata.
 ///
-/// This wraps a `HostRelayClient` with host-specific metadata and provides
-/// a cleaner interface for managing individual host connections. This is the
-/// Mac-side equivalent of `MacConnection` on iOS.
+/// Generic over the paired device type so it works with both `PairedHost` (macOS)
+/// and `PairedMac` (iOS).
 @Observable
 @MainActor
-final public class HostConnection: Identifiable {
+final public class ViewerConnection<Device: ViewerPairedDevice>: Identifiable {
     // MARK: - Properties
 
     /// Unique identifier (same as pairId)
     public let id: String
 
-    /// The paired host's display name
-    public let hostName: String
+    /// The paired device's display name
+    public let deviceName: String
 
     /// The underlying relay client
-    public let relayClient: HostRelayClient
+    public let relayClient: ViewerRelayClient
 
     /// The E2EE service for this connection
     public let e2eeService: E2EEService
 
-    /// The paired host data
-    public let pairedHost: PairedHost
+    /// The paired device data
+    public let pairedDevice: Device
 
     // MARK: - Computed Properties
 
     /// Current connection state
-    public var state: HostRelayClient.ConnectionState {
+    public var state: ViewerRelayClient.ConnectionState {
         relayClient.state
     }
 
@@ -47,29 +46,29 @@ final public class HostConnection: Identifiable {
 
     // MARK: - Initialization
 
-    /// Creates a new host connection.
+    /// Creates a new connection to a paired device.
     ///
     /// - Parameters:
-    ///   - pairedHost: The paired host configuration
+    ///   - pairedDevice: The paired device configuration
     ///   - e2eeService: The E2EE service for this connection (pre-configured with partner key)
-    public init(pairedHost: PairedHost, e2eeService: E2EEService) {
-        self.id = pairedHost.id
-        self.hostName = pairedHost.hostName
-        self.pairedHost = pairedHost
+    public init(pairedDevice: Device, e2eeService: E2EEService) {
+        self.id = pairedDevice.id
+        self.deviceName = pairedDevice.deviceName
+        self.pairedDevice = pairedDevice
         self.e2eeService = e2eeService
-        self.relayClient = HostRelayClient()
+        self.relayClient = ViewerRelayClient()
     }
 
     // MARK: - Connection Management
 
-    /// Connect to this host via the relay server.
+    /// Connect to this device via the relay server.
     ///
     /// - Parameters:
     ///   - serverURL: The relay server URL
-    ///   - deviceId: This Mac's identifier (as viewer)
-    ///   - deviceName: This Mac's display name
-    ///   - publicKey: This Mac's public key (Base64)
-    ///   - publicKeyId: This Mac's public key ID
+    ///   - deviceId: This device's identifier (as viewer)
+    ///   - deviceName: This device's display name
+    ///   - publicKey: This device's public key (Base64)
+    ///   - publicKeyId: This device's public key ID
     public func connect(
         serverURL: URL,
         deviceId: String,
@@ -79,18 +78,18 @@ final public class HostConnection: Identifiable {
     ) async {
         await relayClient.connect(
             serverURL: serverURL,
-            pairId: pairedHost.id,
+            pairId: pairedDevice.id,
             deviceId: deviceId,
             deviceName: deviceName,
             publicKey: publicKey,
             publicKeyId: publicKeyId,
             e2eeService: e2eeService,
-            partnerPublicKey: pairedHost.partnerPublicKey,
-            partnerPublicKeyId: pairedHost.partnerPublicKeyId
+            partnerPublicKey: pairedDevice.partnerPublicKey,
+            partnerPublicKeyId: pairedDevice.partnerPublicKeyId
         )
     }
 
-    /// Disconnect from this host
+    /// Disconnect from this device
     public func disconnect() async {
         await relayClient.disconnect()
     }
@@ -102,7 +101,7 @@ final public class HostConnection: Identifiable {
 
     // MARK: - Commands
 
-    /// Send a command to this host and wait for response.
+    /// Send a command to this device and wait for response.
     ///
     /// - Parameters:
     ///   - command: The command specification
@@ -117,9 +116,16 @@ final public class HostConnection: Identifiable {
         await relayClient.sendCommand(command, paneId: paneId, timeout: timeout)
     }
 
-    /// Request current session state from this host
+    /// Request current session state from this device
     public func requestSessionState() async {
         await relayClient.requestSessionState()
+    }
+
+    /// Send push notification token to the relay server.
+    ///
+    /// - Parameter token: The APNs device token as a hex string
+    public func sendPushToken(_ token: String) async {
+        await relayClient.sendPushToken(token)
     }
 
     // MARK: - Callbacks Setup
