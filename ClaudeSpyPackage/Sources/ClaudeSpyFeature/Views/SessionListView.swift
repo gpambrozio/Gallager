@@ -520,6 +520,15 @@
                                 .disabled(isCreating)
                             }
                         }
+                    } else if !sessionStore.hasReceivedState(for: mac.id) {
+                        Section("Claude Projects") {
+                            HStack {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("Loading projects...")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
                 }
                 .navigationTitle("New Session on \(mac.displayName)")

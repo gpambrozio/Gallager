@@ -28,6 +28,9 @@ final public class SessionStore {
     /// Claude projects grouped by source Mac's pairId
     public private(set) var claudeProjectsByMac: [String: [ClaudeProjectInfo]] = [:]
 
+    /// Macs that have sent at least one full state update
+    private var macsWithReceivedState: Set<String> = []
+
     /// User responses to events, keyed by event ID
     /// This persists across navigation so responses aren't lost
     private var eventResponses: [UUID: ResponseType] = [:]
@@ -120,6 +123,11 @@ final public class SessionStore {
         return hasMacSessions || hasMacPanes
     }
 
+    /// Whether a full session state has been received from the given Mac
+    public func hasReceivedState(for macId: String) -> Bool {
+        macsWithReceivedState.contains(macId)
+    }
+
     // MARK: - Initialization
 
     public init() { }
@@ -194,6 +202,7 @@ final public class SessionStore {
         activePanes = newActivePanes
         panesByMac[macId] = state.panes ?? []
         claudeProjectsByMac[macId] = state.claudeProjects ?? []
+        macsWithReceivedState.insert(macId)
     }
 
     /// Clear all sessions and panes for a specific Mac
@@ -211,6 +220,7 @@ final public class SessionStore {
         // Clear stored panes and projects
         panesByMac.removeValue(forKey: macId)
         claudeProjectsByMac.removeValue(forKey: macId)
+        macsWithReceivedState.remove(macId)
 
         logger.info("Cleared all sessions for Mac: \(macId)")
     }
