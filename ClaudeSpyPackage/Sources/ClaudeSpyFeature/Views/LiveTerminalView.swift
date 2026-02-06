@@ -27,7 +27,7 @@
         /// Command sender for response actions
         let sendCommand: CommandSender
 
-        @Environment(RelayClient.self) private var relayClient
+        @Environment(ViewerRelayClient.self) private var relayClient
         @Environment(\.dismiss) private var dismiss
         @State private var coordinator: StreamCoordinator
 
@@ -541,7 +541,7 @@
                 sendCommand: { _ in }
             )
         }
-        .environment(RelayClient())
+        .environment(ViewerRelayClient())
         .environment(IOSSettings.shared)
     }
 #endif

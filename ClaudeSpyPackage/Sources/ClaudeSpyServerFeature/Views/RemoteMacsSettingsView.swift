@@ -214,7 +214,7 @@ public struct RemoteMacsSettingsView: View {
 
 private struct HostRow: View {
     let host: PairedHost
-    let connection: HostConnection?
+    let connection: ViewerConnection?
     var showUsername = false
     let onEdit: () -> Void
     let onDelete: () -> Void

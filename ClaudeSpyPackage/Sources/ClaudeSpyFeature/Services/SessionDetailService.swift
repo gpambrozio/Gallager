@@ -23,7 +23,7 @@ final public class SessionDetailService {
     private let sessionStore: SessionStore
 
     /// Reference to the relay client for communication
-    private let relayClient: RelayClient
+    private let relayClient: ViewerRelayClient
 
     // MARK: - Private State
 
@@ -51,7 +51,7 @@ final public class SessionDetailService {
     }
 
     /// The relay client for this session (needed for environment injection)
-    public var client: RelayClient {
+    public var client: ViewerRelayClient {
         relayClient
     }
 
@@ -62,7 +62,7 @@ final public class SessionDetailService {
 
     // MARK: - Initialization
 
-    public init(paneId: String, sessionStore: SessionStore, relayClient: RelayClient) {
+    public init(paneId: String, sessionStore: SessionStore, relayClient: ViewerRelayClient) {
         self.paneId = paneId
         self.sessionStore = sessionStore
         self.relayClient = relayClient

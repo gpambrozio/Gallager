@@ -1,12 +1,10 @@
-import ClaudeSpyNetworking
 import Foundation
 
-/// Represents a paired Mac host that this Mac can connect to as a viewer.
+/// Represents a paired Mac host that a viewer device connects to.
 ///
-/// Each Mac host paired with this Mac has its own unique `pairId`,
-/// cryptographic keys for E2EE, and connection state. This is the Mac-side
-/// equivalent of `PairedMac` on iOS.
-public struct PairedHost: ViewerPairedDevice {
+/// Used by both iOS and macOS viewer apps. Each paired host has its own
+/// unique `pairId`, cryptographic keys for E2EE, and connection state.
+public struct PairedHost: Codable, Identifiable, Sendable, Hashable {
     // MARK: - Properties
 
     /// Unique pair identifier (also serves as Identifiable id)
@@ -32,8 +30,26 @@ public struct PairedHost: ViewerPairedDevice {
 
     // MARK: - Computed Properties
 
-    /// Device name for the `ViewerPairedDevice` protocol (maps to `hostName`)
+    /// Alias for `hostName`, used by `ViewerConnection`
     public var deviceName: String { hostName }
+
+    /// Display name for UI (custom name if set, otherwise host name)
+    public var displayName: String {
+        customName ?? hostName
+    }
+
+    /// Display name including username if available (for disambiguation)
+    /// - Parameter showUsername: Whether to append username in parentheses
+    /// - Returns: The display name, optionally with username suffix
+    public func displayName(showUsername: Bool) -> String {
+        if let custom = customName {
+            return custom
+        }
+        if showUsername {
+            return "\(hostName) (\(username))"
+        }
+        return hostName
+    }
 
     // MARK: - Initialization
 

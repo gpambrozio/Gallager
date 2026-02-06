@@ -1,4 +1,5 @@
 #if os(iOS)
+    import ClaudeSpyCommon
     import Foundation
     import SwiftUI
     import UIKit
@@ -11,7 +12,7 @@
 
         private enum Keys {
             static let deviceId = "deviceId"
-            static let pairedMacs = "pairedMacs"
+            static let pairedHosts = "pairedHosts"
             static let externalServerURL = "externalServerURL"
             static let autoReconnect = "autoReconnect"
             static let terminalFontName = "terminalFontName"
@@ -32,9 +33,9 @@
             didSet { UserDefaults.standard.set(deviceId, forKey: Keys.deviceId) }
         }
 
-        /// All paired Mac servers
-        public private(set) var pairedMacs: [PairedMac] = [] {
-            didSet { savePairedMacs() }
+        /// All paired host servers
+        public private(set) var pairedHosts: [PairedHost] = [] {
+            didSet { savePairedHosts() }
         }
 
         /// External relay server URL
@@ -74,9 +75,9 @@
 
         // MARK: - Computed Properties
 
-        /// Whether at least one Mac is paired
+        /// Whether at least one host is paired
         public var isPaired: Bool {
-            !pairedMacs.isEmpty
+            !pairedHosts.isEmpty
         }
 
         /// The display name for this iOS device
@@ -113,72 +114,72 @@
             self.newSessionWidth = defaults.object(forKey: Keys.newSessionWidth) as? Int ?? 120
             self.newSessionHeight = defaults.object(forKey: Keys.newSessionHeight) as? Int ?? 40
 
-            // Load paired Macs (or migrate from legacy format)
-            self.pairedMacs = loadPairedMacs()
+            // Load paired hosts
+            self.pairedHosts = loadPairedHosts()
         }
 
-        // MARK: - Paired Macs Storage
+        // MARK: - Paired Hosts Storage
 
-        private func loadPairedMacs() -> [PairedMac] {
-            guard let data = UserDefaults.standard.data(forKey: Keys.pairedMacs) else {
+        private func loadPairedHosts() -> [PairedHost] {
+            guard let data = UserDefaults.standard.data(forKey: Keys.pairedHosts) else {
                 return []
             }
 
             do {
-                return try JSONDecoder().decode([PairedMac].self, from: data)
+                return try JSONDecoder().decode([PairedHost].self, from: data)
             } catch {
                 // Corrupted data, start fresh
                 return []
             }
         }
 
-        private func savePairedMacs() {
-            guard let data = try? JSONEncoder().encode(pairedMacs) else {
+        private func savePairedHosts() {
+            guard let data = try? JSONEncoder().encode(pairedHosts) else {
                 return
             }
-            UserDefaults.standard.set(data, forKey: Keys.pairedMacs)
+            UserDefaults.standard.set(data, forKey: Keys.pairedHosts)
         }
 
         // MARK: - Pairing Management
 
-        /// Add a new paired Mac
-        public func addPairing(_ mac: PairedMac) {
+        /// Add a new paired host
+        public func addPairing(_ host: PairedHost) {
             // Remove any existing pairing with same ID (update case)
-            pairedMacs.removeAll { $0.id == mac.id }
-            pairedMacs.append(mac)
+            pairedHosts.removeAll { $0.id == host.id }
+            pairedHosts.append(host)
         }
 
-        /// Remove a paired Mac by ID
+        /// Remove a paired host by ID
         public func removePairing(id: String) {
-            pairedMacs.removeAll { $0.id == id }
+            pairedHosts.removeAll { $0.id == id }
         }
 
-        /// Get a paired Mac by ID
-        public func getPairing(id: String) -> PairedMac? {
-            pairedMacs.first { $0.id == id }
+        /// Get a paired host by ID
+        public func getPairing(id: String) -> PairedHost? {
+            pairedHosts.first { $0.id == id }
         }
 
-        /// Update a paired Mac (e.g., custom name)
-        public func updatePairing(_ mac: PairedMac) {
-            if let index = pairedMacs.firstIndex(where: { $0.id == mac.id }) {
-                pairedMacs[index] = mac
+        /// Update a paired host (e.g., custom name)
+        public func updatePairing(_ host: PairedHost) {
+            if let index = pairedHosts.firstIndex(where: { $0.id == host.id }) {
+                pairedHosts[index] = host
             }
         }
 
         /// Clear all pairings
         public func clearAllPairings() {
-            pairedMacs = []
+            pairedHosts = []
         }
 
         // MARK: - Display Helpers
 
-        /// Check if a Mac's name is duplicated among paired Macs.
+        /// Check if a host's name is duplicated among paired hosts.
         ///
         /// Use this to determine whether to show the username for disambiguation.
-        /// - Parameter mac: The Mac to check
-        /// - Returns: True if another paired Mac has the same macName
-        public func hasDuplicateMacName(for mac: PairedMac) -> Bool {
-            pairedMacs.contains { $0.id != mac.id && $0.macName == mac.macName }
+        /// - Parameter host: The host to check
+        /// - Returns: True if another paired host has the same hostName
+        public func hasDuplicateHostName(for host: PairedHost) -> Bool {
+            pairedHosts.contains { $0.id != host.id && $0.hostName == host.hostName }
         }
     }
 #endif

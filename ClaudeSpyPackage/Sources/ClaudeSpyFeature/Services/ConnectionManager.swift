@@ -6,7 +6,7 @@
 
     /// Manages connections to all paired Mac servers.
     ///
-    /// This class coordinates multiple `MacConnection` instances, handling
+    /// This class coordinates multiple `ViewerConnection` instances, handling
     /// connection lifecycle, event routing, and command dispatch to the correct Mac.
     @Observable
     @MainActor
@@ -16,7 +16,7 @@
         private let logger = Logger(label: "com.claudespy.connectionmanager")
 
         /// Active connections keyed by pairId
-        private var connections: [String: MacConnection] = [:]
+        private var connections: [String: ViewerConnection] = [:]
 
         /// Key manager for creating E2EE services
         private let keyManager: KeyManager
@@ -38,7 +38,7 @@
         // MARK: - Computed Properties
 
         /// All active connections
-        public var activeConnections: [MacConnection] {
+        public var activeConnections: [ViewerConnection] {
             Array(connections.values)
         }
 
@@ -89,50 +89,49 @@
         // MARK: - Connection Management
 
         /// Get the connection for a specific host
-        public func connection(for hostId: String) -> MacConnection? {
+        public func connection(for hostId: String) -> ViewerConnection? {
             connections[hostId]
         }
 
-        /// Connect to all paired Macs.
+        /// Connect to all paired hosts.
         ///
-        /// Creates connections for each paired Mac and establishes WebSocket connections.
+        /// Creates connections for each paired host and establishes WebSocket connections.
         ///
         /// - Parameter settings: iOS settings containing server URL and device info
         public func connectAll(settings: IOSSettings) async {
-            logger.info("Connecting to all \(settings.pairedMacs.count) paired Macs")
+            logger.info("Connecting to all \(settings.pairedHosts.count) paired hosts")
 
-            for mac in settings.pairedMacs {
-                await connect(to: mac, settings: settings)
+            for host in settings.pairedHosts {
+                await connect(to: host, settings: settings)
             }
         }
 
-        /// Connect to a specific Mac.
+        /// Connect to a specific host.
         ///
         /// - Parameters:
-        ///   - mac: The paired Mac to connect to
+        ///   - host: The paired host to connect to
         ///   - settings: iOS settings containing server URL and device info
-        public func connect(to mac: PairedMac, settings: IOSSettings) async {
+        public func connect(to host: PairedHost, settings: IOSSettings) async {
             guard keyPair != nil else {
                 logger.error("Cannot connect - key pair not initialized")
                 return
             }
 
             // Create or reuse connection
-            let connection: MacConnection
-            if let existing = connections[mac.id] {
+            let connection: ViewerConnection
+            if let existing = connections[host.id] {
                 connection = existing
-                logger.info("Reusing existing connection for Mac: \(mac.displayName)")
+                logger.info("Reusing existing connection for host: \(host.displayName)")
             } else {
-                // Create new E2EE service for this Mac
-                guard let e2eeService = await createE2EEService(for: mac) else {
-                    logger.error("Failed to create E2EE service for Mac: \(mac.displayName)")
+                guard let e2eeService = await createE2EEService(for: host) else {
+                    logger.error("Failed to create E2EE service for host: \(host.displayName)")
                     return
                 }
 
-                connection = MacConnection(pairedDevice: mac, e2eeService: e2eeService)
+                connection = ViewerConnection(pairedDevice: host, e2eeService: e2eeService)
                 setupConnectionCallbacks(connection, settings: settings)
-                connections[mac.id] = connection
-                logger.info("Created new connection for Mac: \(mac.displayName)")
+                connections[host.id] = connection
+                logger.info("Created new connection for host: \(host.displayName)")
             }
 
             // Connect
@@ -210,7 +209,7 @@
             timeout: TimeInterval = 15
         ) async -> Result<C.Response, Error> {
             guard let connection = connections[hostId] else {
-                return .failure(RelayClientError.notConnected)
+                return .failure(ViewerRelayClientError.notConnected)
             }
 
             return await connection.sendCommand(command, paneId: paneId, timeout: timeout)
@@ -248,7 +247,7 @@
 
         // MARK: - Private Helpers
 
-        private func createE2EEService(for mac: PairedMac) async -> E2EEService? {
+        private func createE2EEService(for host: PairedHost) async -> E2EEService? {
             guard let keyPair else {
                 logger.error("Key pair not available for E2EE service creation")
                 return nil
@@ -257,26 +256,26 @@
             do {
                 let e2eeService = E2EEService(keyPair: keyPair, keyManager: keyManager)
 
-                // Establish session with this Mac's public key if available
+                // Establish session with this host's public key if available
                 if
-                    !mac.partnerPublicKey.isEmpty,
-                    let partnerKeyData = Data(base64Encoded: mac.partnerPublicKey) {
+                    !host.partnerPublicKey.isEmpty,
+                    let partnerKeyData = Data(base64Encoded: host.partnerPublicKey) {
                     try await e2eeService.establishSession(
                         partnerPublicKey: partnerKeyData,
-                        partnerKeyId: mac.partnerPublicKeyId,
-                        pairId: mac.id
+                        partnerKeyId: host.partnerPublicKeyId,
+                        pairId: host.id
                     )
-                    logger.info("E2EE session established for Mac: \(mac.displayName)")
+                    logger.info("E2EE session established for host: \(host.displayName)")
                 }
 
                 return e2eeService
             } catch {
-                logger.error("Failed to create E2EE service for Mac \(mac.displayName): \(error)")
+                logger.error("Failed to create E2EE service for host \(host.displayName): \(error)")
                 return nil
             }
         }
 
-        private func setupConnectionCallbacks(_ connection: MacConnection, settings: IOSSettings) {
+        private func setupConnectionCallbacks(_ connection: ViewerConnection, settings: IOSSettings) {
             let hostId = connection.id
 
             connection.setupCallbacks(
@@ -292,25 +291,22 @@
                 },
                 onTerminalStream: { _ in
                     // Terminal streams are handled by individual views
-                    // The callback is set by the terminal view when it needs streaming
                 },
                 onPartnerKeyReceived: { [weak self, hostId] publicKey, keyId in
                     guard let self else { return }
-                    // Update the stored Mac with new partner key
-                    // Access IOSSettings.shared directly instead of capturing to avoid retain cycles
                     let settings = IOSSettings.shared
-                    if let mac = settings.getPairing(id: hostId) {
-                        let updatedMac = PairedMac(
-                            id: mac.id,
-                            macName: mac.macName,
-                            username: mac.username,
+                    if let host = settings.getPairing(id: hostId) {
+                        let updatedHost = PairedHost(
+                            id: host.id,
+                            hostName: host.hostName,
+                            username: host.username,
                             partnerPublicKey: publicKey,
                             partnerPublicKeyId: keyId,
-                            pairedAt: mac.pairedAt,
-                            customName: mac.customName
+                            pairedAt: host.pairedAt,
+                            customName: host.customName
                         )
-                        settings.updatePairing(updatedMac)
-                        self.logger.info("Updated partner key for Mac: \(mac.displayName)")
+                        settings.updatePairing(updatedHost)
+                        self.logger.info("Updated partner key for host: \(host.displayName)")
                     }
                 }
             )

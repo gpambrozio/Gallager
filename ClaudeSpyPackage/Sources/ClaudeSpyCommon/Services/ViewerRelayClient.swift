@@ -22,7 +22,7 @@ public enum ViewerRelayClientError: Error, LocalizedError {
 
 /// Client for connecting to a remote host via the external relay server as a "viewer" device.
 ///
-/// This is the shared implementation used by both macOS (`HostRelayClient`) and iOS (`RelayClient`)
+/// This is the shared implementation used by both macOS and iOS
 /// to connect to the relay server, register as a viewer, and exchange encrypted messages with a host.
 @Observable
 @MainActor

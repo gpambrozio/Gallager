@@ -22,7 +22,7 @@
         init(
             paneId: String,
             sessionStore: SessionStore,
-            relayClient: RelayClient,
+            relayClient: ViewerRelayClient,
             settings: IOSSettings
         ) {
             self.paneId = paneId
@@ -158,7 +158,7 @@
             ClaudeSessionTerminalView(
                 paneId: "%1",
                 sessionStore: SessionStore(),
-                relayClient: RelayClient(),
+                relayClient: ViewerRelayClient(),
                 settings: .shared
             )
         }

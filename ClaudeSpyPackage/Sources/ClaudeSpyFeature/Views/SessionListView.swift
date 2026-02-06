@@ -23,11 +23,11 @@
 
         @State private var creatingSelection: ProjectPickerSelection?
         @State private var creationError: String?
-        @State private var selectedMacForNewSession: PairedMac?
+        @State private var selectedHostForNewSession: PairedHost?
 
         var body: some View {
             Group {
-                if sessionStore.hasSessions || !settings.pairedMacs.isEmpty {
+                if sessionStore.hasSessions || !settings.pairedHosts.isEmpty {
                     sessionsList
                 } else {
                     emptyStateView
@@ -77,13 +77,13 @@
                     Text(error)
                 }
             }
-            .sheet(item: $selectedMacForNewSession) { mac in
+            .sheet(item: $selectedHostForNewSession) { host in
                 ProjectPickerSheet(
-                    mac: mac,
+                    host: host,
                     creatingSelection: creatingSelection
                 ) { selectedProject in
                     Task {
-                        await createNewSession(on: mac, inProject: selectedProject)
+                        await createNewSession(on: host, inProject: selectedProject)
                     }
                 }
             }
@@ -93,15 +93,15 @@
 
         private var sessionsList: some View {
             List {
-                ForEach(settings.pairedMacs) { mac in
+                ForEach(settings.pairedHosts) { host in
                     MacSessionsSection(
-                        mac: mac,
-                        connection: connectionManager.connection(for: mac.id),
-                        sessions: sessionStore.sessions(for: mac.id),
-                        panes: sessionStore.panes(for: mac.id),
-                        showUsername: settings.hasDuplicateMacName(for: mac),
+                        host: host,
+                        connection: connectionManager.connection(for: host.id),
+                        sessions: sessionStore.sessions(for: host.id),
+                        panes: sessionStore.panes(for: host.id),
+                        showUsername: settings.hasDuplicateHostName(for: host),
                         onNewSession: {
-                            selectedMacForNewSession = mac
+                            selectedHostForNewSession = host
                         }
                     )
                 }
@@ -156,7 +156,7 @@
 
         private var overallConnectionStatusText: String {
             let connectedCount = connectionManager.activeConnections.filter(\.isHostConnected).count
-            let totalCount = settings.pairedMacs.count
+            let totalCount = settings.pairedHosts.count
 
             if connectedCount == totalCount && totalCount > 0 {
                 return totalCount == 1 ? "Connected" : "All Connected"
@@ -171,7 +171,7 @@
 
         // MARK: - New Session Creation
 
-        private func createNewSession(on mac: PairedMac, inProject project: ClaudeProjectInfo?) async {
+        private func createNewSession(on host: PairedHost, inProject project: ClaudeProjectInfo?) async {
             guard creatingSelection == nil else { return }
 
             // Track which item was selected for the spinner
@@ -188,20 +188,20 @@
             )
 
             // paneId is not used for session creation, pass empty string
-            let result = await connectionManager.sendCommand(command, paneId: "", hostId: mac.id)
+            let result = await connectionManager.sendCommand(command, paneId: "", hostId: host.id)
 
             switch result {
             case let .success(response):
                 // Session created - dismiss sheet and clear selection
                 creatingSelection = nil
-                selectedMacForNewSession = nil
+                selectedHostForNewSession = nil
 
                 // Request a refresh to update the session list
-                await connectionManager.requestSessionState(for: mac.id)
+                await connectionManager.requestSessionState(for: host.id)
 
                 // Navigate to the new terminal if we got a pane ID
                 if let paneId = response.paneId {
-                    navigationPath.append(SessionNavigation.plainTerminal(paneId: paneId, hostId: mac.id))
+                    navigationPath.append(SessionNavigation.plainTerminal(paneId: paneId, hostId: host.id))
                 }
             case let .failure(error):
                 // Include project name in error for context (sheet stays open)
@@ -216,8 +216,8 @@
 
     /// A section displaying sessions and terminals from a single Mac
     struct MacSessionsSection: View {
-        let mac: PairedMac
-        let connection: MacConnection?
+        let host: PairedHost
+        let connection: ViewerConnection?
         let sessions: [(paneId: String, session: ClaudeSession)]
         let panes: [PaneInfoMessage]
         var showUsername = false
@@ -234,7 +234,7 @@
                 if hasContent {
                     // Claude sessions for this Mac
                     ForEach(sessions, id: \.paneId) { item in
-                        NavigationLink(value: SessionNavigation.claudeSession(paneId: item.paneId, hostId: mac.id)) {
+                        NavigationLink(value: SessionNavigation.claudeSession(paneId: item.paneId, hostId: host.id)) {
                             SessionRowView(
                                 paneId: item.paneId,
                                 session: item.session,
@@ -245,7 +245,7 @@
 
                     // Plain terminals for this Mac
                     ForEach(panes) { pane in
-                        NavigationLink(value: SessionNavigation.plainTerminal(paneId: pane.id, hostId: mac.id)) {
+                        NavigationLink(value: SessionNavigation.plainTerminal(paneId: pane.id, hostId: host.id)) {
                             TerminalRowView(pane: pane)
                         }
                     }
@@ -261,7 +261,7 @@
                 }
             } header: {
                 MacSectionHeader(
-                    mac: mac,
+                    host: host,
                     connection: connection,
                     showUsername: showUsername,
                     onNewSession: onNewSession
@@ -274,15 +274,15 @@
 
     /// Header for a Mac's session section showing name and connection status
     struct MacSectionHeader: View {
-        let mac: PairedMac
-        let connection: MacConnection?
+        let host: PairedHost
+        let connection: ViewerConnection?
         var showUsername = false
         let onNewSession: () -> Void
 
         var body: some View {
             HStack {
                 // Mac name
-                Text(mac.displayName(showUsername: showUsername))
+                Text(host.displayName(showUsername: showUsername))
 
                 Spacer()
 
@@ -438,7 +438,7 @@
 
     /// Sheet for selecting a Claude project to create a new session in
     struct ProjectPickerSheet: View {
-        let mac: PairedMac
+        let host: PairedHost
         /// The currently selected item (shows spinner), nil if nothing selected yet
         let creatingSelection: ProjectPickerSelection?
         let onSelect: (ClaudeProjectInfo?) -> Void
@@ -452,7 +452,7 @@
 
         /// Projects for this Mac, read from SessionStore to auto-update when state arrives
         private var projects: [ClaudeProjectInfo] {
-            sessionStore.projects(for: mac.id)
+            sessionStore.projects(for: host.id)
         }
 
         var body: some View {
@@ -520,7 +520,7 @@
                                 .disabled(isCreating)
                             }
                         }
-                    } else if !sessionStore.hasReceivedState(for: mac.id) {
+                    } else if !sessionStore.hasReceivedState(for: host.id) {
                         Section("Claude Projects") {
                             HStack {
                                 ProgressView()
@@ -531,7 +531,7 @@
                         }
                     }
                 }
-                .navigationTitle("New Session on \(mac.displayName)")
+                .navigationTitle("New Session on \(host.displayName)")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {

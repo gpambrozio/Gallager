@@ -13,8 +13,8 @@
         @State private var errorMessage: String?
         @FocusState private var isInputFocused: Bool
 
-        /// Called when pairing is successful with the new PairedMac
-        var onPaired: ((PairedMac) -> Void)?
+        /// Called when pairing is successful with the new PairedHost
+        var onPaired: ((PairedHost) -> Void)?
 
         private let codeLength = 6
 
@@ -178,17 +178,17 @@
 
                 switch response {
                 case let .paired(info):
-                    // Create the PairedMac struct
-                    let pairedMac = PairedMac(
+                    // Create the PairedHost struct
+                    let pairedHost = PairedHost(
                         id: info.pairId,
-                        macName: info.partnerDeviceName,
+                        hostName: info.partnerDeviceName,
                         username: info.partnerUsername,
                         partnerPublicKey: info.partnerPublicKey,
                         partnerPublicKeyId: info.partnerPublicKeyId,
                         pairedAt: Date()
                     )
 
-                    onPaired?(pairedMac)
+                    onPaired?(pairedHost)
                 case .registered:
                     // Unexpected - completion should return paired status
                     errorMessage = "Unexpected response from server"

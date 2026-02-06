@@ -9,7 +9,7 @@
     /// plain terminals don't have response states or event-driven interactions.
     struct PlainTerminalView: View {
         let paneId: String
-        let relayClient: RelayClient
+        let relayClient: ViewerRelayClient
         let settings: IOSSettings
 
         @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -64,10 +64,10 @@
         NavigationStack {
             PlainTerminalView(
                 paneId: "%1",
-                relayClient: RelayClient(),
+                relayClient: ViewerRelayClient(),
                 settings: .shared
             )
         }
-        .environment(RelayClient())
+        .environment(ViewerRelayClient())
     }
 #endif

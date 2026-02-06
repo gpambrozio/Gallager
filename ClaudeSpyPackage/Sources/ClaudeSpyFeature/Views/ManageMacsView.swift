@@ -12,32 +12,32 @@
         @Environment(ConnectionManager.self) private var connectionManager
 
         @State private var showPairingSheet = false
-        @State private var macToDelete: PairedMac?
+        @State private var hostToDelete: PairedHost?
         @State private var showDeleteConfirmation = false
-        @State private var macToEdit: PairedMac?
+        @State private var hostToEdit: PairedHost?
 
         var body: some View {
             List {
                 // Paired Macs section
                 Section {
-                    if settings.pairedMacs.isEmpty {
+                    if settings.pairedHosts.isEmpty {
                         Text("No Macs paired")
                             .foregroundStyle(.secondary)
                     } else {
-                        ForEach(settings.pairedMacs) { mac in
+                        ForEach(settings.pairedHosts) { host in
                             MacRowView(
-                                mac: mac,
-                                connection: connectionManager.connection(for: mac.id),
-                                showUsername: settings.hasDuplicateMacName(for: mac)
+                                host: host,
+                                connection: connectionManager.connection(for: host.id),
+                                showUsername: settings.hasDuplicateHostName(for: host)
                             )
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                macToEdit = mac
+                                hostToEdit = host
                             }
                         }
                         .onDelete { indexSet in
                             if let index = indexSet.first {
-                                macToDelete = settings.pairedMacs[index]
+                                hostToDelete = settings.pairedHosts[index]
                                 showDeleteConfirmation = true
                             }
                         }
@@ -61,39 +61,39 @@
             .sheet(isPresented: $showPairingSheet) {
                 AddMacSheet()
             }
-            .sheet(item: $macToEdit) { mac in
-                EditMacSheet(mac: mac)
+            .sheet(item: $hostToEdit) { host in
+                EditMacSheet(host: host)
             }
             .confirmationDialog(
                 "Remove Pairing",
                 isPresented: $showDeleteConfirmation,
-                presenting: macToDelete
-            ) { mac in
-                Button("Remove \(mac.displayName)", role: .destructive) {
+                presenting: hostToDelete
+            ) { host in
+                Button("Remove \(host.displayName)", role: .destructive) {
                     Task {
-                        await removeMac(mac)
+                        await removeHost(host)
                     }
                 }
                 Button("Cancel", role: .cancel) {
-                    macToDelete = nil
+                    hostToDelete = nil
                 }
-            } message: { mac in
-                Text("This will remove the pairing with \(mac.displayName). You can pair again using a new code from the Mac app.")
+            } message: { host in
+                Text("This will remove the pairing with \(host.displayName). You can pair again using a new code from the Mac app.")
             }
         }
 
-        private func removeMac(_ mac: PairedMac) async {
+        private func removeHost(_ host: PairedHost) async {
             // Disconnect from this Mac
-            await connectionManager.disconnect(from: mac.id)
+            await connectionManager.disconnect(from: host.id)
 
             // Delete encryption session key for this Mac
             let keyManager = KeyManager(accessGroup: sharedKeychainAccessGroup)
-            try? await keyManager.deleteSessionKey(for: mac.id)
+            try? await keyManager.deleteSessionKey(for: host.id)
 
             // Remove from settings
-            settings.removePairing(id: mac.id)
+            settings.removePairing(id: host.id)
 
-            macToDelete = nil
+            hostToDelete = nil
         }
     }
 
@@ -101,9 +101,9 @@
 
     /// Row view displaying a paired Mac with connection status
     struct MacRowView: View {
-        let mac: PairedMac
-        let connection: MacConnection?
-        var showUsername: Bool = false
+        let host: PairedHost
+        let connection: ViewerConnection?
+        var showUsername = false
 
         var body: some View {
             HStack(spacing: 12) {
@@ -124,7 +124,7 @@
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(mac.displayName(showUsername: showUsername))
+                    Text(host.displayName(showUsername: showUsername))
                         .font(.headline)
 
                     Text(statusText)
@@ -180,13 +180,13 @@
         var body: some View {
             NavigationStack {
                 if let e2ee = connectionManager.pairingService {
-                    PairingView { pairedMac in
+                    PairingView { pairedHost in
                         // Add the new pairing
-                        settings.addPairing(pairedMac)
+                        settings.addPairing(pairedHost)
 
                         // Connect to the new Mac
                         Task {
-                            await connectionManager.connect(to: pairedMac, settings: settings)
+                            await connectionManager.connect(to: pairedHost, settings: settings)
                         }
 
                         dismiss()
@@ -217,15 +217,15 @@
         @Environment(\.dismiss) private var dismiss
         @Environment(IOSSettings.self) private var settings
 
-        let mac: PairedMac
+        let host: PairedHost
 
-        @State private var customName: String = ""
+        @State private var customName = ""
 
         var body: some View {
             NavigationStack {
                 Form {
                     Section {
-                        TextField("Custom Name", text: $customName, prompt: Text(mac.macName))
+                        TextField("Custom Name", text: $customName, prompt: Text(host.hostName))
                     } header: {
                         Text("Display Name")
                     } footer: {
@@ -233,9 +233,9 @@
                     }
 
                     Section {
-                        LabeledContent("Mac Name", value: mac.macName)
-                        LabeledContent("Username", value: mac.username)
-                        LabeledContent("Paired", value: DateFormatters.relativeTime(for: mac.pairedAt))
+                        LabeledContent("Mac Name", value: host.hostName)
+                        LabeledContent("Username", value: host.username)
+                        LabeledContent("Paired", value: DateFormatters.relativeTime(for: host.pairedAt))
                     } header: {
                         Text("Mac Info")
                     }
@@ -256,23 +256,23 @@
                     }
                 }
                 .onAppear {
-                    customName = mac.customName ?? ""
+                    customName = host.customName ?? ""
                 }
             }
         }
 
         private func saveMac() {
             let trimmedName = customName.trimmingCharacters(in: .whitespacesAndNewlines)
-            let updatedMac = PairedMac(
-                id: mac.id,
-                macName: mac.macName,
-                username: mac.username,
-                partnerPublicKey: mac.partnerPublicKey,
-                partnerPublicKeyId: mac.partnerPublicKeyId,
-                pairedAt: mac.pairedAt,
+            let updatedHost = PairedHost(
+                id: host.id,
+                hostName: host.hostName,
+                username: host.username,
+                partnerPublicKey: host.partnerPublicKey,
+                partnerPublicKeyId: host.partnerPublicKeyId,
+                pairedAt: host.pairedAt,
                 customName: trimmedName.isEmpty ? nil : trimmedName
             )
-            settings.updatePairing(updatedMac)
+            settings.updatePairing(updatedHost)
         }
     }
 #endif

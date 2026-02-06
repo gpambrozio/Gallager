@@ -38,8 +38,8 @@
                             .environment(connectionManager)
                     } else if let e2ee = connectionManager.pairingService {
                         NavigationStack {
-                            PairingView { pairedMac in
-                                handlePairingComplete(pairedMac)
+                            PairingView { pairedHost in
+                                handlePairingComplete(pairedHost)
                             }
                             .e2eeService(e2ee)
                         }
@@ -168,15 +168,15 @@
 
         // MARK: - Pairing
 
-        private func handlePairingComplete(_ pairedMac: PairedMac) {
+        private func handlePairingComplete(_ pairedHost: PairedHost) {
             // Add the new pairing to settings
-            settings.addPairing(pairedMac)
+            settings.addPairing(pairedHost)
 
             // Connect to the new Mac
             Task {
                 guard let connectionManager else { return }
 
-                await connectionManager.connect(to: pairedMac, settings: settings)
+                await connectionManager.connect(to: pairedHost, settings: settings)
 
                 // Request push notification permissions after successful pairing
                 await requestPushNotificationPermissions()
@@ -363,7 +363,7 @@
                         HStack {
                             Text("Paired Macs")
                             Spacer()
-                            Text("\(settings.pairedMacs.count)")
+                            Text("\(settings.pairedHosts.count)")
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -462,7 +462,7 @@
 
         private var connectionStatusText: String {
             let connectedCount = connectionManager.activeConnections.filter(\.isHostConnected).count
-            let totalCount = settings.pairedMacs.count
+            let totalCount = settings.pairedHosts.count
 
             if connectedCount == totalCount && totalCount > 0 {
                 return totalCount == 1 ? "Connected" : "All Connected"

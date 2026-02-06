@@ -2,20 +2,17 @@ import ClaudeSpyEncryption
 import ClaudeSpyNetworking
 import Foundation
 
-/// Represents a connection to a single paired device, wrapping a `ViewerRelayClient`
-/// with device-specific metadata.
-///
-/// Generic over the paired device type so it works with both `PairedHost` (macOS)
-/// and `PairedMac` (iOS).
+/// Represents a connection to a single paired host, wrapping a `ViewerRelayClient`
+/// with host-specific metadata.
 @Observable
 @MainActor
-final public class ViewerConnection<Device: ViewerPairedDevice>: Identifiable {
+final public class ViewerConnection: Identifiable {
     // MARK: - Properties
 
     /// Unique identifier (same as pairId)
     public let id: String
 
-    /// The paired device's display name
+    /// The paired host's display name
     public let deviceName: String
 
     /// The underlying relay client
@@ -24,8 +21,8 @@ final public class ViewerConnection<Device: ViewerPairedDevice>: Identifiable {
     /// The E2EE service for this connection
     public let e2eeService: E2EEService
 
-    /// The paired device data
-    public let pairedDevice: Device
+    /// The paired host data
+    public let pairedDevice: PairedHost
 
     // MARK: - Computed Properties
 
@@ -46,12 +43,12 @@ final public class ViewerConnection<Device: ViewerPairedDevice>: Identifiable {
 
     // MARK: - Initialization
 
-    /// Creates a new connection to a paired device.
+    /// Creates a new connection to a paired host.
     ///
     /// - Parameters:
-    ///   - pairedDevice: The paired device configuration
+    ///   - pairedDevice: The paired host configuration
     ///   - e2eeService: The E2EE service for this connection (pre-configured with partner key)
-    public init(pairedDevice: Device, e2eeService: E2EEService) {
+    public init(pairedDevice: PairedHost, e2eeService: E2EEService) {
         self.id = pairedDevice.id
         self.deviceName = pairedDevice.deviceName
         self.pairedDevice = pairedDevice
@@ -61,7 +58,7 @@ final public class ViewerConnection<Device: ViewerPairedDevice>: Identifiable {
 
     // MARK: - Connection Management
 
-    /// Connect to this device via the relay server.
+    /// Connect to this host via the relay server.
     ///
     /// - Parameters:
     ///   - serverURL: The relay server URL
@@ -89,7 +86,7 @@ final public class ViewerConnection<Device: ViewerPairedDevice>: Identifiable {
         )
     }
 
-    /// Disconnect from this device
+    /// Disconnect from this host
     public func disconnect() async {
         await relayClient.disconnect()
     }
@@ -101,7 +98,7 @@ final public class ViewerConnection<Device: ViewerPairedDevice>: Identifiable {
 
     // MARK: - Commands
 
-    /// Send a command to this device and wait for response.
+    /// Send a command to this host and wait for response.
     ///
     /// - Parameters:
     ///   - command: The command specification
@@ -116,7 +113,7 @@ final public class ViewerConnection<Device: ViewerPairedDevice>: Identifiable {
         await relayClient.sendCommand(command, paneId: paneId, timeout: timeout)
     }
 
-    /// Request current session state from this device
+    /// Request current session state from this host
     public func requestSessionState() async {
         await relayClient.requestSessionState()
     }

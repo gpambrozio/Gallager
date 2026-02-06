@@ -5,7 +5,7 @@ import Foundation
 
 /// Manages connections to all paired Mac hosts (when this Mac is acting as a viewer).
 ///
-/// This class coordinates multiple `HostConnection` instances, handling
+/// This class coordinates multiple `ViewerConnection` instances, handling
 /// connection lifecycle, event routing, and command dispatch to the correct host.
 /// This is the Mac-side equivalent of `ConnectionManager` on iOS.
 @Observable
@@ -16,7 +16,7 @@ final public class HostConnectionManager {
     private let logger = Logger(label: "com.claudespy.hostconnectionmanager")
 
     /// Active connections keyed by pairId
-    private var connections: [String: HostConnection] = [:]
+    private var connections: [String: ViewerConnection] = [:]
 
     /// Hosts currently being connected to (guards against duplicate concurrent connect calls)
     private var connectingHosts: Set<String> = []
@@ -38,7 +38,7 @@ final public class HostConnectionManager {
     // MARK: - Computed Properties
 
     /// All active connections
-    public var activeConnections: [HostConnection] {
+    public var activeConnections: [ViewerConnection] {
         Array(connections.values)
     }
 
@@ -86,7 +86,7 @@ final public class HostConnectionManager {
     // MARK: - Connection Management
 
     /// Get the connection for a specific host
-    public func connection(for hostId: String) -> HostConnection? {
+    public func connection(for hostId: String) -> ViewerConnection? {
         connections[hostId]
     }
 
@@ -136,7 +136,7 @@ final public class HostConnectionManager {
         defer { connectingHosts.remove(host.id) }
 
         // Create or reuse connection
-        let connection: HostConnection
+        let connection: ViewerConnection
         if let existing = connections[host.id] {
             connection = existing
             logger.info("Reusing existing connection for host: \(host.displayName)")
@@ -146,7 +146,7 @@ final public class HostConnectionManager {
                 return
             }
 
-            connection = HostConnection(pairedDevice: host, e2eeService: e2eeService)
+            connection = ViewerConnection(pairedDevice: host, e2eeService: e2eeService)
             setupConnectionCallbacks(connection)
             connections[host.id] = connection
             logger.info("Created new connection for host: \(host.displayName)")
@@ -211,7 +211,7 @@ final public class HostConnectionManager {
         timeout: TimeInterval = 15
     ) async -> Result<C.Response, Error> {
         guard let connection = connections[hostId] else {
-            return .failure(HostRelayClientError.notConnected)
+            return .failure(ViewerRelayClientError.notConnected)
         }
 
         return await connection.sendCommand(command, paneId: paneId, timeout: timeout)
@@ -264,7 +264,7 @@ final public class HostConnectionManager {
         }
     }
 
-    private func setupConnectionCallbacks(_ connection: HostConnection) {
+    private func setupConnectionCallbacks(_ connection: ViewerConnection) {
         connection.setupCallbacks(
             onHookEvent: { [weak self] event in
                 Task { @MainActor [weak self] in
