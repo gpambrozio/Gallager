@@ -393,6 +393,11 @@ public struct MainView: View {
     ///
     /// - Returns: A tuple of (columns, rows) for the terminal dimensions
     private func calculateOptimalTerminalDimensions() -> (columns: Int, rows: Int) {
+        // Guard against uninitialized or invalid size
+        guard detailPaneSize.width >= 100, detailPaneSize.height >= 100 else {
+            return (columns: 120, rows: 40)
+        }
+
         // Calculate cell size using current font settings
         let cellSize = FontMetrics.calculateCellSize(
             fontName: settings.fontName,
@@ -409,21 +414,11 @@ public struct MainView: View {
         let availableWidth = max(0, detailPaneSize.width - horizontalPadding)
         let availableHeight = max(0, detailPaneSize.height - verticalPadding)
 
-        // Calculate columns and rows that fit
-        var columns = Int(availableWidth / cellSize.width)
-        var rows = Int(availableHeight / cellSize.height)
-
         // Apply reasonable bounds
         // Minimum: 80x24 (standard terminal size)
         // Maximum: 300x100 (prevent unreasonably large terminals)
-        columns = max(80, min(300, columns))
-        rows = max(24, min(100, rows))
-
-        // If we don't have valid size information yet, fall back to defaults
-        if detailPaneSize.width < 100 || detailPaneSize.height < 100 {
-            columns = 120
-            rows = 40
-        }
+        let columns = max(80, min(300, Int(availableWidth / cellSize.width)))
+        let rows = max(24, min(100, Int(availableHeight / cellSize.height)))
 
         return (columns, rows)
     }
