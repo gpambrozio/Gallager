@@ -52,6 +52,9 @@ public enum TmuxKey: Codable, Sendable, Equatable {
     /// Control key combinations (e.g., .ctrl("c") for Ctrl+C)
     case ctrl(Character)
 
+    /// Alt/Meta key combinations (e.g., .alt("b") for Meta-b / word backward)
+    case alt(Character)
+
     /// Delay in milliseconds (not a real key, handled specially by executor)
     case delay(Int)
 
@@ -74,6 +77,7 @@ public enum TmuxKey: Codable, Sendable, Equatable {
         case .pageUp: "PageUp"
         case .pageDown: "PageDown"
         case let .ctrl(char): "C-\(char)"
+        case let .alt(char): "M-\(char)"
         case .delay: "" // Not a real key, handled by executor
         }
     }
@@ -187,13 +191,12 @@ public extension TmuxKey {
                     continue
                 }
 
-                // Alt+letter: ESC followed by letter (meta key)
+                // Alt/Meta key: ESC followed by printable character
                 if nextByte >= 0x20, nextByte < 0x7F {
-                    // For now, pass through as escape + character
-                    // Could add .alt(Character) case if needed
                     flushText()
-                    result.append(.escape)
-                    index = data.index(after: index)
+                    let char = Character(UnicodeScalar(nextByte))
+                    result.append(.alt(char))
+                    index = data.index(index, offsetBy: 2)
                     continue
                 }
 

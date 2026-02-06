@@ -159,6 +159,31 @@ struct TmuxKeyParsingTests {
         #expect(keys != [.ctrl("i")])
     }
 
+    @Test func parsesAltMetaKeys() {
+        // ESC + b = Meta-b (word backward, sent by Cmd+Left via SwiftTerm)
+        let metaB = Data([0x1B, 0x62])
+        #expect(TmuxKey.from(bytes: metaB) == [.alt("b")])
+
+        // ESC + f = Meta-f (word forward, sent by Cmd+Right via SwiftTerm)
+        let metaF = Data([0x1B, 0x66])
+        #expect(TmuxKey.from(bytes: metaF) == [.alt("f")])
+
+        // Meta-b should have tmuxKeyName "M-b"
+        #expect(TmuxKey.alt("b").tmuxKeyName == "M-b")
+
+        // Meta key should not use literal mode
+        #expect(TmuxKey.alt("b").requiresLiteralMode == false)
+    }
+
+    @Test func parsesTextWithMetaKey() {
+        // "hello" + Meta-b (word backward)
+        var data = Data("hello".utf8)
+        data.append(contentsOf: [0x1B, 0x62])
+        let keys = TmuxKey.from(bytes: data)
+
+        #expect(keys == [.text("hello"), .alt("b")])
+    }
+
     @Test func parsesUnrecognizedCSISequence() {
         // Unrecognized CSI sequence like cursor position: ESC [ 1 ; 2 H
         // Should not hang the parser - consume and continue
