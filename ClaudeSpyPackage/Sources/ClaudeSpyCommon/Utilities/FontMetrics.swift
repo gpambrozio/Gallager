@@ -20,9 +20,8 @@ public enum FontMetrics {
     /// Calculates the cell size for a monospace font.
     ///
     /// This exactly matches SwiftTerm's `computeFontDimensions()` method.
-    /// Note: SwiftTerm uses different width calculation methods on macOS vs iOS:
-    /// - macOS: NSFont.advancement(forGlyph:) via CTFont
-    /// - iOS: "W".size(withAttributes:).width via NSAttributedString
+    /// - macOS: `NSFont.glyph(withName:)` + `NSFont.advancement(forGlyph:)`
+    /// - iOS: `"W".size(withAttributes:).width`
     ///
     /// - Parameters:
     ///   - fontName: Name of the font (e.g., "SF Mono", "Menlo")
@@ -39,8 +38,10 @@ public enum FontMetrics {
 
         // Width: SwiftTerm uses different methods per platform
         #if canImport(AppKit) && !targetEnvironment(macCatalyst)
-            // macOS: Use glyph advancement (matches SwiftTerm's macOS implementation)
-            let cellWidth = glyphAdvanceWidth(for: font, character: "W")
+            // macOS: Use NSFont.glyph(withName:) + advancement (matches SwiftTerm exactly)
+            let nsFont = font as NSFont
+            let glyph = nsFont.glyph(withName: "W")
+            let cellWidth = nsFont.advancement(forGlyph: glyph).width
         #else
             // iOS: Use NSAttributedString sizing (matches SwiftTerm's iOS implementation)
             let uiFont = font as UIFont
@@ -87,18 +88,5 @@ public enum FontMetrics {
                 ?? UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
             return uiFont as CTFont
         #endif
-    }
-
-    private static func glyphAdvanceWidth(for font: CTFont, character: Character) -> CGFloat {
-        // Use CTFont APIs on both platforms for consistency
-        // SwiftTerm uses CTFont internally, so this ensures exact sizing parity
-        var unichars = [UniChar](String(character).utf16)
-        var glyphs = [CGGlyph](repeating: 0, count: unichars.count)
-        CTFontGetGlyphsForCharacters(font, &unichars, &glyphs, unichars.count)
-
-        var advance = CGSize.zero
-        CTFontGetAdvancesForGlyphs(font, .horizontal, glyphs, &advance, 1)
-        // SwiftTerm does NOT ceil the width - only height uses ceil()
-        return advance.width
     }
 }

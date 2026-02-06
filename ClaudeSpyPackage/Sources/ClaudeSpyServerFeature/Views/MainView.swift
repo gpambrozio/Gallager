@@ -25,12 +25,18 @@ public struct MainView: View {
     @State private var isLoadingProjects = false
     @State private var isCreatingSession = false
     @State private var creatingProjectPath: String?
+    @State private var detailPaneSize: CGSize = .zero
 
     public var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarContent
         } detail: {
             detailContent
+                .onGeometryChange(for: CGSize.self) { proxy in
+                    proxy.size
+                } action: { newSize in
+                    detailPaneSize = newSize
+                }
         }
         .navigationSplitViewStyle(.balanced)
         .navigationTitle("Available Panes")
@@ -146,11 +152,19 @@ public struct MainView: View {
             MirrorWindowView(paneInfo: pane)
                 .id(pane.id)
         } else {
-            ContentUnavailableView(
-                "Select a Pane",
-                symbol: .terminal,
-                description: "Choose a pane from the sidebar to view its mirror."
-            )
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    ContentUnavailableView(
+                        "Select a Pane",
+                        symbol: .terminal,
+                        description: "Choose a pane from the sidebar to view its mirror."
+                    )
+                    Spacer()
+                }
+                Spacer()
+            }
         }
     }
 
@@ -372,6 +386,43 @@ public struct MainView: View {
         isLoadingProjects = false
     }
 
+    /// Calculates optimal terminal dimensions based on available detail pane space.
+    ///
+    /// Uses the current font settings to determine character cell size and calculates
+    /// how many columns and rows fit in the available space, accounting for UI padding.
+    ///
+    /// - Returns: A tuple of (columns, rows) for the terminal dimensions
+    private func calculateOptimalTerminalDimensions() -> (columns: Int, rows: Int) {
+        // Guard against uninitialized or invalid size
+        guard detailPaneSize.width >= 100, detailPaneSize.height >= 100 else {
+            return (columns: 120, rows: 40)
+        }
+
+        // Calculate cell size using current font settings
+        let cellSize = FontMetrics.calculateCellSize(
+            fontName: settings.fontName,
+            fontSize: CGFloat(settings.fontSize)
+        )
+
+        // Horizontal padding: SwiftTerm scroller buffer
+        let horizontalPadding = FontMetrics.horizontalBuffer
+
+        // Vertical padding: status bar (~28px) + some buffer for spacing
+        let verticalPadding: CGFloat = settings.showStatusBar ? 40 : 10
+
+        // Calculate available content area
+        let availableWidth = max(0, detailPaneSize.width - horizontalPadding)
+        let availableHeight = max(0, detailPaneSize.height - verticalPadding)
+
+        // Apply reasonable bounds
+        // Minimum: 80x24 (standard terminal size)
+        // Maximum: 300x100 (prevent unreasonably large terminals)
+        let columns = max(80, min(300, Int(availableWidth / cellSize.width)))
+        let rows = max(24, min(100, Int(availableHeight / cellSize.height)))
+
+        return (columns, rows)
+    }
+
     private func createNewSession(project: ClaudeProjectInfo?) {
         isCreatingSession = true
         creatingProjectPath = project?.path
@@ -380,20 +431,23 @@ public struct MainView: View {
             do {
                 // Determine session name and working directory
                 let sessionName = project?.name ?? "terminal"
-                let workingDirectory = project?.path
+                let workingDirectory = project?.path ?? FileManager.default.homeDirectoryForCurrentUser.path()
 
-                // Determine if we should run the claude command
-                let runCommand: String? = if workingDirectory != nil && settings.autoRunClaudeInProjects {
+                // Determine if we should run the claude command (only for project sessions)
+                let runCommand: String? = if project != nil && settings.autoRunClaudeInProjects {
                     settings.claudeCommandPath
                 } else {
                     nil
                 }
 
-                // Create the session with reasonable default dimensions
+                // Calculate optimal dimensions based on available space
+                let dimensions = calculateOptimalTerminalDimensions()
+
+                // Create the session with calculated dimensions
                 let (_, paneId) = try await tmuxService.createSession(
                     baseName: sessionName,
-                    width: 120,
-                    height: 40,
+                    width: dimensions.columns,
+                    height: dimensions.rows,
                     workingDirectory: workingDirectory,
                     runCommand: runCommand
                 )
