@@ -126,6 +126,9 @@ final public class HostRelayClient {
     /// Type-erased response handlers keyed by command ID.
     private var pendingCommands: [UUID: @MainActor (Result<Any, Error>) -> Void] = [:]
 
+    /// Timeout tasks keyed by command ID (for cancellation on response).
+    private var timeoutTasks: [UUID: Task<Void, Never>] = [:]
+
     // MARK: - Callbacks
 
     /// Called when a hook event is received from host
@@ -271,9 +274,11 @@ final public class HostRelayClient {
                 await self.sendEncrypted(.command(commandMessage))
             }
 
-            Task {
+            let commandId = commandMessage.id
+            timeoutTasks[commandId] = Task {
                 try? await Task.sleep(for: .seconds(timeout))
-                if let handler = self.pendingCommands.removeValue(forKey: commandMessage.id) {
+                self.timeoutTasks.removeValue(forKey: commandId)
+                if let handler = self.pendingCommands.removeValue(forKey: commandId) {
                     handler(.failure(HostRelayClientError.timeout))
                 }
             }
@@ -470,6 +475,8 @@ final public class HostRelayClient {
 
         case let .commandResponse(response):
             logger.info("Received command response from host")
+            timeoutTasks[response.commandId]?.cancel()
+            timeoutTasks.removeValue(forKey: response.commandId)
             if let handler = pendingCommands.removeValue(forKey: response.commandId) {
                 if response.success {
                     handler(.success(response))
@@ -620,6 +627,11 @@ final public class HostRelayClient {
 
         urlSession?.invalidateAndCancel()
         urlSession = nil
+
+        for (_, task) in timeoutTasks {
+            task.cancel()
+        }
+        timeoutTasks.removeAll()
 
         for (_, handler) in pendingCommands {
             handler(.failure(HostRelayClientError.notConnected))

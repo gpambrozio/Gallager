@@ -18,6 +18,9 @@ final public class HostConnectionManager {
     /// Active connections keyed by pairId
     private var connections: [String: HostConnection] = [:]
 
+    /// Hosts currently being connected to (guards against duplicate concurrent connect calls)
+    private var connectingHosts: Set<String> = []
+
     /// Key manager for creating E2EE services
     private let keyManager: KeyManager
 
@@ -120,10 +123,17 @@ final public class HostConnectionManager {
         deviceId: String,
         deviceName: String
     ) async {
-        guard keyPair != nil else {
+        guard let keyPair else {
             logger.error("Cannot connect - key pair not initialized")
             return
         }
+
+        guard !connectingHosts.contains(host.id) else {
+            logger.debug("Already connecting to host: \(host.displayName)")
+            return
+        }
+        connectingHosts.insert(host.id)
+        defer { connectingHosts.remove(host.id) }
 
         // Create or reuse connection
         let connection: HostConnection
@@ -140,11 +150,6 @@ final public class HostConnectionManager {
             setupConnectionCallbacks(connection)
             connections[host.id] = connection
             logger.info("Created new connection for host: \(host.displayName)")
-        }
-
-        guard let keyPair else {
-            logger.error("Key pair not available")
-            return
         }
 
         await connection.connect(
@@ -262,12 +267,12 @@ final public class HostConnectionManager {
     private func setupConnectionCallbacks(_ connection: HostConnection) {
         connection.setupCallbacks(
             onHookEvent: { [weak self] event in
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
                     self?.onHookEvent?(event)
                 }
             },
             onSessionState: { [weak self] state in
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
                     self?.onSessionState?(state)
                 }
             },

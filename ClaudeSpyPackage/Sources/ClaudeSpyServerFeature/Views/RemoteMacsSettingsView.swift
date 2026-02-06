@@ -80,7 +80,7 @@ public struct RemoteMacsSettingsView: View {
 
     @ViewBuilder
     private var connectionStatusRow: some View {
-        let hostManager = coordinator.hostConnectionManager
+        let hostManager = coordinator.viewerConnectionManager
         let anyConnected = hostManager?.anyHostConnected ?? false
         let isConnecting = hostManager?.isConnecting ?? false
 
@@ -102,8 +102,9 @@ public struct RemoteMacsSettingsView: View {
                 Text(anyConnected ? "Connected" : isConnecting ? "Connecting..." : "Disconnected")
                     .font(.headline)
 
-                if let connectedCount = hostManager?.activeConnections.filter({ $0.isHostConnected }).count,
-                   connectedCount > 0 {
+                if
+                    let connectedCount = hostManager?.activeConnections.filter({ $0.isHostConnected }).count,
+                    connectedCount > 0 {
                     Text("\(connectedCount) host\(connectedCount == 1 ? "" : "s") online")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -119,7 +120,7 @@ public struct RemoteMacsSettingsView: View {
 
     @ViewBuilder
     private var connectionActionButton: some View {
-        let hostManager = coordinator.hostConnectionManager
+        let hostManager = coordinator.viewerConnectionManager
         let anyConnected = hostManager?.anyHostConnected ?? false
         let isConnecting = hostManager?.isConnecting ?? false
 
@@ -136,7 +137,7 @@ public struct RemoteMacsSettingsView: View {
                 Task {
                     guard
                         let serverURL = URL(string: settings.externalServerURL),
-                        let hostManager = coordinator.hostConnectionManager
+                        let hostManager = coordinator.viewerConnectionManager
                     else { return }
 
                     await hostManager.connectAll(
@@ -174,7 +175,7 @@ public struct RemoteMacsSettingsView: View {
             ForEach(settings.pairedHosts) { host in
                 HostRow(
                     host: host,
-                    connection: coordinator.hostConnectionManager?.connection(for: host.id),
+                    connection: coordinator.viewerConnectionManager?.connection(for: host.id),
                     showUsername: settings.hasDuplicateHostName(for: host),
                     onEdit: {
                         hostToEdit = host
@@ -200,7 +201,7 @@ public struct RemoteMacsSettingsView: View {
 
     private func removeHost(_ host: PairedHost) async {
         // Disconnect from this host
-        await coordinator.hostConnectionManager?.disconnect(from: host.id)
+        await coordinator.viewerConnectionManager?.disconnect(from: host.id)
 
         // Remove from settings
         settings.removeHostPairing(id: host.id)
@@ -214,7 +215,7 @@ public struct RemoteMacsSettingsView: View {
 private struct HostRow: View {
     let host: PairedHost
     let connection: HostConnection?
-    var showUsername: Bool = false
+    var showUsername = false
     let onEdit: () -> Void
     let onDelete: () -> Void
 
@@ -261,7 +262,8 @@ private struct HostRow: View {
             case .connected:
                 Symbols.circle.image
                     .foregroundStyle(.yellow)
-            case .connecting, .reconnecting:
+            case .connecting,
+                 .reconnecting:
                 ProgressView()
                     .controlSize(.small)
             default:
@@ -355,14 +357,7 @@ private struct AddHostSheet: View {
     }
 
     private func submitPairingCode() {
-        // TODO: Implement actual pairing flow
-        // This would:
-        // 1. Send the pairing code to the relay server
-        // 2. Receive the host's public key and info
-        // 3. Exchange our public key
-        // 4. Create a PairedHost and add to settings
-
-        errorMessage = "Pairing flow not yet implemented. This is a placeholder UI."
+        errorMessage = "Mac-to-Mac pairing is coming in a future update."
     }
 }
 
@@ -374,7 +369,7 @@ private struct EditHostSheet: View {
 
     let host: PairedHost
 
-    @State private var customName: String = ""
+    @State private var customName = ""
 
     var body: some View {
         VStack(spacing: 20) {

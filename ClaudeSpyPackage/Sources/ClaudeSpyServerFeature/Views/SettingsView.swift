@@ -29,7 +29,7 @@ public struct SettingsView: View {
                 .tabItem {
                     Label("Remote Macs", symbol: .laptopcomputer)
                 }
-                .tag(SettingsTab.remoteMacs)
+                .tag(SettingsTab.remoteHosts)
 
             PluginSettingsView()
                 .tabItem {

@@ -6,7 +6,7 @@ import SwiftUI
 public enum SettingsTab: String, Sendable {
     case general
     case remoteAccess
-    case remoteMacs
+    case remoteHosts
     case plugin
 }
 
@@ -166,8 +166,8 @@ final public class AppSettings {
     }
 
     /// All paired iOS devices (viewers)
-    public private(set) var pairedDevices: [PairedDevice] = [] {
-        didSet { savePairedDevices() }
+    public private(set) var pairedViewers: [PairedDevice] = [] {
+        didSet { savePairedViewers() }
     }
 
     /// All paired Mac hosts (for viewing remote Macs)
@@ -240,7 +240,7 @@ final public class AppSettings {
         self.autoConnectToServer = defaults.object(forKey: Keys.autoConnectToServer) as? Bool ?? Defaults.autoConnectToServer
 
         // Load paired devices and hosts
-        self.pairedDevices = Self.loadPairedDevices(from: defaults)
+        self.pairedViewers = Self.loadPairedViewers(from: defaults)
         self.pairedHosts = Self.loadPairedHosts(from: defaults)
 
         // Generate device ID if not already set
@@ -281,7 +281,7 @@ final public class AppSettings {
         static let customTerminalPath = "customTerminalPath"
         // Remote Access
         static let externalServerURL = "externalServerURL"
-        static let pairedDevices = "pairedDevices"
+        static let pairedViewers = "pairedDevices"
         static let pairedHosts = "pairedHosts"
         static let autoConnectToServer = "autoConnectToServer"
         static let deviceId = "deviceId"
@@ -326,7 +326,7 @@ final public class AppSettings {
 
     /// Whether at least one iOS device is paired
     public var isPaired: Bool {
-        !pairedDevices.isEmpty
+        !pairedViewers.isEmpty
     }
 
     /// Whether at least one remote Mac host is paired
@@ -336,18 +336,18 @@ final public class AppSettings {
 
     // MARK: - Paired Devices Storage
 
-    private static func loadPairedDevices(from defaults: UserDefaults) -> [PairedDevice] {
-        guard let data = defaults.data(forKey: Keys.pairedDevices) else {
+    private static func loadPairedViewers(from defaults: UserDefaults) -> [PairedDevice] {
+        guard let data = defaults.data(forKey: Keys.pairedViewers) else {
             return []
         }
         return (try? JSONDecoder().decode([PairedDevice].self, from: data)) ?? []
     }
 
-    private func savePairedDevices() {
-        guard let data = try? JSONEncoder().encode(pairedDevices) else {
+    private func savePairedViewers() {
+        guard let data = try? JSONEncoder().encode(pairedViewers) else {
             return
         }
-        UserDefaults.standard.set(data, forKey: Keys.pairedDevices)
+        UserDefaults.standard.set(data, forKey: Keys.pairedViewers)
     }
 
     // MARK: - Paired Hosts Storage
@@ -371,30 +371,30 @@ final public class AppSettings {
     /// Add a new paired device
     public func addPairing(_ device: PairedDevice) {
         // Remove any existing pairing with same ID (update case)
-        pairedDevices.removeAll { $0.id == device.id }
-        pairedDevices.append(device)
+        pairedViewers.removeAll { $0.id == device.id }
+        pairedViewers.append(device)
     }
 
     /// Remove a paired device by ID
     public func removePairing(id: String) {
-        pairedDevices.removeAll { $0.id == id }
+        pairedViewers.removeAll { $0.id == id }
     }
 
     /// Get a paired device by ID
     public func getPairing(id: String) -> PairedDevice? {
-        pairedDevices.first { $0.id == id }
+        pairedViewers.first { $0.id == id }
     }
 
     /// Update a paired device (e.g., custom name or partner key)
     public func updatePairing(_ device: PairedDevice) {
-        if let index = pairedDevices.firstIndex(where: { $0.id == device.id }) {
-            pairedDevices[index] = device
+        if let index = pairedViewers.firstIndex(where: { $0.id == device.id }) {
+            pairedViewers[index] = device
         }
     }
 
     /// Clear all pairings
     public func clearAllPairings() {
-        pairedDevices = []
+        pairedViewers = []
     }
 
     // MARK: - Host Pairing Management

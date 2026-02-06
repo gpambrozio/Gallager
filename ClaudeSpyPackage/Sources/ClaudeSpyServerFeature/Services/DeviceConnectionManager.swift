@@ -123,9 +123,9 @@ final public class DeviceConnectionManager {
             return
         }
 
-        logger.info("Connecting to all \(settings.pairedDevices.count) paired devices")
+        logger.info("Connecting to all \(settings.pairedViewers.count) paired devices")
 
-        for device in settings.pairedDevices {
+        for device in settings.pairedViewers {
             await connect(to: device)
         }
     }

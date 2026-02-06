@@ -8,9 +8,9 @@
     /// Navigation value for the session list
     enum SessionNavigation: Hashable {
         /// Navigate to live terminal for a Claude session
-        case claudeSession(paneId: String, macId: String)
+        case claudeSession(paneId: String, hostId: String)
         /// Navigate to live terminal for a plain terminal (no Claude session)
-        case plainTerminal(paneId: String, macId: String)
+        case plainTerminal(paneId: String, hostId: String)
     }
 
     /// View displaying a list of active Claude sessions and terminals from all paired Macs.
@@ -37,8 +37,8 @@
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: SessionNavigation.self) { destination in
                 switch destination {
-                case let .claudeSession(paneId, macId):
-                    if let connection = connectionManager.connection(for: macId) {
+                case let .claudeSession(paneId, hostId):
+                    if let connection = connectionManager.connection(for: hostId) {
                         ClaudeSessionTerminalView(
                             paneId: paneId,
                             sessionStore: sessionStore,
@@ -48,8 +48,8 @@
                     } else {
                         macDisconnectedView
                     }
-                case let .plainTerminal(paneId, macId):
-                    if let connection = connectionManager.connection(for: macId) {
+                case let .plainTerminal(paneId, hostId):
+                    if let connection = connectionManager.connection(for: hostId) {
                         PlainTerminalView(
                             paneId: paneId,
                             relayClient: connection.relayClient,
@@ -145,7 +145,7 @@
         }
 
         private var overallConnectionStatusColor: Color {
-            if connectionManager.anyMacConnected {
+            if connectionManager.anyHostConnected {
                 return .green
             } else if connectionManager.isConnecting {
                 return .yellow
@@ -188,7 +188,7 @@
             )
 
             // paneId is not used for session creation, pass empty string
-            let result = await connectionManager.sendCommand(command, paneId: "", macId: mac.id)
+            let result = await connectionManager.sendCommand(command, paneId: "", hostId: mac.id)
 
             switch result {
             case let .success(response):
@@ -201,7 +201,7 @@
 
                 // Navigate to the new terminal if we got a pane ID
                 if let paneId = response.paneId {
-                    navigationPath.append(SessionNavigation.plainTerminal(paneId: paneId, macId: mac.id))
+                    navigationPath.append(SessionNavigation.plainTerminal(paneId: paneId, hostId: mac.id))
                 }
             case let .failure(error):
                 // Include project name in error for context (sheet stays open)
@@ -234,7 +234,7 @@
                 if hasContent {
                     // Claude sessions for this Mac
                     ForEach(sessions, id: \.paneId) { item in
-                        NavigationLink(value: SessionNavigation.claudeSession(paneId: item.paneId, macId: mac.id)) {
+                        NavigationLink(value: SessionNavigation.claudeSession(paneId: item.paneId, hostId: mac.id)) {
                             SessionRowView(
                                 paneId: item.paneId,
                                 session: item.session,
@@ -245,7 +245,7 @@
 
                     // Plain terminals for this Mac
                     ForEach(panes) { pane in
-                        NavigationLink(value: SessionNavigation.plainTerminal(paneId: pane.id, macId: mac.id)) {
+                        NavigationLink(value: SessionNavigation.plainTerminal(paneId: pane.id, hostId: mac.id)) {
                             TerminalRowView(pane: pane)
                         }
                     }

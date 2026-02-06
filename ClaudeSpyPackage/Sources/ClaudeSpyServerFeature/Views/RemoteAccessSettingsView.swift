@@ -27,7 +27,7 @@ public struct RemoteAccessSettingsView: View {
 
             // Paired Devices Section
             Section {
-                pairedDevicesContent
+                pairedViewersContent
             } header: {
                 Text("Paired Devices")
             }
@@ -66,8 +66,9 @@ public struct RemoteAccessSettingsView: View {
                 Text(statusText(for: combinedState))
                     .font(.headline)
 
-                if let connectedCount = connectionManager?.activeConnections.filter({ $0.isViewerConnected }).count,
-                   connectedCount > 0 {
+                if
+                    let connectedCount = connectionManager?.activeConnections.filter({ $0.isViewerConnected }).count,
+                    connectedCount > 0 {
                     Text("\(connectedCount) device\(connectedCount == 1 ? "" : "s") connected")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -137,11 +138,11 @@ public struct RemoteAccessSettingsView: View {
     // MARK: - Paired Devices Content
 
     @ViewBuilder
-    private var pairedDevicesContent: some View {
+    private var pairedViewersContent: some View {
         switch pairingManager.state {
         case .idle:
             if pairingManager.hasPairedDevices {
-                pairedDevicesListView
+                pairedViewersListView
             } else {
                 unpairedView
             }
@@ -162,8 +163,8 @@ public struct RemoteAccessSettingsView: View {
     }
 
     @ViewBuilder
-    private var pairedDevicesListView: some View {
-        ForEach(pairingManager.pairedDevices) { device in
+    private var pairedViewersListView: some View {
+        ForEach(pairingManager.pairedViewers) { device in
             DeviceRow(
                 device: device,
                 connection: coordinator.deviceConnectionManager?.connection(for: device.id),
@@ -339,7 +340,8 @@ private struct DeviceRow: View {
             case .connected:
                 Symbols.circle.image
                     .foregroundStyle(.yellow)
-            case .connecting, .reconnecting:
+            case .connecting,
+                 .reconnecting:
                 ProgressView()
                     .controlSize(.small)
             default:

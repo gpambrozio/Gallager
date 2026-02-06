@@ -25,11 +25,11 @@
         /// Window manager for pane mirroring
         public let windowManager: MirrorWindowManager
 
-        /// Device connection manager for multiple iOS device connections
+        /// Device connection manager for multiple viewer connections
         public private(set) var deviceConnectionManager: DeviceConnectionManager?
 
         /// Host connection manager for connecting to remote Mac hosts (viewer mode)
-        public private(set) var hostConnectionManager: HostConnectionManager?
+        public private(set) var viewerConnectionManager: HostConnectionManager?
 
         /// Error message if service setup failed (e.g., E2EE initialization)
         public private(set) var setupError: String?
@@ -172,7 +172,7 @@
                 await updateSleepPrevention()
 
                 guard event.action.body.shouldSendToServer else { return }
-                // Forward to all connected iOS devices
+                // Forward to all connected viewers
                 await deviceConnectionManager?.sendHookEventToAll(event)
             }
 
@@ -287,7 +287,7 @@
             let executor = TmuxCommandExecutor(tmuxService: tmuxService)
             commandExecutor = executor
 
-            // Set up command handler - called when any iOS device sends a command
+            // Set up command handler - called when any viewer sends a command
             let streamService = terminalStreamService
             let tmux = tmuxService
             let appSettings = settings
@@ -349,7 +349,7 @@
                 )
             }
 
-            // Push session state to all iOS devices whenever panes change
+            // Push session state to all viewers whenever panes change
             tmuxService.setPanesChangedHandler { [weak connectionManager] in
                 await connectionManager?.pushSessionStateToAll()
             }

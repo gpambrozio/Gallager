@@ -42,13 +42,13 @@
             Array(connections.values)
         }
 
-        /// Whether any Mac is currently connected via WebSocket
-        public var anyMacConnected: Bool {
+        /// Whether any host is currently connected via WebSocket
+        public var anyHostConnected: Bool {
             connections.values.contains { $0.isHostConnected }
         }
 
-        /// Whether all Macs are connected
-        public var allMacsConnected: Bool {
+        /// Whether all hosts are connected
+        public var allHostsConnected: Bool {
             guard !connections.isEmpty else { return false }
             return connections.values.allSatisfy { $0.isHostConnected }
         }
@@ -88,9 +88,9 @@
 
         // MARK: - Connection Management
 
-        /// Get the connection for a specific Mac
-        public func connection(for macId: String) -> MacConnection? {
-            connections[macId]
+        /// Get the connection for a specific host
+        public func connection(for hostId: String) -> MacConnection? {
+            connections[hostId]
         }
 
         /// Connect to all paired Macs.
@@ -160,18 +160,18 @@
             }
         }
 
-        /// Disconnect from a specific Mac.
+        /// Disconnect from a specific host.
         ///
-        /// - Parameter macId: The pair ID of the Mac to disconnect from
-        public func disconnect(from macId: String) async {
-            guard let connection = connections[macId] else {
-                logger.warning("No connection found for Mac: \(macId)")
+        /// - Parameter hostId: The pair ID of the host to disconnect from
+        public func disconnect(from hostId: String) async {
+            guard let connection = connections[hostId] else {
+                logger.warning("No connection found for host: \(hostId)")
                 return
             }
 
             await connection.disconnect()
-            connections.removeValue(forKey: macId)
-            logger.info("Disconnected from Mac: \(connection.macName)")
+            connections.removeValue(forKey: hostId)
+            logger.info("Disconnected from host: \(connection.macName)")
         }
 
         /// Disconnect from all Macs.
@@ -195,21 +195,21 @@
 
         // MARK: - Commands
 
-        /// Send a command to a specific Mac.
+        /// Send a command to a specific host.
         ///
         /// - Parameters:
         ///   - command: The command specification
         ///   - paneId: The tmux pane ID to target
-        ///   - macId: The pair ID of the Mac to send to
+        ///   - hostId: The pair ID of the Mac to send to
         ///   - timeout: Maximum time to wait for response
         /// - Returns: Result containing the response or error
         public func sendCommand<C: CommandSpec>(
             _ command: C,
             paneId: String,
-            macId: String,
+            hostId: String,
             timeout: TimeInterval = 15
         ) async -> Result<C.Response, Error> {
-            guard let connection = connections[macId] else {
+            guard let connection = connections[hostId] else {
                 return .failure(RelayClientError.notConnected)
             }
 
@@ -224,9 +224,9 @@
         }
 
         /// Request session state from a specific Mac.
-        public func requestSessionState(for macId: String) async {
-            guard let connection = connections[macId], connection.isHostConnected else {
-                logger.debug("Cannot request session state - Mac not connected: \(macId)")
+        public func requestSessionState(for hostId: String) async {
+            guard let connection = connections[hostId], connection.isHostConnected else {
+                logger.debug("Cannot request session state - Mac not connected: \(hostId)")
                 return
             }
 
@@ -277,7 +277,7 @@
         }
 
         private func setupConnectionCallbacks(_ connection: MacConnection, settings: IOSSettings) {
-            let macId = connection.id
+            let hostId = connection.id
 
             connection.setupCallbacks(
                 onHookEvent: { [weak self] event in
@@ -294,12 +294,12 @@
                     // Terminal streams are handled by individual views
                     // The callback is set by the terminal view when it needs streaming
                 },
-                onPartnerKeyReceived: { [weak self, macId] publicKey, keyId in
+                onPartnerKeyReceived: { [weak self, hostId] publicKey, keyId in
                     guard let self else { return }
                     // Update the stored Mac with new partner key
                     // Access IOSSettings.shared directly instead of capturing to avoid retain cycles
                     let settings = IOSSettings.shared
-                    if let mac = settings.getPairing(id: macId) {
+                    if let mac = settings.getPairing(id: hostId) {
                         let updatedMac = PairedMac(
                             id: mac.id,
                             macName: mac.macName,

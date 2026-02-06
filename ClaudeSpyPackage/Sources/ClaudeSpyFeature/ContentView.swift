@@ -79,7 +79,7 @@
             switch phase {
             case .background:
                 // Only start background task if we have any active connections
-                if connectionManager?.anyMacConnected == true {
+                if connectionManager?.anyHostConnected == true {
                     backgroundTaskService.startBackgroundTask()
                 }
             case .active:
@@ -116,7 +116,7 @@
                                 title: notification.title,
                                 body: notification.body,
                                 paneId: event.event.tmuxPane,
-                                macId: event.pairId
+                                hostId: event.pairId
                             )
                         }
                     }
@@ -299,7 +299,7 @@
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(100))
                 sessionsNavigationPath = NavigationPath()
-                sessionsNavigationPath.append(SessionNavigation.claudeSession(paneId: deepLink.paneId, macId: deepLink.macId))
+                sessionsNavigationPath.append(SessionNavigation.claudeSession(paneId: deepLink.paneId, hostId: deepLink.hostId))
                 currentlyDisplayedPaneId = deepLink.paneId
             }
         }
@@ -340,7 +340,7 @@
                         }
                     }
 
-                    if !connectionManager.anyMacConnected {
+                    if !connectionManager.anyHostConnected {
                         Button("Connect All") {
                             Task {
                                 await connectionManager.connectAll(settings: settings)
@@ -451,7 +451,7 @@
         }
 
         private var connectionStatusColor: Color {
-            if connectionManager.anyMacConnected {
+            if connectionManager.anyHostConnected {
                 return .green
             } else if connectionManager.isConnecting {
                 return .yellow

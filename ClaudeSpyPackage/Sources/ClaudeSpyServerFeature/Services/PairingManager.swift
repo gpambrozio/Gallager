@@ -62,8 +62,8 @@ final public class PairingManager {
     }
 
     /// All paired devices (convenience accessor)
-    public var pairedDevices: [PairedDevice] {
-        settings?.pairedDevices ?? []
+    public var pairedViewers: [PairedDevice] {
+        settings?.pairedViewers ?? []
     }
 
     /// Whether at least one device is paired
@@ -151,7 +151,7 @@ final public class PairingManager {
         pollingTask = nil
 
         // Notify server for each device (best effort)
-        for device in settings.pairedDevices {
+        for device in settings.pairedViewers {
             Task {
                 try? await deletePairing(pairId: device.id)
             }
