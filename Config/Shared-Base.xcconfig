@@ -1,0 +1,8 @@
+// Shared-Base.xcconfig
+// Version numbers shared across all targets (iOS + macOS)
+
+// ==========================================
+// Versioning
+// ==========================================
+MARKETING_VERSION = 1.2
+CURRENT_PROJECT_VERSION = 3

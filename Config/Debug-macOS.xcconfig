@@ -1,0 +1,6 @@
+// Debug-macOS.xcconfig
+// Debug configuration for macOS targets
+
+#include "Shared-macOS.xcconfig"
+
+// No additional debug-specific overrides needed
