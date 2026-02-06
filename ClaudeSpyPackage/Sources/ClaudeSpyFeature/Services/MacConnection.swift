@@ -35,9 +35,9 @@
             relayClient.state
         }
 
-        /// Whether this Mac is currently connected
-        public var isMacConnected: Bool {
-            relayClient.isMacConnected
+        /// Whether the Mac (host) is currently connected
+        public var isHostConnected: Bool {
+            relayClient.isHostConnected
         }
 
         /// Whether the WebSocket is connected to the relay

@@ -48,13 +48,13 @@ final public class DeviceConnectionManager {
 
     /// Whether any iOS device is currently connected
     public var anyDeviceConnected: Bool {
-        connections.values.contains { $0.isIOSConnected }
+        connections.values.contains { $0.isViewerConnected }
     }
 
     /// Whether all devices are connected
     public var allDevicesConnected: Bool {
         guard !connections.isEmpty else { return false }
-        return connections.values.allSatisfy { $0.isIOSConnected }
+        return connections.values.allSatisfy { $0.isViewerConnected }
     }
 
     /// Whether any connection is in a connecting state
@@ -229,7 +229,7 @@ final public class DeviceConnectionManager {
     /// Push session state to all connected iOS devices.
     public func pushSessionStateToAll() async {
         await withTaskGroup(of: Void.self) { group in
-            for connection in connections.values where connection.state.isConnected && connection.isIOSConnected {
+            for connection in connections.values where connection.state.isConnected && connection.isViewerConnected {
                 group.addTask { await connection.pushSessionState() }
             }
         }

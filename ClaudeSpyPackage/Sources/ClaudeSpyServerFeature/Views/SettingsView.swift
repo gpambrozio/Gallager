@@ -25,6 +25,12 @@ public struct SettingsView: View {
                 }
                 .tag(SettingsTab.remoteAccess)
 
+            RemoteMacsSettingsView()
+                .tabItem {
+                    Label("Remote Macs", symbol: .laptopcomputer)
+                }
+                .tag(SettingsTab.remoteMacs)
+
             PluginSettingsView()
                 .tabItem {
                     Label("Plugin", symbol: .puzzlepiece)

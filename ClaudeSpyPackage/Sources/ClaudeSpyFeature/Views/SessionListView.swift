@@ -155,7 +155,7 @@
         }
 
         private var overallConnectionStatusText: String {
-            let connectedCount = connectionManager.activeConnections.filter(\.isMacConnected).count
+            let connectedCount = connectionManager.activeConnections.filter(\.isHostConnected).count
             let totalCount = settings.pairedMacs.count
 
             if connectedCount == totalCount && totalCount > 0 {
@@ -251,7 +251,7 @@
                     }
                 } else {
                     // Empty state for this Mac
-                    if connection?.isMacConnected == true {
+                    if connection?.isHostConnected == true {
                         Text("No active sessions")
                             .foregroundStyle(.secondary)
                     } else {
@@ -293,7 +293,7 @@
                     Symbols.plus.image
                         .font(.caption)
                 }
-                .disabled(connection?.isMacConnected != true)
+                .disabled(connection?.isHostConnected != true)
                 .buttonStyle(.borderless)
 
                 // Connection status indicator
@@ -306,7 +306,7 @@
         private var statusColor: Color {
             guard let connection else { return .gray }
 
-            if connection.isMacConnected {
+            if connection.isHostConnected {
                 return .green
             } else if connection.isRelayConnected {
                 return .yellow

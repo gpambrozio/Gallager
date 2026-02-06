@@ -19,7 +19,7 @@
 
         /// Whether the Mac is connected
         private var isConnected: Bool {
-            relayClient.isMacConnected
+            relayClient.isHostConnected
         }
 
         /// Hide navigation bar on iPhone in landscape to maximize terminal space

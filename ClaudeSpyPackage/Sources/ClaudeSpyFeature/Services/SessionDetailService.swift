@@ -1,3 +1,4 @@
+import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import Foundation
 import Observation
@@ -44,9 +45,9 @@ final public class SessionDetailService {
         sessionStore.isPaneActive(paneId)
     }
 
-    /// Whether the Mac is connected to the relay
-    public var isMacConnected: Bool {
-        relayClient.isMacConnected
+    /// Whether the host (Mac) is connected to the relay
+    public var isHostConnected: Bool {
+        relayClient.isHostConnected
     }
 
     /// The relay client for this session (needed for environment injection)

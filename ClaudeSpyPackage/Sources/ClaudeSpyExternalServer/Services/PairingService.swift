@@ -65,7 +65,7 @@ actor PairingService {
 
     // MARK: - Public API
 
-    /// Register a new pairing code from Mac
+    /// Register a new pairing code from host
     func registerCode(
         code: String,
         deviceId: String,
@@ -82,27 +82,27 @@ actor PairingService {
             return .error("Pairing code already in use")
         }
 
-        // Generate the pairId upfront so Mac and iOS use the same ID
+        // Generate the pairId upfront so host and viewer use the same ID
         let pairId = UUID().uuidString
 
         let pending = PendingPairing(
             code: code,
             pairId: pairId,
-            macDeviceId: deviceId,
-            macDeviceName: deviceName,
-            macUsername: username,
-            macPublicKey: publicKey,
-            macPublicKeyId: publicKeyId,
+            hostDeviceId: deviceId,
+            hostDeviceName: deviceName,
+            hostUsername: username,
+            hostPublicKey: publicKey,
+            hostPublicKeyId: publicKeyId,
             createdAt: Date()
         )
 
         pendingCodes[code] = pending
 
-        // Mac doesn't get partner key yet (iOS hasn't paired)
+        // Host doesn't get partner key yet (viewer hasn't paired)
         return .registered(pairId: pairId)
     }
 
-    /// Complete pairing from iOS
+    /// Complete pairing from viewer
     func completePairing(
         code: String,
         deviceId: String,
@@ -120,15 +120,15 @@ actor PairingService {
         // Create the pair using the pairId from registration
         let pair = Pair(
             id: pending.pairId,
-            macDeviceId: pending.macDeviceId,
-            macDeviceName: pending.macDeviceName,
-            macUsername: pending.macUsername,
-            macPublicKey: pending.macPublicKey,
-            macPublicKeyId: pending.macPublicKeyId,
-            iosDeviceId: deviceId,
-            iosDeviceName: deviceName,
-            iosPublicKey: publicKey,
-            iosPublicKeyId: publicKeyId,
+            hostDeviceId: pending.hostDeviceId,
+            hostDeviceName: pending.hostDeviceName,
+            hostUsername: pending.hostUsername,
+            hostPublicKey: pending.hostPublicKey,
+            hostPublicKeyId: pending.hostPublicKeyId,
+            viewerDeviceId: deviceId,
+            viewerDeviceName: deviceName,
+            viewerPublicKey: publicKey,
+            viewerPublicKeyId: publicKeyId,
             createdAt: Date()
         )
 
@@ -136,13 +136,13 @@ actor PairingService {
         pendingCodes.removeValue(forKey: code)
         savePairs()
 
-        // iOS gets Mac's public key in response
+        // Viewer gets host's public key in response
         return .paired(
             pairId: pending.pairId,
-            partnerDeviceName: pending.macDeviceName,
-            partnerPublicKey: pending.macPublicKey,
-            partnerPublicKeyId: pending.macPublicKeyId,
-            partnerUsername: pending.macUsername
+            partnerDeviceName: pending.hostDeviceName,
+            partnerPublicKey: pending.hostPublicKey,
+            partnerPublicKeyId: pending.hostPublicKeyId,
+            partnerUsername: pending.hostUsername
         )
     }
 
@@ -168,52 +168,52 @@ actor PairingService {
         savePairs()
     }
 
-    /// Get Mac device name for a pair
-    func getMacDeviceName(pairId: String) -> String? {
-        activePairs[pairId]?.macDeviceName
+    /// Get host device name for a pair
+    func getHostDeviceName(pairId: String) -> String? {
+        activePairs[pairId]?.hostDeviceName
     }
 
-    /// Get Mac username for a pair
-    func getMacUsername(pairId: String) -> String {
-        activePairs[pairId]?.macUsername ?? ""
+    /// Get host username for a pair
+    func getHostUsername(pairId: String) -> String {
+        activePairs[pairId]?.hostUsername ?? ""
     }
 
-    /// Get iOS device name for a pair
-    func getIOSDeviceName(pairId: String) -> String? {
-        activePairs[pairId]?.iosDeviceName
+    /// Get viewer device name for a pair
+    func getViewerDeviceName(pairId: String) -> String? {
+        activePairs[pairId]?.viewerDeviceName
     }
 
-    /// Get Mac public key info for a pair
-    func getMacPublicKey(pairId: String) -> (key: String, keyId: String)? {
+    /// Get host public key info for a pair
+    func getHostPublicKey(pairId: String) -> (key: String, keyId: String)? {
         guard let pair = activePairs[pairId] else { return nil }
-        return (pair.macPublicKey, pair.macPublicKeyId)
+        return (pair.hostPublicKey, pair.hostPublicKeyId)
     }
 
-    /// Get iOS public key info for a pair
-    func getIOSPublicKey(pairId: String) -> (key: String, keyId: String)? {
+    /// Get viewer public key info for a pair
+    func getViewerPublicKey(pairId: String) -> (key: String, keyId: String)? {
         guard let pair = activePairs[pairId] else { return nil }
-        return (pair.iosPublicKey, pair.iosPublicKeyId)
+        return (pair.viewerPublicKey, pair.viewerPublicKeyId)
     }
 
-    /// Update Mac public key and username for a pair (called when Mac reconnects)
-    func updateMacPublicKey(pairId: String, publicKey: String, publicKeyId: String, username: String) {
+    /// Update host public key and username for a pair (called when host reconnects)
+    func updateHostPublicKey(pairId: String, publicKey: String, publicKeyId: String, username: String) {
         guard var pair = activePairs[pairId] else { return }
-        pair.macPublicKey = publicKey
-        pair.macPublicKeyId = publicKeyId
-        pair.macUsername = username
+        pair.hostPublicKey = publicKey
+        pair.hostPublicKeyId = publicKeyId
+        pair.hostUsername = username
         activePairs[pairId] = pair
         savePairs()
-        logger.debug("Updated Mac public key for pair", metadata: ["pairId": "\(pairId)"])
+        logger.debug("Updated host public key for pair", metadata: ["pairId": "\(pairId)"])
     }
 
-    /// Update iOS public key for a pair (called when iOS reconnects)
-    func updateIOSPublicKey(pairId: String, publicKey: String, publicKeyId: String) {
+    /// Update viewer public key for a pair (called when viewer reconnects)
+    func updateViewerPublicKey(pairId: String, publicKey: String, publicKeyId: String) {
         guard var pair = activePairs[pairId] else { return }
-        pair.iosPublicKey = publicKey
-        pair.iosPublicKeyId = publicKeyId
+        pair.viewerPublicKey = publicKey
+        pair.viewerPublicKeyId = publicKeyId
         activePairs[pairId] = pair
         savePairs()
-        logger.debug("Updated iOS public key for pair", metadata: ["pairId": "\(pairId)"])
+        logger.debug("Updated viewer public key for pair", metadata: ["pairId": "\(pairId)"])
     }
 
     // MARK: - Push Token Management
@@ -280,14 +280,14 @@ actor PairingService {
 
 // MARK: - Supporting Types
 
-/// A pending pairing waiting for iOS to complete
+/// A pending pairing waiting for viewer to complete
 struct PendingPairing {
     let code: String
     let pairId: String
-    let macDeviceId: String
-    let macDeviceName: String
-    let macUsername: String
-    let macPublicKey: String
-    let macPublicKeyId: String
+    let hostDeviceId: String
+    let hostDeviceName: String
+    let hostUsername: String
+    let hostPublicKey: String
+    let hostPublicKeyId: String
     let createdAt: Date
 }

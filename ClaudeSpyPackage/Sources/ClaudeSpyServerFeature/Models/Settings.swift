@@ -6,6 +6,7 @@ import SwiftUI
 public enum SettingsTab: String, Sendable {
     case general
     case remoteAccess
+    case remoteMacs
     case plugin
 }
 
@@ -164,9 +165,14 @@ final public class AppSettings {
         didSet { UserDefaults.standard.set(externalServerURL, forKey: Keys.externalServerURL) }
     }
 
-    /// All paired iOS devices
+    /// All paired iOS devices (viewers)
     public private(set) var pairedDevices: [PairedDevice] = [] {
         didSet { savePairedDevices() }
+    }
+
+    /// All paired Mac hosts (for viewing remote Macs)
+    public private(set) var pairedHosts: [PairedHost] = [] {
+        didSet { savePairedHosts() }
     }
 
     /// Whether to automatically connect to relay server on launch
@@ -233,8 +239,9 @@ final public class AppSettings {
         self.externalServerURL = defaults.string(forKey: Keys.externalServerURL) ?? Defaults.externalServerURL
         self.autoConnectToServer = defaults.object(forKey: Keys.autoConnectToServer) as? Bool ?? Defaults.autoConnectToServer
 
-        // Load paired devices
+        // Load paired devices and hosts
         self.pairedDevices = Self.loadPairedDevices(from: defaults)
+        self.pairedHosts = Self.loadPairedHosts(from: defaults)
 
         // Generate device ID if not already set
         if let existingDeviceId = defaults.string(forKey: Keys.deviceId) {
@@ -275,6 +282,7 @@ final public class AppSettings {
         // Remote Access
         static let externalServerURL = "externalServerURL"
         static let pairedDevices = "pairedDevices"
+        static let pairedHosts = "pairedHosts"
         static let autoConnectToServer = "autoConnectToServer"
         static let deviceId = "deviceId"
         // Plugin
@@ -321,6 +329,11 @@ final public class AppSettings {
         !pairedDevices.isEmpty
     }
 
+    /// Whether at least one remote Mac host is paired
+    public var hasRemoteHosts: Bool {
+        !pairedHosts.isEmpty
+    }
+
     // MARK: - Paired Devices Storage
 
     private static func loadPairedDevices(from defaults: UserDefaults) -> [PairedDevice] {
@@ -335,6 +348,22 @@ final public class AppSettings {
             return
         }
         UserDefaults.standard.set(data, forKey: Keys.pairedDevices)
+    }
+
+    // MARK: - Paired Hosts Storage
+
+    private static func loadPairedHosts(from defaults: UserDefaults) -> [PairedHost] {
+        guard let data = defaults.data(forKey: Keys.pairedHosts) else {
+            return []
+        }
+        return (try? JSONDecoder().decode([PairedHost].self, from: data)) ?? []
+    }
+
+    private func savePairedHosts() {
+        guard let data = try? JSONEncoder().encode(pairedHosts) else {
+            return
+        }
+        UserDefaults.standard.set(data, forKey: Keys.pairedHosts)
     }
 
     // MARK: - Pairing Management
@@ -366,6 +395,45 @@ final public class AppSettings {
     /// Clear all pairings
     public func clearAllPairings() {
         pairedDevices = []
+    }
+
+    // MARK: - Host Pairing Management
+
+    /// Add a new paired host (remote Mac to view)
+    public func addHostPairing(_ host: PairedHost) {
+        // Remove any existing pairing with same ID (update case)
+        pairedHosts.removeAll { $0.id == host.id }
+        pairedHosts.append(host)
+    }
+
+    /// Remove a paired host by ID
+    public func removeHostPairing(id: String) {
+        pairedHosts.removeAll { $0.id == id }
+    }
+
+    /// Get a paired host by ID
+    public func getHostPairing(id: String) -> PairedHost? {
+        pairedHosts.first { $0.id == id }
+    }
+
+    /// Update a paired host (e.g., custom name or partner key)
+    public func updateHostPairing(_ host: PairedHost) {
+        if let index = pairedHosts.firstIndex(where: { $0.id == host.id }) {
+            pairedHosts[index] = host
+        }
+    }
+
+    /// Clear all host pairings
+    public func clearAllHostPairings() {
+        pairedHosts = []
+    }
+
+    /// Check if any paired hosts have duplicate names (for disambiguation)
+    public func hasDuplicateHostName(for host: PairedHost) -> Bool {
+        let matchingNames = pairedHosts.filter {
+            $0.hostName == host.hostName && $0.id != host.id
+        }
+        return !matchingNames.isEmpty
     }
 }
 

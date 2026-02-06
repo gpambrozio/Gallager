@@ -28,6 +28,9 @@
         /// Device connection manager for multiple iOS device connections
         public private(set) var deviceConnectionManager: DeviceConnectionManager?
 
+        /// Host connection manager for connecting to remote Mac hosts (viewer mode)
+        public private(set) var hostConnectionManager: HostConnectionManager?
+
         /// Error message if service setup failed (e.g., E2EE initialization)
         public private(set) var setupError: String?
 

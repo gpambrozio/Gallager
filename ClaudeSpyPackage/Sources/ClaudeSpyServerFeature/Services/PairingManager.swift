@@ -298,8 +298,8 @@ final public class PairingManager {
                 do {
                     let status = try await checkPairingStatus(pairId: pairId)
 
-                    if status.iosConnected {
-                        // iOS has completed pairing!
+                    if status.viewerConnected {
+                        // Viewer has completed pairing!
                         await completePairing(pairId: pairId)
                         break
                     }

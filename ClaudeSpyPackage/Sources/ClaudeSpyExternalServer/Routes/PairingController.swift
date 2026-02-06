@@ -12,7 +12,7 @@ struct PairingController: RouteCollection {
         pairing.delete(":pairId", use: deletePairing)
     }
 
-    /// Mac registers a pairing code
+    /// Host registers a pairing code
     /// POST /api/pairing/register
     @Sendable
     func registerPairingCode(req: Request) async throws -> PairingResponse {
@@ -30,7 +30,7 @@ struct PairingController: RouteCollection {
         return result
     }
 
-    /// iOS completes pairing with a code
+    /// Viewer completes pairing with a code
     /// POST /api/pairing/complete
     @Sendable
     func completePairing(req: Request) async throws -> PairingResponse {
@@ -59,13 +59,13 @@ struct PairingController: RouteCollection {
         let pairingService = req.application.pairingService
 
         let isValid = await pairingService.isValidPair(pairId: pairId)
-        let macConnected = await connectionHub.isMacConnected(pairId: pairId)
-        let iosConnected = await connectionHub.isIOSConnected(pairId: pairId)
+        let hostConnected = await connectionHub.isHostConnected(pairId: pairId)
+        let viewerConnected = await connectionHub.isViewerConnected(pairId: pairId)
 
         return PairingStatus(
             valid: isValid,
-            macConnected: macConnected,
-            iosConnected: iosConnected
+            hostConnected: hostConnected,
+            viewerConnected: viewerConnected
         )
     }
 

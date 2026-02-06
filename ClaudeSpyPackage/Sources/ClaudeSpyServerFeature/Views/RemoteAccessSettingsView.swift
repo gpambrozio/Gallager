@@ -66,7 +66,7 @@ public struct RemoteAccessSettingsView: View {
                 Text(statusText(for: combinedState))
                     .font(.headline)
 
-                if let connectedCount = connectionManager?.activeConnections.filter({ $0.isIOSConnected }).count,
+                if let connectedCount = connectionManager?.activeConnections.filter({ $0.isViewerConnected }).count,
                    connectedCount > 0 {
                     Text("\(connectedCount) device\(connectedCount == 1 ? "" : "s") connected")
                         .font(.caption)
@@ -333,7 +333,7 @@ private struct DeviceRow: View {
     private var connectionIndicator: some View {
         if let connection {
             switch connection.state {
-            case .connected where connection.isIOSConnected:
+            case .connected where connection.isViewerConnected:
                 Symbols.checkmarkCircleFill.image
                     .foregroundStyle(.green)
             case .connected:
@@ -356,10 +356,10 @@ private struct DeviceRow: View {
     private var connectionStatusText: some View {
         if let connection {
             switch connection.state {
-            case .connected where connection.isIOSConnected:
+            case .connected where connection.isViewerConnected:
                 Text("Connected")
             case .connected:
-                Text("Waiting for iOS")
+                Text("Waiting for viewer")
             case .connecting:
                 Text("Connecting...")
             case let .reconnecting(attempt):

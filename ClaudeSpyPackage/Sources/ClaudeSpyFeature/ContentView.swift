@@ -461,7 +461,7 @@
         }
 
         private var connectionStatusText: String {
-            let connectedCount = connectionManager.activeConnections.filter(\.isMacConnected).count
+            let connectedCount = connectionManager.activeConnections.filter(\.isHostConnected).count
             let totalCount = settings.pairedMacs.count
 
             if connectedCount == totalCount && totalCount > 0 {

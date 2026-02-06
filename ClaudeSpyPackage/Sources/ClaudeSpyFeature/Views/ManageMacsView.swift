@@ -145,7 +145,7 @@
         private var statusColor: Color {
             guard let connection else { return .gray }
 
-            if connection.isMacConnected {
+            if connection.isHostConnected {
                 return .green
             } else if connection.isRelayConnected {
                 return .yellow
@@ -159,7 +159,7 @@
         private var statusText: String {
             guard let connection else { return "Not connected" }
 
-            if connection.isMacConnected {
+            if connection.isHostConnected {
                 return "Online"
             } else if connection.isRelayConnected {
                 return "Waiting for Mac..."

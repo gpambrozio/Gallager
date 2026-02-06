@@ -102,10 +102,10 @@ private func handleIncomingMessage(
         let message = try decoder.decode(WebSocketMessage.self, from: data)
 
         switch deviceType {
-        case .mac:
-            await relayService.handleMacMessage(message, pairId: pairId)
-        case .ios:
-            await relayService.handleIOSMessage(message, pairId: pairId)
+        case .host:
+            await relayService.handleHostMessage(message, pairId: pairId)
+        case .viewer:
+            await relayService.handleViewerMessage(message, pairId: pairId)
         }
     } catch {
         logger.error("Failed to decode WebSocket message: \(error)")
@@ -115,6 +115,6 @@ private func handleIncomingMessage(
 // MARK: - Device Type
 
 enum DeviceType: String {
-    case mac
-    case ios
+    case host
+    case viewer
 }

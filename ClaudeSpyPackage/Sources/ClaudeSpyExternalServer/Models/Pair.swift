@@ -1,42 +1,42 @@
 import Foundation
 
-/// Represents a paired Mac and iOS device
+/// Represents a paired host and viewer device
 struct Pair: Sendable, Codable {
     /// Unique identifier for this pairing
     let id: String
 
-    /// Mac device identifier
-    let macDeviceId: String
+    /// Host device identifier
+    let hostDeviceId: String
 
-    /// Mac device display name
-    let macDeviceName: String
+    /// Host device display name
+    let hostDeviceName: String
 
-    /// Mac username (e.g., "john")
-    var macUsername: String
+    /// Host username (e.g., "john")
+    var hostUsername: String
 
-    /// Mac public key for E2EE (Base64-encoded)
+    /// Host public key for E2EE (Base64-encoded)
     /// Mutable to allow key updates on reconnection
-    var macPublicKey: String
+    var hostPublicKey: String
 
-    /// Mac public key identifier
-    var macPublicKeyId: String
+    /// Host public key identifier
+    var hostPublicKeyId: String
 
-    /// iOS device identifier
-    let iosDeviceId: String
+    /// Viewer device identifier
+    let viewerDeviceId: String
 
-    /// iOS device display name
-    let iosDeviceName: String
+    /// Viewer device display name
+    let viewerDeviceName: String
 
-    /// iOS public key for E2EE (Base64-encoded)
+    /// Viewer public key for E2EE (Base64-encoded)
     /// Mutable to allow key updates on reconnection
-    var iosPublicKey: String
+    var viewerPublicKey: String
 
-    /// iOS public key identifier
-    var iosPublicKeyId: String
+    /// Viewer public key identifier
+    var viewerPublicKeyId: String
 
     /// When the pairing was created
     let createdAt: Date
 
-    /// iOS push notification token (optional, registered when iOS connects)
+    /// Viewer push notification token (optional, registered when iOS viewer connects)
     var pushToken: String?
 }

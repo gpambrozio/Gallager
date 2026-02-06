@@ -46,11 +46,11 @@ final public class ExternalServerClient {
     /// Current connection state
     public private(set) var state: ConnectionState = .disconnected
 
-    /// Whether an iOS device is currently connected to the relay
-    public private(set) var isIOSConnected = false
+    /// Whether a viewer device is currently connected to the relay
+    public private(set) var isViewerConnected = false
 
-    /// Name of the connected iOS device (if known)
-    public private(set) var connectedIOSDeviceName: String?
+    /// Name of the connected viewer device (if known)
+    public private(set) var connectedViewerDeviceName: String?
 
     /// The WebSocket task
     private var webSocketTask: URLSessionWebSocketTask?
@@ -162,11 +162,11 @@ final public class ExternalServerClient {
         onPartnerKeyReceived = handler
     }
 
-    /// Proactively push current session state to iOS.
+    /// Proactively push current session state to viewer.
     /// Call this when the pane list changes (e.g., after creating a session).
     public func pushSessionState() async {
-        guard state.isConnected, isIOSConnected else {
-            logger.debug("Not connected to iOS, skipping session state push")
+        guard state.isConnected, isViewerConnected else {
+            logger.debug("Not connected to viewer, skipping session state push")
             return
         }
 
@@ -417,7 +417,7 @@ final public class ExternalServerClient {
 
         components?.queryItems = [
             URLQueryItem(name: "pairId", value: pairId),
-            URLQueryItem(name: "deviceType", value: "mac"),
+            URLQueryItem(name: "deviceType", value: "host"),
             URLQueryItem(name: "deviceId", value: deviceId),
         ]
 
@@ -444,8 +444,8 @@ final public class ExternalServerClient {
         }
 
         // Send registration message
-        let registerMessage = WebSocketMessage.registerMac(
-            RegisterMacMessage(
+        let registerMessage = WebSocketMessage.registerHost(
+            RegisterHostMessage(
                 pairId: pairId,
                 deviceId: deviceId,
                 deviceName: deviceName,
@@ -521,33 +521,33 @@ final public class ExternalServerClient {
         }
 
         switch decryptedMessage {
-        case let .macRegistered(response):
+        case let .hostRegistered(response):
             if response.success {
                 logger.info("Successfully registered with relay server")
                 await updateState(.connected)
-                connectedIOSDeviceName = response.iosDeviceName
-                isIOSConnected = response.iosDeviceName != nil
+                connectedViewerDeviceName = response.viewerDeviceName
+                isViewerConnected = response.viewerDeviceName != nil
 
-                // Establish E2EE session if iOS is connected and we have their public key
+                // Establish E2EE session if viewer is connected and we have their public key
                 if
-                    let iosPublicKey = response.iosPublicKey,
-                    let iosPublicKeyId = response.iosPublicKeyId,
-                    let keyData = Data(base64Encoded: iosPublicKey),
+                    let viewerPublicKey = response.viewerPublicKey,
+                    let viewerPublicKeyId = response.viewerPublicKeyId,
+                    let keyData = Data(base64Encoded: viewerPublicKey),
                     let e2eeService,
                     let pairId {
                     do {
                         try await e2eeService.establishSession(
                             partnerPublicKey: keyData,
-                            partnerKeyId: iosPublicKeyId,
+                            partnerKeyId: viewerPublicKeyId,
                             pairId: pairId
                         )
-                        partnerPublicKey = iosPublicKey
-                        partnerPublicKeyId = iosPublicKeyId
-                        logger.info("E2EE session established with iOS")
+                        partnerPublicKey = viewerPublicKey
+                        partnerPublicKeyId = viewerPublicKeyId
+                        logger.info("E2EE session established with viewer")
 
                         // Notify app to persist partner's public key
                         if let onPartnerKeyReceived {
-                            await onPartnerKeyReceived(iosPublicKey, iosPublicKeyId)
+                            await onPartnerKeyReceived(viewerPublicKey, viewerPublicKeyId)
                         }
                     } catch {
                         logger.error("Failed to establish E2EE session: \(error)")
@@ -560,53 +560,53 @@ final public class ExternalServerClient {
             }
 
         case let .command(command):
-            logger.info("Received command from iOS", metadata: ["type": "\(command.command)"])
+            logger.info("Received command from viewer", metadata: ["type": "\(command.command)"])
             if let onCommand, let response = await onCommand(command) {
                 // Only send response if handler returned one.
                 // Some commands (e.g., snapshot) send their own response type.
                 await sendEncrypted(.commandResponse(response))
             }
 
-        case let .iosConnected(connectedMessage):
-            logger.info("iOS device connected")
-            isIOSConnected = true
+        case let .viewerConnected(connectedMessage):
+            logger.info("Viewer device connected")
+            isViewerConnected = true
 
-            // Establish E2EE session with iOS's public key
-            let iosPublicKey = connectedMessage.publicKey
-            let iosPublicKeyId = connectedMessage.publicKeyId
+            // Establish E2EE session with viewer's public key
+            let viewerPublicKey = connectedMessage.publicKey
+            let viewerPublicKeyId = connectedMessage.publicKeyId
             if
-                let keyData = Data(base64Encoded: iosPublicKey),
+                let keyData = Data(base64Encoded: viewerPublicKey),
                 let e2eeService,
                 let pairId {
                 do {
                     try await e2eeService.establishSession(
                         partnerPublicKey: keyData,
-                        partnerKeyId: iosPublicKeyId,
+                        partnerKeyId: viewerPublicKeyId,
                         pairId: pairId
                     )
-                    partnerPublicKey = iosPublicKey
-                    partnerPublicKeyId = iosPublicKeyId
-                    logger.info("E2EE session established with iOS on connect notification")
+                    partnerPublicKey = viewerPublicKey
+                    partnerPublicKeyId = viewerPublicKeyId
+                    logger.info("E2EE session established with viewer on connect notification")
 
                     // Notify app to persist partner's public key
                     if let onPartnerKeyReceived {
-                        await onPartnerKeyReceived(iosPublicKey, iosPublicKeyId)
+                        await onPartnerKeyReceived(viewerPublicKey, viewerPublicKeyId)
                     }
                 } catch {
                     logger.error("Failed to establish E2EE session: \(error)")
                 }
             }
 
-            // Send current session state to newly connected iOS
+            // Send current session state to newly connected viewer
             await pushSessionState()
 
-        case .iosDisconnected:
-            logger.info("iOS device disconnected")
-            isIOSConnected = false
-            connectedIOSDeviceName = nil
+        case .viewerDisconnected:
+            logger.info("Viewer device disconnected")
+            isViewerConnected = false
+            connectedViewerDeviceName = nil
 
         case .requestSessionState:
-            logger.info("iOS requested session state")
+            logger.info("Viewer requested session state")
             await pushSessionState()
 
         case .ping:
@@ -680,8 +680,8 @@ final public class ExternalServerClient {
     }
 
     private func handleDisconnection() async {
-        isIOSConnected = false
-        connectedIOSDeviceName = nil
+        isViewerConnected = false
+        connectedViewerDeviceName = nil
 
         await cleanupConnection()
 

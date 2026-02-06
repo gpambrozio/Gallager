@@ -3,8 +3,8 @@ import ClaudeSpyEncryption
 import ClaudeSpyNetworking
 import Foundation
 
-/// Errors that can occur during relay communication
-public enum RelayClientError: Error, LocalizedError {
+/// Errors that can occur during host relay communication
+public enum HostRelayClientError: Error, LocalizedError {
     case notConnected
     case timeout
     case commandFailed(String)
@@ -21,13 +21,14 @@ public enum RelayClientError: Error, LocalizedError {
     }
 }
 
-/// Client for connecting to the external relay server via WebSocket.
+/// Client for connecting to a remote Mac host via the external relay server.
 ///
-/// Handles bidirectional communication between the iOS app and the relay server,
-/// receiving hook events from Mac and sending commands to Mac.
+/// This is the Mac-side equivalent of `RelayClient` on iOS. It connects to the
+/// relay server as a "viewer" device to receive hook events and session state
+/// from another Mac running as "host".
 @Observable
 @MainActor
-final public class RelayClient {
+final public class HostRelayClient {
     // MARK: - Connection State
 
     /// Current connection state
@@ -56,7 +57,7 @@ final public class RelayClient {
 
     // MARK: - Properties
 
-    private let logger = Logger(label: "com.claudespy.relayclient")
+    private let logger = Logger(label: "com.claudespy.hostrelayclient")
 
     /// Current connection state
     public private(set) var state: ConnectionState = .disconnected
@@ -76,10 +77,10 @@ final public class RelayClient {
     /// Pair ID for the current connection
     private var pairId: String?
 
-    /// Device ID for registration
+    /// Device ID for registration (this Mac as viewer)
     private var deviceId: String?
 
-    /// Device name for registration
+    /// Device name for registration (this Mac as viewer)
     private var deviceName: String?
 
     /// Public key for E2EE (Base64-encoded)
@@ -123,18 +124,17 @@ final public class RelayClient {
     // MARK: - Pending Commands
 
     /// Type-erased response handlers keyed by command ID.
-    /// Each handler receives the raw response and knows how to resume the appropriate continuation.
     private var pendingCommands: [UUID: @MainActor (Result<Any, Error>) -> Void] = [:]
 
     // MARK: - Callbacks
 
-    /// Called when a hook event is received from Mac
+    /// Called when a hook event is received from host
     public var onHookEvent: (@Sendable (HookEventMessage) -> Void)?
 
-    /// Called when session state is received from Mac
+    /// Called when session state is received from host
     public var onSessionState: (@Sendable (SessionStateMessage) -> Void)?
 
-    /// Called when a terminal stream message is received from Mac
+    /// Called when a terminal stream message is received from host
     public var onTerminalStream: (@MainActor @Sendable (TerminalStreamMessage) -> Void)?
 
     /// Called when partner's public key is received (for persisting to settings)
@@ -144,21 +144,19 @@ final public class RelayClient {
 
     public init() { }
 
-    // MARK: - Configuration
-
     // MARK: - Connection Management
 
-    /// Connect to the external relay server
+    /// Connect to a remote Mac host via the relay server
     /// - Parameters:
     ///   - serverURL: WebSocket URL of the relay server
     ///   - pairId: The pair ID from device pairing
-    ///   - deviceId: Unique identifier for this iOS device
-    ///   - deviceName: Display name for this iOS device
+    ///   - deviceId: Unique identifier for this Mac (as viewer)
+    ///   - deviceName: Display name for this Mac
     ///   - publicKey: Base64-encoded public key for E2EE
     ///   - publicKeyId: Unique identifier for the public key
     ///   - e2eeService: E2EE service for encrypting/decrypting messages
-    ///   - partnerPublicKey: Base64-encoded public key of the Mac device (from pairing)
-    ///   - partnerPublicKeyId: Unique identifier for the Mac device's public key
+    ///   - partnerPublicKey: Base64-encoded public key of the host Mac (from pairing)
+    ///   - partnerPublicKeyId: Unique identifier for the host's public key
     public func connect(
         serverURL: URL,
         pairId: String,
@@ -221,10 +219,6 @@ final public class RelayClient {
     }
 
     /// Reset reconnection backoff and immediately attempt to reconnect.
-    ///
-    /// This is useful when the app comes to foreground from background - rather than
-    /// waiting for the exponential backoff timer, we reset the attempt counter and
-    /// immediately try to connect.
     public func reconnectImmediately() async {
         guard shouldReconnect else {
             logger.debug("Not configured to reconnect, ignoring reconnectImmediately()")
@@ -238,7 +232,6 @@ final public class RelayClient {
 
         logger.info("Immediate reconnection requested, cancelling pending backoff and resetting")
 
-        // Cancel any pending reconnection task that's waiting on backoff timer
         reconnectionTask?.cancel()
         reconnectionTask = nil
 
@@ -249,57 +242,45 @@ final public class RelayClient {
     // MARK: - Sending Messages
 
     /// Send a command and wait for response with type-safe return type.
-    ///
-    /// The command's `CommandSpec` conformance determines the expected response type,
-    /// providing compile-time type safety for command/response pairs.
-    ///
-    /// - Parameters:
-    ///   - command: The command specification to send (conforms to `CommandSpec`)
-    ///   - paneId: The tmux pane ID to target
-    ///   - timeout: Maximum time to wait for response (default: 15 seconds)
-    /// - Returns: Result containing the command's associated Response type or Error
     public func sendCommand<C: CommandSpec>(
         _ command: C,
         paneId: String,
         timeout: TimeInterval = 15
     ) async -> Result<C.Response, Error> {
         guard state.isConnected else {
-            return .failure(RelayClientError.notConnected)
+            return .failure(HostRelayClientError.notConnected)
         }
 
         let commandMessage = CommandMessage(paneId: paneId, command: command.commandType)
 
         return await withCheckedContinuation { (continuation: CheckedContinuation<Result<C.Response, Error>, Never>) in
-            // Store type-erased handler that knows how to cast the response
             pendingCommands[commandMessage.id] = { result in
                 switch result {
                 case let .success(anyResponse):
                     if let typedResponse = anyResponse as? C.Response {
                         continuation.resume(returning: .success(typedResponse))
                     } else {
-                        continuation.resume(returning: .failure(RelayClientError.commandFailed("Unexpected response type")))
+                        continuation.resume(returning: .failure(HostRelayClientError.commandFailed("Unexpected response type")))
                     }
                 case let .failure(error):
                     continuation.resume(returning: .failure(error))
                 }
             }
 
-            // Send the command (encrypted)
             Task {
                 await self.sendEncrypted(.command(commandMessage))
             }
 
-            // Set up timeout
             Task {
                 try? await Task.sleep(for: .seconds(timeout))
                 if let handler = self.pendingCommands.removeValue(forKey: commandMessage.id) {
-                    handler(.failure(RelayClientError.timeout))
+                    handler(.failure(HostRelayClientError.timeout))
                 }
             }
         }
     }
 
-    /// Request current session state from Mac
+    /// Request current session state from host
     public func requestSessionState() async {
         guard state.isConnected else {
             logger.debug("Not connected, cannot request session state")
@@ -307,19 +288,6 @@ final public class RelayClient {
         }
 
         await send(.requestSessionState)
-    }
-
-    /// Send push notification token to the relay server
-    /// - Parameter token: The APNs device token as a hex string
-    public func sendPushToken(_ token: String) async {
-        guard state.isConnected else {
-            logger.debug("Not connected, cannot send push token")
-            return
-        }
-
-        logger.info("Sending push token to relay server")
-        let message = WebSocketMessage.registerPushToken(RegisterPushTokenMessage(deviceToken: token))
-        await send(message)
     }
 
     // MARK: - Private Methods
@@ -339,7 +307,6 @@ final public class RelayClient {
         // Build WebSocket URL with query parameters
         var components = URLComponents(url: serverURL, resolvingAgainstBaseURL: false)
 
-        // Append /api/ws path if not already present
         var path = components?.path ?? ""
         if !path.hasSuffix("/api/ws") {
             if path.hasSuffix("/") {
@@ -362,23 +329,20 @@ final public class RelayClient {
             return
         }
 
-        logger.info("Connecting to relay server: \(wsURL)")
+        logger.info("Connecting to relay server as viewer: \(wsURL)")
 
-        // Create URL session
         let session = URLSession(configuration: .default)
         urlSession = session
 
-        // Create and start WebSocket task
         let task = session.webSocketTask(with: wsURL)
         webSocketTask = task
         task.resume()
 
-        // Start receiving messages
         receiveTask = Task { [weak self] in
             await self?.receiveMessages()
         }
 
-        // Send registration message
+        // Register as viewer (same as iOS does)
         let registerMessage = WebSocketMessage.registerViewer(
             RegisterViewerMessage(
                 pairId: pairId,
@@ -390,7 +354,6 @@ final public class RelayClient {
         )
         await send(registerMessage)
 
-        // Start ping task for keep-alive
         pingTask = Task { [weak self] in
             await self?.pingLoop()
         }
@@ -457,7 +420,7 @@ final public class RelayClient {
         switch decryptedMessage {
         case let .viewerRegistered(response):
             if response.success {
-                logger.info("Successfully registered with relay server")
+                logger.info("Successfully registered with relay server as viewer")
                 state = .connected
                 connectedHostName = response.hostDeviceName
                 isHostConnected = response.hostDeviceName != nil
@@ -479,7 +442,6 @@ final public class RelayClient {
                         partnerPublicKeyId = hostPublicKeyId
                         logger.info("E2EE session established with host")
 
-                        // Notify app to persist partner's public key
                         if let onPartnerKeyReceived {
                             await onPartnerKeyReceived(hostPublicKey, hostPublicKeyId)
                         }
@@ -499,21 +461,20 @@ final public class RelayClient {
             }
 
         case let .hookEvent(event):
-            logger.info("Received hook event from Mac")
+            logger.info("Received hook event from host")
             onHookEvent?(event)
 
         case let .sessionState(sessionState):
-            logger.info("Received session state from Mac")
+            logger.info("Received session state from host")
             onSessionState?(sessionState)
 
         case let .commandResponse(response):
-            logger.info("Received command response from Mac")
-            // Resume any pending handler for this command
+            logger.info("Received command response from host")
             if let handler = pendingCommands.removeValue(forKey: response.commandId) {
                 if response.success {
                     handler(.success(response))
                 } else {
-                    handler(.failure(RelayClientError.commandFailed(response.error ?? "Unknown error")))
+                    handler(.failure(HostRelayClientError.commandFailed(response.error ?? "Unknown error")))
                 }
             }
 
@@ -525,7 +486,6 @@ final public class RelayClient {
             logger.info("Host device connected")
             isHostConnected = true
 
-            // Establish E2EE session with host's public key
             let hostPublicKey = connectedMessage.publicKey
             let hostPublicKeyId = connectedMessage.publicKeyId
             if
@@ -542,7 +502,6 @@ final public class RelayClient {
                     partnerPublicKeyId = hostPublicKeyId
                     logger.info("E2EE session established with host on connect notification")
 
-                    // Notify app to persist partner's public key
                     if let onPartnerKeyReceived {
                         await onPartnerKeyReceived(hostPublicKey, hostPublicKeyId)
                     }
@@ -551,7 +510,6 @@ final public class RelayClient {
                 }
             }
 
-            // Request session state from newly connected host
             await requestSessionState()
 
         case .hostDisconnected:
@@ -563,15 +521,7 @@ final public class RelayClient {
             await send(.pong)
 
         case .pong:
-            // Expected response to our ping, no action needed
             break
-
-        case let .pushTokenRegistered(response):
-            if response.success {
-                logger.info("Push token registered successfully with server")
-            } else {
-                logger.error("Failed to register push token: \(response.error ?? "Unknown error")")
-            }
 
         case let .error(errorMessage):
             logger.error("Server error: \(errorMessage.message)")
@@ -601,10 +551,7 @@ final public class RelayClient {
         }
     }
 
-    /// Encrypts and sends a message that should be encrypted.
-    /// Fails closed if E2EE session is not established - will not send unencrypted.
     private func sendEncrypted(_ message: WebSocketMessage) async {
-        // Fail closed: refuse to send if E2EE session is not established
         guard let e2eeService, await e2eeService.isSessionEstablished else {
             logger.error("E2EE session not established, refusing to send sensitive message")
             return
@@ -615,7 +562,6 @@ final public class RelayClient {
             await send(encryptedMessage)
         } catch {
             logger.error("Failed to encrypt message: \(error)")
-            // Don't send unencrypted as fallback - this would be a security issue
         }
     }
 
@@ -639,16 +585,12 @@ final public class RelayClient {
             let currentAttempt = reconnectionAttempt
             state = .reconnecting(attempt: currentAttempt)
 
-            // Exponential backoff: 1s, 2s, 4s, 8s, etc. up to 60s
             let delay = min(60, Int(pow(2, Double(currentAttempt - 1))))
             logger.info("Reconnecting in \(delay) seconds (attempt \(currentAttempt))")
 
-            // Spawn reconnection in a new task - the current task was cancelled by cleanupConnection()
-            // so we need a fresh task that won't have Task.isCancelled == true
             reconnectionTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(delay))
 
-                // Only reconnect if we haven't been cancelled and still want to reconnect
                 guard
                     !Task.isCancelled,
                     let self,
@@ -679,9 +621,8 @@ final public class RelayClient {
         urlSession?.invalidateAndCancel()
         urlSession = nil
 
-        // Fail all pending commands with not connected error
         for (_, handler) in pendingCommands {
-            handler(.failure(RelayClientError.notConnected))
+            handler(.failure(HostRelayClientError.notConnected))
         }
         pendingCommands.removeAll()
     }

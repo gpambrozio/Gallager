@@ -1,5 +1,3 @@
-import ClaudeSpyCommon
-import ClaudeSpyNetworking
 import Foundation
 
 /// Manages local session state received from multiple Mac servers.

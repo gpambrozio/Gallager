@@ -60,7 +60,7 @@
                 LiveTerminalView(
                     paneId: paneId,
                     responseState: $service.responseState,
-                    isConnected: service.isMacConnected,
+                    isConnected: service.isHostConnected,
                     hideNavigationBar: hideNavigationBar,
                     settings: settings,
                     sendCommand: { command in

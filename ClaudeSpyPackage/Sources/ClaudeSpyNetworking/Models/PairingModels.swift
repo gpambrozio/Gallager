@@ -138,8 +138,8 @@ public struct ErrorInfo: Codable, Sendable, Equatable {
 
 // MARK: - Device Registration Messages
 
-/// Message sent by Mac to register with the relay server
-public struct RegisterMacMessage: Codable, Sendable {
+/// Message sent by host (Mac) to register with the relay server
+public struct RegisterHostMessage: Codable, Sendable {
     public let pairId: String
     public let deviceId: String
     public let deviceName: String
@@ -147,7 +147,7 @@ public struct RegisterMacMessage: Codable, Sendable {
     public let publicKey: String
     /// Unique identifier for the public key
     public let publicKeyId: String
-    /// Username of the Mac user (e.g., "john")
+    /// Username of the host user (e.g., "john")
     public let username: String
 
     public init(
@@ -167,8 +167,8 @@ public struct RegisterMacMessage: Codable, Sendable {
     }
 }
 
-/// Message sent by iOS to register with the relay server
-public struct RegisterIOSMessage: Codable, Sendable {
+/// Message sent by viewer (iOS or Mac viewer) to register with the relay server
+public struct RegisterViewerMessage: Codable, Sendable {
     public let pairId: String
     public let deviceId: String
     public let deviceName: String
@@ -192,58 +192,58 @@ public struct RegisterIOSMessage: Codable, Sendable {
     }
 }
 
-/// Response confirming Mac registration
-public struct MacRegisteredMessage: Codable, Sendable {
+/// Response confirming host registration
+public struct HostRegisteredMessage: Codable, Sendable {
     public let success: Bool
-    /// Name of paired iOS device (nil if iOS not connected yet)
-    public let iosDeviceName: String?
-    /// Base64-encoded public key of the iOS device for E2EE (nil if iOS not connected yet)
-    public let iosPublicKey: String?
-    /// Unique identifier for the iOS device's public key (nil if iOS not connected yet)
-    public let iosPublicKeyId: String?
+    /// Name of paired viewer device (nil if viewer not connected yet)
+    public let viewerDeviceName: String?
+    /// Base64-encoded public key of the viewer device for E2EE (nil if viewer not connected yet)
+    public let viewerPublicKey: String?
+    /// Unique identifier for the viewer device's public key (nil if viewer not connected yet)
+    public let viewerPublicKeyId: String?
     public let error: String?
 
     public init(
         success: Bool,
-        iosDeviceName: String? = nil,
-        iosPublicKey: String? = nil,
-        iosPublicKeyId: String? = nil,
+        viewerDeviceName: String? = nil,
+        viewerPublicKey: String? = nil,
+        viewerPublicKeyId: String? = nil,
         error: String? = nil
     ) {
         self.success = success
-        self.iosDeviceName = iosDeviceName
-        self.iosPublicKey = iosPublicKey
-        self.iosPublicKeyId = iosPublicKeyId
+        self.viewerDeviceName = viewerDeviceName
+        self.viewerPublicKey = viewerPublicKey
+        self.viewerPublicKeyId = viewerPublicKeyId
         self.error = error
     }
 }
 
-/// Response confirming iOS registration
-public struct IOSRegisteredMessage: Codable, Sendable {
+/// Response confirming viewer registration
+public struct ViewerRegisteredMessage: Codable, Sendable {
     public let success: Bool
-    /// Name of paired Mac device (nil if Mac not connected yet)
-    public let macDeviceName: String?
-    /// Base64-encoded public key of the Mac device for E2EE (nil if Mac not connected yet)
-    public let macPublicKey: String?
-    /// Unique identifier for the Mac device's public key (nil if Mac not connected yet)
-    public let macPublicKeyId: String?
-    /// Username of the Mac user (nil if Mac not connected yet or not provided)
-    public let macUsername: String?
+    /// Name of paired host device (nil if host not connected yet)
+    public let hostDeviceName: String?
+    /// Base64-encoded public key of the host device for E2EE (nil if host not connected yet)
+    public let hostPublicKey: String?
+    /// Unique identifier for the host device's public key (nil if host not connected yet)
+    public let hostPublicKeyId: String?
+    /// Username of the host user (nil if host not connected yet or not provided)
+    public let hostUsername: String?
     public let error: String?
 
     public init(
         success: Bool,
-        macDeviceName: String? = nil,
-        macPublicKey: String? = nil,
-        macPublicKeyId: String? = nil,
-        macUsername: String? = nil,
+        hostDeviceName: String? = nil,
+        hostPublicKey: String? = nil,
+        hostPublicKeyId: String? = nil,
+        hostUsername: String? = nil,
         error: String? = nil
     ) {
         self.success = success
-        self.macDeviceName = macDeviceName
-        self.macPublicKey = macPublicKey
-        self.macPublicKeyId = macPublicKeyId
-        self.macUsername = macUsername
+        self.hostDeviceName = hostDeviceName
+        self.hostPublicKey = hostPublicKey
+        self.hostPublicKeyId = hostPublicKeyId
+        self.hostUsername = hostUsername
         self.error = error
     }
 }
@@ -253,12 +253,12 @@ public struct IOSRegisteredMessage: Codable, Sendable {
 /// Status of a device pair
 public struct PairingStatus: Codable, Sendable {
     public let valid: Bool
-    public let macConnected: Bool
-    public let iosConnected: Bool
+    public let hostConnected: Bool
+    public let viewerConnected: Bool
 
-    public init(valid: Bool, macConnected: Bool, iosConnected: Bool) {
+    public init(valid: Bool, hostConnected: Bool, viewerConnected: Bool) {
         self.valid = valid
-        self.macConnected = macConnected
-        self.iosConnected = iosConnected
+        self.hostConnected = hostConnected
+        self.viewerConnected = viewerConnected
     }
 }

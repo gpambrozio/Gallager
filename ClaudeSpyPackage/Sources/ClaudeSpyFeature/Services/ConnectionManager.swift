@@ -44,13 +44,13 @@
 
         /// Whether any Mac is currently connected via WebSocket
         public var anyMacConnected: Bool {
-            connections.values.contains { $0.isMacConnected }
+            connections.values.contains { $0.isHostConnected }
         }
 
         /// Whether all Macs are connected
         public var allMacsConnected: Bool {
             guard !connections.isEmpty else { return false }
-            return connections.values.allSatisfy { $0.isMacConnected }
+            return connections.values.allSatisfy { $0.isHostConnected }
         }
 
         /// Whether any connection is in a connecting state
@@ -218,14 +218,14 @@
 
         /// Request session state from all connected Macs.
         public func requestAllSessionStates() async {
-            for connection in connections.values where connection.isMacConnected {
+            for connection in connections.values where connection.isHostConnected {
                 await connection.requestSessionState()
             }
         }
 
         /// Request session state from a specific Mac.
         public func requestSessionState(for macId: String) async {
-            guard let connection = connections[macId], connection.isMacConnected else {
+            guard let connection = connections[macId], connection.isHostConnected else {
                 logger.debug("Cannot request session state - Mac not connected: \(macId)")
                 return
             }
