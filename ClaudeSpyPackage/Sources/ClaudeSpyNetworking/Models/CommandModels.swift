@@ -237,13 +237,21 @@ public extension TmuxKey {
                 textBuffer.append(Character(UnicodeScalar(byte)))
             default:
                 // High bytes - try to decode as UTF-8
+                // Determine expected character length from leading byte
+                let charLen: Int
+                switch byte {
+                case 0xC0...0xDF: charLen = 2
+                case 0xE0...0xEF: charLen = 3
+                case 0xF0...0xF7: charLen = 4
+                default: charLen = 1
+                }
                 let remaining = data[index...]
                 if
-                    let string = String(data: Data(remaining.prefix(4)), encoding: .utf8),
+                    remaining.count >= charLen,
+                    let string = String(data: Data(remaining.prefix(charLen)), encoding: .utf8),
                     let char = string.first {
                     textBuffer.append(char)
-                    let charBytes = String(char).utf8.count
-                    index = data.index(index, offsetBy: charBytes)
+                    index = data.index(index, offsetBy: charLen)
                     continue
                 }
                 // Invalid UTF-8 byte - use replacement character instead of silently dropping
