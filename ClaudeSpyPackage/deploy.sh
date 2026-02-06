@@ -75,9 +75,14 @@ pre_deploy_checks() {
     fi
     info "Release build successful."
 
-    # Run server tests
+    # Build and run server tests (build target separately to avoid compiling unrelated targets like SwiftTerm)
+    info "Building server tests..."
+    if ! swift build --package-path "$SCRIPT_DIR" --target ClaudeSpyExternalServerTests 2>&1; then
+        error "Server test build failed! Fix compilation errors before deploying."
+        exit 1
+    fi
     info "Running server tests..."
-    if ! swift test --package-path "$SCRIPT_DIR" --filter ClaudeSpyExternalServerTests 2>&1; then
+    if ! swift test --package-path "$SCRIPT_DIR" --skip-build --filter ClaudeSpyExternalServerTests 2>&1; then
         error "Server tests failed! Fix test failures before deploying."
         exit 1
     fi
@@ -198,7 +203,7 @@ REMOTE_SCRIPT
     info "Testing deployment..."
 
     # Determine health check URL
-    HEALTH_URL="${HEALTH_CHECK_URL:-http://${SERVER_HOST}:8080/health}"
+    HEALTH_URL="${HEALTH_CHECK_URL:-https://claudespy.gustavo.eng.br/health}"
     HEALTH_CHECK=$(curl -s "$HEALTH_URL" 2>/dev/null || echo "failed")
 
     if echo "$HEALTH_CHECK" | grep -q '"status":"ok"'; then
