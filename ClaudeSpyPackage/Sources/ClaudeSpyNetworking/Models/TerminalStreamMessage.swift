@@ -2,10 +2,10 @@ import Foundation
 
 // MARK: - Terminal Stream Message
 
-/// Continuous terminal stream data from Mac to iOS.
+/// Continuous terminal stream data from host to viewer.
 ///
 /// This message type enables live terminal streaming, replacing the one-shot snapshot model.
-/// The Mac sends an initial state followed by incremental data chunks as terminal output arrives.
+/// The host sends an initial state followed by incremental data chunks as terminal output arrives.
 public struct TerminalStreamMessage: Codable, Sendable, Identifiable {
     public let id: UUID
     public let paneId: String

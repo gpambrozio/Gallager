@@ -23,14 +23,14 @@ public struct HookEventMessage: Codable, Sendable {
 
 // MARK: - Session State
 
-/// Complete session state for sync between Mac and iOS
+/// Complete session state for sync between host and viewer
 public struct SessionStateMessage: Codable, Sendable {
     public let pairId: String
     public let sessions: [String: ClaudeSession]
     public let activePanes: [String]
     /// All tmux panes (including those without Claude sessions)
     public let panes: [PaneInfoMessage]?
-    /// Discovered Claude projects on the Mac
+    /// Discovered Claude projects on the host
     public let claudeProjects: [ClaudeProjectInfo]?
 
     public init(
@@ -48,9 +48,9 @@ public struct SessionStateMessage: Codable, Sendable {
     }
 }
 
-// MARK: - Pane Info for iOS
+// MARK: - Pane Info for Viewer
 
-/// Simplified pane information for iOS display
+/// Simplified pane information for viewer display
 public struct PaneInfoMessage: Codable, Sendable, Identifiable {
     public let id: String
     public let target: String
@@ -90,7 +90,7 @@ public struct PaneInfoMessage: Codable, Sendable, Identifiable {
 
 // MARK: - Push Notification Token
 
-/// Message from iOS to register a push notification token
+/// Message from viewer to register a push notification token
 public struct RegisterPushTokenMessage: Codable, Sendable {
     /// The APNs device token as a hex string
     public let deviceToken: String
@@ -134,11 +134,11 @@ public struct ClaudeProjectInfo: Codable, Sendable, Identifiable, Hashable {
     }
 }
 
-// MARK: - Device Connection Notifications
+// MARK: - Viewer Connection Notifications
 
-/// Message sent when a paired device connects, includes public key for E2EE session establishment
-public struct DeviceConnectedMessage: Codable, Sendable {
-    /// Base64-encoded public key of the connecting device
+/// Message sent when a paired viewer connects, includes public key for E2EE session establishment
+public struct ViewerConnectedMessage: Codable, Sendable {
+    /// Base64-encoded public key of the connecting viewer
     public let publicKey: String
 
     /// Unique identifier for the public key

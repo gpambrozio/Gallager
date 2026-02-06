@@ -9,7 +9,7 @@
     /// plain terminals don't have response states or event-driven interactions.
     struct PlainTerminalView: View {
         let paneId: String
-        let relayClient: RelayClient
+        let relayClient: ViewerRelayClient
         let settings: IOSSettings
 
         @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -17,9 +17,9 @@
         /// Always nil for plain terminals - no response state
         @State private var responseState: ResponseState?
 
-        /// Whether the Mac is connected
+        /// Whether the host is connected
         private var isConnected: Bool {
-            relayClient.isMacConnected
+            relayClient.isHostConnected
         }
 
         /// Hide navigation bar on iPhone in landscape to maximize terminal space
@@ -42,7 +42,7 @@
             .toolbar(hideNavigationBar ? .hidden : .visible, for: .navigationBar)
         }
 
-        /// Send a command to the Mac for this pane
+        /// Send a command to the host for this pane
         private func sendCommand(_ command: CommandType) async {
             switch command {
             case let .sendKeystroke(spec):
@@ -64,10 +64,10 @@
         NavigationStack {
             PlainTerminalView(
                 paneId: "%1",
-                relayClient: RelayClient(),
+                relayClient: ViewerRelayClient(),
                 settings: .shared
             )
         }
-        .environment(RelayClient())
+        .environment(ViewerRelayClient())
     }
 #endif

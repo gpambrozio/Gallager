@@ -25,13 +25,16 @@
         /// Window manager for pane mirroring
         public let windowManager: MirrorWindowManager
 
-        /// Device connection manager for multiple iOS device connections
-        public private(set) var deviceConnectionManager: DeviceConnectionManager?
+        /// Connected viewer manager for multiple viewer connections
+        public private(set) var connectedViewerManager: ConnectedViewerManager?
+
+        /// Viewer connection manager for connecting to remote hosts (viewer mode)
+        public private(set) var viewerConnectionManager: ViewerConnectionManager?
 
         /// Error message if service setup failed (e.g., E2EE initialization)
         public private(set) var setupError: String?
 
-        /// Terminal stream service for iOS live streaming
+        /// Terminal stream service for viewer live streaming
         public let terminalStreamService: TerminalStreamService
 
         /// Pane stream manager for sharing streams between UI and streaming
@@ -169,13 +172,13 @@
                 await updateSleepPrevention()
 
                 guard event.action.body.shouldSendToServer else { return }
-                // Forward to all connected iOS devices
-                await deviceConnectionManager?.sendHookEventToAll(event)
+                // Forward to all connected viewers
+                await connectedViewerManager?.sendHookEventToAll(event)
             }
 
             await initializeServices()
             await hookServer.startServer()
-            await setupDeviceConnectionManager()
+            await setupConnectedViewerManager()
             await autoConnectIfConfigured()
 
             // Start periodic validation to clean up stale sessions
@@ -207,10 +210,10 @@
                 let manager = PairingManager(settings: settings, e2eeService: service)
                 pairingManager = manager
 
-                // Set up callback for when new devices are paired
-                manager.onDevicePaired = { [weak self] device in
+                // Set up callback for when new viewers are paired
+                manager.onViewerPaired = { [weak self] viewer in
                     Task { @MainActor in
-                        await self?.connectToNewlyPairedDevice(device)
+                        await self?.connectToNewlyPairedViewer(viewer)
                     }
                 }
             }
@@ -233,30 +236,30 @@
             let manager = PairingManager(settings: settings, e2eeService: service)
             pairingManager = manager
 
-            // Set up callback for when new devices are paired
-            manager.onDevicePaired = { [weak self] device in
+            // Set up callback for when new viewers are paired
+            manager.onViewerPaired = { [weak self] viewer in
                 Task { @MainActor in
-                    await self?.connectToNewlyPairedDevice(device)
+                    await self?.connectToNewlyPairedViewer(viewer)
                 }
             }
 
             return manager
         }
 
-        private func setupDeviceConnectionManager() async {
+        private func setupConnectedViewerManager() async {
             guard let e2eeService, let keyPair else {
                 let errorMsg = "Remote access unavailable: encryption failed to initialize"
-                logger.error("Cannot setup DeviceConnectionManager: E2EE not initialized")
+                logger.error("Cannot set up ConnectedViewerManager: E2EE not initialized")
                 setupError = errorMsg
                 return
             }
 
-            let connectionManager = DeviceConnectionManager(
+            let connectionManager = ConnectedViewerManager(
                 settings: settings,
                 e2eeService: e2eeService,
                 keyPair: keyPair
             )
-            deviceConnectionManager = connectionManager
+            connectedViewerManager = connectionManager
 
             // Configure terminal stream service with connection manager
             terminalStreamService.configureWithConnectionManager(
@@ -284,7 +287,7 @@
             let executor = TmuxCommandExecutor(tmuxService: tmuxService)
             commandExecutor = executor
 
-            // Set up command handler - called when any iOS device sends a command
+            // Set up command handler - called when any viewer sends a command
             let streamService = terminalStreamService
             let tmux = tmuxService
             let appSettings = settings
@@ -346,7 +349,7 @@
                 )
             }
 
-            // Push session state to all iOS devices whenever panes change
+            // Push session state to all viewers whenever panes change
             tmuxService.setPanesChangedHandler { [weak connectionManager] in
                 await connectionManager?.pushSessionStateToAll()
             }
@@ -363,7 +366,7 @@
 
         /// Starts observing system wake notifications to trigger immediate reconnection.
         ///
-        /// When the Mac wakes from sleep, network connections are often stale or broken.
+        /// When the host wakes from sleep, network connections are often stale or broken.
         /// This triggers an immediate reconnection attempt instead of waiting for the
         /// next scheduled retry.
         private func startWakeObserver() {
@@ -373,7 +376,7 @@
                 )
                 for await _ in notifications {
                     guard !Task.isCancelled else { break }
-                    await self?.deviceConnectionManager?.reconnectAllImmediately()
+                    await self?.connectedViewerManager?.reconnectAllImmediately()
                 }
             }
         }
@@ -431,11 +434,11 @@
         }
 
         private func autoConnectIfConfigured() async {
-            // Auto-connect to all paired devices if configured
+            // Auto-connect to all paired viewers if configured
             guard
                 settings.autoConnectToServer,
                 settings.isPaired,
-                let connectionManager = deviceConnectionManager
+                let connectionManager = connectedViewerManager
             else {
                 return
             }
@@ -443,15 +446,15 @@
             await connectionManager.connectAll()
         }
 
-        /// Connect to a newly paired device
-        private func connectToNewlyPairedDevice(_ device: PairedDevice) async {
-            guard let connectionManager = deviceConnectionManager else {
-                logger.warning("Cannot connect to new device: connection manager not initialized")
+        /// Connect to a newly paired viewer
+        private func connectToNewlyPairedViewer(_ viewer: PairedViewer) async {
+            guard let connectionManager = connectedViewerManager else {
+                logger.warning("Cannot connect to new viewer: connection manager not initialized")
                 return
             }
 
-            logger.info("Connecting to newly paired device: \(device.displayName)")
-            await connectionManager.connect(to: device)
+            logger.info("Connecting to newly paired viewer: \(viewer.displayName)")
+            await connectionManager.connect(to: viewer)
         }
     }
 #endif

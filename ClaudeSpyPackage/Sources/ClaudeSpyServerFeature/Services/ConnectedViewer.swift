@@ -4,13 +4,13 @@ import ClaudeSpyNetworking
 import Foundation
 import Logging
 
-/// Represents a connection to a single paired iOS device.
+/// Represents a connection to a single paired viewer.
 ///
-/// This wraps WebSocket communication with iOS device-specific metadata and provides
-/// a cleaner interface for managing individual device connections.
+/// This wraps WebSocket communication with viewer-specific metadata and provides
+/// a cleaner interface for managing individual viewer connections.
 @Observable
 @MainActor
-final public class DeviceConnection: Identifiable {
+final public class ConnectedViewer: Identifiable {
     // MARK: - Connection State
 
     /// Current connection state
@@ -41,18 +41,18 @@ final public class DeviceConnection: Identifiable {
 
     // MARK: - Properties
 
-    private let logger = Logger(label: "com.claudespy.deviceconnection")
+    private let logger = Logger(label: "com.claudespy.connectedviewer")
 
     /// Unique identifier (same as pairId)
     public let id: String
 
-    /// The paired device's display name
-    public var deviceName: String {
-        pairedDevice.displayName
+    /// The paired viewer's display name
+    public var viewerName: String {
+        pairedViewer.displayName
     }
 
-    /// The paired device data
-    public let pairedDevice: PairedDevice
+    /// The paired viewer data
+    public let pairedViewer: PairedViewer
 
     /// The E2EE service for this connection
     public let e2eeService: E2EEService
@@ -60,11 +60,11 @@ final public class DeviceConnection: Identifiable {
     /// Current connection state
     public private(set) var state: ConnectionState = .disconnected
 
-    /// Whether the iOS device is currently connected via WebSocket
-    public private(set) var isIOSConnected = false
+    /// Whether a viewer device is currently connected via WebSocket
+    public private(set) var isViewerConnected = false
 
-    /// Name of the connected iOS device (if known)
-    public private(set) var connectedIOSDeviceName: String?
+    /// Name of the connected viewer device (if known)
+    public private(set) var connectedViewerDeviceName: String?
 
     // MARK: - Private Properties
 
@@ -75,12 +75,12 @@ final public class DeviceConnection: Identifiable {
     private var urlSession: URLSession?
 
     /// Device ID for registration
-    private var macDeviceId = ""
+    private var hostDeviceId = ""
 
     /// Device name for registration
-    private var macDeviceName = ""
+    private var hostDeviceName = ""
 
-    /// Username of the Mac user
+    /// Username of the host user
     private var username = ""
 
     /// Public key for E2EE (Base64-encoded)
@@ -121,10 +121,10 @@ final public class DeviceConnection: Identifiable {
 
     // MARK: - Callbacks
 
-    /// Called when a command is received from iOS
+    /// Called when a command is received from viewer
     public var onCommand: (@MainActor @Sendable (CommandMessage) async -> CommandResponseMessage?)?
 
-    /// Called when session state is requested by iOS
+    /// Called when session state is requested by viewer
     public var onSessionStateRequest: (@Sendable () async -> SessionStateMessage)?
 
     /// Called when connection state changes
@@ -135,30 +135,30 @@ final public class DeviceConnection: Identifiable {
 
     // MARK: - Initialization
 
-    /// Creates a new device connection.
+    /// Creates a new viewer connection.
     ///
     /// - Parameters:
-    ///   - pairedDevice: The paired device configuration
+    ///   - pairedViewer: The paired viewer configuration
     ///   - e2eeService: The E2EE service for this connection (pre-configured with partner key)
-    public init(pairedDevice: PairedDevice, e2eeService: E2EEService) {
-        self.id = pairedDevice.id
-        self.pairedDevice = pairedDevice
+    public init(pairedViewer: PairedViewer, e2eeService: E2EEService) {
+        self.id = pairedViewer.id
+        self.pairedViewer = pairedViewer
         self.e2eeService = e2eeService
-        self.partnerPublicKey = pairedDevice.partnerPublicKey
-        self.partnerPublicKeyId = pairedDevice.partnerPublicKeyId
+        self.partnerPublicKey = pairedViewer.partnerPublicKey
+        self.partnerPublicKeyId = pairedViewer.partnerPublicKeyId
     }
 
     // MARK: - Connection Management
 
-    /// Connect to this iOS device via the relay server.
+    /// Connect to this viewer via the relay server.
     ///
     /// - Parameters:
     ///   - serverURL: The relay server URL
-    ///   - deviceId: This Mac's identifier
-    ///   - deviceName: This Mac's display name
-    ///   - username: Username of the Mac user
-    ///   - publicKey: This Mac's public key (Base64)
-    ///   - publicKeyId: This Mac's public key ID
+    ///   - deviceId: This host's identifier
+    ///   - deviceName: This host's display name
+    ///   - username: Username of the host user
+    ///   - publicKey: This host's public key (Base64)
+    ///   - publicKeyId: This host's public key ID
     public func connect(
         serverURL: URL,
         deviceId: String,
@@ -168,13 +168,13 @@ final public class DeviceConnection: Identifiable {
         publicKeyId: String
     ) async {
         guard state != .connecting, !state.isConnected else {
-            logger.warning("Already connected or connecting to device: \(self.deviceName)")
+            logger.warning("Already connected or connecting to viewer: \(viewerName)")
             return
         }
 
         self.serverURL = serverURL
-        macDeviceId = deviceId
-        macDeviceName = deviceName
+        hostDeviceId = deviceId
+        hostDeviceName = deviceName
         self.username = username
         self.publicKey = publicKey
         self.publicKeyId = publicKeyId
@@ -204,7 +204,7 @@ final public class DeviceConnection: Identifiable {
             return
         }
 
-        logger.info("Reconnecting immediately to device: \(deviceName)")
+        logger.info("Reconnecting immediately to viewer: \(viewerName)")
 
         reconnectionDelayTask?.cancel()
         reconnectionDelayTask = nil
@@ -215,10 +215,10 @@ final public class DeviceConnection: Identifiable {
 
     // MARK: - Sending Messages
 
-    /// Send a hook event to be relayed to iOS (encrypted)
+    /// Send a hook event to be relayed to viewer (encrypted)
     public func sendHookEvent(_ event: HookEvent) async {
         guard state.isConnected else {
-            logger.debug("Not connected to \(deviceName), cannot send hook event")
+            logger.debug("Not connected to \(viewerName), cannot send hook event")
             return
         }
 
@@ -231,10 +231,10 @@ final public class DeviceConnection: Identifiable {
         await sendEncryptedPushNotification(for: event)
     }
 
-    /// Send terminal stream data to iOS (encrypted)
+    /// Send terminal stream data to viewer (encrypted)
     public func sendTerminalStream(_ streamMessage: TerminalStreamMessage) async {
         guard state.isConnected else {
-            logger.debug("Not connected to \(deviceName), cannot send terminal stream")
+            logger.debug("Not connected to \(viewerName), cannot send terminal stream")
             return
         }
 
@@ -242,10 +242,10 @@ final public class DeviceConnection: Identifiable {
         await sendEncrypted(message)
     }
 
-    /// Proactively push current session state to iOS
+    /// Proactively push current session state to viewer
     public func pushSessionState() async {
-        guard state.isConnected, isIOSConnected else {
-            logger.debug("Not connected to iOS, skipping session state push")
+        guard state.isConnected, isViewerConnected else {
+            logger.debug("Not connected to viewer, skipping session state push")
             return
         }
 
@@ -263,7 +263,7 @@ final public class DeviceConnection: Identifiable {
             panes: sessionState.panes,
             claudeProjects: sessionState.claudeProjects
         )
-        logger.info("Pushing session state to iOS device: \(deviceName)")
+        logger.info("Pushing session state to viewer: \(viewerName)")
         await sendEncrypted(.sessionState(sessionState))
     }
 
@@ -297,8 +297,8 @@ final public class DeviceConnection: Identifiable {
 
         components?.queryItems = [
             URLQueryItem(name: "pairId", value: id),
-            URLQueryItem(name: "deviceType", value: "mac"),
-            URLQueryItem(name: "deviceId", value: macDeviceId),
+            URLQueryItem(name: "deviceType", value: "host"),
+            URLQueryItem(name: "deviceId", value: hostDeviceId),
         ]
 
         guard let wsURL = components?.url else {
@@ -307,7 +307,7 @@ final public class DeviceConnection: Identifiable {
             return
         }
 
-        logger.info("Connecting to relay server for device: \(deviceName)", metadata: ["url": "\(wsURL)"])
+        logger.info("Connecting to relay server for viewer: \(viewerName)", metadata: ["url": "\(wsURL)"])
 
         let session = URLSession(configuration: .default)
         urlSession = session
@@ -321,11 +321,11 @@ final public class DeviceConnection: Identifiable {
         }
 
         // Send registration message
-        let registerMessage = WebSocketMessage.registerMac(
-            RegisterMacMessage(
+        let registerMessage = WebSocketMessage.registerHost(
+            RegisterHostMessage(
                 pairId: id,
-                deviceId: macDeviceId,
-                deviceName: macDeviceName,
+                deviceId: hostDeviceId,
+                deviceName: hostDeviceName,
                 publicKey: publicKey,
                 publicKeyId: publicKeyId,
                 username: username
@@ -347,7 +347,7 @@ final public class DeviceConnection: Identifiable {
                 await handleMessage(message)
             } catch {
                 if !Task.isCancelled {
-                    logger.error("WebSocket receive error for \(deviceName): \(error)")
+                    logger.error("WebSocket receive error for \(viewerName): \(error)")
                     await handleDisconnection()
                 }
                 break
@@ -393,18 +393,18 @@ final public class DeviceConnection: Identifiable {
         }
 
         switch decryptedMessage {
-        case let .macRegistered(response):
+        case let .hostRegistered(response):
             if response.success {
-                logger.info("Successfully registered with relay server for device: \(deviceName)")
+                logger.info("Successfully registered with relay server for viewer: \(viewerName)")
                 await updateState(.connected)
-                connectedIOSDeviceName = response.iosDeviceName
-                isIOSConnected = response.iosDeviceName != nil
+                connectedViewerDeviceName = response.viewerDeviceName
+                isViewerConnected = response.viewerDeviceName != nil
 
-                // Establish E2EE session if iOS is connected and we have their public key
+                // Establish E2EE session if viewer is connected and we have their public key
                 if
-                    let iosPublicKey = response.iosPublicKey,
-                    let iosPublicKeyId = response.iosPublicKeyId {
-                    await establishE2EEWithPartner(publicKey: iosPublicKey, keyId: iosPublicKeyId)
+                    let viewerPublicKey = response.viewerPublicKey,
+                    let viewerPublicKeyId = response.viewerPublicKeyId {
+                    await establishE2EEWithPartner(publicKey: viewerPublicKey, keyId: viewerPublicKeyId)
                 }
             } else {
                 logger.error("Registration failed: \(response.error ?? "Unknown error")")
@@ -413,14 +413,14 @@ final public class DeviceConnection: Identifiable {
             }
 
         case let .command(command):
-            logger.info("Received command from iOS", metadata: ["type": "\(command.command)"])
+            logger.info("Received command from viewer", metadata: ["type": "\(command.command)"])
             if let onCommand, let response = await onCommand(command) {
                 await sendEncrypted(.commandResponse(response))
             }
 
-        case let .iosConnected(connectedMessage):
-            logger.info("iOS device connected")
-            isIOSConnected = true
+        case let .viewerConnected(connectedMessage):
+            logger.info("Viewer device connected")
+            isViewerConnected = true
 
             await establishE2EEWithPartner(
                 publicKey: connectedMessage.publicKey,
@@ -429,13 +429,13 @@ final public class DeviceConnection: Identifiable {
 
             await pushSessionState()
 
-        case .iosDisconnected:
-            logger.info("iOS device disconnected")
-            isIOSConnected = false
-            connectedIOSDeviceName = nil
+        case .viewerDisconnected:
+            logger.info("Viewer device disconnected")
+            isViewerConnected = false
+            connectedViewerDeviceName = nil
 
         case .requestSessionState:
-            logger.info("iOS requested session state")
+            logger.info("Viewer requested session state")
             await pushSessionState()
 
         case .ping:
@@ -479,7 +479,7 @@ final public class DeviceConnection: Identifiable {
             )
             partnerPublicKey = publicKey
             partnerPublicKeyId = keyId
-            logger.info("E2EE session established with iOS")
+            logger.info("E2EE session established with viewer")
 
             if let onPartnerKeyReceived {
                 await onPartnerKeyReceived(publicKey, keyId)
@@ -565,8 +565,8 @@ final public class DeviceConnection: Identifiable {
     }
 
     private func handleDisconnection() async {
-        isIOSConnected = false
-        connectedIOSDeviceName = nil
+        isViewerConnected = false
+        connectedViewerDeviceName = nil
 
         await cleanupConnection()
 
@@ -577,10 +577,10 @@ final public class DeviceConnection: Identifiable {
             reconnectionAttempt += 1
             delay = min(60, Int(pow(2, Double(reconnectionAttempt - 1))))
             await updateState(.reconnecting(attempt: reconnectionAttempt))
-            logger.info("Reconnecting to \(deviceName) in \(delay)s (attempt \(reconnectionAttempt))")
+            logger.info("Reconnecting to \(viewerName) in \(delay)s (attempt \(reconnectionAttempt))")
         } else {
             delay = extendedBackoffDelay
-            logger.warning("Max reconnection attempts reached for \(deviceName), extended backoff")
+            logger.warning("Max reconnection attempts reached for \(viewerName), extended backoff")
             await updateState(.extendedBackoff)
         }
 

@@ -8,26 +8,26 @@
     /// Navigation value for the session list
     enum SessionNavigation: Hashable {
         /// Navigate to live terminal for a Claude session
-        case claudeSession(paneId: String, macId: String)
+        case claudeSession(paneId: String, hostId: String)
         /// Navigate to live terminal for a plain terminal (no Claude session)
-        case plainTerminal(paneId: String, macId: String)
+        case plainTerminal(paneId: String, hostId: String)
     }
 
-    /// View displaying a list of active Claude sessions and terminals from all paired Macs.
+    /// View displaying a list of active Claude sessions and terminals from all paired hosts.
     struct SessionListView: View {
         @Binding var navigationPath: NavigationPath
 
         @Environment(SessionStore.self) private var sessionStore
-        @Environment(ConnectionManager.self) private var connectionManager
+        @Environment(ViewerConnectionManager.self) private var connectionManager
         @Environment(IOSSettings.self) private var settings
 
         @State private var creatingSelection: ProjectPickerSelection?
         @State private var creationError: String?
-        @State private var selectedMacForNewSession: PairedMac?
+        @State private var selectedHostForNewSession: PairedHost?
 
         var body: some View {
             Group {
-                if sessionStore.hasSessions || !settings.pairedMacs.isEmpty {
+                if sessionStore.hasSessions || !settings.pairedHosts.isEmpty {
                     sessionsList
                 } else {
                     emptyStateView
@@ -37,8 +37,8 @@
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: SessionNavigation.self) { destination in
                 switch destination {
-                case let .claudeSession(paneId, macId):
-                    if let connection = connectionManager.connection(for: macId) {
+                case let .claudeSession(paneId, hostId):
+                    if let connection = connectionManager.connection(for: hostId) {
                         ClaudeSessionTerminalView(
                             paneId: paneId,
                             sessionStore: sessionStore,
@@ -46,17 +46,17 @@
                             settings: settings
                         )
                     } else {
-                        macDisconnectedView
+                        hostDisconnectedView
                     }
-                case let .plainTerminal(paneId, macId):
-                    if let connection = connectionManager.connection(for: macId) {
+                case let .plainTerminal(paneId, hostId):
+                    if let connection = connectionManager.connection(for: hostId) {
                         PlainTerminalView(
                             paneId: paneId,
                             relayClient: connection.relayClient,
                             settings: settings
                         )
                     } else {
-                        macDisconnectedView
+                        hostDisconnectedView
                     }
                 }
             }
@@ -77,31 +77,31 @@
                     Text(error)
                 }
             }
-            .sheet(item: $selectedMacForNewSession) { mac in
+            .sheet(item: $selectedHostForNewSession) { host in
                 ProjectPickerSheet(
-                    mac: mac,
+                    host: host,
                     creatingSelection: creatingSelection
                 ) { selectedProject in
                     Task {
-                        await createNewSession(on: mac, inProject: selectedProject)
+                        await createNewSession(on: host, inProject: selectedProject)
                     }
                 }
             }
         }
 
-        // MARK: - Sessions List (Grouped by Mac)
+        // MARK: - Sessions List (Grouped by Host)
 
         private var sessionsList: some View {
             List {
-                ForEach(settings.pairedMacs) { mac in
-                    MacSessionsSection(
-                        mac: mac,
-                        connection: connectionManager.connection(for: mac.id),
-                        sessions: sessionStore.sessions(for: mac.id),
-                        panes: sessionStore.panes(for: mac.id),
-                        showUsername: settings.hasDuplicateMacName(for: mac),
+                ForEach(settings.pairedHosts) { host in
+                    HostSessionsSection(
+                        host: host,
+                        connection: connectionManager.connection(for: host.id),
+                        sessions: sessionStore.sessions(for: host.id),
+                        panes: sessionStore.panes(for: host.id),
+                        showUsername: settings.hasDuplicateHostName(for: host),
                         onNewSession: {
-                            selectedMacForNewSession = mac
+                            selectedHostForNewSession = host
                         }
                     )
                 }
@@ -115,18 +115,18 @@
 
         private var emptyStateView: some View {
             ContentUnavailableView {
-                Label("No Macs Paired", symbol: .laptopcomputer)
+                Label("No Hosts Paired", symbol: .laptopcomputer)
             } description: {
-                Text("Pair your Mac to see sessions here")
+                Text("Pair a host to see sessions here")
             }
         }
 
-        /// Shown when navigating to a session whose Mac is no longer connected
-        private var macDisconnectedView: some View {
+        /// Shown when navigating to a session whose host is no longer connected
+        private var hostDisconnectedView: some View {
             ContentUnavailableView {
-                Label("Mac Disconnected", symbol: .wifiSlash)
+                Label("Host Disconnected", symbol: .wifiSlash)
             } description: {
-                Text("This Mac is no longer connected. Go back and reconnect to view this session.")
+                Text("This host is no longer connected. Go back and reconnect to view this session.")
             }
         }
 
@@ -145,7 +145,7 @@
         }
 
         private var overallConnectionStatusColor: Color {
-            if connectionManager.anyMacConnected {
+            if connectionManager.anyHostConnected {
                 return .green
             } else if connectionManager.isConnecting {
                 return .yellow
@@ -155,8 +155,8 @@
         }
 
         private var overallConnectionStatusText: String {
-            let connectedCount = connectionManager.activeConnections.filter(\.isMacConnected).count
-            let totalCount = settings.pairedMacs.count
+            let connectedCount = connectionManager.activeConnections.filter(\.isHostConnected).count
+            let totalCount = settings.pairedHosts.count
 
             if connectedCount == totalCount && totalCount > 0 {
                 return totalCount == 1 ? "Connected" : "All Connected"
@@ -171,7 +171,7 @@
 
         // MARK: - New Session Creation
 
-        private func createNewSession(on mac: PairedMac, inProject project: ClaudeProjectInfo?) async {
+        private func createNewSession(on host: PairedHost, inProject project: ClaudeProjectInfo?) async {
             guard creatingSelection == nil else { return }
 
             // Track which item was selected for the spinner
@@ -188,20 +188,20 @@
             )
 
             // paneId is not used for session creation, pass empty string
-            let result = await connectionManager.sendCommand(command, paneId: "", macId: mac.id)
+            let result = await connectionManager.sendCommand(command, paneId: "", hostId: host.id)
 
             switch result {
             case let .success(response):
                 // Session created - dismiss sheet and clear selection
                 creatingSelection = nil
-                selectedMacForNewSession = nil
+                selectedHostForNewSession = nil
 
                 // Request a refresh to update the session list
-                await connectionManager.requestSessionState(for: mac.id)
+                await connectionManager.requestSessionState(for: host.id)
 
                 // Navigate to the new terminal if we got a pane ID
                 if let paneId = response.paneId {
-                    navigationPath.append(SessionNavigation.plainTerminal(paneId: paneId, macId: mac.id))
+                    navigationPath.append(SessionNavigation.plainTerminal(paneId: paneId, hostId: host.id))
                 }
             case let .failure(error):
                 // Include project name in error for context (sheet stays open)
@@ -212,12 +212,12 @@
         }
     }
 
-    // MARK: - Mac Sessions Section
+    // MARK: - Host Sessions Section
 
-    /// A section displaying sessions and terminals from a single Mac
-    struct MacSessionsSection: View {
-        let mac: PairedMac
-        let connection: MacConnection?
+    /// A section displaying sessions and terminals from a single host
+    struct HostSessionsSection: View {
+        let host: PairedHost
+        let connection: ViewerConnection?
         let sessions: [(paneId: String, session: ClaudeSession)]
         let panes: [PaneInfoMessage]
         var showUsername = false
@@ -232,9 +232,9 @@
         var body: some View {
             Section {
                 if hasContent {
-                    // Claude sessions for this Mac
+                    // Claude sessions for this host
                     ForEach(sessions, id: \.paneId) { item in
-                        NavigationLink(value: SessionNavigation.claudeSession(paneId: item.paneId, macId: mac.id)) {
+                        NavigationLink(value: SessionNavigation.claudeSession(paneId: item.paneId, hostId: host.id)) {
                             SessionRowView(
                                 paneId: item.paneId,
                                 session: item.session,
@@ -243,25 +243,25 @@
                         }
                     }
 
-                    // Plain terminals for this Mac
+                    // Plain terminals for this host
                     ForEach(panes) { pane in
-                        NavigationLink(value: SessionNavigation.plainTerminal(paneId: pane.id, macId: mac.id)) {
+                        NavigationLink(value: SessionNavigation.plainTerminal(paneId: pane.id, hostId: host.id)) {
                             TerminalRowView(pane: pane)
                         }
                     }
                 } else {
-                    // Empty state for this Mac
-                    if connection?.isMacConnected == true {
+                    // Empty state for this host
+                    if connection?.isHostConnected == true {
                         Text("No active sessions")
                             .foregroundStyle(.secondary)
                     } else {
-                        Text("Mac offline")
+                        Text("Host offline")
                             .foregroundStyle(.secondary)
                     }
                 }
             } header: {
-                MacSectionHeader(
-                    mac: mac,
+                HostSectionHeader(
+                    host: host,
                     connection: connection,
                     showUsername: showUsername,
                     onNewSession: onNewSession
@@ -270,19 +270,19 @@
         }
     }
 
-    // MARK: - Mac Section Header
+    // MARK: - Host Section Header
 
-    /// Header for a Mac's session section showing name and connection status
-    struct MacSectionHeader: View {
-        let mac: PairedMac
-        let connection: MacConnection?
+    /// Header for a host's session section showing name and connection status
+    struct HostSectionHeader: View {
+        let host: PairedHost
+        let connection: ViewerConnection?
         var showUsername = false
         let onNewSession: () -> Void
 
         var body: some View {
             HStack {
-                // Mac name
-                Text(mac.displayName(showUsername: showUsername))
+                // Host name
+                Text(host.displayName(showUsername: showUsername))
 
                 Spacer()
 
@@ -293,7 +293,7 @@
                     Symbols.plus.image
                         .font(.caption)
                 }
-                .disabled(connection?.isMacConnected != true)
+                .disabled(connection?.isHostConnected != true)
                 .buttonStyle(.borderless)
 
                 // Connection status indicator
@@ -306,7 +306,7 @@
         private var statusColor: Color {
             guard let connection else { return .gray }
 
-            if connection.isMacConnected {
+            if connection.isHostConnected {
                 return .green
             } else if connection.isRelayConnected {
                 return .yellow
@@ -438,7 +438,7 @@
 
     /// Sheet for selecting a Claude project to create a new session in
     struct ProjectPickerSheet: View {
-        let mac: PairedMac
+        let host: PairedHost
         /// The currently selected item (shows spinner), nil if nothing selected yet
         let creatingSelection: ProjectPickerSelection?
         let onSelect: (ClaudeProjectInfo?) -> Void
@@ -450,9 +450,9 @@
             creatingSelection != nil
         }
 
-        /// Projects for this Mac, read from SessionStore to auto-update when state arrives
+        /// Projects for this host, read from SessionStore to auto-update when state arrives
         private var projects: [ClaudeProjectInfo] {
-            sessionStore.projects(for: mac.id)
+            sessionStore.projects(for: host.id)
         }
 
         var body: some View {
@@ -520,7 +520,7 @@
                                 .disabled(isCreating)
                             }
                         }
-                    } else if !sessionStore.hasReceivedState(for: mac.id) {
+                    } else if !sessionStore.hasReceivedState(for: host.id) {
                         Section("Claude Projects") {
                             HStack {
                                 ProgressView()
@@ -531,7 +531,7 @@
                         }
                     }
                 }
-                .navigationTitle("New Session on \(mac.displayName)")
+                .navigationTitle("New Session on \(host.displayName)")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {

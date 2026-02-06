@@ -1,4 +1,5 @@
 import AppKit
+import ClaudeSpyCommon
 import Foundation
 import SwiftUI
 
@@ -6,28 +7,29 @@ import SwiftUI
 public enum SettingsTab: String, Sendable {
     case general
     case remoteAccess
+    case remoteHosts
     case plugin
 }
 
-// MARK: - Paired Device Model
+// MARK: - Paired Viewer Model
 
-/// Represents a paired iOS device with all connection details.
+/// Represents a paired viewer with all connection details.
 ///
-/// Each iOS device paired with the Mac app has its own unique `pairId`,
+/// Each viewer paired with the host app has its own unique `pairId`,
 /// cryptographic keys for E2EE, and connection state.
-public struct PairedDevice: Codable, Identifiable, Sendable, Hashable {
+public struct PairedViewer: Codable, Identifiable, Sendable, Hashable {
     // MARK: - Properties
 
     /// Unique pair identifier (also serves as Identifiable id)
     public let id: String
 
-    /// Display name of the iOS device
+    /// Display name of the viewer
     public let deviceName: String
 
-    /// Partner's (iOS) public key for E2EE (Base64-encoded)
+    /// Partner's public key for E2EE (Base64-encoded)
     public let partnerPublicKey: String
 
-    /// Partner's (iOS) public key ID for E2EE
+    /// Partner's public key ID for E2EE
     public let partnerPublicKeyId: String
 
     /// When this pairing was established
@@ -115,7 +117,7 @@ final public class AppSettings {
         didSet { UserDefaults.standard.set(autoOpenMirrorOnSession, forKey: Keys.autoOpenMirrorOnSession) }
     }
 
-    /// Whether to prevent Mac from sleeping while Claude sessions are active
+    /// Whether to prevent host from sleeping while Claude sessions are active
     public var preventSleepDuringSessions: Bool {
         didSet { UserDefaults.standard.set(preventSleepDuringSessions, forKey: Keys.preventSleepDuringSessions) }
     }
@@ -164,9 +166,14 @@ final public class AppSettings {
         didSet { UserDefaults.standard.set(externalServerURL, forKey: Keys.externalServerURL) }
     }
 
-    /// All paired iOS devices
-    public private(set) var pairedDevices: [PairedDevice] = [] {
-        didSet { savePairedDevices() }
+    /// All paired viewers
+    public private(set) var pairedViewers: [PairedViewer] = [] {
+        didSet { savePairedViewers() }
+    }
+
+    /// All paired hosts (for viewing remote hosts)
+    public private(set) var pairedHosts: [PairedHost] = [] {
+        didSet { savePairedHosts() }
     }
 
     /// Whether to automatically connect to relay server on launch
@@ -174,7 +181,7 @@ final public class AppSettings {
         didSet { UserDefaults.standard.set(autoConnectToServer, forKey: Keys.autoConnectToServer) }
     }
 
-    /// Unique device identifier for this Mac (generated on first launch)
+    /// Unique device identifier for this host (generated on first launch)
     public var deviceId: String {
         didSet { UserDefaults.standard.set(deviceId, forKey: Keys.deviceId) }
     }
@@ -233,8 +240,9 @@ final public class AppSettings {
         self.externalServerURL = defaults.string(forKey: Keys.externalServerURL) ?? Defaults.externalServerURL
         self.autoConnectToServer = defaults.object(forKey: Keys.autoConnectToServer) as? Bool ?? Defaults.autoConnectToServer
 
-        // Load paired devices
-        self.pairedDevices = Self.loadPairedDevices(from: defaults)
+        // Load paired devices and hosts
+        self.pairedViewers = Self.loadPairedViewers(from: defaults)
+        self.pairedHosts = Self.loadPairedHosts(from: defaults)
 
         // Generate device ID if not already set
         if let existingDeviceId = defaults.string(forKey: Keys.deviceId) {
@@ -274,7 +282,8 @@ final public class AppSettings {
         static let customTerminalPath = "customTerminalPath"
         // Remote Access
         static let externalServerURL = "externalServerURL"
-        static let pairedDevices = "pairedDevices"
+        static let pairedViewers = "pairedDevices"
+        static let pairedHosts = "pairedHosts"
         static let autoConnectToServer = "autoConnectToServer"
         static let deviceId = "deviceId"
         // Plugin
@@ -316,56 +325,116 @@ final public class AppSettings {
 
     // MARK: - Computed Properties
 
-    /// Whether at least one iOS device is paired
+    /// Whether at least one viewer is paired
     public var isPaired: Bool {
-        !pairedDevices.isEmpty
+        !pairedViewers.isEmpty
     }
 
-    // MARK: - Paired Devices Storage
+    /// Whether at least one remote host is paired
+    public var hasRemoteHosts: Bool {
+        !pairedHosts.isEmpty
+    }
 
-    private static func loadPairedDevices(from defaults: UserDefaults) -> [PairedDevice] {
-        guard let data = defaults.data(forKey: Keys.pairedDevices) else {
+    // MARK: - Paired Viewers Storage
+
+    private static func loadPairedViewers(from defaults: UserDefaults) -> [PairedViewer] {
+        guard let data = defaults.data(forKey: Keys.pairedViewers) else {
             return []
         }
-        return (try? JSONDecoder().decode([PairedDevice].self, from: data)) ?? []
+        return (try? JSONDecoder().decode([PairedViewer].self, from: data)) ?? []
     }
 
-    private func savePairedDevices() {
-        guard let data = try? JSONEncoder().encode(pairedDevices) else {
+    private func savePairedViewers() {
+        guard let data = try? JSONEncoder().encode(pairedViewers) else {
             return
         }
-        UserDefaults.standard.set(data, forKey: Keys.pairedDevices)
+        UserDefaults.standard.set(data, forKey: Keys.pairedViewers)
+    }
+
+    // MARK: - Paired Hosts Storage
+
+    private static func loadPairedHosts(from defaults: UserDefaults) -> [PairedHost] {
+        guard let data = defaults.data(forKey: Keys.pairedHosts) else {
+            return []
+        }
+        return (try? JSONDecoder().decode([PairedHost].self, from: data)) ?? []
+    }
+
+    private func savePairedHosts() {
+        guard let data = try? JSONEncoder().encode(pairedHosts) else {
+            return
+        }
+        UserDefaults.standard.set(data, forKey: Keys.pairedHosts)
     }
 
     // MARK: - Pairing Management
 
-    /// Add a new paired device
-    public func addPairing(_ device: PairedDevice) {
+    /// Add a new paired viewer
+    public func addPairing(_ viewer: PairedViewer) {
         // Remove any existing pairing with same ID (update case)
-        pairedDevices.removeAll { $0.id == device.id }
-        pairedDevices.append(device)
+        pairedViewers.removeAll { $0.id == viewer.id }
+        pairedViewers.append(viewer)
     }
 
-    /// Remove a paired device by ID
+    /// Remove a paired viewer by ID
     public func removePairing(id: String) {
-        pairedDevices.removeAll { $0.id == id }
+        pairedViewers.removeAll { $0.id == id }
     }
 
-    /// Get a paired device by ID
-    public func getPairing(id: String) -> PairedDevice? {
-        pairedDevices.first { $0.id == id }
+    /// Get a paired viewer by ID
+    public func getPairing(id: String) -> PairedViewer? {
+        pairedViewers.first { $0.id == id }
     }
 
-    /// Update a paired device (e.g., custom name or partner key)
-    public func updatePairing(_ device: PairedDevice) {
-        if let index = pairedDevices.firstIndex(where: { $0.id == device.id }) {
-            pairedDevices[index] = device
+    /// Update a paired viewer (e.g., custom name or partner key)
+    public func updatePairing(_ viewer: PairedViewer) {
+        if let index = pairedViewers.firstIndex(where: { $0.id == viewer.id }) {
+            pairedViewers[index] = viewer
         }
     }
 
     /// Clear all pairings
     public func clearAllPairings() {
-        pairedDevices = []
+        pairedViewers = []
+    }
+
+    // MARK: - Host Pairing Management
+
+    /// Add a new paired host (remote host to view)
+    public func addHostPairing(_ host: PairedHost) {
+        // Remove any existing pairing with same ID (update case)
+        pairedHosts.removeAll { $0.id == host.id }
+        pairedHosts.append(host)
+    }
+
+    /// Remove a paired host by ID
+    public func removeHostPairing(id: String) {
+        pairedHosts.removeAll { $0.id == id }
+    }
+
+    /// Get a paired host by ID
+    public func getHostPairing(id: String) -> PairedHost? {
+        pairedHosts.first { $0.id == id }
+    }
+
+    /// Update a paired host (e.g., custom name or partner key)
+    public func updateHostPairing(_ host: PairedHost) {
+        if let index = pairedHosts.firstIndex(where: { $0.id == host.id }) {
+            pairedHosts[index] = host
+        }
+    }
+
+    /// Clear all host pairings
+    public func clearAllHostPairings() {
+        pairedHosts = []
+    }
+
+    /// Check if any paired hosts have duplicate names (for disambiguation)
+    public func hasDuplicateHostName(for host: PairedHost) -> Bool {
+        let matchingNames = pairedHosts.filter {
+            $0.hostName == host.hostName && $0.id != host.id
+        }
+        return !matchingNames.isEmpty
     }
 }
 

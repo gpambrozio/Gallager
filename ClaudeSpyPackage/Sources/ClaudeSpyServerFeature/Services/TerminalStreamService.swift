@@ -4,14 +4,14 @@ import Logging
 
 // MARK: - Terminal Stream Service
 
-/// Manages live terminal streaming to connected iOS devices.
+/// Manages live terminal streaming to connected viewers.
 ///
 /// This service subscribes to PaneStreamManager for terminal data and forwards
-/// it to iOS via the network layer. It handles data batching for efficient
+/// it to viewers via the network layer. It handles data batching for efficient
 /// transmission.
 ///
 /// Usage:
-/// 1. Call `startStreaming(paneId:target:...)` when iOS requests a stream
+/// 1. Call `startStreaming(paneId:target:...)` when a viewer requests a stream
 /// 2. Data flows automatically from PaneStreamManager
 /// 3. Call `stopStreaming(paneId:)` when the stream should end
 @Observable
@@ -22,7 +22,7 @@ final public class TerminalStreamService {
     private let logger = Logger(label: "com.claudespy.terminalstream")
 
     /// Reference to the device connection manager for sending messages
-    private weak var connectionManager: DeviceConnectionManager?
+    private weak var connectionManager: ConnectedViewerManager?
 
     /// Reference to the pane stream manager
     private weak var paneStreamManager: PaneStreamManager?
@@ -47,10 +47,10 @@ final public class TerminalStreamService {
     /// Must be called before starting any streams.
     ///
     /// - Parameters:
-    ///   - connectionManager: The DeviceConnectionManager to use for sending stream data to all devices
+    ///   - connectionManager: The ConnectedViewerManager to use for sending stream data to all viewers
     ///   - paneStreamManager: The PaneStreamManager to subscribe to for data
     public func configureWithConnectionManager(
-        connectionManager: DeviceConnectionManager,
+        connectionManager: ConnectedViewerManager,
         paneStreamManager: PaneStreamManager
     ) {
         self.connectionManager = connectionManager
@@ -69,7 +69,7 @@ final public class TerminalStreamService {
         Array(activeStreams.keys)
     }
 
-    /// Start streaming a pane to iOS.
+    /// Start streaming a pane to viewers.
     ///
     /// Subscribes to PaneStreamManager for data and sends it to iOS.
     /// The initial content is captured atomically with the subscription,
@@ -93,7 +93,7 @@ final public class TerminalStreamService {
         }
 
         // If a stream is already active for this pane, reuse it.
-        // Multiple iOS devices can watch the same pane simultaneously.
+        // Multiple viewers can watch the same pane simultaneously.
         // We just increment the subscriber count and send the current state.
         if let context = activeStreams[paneId] {
             // Capture current content first — only increment count if we succeed.
@@ -172,7 +172,7 @@ final public class TerminalStreamService {
             "bufferSize": "\(result.initialContent.count)",
         ])
 
-        // Send initial state to all iOS devices
+        // Send initial state to all viewers
         // The content was captured atomically with the subscription,
         // so there's no gap between this state and incoming live updates
         let initialMessage = TerminalStreamMessage.initialState(
@@ -237,7 +237,7 @@ final public class TerminalStreamService {
         // Flush any pending data
         await flushPendingData(for: context, paneId: paneId)
 
-        // Send stream end to all iOS devices
+        // Send stream end to all viewers
         guard let connectionManager else { return }
         let endMessage = TerminalStreamMessage.streamEnd(paneId: paneId)
         await connectionManager.sendTerminalStreamToAll(endMessage)
@@ -245,7 +245,7 @@ final public class TerminalStreamService {
 
     /// Stop all active streams.
     ///
-    /// Called when iOS disconnects or the app is shutting down.
+    /// Called when viewers disconnect or the app is shutting down.
     /// Uses force to bypass subscriber count since this is a system-level cleanup.
     public func stopAllStreams() async {
         let paneIds = Array(activeStreams.keys)
@@ -257,7 +257,7 @@ final public class TerminalStreamService {
     /// Stops streams for panes that are no longer in the provided list.
     ///
     /// Called when panes change to clean up streams for closed panes.
-    /// This sends the streamEnd message to iOS so it can close the terminal view.
+    /// This sends the streamEnd message to viewer so it can close the terminal view.
     ///
     /// - Parameter currentPanes: The list of currently existing panes
     public func stopStreamsForClosedPanes(currentPanes: [PaneInfo]) async {
@@ -329,7 +329,7 @@ final private class StreamContext {
     private var pendingData = Data()
     var batchTask: Task<Void, Never>?
 
-    /// Number of iOS devices currently watching this pane's stream.
+    /// Number of viewers currently watching this pane's stream.
     /// The stream is only truly stopped when this reaches 0 (or forced).
     var deviceSubscriberCount = 1
 

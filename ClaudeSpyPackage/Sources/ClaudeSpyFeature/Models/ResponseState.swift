@@ -39,7 +39,7 @@ final public class ResponseState {
     }
 }
 
-/// Represents the type of response given
+/// Represents the type of response given to a Claude Code event
 public enum ResponseType: Equatable {
     case accepted
     case acceptedWithSuggestion

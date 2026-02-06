@@ -3,7 +3,7 @@ import ClaudeSpyNetworking
 import Foundation
 import Logging
 
-/// Executes commands received from iOS devices via the relay server.
+/// Executes commands received from viewers via the relay server.
 ///
 /// Translates `CommandMessage` objects into tmux operations using `TmuxService`.
 public actor TmuxCommandExecutor {
@@ -20,7 +20,7 @@ public actor TmuxCommandExecutor {
 
     // MARK: - Command Execution
 
-    /// Execute a command received from iOS
+    /// Execute a command received from viewer
     /// - Parameter command: The command to execute
     /// - Returns: Response indicating success or failure
     public func execute(_ command: CommandMessage) async -> CommandResponseMessage {

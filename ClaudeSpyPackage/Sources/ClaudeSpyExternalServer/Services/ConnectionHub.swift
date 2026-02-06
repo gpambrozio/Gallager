@@ -44,14 +44,14 @@ actor ConnectionHub {
 
     // MARK: - Connection Status
 
-    /// Check if Mac is connected for a pair
-    func isMacConnected(pairId: String) -> Bool {
-        connections[pairId]?[.mac] != nil
+    /// Check if host is connected for a pair
+    func isHostConnected(pairId: String) -> Bool {
+        connections[pairId]?[.host] != nil
     }
 
-    /// Check if iOS is connected for a pair
-    func isIOSConnected(pairId: String) -> Bool {
-        connections[pairId]?[.ios] != nil
+    /// Check if viewer is connected for a pair
+    func isViewerConnected(pairId: String) -> Bool {
+        connections[pairId]?[.viewer] != nil
     }
 
     /// Get connection for a specific device
@@ -93,8 +93,8 @@ actor ConnectionHub {
             unregister(pairId: pairId, deviceType: deviceType)
 
             // Notify the peer device that this device disconnected
-            let peerDevice: DeviceType = deviceType == .mac ? .ios : .mac
-            let disconnectMessage: WebSocketMessage = deviceType == .mac ? .macDisconnected : .iosDisconnected
+            let peerDevice: DeviceType = deviceType == .host ? .viewer : .host
+            let disconnectMessage: WebSocketMessage = deviceType == .host ? .hostDisconnected : .viewerDisconnected
             await send(disconnectMessage, to: pairId, deviceType: peerDevice)
         }
     }

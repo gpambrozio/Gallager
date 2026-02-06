@@ -3,7 +3,7 @@
     import ClaudeSpyEncryption
     import SwiftUI
 
-    /// View for entering a pairing code to connect with a Mac.
+    /// View for entering a pairing code to connect with a host.
     struct PairingView: View {
         @Environment(IOSSettings.self) private var settings
         @Environment(\.e2eeService) private var e2eeService
@@ -13,8 +13,8 @@
         @State private var errorMessage: String?
         @FocusState private var isInputFocused: Bool
 
-        /// Called when pairing is successful with the new PairedMac
-        var onPaired: ((PairedMac) -> Void)?
+        /// Called when pairing is successful with the new PairedHost
+        var onPaired: ((PairedHost) -> Void)?
 
         private let codeLength = 6
 
@@ -38,12 +38,12 @@
                 .padding()
             }
             .scrollDismissesKeyboard(.interactively)
-            .navigationTitle("Pair with Mac")
+            .navigationTitle("Pair with Host")
             .navigationBarTitleDisplayMode(.large)
         }
 
         private var compactHeaderSection: some View {
-            Text("Enter the 6-character pairing code shown in the ClaudeSpy Mac app")
+            Text("Enter the 6-character pairing code shown in the ClaudeSpy host app")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -137,7 +137,7 @@
                     .font(.headline)
 
                 VStack(alignment: .leading, spacing: 8) {
-                    instructionRow(number: 1, text: "Open ClaudeSpy on your Mac")
+                    instructionRow(number: 1, text: "Open ClaudeSpy on your host")
                     instructionRow(number: 2, text: "Go to Settings > Remote Access")
                     instructionRow(number: 3, text: "Click \"Generate Pairing Code\"")
                     instructionRow(number: 4, text: "Enter the code above")
@@ -178,17 +178,17 @@
 
                 switch response {
                 case let .paired(info):
-                    // Create the PairedMac struct
-                    let pairedMac = PairedMac(
+                    // Create the PairedHost struct
+                    let pairedHost = PairedHost(
                         id: info.pairId,
-                        macName: info.partnerDeviceName,
+                        hostName: info.partnerDeviceName,
                         username: info.partnerUsername,
                         partnerPublicKey: info.partnerPublicKey,
                         partnerPublicKeyId: info.partnerPublicKeyId,
                         pairedAt: Date()
                     )
 
-                    onPaired?(pairedMac)
+                    onPaired?(pairedHost)
                 case .registered:
                     // Unexpected - completion should return paired status
                     errorMessage = "Unexpected response from server"

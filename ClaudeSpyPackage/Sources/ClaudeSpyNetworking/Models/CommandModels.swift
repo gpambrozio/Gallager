@@ -237,13 +237,21 @@ public extension TmuxKey {
                 textBuffer.append(Character(UnicodeScalar(byte)))
             default:
                 // High bytes - try to decode as UTF-8
+                // Determine expected character length from leading byte
+                let charLen: Int
+                switch byte {
+                case 0xC0...0xDF: charLen = 2
+                case 0xE0...0xEF: charLen = 3
+                case 0xF0...0xF7: charLen = 4
+                default: charLen = 1
+                }
                 let remaining = data[index...]
                 if
-                    let string = String(data: Data(remaining.prefix(4)), encoding: .utf8),
+                    remaining.count >= charLen,
+                    let string = String(data: Data(remaining.prefix(charLen)), encoding: .utf8),
                     let char = string.first {
                     textBuffer.append(char)
-                    let charBytes = String(char).utf8.count
-                    index = data.index(index, offsetBy: charBytes)
+                    index = data.index(index, offsetBy: charLen)
                     continue
                 }
                 // Invalid UTF-8 byte - use replacement character instead of silently dropping
@@ -350,7 +358,7 @@ public struct CreateTmuxSession: CommandSpec, Equatable {
 
 // MARK: - Command Types
 
-/// Commands that can be sent from iOS to Mac, with their associated data.
+/// Commands that can be sent from viewer to host, with their associated data.
 /// This enum is the wire format - it's what gets encoded and sent over the network.
 /// Each case holds its corresponding CommandSpec struct.
 public enum CommandType: Codable, Sendable, Equatable {
@@ -405,7 +413,7 @@ public enum CommandType: Codable, Sendable, Equatable {
 
 // MARK: - Command Message
 
-/// A command sent from iOS to Mac via the relay server
+/// A command sent from viewer to host via the relay server
 public struct CommandMessage: Codable, Sendable, Identifiable {
     public let id: UUID
     public let paneId: String

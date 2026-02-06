@@ -1,3 +1,4 @@
+import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import Foundation
 import Observation
@@ -22,7 +23,7 @@ final public class SessionDetailService {
     private let sessionStore: SessionStore
 
     /// Reference to the relay client for communication
-    private let relayClient: RelayClient
+    private let relayClient: ViewerRelayClient
 
     // MARK: - Private State
 
@@ -44,13 +45,13 @@ final public class SessionDetailService {
         sessionStore.isPaneActive(paneId)
     }
 
-    /// Whether the Mac is connected to the relay
-    public var isMacConnected: Bool {
-        relayClient.isMacConnected
+    /// Whether the host is connected to the relay
+    public var isHostConnected: Bool {
+        relayClient.isHostConnected
     }
 
     /// The relay client for this session (needed for environment injection)
-    public var client: RelayClient {
+    public var client: ViewerRelayClient {
         relayClient
     }
 
@@ -61,7 +62,7 @@ final public class SessionDetailService {
 
     // MARK: - Initialization
 
-    public init(paneId: String, sessionStore: SessionStore, relayClient: RelayClient) {
+    public init(paneId: String, sessionStore: SessionStore, relayClient: ViewerRelayClient) {
         self.paneId = paneId
         self.sessionStore = sessionStore
         self.relayClient = relayClient
@@ -115,7 +116,7 @@ final public class SessionDetailService {
 
     // MARK: - Actions
 
-    /// Send a command to the Mac for this pane (fire-and-forget style)
+    /// Send a command to the host for this pane (fire-and-forget style)
     public func sendCommand(_ command: CommandType) async {
         // Extract the spec from the CommandType and send it
         switch command {

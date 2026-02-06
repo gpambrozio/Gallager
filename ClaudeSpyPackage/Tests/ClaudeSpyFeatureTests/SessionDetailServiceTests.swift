@@ -1,3 +1,4 @@
+import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import Foundation
 import Testing
@@ -11,7 +12,7 @@ struct SessionDetailServiceTests {
     @Test("Service initializes with correct pane ID")
     func serviceInitializesWithPaneId() {
         let sessionStore = SessionStore()
-        let relayClient = RelayClient()
+        let relayClient = ViewerRelayClient()
         let service = SessionDetailService(
             paneId: "%1",
             sessionStore: sessionStore,
@@ -21,13 +22,13 @@ struct SessionDetailServiceTests {
         #expect(service.paneId == "%1")
         #expect(service.session == nil) // No session in store yet
         #expect(service.isPaneActive == false)
-        #expect(service.isMacConnected == false)
+        #expect(service.isHostConnected == false)
     }
 
     @Test("Service finds existing session in store")
     func serviceFindsExistingSession() {
         let sessionStore = SessionStore()
-        let relayClient = RelayClient()
+        let relayClient = ViewerRelayClient()
 
         // Add a session to the store
         let event = HookEvent(
@@ -52,7 +53,7 @@ struct SessionDetailServiceTests {
     @Test("Response state is nil when session has no events")
     func responseStateNilWhenNoEvents() {
         let sessionStore = SessionStore()
-        let relayClient = RelayClient()
+        let relayClient = ViewerRelayClient()
 
         let service = SessionDetailService(
             paneId: "%1",
@@ -66,7 +67,7 @@ struct SessionDetailServiceTests {
     @Test("Response state is created for latest event")
     func responseStateCreatedForLatestEvent() {
         let sessionStore = SessionStore()
-        let relayClient = RelayClient()
+        let relayClient = ViewerRelayClient()
 
         // Add a session with an event
         let event = HookEvent(
@@ -92,7 +93,7 @@ struct SessionDetailServiceTests {
     @Test("Pane active status reflects session store state")
     func paneActiveStatusReflectsStore() {
         let sessionStore = SessionStore()
-        let relayClient = RelayClient()
+        let relayClient = ViewerRelayClient()
 
         // Add a session and mark pane as active
         let event = HookEvent(
@@ -125,9 +126,9 @@ struct SessionDetailServiceTests {
     // MARK: - Mac Connection Status Tests
 
     @Test("Mac connection status reflects relay client state")
-    func macConnectionStatusReflectsRelayClient() {
+    func macConnectionStatusReflectsViewerRelayClient() {
         let sessionStore = SessionStore()
-        let relayClient = RelayClient()
+        let relayClient = ViewerRelayClient()
 
         let service = SessionDetailService(
             paneId: "%1",
@@ -135,10 +136,10 @@ struct SessionDetailServiceTests {
             relayClient: relayClient
         )
 
-        #expect(service.isMacConnected == false)
+        #expect(service.isHostConnected == false)
 
         // Note: In a real test, we'd need to mock RelayClient or use
-        // dependency injection to set isMacConnected to true.
+        // dependency injection to set isHostConnected to true.
         // For now, this tests the property delegation works.
     }
 
@@ -147,7 +148,7 @@ struct SessionDetailServiceTests {
     @Test("Response is persisted to SessionStore when set")
     func responsePersistsToStore() {
         let sessionStore = SessionStore()
-        let relayClient = RelayClient()
+        let relayClient = ViewerRelayClient()
 
         // Add a session with a permission request event
         let event = HookEvent(
@@ -173,7 +174,7 @@ struct SessionDetailServiceTests {
     @Test("Response is restored when service is recreated")
     func responseRestoredOnServiceRecreation() {
         let sessionStore = SessionStore()
-        let relayClient = RelayClient()
+        let relayClient = ViewerRelayClient()
 
         // Add a session with a permission request event
         let event = HookEvent(
@@ -205,7 +206,7 @@ struct SessionDetailServiceTests {
     @Test("Different response types are persisted correctly")
     func differentResponseTypesPersist() {
         let sessionStore = SessionStore()
-        let relayClient = RelayClient()
+        let relayClient = ViewerRelayClient()
 
         // Add a session with an event
         let event = HookEvent(

@@ -93,10 +93,10 @@ actor APNsService {
     ///   - payload: The encrypted push payload from Mac
     ///   - pairId: The pair ID for token lookup
     func sendEncryptedNotificationIfNeeded(payload: EncryptedPushPayload, pairId: String) async {
-        // Only send if iOS is not connected via WebSocket
-        let isIOSConnected = await connectionHub.isIOSConnected(pairId: pairId)
-        if isIOSConnected {
-            logger.debug("iOS is connected via WebSocket, skipping encrypted push notification")
+        // Only send if viewer is not connected via WebSocket
+        let isViewerConnected = await connectionHub.isViewerConnected(pairId: pairId)
+        if isViewerConnected {
+            logger.debug("Viewer is connected via WebSocket, skipping encrypted push notification")
             return
         }
 

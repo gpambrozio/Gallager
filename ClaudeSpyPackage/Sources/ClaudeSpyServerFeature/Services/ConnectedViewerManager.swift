@@ -4,19 +4,19 @@ import ClaudeSpyNetworking
 import Foundation
 import Logging
 
-/// Manages connections to all paired iOS devices.
+/// Manages connections to all paired viewers.
 ///
-/// This class coordinates multiple `DeviceConnection` instances, handling
-/// connection lifecycle, event routing, and command dispatch to all connected devices.
+/// This class coordinates multiple `ConnectedViewer` instances, handling
+/// connection lifecycle, event routing, and command dispatch to all connected viewers.
 @Observable
 @MainActor
-final public class DeviceConnectionManager {
+final public class ConnectedViewerManager {
     // MARK: - Properties
 
-    private let logger = Logger(label: "com.claudespy.deviceconnectionmanager")
+    private let logger = Logger(label: "com.claudespy.connectedviewermanager")
 
     /// Active connections keyed by pairId
-    private var connections: [String: DeviceConnection] = [:]
+    private var connections: [String: ConnectedViewer] = [:]
 
     /// The app settings
     private weak var settings: AppSettings?
@@ -29,11 +29,11 @@ final public class DeviceConnectionManager {
 
     // MARK: - Public Callbacks
 
-    /// Called when a command is received from any iOS device.
+    /// Called when a command is received from any viewer.
     /// Returns nil if the command sends its own response.
     public var onCommand: (@MainActor @Sendable (CommandMessage) async -> CommandResponseMessage?)?
 
-    /// Called when session state is requested by any iOS device
+    /// Called when session state is requested by any viewer
     public var onSessionStateRequest: (@Sendable () async -> SessionStateMessage)?
 
     /// Called when partner's public key is received (for persisting to settings)
@@ -42,19 +42,19 @@ final public class DeviceConnectionManager {
     // MARK: - Computed Properties
 
     /// All active connections
-    public var activeConnections: [DeviceConnection] {
+    public var activeConnections: [ConnectedViewer] {
         Array(connections.values)
     }
 
-    /// Whether any iOS device is currently connected
-    public var anyDeviceConnected: Bool {
-        connections.values.contains { $0.isIOSConnected }
+    /// Whether any viewer is currently connected
+    public var anyViewerConnected: Bool {
+        connections.values.contains { $0.isViewerConnected }
     }
 
-    /// Whether all devices are connected
-    public var allDevicesConnected: Bool {
+    /// Whether all viewers are connected
+    public var allViewersConnected: Bool {
         guard !connections.isEmpty else { return false }
-        return connections.values.allSatisfy { $0.isIOSConnected }
+        return connections.values.allSatisfy { $0.isViewerConnected }
     }
 
     /// Whether any connection is in a connecting state
@@ -63,7 +63,7 @@ final public class DeviceConnectionManager {
     }
 
     /// Combined connection state for UI display
-    public var combinedState: DeviceConnection.ConnectionState {
+    public var combinedState: ConnectedViewer.ConnectionState {
         if connections.isEmpty {
             return .disconnected
         }
@@ -95,10 +95,10 @@ final public class DeviceConnectionManager {
 
     // MARK: - Initialization
 
-    /// Creates a new device connection manager.
+    /// Creates a new connected viewer manager.
     ///
     /// - Parameters:
-    ///   - settings: App settings containing paired devices
+    ///   - settings: App settings containing paired viewers
     ///   - e2eeService: E2EE service for encryption
     ///   - keyPair: Stored key pair for E2EE
     public init(settings: AppSettings, e2eeService: E2EEService, keyPair: StoredKeyPair) {
@@ -109,52 +109,52 @@ final public class DeviceConnectionManager {
 
     // MARK: - Connection Management
 
-    /// Get the connection for a specific device
-    public func connection(for deviceId: String) -> DeviceConnection? {
-        connections[deviceId]
+    /// Get the connection for a specific viewer
+    public func connection(for viewerId: String) -> ConnectedViewer? {
+        connections[viewerId]
     }
 
-    /// Connect to all paired iOS devices.
+    /// Connect to all paired viewers.
     ///
-    /// Creates connections for each paired device and establishes WebSocket connections.
+    /// Creates connections for each paired viewer and establishes WebSocket connections.
     public func connectAll() async {
         guard let settings else {
             logger.error("Settings not available")
             return
         }
 
-        logger.info("Connecting to all \(settings.pairedDevices.count) paired devices")
+        logger.info("Connecting to all \(settings.pairedViewers.count) paired viewers")
 
-        for device in settings.pairedDevices {
-            await connect(to: device)
+        for viewer in settings.pairedViewers {
+            await connect(to: viewer)
         }
     }
 
-    /// Connect to a specific iOS device.
+    /// Connect to a specific viewer.
     ///
-    /// - Parameter device: The paired device to connect to
-    public func connect(to device: PairedDevice) async {
+    /// - Parameter viewer: The paired viewer to connect to
+    public func connect(to viewer: PairedViewer) async {
         guard let settings else {
             logger.error("Settings not available")
             return
         }
 
         // Create or reuse connection
-        let connection: DeviceConnection
-        if let existing = connections[device.id] {
+        let connection: ConnectedViewer
+        if let existing = connections[viewer.id] {
             connection = existing
-            logger.info("Reusing existing connection for device: \(device.displayName)")
+            logger.info("Reusing existing connection for viewer: \(viewer.displayName)")
         } else {
-            // Create new E2EE service for this device
-            guard let deviceE2EE = await createE2EEService(for: device) else {
-                logger.error("Failed to create E2EE service for device: \(device.displayName)")
+            // Create new E2EE service for this viewer
+            guard let viewerE2EE = await createE2EEService(for: viewer) else {
+                logger.error("Failed to create E2EE service for viewer: \(viewer.displayName)")
                 return
             }
 
-            connection = DeviceConnection(pairedDevice: device, e2eeService: deviceE2EE)
+            connection = ConnectedViewer(pairedViewer: viewer, e2eeService: viewerE2EE)
             setupConnectionCallbacks(connection)
-            connections[device.id] = connection
-            logger.info("Created new connection for device: \(device.displayName)")
+            connections[viewer.id] = connection
+            logger.info("Created new connection for viewer: \(viewer.displayName)")
         }
 
         // Connect
@@ -173,23 +173,23 @@ final public class DeviceConnectionManager {
         )
     }
 
-    /// Disconnect from a specific device.
+    /// Disconnect from a specific viewer.
     ///
-    /// - Parameter deviceId: The pair ID of the device to disconnect from
-    public func disconnect(from deviceId: String) async {
-        guard let connection = connections[deviceId] else {
-            logger.warning("No connection found for device: \(deviceId)")
+    /// - Parameter viewerId: The pair ID of the viewer to disconnect from
+    public func disconnect(from viewerId: String) async {
+        guard let connection = connections[viewerId] else {
+            logger.warning("No connection found for viewer: \(viewerId)")
             return
         }
 
         await connection.disconnect()
-        connections.removeValue(forKey: deviceId)
-        logger.info("Disconnected from device: \(connection.deviceName)")
+        connections.removeValue(forKey: viewerId)
+        logger.info("Disconnected from viewer: \(connection.viewerName)")
     }
 
-    /// Disconnect from all devices.
+    /// Disconnect from all viewers.
     public func disconnectAll() async {
-        logger.info("Disconnecting from all devices")
+        logger.info("Disconnecting from all viewers")
 
         for connection in connections.values {
             await connection.disconnect()
@@ -208,7 +208,7 @@ final public class DeviceConnectionManager {
 
     // MARK: - Broadcasting
 
-    /// Send a hook event to all connected iOS devices.
+    /// Send a hook event to all connected viewers.
     public func sendHookEventToAll(_ event: HookEvent) async {
         await withTaskGroup(of: Void.self) { group in
             for connection in connections.values where connection.state.isConnected {
@@ -217,7 +217,7 @@ final public class DeviceConnectionManager {
         }
     }
 
-    /// Send terminal stream data to all connected iOS devices.
+    /// Send terminal stream data to all connected viewers.
     public func sendTerminalStreamToAll(_ streamMessage: TerminalStreamMessage) async {
         await withTaskGroup(of: Void.self) { group in
             for connection in connections.values where connection.state.isConnected {
@@ -226,10 +226,10 @@ final public class DeviceConnectionManager {
         }
     }
 
-    /// Push session state to all connected iOS devices.
+    /// Push session state to all connected viewers.
     public func pushSessionStateToAll() async {
         await withTaskGroup(of: Void.self) { group in
-            for connection in connections.values where connection.state.isConnected && connection.isIOSConnected {
+            for connection in connections.values where connection.state.isConnected && connection.isViewerConnected {
                 group.addTask { await connection.pushSessionState() }
             }
         }
@@ -237,31 +237,31 @@ final public class DeviceConnectionManager {
 
     // MARK: - Private Helpers
 
-    private func createE2EEService(for device: PairedDevice) async -> E2EEService? {
+    private func createE2EEService(for viewer: PairedViewer) async -> E2EEService? {
         do {
-            let deviceE2EE = E2EEService(keyPair: keyPair)
+            let viewerE2EE = E2EEService(keyPair: keyPair)
 
-            // Establish session with this device's public key if available
+            // Establish session with this viewer's public key if available
             if
-                !device.partnerPublicKey.isEmpty,
-                let partnerKeyData = Data(base64Encoded: device.partnerPublicKey) {
-                try await deviceE2EE.establishSession(
+                !viewer.partnerPublicKey.isEmpty,
+                let partnerKeyData = Data(base64Encoded: viewer.partnerPublicKey) {
+                try await viewerE2EE.establishSession(
                     partnerPublicKey: partnerKeyData,
-                    partnerKeyId: device.partnerPublicKeyId,
-                    pairId: device.id
+                    partnerKeyId: viewer.partnerPublicKeyId,
+                    pairId: viewer.id
                 )
-                logger.info("E2EE session established for device: \(device.displayName)")
+                logger.info("E2EE session established for viewer: \(viewer.displayName)")
             }
 
-            return deviceE2EE
+            return viewerE2EE
         } catch {
-            logger.error("Failed to create E2EE service for device \(device.displayName): \(error)")
+            logger.error("Failed to create E2EE service for viewer \(viewer.displayName): \(error)")
             return nil
         }
     }
 
-    private func setupConnectionCallbacks(_ connection: DeviceConnection) {
-        let deviceId = connection.id
+    private func setupConnectionCallbacks(_ connection: ConnectedViewer) {
+        let viewerId = connection.id
 
         connection.onCommand = { [weak self] command in
             await self?.onCommand?(command)
@@ -276,9 +276,9 @@ final public class DeviceConnectionManager {
             )
         }
 
-        connection.onPartnerKeyReceived = { [weak self, deviceId] publicKey, keyId in
+        connection.onPartnerKeyReceived = { [weak self, viewerId] publicKey, keyId in
             guard let self else { return }
-            await self.onPartnerKeyReceived?(deviceId, publicKey, keyId)
+            await self.onPartnerKeyReceived?(viewerId, publicKey, keyId)
         }
     }
 }

@@ -27,9 +27,9 @@ public struct RemoteAccessSettingsView: View {
 
             // Paired Devices Section
             Section {
-                pairedDevicesContent
+                pairedViewersContent
             } header: {
-                Text("Paired Devices")
+                Text("Paired Viewers")
             }
 
             // Server Configuration
@@ -55,7 +55,7 @@ public struct RemoteAccessSettingsView: View {
 
     @ViewBuilder
     private var connectionStatusRow: some View {
-        let connectionManager = coordinator.deviceConnectionManager
+        let connectionManager = coordinator.connectedViewerManager
         let combinedState = connectionManager?.combinedState ?? .disconnected
 
         HStack(spacing: 12) {
@@ -66,9 +66,10 @@ public struct RemoteAccessSettingsView: View {
                 Text(statusText(for: combinedState))
                     .font(.headline)
 
-                if let connectedCount = connectionManager?.activeConnections.filter({ $0.isIOSConnected }).count,
-                   connectedCount > 0 {
-                    Text("\(connectedCount) device\(connectedCount == 1 ? "" : "s") connected")
+                if
+                    let connectedCount = connectionManager?.activeConnections.filter({ $0.isViewerConnected }).count,
+                    connectedCount > 0 {
+                    Text("\(connectedCount) viewer\(connectedCount == 1 ? "" : "s") connected")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -82,7 +83,7 @@ public struct RemoteAccessSettingsView: View {
     }
 
     @ViewBuilder
-    private func connectionStatusIcon(for state: DeviceConnection.ConnectionState) -> some View {
+    private func connectionStatusIcon(for state: ConnectedViewer.ConnectionState) -> some View {
         switch state {
         case .disconnected:
             Symbols.wifiSlash.image
@@ -101,13 +102,13 @@ public struct RemoteAccessSettingsView: View {
         }
     }
 
-    private func statusText(for state: DeviceConnection.ConnectionState) -> String {
+    private func statusText(for state: ConnectedViewer.ConnectionState) -> String {
         state.statusText
     }
 
     @ViewBuilder
     private var connectionActionButton: some View {
-        let connectionManager = coordinator.deviceConnectionManager
+        let connectionManager = coordinator.connectedViewerManager
         let combinedState = connectionManager?.combinedState ?? .disconnected
 
         if combinedState.isConnected {
@@ -137,11 +138,11 @@ public struct RemoteAccessSettingsView: View {
     // MARK: - Paired Devices Content
 
     @ViewBuilder
-    private var pairedDevicesContent: some View {
+    private var pairedViewersContent: some View {
         switch pairingManager.state {
         case .idle:
-            if pairingManager.hasPairedDevices {
-                pairedDevicesListView
+            if pairingManager.hasPairedViewers {
+                pairedViewersListView
             } else {
                 unpairedView
             }
@@ -162,15 +163,15 @@ public struct RemoteAccessSettingsView: View {
     }
 
     @ViewBuilder
-    private var pairedDevicesListView: some View {
-        ForEach(pairingManager.pairedDevices) { device in
-            DeviceRow(
-                device: device,
-                connection: coordinator.deviceConnectionManager?.connection(for: device.id),
+    private var pairedViewersListView: some View {
+        ForEach(pairingManager.pairedViewers) { viewer in
+            ViewerRow(
+                viewer: viewer,
+                connection: coordinator.connectedViewerManager?.connection(for: viewer.id),
                 onUnpair: {
                     Task {
-                        await pairingManager.unpair(deviceId: device.id)
-                        await coordinator.deviceConnectionManager?.disconnect(from: device.id)
+                        await pairingManager.unpair(deviceId: viewer.id)
+                        await coordinator.connectedViewerManager?.disconnect(from: viewer.id)
                     }
                 }
             )
@@ -181,7 +182,7 @@ public struct RemoteAccessSettingsView: View {
                 await pairingManager.generatePairingCode()
             }
         } label: {
-            Label("Add Device", symbol: .plus)
+            Label("Add Viewer", symbol: .plus)
         }
         .buttonStyle(.borderless)
         .padding(.top, 4)
@@ -291,11 +292,11 @@ public struct RemoteAccessSettingsView: View {
     }
 }
 
-// MARK: - Device Row
+// MARK: - Viewer Row
 
-private struct DeviceRow: View {
-    let device: PairedDevice
-    let connection: DeviceConnection?
+private struct ViewerRow: View {
+    let viewer: PairedViewer
+    let connection: ConnectedViewer?
     let onUnpair: () -> Void
 
     var body: some View {
@@ -304,10 +305,10 @@ private struct DeviceRow: View {
                 .font(.title3)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(device.displayName)
+                Text(viewer.displayName)
                     .font(.headline)
 
-                Text("Paired \(device.pairedAt.formatted(date: .abbreviated, time: .omitted))")
+                Text("Paired \(viewer.pairedAt.formatted(date: .abbreviated, time: .omitted))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -333,13 +334,14 @@ private struct DeviceRow: View {
     private var connectionIndicator: some View {
         if let connection {
             switch connection.state {
-            case .connected where connection.isIOSConnected:
+            case .connected where connection.isViewerConnected:
                 Symbols.checkmarkCircleFill.image
                     .foregroundStyle(.green)
             case .connected:
                 Symbols.circle.image
                     .foregroundStyle(.yellow)
-            case .connecting, .reconnecting:
+            case .connecting,
+                 .reconnecting:
                 ProgressView()
                     .controlSize(.small)
             default:
@@ -356,10 +358,10 @@ private struct DeviceRow: View {
     private var connectionStatusText: some View {
         if let connection {
             switch connection.state {
-            case .connected where connection.isIOSConnected:
+            case .connected where connection.isViewerConnected:
                 Text("Connected")
             case .connected:
-                Text("Waiting for iOS")
+                Text("Waiting for viewer")
             case .connecting:
                 Text("Connecting...")
             case let .reconnecting(attempt):

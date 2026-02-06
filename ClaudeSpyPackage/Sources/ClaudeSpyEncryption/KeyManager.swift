@@ -313,14 +313,14 @@ import Foundation
 
         // MARK: - Session Key Storage (Per-PairId)
 
-        /// Stores the derived symmetric session key for a specific Mac (identified by pairId).
+        /// Stores the derived symmetric session key for a specific host (identified by pairId).
         ///
         /// Call this after establishing an E2EE session so that the Notification Service
-        /// Extension can decrypt push notification payloads from this Mac.
+        /// Extension can decrypt push notification payloads from this host.
         ///
         /// - Parameters:
         ///   - keyData: The raw symmetric key data (32 bytes for ChaCha20)
-        ///   - pairId: The pair ID identifying which Mac this session key belongs to
+        ///   - pairId: The pair ID identifying which host this session key belongs to
         /// - Throws: `CryptoError.keychainError` on Keychain access failure
         public func storeSessionKey(_ keyData: Data, for pairId: String) throws {
             let account = sessionKeyAccount(for: pairId)
@@ -337,11 +337,11 @@ import Foundation
             }
         }
 
-        /// Loads the stored session key for a specific Mac from Keychain.
+        /// Loads the stored session key for a specific host from Keychain.
         ///
         /// Used by the Notification Service Extension to decrypt push notifications.
         ///
-        /// - Parameter pairId: The pair ID identifying which Mac's session key to load
+        /// - Parameter pairId: The pair ID identifying which host's session key to load
         /// - Returns: The session key data, or nil if not found
         /// - Throws: `CryptoError.keychainError` on Keychain access failure
         public func loadSessionKey(for pairId: String) throws -> Data? {
@@ -365,9 +365,9 @@ import Foundation
             return keyData
         }
 
-        /// Deletes the session key for a specific Mac from Keychain.
+        /// Deletes the session key for a specific host from Keychain.
         ///
-        /// - Parameter pairId: The pair ID identifying which Mac's session key to delete
+        /// - Parameter pairId: The pair ID identifying which host's session key to delete
         public func deleteSessionKey(for pairId: String) throws {
             let account = sessionKeyAccount(for: pairId)
             let query = baseKeychainAttributes(account: account)
@@ -377,7 +377,7 @@ import Foundation
             }
         }
 
-        /// Checks if a session key exists for a specific Mac.
+        /// Checks if a session key exists for a specific host.
         ///
         /// - Parameter pairId: The pair ID to check
         public func hasStoredSessionKey(for pairId: String) -> Bool {

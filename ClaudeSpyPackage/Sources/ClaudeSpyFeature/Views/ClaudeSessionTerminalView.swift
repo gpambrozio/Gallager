@@ -22,7 +22,7 @@
         init(
             paneId: String,
             sessionStore: SessionStore,
-            relayClient: RelayClient,
+            relayClient: ViewerRelayClient,
             settings: IOSSettings
         ) {
             self.paneId = paneId
@@ -60,7 +60,7 @@
                 LiveTerminalView(
                     paneId: paneId,
                     responseState: $service.responseState,
-                    isConnected: service.isMacConnected,
+                    isConnected: service.isHostConnected,
                     hideNavigationBar: hideNavigationBar,
                     settings: settings,
                     sendCommand: { command in
@@ -158,7 +158,7 @@
             ClaudeSessionTerminalView(
                 paneId: "%1",
                 sessionStore: SessionStore(),
-                relayClient: RelayClient(),
+                relayClient: ViewerRelayClient(),
                 settings: .shared
             )
         }

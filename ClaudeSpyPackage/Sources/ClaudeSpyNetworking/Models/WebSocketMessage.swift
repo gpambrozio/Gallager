@@ -4,68 +4,68 @@ import Foundation
 // MARK: - WebSocket Message
 
 /// All message types that can be sent over the WebSocket connection between
-/// Mac, External Server, and iOS clients.
+/// Host, External Server, and Viewer clients.
 public enum WebSocketMessage: Codable, Sendable {
-    // MARK: - Mac → Server
+    // MARK: - Host → Server
 
-    /// Mac registers with the relay server after connecting
-    case registerMac(RegisterMacMessage)
+    /// Host registers with the relay server after connecting
+    case registerHost(RegisterHostMessage)
 
-    /// Mac forwards a hook event to be relayed to iOS
+    /// Host forwards a hook event to be relayed to viewers
     case hookEvent(HookEventMessage)
 
-    /// Mac responds to a command from iOS
+    /// Host responds to a command from viewer
     case commandResponse(CommandResponseMessage)
 
-    /// Mac sends terminal stream data (continuous updates)
+    /// Host sends terminal stream data (continuous updates)
     case terminalStream(TerminalStreamMessage)
 
-    /// Mac sends complete session state (on iOS connect or request)
+    /// Host sends complete session state (on viewer connect or request)
     case sessionState(SessionStateMessage)
 
-    // MARK: - Server → Mac
+    // MARK: - Server → Host
 
-    /// Server confirms Mac registration
-    case macRegistered(MacRegisteredMessage)
+    /// Server confirms host registration
+    case hostRegistered(HostRegisteredMessage)
 
-    /// Server relays a command from iOS
+    /// Server relays a command from viewer
     case command(CommandMessage)
 
-    /// Server notifies Mac that iOS has connected (includes public key for E2EE)
-    case iosConnected(DeviceConnectedMessage)
+    /// Server notifies host that viewer has connected (includes public key for E2EE)
+    case viewerConnected(ViewerConnectedMessage)
 
-    /// Server notifies Mac that iOS has disconnected
-    case iosDisconnected
+    /// Server notifies host that viewer has disconnected
+    case viewerDisconnected
 
-    // MARK: - iOS → Server
+    // MARK: - Viewer → Server
 
-    /// iOS registers with the relay server after connecting
-    case registerIOS(RegisterIOSMessage)
+    /// Viewer registers with the relay server after connecting
+    case registerViewer(RegisterViewerMessage)
 
-    // iOS sends a command to be relayed to Mac
-    // (Uses same `command` case as Server → Mac for symmetry)
+    // Viewer sends a command to be relayed to host
+    // (Uses same `command` case as Server → Host for symmetry)
 
-    /// iOS requests current session state from Mac
+    /// Viewer requests current session state from host
     case requestSessionState
 
-    /// iOS sends push notification token to server
+    /// Viewer sends push notification token to server (iOS only)
     case registerPushToken(RegisterPushTokenMessage)
 
-    // MARK: - Server → iOS
+    // MARK: - Server → Viewer
 
-    /// Server confirms iOS registration
-    case iosRegistered(IOSRegisteredMessage)
+    /// Server confirms viewer registration
+    case viewerRegistered(ViewerRegisteredMessage)
 
     /// Server confirms push token registration
     case pushTokenRegistered(PushTokenRegisteredMessage)
 
-    /// Server notifies iOS that Mac has connected (includes public key for E2EE)
-    case macConnected(DeviceConnectedMessage)
+    /// Server notifies viewer that host has connected (includes public key for E2EE)
+    case hostConnected(ViewerConnectedMessage)
 
-    /// Server notifies iOS that Mac has disconnected
-    case macDisconnected
+    /// Server notifies viewer that host has disconnected
+    case hostDisconnected
 
-    // (hookEvent, sessionState, commandResponse are shared with Mac → Server)
+    // (hookEvent, sessionState, commandResponse are shared with Host → Server)
 
     // MARK: - Bidirectional
 
@@ -86,7 +86,7 @@ public enum WebSocketMessage: Codable, Sendable {
 
     // MARK: - Encrypted Push Notifications
 
-    /// Mac sends encrypted push notification payload to be relayed via APNs.
+    /// Host sends encrypted push notification payload to be relayed via APNs.
     /// Server forwards to APNs with generic placeholder text; iOS extension decrypts.
     case encryptedPush(EncryptedPushPayload)
 }
@@ -141,22 +141,22 @@ public extension WebSocketMessage {
     }
 
     private enum MessageType: String, Codable {
-        case registerMac
+        case registerHost
         case hookEvent
         case commandResponse
         case terminalStream
         case sessionState
-        case macRegistered
+        case hostRegistered
         case command
-        case iosConnected
-        case iosDisconnected
-        case registerIOS
+        case viewerConnected
+        case viewerDisconnected
+        case registerViewer
         case requestSessionState
         case registerPushToken
-        case iosRegistered
+        case viewerRegistered
         case pushTokenRegistered
-        case macConnected
-        case macDisconnected
+        case hostConnected
+        case hostDisconnected
         case ping
         case pong
         case error
@@ -169,9 +169,9 @@ public extension WebSocketMessage {
         let type = try container.decode(MessageType.self, forKey: .type)
 
         switch type {
-        case .registerMac:
-            let payload = try container.decode(RegisterMacMessage.self, forKey: .payload)
-            self = .registerMac(payload)
+        case .registerHost:
+            let payload = try container.decode(RegisterHostMessage.self, forKey: .payload)
+            self = .registerHost(payload)
         case .hookEvent:
             let payload = try container.decode(HookEventMessage.self, forKey: .payload)
             self = .hookEvent(payload)
@@ -184,36 +184,36 @@ public extension WebSocketMessage {
         case .sessionState:
             let payload = try container.decode(SessionStateMessage.self, forKey: .payload)
             self = .sessionState(payload)
-        case .macRegistered:
-            let payload = try container.decode(MacRegisteredMessage.self, forKey: .payload)
-            self = .macRegistered(payload)
+        case .hostRegistered:
+            let payload = try container.decode(HostRegisteredMessage.self, forKey: .payload)
+            self = .hostRegistered(payload)
         case .command:
             let payload = try container.decode(CommandMessage.self, forKey: .payload)
             self = .command(payload)
-        case .iosConnected:
-            let payload = try container.decode(DeviceConnectedMessage.self, forKey: .payload)
-            self = .iosConnected(payload)
-        case .iosDisconnected:
-            self = .iosDisconnected
-        case .registerIOS:
-            let payload = try container.decode(RegisterIOSMessage.self, forKey: .payload)
-            self = .registerIOS(payload)
+        case .viewerConnected:
+            let payload = try container.decode(ViewerConnectedMessage.self, forKey: .payload)
+            self = .viewerConnected(payload)
+        case .viewerDisconnected:
+            self = .viewerDisconnected
+        case .registerViewer:
+            let payload = try container.decode(RegisterViewerMessage.self, forKey: .payload)
+            self = .registerViewer(payload)
         case .requestSessionState:
             self = .requestSessionState
         case .registerPushToken:
             let payload = try container.decode(RegisterPushTokenMessage.self, forKey: .payload)
             self = .registerPushToken(payload)
-        case .iosRegistered:
-            let payload = try container.decode(IOSRegisteredMessage.self, forKey: .payload)
-            self = .iosRegistered(payload)
+        case .viewerRegistered:
+            let payload = try container.decode(ViewerRegisteredMessage.self, forKey: .payload)
+            self = .viewerRegistered(payload)
         case .pushTokenRegistered:
             let payload = try container.decode(PushTokenRegisteredMessage.self, forKey: .payload)
             self = .pushTokenRegistered(payload)
-        case .macConnected:
-            let payload = try container.decode(DeviceConnectedMessage.self, forKey: .payload)
-            self = .macConnected(payload)
-        case .macDisconnected:
-            self = .macDisconnected
+        case .hostConnected:
+            let payload = try container.decode(ViewerConnectedMessage.self, forKey: .payload)
+            self = .hostConnected(payload)
+        case .hostDisconnected:
+            self = .hostDisconnected
         case .ping:
             self = .ping
         case .pong:
@@ -234,8 +234,8 @@ public extension WebSocketMessage {
         var container = encoder.container(keyedBy: CodingKeys.self)
 
         switch self {
-        case let .registerMac(payload):
-            try container.encode(MessageType.registerMac, forKey: .type)
+        case let .registerHost(payload):
+            try container.encode(MessageType.registerHost, forKey: .type)
             try container.encode(payload, forKey: .payload)
         case let .hookEvent(payload):
             try container.encode(MessageType.hookEvent, forKey: .type)
@@ -249,36 +249,36 @@ public extension WebSocketMessage {
         case let .sessionState(payload):
             try container.encode(MessageType.sessionState, forKey: .type)
             try container.encode(payload, forKey: .payload)
-        case let .macRegistered(payload):
-            try container.encode(MessageType.macRegistered, forKey: .type)
+        case let .hostRegistered(payload):
+            try container.encode(MessageType.hostRegistered, forKey: .type)
             try container.encode(payload, forKey: .payload)
         case let .command(payload):
             try container.encode(MessageType.command, forKey: .type)
             try container.encode(payload, forKey: .payload)
-        case let .iosConnected(payload):
-            try container.encode(MessageType.iosConnected, forKey: .type)
+        case let .viewerConnected(payload):
+            try container.encode(MessageType.viewerConnected, forKey: .type)
             try container.encode(payload, forKey: .payload)
-        case .iosDisconnected:
-            try container.encode(MessageType.iosDisconnected, forKey: .type)
-        case let .registerIOS(payload):
-            try container.encode(MessageType.registerIOS, forKey: .type)
+        case .viewerDisconnected:
+            try container.encode(MessageType.viewerDisconnected, forKey: .type)
+        case let .registerViewer(payload):
+            try container.encode(MessageType.registerViewer, forKey: .type)
             try container.encode(payload, forKey: .payload)
         case .requestSessionState:
             try container.encode(MessageType.requestSessionState, forKey: .type)
         case let .registerPushToken(payload):
             try container.encode(MessageType.registerPushToken, forKey: .type)
             try container.encode(payload, forKey: .payload)
-        case let .iosRegistered(payload):
-            try container.encode(MessageType.iosRegistered, forKey: .type)
+        case let .viewerRegistered(payload):
+            try container.encode(MessageType.viewerRegistered, forKey: .type)
             try container.encode(payload, forKey: .payload)
         case let .pushTokenRegistered(payload):
             try container.encode(MessageType.pushTokenRegistered, forKey: .type)
             try container.encode(payload, forKey: .payload)
-        case let .macConnected(payload):
-            try container.encode(MessageType.macConnected, forKey: .type)
+        case let .hostConnected(payload):
+            try container.encode(MessageType.hostConnected, forKey: .type)
             try container.encode(payload, forKey: .payload)
-        case .macDisconnected:
-            try container.encode(MessageType.macDisconnected, forKey: .type)
+        case .hostDisconnected:
+            try container.encode(MessageType.hostDisconnected, forKey: .type)
         case .ping:
             try container.encode(MessageType.ping, forKey: .type)
         case .pong:
@@ -298,22 +298,22 @@ public extension WebSocketMessage {
     /// Human-readable message type for logging
     var messageType: String {
         switch self {
-        case .registerMac: MessageType.registerMac.rawValue
+        case .registerHost: MessageType.registerHost.rawValue
         case .hookEvent: MessageType.hookEvent.rawValue
         case .commandResponse: MessageType.commandResponse.rawValue
         case .terminalStream: MessageType.terminalStream.rawValue
         case .sessionState: MessageType.sessionState.rawValue
-        case .macRegistered: MessageType.macRegistered.rawValue
+        case .hostRegistered: MessageType.hostRegistered.rawValue
         case .command: MessageType.command.rawValue
-        case .iosConnected: MessageType.iosConnected.rawValue
-        case .iosDisconnected: MessageType.iosDisconnected.rawValue
-        case .registerIOS: MessageType.registerIOS.rawValue
+        case .viewerConnected: MessageType.viewerConnected.rawValue
+        case .viewerDisconnected: MessageType.viewerDisconnected.rawValue
+        case .registerViewer: MessageType.registerViewer.rawValue
         case .requestSessionState: MessageType.requestSessionState.rawValue
         case .registerPushToken: MessageType.registerPushToken.rawValue
-        case .iosRegistered: MessageType.iosRegistered.rawValue
+        case .viewerRegistered: MessageType.viewerRegistered.rawValue
         case .pushTokenRegistered: MessageType.pushTokenRegistered.rawValue
-        case .macConnected: MessageType.macConnected.rawValue
-        case .macDisconnected: MessageType.macDisconnected.rawValue
+        case .hostConnected: MessageType.hostConnected.rawValue
+        case .hostDisconnected: MessageType.hostDisconnected.rawValue
         case .ping: MessageType.ping.rawValue
         case .pong: MessageType.pong.rawValue
         case .error: MessageType.error.rawValue
