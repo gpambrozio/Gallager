@@ -3,10 +3,10 @@ import ClaudeSpyEncryption
 import Foundation
 import Logging
 
-/// Manages device pairing between the host app and iOS app via the external server.
+/// Manages device pairing between the host app and viewers via the external server.
 ///
 /// Handles pairing code generation, registration, and the overall pairing flow.
-/// Supports pairing with multiple iOS devices.
+/// Supports pairing with multiple viewers.
 @Observable
 @MainActor
 final public class PairingManager {
@@ -44,8 +44,8 @@ final public class PairingManager {
     /// Code expiry duration in seconds (matches server)
     private let codeExpirySeconds: TimeInterval = 300
 
-    /// Callback when a new device is successfully paired
-    public var onDevicePaired: ((PairedDevice) -> Void)?
+    /// Callback when a new viewer is successfully paired
+    public var onViewerPaired: ((PairedViewer) -> Void)?
 
     // MARK: - Initialization
 
@@ -61,13 +61,13 @@ final public class PairingManager {
         e2eeService.publicKeyInfo
     }
 
-    /// All paired devices (convenience accessor)
-    public var pairedViewers: [PairedDevice] {
+    /// All paired viewers (convenience accessor)
+    public var pairedViewers: [PairedViewer] {
         settings?.pairedViewers ?? []
     }
 
-    /// Whether at least one device is paired
-    public var hasPairedDevices: Bool {
+    /// Whether at least one viewer is paired
+    public var hasPairedViewers: Bool {
         settings?.isPaired ?? false
     }
 
@@ -125,7 +125,7 @@ final public class PairingManager {
         logger.info("Pairing cancelled")
     }
 
-    /// Unpair from a specific iOS device
+    /// Unpair from a specific viewer
     public func unpair(deviceId: String) async {
         guard let settings else {
             return
@@ -137,48 +137,48 @@ final public class PairingManager {
         }
 
         // Remove from local state
-        // Note: E2EE session cleanup happens in DeviceConnectionManager when the connection is removed
+        // Note: E2EE session cleanup happens in ConnectedViewerManager when the connection is removed
         settings.removePairing(id: deviceId)
 
-        logger.info("Device unpaired", metadata: ["deviceId": "\(deviceId)"])
+        logger.info("Viewer unpaired", metadata: ["deviceId": "\(deviceId)"])
     }
 
-    /// Unpair from all iOS devices
+    /// Unpair from all viewers
     public func unpairAll() async {
         guard let settings else { return }
 
         pollingTask?.cancel()
         pollingTask = nil
 
-        // Notify server for each device (best effort)
-        for device in settings.pairedViewers {
+        // Notify server for each viewer (best effort)
+        for viewer in settings.pairedViewers {
             Task {
-                try? await deletePairing(pairId: device.id)
+                try? await deletePairing(pairId: viewer.id)
             }
         }
 
         // Clear all local state
-        // Note: E2EE session cleanup happens in DeviceConnectionManager when connections are removed
+        // Note: E2EE session cleanup happens in ConnectedViewerManager when connections are removed
         settings.clearAllPairings()
         state = .idle
 
-        logger.info("All devices unpaired")
+        logger.info("All viewers unpaired")
     }
 
     /// Update partner's public key info after receiving it via WebSocket.
-    /// Called by DeviceConnectionManager when iOS connects and sends its key.
+    /// Called by ConnectedViewerManager when viewer connects and sends its key.
     public func updatePartnerPublicKey(deviceId: String, publicKey: String, publicKeyId: String) {
-        guard let settings, var device = settings.getPairing(id: deviceId) else { return }
+        guard let settings, var viewer = settings.getPairing(id: deviceId) else { return }
 
-        device = PairedDevice(
-            id: device.id,
-            deviceName: device.deviceName,
+        viewer = PairedViewer(
+            id: viewer.id,
+            deviceName: viewer.deviceName,
             partnerPublicKey: publicKey,
             partnerPublicKeyId: publicKeyId,
-            pairedAt: device.pairedAt,
-            customName: device.customName
+            pairedAt: viewer.pairedAt,
+            customName: viewer.customName
         )
-        settings.updatePairing(device)
+        settings.updatePairing(viewer)
         logger.info("Partner public key updated for E2EE", metadata: ["deviceId": "\(deviceId)"])
     }
 
@@ -316,20 +316,20 @@ final public class PairingManager {
     private func completePairing(pairId: String) async {
         guard let settings else { return }
 
-        // Create new paired device without partner's public key.
-        // The key will be received via WebSocket when both devices connect:
-        // 1. Host registers → server responds with iOS public key in macRegistered
-        // 2. iOS connects → server sends iosConnected with iOS public key
-        // Either path calls DeviceConnection.establishE2EEWithPartner() and
+        // Create new paired viewer without partner's public key.
+        // The key will be received via WebSocket when both sides connect:
+        // 1. Host registers → server responds with viewer public key in hostRegistered
+        // 2. Viewer connects → server sends viewerConnected with viewer public key
+        // Either path calls ConnectedViewer.establishE2EEWithPartner() and
         // persists the key via onPartnerKeyReceived → updatePartnerPublicKey().
-        let device = PairedDevice(
+        let viewer = PairedViewer(
             id: pairId,
-            deviceName: "iOS Device",
+            deviceName: "Viewer",
             partnerPublicKey: "",
             partnerPublicKeyId: "",
             pairedAt: Date()
         )
-        settings.addPairing(device)
+        settings.addPairing(viewer)
 
         state = .idle
 
@@ -337,7 +337,7 @@ final public class PairingManager {
         pollingTask = nil
 
         // Notify callback
-        onDevicePaired?(device)
+        onViewerPaired?(viewer)
 
         logger.info("Pairing completed (partner key will be received via WebSocket)", metadata: ["pairId": "\(pairId)"])
     }

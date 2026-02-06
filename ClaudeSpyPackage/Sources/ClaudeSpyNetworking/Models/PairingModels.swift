@@ -61,7 +61,7 @@ public enum PairingResponse: Codable, Sendable, Equatable {
     /// Host successfully registered a pairing code, waiting for viewer to complete
     case registered(RegistrationInfo)
     /// Pairing completed successfully with partner device info
-    case paired(PairedDeviceInfo)
+    case paired(PairedViewerInfo)
     /// Pairing operation failed
     case error(ErrorInfo)
 
@@ -78,7 +78,7 @@ public enum PairingResponse: Codable, Sendable, Equatable {
         partnerPublicKeyId: String,
         partnerUsername: String
     ) -> PairingResponse {
-        .paired(PairedDeviceInfo(
+        .paired(PairedViewerInfo(
             pairId: pairId,
             partnerDeviceName: partnerDeviceName,
             partnerPublicKey: partnerPublicKey,
@@ -102,10 +102,10 @@ public struct RegistrationInfo: Codable, Sendable, Equatable {
 }
 
 /// Info returned when pairing is completed successfully
-public struct PairedDeviceInfo: Codable, Sendable, Equatable {
+public struct PairedViewerInfo: Codable, Sendable, Equatable {
     public let pairId: String
     public let partnerDeviceName: String
-    /// Base64-encoded public key of the partner device for E2EE
+    /// Base64-encoded public key of the partner for E2EE
     public let partnerPublicKey: String
     /// Unique identifier for the partner's public key
     public let partnerPublicKeyId: String

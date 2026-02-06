@@ -250,7 +250,7 @@
 
         /// Capture current content for a pane that is already streaming.
         ///
-        /// This is used when a second iOS device wants to view an already-streaming pane.
+        /// This is used when a second viewer wants to view an already-streaming pane.
         /// Instead of creating a duplicate PaneStreamManager subscription (which would cause
         /// duplicate data forwarding), this captures the current terminal state.
         ///

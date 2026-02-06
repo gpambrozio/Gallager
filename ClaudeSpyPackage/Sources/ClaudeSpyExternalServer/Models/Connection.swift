@@ -6,7 +6,7 @@ struct Connection: Sendable {
     /// The pair this connection belongs to
     let pairId: String
 
-    /// Type of device (mac or ios)
+    /// Type of device (host or viewer)
     let deviceType: DeviceType
 
     /// Unique identifier for the device

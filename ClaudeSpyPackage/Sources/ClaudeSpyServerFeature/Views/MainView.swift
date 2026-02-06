@@ -259,9 +259,9 @@ public struct MainView: View {
 
     @ViewBuilder
     private var connectionStatusIcon: some View {
-        let connectionManager = coordinator.deviceConnectionManager
+        let connectionManager = coordinator.connectedViewerManager
         let combinedState = connectionManager?.combinedState ?? .disconnected
-        let anyDeviceConnected = connectionManager?.anyDeviceConnected ?? false
+        let anyViewerConnected = connectionManager?.anyViewerConnected ?? false
 
         switch combinedState {
         case .disconnected:
@@ -283,9 +283,9 @@ public struct MainView: View {
         case .connected:
             Symbols.wifi.image
                 .foregroundStyle(.green)
-                .help(anyDeviceConnected
-                    ? "Connected - iOS device online"
-                    : "Connected - waiting for iOS")
+                .help(anyViewerConnected
+                    ? "Connected - viewer online"
+                    : "Connected - waiting for viewer")
         case let .error(message):
             Symbols.exclamationmarkTriangle.image
                 .foregroundStyle(.red)
@@ -295,7 +295,7 @@ public struct MainView: View {
 
     @ViewBuilder
     private var connectionActionButton: some View {
-        let connectionManager = coordinator.deviceConnectionManager
+        let connectionManager = coordinator.connectedViewerManager
         let combinedState = connectionManager?.combinedState ?? .disconnected
 
         if !settings.isPaired {

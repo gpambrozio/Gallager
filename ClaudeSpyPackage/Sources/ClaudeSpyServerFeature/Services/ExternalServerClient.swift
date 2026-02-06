@@ -7,7 +7,7 @@ import Logging
 /// Client for connecting to the external relay server via WebSocket.
 ///
 /// Handles bidirectional communication between the host app and the relay server,
-/// forwarding hook events to iOS and receiving commands from iOS.
+/// forwarding hook events to viewers and receiving commands from viewers.
 @Observable
 @MainActor
 final public class ExternalServerClient {
@@ -46,7 +46,7 @@ final public class ExternalServerClient {
     /// Current connection state
     public private(set) var state: ConnectionState = .disconnected
 
-    /// Whether a viewer device is currently connected to the relay
+    /// Whether a viewer is currently connected to the relay
     public private(set) var isViewerConnected = false
 
     /// Name of the connected viewer device (if known)
@@ -113,11 +113,11 @@ final public class ExternalServerClient {
 
     // MARK: - Callbacks
 
-    /// Called when a command is received from iOS.
+    /// Called when a command is received from viewer.
     /// Returns nil if the command sends its own response (e.g., snapshot commands send TerminalSnapshotMessage).
     private var onCommand: (@MainActor @Sendable (CommandMessage) async -> CommandResponseMessage?)?
 
-    /// Called when session state is requested by iOS
+    /// Called when session state is requested by viewer
     private var onSessionStateRequest: (@Sendable () async -> SessionStateMessage)?
 
     /// Called when connection state changes
@@ -132,7 +132,7 @@ final public class ExternalServerClient {
 
     // MARK: - Configuration
 
-    /// Set the handler for commands from iOS.
+    /// Set the handler for commands from viewer.
     /// Handler should return nil if it sends its own response (e.g., snapshot commands).
     public func setCommandHandler(
         _ handler: @escaping @Sendable (CommandMessage) async -> CommandResponseMessage?
@@ -176,7 +176,7 @@ final public class ExternalServerClient {
         }
 
         let sessionState = await onSessionStateRequest()
-        logger.info("Pushing session state to iOS", metadata: [
+        logger.info("Pushing session state to viewer", metadata: [
             "pairId": "\(sessionState.pairId)",
             "sessionCount": "\(sessionState.sessions.count)",
             "paneCount": "\(sessionState.panes?.count ?? 0)",
@@ -196,8 +196,8 @@ final public class ExternalServerClient {
     ///   - publicKey: Base64-encoded public key for E2EE
     ///   - publicKeyId: Unique identifier for the public key
     ///   - e2eeService: E2EE service for encrypting/decrypting messages
-    ///   - partnerPublicKey: Base64-encoded public key of the iOS device (from pairing)
-    ///   - partnerPublicKeyId: Unique identifier for the iOS device's public key
+    ///   - partnerPublicKey: Base64-encoded public key of the viewer (from pairing)
+    ///   - partnerPublicKeyId: Unique identifier for the viewer's public key
     public func connect(
         serverURL: URL,
         pairId: String,
@@ -289,11 +289,11 @@ final public class ExternalServerClient {
 
     // MARK: - Sending Messages
 
-    /// Send a hook event to be relayed to iOS (encrypted)
+    /// Send a hook event to be relayed to viewer (encrypted)
     ///
     /// This also sends an encrypted push notification payload if the event
     /// would trigger a notification. The server uses the push payload to
-    /// send a notification via APNs when iOS is not connected via WebSocket.
+    /// send a notification via APNs when viewer is not connected via WebSocket.
     public func sendHookEvent(_ event: HookEvent) async {
         guard state.isConnected, let pairId else {
             logger.debug("Not connected, cannot send hook event")
@@ -309,7 +309,7 @@ final public class ExternalServerClient {
         await sendEncryptedPushNotification(for: event)
     }
 
-    /// Send terminal stream data to iOS (encrypted)
+    /// Send terminal stream data to viewer (encrypted)
     public func sendTerminalStream(_ streamMessage: TerminalStreamMessage) async {
         guard state.isConnected else {
             logger.debug("Not connected, cannot send terminal stream")
@@ -328,8 +328,8 @@ final public class ExternalServerClient {
     /// Send an encrypted push notification payload for a hook event.
     ///
     /// This is sent alongside the encrypted hook event. The server will:
-    /// - Forward to APNs if iOS is not connected via WebSocket
-    /// - Discard if iOS is already connected (they get the WebSocket message)
+    /// - Forward to APNs if viewer is not connected via WebSocket
+    /// - Discard if viewer is already connected (they get the WebSocket message)
     ///
     /// The iOS Notification Service Extension decrypts the payload and displays
     /// the rich notification content.

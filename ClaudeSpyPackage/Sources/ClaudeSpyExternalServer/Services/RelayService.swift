@@ -33,7 +33,7 @@ actor RelayService {
                 logger.warning("Host connected but no public key available, skipping notification")
                 return
             }
-            let connectedMessage = DeviceConnectedMessage(
+            let connectedMessage = ViewerConnectedMessage(
                 publicKey: hostKeyInfo.key,
                 publicKeyId: hostKeyInfo.keyId
             )
@@ -46,7 +46,7 @@ actor RelayService {
                 logger.warning("Viewer connected but no public key available, skipping notification")
                 return
             }
-            let connectedMessage = DeviceConnectedMessage(
+            let connectedMessage = ViewerConnectedMessage(
                 publicKey: viewerKeyInfo.key,
                 publicKeyId: viewerKeyInfo.keyId
             )
@@ -169,7 +169,7 @@ actor RelayService {
         // Always notify viewer that host has connected (with public key for E2EE)
         // This is needed because the initial notifyConnection is called before registration
         // when we don't have the public key yet
-        let hostConnectedMessage = DeviceConnectedMessage(
+        let hostConnectedMessage = ViewerConnectedMessage(
             publicKey: registration.publicKey,
             publicKeyId: registration.publicKeyId
         )
@@ -179,7 +179,7 @@ actor RelayService {
         // Notify host if viewer is already connected (only if we have their public key)
         if isViewerConnected, let viewerKeyInfo {
             logger.info("Notifying host that viewer is connected, requesting session state")
-            let connectedMessage = DeviceConnectedMessage(
+            let connectedMessage = ViewerConnectedMessage(
                 publicKey: viewerKeyInfo.key,
                 publicKeyId: viewerKeyInfo.keyId
             )
@@ -224,7 +224,7 @@ actor RelayService {
         // Always notify host that viewer has connected (with public key for E2EE)
         // This is needed because the initial notifyConnection is called before registration
         // when we don't have the public key yet
-        let viewerConnectedMessage = DeviceConnectedMessage(
+        let viewerConnectedMessage = ViewerConnectedMessage(
             publicKey: registration.publicKey,
             publicKeyId: registration.publicKeyId
         )
@@ -234,7 +234,7 @@ actor RelayService {
         // Notify viewer if host is already connected (only if we have their public key)
         if isHostConnected, let hostKeyInfo {
             logger.info("Notifying viewer that host is connected, requesting session state")
-            let connectedMessage = DeviceConnectedMessage(
+            let connectedMessage = ViewerConnectedMessage(
                 publicKey: hostKeyInfo.key,
                 publicKeyId: hostKeyInfo.keyId
             )

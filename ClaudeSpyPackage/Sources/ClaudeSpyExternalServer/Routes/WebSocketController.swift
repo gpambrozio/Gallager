@@ -9,7 +9,7 @@ struct WebSocketController: RouteCollection {
     }
 
     /// Handle WebSocket upgrade
-    /// WS /api/ws?pairId=xxx&deviceType=mac|ios&deviceId=xxx
+    /// WS /api/ws?pairId=xxx&deviceType=host|viewer&deviceId=xxx
     @Sendable
     func handleWebSocketUpgrade(req: Request, ws: WebSocket) async {
         // Extract query parameters

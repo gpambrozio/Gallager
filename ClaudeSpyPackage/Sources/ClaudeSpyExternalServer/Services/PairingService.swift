@@ -2,12 +2,12 @@ import ClaudeSpyNetworking
 import Foundation
 import Logging
 
-/// Manages device pairing codes and paired device records
+/// Manages device pairing codes and paired viewer records
 actor PairingService {
     /// Pending pairing codes waiting for completion
     private var pendingCodes: [String: PendingPairing] = [:]
 
-    /// Active paired devices
+    /// Active paired connections
     private var activePairs: [String: Pair] = [:]
 
     /// How long a pairing code remains valid (5 minutes)
@@ -102,7 +102,7 @@ actor PairingService {
         return .registered(pairId: pairId)
     }
 
-    /// Complete pairing from viewer
+    /// Complete pairing from viewer side
     func completePairing(
         code: String,
         deviceId: String,

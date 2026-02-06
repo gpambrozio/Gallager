@@ -11,25 +11,25 @@ public enum SettingsTab: String, Sendable {
     case plugin
 }
 
-// MARK: - Paired Device Model
+// MARK: - Paired Viewer Model
 
-/// Represents a paired iOS device with all connection details.
+/// Represents a paired viewer with all connection details.
 ///
-/// Each iOS device paired with the host app has its own unique `pairId`,
+/// Each viewer paired with the host app has its own unique `pairId`,
 /// cryptographic keys for E2EE, and connection state.
-public struct PairedDevice: Codable, Identifiable, Sendable, Hashable {
+public struct PairedViewer: Codable, Identifiable, Sendable, Hashable {
     // MARK: - Properties
 
     /// Unique pair identifier (also serves as Identifiable id)
     public let id: String
 
-    /// Display name of the iOS device
+    /// Display name of the viewer
     public let deviceName: String
 
-    /// Partner's (iOS) public key for E2EE (Base64-encoded)
+    /// Partner's public key for E2EE (Base64-encoded)
     public let partnerPublicKey: String
 
-    /// Partner's (iOS) public key ID for E2EE
+    /// Partner's public key ID for E2EE
     public let partnerPublicKeyId: String
 
     /// When this pairing was established
@@ -166,8 +166,8 @@ final public class AppSettings {
         didSet { UserDefaults.standard.set(externalServerURL, forKey: Keys.externalServerURL) }
     }
 
-    /// All paired iOS devices (viewers)
-    public private(set) var pairedViewers: [PairedDevice] = [] {
+    /// All paired viewers
+    public private(set) var pairedViewers: [PairedViewer] = [] {
         didSet { savePairedViewers() }
     }
 
@@ -325,7 +325,7 @@ final public class AppSettings {
 
     // MARK: - Computed Properties
 
-    /// Whether at least one iOS device is paired
+    /// Whether at least one viewer is paired
     public var isPaired: Bool {
         !pairedViewers.isEmpty
     }
@@ -335,13 +335,13 @@ final public class AppSettings {
         !pairedHosts.isEmpty
     }
 
-    // MARK: - Paired Devices Storage
+    // MARK: - Paired Viewers Storage
 
-    private static func loadPairedViewers(from defaults: UserDefaults) -> [PairedDevice] {
+    private static func loadPairedViewers(from defaults: UserDefaults) -> [PairedViewer] {
         guard let data = defaults.data(forKey: Keys.pairedViewers) else {
             return []
         }
-        return (try? JSONDecoder().decode([PairedDevice].self, from: data)) ?? []
+        return (try? JSONDecoder().decode([PairedViewer].self, from: data)) ?? []
     }
 
     private func savePairedViewers() {
@@ -369,27 +369,27 @@ final public class AppSettings {
 
     // MARK: - Pairing Management
 
-    /// Add a new paired device
-    public func addPairing(_ device: PairedDevice) {
+    /// Add a new paired viewer
+    public func addPairing(_ viewer: PairedViewer) {
         // Remove any existing pairing with same ID (update case)
-        pairedViewers.removeAll { $0.id == device.id }
-        pairedViewers.append(device)
+        pairedViewers.removeAll { $0.id == viewer.id }
+        pairedViewers.append(viewer)
     }
 
-    /// Remove a paired device by ID
+    /// Remove a paired viewer by ID
     public func removePairing(id: String) {
         pairedViewers.removeAll { $0.id == id }
     }
 
-    /// Get a paired device by ID
-    public func getPairing(id: String) -> PairedDevice? {
+    /// Get a paired viewer by ID
+    public func getPairing(id: String) -> PairedViewer? {
         pairedViewers.first { $0.id == id }
     }
 
-    /// Update a paired device (e.g., custom name or partner key)
-    public func updatePairing(_ device: PairedDevice) {
-        if let index = pairedViewers.firstIndex(where: { $0.id == device.id }) {
-            pairedViewers[index] = device
+    /// Update a paired viewer (e.g., custom name or partner key)
+    public func updatePairing(_ viewer: PairedViewer) {
+        if let index = pairedViewers.firstIndex(where: { $0.id == viewer.id }) {
+            pairedViewers[index] = viewer
         }
     }
 

@@ -32,7 +32,7 @@ public enum WebSocketMessage: Codable, Sendable {
     case command(CommandMessage)
 
     /// Server notifies host that viewer has connected (includes public key for E2EE)
-    case viewerConnected(DeviceConnectedMessage)
+    case viewerConnected(ViewerConnectedMessage)
 
     /// Server notifies host that viewer has disconnected
     case viewerDisconnected
@@ -60,7 +60,7 @@ public enum WebSocketMessage: Codable, Sendable {
     case pushTokenRegistered(PushTokenRegisteredMessage)
 
     /// Server notifies viewer that host has connected (includes public key for E2EE)
-    case hostConnected(DeviceConnectedMessage)
+    case hostConnected(ViewerConnectedMessage)
 
     /// Server notifies viewer that host has disconnected
     case hostDisconnected
@@ -191,7 +191,7 @@ public extension WebSocketMessage {
             let payload = try container.decode(CommandMessage.self, forKey: .payload)
             self = .command(payload)
         case .viewerConnected:
-            let payload = try container.decode(DeviceConnectedMessage.self, forKey: .payload)
+            let payload = try container.decode(ViewerConnectedMessage.self, forKey: .payload)
             self = .viewerConnected(payload)
         case .viewerDisconnected:
             self = .viewerDisconnected
@@ -210,7 +210,7 @@ public extension WebSocketMessage {
             let payload = try container.decode(PushTokenRegisteredMessage.self, forKey: .payload)
             self = .pushTokenRegistered(payload)
         case .hostConnected:
-            let payload = try container.decode(DeviceConnectedMessage.self, forKey: .payload)
+            let payload = try container.decode(ViewerConnectedMessage.self, forKey: .payload)
             self = .hostConnected(payload)
         case .hostDisconnected:
             self = .hostDisconnected
