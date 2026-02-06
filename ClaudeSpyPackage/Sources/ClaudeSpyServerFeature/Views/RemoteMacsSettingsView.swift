@@ -80,7 +80,7 @@ public struct RemoteMacsSettingsView: View {
 
     @ViewBuilder
     private var connectionStatusRow: some View {
-        let hostManager = coordinator.viewerConnectionManager
+        let hostManager = coordinator.hostConnectionManager
         let anyConnected = hostManager?.anyHostConnected ?? false
         let isConnecting = hostManager?.isConnecting ?? false
 
@@ -120,7 +120,7 @@ public struct RemoteMacsSettingsView: View {
 
     @ViewBuilder
     private var connectionActionButton: some View {
-        let hostManager = coordinator.viewerConnectionManager
+        let hostManager = coordinator.hostConnectionManager
         let anyConnected = hostManager?.anyHostConnected ?? false
         let isConnecting = hostManager?.isConnecting ?? false
 
@@ -137,7 +137,7 @@ public struct RemoteMacsSettingsView: View {
                 Task {
                     guard
                         let serverURL = URL(string: settings.externalServerURL),
-                        let hostManager = coordinator.viewerConnectionManager
+                        let hostManager = coordinator.hostConnectionManager
                     else { return }
 
                     await hostManager.connectAll(
@@ -175,7 +175,7 @@ public struct RemoteMacsSettingsView: View {
             ForEach(settings.pairedHosts) { host in
                 HostRow(
                     host: host,
-                    connection: coordinator.viewerConnectionManager?.connection(for: host.id),
+                    connection: coordinator.hostConnectionManager?.connection(for: host.id),
                     showUsername: settings.hasDuplicateHostName(for: host),
                     onEdit: {
                         hostToEdit = host
@@ -201,7 +201,7 @@ public struct RemoteMacsSettingsView: View {
 
     private func removeHost(_ host: PairedHost) async {
         // Disconnect from this host
-        await coordinator.viewerConnectionManager?.disconnect(from: host.id)
+        await coordinator.hostConnectionManager?.disconnect(from: host.id)
 
         // Remove from settings
         settings.removeHostPairing(id: host.id)
