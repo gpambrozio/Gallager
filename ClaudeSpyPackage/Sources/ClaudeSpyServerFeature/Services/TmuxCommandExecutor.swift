@@ -58,18 +58,56 @@ public actor TmuxCommandExecutor {
 
     // MARK: - Private Command Handlers
 
+    /// Executes keystrokes by batching consecutive keys of the same mode together.
+    ///
+    /// Keys are grouped into batches where all keys in a batch have the same
+    /// `requiresLiteralMode` value. This allows multiple arrow keys or other
+    /// special keys to be sent in a single tmux command, avoiding timing issues
+    /// that cause escape sequence fragmentation with rapid keypresses.
+    ///
+    /// For example, pressing Up Up Up rapidly will send all three in one
+    /// `tmux send-keys Up Up Up` command rather than three separate calls.
     private func executeSendKeystroke(paneId: String, keys: [TmuxKey]) async throws {
+        // Group consecutive keys by their literal mode requirement
+        var batches: [(keys: [String], literal: Bool)] = []
+        var currentBatch: [String] = []
+        var currentLiteral: Bool?
+
         for key in keys {
-            // Handle delay specially - sleep instead of sending to tmux
+            // Handle delay specially - flush current batch, sleep, then continue
             if case let .delay(milliseconds) = key {
+                if !currentBatch.isEmpty, let literal = currentLiteral {
+                    batches.append((keys: currentBatch, literal: literal))
+                    currentBatch = []
+                    currentLiteral = nil
+                }
                 try await Task.sleep(for: .milliseconds(milliseconds))
                 continue
             }
 
+            let literal = key.requiresLiteralMode
+
+            // If mode changes, flush the current batch
+            if let prevLiteral = currentLiteral, prevLiteral != literal {
+                batches.append((keys: currentBatch, literal: prevLiteral))
+                currentBatch = []
+            }
+
+            currentBatch.append(key.tmuxKeyName)
+            currentLiteral = literal
+        }
+
+        // Flush remaining batch
+        if !currentBatch.isEmpty, let literal = currentLiteral {
+            batches.append((keys: currentBatch, literal: literal))
+        }
+
+        // Send each batch
+        for batch in batches {
             try await tmuxService.sendKeys(
                 paneId,
-                keys: key.tmuxKeyName,
-                literal: key.requiresLiteralMode
+                keysList: batch.keys,
+                literal: batch.literal
             )
         }
     }

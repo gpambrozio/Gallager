@@ -423,11 +423,28 @@ final public class TmuxService {
     ///   - keys: The keys to send (can be literal text or tmux key names like "Enter", "C-c")
     ///   - literal: If true, sends keys literally without interpreting special names
     public func sendKeys(_ target: String, keys: String, literal: Bool = false) async throws {
+        try await sendKeys(target, keysList: [keys], literal: literal)
+    }
+
+    /// Sends multiple keys to a pane in a single tmux command.
+    ///
+    /// This batches keys together to avoid timing issues with rapid keypresses.
+    /// When pressing arrow keys rapidly, sending them individually can cause
+    /// escape sequence fragmentation and weird characters. Batching ensures
+    /// all keys are processed atomically by tmux.
+    ///
+    /// - Parameters:
+    ///   - target: The pane target
+    ///   - keysList: Array of keys to send (tmux key names or literal text)
+    ///   - literal: If true, sends keys literally without interpreting special names
+    public func sendKeys(_ target: String, keysList: [String], literal: Bool = false) async throws {
+        guard !keysList.isEmpty else { return }
+
         var args = ["send-keys", "-t", target]
         if literal {
             args.append("-l") // Disable key name lookup
         }
-        args.append(keys)
+        args.append(contentsOf: keysList)
 
         let result = try await runTmuxCommand(args)
         guard result.isSuccess else {
