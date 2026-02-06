@@ -25,16 +25,18 @@ public struct MenuBarExtraView: View {
         Divider()
 
         Button {
+            NSApp.setActivationPolicy(.regular)
             openWindow(id: "panes")
-            NSApp.activate(ignoringOtherApps: true)
+            Self.bringAppToFront()
         } label: {
             Label("Show Panes Window", symbol: .terminal)
         }
         .keyboardShortcut("p", modifiers: [.command, .shift])
 
         Button {
+            NSApp.setActivationPolicy(.regular)
             openSettings()
-            NSApp.activate(ignoringOtherApps: true)
+            Self.bringAppToFront()
         } label: {
             Label("Settings...", symbol: .gearshape)
         }
@@ -48,14 +50,30 @@ public struct MenuBarExtraView: View {
         .keyboardShortcut("q", modifiers: .command)
     }
 
+    // MARK: - Helpers
+
+    /// Activates the app and forces all visible windows to the front.
+    /// SwiftUI's openWindow/openSettings defer window creation, so we
+    /// schedule a delayed force-front to catch windows after they appear.
+    static func bringAppToFront() {
+        NSApp.activate()
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(200))
+            NSApp.activate()
+            for window in NSApp.windows where window.isVisible && window.level == .normal {
+                window.orderFrontRegardless()
+            }
+        }
+    }
+
     // MARK: - Session Button
 
     @ViewBuilder
     private func sessionButton(for session: ClaudeSession) -> some View {
         Button {
+            NSApp.setActivationPolicy(.regular)
             Task {
                 await windowManager.openMirrorForPane(session.paneId)
-                NSApp.activate(ignoringOtherApps: true)
             }
         } label: {
             let title = if let latestEvent = session.latestEvent {

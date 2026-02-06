@@ -9,7 +9,7 @@ public struct MainView: View {
     @Environment(TmuxService.self) private var tmuxService
     @Environment(MirrorWindowManager.self) private var windowManager
     @Environment(AppSettings.self) private var settings
-    @Environment(ExternalServerClient.self) private var serverClient
+    @Environment(AppCoordinator.self) private var coordinator
     @Environment(PairingManager.self) private var pairingManager
     @Environment(\.claudeProjectScanner) private var projectScanner
     @Environment(\.e2eeService) private var e2eeService: E2EEService?
@@ -25,12 +25,18 @@ public struct MainView: View {
     @State private var isLoadingProjects = false
     @State private var isCreatingSession = false
     @State private var creatingProjectPath: String?
+    @State private var detailPaneSize: CGSize = .zero
 
     public var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarContent
         } detail: {
             detailContent
+                .onGeometryChange(for: CGSize.self) { proxy in
+                    proxy.size
+                } action: { newSize in
+                    detailPaneSize = newSize
+                }
         }
         .navigationSplitViewStyle(.balanced)
         .navigationTitle("Available Panes")
@@ -146,11 +152,19 @@ public struct MainView: View {
             MirrorWindowView(paneInfo: pane)
                 .id(pane.id)
         } else {
-            ContentUnavailableView(
-                "Select a Pane",
-                symbol: .terminal,
-                description: "Choose a pane from the sidebar to view its mirror."
-            )
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    ContentUnavailableView(
+                        "Select a Pane",
+                        symbol: .terminal,
+                        description: "Choose a pane from the sidebar to view its mirror."
+                    )
+                    Spacer()
+                }
+                Spacer()
+            }
         }
     }
 
@@ -245,7 +259,11 @@ public struct MainView: View {
 
     @ViewBuilder
     private var connectionStatusIcon: some View {
-        switch serverClient.state {
+        let connectionManager = coordinator.deviceConnectionManager
+        let combinedState = connectionManager?.combinedState ?? .disconnected
+        let anyDeviceConnected = connectionManager?.anyDeviceConnected ?? false
+
+        switch combinedState {
         case .disconnected:
             Symbols.wifiSlash.image
                 .foregroundStyle(.secondary)
@@ -265,7 +283,7 @@ public struct MainView: View {
         case .connected:
             Symbols.wifi.image
                 .foregroundStyle(.green)
-                .help(serverClient.isIOSConnected
+                .help(anyDeviceConnected
                     ? "Connected - iOS device online"
                     : "Connected - waiting for iOS")
         case let .error(message):
@@ -277,6 +295,9 @@ public struct MainView: View {
 
     @ViewBuilder
     private var connectionActionButton: some View {
+        let connectionManager = coordinator.deviceConnectionManager
+        let combinedState = connectionManager?.combinedState ?? .disconnected
+
         if !settings.isPaired {
             // Not paired - show generate pair button
             Button("Generate Pair") {
@@ -284,23 +305,23 @@ public struct MainView: View {
             }
             .controlSize(.small)
             .help("Open Remote Access settings to pair with iOS")
-        } else if serverClient.state.isConnected {
+        } else if combinedState.isConnected {
             // Connected - show disconnect button
             Button("Disconnect") {
                 Task {
-                    await serverClient.disconnect()
+                    await connectionManager?.disconnectAll()
                 }
             }
             .controlSize(.small)
             .help("Disconnect from relay server")
-        } else if case .connecting = serverClient.state {
+        } else if case .connecting = combinedState {
             // Connecting - no button
             EmptyView()
-        } else if case .reconnecting = serverClient.state {
+        } else if case .reconnecting = combinedState {
             // Reconnecting - show cancel button
             Button("Cancel") {
                 Task {
-                    await serverClient.disconnect()
+                    await connectionManager?.disconnectAll()
                 }
             }
             .controlSize(.small)
@@ -309,7 +330,7 @@ public struct MainView: View {
             // Disconnected but paired - show connect button
             Button("Connect") {
                 Task {
-                    await connectToServer()
+                    await connectionManager?.connectAll()
                 }
             }
             .controlSize(.small)
@@ -344,30 +365,6 @@ public struct MainView: View {
         }
     }
 
-    private func connectToServer() async {
-        guard
-            let pairId = settings.pairId,
-            let serverURL = URL(string: settings.externalServerURL),
-            let e2eeService
-        else {
-            return
-        }
-
-        let keyInfo = pairingManager.publicKeyInfo
-        await serverClient.connect(
-            serverURL: serverURL,
-            pairId: pairId,
-            deviceId: settings.deviceId,
-            deviceName: Host.current().localizedName ?? "Mac",
-            username: ProcessInfo.processInfo.userName,
-            publicKey: keyInfo.publicKey.base64EncodedString(),
-            publicKeyId: keyInfo.keyId,
-            e2eeService: e2eeService,
-            partnerPublicKey: settings.partnerPublicKey,
-            partnerPublicKeyId: settings.partnerPublicKeyId
-        )
-    }
-
     private func openSettingsToRemoteAccess() {
         // Set the tab to Remote Access before opening settings
         settings.selectedSettingsTab = .remoteAccess
@@ -389,6 +386,43 @@ public struct MainView: View {
         isLoadingProjects = false
     }
 
+    /// Calculates optimal terminal dimensions based on available detail pane space.
+    ///
+    /// Uses the current font settings to determine character cell size and calculates
+    /// how many columns and rows fit in the available space, accounting for UI padding.
+    ///
+    /// - Returns: A tuple of (columns, rows) for the terminal dimensions
+    private func calculateOptimalTerminalDimensions() -> (columns: Int, rows: Int) {
+        // Guard against uninitialized or invalid size
+        guard detailPaneSize.width >= 100, detailPaneSize.height >= 100 else {
+            return (columns: 120, rows: 40)
+        }
+
+        // Calculate cell size using current font settings
+        let cellSize = FontMetrics.calculateCellSize(
+            fontName: settings.fontName,
+            fontSize: CGFloat(settings.fontSize)
+        )
+
+        // Horizontal padding: SwiftTerm scroller buffer
+        let horizontalPadding = FontMetrics.horizontalBuffer
+
+        // Vertical padding: status bar (~28px) + some buffer for spacing
+        let verticalPadding: CGFloat = settings.showStatusBar ? 40 : 10
+
+        // Calculate available content area
+        let availableWidth = max(0, detailPaneSize.width - horizontalPadding)
+        let availableHeight = max(0, detailPaneSize.height - verticalPadding)
+
+        // Apply reasonable bounds
+        // Minimum: 80x24 (standard terminal size)
+        // Maximum: 300x100 (prevent unreasonably large terminals)
+        let columns = max(80, min(300, Int(availableWidth / cellSize.width)))
+        let rows = max(24, min(100, Int(availableHeight / cellSize.height)))
+
+        return (columns, rows)
+    }
+
     private func createNewSession(project: ClaudeProjectInfo?) {
         isCreatingSession = true
         creatingProjectPath = project?.path
@@ -397,20 +431,23 @@ public struct MainView: View {
             do {
                 // Determine session name and working directory
                 let sessionName = project?.name ?? "terminal"
-                let workingDirectory = project?.path
+                let workingDirectory = project?.path ?? FileManager.default.homeDirectoryForCurrentUser.path()
 
-                // Determine if we should run the claude command
-                let runCommand: String? = if workingDirectory != nil && settings.autoRunClaudeInProjects {
+                // Determine if we should run the claude command (only for project sessions)
+                let runCommand: String? = if project != nil && settings.autoRunClaudeInProjects {
                     settings.claudeCommandPath
                 } else {
                     nil
                 }
 
-                // Create the session with reasonable default dimensions
+                // Calculate optimal dimensions based on available space
+                let dimensions = calculateOptimalTerminalDimensions()
+
+                // Create the session with calculated dimensions
                 let (_, paneId) = try await tmuxService.createSession(
                     baseName: sessionName,
-                    width: 120,
-                    height: 40,
+                    width: dimensions.columns,
+                    height: dimensions.rows,
                     workingDirectory: workingDirectory,
                     runCommand: runCommand
                 )

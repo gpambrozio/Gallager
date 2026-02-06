@@ -268,6 +268,12 @@
         func handleStreamMessage(_ message: TerminalStreamMessage) {
             switch message.updateType {
             case let .initialState(initial):
+                // If already streaming, ignore duplicate initialState.
+                // This happens when another iOS device subscribes to the same pane —
+                // the Mac broadcasts initialState to all devices. Replacing the
+                // TerminalState while streaming would break the UIKit onData wiring.
+                guard streamState != .streaming else { return }
+
                 // Create terminal state with initial content
                 guard let content = initial.content else { return }
                 let state = TerminalState(

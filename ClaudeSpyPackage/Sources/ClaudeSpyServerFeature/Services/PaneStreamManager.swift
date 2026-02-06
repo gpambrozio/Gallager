@@ -248,6 +248,22 @@
             context.stream.updateDimensions(width: width, height: height)
         }
 
+        /// Capture current content for a pane that is already streaming.
+        ///
+        /// This is used when a second iOS device wants to view an already-streaming pane.
+        /// Instead of creating a duplicate PaneStreamManager subscription (which would cause
+        /// duplicate data forwarding), this captures the current terminal state.
+        ///
+        /// - Parameter paneId: The pane ID to capture content for
+        /// - Returns: Current content, width, and height if the pane is streaming; nil otherwise
+        public func currentContent(for paneId: String) async -> (content: Data, width: Int, height: Int)? {
+            guard let context = streams[paneId] else { return nil }
+            guard let content = try? await tmuxService.capturePaneWithScrollbackForStreaming(context.target) else {
+                return nil
+            }
+            return (content, context.stream.width, context.stream.height)
+        }
+
         /// Disconnect all streams (called on app shutdown).
         public func disconnectAll() async {
             let paneIds = Array(streams.keys)

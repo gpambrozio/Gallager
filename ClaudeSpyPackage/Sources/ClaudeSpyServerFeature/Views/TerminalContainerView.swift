@@ -90,8 +90,8 @@ struct TerminalContainerView: NSViewRepresentable {
         private var rows = 24
         private var lastExternalWidth = 0
 
-        private var fontName = "SF Mono"
-        private var fontSize: CGFloat = 12
+        private var fontName: String?
+        private var fontSize: CGFloat?
         private var containerSize: NSSize = .zero
 
         private var onStateChange: TerminalStateChangeHandler?
@@ -289,12 +289,13 @@ struct TerminalContainerView: NSViewRepresentable {
         }
 
         private func updateFont(name: String, size: CGFloat) {
-            guard name != fontName || size != fontSize else { return }
+            guard
+                name != fontName || size != fontSize else { return }
             fontName = name
             fontSize = size
 
-            let font = NSFont(name: fontName, size: fontSize)
-                ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            let font = NSFont(name: name, size: size)
+                ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
             terminalView.font = font
             updateTerminalFrameSize()
         }
