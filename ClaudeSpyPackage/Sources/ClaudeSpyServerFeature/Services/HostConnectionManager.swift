@@ -172,7 +172,7 @@ final public class HostConnectionManager {
 
         await connection.disconnect()
         connections.removeValue(forKey: hostId)
-        logger.info("Disconnected from host: \(connection.deviceName)")
+        logger.info("Disconnected from host: \(connection.hostName)")
     }
 
     /// Disconnect from all hosts.

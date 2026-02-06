@@ -13,7 +13,7 @@ final public class ViewerConnection: Identifiable {
     public let id: String
 
     /// The paired host's display name
-    public let deviceName: String
+    public var hostName: String { pairedDevice.hostName }
 
     /// The underlying relay client
     public let relayClient: ViewerRelayClient
@@ -50,7 +50,6 @@ final public class ViewerConnection: Identifiable {
     ///   - e2eeService: The E2EE service for this connection (pre-configured with partner key)
     public init(pairedDevice: PairedHost, e2eeService: E2EEService) {
         self.id = pairedDevice.id
-        self.deviceName = pairedDevice.deviceName
         self.pairedDevice = pairedDevice
         self.e2eeService = e2eeService
         self.relayClient = ViewerRelayClient()

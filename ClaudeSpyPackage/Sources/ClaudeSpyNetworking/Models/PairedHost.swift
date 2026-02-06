@@ -30,9 +30,6 @@ public struct PairedHost: Codable, Identifiable, Sendable, Hashable {
 
     // MARK: - Computed Properties
 
-    /// Alias for `hostName`, used by `ViewerConnection`
-    public var deviceName: String { hostName }
-
     /// Display name for UI (custom name if set, otherwise host name)
     public var displayName: String {
         customName ?? hostName
