@@ -62,6 +62,75 @@ public struct PairedDevice: Codable, Identifiable, Sendable, Hashable {
     }
 }
 
+// MARK: - Paired Mac Host Model
+
+/// Represents a paired Mac host that this Mac can view and control.
+///
+/// This is the inverse of PairedDevice - instead of an iOS device viewing this Mac,
+/// this represents another Mac host that this Mac can connect to as a viewer.
+public struct PairedMacHost: Codable, Identifiable, Sendable, Hashable {
+    // MARK: - Properties
+
+    /// Unique pair identifier (also serves as Identifiable id)
+    public let id: String
+
+    /// Display name of the Mac host
+    public let macName: String
+
+    /// Username on the Mac host (e.g., "john")
+    public let username: String
+
+    /// Mac host's public key for E2EE (Base64-encoded)
+    public let partnerPublicKey: String
+
+    /// Mac host's public key ID for E2EE
+    public let partnerPublicKeyId: String
+
+    /// When this pairing was established
+    public let pairedAt: Date
+
+    /// Optional custom name set by user for this Mac host
+    public var customName: String?
+
+    // MARK: - Computed Properties
+
+    /// Display name for UI (custom name if set, otherwise Mac name)
+    public var displayName: String {
+        customName ?? macName
+    }
+
+    /// Display name including username if available (for disambiguation)
+    public func displayName(showUsername: Bool) -> String {
+        if let custom = customName {
+            return custom
+        }
+        if showUsername {
+            return "\(macName) (\(username))"
+        }
+        return macName
+    }
+
+    // MARK: - Initialization
+
+    public init(
+        id: String,
+        macName: String,
+        username: String,
+        partnerPublicKey: String,
+        partnerPublicKeyId: String,
+        pairedAt: Date = Date(),
+        customName: String? = nil
+    ) {
+        self.id = id
+        self.macName = macName
+        self.username = username
+        self.partnerPublicKey = partnerPublicKey
+        self.partnerPublicKeyId = partnerPublicKeyId
+        self.pairedAt = pairedAt
+        self.customName = customName
+    }
+}
+
 /// Application settings with persistent storage
 @Observable
 @MainActor
@@ -169,6 +238,11 @@ final public class AppSettings {
         didSet { savePairedDevices() }
     }
 
+    /// All paired Mac hosts (other Macs this Mac can view)
+    public private(set) var pairedMacHosts: [PairedMacHost] = [] {
+        didSet { savePairedMacHosts() }
+    }
+
     /// Whether to automatically connect to relay server on launch
     public var autoConnectToServer: Bool {
         didSet { UserDefaults.standard.set(autoConnectToServer, forKey: Keys.autoConnectToServer) }
@@ -236,6 +310,9 @@ final public class AppSettings {
         // Load paired devices
         self.pairedDevices = Self.loadPairedDevices(from: defaults)
 
+        // Load paired Mac hosts
+        self.pairedMacHosts = Self.loadPairedMacHosts(from: defaults)
+
         // Generate device ID if not already set
         if let existingDeviceId = defaults.string(forKey: Keys.deviceId) {
             self.deviceId = existingDeviceId
@@ -275,6 +352,7 @@ final public class AppSettings {
         // Remote Access
         static let externalServerURL = "externalServerURL"
         static let pairedDevices = "pairedDevices"
+        static let pairedMacHosts = "pairedMacHosts"
         static let autoConnectToServer = "autoConnectToServer"
         static let deviceId = "deviceId"
         // Plugin
@@ -319,6 +397,11 @@ final public class AppSettings {
     /// Whether at least one iOS device is paired
     public var isPaired: Bool {
         !pairedDevices.isEmpty
+    }
+
+    /// Whether at least one Mac host is paired for viewing
+    public var hasPairedMacHosts: Bool {
+        !pairedMacHosts.isEmpty
     }
 
     // MARK: - Paired Devices Storage
@@ -366,6 +449,53 @@ final public class AppSettings {
     /// Clear all pairings
     public func clearAllPairings() {
         pairedDevices = []
+    }
+
+    // MARK: - Paired Mac Hosts Storage
+
+    private static func loadPairedMacHosts(from defaults: UserDefaults) -> [PairedMacHost] {
+        guard let data = defaults.data(forKey: Keys.pairedMacHosts) else {
+            return []
+        }
+        return (try? JSONDecoder().decode([PairedMacHost].self, from: data)) ?? []
+    }
+
+    private func savePairedMacHosts() {
+        guard let data = try? JSONEncoder().encode(pairedMacHosts) else {
+            return
+        }
+        UserDefaults.standard.set(data, forKey: Keys.pairedMacHosts)
+    }
+
+    // MARK: - Mac Host Pairing Management
+
+    /// Add a new paired Mac host
+    public func addMacHostPairing(_ host: PairedMacHost) {
+        // Remove any existing pairing with same ID (update case)
+        pairedMacHosts.removeAll { $0.id == host.id }
+        pairedMacHosts.append(host)
+    }
+
+    /// Remove a paired Mac host by ID
+    public func removeMacHostPairing(id: String) {
+        pairedMacHosts.removeAll { $0.id == id }
+    }
+
+    /// Get a paired Mac host by ID
+    public func getMacHostPairing(id: String) -> PairedMacHost? {
+        pairedMacHosts.first { $0.id == id }
+    }
+
+    /// Update a paired Mac host (e.g., custom name or partner key)
+    public func updateMacHostPairing(_ host: PairedMacHost) {
+        if let index = pairedMacHosts.firstIndex(where: { $0.id == host.id }) {
+            pairedMacHosts[index] = host
+        }
+    }
+
+    /// Clear all Mac host pairings
+    public func clearAllMacHostPairings() {
+        pairedMacHosts = []
     }
 }
 

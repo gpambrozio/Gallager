@@ -37,6 +37,12 @@ public enum WebSocketMessage: Codable, Sendable {
     /// Server notifies Mac that iOS has disconnected
     case iosDisconnected
 
+    /// Server notifies Mac that a Mac viewer has connected (includes public key for E2EE)
+    case macViewerConnected(DeviceConnectedMessage)
+
+    /// Server notifies Mac that a Mac viewer has disconnected
+    case macViewerDisconnected
+
     // MARK: - iOS → Server
 
     /// iOS registers with the relay server after connecting
@@ -66,6 +72,18 @@ public enum WebSocketMessage: Codable, Sendable {
     case macDisconnected
 
     // (hookEvent, sessionState, commandResponse are shared with Mac → Server)
+
+    // MARK: - Mac Viewer → Server
+
+    /// Mac viewer registers with the relay server after connecting
+    case registerMacViewer(RegisterMacViewerMessage)
+
+    // MARK: - Server → Mac Viewer
+
+    /// Server confirms Mac viewer registration
+    case macViewerRegistered(MacViewerRegisteredMessage)
+
+    // (macConnected, macDisconnected are shared with Server → iOS)
 
     // MARK: - Bidirectional
 
@@ -150,6 +168,8 @@ public extension WebSocketMessage {
         case command
         case iosConnected
         case iosDisconnected
+        case macViewerConnected
+        case macViewerDisconnected
         case registerIOS
         case requestSessionState
         case registerPushToken
@@ -157,6 +177,8 @@ public extension WebSocketMessage {
         case pushTokenRegistered
         case macConnected
         case macDisconnected
+        case registerMacViewer
+        case macViewerRegistered
         case ping
         case pong
         case error
@@ -195,6 +217,11 @@ public extension WebSocketMessage {
             self = .iosConnected(payload)
         case .iosDisconnected:
             self = .iosDisconnected
+        case .macViewerConnected:
+            let payload = try container.decode(DeviceConnectedMessage.self, forKey: .payload)
+            self = .macViewerConnected(payload)
+        case .macViewerDisconnected:
+            self = .macViewerDisconnected
         case .registerIOS:
             let payload = try container.decode(RegisterIOSMessage.self, forKey: .payload)
             self = .registerIOS(payload)
@@ -214,6 +241,12 @@ public extension WebSocketMessage {
             self = .macConnected(payload)
         case .macDisconnected:
             self = .macDisconnected
+        case .registerMacViewer:
+            let payload = try container.decode(RegisterMacViewerMessage.self, forKey: .payload)
+            self = .registerMacViewer(payload)
+        case .macViewerRegistered:
+            let payload = try container.decode(MacViewerRegisteredMessage.self, forKey: .payload)
+            self = .macViewerRegistered(payload)
         case .ping:
             self = .ping
         case .pong:
@@ -260,6 +293,11 @@ public extension WebSocketMessage {
             try container.encode(payload, forKey: .payload)
         case .iosDisconnected:
             try container.encode(MessageType.iosDisconnected, forKey: .type)
+        case let .macViewerConnected(payload):
+            try container.encode(MessageType.macViewerConnected, forKey: .type)
+            try container.encode(payload, forKey: .payload)
+        case .macViewerDisconnected:
+            try container.encode(MessageType.macViewerDisconnected, forKey: .type)
         case let .registerIOS(payload):
             try container.encode(MessageType.registerIOS, forKey: .type)
             try container.encode(payload, forKey: .payload)
@@ -279,6 +317,12 @@ public extension WebSocketMessage {
             try container.encode(payload, forKey: .payload)
         case .macDisconnected:
             try container.encode(MessageType.macDisconnected, forKey: .type)
+        case let .registerMacViewer(payload):
+            try container.encode(MessageType.registerMacViewer, forKey: .type)
+            try container.encode(payload, forKey: .payload)
+        case let .macViewerRegistered(payload):
+            try container.encode(MessageType.macViewerRegistered, forKey: .type)
+            try container.encode(payload, forKey: .payload)
         case .ping:
             try container.encode(MessageType.ping, forKey: .type)
         case .pong:
@@ -307,6 +351,8 @@ public extension WebSocketMessage {
         case .command: MessageType.command.rawValue
         case .iosConnected: MessageType.iosConnected.rawValue
         case .iosDisconnected: MessageType.iosDisconnected.rawValue
+        case .macViewerConnected: MessageType.macViewerConnected.rawValue
+        case .macViewerDisconnected: MessageType.macViewerDisconnected.rawValue
         case .registerIOS: MessageType.registerIOS.rawValue
         case .requestSessionState: MessageType.requestSessionState.rawValue
         case .registerPushToken: MessageType.registerPushToken.rawValue
@@ -314,6 +360,8 @@ public extension WebSocketMessage {
         case .pushTokenRegistered: MessageType.pushTokenRegistered.rawValue
         case .macConnected: MessageType.macConnected.rawValue
         case .macDisconnected: MessageType.macDisconnected.rawValue
+        case .registerMacViewer: MessageType.registerMacViewer.rawValue
+        case .macViewerRegistered: MessageType.macViewerRegistered.rawValue
         case .ping: MessageType.ping.rawValue
         case .pong: MessageType.pong.rawValue
         case .error: MessageType.error.rawValue

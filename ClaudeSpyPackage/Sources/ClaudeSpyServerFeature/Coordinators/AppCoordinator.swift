@@ -28,6 +28,12 @@
         /// Device connection manager for multiple iOS device connections
         public private(set) var deviceConnectionManager: DeviceConnectionManager?
 
+        /// Host connection manager for viewing remote Mac hosts
+        public private(set) var hostConnectionManager: HostConnectionManager?
+
+        /// Store for remote Mac host sessions
+        public let remoteSessionStore: RemoteSessionStore
+
         /// Error message if service setup failed (e.g., E2EE initialization)
         public private(set) var setupError: String?
 
@@ -40,8 +46,11 @@
         /// Control client manager for tmux control mode connections
         public let controlClientManager: TmuxControlClientManager
 
-        /// Device pairing manager
+        /// Device pairing manager (for iOS devices viewing this Mac)
         public private(set) var pairingManager: PairingManager?
+
+        /// Host pairing manager (for this Mac viewing other Mac hosts)
+        public private(set) var hostPairingManager: HostPairingManager?
 
         /// E2EE service for encryption
         public private(set) var e2eeService: E2EEService?
@@ -128,6 +137,9 @@
             // Create plugin service
             self.pluginService = PluginService()
 
+            // Create remote session store for viewing Mac hosts
+            self.remoteSessionStore = RemoteSessionStore()
+
             // CRITICAL: Load E2EEService synchronously from Keychain BEFORE any view rendering.
             // This prevents createPairingManager() from generating temporary keys.
             if let e2ee = try? E2EEService.loadFromKeychainSync() {
@@ -176,6 +188,7 @@
             await initializeServices()
             await hookServer.startServer()
             await setupDeviceConnectionManager()
+            await setupHostConnectionManager()
             await autoConnectIfConfigured()
 
             // Start periodic validation to clean up stale sessions
@@ -211,6 +224,19 @@
                 manager.onDevicePaired = { [weak self] device in
                     Task { @MainActor in
                         await self?.connectToNewlyPairedDevice(device)
+                    }
+                }
+            }
+
+            // Create HostPairingManager for pairing with other Mac hosts
+            if let service = e2eeService, hostPairingManager == nil {
+                let manager = HostPairingManager(settings: settings, e2eeService: service)
+                hostPairingManager = manager
+
+                // Set up callback for when new Mac hosts are paired
+                manager.onHostPaired = { [weak self] host in
+                    Task { @MainActor in
+                        await self?.connectToNewlyPairedHost(host)
                     }
                 }
             }
@@ -352,6 +378,62 @@
             }
         }
 
+        private func setupHostConnectionManager() async {
+            guard let e2eeService, let keyPair else {
+                logger.warning("Cannot setup HostConnectionManager: E2EE not initialized")
+                return
+            }
+
+            let connectionManager = HostConnectionManager(
+                settings: settings,
+                e2eeService: e2eeService,
+                keyPair: keyPair
+            )
+            hostConnectionManager = connectionManager
+
+            // Set up callbacks for events from Mac hosts
+            let sessionStore = remoteSessionStore
+
+            connectionManager.onHookEvent = { [weak sessionStore] eventMessage in
+                Task { @MainActor in
+                    sessionStore?.handleEvent(eventMessage)
+                }
+            }
+
+            connectionManager.onSessionState = { [weak sessionStore] stateMessage in
+                Task { @MainActor in
+                    sessionStore?.handleStateUpdate(stateMessage)
+                }
+            }
+
+            // For now, terminal streams from remote hosts are stored in remoteSessionStore
+            // They can be used by the UI to display remote terminal content
+            // TODO: Add terminal stream handling if needed for mirror windows
+
+            connectionManager.onPartnerKeyReceived = { [weak self] hostId, publicKey, keyId in
+                self?.updateMacHostPublicKey(hostId: hostId, publicKey: publicKey, publicKeyId: keyId)
+            }
+        }
+
+        /// Update a Mac host's public key when received from the server.
+        private func updateMacHostPublicKey(hostId: String, publicKey: String, publicKeyId: String) {
+            guard let existingHost = settings.getMacHostPairing(id: hostId) else {
+                return
+            }
+
+            // Create updated host with new public key
+            let updatedHost = PairedMacHost(
+                id: existingHost.id,
+                macName: existingHost.macName,
+                username: existingHost.username,
+                partnerPublicKey: publicKey,
+                partnerPublicKeyId: publicKeyId,
+                pairedAt: existingHost.pairedAt,
+                customName: existingHost.customName
+            )
+            settings.updateMacHostPairing(updatedHost)
+        }
+
         /// Updates sleep prevention based on current session count.
         /// Called after hook events and session cleanup.
         private func updateSleepPrevention() {
@@ -374,6 +456,7 @@
                 for await _ in notifications {
                     guard !Task.isCancelled else { break }
                     await self?.deviceConnectionManager?.reconnectAllImmediately()
+                    await self?.hostConnectionManager?.reconnectAllImmediately()
                 }
             }
         }
@@ -431,16 +514,17 @@
         }
 
         private func autoConnectIfConfigured() async {
-            // Auto-connect to all paired devices if configured
-            guard
-                settings.autoConnectToServer,
-                settings.isPaired,
-                let connectionManager = deviceConnectionManager
-            else {
-                return
+            // Auto-connect to all paired iOS devices if configured
+            if settings.autoConnectToServer, settings.isPaired,
+               let connectionManager = deviceConnectionManager {
+                await connectionManager.connectAll()
             }
 
-            await connectionManager.connectAll()
+            // Auto-connect to all paired Mac hosts if configured
+            if settings.autoConnectToServer, !settings.pairedMacHosts.isEmpty,
+               let hostManager = hostConnectionManager {
+                await hostManager.connectAll()
+            }
         }
 
         /// Connect to a newly paired device
@@ -452,6 +536,17 @@
 
             logger.info("Connecting to newly paired device: \(device.displayName)")
             await connectionManager.connect(to: device)
+        }
+
+        /// Connect to a newly paired Mac host
+        private func connectToNewlyPairedHost(_ host: PairedMacHost) async {
+            guard let connectionManager = hostConnectionManager else {
+                logger.warning("Cannot connect to new Mac host: connection manager not initialized")
+                return
+            }
+
+            logger.info("Connecting to newly paired Mac host: \(host.displayName)")
+            await connectionManager.connect(to: host)
         }
     }
 #endif

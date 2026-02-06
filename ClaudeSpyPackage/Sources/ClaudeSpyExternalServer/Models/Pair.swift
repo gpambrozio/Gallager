@@ -39,4 +39,11 @@ struct Pair: Sendable, Codable {
 
     /// iOS push notification token (optional, registered when iOS connects)
     var pushToken: String?
+
+    /// Mac viewer public key for E2EE (Base64-encoded, optional)
+    /// Mutable to allow key updates on reconnection
+    var macViewerPublicKey: String?
+
+    /// Mac viewer public key identifier (optional)
+    var macViewerPublicKeyId: String?
 }

@@ -4,6 +4,15 @@ import ClaudeSpyEncryption
 import ClaudeSpyNetworking
 import SwiftUI
 
+// MARK: - Selection Type
+
+/// Represents a selectable item in the sidebar (local or remote)
+enum SidebarSelection: Hashable {
+    case localPane(PaneInfo)
+    case remoteSession(paneId: String, hostId: String)
+    case remotePlainPane(paneId: String, hostId: String)
+}
+
 /// The main application view showing available tmux panes in a sidebar layout
 public struct MainView: View {
     @Environment(TmuxService.self) private var tmuxService
@@ -16,7 +25,7 @@ public struct MainView: View {
 
     public init() { }
 
-    @State private var selectedPane: PaneInfo?
+    @State private var selection: SidebarSelection?
     @State private var attachError: String?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showingCloseConfirmation = false
@@ -59,11 +68,10 @@ public struct MainView: View {
             }
         }
         .onChange(of: tmuxService.panes) { _, newPanes in
-            // Keep selection valid - if selected pane was removed, clear selection
-            if
-                let selected = selectedPane,
-                !newPanes.contains(where: { $0.id == selected.id }) {
-                selectedPane = nil
+            // Keep selection valid - if selected local pane was removed, clear selection
+            if case let .localPane(pane) = selection,
+               !newPanes.contains(where: { $0.id == pane.id }) {
+                selection = nil
             }
         }
     }
@@ -114,27 +122,91 @@ public struct MainView: View {
     private var paneList: some View {
         let panesWithClaude = tmuxService.panes.filter { windowManager.activeSessions[$0.paneId] != nil }
         let panesWithoutClaude = tmuxService.panes.filter { windowManager.activeSessions[$0.paneId] == nil }
+        let remoteStore = coordinator.remoteSessionStore
 
-        return List(selection: $selectedPane) {
+        return List(selection: $selection) {
+            // Local Claude Sessions
             if !panesWithClaude.isEmpty {
                 Section {
                     ForEach(panesWithClaude) { pane in
                         PaneSidebarRow(pane: pane)
-                            .tag(pane)
+                            .tag(SidebarSelection.localPane(pane))
                     }
                 } header: {
                     SectionHeader(title: "Claude Sessions", symbol: .sparkles)
                 }
             }
 
+            // Local Terminals
             if !panesWithoutClaude.isEmpty {
                 Section {
                     ForEach(panesWithoutClaude) { pane in
                         PaneSidebarRow(pane: pane)
-                            .tag(pane)
+                            .tag(SidebarSelection.localPane(pane))
                     }
                 } header: {
                     SectionHeader(title: "Terminals", symbol: .terminal)
+                }
+            }
+
+            // Remote Mac hosts
+            ForEach(settings.pairedMacHosts) { host in
+                let connection = coordinator.hostConnectionManager?.connection(for: host.id)
+                let isConnected = connection?.isMacHostConnected ?? false
+                let hasReceivedState = remoteStore.hasReceivedState(for: host.id)
+
+                Section {
+                    if isConnected && hasReceivedState {
+                        // Show Claude sessions from this host
+                        let hostSessions = remoteStore.sessions(for: host.id)
+                        if !hostSessions.isEmpty {
+                            ForEach(hostSessions, id: \.paneId) { item in
+                                RemoteSessionRow(
+                                    paneId: item.paneId,
+                                    session: item.session,
+                                    hostId: host.id
+                                )
+                                .tag(SidebarSelection.remoteSession(paneId: item.paneId, hostId: host.id))
+                            }
+                        }
+
+                        // Show plain terminal panes from this host
+                        let hostPanes = remoteStore.panes(for: host.id)
+                        if !hostPanes.isEmpty {
+                            ForEach(hostPanes, id: \.id) { paneInfo in
+                                RemotePaneRow(pane: paneInfo, hostId: host.id)
+                                    .tag(SidebarSelection.remotePlainPane(paneId: paneInfo.id, hostId: host.id))
+                            }
+                        }
+
+                        // Show empty state if no sessions yet
+                        if hostSessions.isEmpty && hostPanes.isEmpty {
+                            Text("No sessions on this Mac")
+                                .foregroundStyle(.secondary)
+                                .font(.caption)
+                        }
+                    } else if isConnected {
+                        HStack {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Loading sessions...")
+                                .foregroundStyle(.secondary)
+                                .font(.caption)
+                        }
+                    } else {
+                        HStack {
+                            Symbols.wifiSlash.image
+                                .foregroundStyle(.secondary)
+                            Text("Disconnected")
+                                .foregroundStyle(.secondary)
+                                .font(.caption)
+                        }
+                    }
+                } header: {
+                    RemoteHostHeader(
+                        host: host,
+                        isConnected: isConnected
+                    )
                 }
             }
         }
@@ -148,23 +220,47 @@ public struct MainView: View {
 
     @ViewBuilder
     private var detailContent: some View {
-        if let pane = selectedPane {
+        switch selection {
+        case let .localPane(pane):
             MirrorWindowView(paneInfo: pane)
                 .id(pane.id)
-        } else {
-            VStack {
+
+        case let .remoteSession(paneId, hostId):
+            if let host = settings.getMacHostPairing(id: hostId),
+               let session = coordinator.remoteSessionStore.session(for: paneId) {
+                RemoteSessionView(paneId: paneId, session: session, host: host)
+                    .id("\(hostId)-\(paneId)")
+            } else {
+                noSelectionView
+            }
+
+        case let .remotePlainPane(paneId, hostId):
+            if let host = settings.getMacHostPairing(id: hostId),
+               let pane = coordinator.remoteSessionStore.panes.first(where: { $0.id == paneId }) {
+                RemotePaneView(pane: pane, host: host)
+                    .id("\(hostId)-\(paneId)")
+            } else {
+                noSelectionView
+            }
+
+        case nil:
+            noSelectionView
+        }
+    }
+
+    private var noSelectionView: some View {
+        VStack {
+            Spacer()
+            HStack {
                 Spacer()
-                HStack {
-                    Spacer()
-                    ContentUnavailableView(
-                        "Select a Pane",
-                        symbol: .terminal,
-                        description: "Choose a pane from the sidebar to view its mirror."
-                    )
-                    Spacer()
-                }
+                ContentUnavailableView(
+                    "Select a Pane",
+                    symbol: .terminal,
+                    description: "Choose a pane from the sidebar to view its mirror."
+                )
                 Spacer()
             }
+            Spacer()
         }
     }
 
@@ -176,9 +272,9 @@ public struct MainView: View {
             connectionStatusView
         }
 
-        // Actions for selected pane
+        // Actions for selected pane (local panes only)
         ToolbarItemGroup(placement: .primaryAction) {
-            if let pane = selectedPane {
+            if case let .localPane(pane) = selection {
                 Button {
                     attachToTerminal(pane)
                 } label: {
@@ -454,7 +550,7 @@ public struct MainView: View {
 
                 // Find the new pane and select it
                 if let newPane = tmuxService.panes.first(where: { $0.paneId == paneId }) {
-                    selectedPane = newPane
+                    selection = .localPane(newPane)
                 }
 
                 showingNewSessionSheet = false
@@ -656,5 +752,114 @@ private struct NewSessionRow: View {
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
+    }
+}
+
+// MARK: - Remote Mac Host Header
+
+/// Header for a remote Mac host section
+private struct RemoteHostHeader: View {
+    let host: PairedMacHost
+    let isConnected: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Symbols.desktopcomputer.image
+                .font(.headline.weight(.semibold))
+
+            Text(host.displayName)
+                .font(.headline.weight(.semibold))
+
+            if isConnected {
+                Circle()
+                    .fill(.green)
+                    .frame(width: 6, height: 6)
+            }
+        }
+        .foregroundStyle(.primary)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+    }
+}
+
+// MARK: - Remote Session Row
+
+/// A row displaying a Claude session from a remote Mac
+private struct RemoteSessionRow: View {
+    let paneId: String
+    let session: ClaudeSession
+    let hostId: String
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(session.displayName)
+                        .font(.system(.body, design: .monospaced))
+
+                    Symbols.sparkles.image
+                        .foregroundStyle(.purple)
+                        .font(.caption)
+
+                    if session.needsAttention {
+                        Circle()
+                            .fill(.orange)
+                            .frame(width: 6, height: 6)
+                    }
+                }
+
+                if let event = session.latestEvent {
+                    Text(event.action.eventName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if let projectPath = session.latestEvent?.projectPath {
+                    Text(projectPath.abbreviatedPath)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 4)
+        .help("Remote Claude session on \(hostId)")
+    }
+}
+
+// MARK: - Remote Pane Row
+
+/// A row displaying a terminal pane from a remote Mac (no Claude session)
+private struct RemotePaneRow: View {
+    let pane: PaneInfoMessage
+    let hostId: String
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(pane.target)
+                    .font(.system(.body, design: .monospaced))
+
+                if let command = pane.command {
+                    Text(command)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                if let path = pane.currentPath {
+                    Text(path.abbreviatedPath)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 4)
+        .help("Remote terminal on \(hostId)")
     }
 }

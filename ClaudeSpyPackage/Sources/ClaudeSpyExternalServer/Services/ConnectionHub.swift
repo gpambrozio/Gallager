@@ -54,6 +54,11 @@ actor ConnectionHub {
         connections[pairId]?[.ios] != nil
     }
 
+    /// Check if a Mac viewer is connected for a pair
+    func isMacViewerConnected(pairId: String) -> Bool {
+        connections[pairId]?[.macViewer] != nil
+    }
+
     /// Get connection for a specific device
     func getConnection(pairId: String, deviceType: DeviceType) -> Connection? {
         connections[pairId]?[deviceType]

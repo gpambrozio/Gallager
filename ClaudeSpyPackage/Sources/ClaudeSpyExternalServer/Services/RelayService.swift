@@ -23,25 +23,32 @@ actor RelayService {
 
     /// Notify paired device of connection/disconnection
     func notifyConnection(pairId: String, deviceType: DeviceType, connected: Bool) async {
-        let targetDevice: DeviceType = deviceType == .mac ? .ios : .mac
+        switch deviceType {
+        case .mac:
+            // Mac host connected/disconnected - notify iOS and Mac viewers
+            if connected {
+                guard let macKeyInfo = await pairingService.getMacPublicKey(pairId: pairId) else {
+                    logger.warning("Mac connected but no public key available, skipping notification")
+                    return
+                }
+                let connectedMessage = DeviceConnectedMessage(
+                    publicKey: macKeyInfo.key,
+                    publicKeyId: macKeyInfo.keyId
+                )
+                let message = WebSocketMessage.macConnected(connectedMessage)
+                await connectionHub.send(message, to: pairId, deviceType: .ios)
+                await connectionHub.send(message, to: pairId, deviceType: .macViewer)
+            } else {
+                await connectionHub.send(.macDisconnected, to: pairId, deviceType: .ios)
+                await connectionHub.send(.macDisconnected, to: pairId, deviceType: .macViewer)
+            }
 
-        let message: WebSocketMessage
-        switch (deviceType, connected) {
-        case (.mac, true):
-            // Mac connected - notify iOS with Mac's public key
-            guard let macKeyInfo = await pairingService.getMacPublicKey(pairId: pairId) else {
-                logger.warning("Mac connected but no public key available, skipping notification")
+        case .ios:
+            // iOS connected - notify Mac with iOS's public key
+            guard connected else {
+                await connectionHub.send(.iosDisconnected, to: pairId, deviceType: .mac)
                 return
             }
-            let connectedMessage = DeviceConnectedMessage(
-                publicKey: macKeyInfo.key,
-                publicKeyId: macKeyInfo.keyId
-            )
-            message = .macConnected(connectedMessage)
-        case (.mac, false):
-            message = .macDisconnected
-        case (.ios, true):
-            // iOS connected - notify Mac with iOS's public key
             guard let iosKeyInfo = await pairingService.getIOSPublicKey(pairId: pairId) else {
                 logger.warning("iOS connected but no public key available, skipping notification")
                 return
@@ -50,12 +57,24 @@ actor RelayService {
                 publicKey: iosKeyInfo.key,
                 publicKeyId: iosKeyInfo.keyId
             )
-            message = .iosConnected(connectedMessage)
-        case (.ios, false):
-            message = .iosDisconnected
-        }
+            await connectionHub.send(.iosConnected(connectedMessage), to: pairId, deviceType: .mac)
 
-        await connectionHub.send(message, to: pairId, deviceType: targetDevice)
+        case .macViewer:
+            // Mac viewer connected - notify Mac host with viewer's public key
+            guard connected else {
+                await connectionHub.send(.macViewerDisconnected, to: pairId, deviceType: .mac)
+                return
+            }
+            guard let viewerKeyInfo = await pairingService.getMacViewerPublicKey(pairId: pairId) else {
+                logger.warning("Mac viewer connected but no public key available, skipping notification")
+                return
+            }
+            let connectedMessage = DeviceConnectedMessage(
+                publicKey: viewerKeyInfo.key,
+                publicKeyId: viewerKeyInfo.keyId
+            )
+            await connectionHub.send(.macViewerConnected(connectedMessage), to: pairId, deviceType: .mac)
+        }
     }
 
     // MARK: - Message Handling
@@ -71,8 +90,10 @@ actor RelayService {
 
         case let .encrypted(encryptedMessage):
             // Pass through encrypted messages - server cannot decrypt or see message type
-            logger.info("Relaying encrypted message to iOS")
+            // Relay to both iOS and Mac viewer devices
+            logger.info("Relaying encrypted message to iOS and Mac viewers")
             await connectionHub.send(.encrypted(encryptedMessage), to: pairId, deviceType: .ios)
+            await connectionHub.send(.encrypted(encryptedMessage), to: pairId, deviceType: .macViewer)
 
         case let .encryptedPush(payload):
             // Encrypted push notification - forward to APNs if iOS is not connected
@@ -133,6 +154,38 @@ actor RelayService {
         }
     }
 
+    /// Handle incoming message from Mac viewer (Mac acting as a viewer for another Mac)
+    func handleMacViewerMessage(_ message: WebSocketMessage, pairId: String) async {
+        logger.info("Mac viewer message received", metadata: ["pairId": "\(pairId)", "type": "\(message.messageType)"])
+
+        switch message {
+        case let .registerMacViewer(registration):
+            logger.info("Mac viewer registering", metadata: ["deviceId": "\(registration.deviceId)"])
+            await handleMacViewerRegistration(registration, pairId: pairId)
+
+        case .requestSessionState:
+            // Forward request to Mac host (this is a control message, not sensitive)
+            let isMacConnected = await connectionHub.isMacConnected(pairId: pairId)
+            logger.info("Mac viewer requesting session state", metadata: ["macConnected": "\(isMacConnected)"])
+            await connectionHub.send(.requestSessionState, to: pairId, deviceType: .mac)
+
+        case let .encrypted(encryptedMessage):
+            // Pass through encrypted messages to Mac host - server cannot decrypt or see message type
+            if await connectionHub.isMacConnected(pairId: pairId) {
+                logger.info("Relaying encrypted message from Mac viewer to Mac host")
+                await connectionHub.send(.encrypted(encryptedMessage), to: pairId, deviceType: .mac)
+            } else {
+                logger.warning("Mac host not connected, cannot relay encrypted command from viewer")
+            }
+
+        case .ping:
+            await connectionHub.send(.pong, to: pairId, deviceType: .macViewer)
+
+        default:
+            logger.warning("Rejected unencrypted message that should be encrypted", metadata: ["type": "\(message.messageType)"])
+        }
+    }
+
     // MARK: - Registration Handlers
 
     private func handleMacRegistration(_ registration: RegisterMacMessage, pairId: String) async {
@@ -173,8 +226,9 @@ actor RelayService {
             publicKey: registration.publicKey,
             publicKeyId: registration.publicKeyId
         )
-        logger.info("Notifying iOS that Mac registered with public key")
+        logger.info("Notifying iOS and Mac viewers that Mac registered with public key")
         await connectionHub.send(.macConnected(macConnectedMessage), to: pairId, deviceType: .ios)
+        await connectionHub.send(.macConnected(macConnectedMessage), to: pairId, deviceType: .macViewer)
 
         // Notify Mac if iOS is already connected (only if we have their public key)
         if isIOSConnected, let iosKeyInfo {
@@ -240,6 +294,60 @@ actor RelayService {
             )
             await connectionHub.send(.macConnected(connectedMessage), to: pairId, deviceType: .ios)
             // Also request current session state from Mac
+            await connectionHub.send(.requestSessionState, to: pairId, deviceType: .mac)
+        }
+    }
+
+    private func handleMacViewerRegistration(_ registration: RegisterMacViewerMessage, pairId: String) async {
+        // Store Mac viewer's public key for the pair
+        await pairingService.updateMacViewerPublicKey(
+            pairId: pairId,
+            publicKey: registration.publicKey,
+            publicKeyId: registration.publicKeyId
+        )
+
+        let macDeviceName = await pairingService.getMacDeviceName(pairId: pairId)
+        let macUsername = await pairingService.getMacUsername(pairId: pairId)
+        let isMacConnected = await connectionHub.isMacConnected(pairId: pairId)
+
+        // Get Mac host public key if available
+        let macKeyInfo = await pairingService.getMacPublicKey(pairId: pairId)
+
+        logger.info("Mac viewer registration complete", metadata: [
+            "pairId": "\(pairId)",
+            "macConnected": "\(isMacConnected)",
+            "macDeviceName": "\(macDeviceName ?? "none")",
+            "hasMacPublicKey": "\(macKeyInfo != nil)",
+        ])
+
+        // Send registration response to Mac viewer (reuse same format as iOS)
+        let response = MacViewerRegisteredMessage(
+            success: true,
+            macDeviceName: macDeviceName,
+            macPublicKey: macKeyInfo?.key,
+            macPublicKeyId: macKeyInfo?.keyId,
+            macUsername: macUsername
+        )
+
+        await connectionHub.send(.macViewerRegistered(response), to: pairId, deviceType: .macViewer)
+
+        // Notify Mac host that a Mac viewer has connected (with public key for E2EE)
+        let viewerConnectedMessage = DeviceConnectedMessage(
+            publicKey: registration.publicKey,
+            publicKeyId: registration.publicKeyId
+        )
+        logger.info("Notifying Mac host that Mac viewer registered with public key")
+        await connectionHub.send(.macViewerConnected(viewerConnectedMessage), to: pairId, deviceType: .mac)
+
+        // Notify Mac viewer if Mac host is already connected (only if we have their public key)
+        if isMacConnected, let macKeyInfo {
+            logger.info("Notifying Mac viewer that Mac host is connected, requesting session state")
+            let connectedMessage = DeviceConnectedMessage(
+                publicKey: macKeyInfo.key,
+                publicKeyId: macKeyInfo.keyId
+            )
+            await connectionHub.send(.macConnected(connectedMessage), to: pairId, deviceType: .macViewer)
+            // Also request current session state from Mac host
             await connectionHub.send(.requestSessionState, to: pairId, deviceType: .mac)
         }
     }

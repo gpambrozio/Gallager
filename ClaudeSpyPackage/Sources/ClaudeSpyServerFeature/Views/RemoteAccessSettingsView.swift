@@ -11,6 +11,7 @@ public struct RemoteAccessSettingsView: View {
     @Environment(\.e2eeService) private var e2eeService: E2EEService?
 
     @State private var showCopiedFeedback = false
+    @State private var showAddMacHostSheet = false
 
     public init() { }
 
@@ -25,11 +26,26 @@ public struct RemoteAccessSettingsView: View {
                 Text("Connection Status")
             }
 
-            // Paired Devices Section
+            // Paired Devices Section (iOS devices viewing this Mac)
             Section {
                 pairedDevicesContent
             } header: {
                 Text("Paired Devices")
+            } footer: {
+                Text("iOS devices that can view this Mac's Claude sessions")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            // Remote Macs Section (other Macs this Mac can view)
+            Section {
+                remoteMacsContent
+            } header: {
+                Text("Remote Macs")
+            } footer: {
+                Text("Other Macs whose Claude sessions you can view from here")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             // Server Configuration
@@ -49,6 +65,9 @@ public struct RemoteAccessSettingsView: View {
         .formStyle(.grouped)
         .frame(minWidth: 400, minHeight: 300)
         .navigationTitle("Remote Access")
+        .sheet(isPresented: $showAddMacHostSheet) {
+            AddMacHostSheet()
+        }
     }
 
     // MARK: - Connection Status Row
@@ -271,6 +290,56 @@ public struct RemoteAccessSettingsView: View {
         }
     }
 
+    // MARK: - Remote Macs Content
+
+    @ViewBuilder
+    private var remoteMacsContent: some View {
+        if settings.hasPairedMacHosts {
+            remoteMacsListView
+        } else {
+            noRemoteMacsView
+        }
+    }
+
+    @ViewBuilder
+    private var remoteMacsListView: some View {
+        ForEach(settings.pairedMacHosts) { host in
+            MacHostRow(
+                host: host,
+                connection: coordinator.hostConnectionManager?.connection(for: host.id),
+                onUnpair: {
+                    Task {
+                        await coordinator.hostPairingManager?.unpair(hostId: host.id)
+                        await coordinator.hostConnectionManager?.disconnect(from: host.id)
+                    }
+                }
+            )
+        }
+
+        Button {
+            showAddMacHostSheet = true
+        } label: {
+            Label("Add Mac", symbol: .plus)
+        }
+        .buttonStyle(.borderless)
+        .padding(.top, 4)
+    }
+
+    @ViewBuilder
+    private var noRemoteMacsView: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("View Claude sessions from other Macs.")
+                .foregroundStyle(.secondary)
+
+            Button {
+                showAddMacHostSheet = true
+            } label: {
+                Label("Add Mac", symbol: .plusCircle)
+            }
+            .buttonStyle(.borderedProminent)
+        }
+    }
+
     // MARK: - Helpers
 
     private func copyToClipboard(_ text: String) {
@@ -374,6 +443,244 @@ private struct DeviceRow: View {
             }
         } else {
             Text("Not connected")
+        }
+    }
+}
+
+// MARK: - Mac Host Row
+
+private struct MacHostRow: View {
+    let host: PairedMacHost
+    let connection: HostConnection?
+    let onUnpair: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            connectionIndicator
+                .font(.title3)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(host.displayName)
+                    .font(.headline)
+
+                Text("\(host.username)@\(host.macName)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            connectionStatusText
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Menu {
+                Button("Unpair", role: .destructive, action: onUnpair)
+            } label: {
+                Symbols.ellipsisCircle.image
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private var connectionIndicator: some View {
+        if let connection {
+            switch connection.state {
+            case .connected where connection.isMacHostConnected:
+                Symbols.checkmarkCircleFill.image
+                    .foregroundStyle(.green)
+            case .connected:
+                Symbols.circle.image
+                    .foregroundStyle(.yellow)
+            case .connecting, .reconnecting:
+                ProgressView()
+                    .controlSize(.small)
+            default:
+                Symbols.circle.image
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            Symbols.circle.image
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var connectionStatusText: some View {
+        if let connection {
+            switch connection.state {
+            case .connected where connection.isMacHostConnected:
+                Text("Connected")
+            case .connected:
+                Text("Waiting for Mac")
+            case .connecting:
+                Text("Connecting...")
+            case let .reconnecting(attempt):
+                Text("Reconnecting (\(attempt))")
+            case .extendedBackoff:
+                Text("Reconnecting...")
+            case let .error(message):
+                Text(message)
+                    .foregroundStyle(.red)
+            case .disconnected:
+                Text("Disconnected")
+            }
+        } else {
+            Text("Not connected")
+        }
+    }
+}
+
+// MARK: - Add Mac Host Sheet
+
+private struct AddMacHostSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(AppCoordinator.self) private var coordinator
+
+    @State private var pairingCode = ""
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+
+    @FocusState private var isCodeFieldFocused: Bool
+
+    private let codeLength = 6
+
+    var body: some View {
+        VStack(spacing: 24) {
+            // Header
+            VStack(spacing: 8) {
+                Symbols.desktopcomputer.image
+                    .font(.system(size: 48))
+                    .foregroundStyle(.secondary)
+
+                Text("Add Remote Mac")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+
+                Text("Enter the pairing code shown on the Mac you want to view")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            // Code input
+            VStack(spacing: 12) {
+                // Hidden text field for keyboard input
+                TextField("", text: $pairingCode)
+                    .focused($isCodeFieldFocused)
+                    .textCase(.uppercase)
+                    .opacity(0.01)
+                    .frame(width: 1, height: 1)
+                    .onChange(of: pairingCode) { _, newValue in
+                        // Filter to letters only and uppercase
+                        let filtered = String(newValue.filter { $0.isLetter }.uppercased().prefix(codeLength))
+                        if filtered != pairingCode {
+                            pairingCode = filtered
+                        }
+
+                        // Auto-submit when complete
+                        if pairingCode.count == codeLength, !isLoading {
+                            submitCode()
+                        }
+                    }
+
+                // Visual code boxes
+                HStack(spacing: 8) {
+                    ForEach(0..<codeLength, id: \.self) { index in
+                        let char = index < pairingCode.count
+                            ? String(pairingCode[pairingCode.index(pairingCode.startIndex, offsetBy: index)])
+                            : ""
+
+                        Text(char)
+                            .font(.system(size: 24, weight: .bold, design: .monospaced))
+                            .frame(width: 36, height: 44)
+                            .background(Color.accentColor.opacity(0.1))
+                            .cornerRadius(8)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(
+                                        index == pairingCode.count
+                                            ? Color.accentColor
+                                            : Color.clear,
+                                        lineWidth: 2
+                                    )
+                            )
+                    }
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    isCodeFieldFocused = true
+                }
+            }
+
+            // Error message
+            if let errorMessage {
+                HStack(spacing: 6) {
+                    Symbols.exclamationmarkTriangle.image
+                    Text(errorMessage)
+                }
+                .foregroundStyle(.red)
+                .font(.caption)
+            }
+
+            // Loading indicator
+            if isLoading {
+                HStack {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Pairing...")
+                }
+            }
+
+            // Buttons
+            HStack {
+                Button("Cancel") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button("Pair") {
+                    submitCode()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(pairingCode.count != codeLength || isLoading)
+            }
+        }
+        .padding(24)
+        .frame(width: 320)
+        .onAppear {
+            Task {
+                try? await Task.sleep(for: .milliseconds(300))
+                isCodeFieldFocused = true
+            }
+        }
+    }
+
+    private func submitCode() {
+        guard pairingCode.count == codeLength else { return }
+        guard let pairingManager = coordinator.hostPairingManager else {
+            errorMessage = "Pairing service not available"
+            return
+        }
+
+        isLoading = true
+        errorMessage = nil
+
+        Task {
+            await pairingManager.completePairing(code: pairingCode)
+
+            if case let .error(message) = pairingManager.state {
+                errorMessage = message
+                pairingCode = ""
+                isLoading = false
+            } else {
+                dismiss()
+            }
         }
     }
 }

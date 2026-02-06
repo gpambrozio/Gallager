@@ -216,6 +216,24 @@ actor PairingService {
         logger.debug("Updated iOS public key for pair", metadata: ["pairId": "\(pairId)"])
     }
 
+    /// Get Mac viewer public key info for a pair
+    func getMacViewerPublicKey(pairId: String) -> (key: String, keyId: String)? {
+        guard let pair = activePairs[pairId],
+              let key = pair.macViewerPublicKey,
+              let keyId = pair.macViewerPublicKeyId else { return nil }
+        return (key, keyId)
+    }
+
+    /// Update Mac viewer public key for a pair (called when Mac viewer connects)
+    func updateMacViewerPublicKey(pairId: String, publicKey: String, publicKeyId: String) {
+        guard var pair = activePairs[pairId] else { return }
+        pair.macViewerPublicKey = publicKey
+        pair.macViewerPublicKeyId = publicKeyId
+        activePairs[pairId] = pair
+        savePairs()
+        logger.debug("Updated Mac viewer public key for pair", metadata: ["pairId": "\(pairId)"])
+    }
+
     // MARK: - Push Token Management
 
     /// Register a push token for a pair

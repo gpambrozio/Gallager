@@ -262,3 +262,60 @@ public struct PairingStatus: Codable, Sendable {
         self.iosConnected = iosConnected
     }
 }
+
+// MARK: - Mac Viewer Registration Messages
+
+/// Message sent by Mac viewer to register with the relay server
+public struct RegisterMacViewerMessage: Codable, Sendable {
+    public let pairId: String
+    public let deviceId: String
+    public let deviceName: String
+    /// Base64-encoded public key for E2EE
+    public let publicKey: String
+    /// Unique identifier for the public key
+    public let publicKeyId: String
+
+    public init(
+        pairId: String,
+        deviceId: String,
+        deviceName: String,
+        publicKey: String,
+        publicKeyId: String
+    ) {
+        self.pairId = pairId
+        self.deviceId = deviceId
+        self.deviceName = deviceName
+        self.publicKey = publicKey
+        self.publicKeyId = publicKeyId
+    }
+}
+
+/// Response confirming Mac viewer registration
+public struct MacViewerRegisteredMessage: Codable, Sendable {
+    public let success: Bool
+    /// Name of paired Mac host device (nil if Mac not connected yet)
+    public let macDeviceName: String?
+    /// Base64-encoded public key of the Mac host device for E2EE (nil if Mac not connected yet)
+    public let macPublicKey: String?
+    /// Unique identifier for the Mac host device's public key (nil if Mac not connected yet)
+    public let macPublicKeyId: String?
+    /// Username of the Mac host user (nil if Mac not connected yet or not provided)
+    public let macUsername: String?
+    public let error: String?
+
+    public init(
+        success: Bool,
+        macDeviceName: String? = nil,
+        macPublicKey: String? = nil,
+        macPublicKeyId: String? = nil,
+        macUsername: String? = nil,
+        error: String? = nil
+    ) {
+        self.success = success
+        self.macDeviceName = macDeviceName
+        self.macPublicKey = macPublicKey
+        self.macPublicKeyId = macPublicKeyId
+        self.macUsername = macUsername
+        self.error = error
+    }
+}
