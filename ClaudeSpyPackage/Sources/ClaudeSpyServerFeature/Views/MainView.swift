@@ -32,6 +32,11 @@ public struct MainView: View {
             sidebarContent
         } detail: {
             detailContent
+                .onGeometryChange(for: CGSize.self) { proxy in
+                    proxy.size
+                } action: { newSize in
+                    detailPaneSize = newSize
+                }
         }
         .navigationSplitViewStyle(.balanced)
         .navigationTitle("Available Panes")
@@ -143,25 +148,22 @@ public struct MainView: View {
 
     @ViewBuilder
     private var detailContent: some View {
-        GeometryReader { geometry in
-            Group {
-                if let pane = selectedPane {
-                    MirrorWindowView(paneInfo: pane)
-                        .id(pane.id)
-                } else {
+        if let pane = selectedPane {
+            MirrorWindowView(paneInfo: pane)
+                .id(pane.id)
+        } else {
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
                     ContentUnavailableView(
                         "Select a Pane",
                         symbol: .terminal,
                         description: "Choose a pane from the sidebar to view its mirror."
                     )
+                    Spacer()
                 }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onChange(of: geometry.size) { _, newSize in
-                detailPaneSize = newSize
-            }
-            .onAppear {
-                detailPaneSize = geometry.size
+                Spacer()
             }
         }
     }
@@ -401,7 +403,7 @@ public struct MainView: View {
         let horizontalPadding = FontMetrics.horizontalBuffer
 
         // Vertical padding: status bar (~28px) + some buffer for spacing
-        let verticalPadding: CGFloat = 40
+        let verticalPadding: CGFloat = settings.showStatusBar ? 40 : 10
 
         // Calculate available content area
         let availableWidth = max(0, detailPaneSize.width - horizontalPadding)
