@@ -23,7 +23,6 @@
 
         @State private var creatingSelection: ProjectPickerSelection?
         @State private var creationError: String?
-        @State private var showProjectPicker = false
         @State private var selectedMacForNewSession: PairedMac?
 
         var body: some View {
@@ -78,15 +77,13 @@
                     Text(error)
                 }
             }
-            .sheet(isPresented: $showProjectPicker) {
-                if let mac = selectedMacForNewSession {
-                    ProjectPickerSheet(
-                        mac: mac,
-                        creatingSelection: creatingSelection
-                    ) { selectedProject in
-                        Task {
-                            await createNewSession(on: mac, inProject: selectedProject)
-                        }
+            .sheet(item: $selectedMacForNewSession) { mac in
+                ProjectPickerSheet(
+                    mac: mac,
+                    creatingSelection: creatingSelection
+                ) { selectedProject in
+                    Task {
+                        await createNewSession(on: mac, inProject: selectedProject)
                     }
                 }
             }
@@ -105,7 +102,6 @@
                         showUsername: settings.hasDuplicateMacName(for: mac),
                         onNewSession: {
                             selectedMacForNewSession = mac
-                            showProjectPicker = true
                         }
                     )
                 }
@@ -198,7 +194,6 @@
             case let .success(response):
                 // Session created - dismiss sheet and clear selection
                 creatingSelection = nil
-                showProjectPicker = false
                 selectedMacForNewSession = nil
 
                 // Request a refresh to update the session list
