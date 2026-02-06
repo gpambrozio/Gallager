@@ -436,10 +436,10 @@ public struct MainView: View {
             do {
                 // Determine session name and working directory
                 let sessionName = project?.name ?? "terminal"
-                let workingDirectory = project?.path
+                let workingDirectory = project?.path ?? FileManager.default.homeDirectoryForCurrentUser.path()
 
-                // Determine if we should run the claude command
-                let runCommand: String? = if workingDirectory != nil && settings.autoRunClaudeInProjects {
+                // Determine if we should run the claude command (only for project sessions)
+                let runCommand: String? = if project != nil && settings.autoRunClaudeInProjects {
                     settings.claudeCommandPath
                 } else {
                     nil
