@@ -422,11 +422,14 @@
                     nil
                 }
 
+                let workingDirectory = spec.workingDirectory
+                    ?? FileManager.default.homeDirectoryForCurrentUser.path()
+
                 let (_, paneId) = try await tmuxService.createSession(
                     baseName: spec.sessionName,
                     width: spec.width,
                     height: spec.height,
-                    workingDirectory: spec.workingDirectory,
+                    workingDirectory: workingDirectory,
                     runCommand: runCommand
                 )
 
