@@ -455,6 +455,124 @@ public struct SubagentStopBody: HookBodyProtocol {
     }
 }
 
+public struct PostToolUseFailureBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public let toolName: String?
+    public let toolInput: ClaudeCodeTool?
+    public let toolUseId: String?
+    public let error: String?
+    public let isInterrupt: Bool?
+    public var shouldSendToServer: Bool { false }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+        case toolName = "tool_name"
+        case toolInput = "tool_input"
+        case toolUseId = "tool_use_id"
+        case error
+        case isInterrupt = "is_interrupt"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.sessionId = try container.decode(String.self, forKey: .sessionId)
+        self.transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
+        self.cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
+        self.hookEventName = try container.decode(String.self, forKey: .hookEventName)
+        self.timestamp = try container.decodeIfPresent(String.self, forKey: .timestamp)
+        self.toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
+        self.toolUseId = try container.decodeIfPresent(String.self, forKey: .toolUseId)
+        self.error = try container.decodeIfPresent(String.self, forKey: .error)
+        self.isInterrupt = try container.decodeIfPresent(Bool.self, forKey: .isInterrupt)
+
+        if container.contains(.toolInput) {
+            self.toolInput = try ClaudeCodeTool.decode(
+                from: container.superDecoder(forKey: .toolInput),
+                toolName: toolName
+            )
+        } else {
+            self.toolInput = nil
+        }
+    }
+}
+
+public struct SubagentStartBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public let agentId: String?
+    public let agentType: String?
+    public var shouldSendToServer: Bool { false }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+        case agentId = "agent_id"
+        case agentType = "agent_type"
+    }
+}
+
+public struct TeammateIdleBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public let teammateName: String?
+    public let teamName: String?
+    public var shouldSendToServer: Bool { true }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+        case teammateName = "teammate_name"
+        case teamName = "team_name"
+    }
+}
+
+public struct TaskCompletedBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public let taskId: String?
+    public let taskSubject: String?
+    public let taskDescription: String?
+    public let teammateName: String?
+    public let teamName: String?
+    public var shouldSendToServer: Bool { true }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+        case taskId = "task_id"
+        case taskSubject = "task_subject"
+        case taskDescription = "task_description"
+        case teammateName = "teammate_name"
+        case teamName = "team_name"
+    }
+}
+
 public struct PreCompactBody: HookBodyProtocol {
     public let sessionId: String
     public let transcriptPath: String?
@@ -631,12 +749,16 @@ public enum HookAction: Codable, Sendable {
     case sessionStart(SessionStartBody)
     case preToolUse(PreToolUseBody)
     case postToolUse(PostToolUseBody)
+    case postToolUseFailure(PostToolUseFailureBody)
     case sessionEnd(SessionEndBody)
     case permissionRequest(PermissionRequestBody)
     case notification(NotificationBody)
     case userPromptSubmit(UserPromptSubmitBody)
     case stop(StopBody)
+    case subagentStart(SubagentStartBody)
     case subagentStop(SubagentStopBody)
+    case teammateIdle(TeammateIdleBody)
+    case taskCompleted(TaskCompletedBody)
     case preCompact(PreCompactBody)
     case unknown(CommonHookFields)
 
@@ -649,12 +771,16 @@ public enum HookAction: Codable, Sendable {
         case sessionStart
         case preToolUse
         case postToolUse
+        case postToolUseFailure
         case sessionEnd
         case permissionRequest
         case notification
         case userPromptSubmit
         case stop
+        case subagentStart
         case subagentStop
+        case teammateIdle
+        case taskCompleted
         case preCompact
         case unknown
     }
@@ -673,6 +799,9 @@ public enum HookAction: Codable, Sendable {
         case .postToolUse:
             let body = try container.decode(PostToolUseBody.self, forKey: .body)
             self = .postToolUse(body)
+        case .postToolUseFailure:
+            let body = try container.decode(PostToolUseFailureBody.self, forKey: .body)
+            self = .postToolUseFailure(body)
         case .sessionEnd:
             let body = try container.decode(SessionEndBody.self, forKey: .body)
             self = .sessionEnd(body)
@@ -688,9 +817,18 @@ public enum HookAction: Codable, Sendable {
         case .stop:
             let body = try container.decode(StopBody.self, forKey: .body)
             self = .stop(body)
+        case .subagentStart:
+            let body = try container.decode(SubagentStartBody.self, forKey: .body)
+            self = .subagentStart(body)
         case .subagentStop:
             let body = try container.decode(SubagentStopBody.self, forKey: .body)
             self = .subagentStop(body)
+        case .teammateIdle:
+            let body = try container.decode(TeammateIdleBody.self, forKey: .body)
+            self = .teammateIdle(body)
+        case .taskCompleted:
+            let body = try container.decode(TaskCompletedBody.self, forKey: .body)
+            self = .taskCompleted(body)
         case .preCompact:
             let body = try container.decode(PreCompactBody.self, forKey: .body)
             self = .preCompact(body)
@@ -713,6 +851,9 @@ public enum HookAction: Codable, Sendable {
         case let .postToolUse(body):
             try container.encode(ActionType.postToolUse, forKey: .type)
             try container.encode(body, forKey: .body)
+        case let .postToolUseFailure(body):
+            try container.encode(ActionType.postToolUseFailure, forKey: .type)
+            try container.encode(body, forKey: .body)
         case let .sessionEnd(body):
             try container.encode(ActionType.sessionEnd, forKey: .type)
             try container.encode(body, forKey: .body)
@@ -728,8 +869,17 @@ public enum HookAction: Codable, Sendable {
         case let .stop(body):
             try container.encode(ActionType.stop, forKey: .type)
             try container.encode(body, forKey: .body)
+        case let .subagentStart(body):
+            try container.encode(ActionType.subagentStart, forKey: .type)
+            try container.encode(body, forKey: .body)
         case let .subagentStop(body):
             try container.encode(ActionType.subagentStop, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .teammateIdle(body):
+            try container.encode(ActionType.teammateIdle, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .taskCompleted(body):
+            try container.encode(ActionType.taskCompleted, forKey: .type)
             try container.encode(body, forKey: .body)
         case let .preCompact(body):
             try container.encode(ActionType.preCompact, forKey: .type)
@@ -746,12 +896,16 @@ public enum HookAction: Codable, Sendable {
         case let .sessionStart(body): body
         case let .preToolUse(body): body
         case let .postToolUse(body): body
+        case let .postToolUseFailure(body): body
         case let .sessionEnd(body): body
         case let .permissionRequest(body): body
         case let .notification(body): body
         case let .userPromptSubmit(body): body
         case let .stop(body): body
+        case let .subagentStart(body): body
         case let .subagentStop(body): body
+        case let .teammateIdle(body): body
+        case let .taskCompleted(body): body
         case let .preCompact(body): body
         case let .unknown(body): body
         }
@@ -786,6 +940,8 @@ public enum HookAction: Codable, Sendable {
             body.toolName ?? "Tool Use"
         case let .postToolUse(body):
             "Done: \(body.toolName ?? "Tool")"
+        case let .postToolUseFailure(body):
+            "Failed: \(body.toolName ?? "Tool")"
         case let .permissionRequest(body):
             "Permission: \(body.toolName ?? "Request")"
         case let .notification(body):
@@ -794,8 +950,14 @@ public enum HookAction: Codable, Sendable {
             "Prompt Submitted"
         case .stop:
             "Session Idle"
+        case let .subagentStart(body):
+            "Subagent: \(body.agentType ?? "Started")"
         case .subagentStop:
             "Subagent Stopped"
+        case let .teammateIdle(body):
+            "Teammate Idle: \(body.teammateName ?? "Unknown")"
+        case let .taskCompleted(body):
+            "Task Done: \(body.taskSubject ?? "Unknown")"
         case let .preCompact(body):
             "Compacting (\(body.trigger ?? "unknown"))"
         case let .unknown(body):
@@ -814,6 +976,8 @@ public enum HookAction: Codable, Sendable {
             body.toolInput?.summary
         case let .postToolUse(body):
             body.toolInput?.summary
+        case let .postToolUseFailure(body):
+            body.error ?? body.toolInput?.summary
         case let .permissionRequest(body):
             body.permissionMode
         case let .notification(body):
@@ -821,8 +985,13 @@ public enum HookAction: Codable, Sendable {
         case let .userPromptSubmit(body):
             body.prompt
         case .stop,
+             .subagentStart,
              .subagentStop:
             nil
+        case let .teammateIdle(body):
+            body.teamName
+        case let .taskCompleted(body):
+            body.taskDescription
         case let .preCompact(body):
             body.customInstructions
         case .unknown:
@@ -847,6 +1016,9 @@ public enum HookAction: Codable, Sendable {
         case "PostToolUse":
             let body = try decoder.decode(PostToolUseBody.self, from: jsonData)
             return .postToolUse(body)
+        case "PostToolUseFailure":
+            let body = try decoder.decode(PostToolUseFailureBody.self, from: jsonData)
+            return .postToolUseFailure(body)
         case "SessionEnd":
             let body = try decoder.decode(SessionEndBody.self, from: jsonData)
             return .sessionEnd(body)
@@ -862,9 +1034,18 @@ public enum HookAction: Codable, Sendable {
         case "Stop":
             let body = try decoder.decode(StopBody.self, from: jsonData)
             return .stop(body)
+        case "SubagentStart":
+            let body = try decoder.decode(SubagentStartBody.self, from: jsonData)
+            return .subagentStart(body)
         case "SubagentStop":
             let body = try decoder.decode(SubagentStopBody.self, from: jsonData)
             return .subagentStop(body)
+        case "TeammateIdle":
+            let body = try decoder.decode(TeammateIdleBody.self, from: jsonData)
+            return .teammateIdle(body)
+        case "TaskCompleted":
+            let body = try decoder.decode(TaskCompletedBody.self, from: jsonData)
+            return .taskCompleted(body)
         case "PreCompact":
             let body = try decoder.decode(PreCompactBody.self, from: jsonData)
             return .preCompact(body)

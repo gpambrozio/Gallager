@@ -18,6 +18,12 @@ public extension HookEventMessage {
             } else {
                 return nil
             }
+        case let .teammateIdle(idleBody):
+            let teammate = idleBody.teammateName ?? "A teammate"
+            body = "\(projectName): \(teammate) is idle"
+        case let .taskCompleted(taskBody):
+            let subject = taskBody.taskSubject ?? "A task"
+            body = "\(projectName): \(subject) completed"
         default:
             return nil
         }
