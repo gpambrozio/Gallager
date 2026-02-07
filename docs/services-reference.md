@@ -124,7 +124,7 @@ TmuxControlClient ──%layout-change──→ buffers output
 
 ### HookServerService (`ClaudeSpyServerFeature/Hooks/HookServerService.swift`)
 
-`actor` HTTP server on port 6111.
+`actor` HTTP server on a dynamically allocated port (written to `~/.claudespy-port`).
 
 **Endpoints:**
 - `GET /health` - Health check

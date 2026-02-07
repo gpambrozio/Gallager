@@ -5,6 +5,15 @@ from urllib.request import urlopen, Request
 from urllib.parse import urlencode
 from urllib.error import URLError
 
+def read_port():
+    """Read the hook server port from the per-user port file."""
+    port_file = os.path.expanduser('~/.claudespy-port')
+    try:
+        with open(port_file, 'r') as f:
+            return int(f.read().strip())
+    except (FileNotFoundError, ValueError):
+        return None
+
 def main():
     tmux_pane = os.environ.get('TMUX_PANE', '')
 
@@ -12,7 +21,11 @@ def main():
         # Exit if not running inside tmux
         exit(0)
 
-    port = 6111
+    port = read_port()
+    if port is None:
+        # ClaudeSpy is not running or port file missing
+        exit(0)
+
     project_path = os.environ.get('CLAUDE_PROJECT_DIR', '')
 
     # Read stdin

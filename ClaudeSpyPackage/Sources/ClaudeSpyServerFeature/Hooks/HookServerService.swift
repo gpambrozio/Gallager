@@ -4,8 +4,12 @@ import Vapor
 
 /// Service that runs a local HTTP server to receive Claude Code hook events.
 ///
-/// The server listens on localhost:6111 and accepts POST requests at `/api/hooks`
-/// from the Claude Code plugin. Hook events are parsed and forwarded via callback.
+/// The server listens on localhost with a dynamically allocated port and accepts
+/// POST requests at `/api/hooks` from the Claude Code plugin. Hook events are
+/// parsed and forwarded via callback.
+///
+/// The actual port is written to `~/.claudespy-port` so hook scripts can discover it.
+/// This enables multiple users to run ClaudeSpy simultaneously on the same machine.
 public actor HookServerService {
     // MARK: - Properties
 
@@ -17,14 +21,20 @@ public actor HookServerService {
     /// Whether the server is currently running
     public private(set) var isRunning = false
 
-    /// The port the server listens on (matches hook.py)
-    public nonisolated let serverPort = 6_111
+    /// The actual port the server is listening on (resolved after startup)
+    public private(set) var serverPort: Int?
 
     /// Last error message if server failed to start
     public private(set) var lastError: String?
 
     /// Unified callback for all hook events
     private var onHookEvent: (@Sendable (HookEvent) async -> Void)?
+
+    /// Path to the port file for hook script discovery
+    private static var portFilePath: String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return "\(home)/.claudespy-port"
+    }
 
     // MARK: - Initialization
 
@@ -53,10 +63,18 @@ public actor HookServerService {
 
             try await app.startup()
 
+            // Resolve the actual port from the bound socket
+            let actualPort = app.http.server.shared.localAddress?.port
+            serverPort = actualPort
+
+            if let actualPort {
+                writePortFile(port: actualPort)
+            }
+
             isRunning = true
             lastError = nil
 
-            logger.info("Hook server started on port \(serverPort)")
+            logger.info("Hook server started on port \(actualPort.map(String.init) ?? "unknown")")
         } catch {
             lastError = error.localizedDescription
             isRunning = false
@@ -72,8 +90,11 @@ public actor HookServerService {
         }
 
         isRunning = false
+        serverPort = nil
         app = nil
         lastError = nil
+
+        removePortFile()
 
         logger.info("Hook server stopped")
     }
@@ -82,12 +103,38 @@ public actor HookServerService {
 
     private func createApplication() async throws -> Application {
         let app = try await Application.make(.testing)
-        app.http.server.configuration.port = serverPort
+        // Use port 0 to let the OS assign an available port
+        app.http.server.configuration.port = 0
         app.http.server.configuration.hostname = "localhost"
 
         configureRoutes(app)
 
         return app
+    }
+
+    // MARK: - Port File Management
+
+    /// Writes the actual listening port to a per-user file for hook script discovery.
+    private func writePortFile(port: Int) {
+        let path = Self.portFilePath
+        do {
+            try String(port).write(toFile: path, atomically: true, encoding: .utf8)
+            logger.info("Wrote port file: \(path) with port \(port)")
+        } catch {
+            logger.error("Failed to write port file at \(path): \(error)")
+        }
+    }
+
+    /// Removes the port file on shutdown.
+    private func removePortFile() {
+        let path = Self.portFilePath
+        do {
+            try FileManager.default.removeItem(atPath: path)
+            logger.info("Removed port file: \(path)")
+        } catch {
+            // File may not exist, which is fine
+            logger.debug("Port file removal skipped: \(error)")
+        }
     }
 
     private func configureRoutes(_ app: Application) {
