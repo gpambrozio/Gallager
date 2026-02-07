@@ -731,6 +731,8 @@ private struct NewSessionContent: View {
     let creatingSelection: NewSessionCreatingState?
     let onCreate: (ClaudeProjectInfo?) -> Void
 
+    @Environment(\.dismiss) private var dismiss
+
     private var isCreating: Bool {
         creatingSelection != nil
     }
@@ -753,6 +755,7 @@ private struct NewSessionContent: View {
                         isCreating: creatingSelection == .newTerminal,
                         isDisabled: isCreating
                     ) {
+                        dismiss()
                         onCreate(nil)
                     }
 
@@ -781,6 +784,7 @@ private struct NewSessionContent: View {
                                 isCreating: creatingSelection == .project(project.id),
                                 isDisabled: isCreating
                             ) {
+                                dismiss()
                                 onCreate(project)
                             }
                         }
