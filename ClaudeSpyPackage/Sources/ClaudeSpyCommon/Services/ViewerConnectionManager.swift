@@ -283,6 +283,42 @@ final public class ViewerConnectionManager {
         }
     #endif
 
+    // MARK: - Server Pairing Cleanup
+
+    /// Deletes a pairing record from the relay server via HTTP DELETE.
+    ///
+    /// This is a fire-and-forget fallback for when the WebSocket `unpairNotification`
+    /// cannot reach the partner (e.g. partner is offline). Matches the pattern used
+    /// by `PairingManager.deletePairing` on the host side.
+    ///
+    /// - Parameters:
+    ///   - pairId: The pair ID to delete
+    ///   - serverURL: The relay server URL (wss/ws scheme is converted to https/http)
+    public static func deletePairFromServer(pairId: String, serverURL: String) async {
+        let logger = Logger(label: "com.claudespy.viewerconnectionmanager")
+
+        let httpURL = serverURL
+            .replacingOccurrences(of: "wss://", with: "https://")
+            .replacingOccurrences(of: "ws://", with: "http://")
+
+        guard let url = URL(string: "\(httpURL)/api/pairing/\(pairId)") else {
+            logger.error("Failed to build DELETE URL for pair: \(pairId)")
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            if let httpResponse = response as? HTTPURLResponse {
+                logger.info("DELETE /api/pairing/\(pairId) responded with status \(httpResponse.statusCode)")
+            }
+        } catch {
+            logger.debug("DELETE /api/pairing/\(pairId) failed (fire-and-forget): \(error)")
+        }
+    }
+
     // MARK: - Private Helpers
 
     private func createE2EEService(for host: PairedHost) async -> E2EEService? {

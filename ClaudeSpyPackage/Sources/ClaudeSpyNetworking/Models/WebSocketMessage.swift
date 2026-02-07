@@ -117,6 +117,8 @@ public struct ErrorMessage: Codable, Sendable {
     public let message: String
     public let recoverable: Bool
 
+    public static let invalidPairCode = "INVALID_PAIR"
+
     public init(code: String, message: String, recoverable: Bool = true) {
         self.code = code
         self.message = message
@@ -124,7 +126,7 @@ public struct ErrorMessage: Codable, Sendable {
     }
 
     public static func invalidPair() -> ErrorMessage {
-        ErrorMessage(code: "INVALID_PAIR", message: "Pair ID is invalid or expired", recoverable: false)
+        ErrorMessage(code: invalidPairCode, message: "Pair ID is invalid or expired", recoverable: false)
     }
 
     public static func notConnected(_ device: String) -> ErrorMessage {

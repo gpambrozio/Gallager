@@ -86,6 +86,13 @@
             // Send unpair notification via WebSocket (notifies partner and server)
             await connectionManager.sendUnpairNotification(to: host.id)
 
+            // HTTP DELETE fallback in case the partner is offline and the WebSocket
+            // notification didn't reach the server's pairing record
+            let serverURL = settings.externalServerURL
+            Task {
+                await ViewerConnectionManager.deletePairFromServer(pairId: host.id, serverURL: serverURL)
+            }
+
             // Delete encryption session key for this host
             let keyManager = KeyManager(accessGroup: sharedKeychainAccessGroup)
             try? await keyManager.deleteSessionKey(for: host.id)

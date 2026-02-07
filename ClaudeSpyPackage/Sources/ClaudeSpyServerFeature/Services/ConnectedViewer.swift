@@ -465,7 +465,13 @@ final public class ConnectedViewer: Identifiable {
 
         case let .error(errorMessage):
             logger.error("Server error: \(errorMessage.message)")
-            if !errorMessage.recoverable {
+            if errorMessage.code == ErrorMessage.invalidPairCode {
+                logger.warning("Pair \(id) is invalid on server, triggering local cleanup")
+                if let onUnpaired {
+                    await onUnpaired()
+                }
+                await disconnect()
+            } else if !errorMessage.recoverable {
                 await updateState(.error(errorMessage.message))
                 await disconnect()
             }
