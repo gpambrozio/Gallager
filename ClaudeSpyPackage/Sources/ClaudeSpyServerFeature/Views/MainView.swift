@@ -16,7 +16,9 @@ public struct MainView: View {
 
     public init() { }
 
+    /// Selection state: either a local pane or a remote pane (hostId + paneId)
     @State private var selectedPane: PaneInfo?
+    @State private var selectedRemotePane: RemotePaneSelection?
     @State private var attachError: String?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showingCloseConfirmation = false
@@ -73,11 +75,11 @@ public struct MainView: View {
     @ViewBuilder
     private var sidebarContent: some View {
         Group {
-            if tmuxService.isRefreshing && tmuxService.panes.isEmpty {
+            if tmuxService.isRefreshing && tmuxService.panes.isEmpty && !settings.hasRemoteHosts {
                 loadingView
-            } else if let error = tmuxService.lastError, tmuxService.panes.isEmpty {
+            } else if let error = tmuxService.lastError, tmuxService.panes.isEmpty, !settings.hasRemoteHosts {
                 errorView(error)
-            } else if tmuxService.panes.isEmpty {
+            } else if tmuxService.panes.isEmpty && !settings.hasRemoteHosts {
                 emptyView
             } else {
                 paneList
@@ -115,12 +117,18 @@ public struct MainView: View {
         let panesWithClaude = tmuxService.panes.filter { windowManager.activeSessions[$0.paneId] != nil }
         let panesWithoutClaude = tmuxService.panes.filter { windowManager.activeSessions[$0.paneId] == nil }
 
-        return List(selection: $selectedPane) {
+        return List {
+            // Local pane sections
             if !panesWithClaude.isEmpty {
                 Section {
                     ForEach(panesWithClaude) { pane in
                         PaneSidebarRow(pane: pane)
-                            .tag(pane)
+                            .listRowBackground(selectedPane == pane && selectedRemotePane == nil ? Color.accentColor.opacity(0.2) : nil)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectedPane = pane
+                                selectedRemotePane = nil
+                            }
                     }
                 } header: {
                     SectionHeader(title: "Claude Sessions", symbol: .sparkles)
@@ -131,16 +139,38 @@ public struct MainView: View {
                 Section {
                     ForEach(panesWithoutClaude) { pane in
                         PaneSidebarRow(pane: pane)
-                            .tag(pane)
+                            .listRowBackground(selectedPane == pane && selectedRemotePane == nil ? Color.accentColor.opacity(0.2) : nil)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectedPane = pane
+                                selectedRemotePane = nil
+                            }
                     }
                 } header: {
                     SectionHeader(title: "Terminals", symbol: .terminal)
+                }
+            }
+
+            // Remote host sections
+            if settings.hasRemoteHosts, let sessionStore = coordinator.remoteSessionStore {
+                ForEach(settings.pairedHosts) { host in
+                    RemoteHostSidebarSection(
+                        host: host,
+                        connection: coordinator.viewerConnectionManager?.connection(for: host.id),
+                        sessionStore: sessionStore,
+                        selectedRemotePane: $selectedRemotePane,
+                        onSelect: { selection in
+                            selectedRemotePane = selection
+                            selectedPane = nil
+                        }
+                    )
                 }
             }
         }
         .listStyle(.sidebar)
         .refreshable {
             await refreshPanes()
+            await coordinator.viewerConnectionManager?.requestAllSessionStates()
         }
     }
 
@@ -148,7 +178,16 @@ public struct MainView: View {
 
     @ViewBuilder
     private var detailContent: some View {
-        if let pane = selectedPane {
+        if let remote = selectedRemotePane,
+           let connection = coordinator.viewerConnectionManager?.connection(for: remote.hostId) {
+            RemoteTerminalContainerView(
+                paneId: remote.paneId,
+                hostName: remote.hostName,
+                connection: connection,
+                settings: settings
+            )
+            .id("remote-\(remote.hostId)-\(remote.paneId)")
+        } else if let pane = selectedPane {
             MirrorWindowView(paneInfo: pane)
                 .id(pane.id)
         } else {
@@ -178,7 +217,7 @@ public struct MainView: View {
 
         // Actions for selected pane
         ToolbarItemGroup(placement: .primaryAction) {
-            if let pane = selectedPane {
+            if selectedRemotePane == nil, let pane = selectedPane {
                 Button {
                     attachToTerminal(pane)
                 } label: {
@@ -604,6 +643,151 @@ private struct NewSessionPopover: View {
             .frame(maxHeight: 300)
         }
         .frame(width: 280)
+    }
+}
+
+// MARK: - Remote Pane Selection
+
+/// Identifies a selected remote pane by host and pane ID
+private struct RemotePaneSelection: Equatable, Hashable {
+    let hostId: String
+    let hostName: String
+    let paneId: String
+}
+
+// MARK: - Remote Host Sidebar Section
+
+/// Sidebar section for a remote Mac host's sessions and panes
+private struct RemoteHostSidebarSection: View {
+    let host: PairedHost
+    let connection: ViewerConnection?
+    let sessionStore: SessionStore
+    @Binding var selectedRemotePane: RemotePaneSelection?
+    let onSelect: (RemotePaneSelection) -> Void
+
+    @Environment(AppSettings.self) private var settings
+
+    private var sessions: [(paneId: String, session: ClaudeSession)] {
+        sessionStore.sessions(for: host.id)
+    }
+
+    private var panes: [PaneInfoMessage] {
+        sessionStore.panes(for: host.id)
+    }
+
+    private var hasContent: Bool {
+        !sessions.isEmpty || !panes.isEmpty
+    }
+
+    var body: some View {
+        Section {
+            if hasContent {
+                ForEach(sessions, id: \.paneId) { item in
+                    RemotePaneSidebarRow(
+                        title: item.session.displayName,
+                        subtitle: item.paneId,
+                        hasClaude: true
+                    )
+                    .listRowBackground(
+                        selectedRemotePane?.paneId == item.paneId && selectedRemotePane?.hostId == host.id
+                            ? Color.accentColor.opacity(0.2) : nil
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        onSelect(RemotePaneSelection(
+                            hostId: host.id,
+                            hostName: host.displayName,
+                            paneId: item.paneId
+                        ))
+                    }
+                }
+
+                ForEach(panes) { pane in
+                    RemotePaneSidebarRow(
+                        title: pane.currentPath.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? pane.id,
+                        subtitle: "\(pane.sessionName):\(pane.windowIndex).\(pane.paneIndex)",
+                        hasClaude: false
+                    )
+                    .listRowBackground(
+                        selectedRemotePane?.paneId == pane.id && selectedRemotePane?.hostId == host.id
+                            ? Color.accentColor.opacity(0.2) : nil
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        onSelect(RemotePaneSelection(
+                            hostId: host.id,
+                            hostName: host.displayName,
+                            paneId: pane.id
+                        ))
+                    }
+                }
+            } else if connection?.isHostConnected == true {
+                Text("No active sessions")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+            } else {
+                Text("Host offline")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+            }
+        } header: {
+            HStack(spacing: 6) {
+                Symbols.laptopcomputer.image
+                    .font(.headline.weight(.semibold))
+
+                Text(host.displayName(showUsername: settings.hasDuplicateHostName(for: host)))
+                    .font(.headline.weight(.semibold))
+
+                Spacer()
+
+                Circle()
+                    .fill(hostStatusColor)
+                    .frame(width: 8, height: 8)
+            }
+            .foregroundStyle(.primary)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+        }
+    }
+
+    private var hostStatusColor: Color {
+        guard let connection else { return .gray }
+        if connection.isHostConnected { return .green }
+        if connection.isRelayConnected { return .yellow }
+        return .red
+    }
+}
+
+// MARK: - Remote Pane Sidebar Row
+
+private struct RemotePaneSidebarRow: View {
+    let title: String
+    let subtitle: String
+    let hasClaude: Bool
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(title)
+                        .font(.system(.body, design: .monospaced))
+
+                    if hasClaude {
+                        Symbols.sparkles.image
+                            .foregroundStyle(.purple)
+                            .font(.caption)
+                    }
+                }
+
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 4)
     }
 }
 

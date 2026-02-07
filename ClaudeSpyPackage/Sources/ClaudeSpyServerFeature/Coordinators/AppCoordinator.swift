@@ -31,6 +31,9 @@
         /// Viewer connection manager for connecting to remote hosts (viewer mode)
         public private(set) var viewerConnectionManager: ViewerConnectionManager?
 
+        /// Session store for remote host sessions (viewer mode)
+        public private(set) var remoteSessionStore: SessionStore?
+
         /// Error message if service setup failed (e.g., E2EE initialization)
         public private(set) var setupError: String?
 
@@ -179,6 +182,7 @@
             await initializeServices()
             await hookServer.startServer()
             await setupConnectedViewerManager()
+            await setupViewerConnectionManager()
             await autoConnectIfConfigured()
 
             // Start periodic validation to clean up stale sessions
@@ -377,6 +381,7 @@
                 for await _ in notifications {
                     guard !Task.isCancelled else { break }
                     await self?.connectedViewerManager?.reconnectAllImmediately()
+                    await self?.viewerConnectionManager?.reconnectAllImmediately()
                 }
             }
         }
@@ -433,17 +438,95 @@
             }
         }
 
-        private func autoConnectIfConfigured() async {
-            // Auto-connect to all paired viewers if configured
-            guard
-                settings.autoConnectToServer,
-                settings.isPaired,
-                let connectionManager = connectedViewerManager
-            else {
+        /// Sets up the viewer connection manager for connecting to remote Mac hosts.
+        private func setupViewerConnectionManager() async {
+            guard keyPair != nil else {
+                logger.error("Cannot set up ViewerConnectionManager: no key pair")
                 return
             }
 
-            await connectionManager.connectAll()
+            do {
+                let keyManager = KeyManager()
+                let manager = try await ViewerConnectionManager(keyManager: keyManager)
+                viewerConnectionManager = manager
+
+                // Create session store for remote sessions
+                let store = SessionStore()
+                remoteSessionStore = store
+
+                // Wire hook events from remote hosts
+                manager.onHookEvent = { [weak store] event in
+                    store?.handleEvent(event)
+                }
+
+                // Wire session state updates from remote hosts
+                manager.onSessionState = { [weak store] state in
+                    store?.handleStateUpdate(state)
+                }
+
+                // Wire partner key received to persist in settings
+                manager.onPartnerKeyReceived = { [weak self] hostId, publicKey, publicKeyId in
+                    guard let self else { return }
+                    guard let host = settings.getHostPairing(id: hostId) else { return }
+                    let updatedHost = PairedHost(
+                        id: host.id,
+                        hostName: host.hostName,
+                        username: host.username,
+                        partnerPublicKey: publicKey,
+                        partnerPublicKeyId: publicKeyId,
+                        pairedAt: host.pairedAt,
+                        customName: host.customName
+                    )
+                    settings.updateHostPairing(updatedHost)
+                }
+
+                logger.info("ViewerConnectionManager set up successfully")
+            } catch {
+                logger.error("Failed to set up ViewerConnectionManager: \(error)")
+            }
+        }
+
+        /// Connect to a newly paired host after the pairing code flow.
+        public func connectToNewlyPairedHost(_ host: PairedHost) async {
+            guard let manager = viewerConnectionManager else {
+                logger.warning("Cannot connect to new host: viewer connection manager not initialized")
+                return
+            }
+
+            guard let serverURL = URL(string: settings.externalServerURL) else {
+                logger.error("Invalid server URL for host connection")
+                return
+            }
+
+            logger.info("Connecting to newly paired host: \(host.displayName)")
+            await manager.connect(
+                to: host,
+                serverURL: serverURL,
+                deviceId: settings.deviceId,
+                deviceName: Host.current().localizedName ?? "Mac"
+            )
+        }
+
+        private func autoConnectIfConfigured() async {
+            // Auto-connect to all paired viewers if configured (host mode)
+            if settings.autoConnectToServer,
+               settings.isPaired,
+               let connectionManager = connectedViewerManager {
+                await connectionManager.connectAll()
+            }
+
+            // Auto-connect to all paired hosts if configured (viewer mode)
+            if settings.autoConnectToServer,
+               settings.hasRemoteHosts,
+               let manager = viewerConnectionManager,
+               let serverURL = URL(string: settings.externalServerURL) {
+                await manager.connectAll(
+                    pairedHosts: settings.pairedHosts,
+                    serverURL: serverURL,
+                    deviceId: settings.deviceId,
+                    deviceName: Host.current().localizedName ?? "Mac"
+                )
+            }
         }
 
         /// Connect to a newly paired viewer
