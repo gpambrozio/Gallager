@@ -10,8 +10,11 @@ def read_port():
     port_file = os.path.expanduser('~/.claudespy-port')
     try:
         with open(port_file, 'r') as f:
-            return int(f.read().strip())
-    except (FileNotFoundError, ValueError):
+            port = int(f.read().strip())
+            if 1 <= port <= 65535:
+                return port
+            return None
+    except (OSError, ValueError):
         return None
 
 def main():

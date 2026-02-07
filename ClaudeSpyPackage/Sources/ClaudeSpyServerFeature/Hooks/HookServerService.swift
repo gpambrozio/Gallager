@@ -4,12 +4,12 @@ import Vapor
 
 /// Service that runs a local HTTP server to receive Claude Code hook events.
 ///
-/// The server listens on localhost with a dynamically allocated port and accepts
-/// POST requests at `/api/hooks` from the Claude Code plugin. Hook events are
-/// parsed and forwarded via callback.
+/// The server listens on localhost starting at port 6111, trying successive ports if
+/// already in use, and accepts POST requests at `/api/hooks` from the Claude Code plugin.
+/// Hook events are parsed and forwarded via callback.
 ///
-/// The actual port is written to `~/.claudespy-port` so hook scripts can discover it.
-/// This enables multiple users to run ClaudeSpy simultaneously on the same machine.
+/// The actual port is written to `~/.claudespy-port` (permissions 0600) so hook scripts
+/// can discover it. This enables multiple users to run ClaudeSpy simultaneously.
 public actor HookServerService {
     // MARK: - Properties
 
@@ -30,11 +30,17 @@ public actor HookServerService {
     /// Unified callback for all hook events
     private var onHookEvent: (@Sendable (HookEvent) async -> Void)?
 
+    /// Starting port for the hook server (will increment if in use)
+    private static let basePort = 6_111
+
+    /// Maximum number of ports to try before giving up
+    private static let maxPortAttempts = 10
+
     /// Path to the port file for hook script discovery
-    private static var portFilePath: String {
+    private static let portFilePath: String = {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return "\(home)/.claudespy-port"
-    }
+    }()
 
     // MARK: - Initialization
 
@@ -50,35 +56,51 @@ public actor HookServerService {
 
     // MARK: - Server Lifecycle
 
-    /// Start the HTTP server
+    /// Start the HTTP server, trying ports starting from `basePort`.
     public func startServer() async {
         guard !isRunning else {
             logger.warning("Hook server is already running")
             return
         }
 
-        do {
-            let app = try await createApplication()
-            self.app = app
+        for portOffset in 0..<Self.maxPortAttempts {
+            let port = Self.basePort + portOffset
+            do {
+                let app = try await createApplication(port: port)
+                self.app = app
 
-            try await app.startup()
+                try await app.startup()
 
-            // Resolve the actual port from the bound socket
-            let actualPort = app.http.server.shared.localAddress?.port
-            serverPort = actualPort
+                guard let actualPort = app.http.server.shared.localAddress?.port else {
+                    lastError = "Server started but could not resolve listening port"
+                    isRunning = false
+                    try? await app.asyncShutdown()
+                    self.app = nil
+                    return
+                }
 
-            if let actualPort {
+                serverPort = actualPort
                 writePortFile(port: actualPort)
+
+                isRunning = true
+                lastError = nil
+
+                logger.info("Hook server started on port \(actualPort)")
+                return
+            } catch {
+                // Clean up the failed attempt
+                try? await app?.asyncShutdown()
+                app = nil
+
+                let errorMessage = error.localizedDescription
+                if portOffset < Self.maxPortAttempts - 1 {
+                    logger.info("Port \(port) unavailable, trying next port: \(errorMessage)")
+                } else {
+                    lastError = "All ports \(Self.basePort)–\(Self.basePort + Self.maxPortAttempts - 1) unavailable: \(errorMessage)"
+                    isRunning = false
+                    logger.error("Failed to start hook server: \(lastError ?? "")")
+                }
             }
-
-            isRunning = true
-            lastError = nil
-
-            logger.info("Hook server started on port \(actualPort.map(String.init) ?? "unknown")")
-        } catch {
-            lastError = error.localizedDescription
-            isRunning = false
-            logger.error("Failed to start hook server: \(error)")
         }
     }
 
@@ -91,6 +113,7 @@ public actor HookServerService {
 
         isRunning = false
         serverPort = nil
+        try? await app?.asyncShutdown()
         app = nil
         lastError = nil
 
@@ -101,10 +124,9 @@ public actor HookServerService {
 
     // MARK: - Application Setup
 
-    private func createApplication() async throws -> Application {
+    private func createApplication(port: Int) async throws -> Application {
         let app = try await Application.make(.testing)
-        // Use port 0 to let the OS assign an available port
-        app.http.server.configuration.port = 0
+        app.http.server.configuration.port = port
         app.http.server.configuration.hostname = "localhost"
 
         configureRoutes(app)
@@ -119,6 +141,10 @@ public actor HookServerService {
         let path = Self.portFilePath
         do {
             try String(port).write(toFile: path, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: path
+            )
             logger.info("Wrote port file: \(path) with port \(port)")
         } catch {
             logger.error("Failed to write port file at \(path): \(error)")
