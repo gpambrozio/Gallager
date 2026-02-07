@@ -143,6 +143,9 @@ final public class ViewerRelayClient {
     /// Called when partner's public key is received (for persisting to settings)
     public var onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)?
 
+    /// Called when the partner sends an unpair notification
+    public var onUnpaired: (@MainActor @Sendable () async -> Void)?
+
     // MARK: - Initialization
 
     public init() { }
@@ -314,6 +317,15 @@ final public class ViewerRelayClient {
         logger.info("Sending push token to relay server")
         let message = WebSocketMessage.registerPushToken(RegisterPushTokenMessage(deviceToken: token))
         await send(message)
+    }
+
+    /// Send unpair notification to the relay server (which forwards to host)
+    public func sendUnpairNotification() async {
+        guard state.isConnected else {
+            logger.debug("Not connected, cannot send unpair notification")
+            return
+        }
+        await send(.unpairNotification)
     }
 
     // MARK: - Private Methods
@@ -544,6 +556,13 @@ final public class ViewerRelayClient {
             logger.info("Host device disconnected")
             isHostConnected = false
             connectedHostName = nil
+
+        case .unpairNotification:
+            logger.info("Received unpair notification from partner")
+            if let onUnpaired {
+                await onUnpaired()
+            }
+            await disconnect()
 
         case .ping:
             await send(.pong)

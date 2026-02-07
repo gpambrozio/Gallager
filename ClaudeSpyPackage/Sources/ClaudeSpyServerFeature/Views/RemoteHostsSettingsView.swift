@@ -201,8 +201,8 @@ public struct RemoteHostsSettingsView: View {
     // MARK: - Actions
 
     private func removeHost(_ host: PairedHost) async {
-        // Disconnect from this host
-        await coordinator.viewerConnectionManager?.disconnect(from: host.id)
+        // Send unpair notification via WebSocket (notifies partner and server)
+        await coordinator.viewerConnectionManager?.sendUnpairNotification(to: host.id)
 
         // Clear cached session data for this host
         coordinator.remoteSessionStore?.clearSessions(for: host.id)

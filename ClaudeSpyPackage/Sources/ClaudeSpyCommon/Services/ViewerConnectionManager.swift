@@ -44,6 +44,9 @@ final public class ViewerConnectionManager {
     /// Parameters are: hostId, publicKey (base64), keyId
     public var onPartnerKeyReceived: ((_ hostId: String, _ publicKey: String, _ keyId: String) async -> Void)?
 
+    /// Called when a host sends an unpair notification (hostId)
+    public var onUnpaired: ((_ hostId: String) async -> Void)?
+
     // MARK: - Computed Properties
 
     /// All active connections
@@ -175,6 +178,21 @@ final public class ViewerConnectionManager {
                 await connection.sendPushToken(token)
             }
         #endif
+    }
+
+    /// Send an unpair notification to a specific host and disconnect.
+    ///
+    /// - Parameter hostId: The pair ID of the host to unpair from
+    public func sendUnpairNotification(to hostId: String) async {
+        guard let connection = connections[hostId] else {
+            logger.warning("No connection found for host to unpair: \(hostId)")
+            return
+        }
+
+        await connection.sendUnpairNotification()
+        await connection.disconnect()
+        connections.removeValue(forKey: hostId)
+        logger.info("Sent unpair notification and disconnected from host: \(connection.hostName)")
     }
 
     /// Disconnect from a specific host.
@@ -317,5 +335,13 @@ final public class ViewerConnectionManager {
                 await self.onPartnerKeyReceived?(hostId, publicKey, keyId)
             }
         )
+
+        // Wire unpair callback via the relay client
+        connection.relayClient.onUnpaired = { [weak self, hostId] in
+            guard let self else { return }
+            // Remove the connection (already disconnected by ViewerRelayClient)
+            self.connections.removeValue(forKey: hostId)
+            await self.onUnpaired?(hostId)
+        }
     }
 }

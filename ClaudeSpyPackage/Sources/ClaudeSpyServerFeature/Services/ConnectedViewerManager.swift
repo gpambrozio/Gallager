@@ -39,6 +39,9 @@ final public class ConnectedViewerManager {
     /// Called when partner's public key is received (for persisting to settings)
     public var onPartnerKeyReceived: (@MainActor @Sendable (String, String, String) async -> Void)?
 
+    /// Called when a viewer sends an unpair notification (viewerId)
+    public var onUnpaired: (@MainActor @Sendable (String) async -> Void)?
+
     // MARK: - Computed Properties
 
     /// All active connections
@@ -173,6 +176,21 @@ final public class ConnectedViewerManager {
         )
     }
 
+    /// Send an unpair notification to a specific viewer and disconnect.
+    ///
+    /// - Parameter viewerId: The pair ID of the viewer to unpair from
+    public func sendUnpairNotification(to viewerId: String) async {
+        guard let connection = connections[viewerId] else {
+            logger.warning("No connection found for viewer to unpair: \(viewerId)")
+            return
+        }
+
+        await connection.sendUnpairNotification()
+        await connection.disconnect()
+        connections.removeValue(forKey: viewerId)
+        logger.info("Sent unpair notification and disconnected from viewer: \(connection.viewerName)")
+    }
+
     /// Disconnect from a specific viewer.
     ///
     /// - Parameter viewerId: The pair ID of the viewer to disconnect from
@@ -279,6 +297,13 @@ final public class ConnectedViewerManager {
         connection.onPartnerKeyReceived = { [weak self, viewerId] publicKey, keyId in
             guard let self else { return }
             await self.onPartnerKeyReceived?(viewerId, publicKey, keyId)
+        }
+
+        connection.onUnpaired = { [weak self, viewerId] in
+            guard let self else { return }
+            // Remove the connection (already disconnected by ConnectedViewer)
+            self.connections.removeValue(forKey: viewerId)
+            await self.onUnpaired?(viewerId)
         }
     }
 }

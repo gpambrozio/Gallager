@@ -144,6 +144,20 @@
                     settings.updatePairing(updatedHost)
                 }
             }
+
+            connectionManager.onUnpaired = { [sessionStore] hostId in
+                let settings = IOSSettings.shared
+
+                // Delete encryption session key for this host
+                let keyManager = KeyManager(accessGroup: sharedKeychainAccessGroup)
+                try? await keyManager.deleteSessionKey(for: hostId)
+
+                // Clear cached session data
+                sessionStore.clearSessions(for: hostId)
+
+                // Remove from settings
+                settings.removePairing(id: hostId)
+            }
         }
 
         private func autoConnectIfNeeded() async {

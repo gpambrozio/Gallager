@@ -79,6 +79,10 @@ actor RelayService {
             logger.info("Received encrypted push payload")
             await apnsService?.sendEncryptedNotificationIfNeeded(payload: payload, pairId: pairId)
 
+        case .unpairNotification:
+            logger.info("Host sent unpair notification", metadata: ["pairId": "\(pairId)"])
+            await handleUnpair(pairId: pairId, initiator: .host)
+
         case .ping:
             await connectionHub.send(.pong, to: pairId, deviceType: .host)
 
@@ -111,6 +115,10 @@ actor RelayService {
             let response = PushTokenRegisteredMessage(success: true)
             await connectionHub.send(.pushTokenRegistered(response), to: pairId, deviceType: .viewer)
 
+        case .unpairNotification:
+            logger.info("Viewer sent unpair notification", metadata: ["pairId": "\(pairId)"])
+            await handleUnpair(pairId: pairId, initiator: .viewer)
+
         case let .encrypted(encryptedMessage):
             // Pass through encrypted messages to host - server cannot decrypt or see message type
             if await connectionHub.isHostConnected(pairId: pairId) {
@@ -131,6 +139,25 @@ actor RelayService {
             // Reject unencrypted versions.
             logger.warning("Rejected unencrypted message that should be encrypted", metadata: ["type": "\(message.messageType)"])
         }
+    }
+
+    // MARK: - Unpair Handler
+
+    /// Handle an unpair notification from either host or viewer.
+    /// Forwards the notification to the partner, removes the pairing record, and disconnects both.
+    private func handleUnpair(pairId: String, initiator: DeviceType) async {
+        let partner: DeviceType = initiator == .host ? .viewer : .host
+
+        // Notify the partner that they have been unpaired
+        await connectionHub.send(.unpairNotification, to: pairId, deviceType: partner)
+
+        // Remove the pairing record from the server
+        await pairingService.removePair(pairId: pairId)
+
+        // Disconnect both sides
+        await connectionHub.disconnectAll(pairId: pairId)
+
+        logger.info("Unpair completed", metadata: ["pairId": "\(pairId)", "initiator": "\(initiator)"])
     }
 
     // MARK: - Registration Handlers

@@ -83,8 +83,8 @@
         }
 
         private func removeHost(_ host: PairedHost) async {
-            // Disconnect from this host
-            await connectionManager.disconnect(from: host.id)
+            // Send unpair notification via WebSocket (notifies partner and server)
+            await connectionManager.sendUnpairNotification(to: host.id)
 
             // Delete encryption session key for this host
             let keyManager = KeyManager(accessGroup: sharedKeychainAccessGroup)

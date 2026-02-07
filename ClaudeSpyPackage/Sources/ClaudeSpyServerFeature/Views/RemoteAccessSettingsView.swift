@@ -170,8 +170,10 @@ public struct RemoteAccessSettingsView: View {
                 connection: coordinator.connectedViewerManager?.connection(for: viewer.id),
                 onUnpair: {
                     Task {
+                        // Send unpair notification via WebSocket (notifies partner and server)
+                        await coordinator.connectedViewerManager?.sendUnpairNotification(to: viewer.id)
+                        // Remove local pairing and notify server via HTTP as fallback
                         await pairingManager.unpair(deviceId: viewer.id)
-                        await coordinator.connectedViewerManager?.disconnect(from: viewer.id)
                     }
                 }
             )

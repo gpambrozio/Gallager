@@ -133,6 +133,9 @@ final public class ConnectedViewer: Identifiable {
     /// Called when partner's public key is received (for persisting to settings)
     public var onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)?
 
+    /// Called when the partner sends an unpair notification
+    public var onUnpaired: (@MainActor @Sendable () async -> Void)?
+
     // MARK: - Initialization
 
     /// Creates a new viewer connection.
@@ -265,6 +268,15 @@ final public class ConnectedViewer: Identifiable {
         )
         logger.info("Pushing session state to viewer: \(viewerName)")
         await sendEncrypted(.sessionState(sessionState))
+    }
+
+    /// Send unpair notification to the relay server (which forwards to viewer)
+    public func sendUnpairNotification() async {
+        guard state.isConnected else {
+            logger.debug("Not connected, cannot send unpair notification")
+            return
+        }
+        await send(.unpairNotification)
     }
 
     // MARK: - Private Connection Methods
@@ -437,6 +449,13 @@ final public class ConnectedViewer: Identifiable {
         case .requestSessionState:
             logger.info("Viewer requested session state")
             await pushSessionState()
+
+        case .unpairNotification:
+            logger.info("Received unpair notification from partner")
+            if let onUnpaired {
+                await onUnpaired()
+            }
+            await disconnect()
 
         case .ping:
             await send(.pong)

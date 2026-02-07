@@ -69,6 +69,10 @@ public enum WebSocketMessage: Codable, Sendable {
 
     // MARK: - Bidirectional
 
+    /// Notification that the sender has unpaired this device.
+    /// The relay server forwards this to the partner and removes the pairing record.
+    case unpairNotification
+
     /// Ping to keep connection alive
     case ping
 
@@ -157,6 +161,7 @@ public extension WebSocketMessage {
         case pushTokenRegistered
         case hostConnected
         case hostDisconnected
+        case unpairNotification
         case ping
         case pong
         case error
@@ -200,6 +205,8 @@ public extension WebSocketMessage {
             self = .registerViewer(payload)
         case .requestSessionState:
             self = .requestSessionState
+        case .unpairNotification:
+            self = .unpairNotification
         case .registerPushToken:
             let payload = try container.decode(RegisterPushTokenMessage.self, forKey: .payload)
             self = .registerPushToken(payload)
@@ -265,6 +272,8 @@ public extension WebSocketMessage {
             try container.encode(payload, forKey: .payload)
         case .requestSessionState:
             try container.encode(MessageType.requestSessionState, forKey: .type)
+        case .unpairNotification:
+            try container.encode(MessageType.unpairNotification, forKey: .type)
         case let .registerPushToken(payload):
             try container.encode(MessageType.registerPushToken, forKey: .type)
             try container.encode(payload, forKey: .payload)
@@ -309,6 +318,7 @@ public extension WebSocketMessage {
         case .viewerDisconnected: MessageType.viewerDisconnected.rawValue
         case .registerViewer: MessageType.registerViewer.rawValue
         case .requestSessionState: MessageType.requestSessionState.rawValue
+        case .unpairNotification: MessageType.unpairNotification.rawValue
         case .registerPushToken: MessageType.registerPushToken.rawValue
         case .viewerRegistered: MessageType.viewerRegistered.rawValue
         case .pushTokenRegistered: MessageType.pushTokenRegistered.rawValue

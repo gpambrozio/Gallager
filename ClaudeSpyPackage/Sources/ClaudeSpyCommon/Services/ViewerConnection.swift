@@ -90,6 +90,11 @@ final public class ViewerConnection: Identifiable {
         await relayClient.disconnect()
     }
 
+    /// Send unpair notification to the host via the relay server and disconnect
+    public func sendUnpairNotification() async {
+        await relayClient.sendUnpairNotification()
+    }
+
     /// Immediately attempt to reconnect (used when app becomes active)
     public func reconnectImmediately() async {
         await relayClient.reconnectImmediately()
