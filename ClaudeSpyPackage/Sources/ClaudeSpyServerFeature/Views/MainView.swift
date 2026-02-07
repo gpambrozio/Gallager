@@ -25,33 +25,31 @@ public struct MainView: View {
     @State private var showingNewSessionSheet = false
     @State private var projects: [ClaudeProjectInfo] = []
     @State private var isLoadingProjects = false
-    @State private var isCreatingSession = false
-    @State private var creatingProjectPath: String?
+    @State private var creatingSelection: NewSessionCreatingState?
     @State private var detailPaneSize: CGSize = .zero
-
-    /// Remote session creation state
     @State private var selectedHostForNewSession: PairedHost?
-    @State private var remoteCreatingSelection: RemoteProjectPickerSelection?
 
     public var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarContent
                 .popover(isPresented: $showingNewSessionSheet) {
-                    NewSessionPopover(
+                    NewSessionContent(
+                        title: "New Session",
                         projects: projects,
                         isLoadingProjects: isLoadingProjects,
-                        isCreatingSession: isCreatingSession,
-                        creatingProjectPath: creatingProjectPath,
+                        creatingSelection: creatingSelection,
                         onCreate: { project in
                             createNewSession(project: project)
                         }
                     )
                 }
                 .sheet(item: $selectedHostForNewSession) { host in
-                    RemoteNewSessionSheet(
-                        host: host,
-                        sessionStore: coordinator.remoteSessionStore,
-                        creatingSelection: remoteCreatingSelection,
+                    NewSessionContent(
+                        title: "New Session on \(host.displayName)",
+                        projects: coordinator.remoteSessionStore?.projects(for: host.id) ?? [],
+                        isLoadingProjects: !(coordinator.remoteSessionStore?.hasReceivedState(for: host.id) ?? true),
+                        creatingSelection: creatingSelection,
+                        showCancel: true,
                         onCreate: { project in
                             Task {
                                 await createRemoteSession(on: host, inProject: project)
@@ -113,12 +111,6 @@ public struct MainView: View {
             }
         }
         .frame(minWidth: 200)
-        .background {
-            // Hidden button to preserve Cmd+Shift+N keyboard shortcut for new local session
-            Button("") { showingNewSessionSheet = true }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
-                .hidden()
-        }
     }
 
     private var loadingView: some View {
@@ -164,9 +156,9 @@ public struct MainView: View {
                             }
                     }
                 } header: {
-                    SectionHeader(title: "Claude Sessions", symbol: .sparkles) {
+                    SectionHeader(title: "Claude Sessions", symbol: .sparkles, onNewSession: {
                         showingNewSessionSheet = true
-                    }
+                    })
                 }
             }
 
@@ -184,9 +176,9 @@ public struct MainView: View {
                 } header: {
                     // Only show + on Terminals header if Claude Sessions section is empty
                     if panesWithClaude.isEmpty {
-                        SectionHeader(title: "Terminals", symbol: .terminal) {
+                        SectionHeader(title: "Terminals", symbol: .terminal, onNewSession: {
                             showingNewSessionSheet = true
-                        }
+                        })
                     } else {
                         SectionHeader(title: "Terminals", symbol: .terminal)
                     }
@@ -200,9 +192,9 @@ public struct MainView: View {
                         .foregroundStyle(.secondary)
                         .font(.caption)
                 } header: {
-                    SectionHeader(title: "Local", symbol: .terminal) {
+                    SectionHeader(title: "Local", symbol: .terminal, onNewSession: {
                         showingNewSessionSheet = true
-                    }
+                    })
                 }
             }
 
@@ -236,8 +228,9 @@ public struct MainView: View {
 
     @ViewBuilder
     private var detailContent: some View {
-        if let remote = selectedRemotePane,
-           let connection = coordinator.viewerConnectionManager?.connection(for: remote.hostId) {
+        if
+            let remote = selectedRemotePane,
+            let connection = coordinator.viewerConnectionManager?.connection(for: remote.hostId) {
             RemoteTerminalContainerView(
                 paneId: remote.paneId,
                 hostName: remote.hostName,
@@ -502,8 +495,8 @@ public struct MainView: View {
     }
 
     private func createNewSession(project: ClaudeProjectInfo?) {
-        isCreatingSession = true
-        creatingProjectPath = project?.path
+        guard creatingSelection == nil else { return }
+        creatingSelection = project.map { .project($0.id) } ?? .newTerminal
 
         Task {
             do {
@@ -540,17 +533,16 @@ public struct MainView: View {
                 attachError = "Failed to create session: \(error.localizedDescription)"
             }
 
-            isCreatingSession = false
-            creatingProjectPath = nil
+            creatingSelection = nil
         }
     }
 
     // MARK: - Remote Session Creation
 
     private func createRemoteSession(on host: PairedHost, inProject project: ClaudeProjectInfo?) async {
-        guard remoteCreatingSelection == nil else { return }
+        guard creatingSelection == nil else { return }
 
-        remoteCreatingSelection = project.map { .project($0.id) } ?? .newTerminal
+        creatingSelection = project.map { .project($0.id) } ?? .newTerminal
 
         let sessionName = project?.name ?? "terminal"
         let dimensions = calculateOptimalTerminalDimensions()
@@ -564,7 +556,7 @@ public struct MainView: View {
 
         guard let manager = coordinator.viewerConnectionManager else {
             attachError = "Viewer connection not available"
-            remoteCreatingSelection = nil
+            creatingSelection = nil
             return
         }
 
@@ -572,7 +564,7 @@ public struct MainView: View {
 
         switch result {
         case let .success(response):
-            remoteCreatingSelection = nil
+            creatingSelection = nil
             selectedHostForNewSession = nil
 
             // Request a refresh to update the remote session list
@@ -591,23 +583,33 @@ public struct MainView: View {
         case let .failure(error):
             let projectContext = project?.name ?? "terminal"
             attachError = "Failed to create \(projectContext) on \(host.displayName): \(error.localizedDescription)"
-            remoteCreatingSelection = nil
+            creatingSelection = nil
         }
     }
 }
 
 // MARK: - Section Header
 
-/// A prominent section header with icon and title, optionally showing a "+" button
-private struct SectionHeader: View {
+/// A prominent section header with icon and title, optionally showing a "+" button and trailing content
+private struct SectionHeader<Trailing: View>: View {
     let title: String
     let symbol: Symbols
     var onNewSession: (() -> Void)?
+    var isNewSessionDisabled: Bool
+    let trailing: Trailing
 
-    init(title: String, symbol: Symbols, onNewSession: (() -> Void)? = nil) {
+    init(
+        title: String,
+        symbol: Symbols,
+        onNewSession: (() -> Void)? = nil,
+        isNewSessionDisabled: Bool = false,
+        @ViewBuilder trailing: () -> Trailing = { EmptyView() }
+    ) {
         self.title = title
         self.symbol = symbol
         self.onNewSession = onNewSession
+        self.isNewSessionDisabled = isNewSessionDisabled
+        self.trailing = trailing()
     }
 
     var body: some View {
@@ -618,9 +620,11 @@ private struct SectionHeader: View {
             Text(title)
                 .font(.headline.weight(.semibold))
 
-            if let onNewSession {
+            if onNewSession != nil || !(trailing is EmptyView) {
                 Spacer()
+            }
 
+            if let onNewSession {
                 Button {
                     onNewSession()
                 } label: {
@@ -628,8 +632,11 @@ private struct SectionHeader: View {
                         .font(.caption)
                 }
                 .buttonStyle(.borderless)
+                .disabled(isNewSessionDisabled)
                 .help("Create new session")
             }
+
+            trailing
         }
         .foregroundStyle(.primary)
         .padding(.top, 8)
@@ -682,36 +689,62 @@ private struct PaneSidebarRow: View {
     }
 }
 
-// MARK: - New Session Popover
+// MARK: - New Session
 
-/// Popover for creating a new tmux session, optionally in a Claude project folder
-private struct NewSessionPopover: View {
+/// Tracks which item is currently being created in the new session view
+private enum NewSessionCreatingState: Equatable {
+    case newTerminal
+    case project(String)
+}
+
+/// Unified view for creating a new session, used for both local and remote hosts
+private struct NewSessionContent: View {
+    let title: String
     let projects: [ClaudeProjectInfo]
     let isLoadingProjects: Bool
-    let isCreatingSession: Bool
-    let creatingProjectPath: String?
+    let creatingSelection: NewSessionCreatingState?
+    var showCancel = false
     let onCreate: (ClaudeProjectInfo?) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    private var isCreating: Bool {
+        creatingSelection != nil
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             // Header
-            Text("New Session")
-                .font(.headline)
+            if showCancel {
+                HStack {
+                    Button("Cancel") { dismiss() }
+                        .disabled(isCreating)
+                    Spacer()
+                    Text(title).font(.headline)
+                    Spacer()
+                    Button("Cancel") { }.hidden()
+                }
+                .padding(.horizontal, 16)
                 .padding(.top, 12)
                 .padding(.bottom, 8)
+            } else {
+                Text(title)
+                    .font(.headline)
+                    .padding(.top, 12)
+                    .padding(.bottom, 8)
+            }
 
             Divider()
 
             // Content
             ScrollView {
                 VStack(spacing: 8) {
-                    // New Terminal option
                     NewSessionRow(
                         title: "New Terminal",
                         subtitle: "Start in home directory",
                         symbol: .terminal,
-                        isCreating: isCreatingSession && creatingProjectPath == nil,
-                        isDisabled: isCreatingSession
+                        isCreating: creatingSelection == .newTerminal,
+                        isDisabled: isCreating
                     ) {
                         onCreate(nil)
                     }
@@ -738,8 +771,8 @@ private struct NewSessionPopover: View {
                                 title: project.name,
                                 subtitle: project.path.abbreviatedPath,
                                 symbol: .folder,
-                                isCreating: creatingProjectPath == project.path,
-                                isDisabled: isCreatingSession
+                                isCreating: creatingSelection == .project(project.id),
+                                isDisabled: isCreating
                             ) {
                                 onCreate(project)
                             }
@@ -751,7 +784,7 @@ private struct NewSessionPopover: View {
             }
             .frame(maxHeight: 300)
         }
-        .frame(width: 280)
+        .frame(width: showCancel ? 320 : 280)
     }
 }
 
@@ -841,32 +874,16 @@ private struct RemoteHostSidebarSection: View {
                     .font(.caption)
             }
         } header: {
-            HStack(spacing: 6) {
-                Symbols.laptopcomputer.image
-                    .font(.headline.weight(.semibold))
-
-                Text(host.displayName(showUsername: settings.hasDuplicateHostName(for: host)))
-                    .font(.headline.weight(.semibold))
-
-                Spacer()
-
-                Button {
-                    onNewSession()
-                } label: {
-                    Symbols.plus.image
-                        .font(.caption)
-                }
-                .buttonStyle(.borderless)
-                .disabled(connection?.isHostConnected != true)
-                .help("Create new session on \(host.displayName)")
-
+            SectionHeader(
+                title: host.displayName(showUsername: settings.hasDuplicateHostName(for: host)),
+                symbol: .laptopcomputer,
+                onNewSession: { onNewSession() },
+                isNewSessionDisabled: connection?.isHostConnected != true
+            ) {
                 Circle()
                     .fill(hostStatusColor)
                     .frame(width: 8, height: 8)
             }
-            .foregroundStyle(.primary)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
         }
     }
 
@@ -960,112 +977,5 @@ private struct NewSessionRow: View {
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
-    }
-}
-
-// MARK: - Remote New Session
-
-/// Identifier for the selected item in the remote project picker
-private enum RemoteProjectPickerSelection: Equatable {
-    case newTerminal
-    case project(String)
-}
-
-/// Sheet for creating a new session on a remote host, with optional project selection
-private struct RemoteNewSessionSheet: View {
-    let host: PairedHost
-    let sessionStore: SessionStore?
-    let creatingSelection: RemoteProjectPickerSelection?
-    let onCreate: (ClaudeProjectInfo?) -> Void
-
-    @Environment(\.dismiss) private var dismiss
-
-    private var isCreating: Bool {
-        creatingSelection != nil
-    }
-
-    private var projects: [ClaudeProjectInfo] {
-        sessionStore?.projects(for: host.id) ?? []
-    }
-
-    private var hasReceivedState: Bool {
-        sessionStore?.hasReceivedState(for: host.id) ?? false
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                Button("Cancel") {
-                    dismiss()
-                }
-                .disabled(isCreating)
-
-                Spacer()
-
-                Text("New Session on \(host.displayName)")
-                    .font(.headline)
-
-                Spacer()
-
-                // Balance the Cancel button width
-                Button("Cancel") { }
-                    .hidden()
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 8)
-
-            Divider()
-
-            // Content
-            ScrollView {
-                VStack(spacing: 8) {
-                    NewSessionRow(
-                        title: "New Terminal",
-                        subtitle: "Start in home directory",
-                        symbol: .terminal,
-                        isCreating: creatingSelection == .newTerminal,
-                        isDisabled: isCreating
-                    ) {
-                        onCreate(nil)
-                    }
-
-                    if !projects.isEmpty {
-                        Divider()
-                            .padding(.vertical, 4)
-
-                        Text("Claude Projects")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        ForEach(projects) { project in
-                            NewSessionRow(
-                                title: project.name,
-                                subtitle: project.path.abbreviatedPath,
-                                symbol: .folder,
-                                isCreating: creatingSelection == .project(project.id),
-                                isDisabled: isCreating
-                            ) {
-                                onCreate(project)
-                            }
-                        }
-                    } else if !hasReceivedState {
-                        HStack {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("Loading projects...")
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.vertical, 8)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-            }
-            .frame(maxHeight: 300)
-        }
-        .frame(width: 320)
     }
 }
