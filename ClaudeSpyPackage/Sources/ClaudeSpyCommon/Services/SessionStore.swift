@@ -228,4 +228,26 @@ final public class SessionStore {
     public func isPaneActive(_ paneId: String) -> Bool {
         activePanes.contains(paneId)
     }
+
+    // MARK: - Event Response Storage (iOS only)
+
+    #if os(iOS)
+        /// Stored responses for interactive events (permission requests, prompts, etc.)
+        /// This is iOS-only because only the iOS app has the interactive response flow.
+        private var eventResponses: [UUID: ResponseType] = [:]
+
+        /// Get the stored response for an event, if any
+        public func response(for eventId: UUID) -> ResponseType? {
+            eventResponses[eventId]
+        }
+
+        /// Store a response for an event
+        public func setResponse(_ response: ResponseType?, for eventId: UUID) {
+            if let response {
+                eventResponses[eventId] = response
+            } else {
+                eventResponses.removeValue(forKey: eventId)
+            }
+        }
+    #endif
 }

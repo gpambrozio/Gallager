@@ -141,7 +141,11 @@ final public class ViewerConnection: Identifiable {
     ) {
         relayClient.onHookEvent = onHookEvent
         relayClient.onSessionState = onSessionState
-        relayClient.onTerminalStream = onTerminalStream
+        // Only set the terminal stream callback if there are no active subscribers,
+        // otherwise the multiplexer is already installed and we'd overwrite it.
+        if terminalStreamSubscribers.isEmpty {
+            relayClient.onTerminalStream = onTerminalStream
+        }
         relayClient.onPartnerKeyReceived = onPartnerKeyReceived
     }
 
@@ -180,7 +184,9 @@ final public class ViewerConnection: Identifiable {
     }
 
     /// Installs a single onTerminalStream handler that routes messages to all matching subscribers.
+    /// Only overwrites the callback on the first subscriber to avoid clobbering an existing multiplexer.
     private func installTerminalStreamMultiplexer() {
+        guard terminalStreamSubscribers.count == 1 else { return }
         relayClient.onTerminalStream = { [weak self] message in
             guard let self else { return }
             for (_, subscriber) in self.terminalStreamSubscribers {

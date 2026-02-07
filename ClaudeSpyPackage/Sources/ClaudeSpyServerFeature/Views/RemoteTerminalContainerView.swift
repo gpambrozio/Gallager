@@ -17,8 +17,8 @@ struct RemoteTerminalContainerView: View {
     let settings: AppSettings
 
     @State private var streamState: RemoteStreamState = .connecting
-    @State private var streamWidth: Int = 80
-    @State private var streamHeight: Int = 24
+    @State private var streamWidth = 80
+    @State private var streamHeight = 24
 
     var body: some View {
         VStack(spacing: 0) {
@@ -88,7 +88,7 @@ struct RemoteTerminalContainerView: View {
 
 // MARK: - Stream State
 
-enum RemoteStreamState {
+enum RemoteStreamState: Equatable {
     case connecting
     case streaming
     case disconnected
@@ -287,9 +287,11 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
 
         func applyTheme(_ theme: TerminalTheme) {
             switch theme {
-            case .defaultDark, .solarizedDark:
+            case .defaultDark,
+                 .solarizedDark:
                 applyDarkTheme()
-            case .defaultLight, .solarizedLight:
+            case .defaultLight,
+                 .solarizedLight:
                 applyLightTheme()
             }
         }
