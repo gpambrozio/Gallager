@@ -22,11 +22,9 @@ public struct MainView: View {
     @State private var attachError: String?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showingCloseConfirmation = false
-    @State private var showingNewSessionSheet = false
     @State private var projects: [ClaudeProjectInfo] = []
     @State private var isLoadingProjects = false
-    @State private var isCreatingSession = false
-    @State private var creatingProjectPath: String?
+    @State private var creatingSelection: NewSessionCreatingState?
     @State private var detailPaneSize: CGSize = .zero
 
     public var body: some View {
@@ -131,7 +129,9 @@ public struct MainView: View {
                             }
                     }
                 } header: {
-                    SectionHeader(title: "Claude Sessions", symbol: .sparkles)
+                    SectionHeader(title: "Claude Sessions", symbol: .sparkles) {
+                        localNewSessionPopover
+                    }
                 }
             }
 
@@ -147,7 +147,26 @@ public struct MainView: View {
                             }
                     }
                 } header: {
-                    SectionHeader(title: "Terminals", symbol: .terminal)
+                    if panesWithClaude.isEmpty {
+                        SectionHeader(title: "Terminals", symbol: .terminal) {
+                            localNewSessionPopover
+                        }
+                    } else {
+                        SectionHeader(title: "Terminals", symbol: .terminal)
+                    }
+                }
+            }
+
+            // Empty local state - still show a section with + button
+            if panesWithClaude.isEmpty && panesWithoutClaude.isEmpty && settings.hasRemoteHosts {
+                Section {
+                    Text("No local sessions")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                } header: {
+                    SectionHeader(title: "Local", symbol: .terminal) {
+                        localNewSessionPopover
+                    }
                 }
             }
 
@@ -158,10 +177,16 @@ public struct MainView: View {
                         host: host,
                         connection: coordinator.viewerConnectionManager?.connection(for: host.id),
                         sessionStore: sessionStore,
+                        creatingSelection: creatingSelection,
                         selectedRemotePane: $selectedRemotePane,
                         onSelect: { selection in
                             selectedRemotePane = selection
                             selectedPane = nil
+                        },
+                        onCreate: { project in
+                            Task {
+                                await createRemoteSession(on: host, inProject: project)
+                            }
                         }
                     )
                 }
@@ -178,8 +203,9 @@ public struct MainView: View {
 
     @ViewBuilder
     private var detailContent: some View {
-        if let remote = selectedRemotePane,
-           let connection = coordinator.viewerConnectionManager?.connection(for: remote.hostId) {
+        if
+            let remote = selectedRemotePane,
+            let connection = coordinator.viewerConnectionManager?.connection(for: remote.hostId) {
             RemoteTerminalContainerView(
                 paneId: remote.paneId,
                 hostName: remote.hostName,
@@ -250,25 +276,6 @@ public struct MainView: View {
                 } message: {
                     Text("This will end all processes in the session.")
                 }
-            }
-
-            Button {
-                showingNewSessionSheet = true
-            } label: {
-                Symbols.plus.image
-            }
-            .help("Create new tmux session")
-            .keyboardShortcut("n", modifiers: [.command, .shift])
-            .popover(isPresented: $showingNewSessionSheet) {
-                NewSessionPopover(
-                    projects: projects,
-                    isLoadingProjects: isLoadingProjects,
-                    isCreatingSession: isCreatingSession,
-                    creatingProjectPath: creatingProjectPath,
-                    onCreate: { project in
-                        createNewSession(project: project)
-                    }
-                )
             }
 
             Button {
@@ -416,6 +423,20 @@ public struct MainView: View {
         }
     }
 
+    // MARK: - New Session
+
+    private var localNewSessionPopover: some View {
+        NewSessionContent(
+            title: "New Session",
+            projects: projects,
+            isLoadingProjects: isLoadingProjects,
+            creatingSelection: creatingSelection,
+            onCreate: { project in
+                createNewSession(project: project)
+            }
+        )
+    }
+
     // MARK: - New Session Actions
 
     private func loadProjects() async {
@@ -463,8 +484,8 @@ public struct MainView: View {
     }
 
     private func createNewSession(project: ClaudeProjectInfo?) {
-        isCreatingSession = true
-        creatingProjectPath = project?.path
+        guard creatingSelection == nil else { return }
+        creatingSelection = project.map { .project($0.id) } ?? .newTerminal
 
         Task {
             do {
@@ -495,24 +516,76 @@ public struct MainView: View {
                 if let newPane = tmuxService.panes.first(where: { $0.paneId == paneId }) {
                     selectedPane = newPane
                 }
-
-                showingNewSessionSheet = false
             } catch {
                 attachError = "Failed to create session: \(error.localizedDescription)"
             }
 
-            isCreatingSession = false
-            creatingProjectPath = nil
+            creatingSelection = nil
+        }
+    }
+
+    // MARK: - Remote Session Creation
+
+    private func createRemoteSession(on host: PairedHost, inProject project: ClaudeProjectInfo?) async {
+        guard creatingSelection == nil else { return }
+
+        creatingSelection = project.map { .project($0.id) } ?? .newTerminal
+
+        let sessionName = project?.name ?? "terminal"
+        let dimensions = calculateOptimalTerminalDimensions()
+
+        let command = CreateTmuxSession(
+            sessionName: sessionName,
+            width: dimensions.columns,
+            height: dimensions.rows,
+            workingDirectory: project?.path
+        )
+
+        guard let manager = coordinator.viewerConnectionManager else {
+            attachError = "Viewer connection not available"
+            creatingSelection = nil
+            return
+        }
+
+        let result = await manager.sendCommand(command, paneId: "", hostId: host.id)
+
+        switch result {
+        case let .success(response):
+            creatingSelection = nil
+
+            // Request a refresh to update the remote session list
+            await manager.requestSessionState(for: host.id)
+
+            // Select the new remote pane if we got a pane ID
+            if let paneId = response.paneId {
+                let selection = RemotePaneSelection(
+                    hostId: host.id,
+                    hostName: host.displayName,
+                    paneId: paneId
+                )
+                selectedRemotePane = selection
+                selectedPane = nil
+            }
+        case let .failure(error):
+            let projectContext = project?.name ?? "terminal"
+            attachError = "Failed to create \(projectContext) on \(host.displayName): \(error.localizedDescription)"
+            creatingSelection = nil
         }
     }
 }
 
 // MARK: - Section Header
 
-/// A prominent section header with icon and title
-private struct SectionHeader: View {
+/// A prominent section header with icon and title, optionally showing a "+" button with popover and trailing content
+private struct SectionHeader<Trailing: View, Popover: View>: View {
     let title: String
     let symbol: Symbols
+    var isNewSessionDisabled: Bool
+    let trailing: Trailing
+    let popover: Popover
+    let hasPopover: Bool
+
+    @State private var showingPopover = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -521,10 +594,79 @@ private struct SectionHeader: View {
 
             Text(title)
                 .font(.headline.weight(.semibold))
+
+            if hasPopover || !(trailing is EmptyView) {
+                Spacer()
+            }
+
+            if hasPopover {
+                Button {
+                    showingPopover = true
+                } label: {
+                    Symbols.plus.image
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .disabled(isNewSessionDisabled)
+                .help("Create new session")
+                .popover(isPresented: $showingPopover) {
+                    popover
+                }
+            }
+
+            trailing
         }
         .foregroundStyle(.primary)
         .padding(.top, 8)
         .padding(.bottom, 4)
+        .padding(.trailing, 8)
+    }
+}
+
+// Convenience: no popover, no trailing
+extension SectionHeader where Trailing == EmptyView, Popover == EmptyView {
+    init(title: String, symbol: Symbols) {
+        self.title = title
+        self.symbol = symbol
+        self.isNewSessionDisabled = false
+        self.trailing = EmptyView()
+        self.popover = EmptyView()
+        self.hasPopover = false
+    }
+}
+
+// Convenience: popover only, no trailing
+extension SectionHeader where Trailing == EmptyView {
+    init(
+        title: String,
+        symbol: Symbols,
+        isNewSessionDisabled: Bool = false,
+        @ViewBuilder popover: () -> Popover
+    ) {
+        self.title = title
+        self.symbol = symbol
+        self.isNewSessionDisabled = isNewSessionDisabled
+        self.trailing = EmptyView()
+        self.popover = popover()
+        self.hasPopover = true
+    }
+}
+
+// Convenience: popover + trailing
+extension SectionHeader {
+    init(
+        title: String,
+        symbol: Symbols,
+        isNewSessionDisabled: Bool = false,
+        @ViewBuilder trailing: () -> Trailing,
+        @ViewBuilder popover: () -> Popover
+    ) {
+        self.title = title
+        self.symbol = symbol
+        self.isNewSessionDisabled = isNewSessionDisabled
+        self.trailing = trailing()
+        self.popover = popover()
+        self.hasPopover = true
     }
 }
 
@@ -573,37 +715,47 @@ private struct PaneSidebarRow: View {
     }
 }
 
-// MARK: - New Session Popover
+// MARK: - New Session
 
-/// Popover for creating a new tmux session, optionally in a Claude project folder
-private struct NewSessionPopover: View {
+/// Tracks which item is currently being created in the new session view
+private enum NewSessionCreatingState: Equatable {
+    case newTerminal
+    case project(String)
+}
+
+/// Unified popover content for creating a new session, used for both local and remote hosts
+private struct NewSessionContent: View {
+    let title: String
     let projects: [ClaudeProjectInfo]
     let isLoadingProjects: Bool
-    let isCreatingSession: Bool
-    let creatingProjectPath: String?
+    let creatingSelection: NewSessionCreatingState?
     let onCreate: (ClaudeProjectInfo?) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    private var isCreating: Bool {
+        creatingSelection != nil
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            Text("New Session")
+            Text(title)
                 .font(.headline)
                 .padding(.top, 12)
                 .padding(.bottom, 8)
 
             Divider()
 
-            // Content
             ScrollView {
                 VStack(spacing: 8) {
-                    // New Terminal option
                     NewSessionRow(
                         title: "New Terminal",
                         subtitle: "Start in home directory",
                         symbol: .terminal,
-                        isCreating: isCreatingSession && creatingProjectPath == nil,
-                        isDisabled: isCreatingSession
+                        isCreating: creatingSelection == .newTerminal,
+                        isDisabled: isCreating
                     ) {
+                        dismiss()
                         onCreate(nil)
                     }
 
@@ -629,9 +781,10 @@ private struct NewSessionPopover: View {
                                 title: project.name,
                                 subtitle: project.path.abbreviatedPath,
                                 symbol: .folder,
-                                isCreating: creatingProjectPath == project.path,
-                                isDisabled: isCreatingSession
+                                isCreating: creatingSelection == .project(project.id),
+                                isDisabled: isCreating
                             ) {
+                                dismiss()
                                 onCreate(project)
                             }
                         }
@@ -662,8 +815,10 @@ private struct RemoteHostSidebarSection: View {
     let host: PairedHost
     let connection: ViewerConnection?
     let sessionStore: SessionStore
+    let creatingSelection: NewSessionCreatingState?
     @Binding var selectedRemotePane: RemotePaneSelection?
     let onSelect: (RemotePaneSelection) -> Void
+    let onCreate: (ClaudeProjectInfo?) -> Void
 
     @Environment(AppSettings.self) private var settings
 
@@ -731,22 +886,25 @@ private struct RemoteHostSidebarSection: View {
                     .font(.caption)
             }
         } header: {
-            HStack(spacing: 6) {
-                Symbols.laptopcomputer.image
-                    .font(.headline.weight(.semibold))
-
-                Text(host.displayName(showUsername: settings.hasDuplicateHostName(for: host)))
-                    .font(.headline.weight(.semibold))
-
-                Spacer()
-
-                Circle()
-                    .fill(hostStatusColor)
-                    .frame(width: 8, height: 8)
-            }
-            .foregroundStyle(.primary)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
+            SectionHeader(
+                title: host.displayName(showUsername: settings.hasDuplicateHostName(for: host)),
+                symbol: .laptopcomputer,
+                isNewSessionDisabled: connection?.isHostConnected != true,
+                trailing: {
+                    Circle()
+                        .fill(hostStatusColor)
+                        .frame(width: 8, height: 8)
+                },
+                popover: {
+                    NewSessionContent(
+                        title: "New Session on \(host.displayName)",
+                        projects: sessionStore.projects(for: host.id),
+                        isLoadingProjects: !sessionStore.hasReceivedState(for: host.id),
+                        creatingSelection: creatingSelection,
+                        onCreate: { project in onCreate(project) }
+                    )
+                }
+            )
         }
     }
 

@@ -13,6 +13,8 @@ public extension HookAction {
         case .preToolUse,
              .postToolUse:
             .wrenchAndScrewdriver
+        case .postToolUseFailure:
+            .exclamationmarkTriangle
         case .permissionRequest:
             .lockFill
         case .notification:
@@ -22,6 +24,12 @@ public extension HookAction {
         case .stop,
              .subagentStop:
             .stopCircleFill
+        case .subagentStart:
+            .playFill
+        case .teammateIdle:
+            .pauseCircleFill
+        case .taskCompleted:
+            .checkmarkCircleFill
         case .preCompact:
             .arrowDownRightAndArrowUpLeft
         case .unknown:
@@ -39,6 +47,8 @@ public extension HookAction {
         case .preToolUse,
              .postToolUse:
             .blue
+        case .postToolUseFailure:
+            .red
         case .permissionRequest:
             .orange
         case .notification:
@@ -48,6 +58,12 @@ public extension HookAction {
         case .stop,
              .subagentStop:
             .red
+        case .subagentStart:
+            .blue
+        case .teammateIdle:
+            .yellow
+        case .taskCompleted:
+            .green
         case .preCompact:
             .indigo
         case .unknown:

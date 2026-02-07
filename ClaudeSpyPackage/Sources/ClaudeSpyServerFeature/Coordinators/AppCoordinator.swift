@@ -429,11 +429,14 @@
                     nil
                 }
 
+                let workingDirectory = spec.workingDirectory
+                    ?? FileManager.default.homeDirectoryForCurrentUser.path()
+
                 let (_, paneId) = try await tmuxService.createSession(
                     baseName: spec.sessionName,
                     width: spec.width,
                     height: spec.height,
-                    workingDirectory: spec.workingDirectory,
+                    workingDirectory: workingDirectory,
                     runCommand: runCommand
                 )
 
@@ -524,17 +527,19 @@
 
         private func autoConnectIfConfigured() async {
             // Auto-connect to all paired viewers if configured (host mode)
-            if settings.autoConnectToServer,
-               settings.isPaired,
-               let connectionManager = connectedViewerManager {
+            if
+                settings.autoConnectToServer,
+                settings.isPaired,
+                let connectionManager = connectedViewerManager {
                 await connectionManager.connectAll()
             }
 
             // Auto-connect to all paired hosts if configured (viewer mode)
-            if settings.autoConnectToServer,
-               settings.hasRemoteHosts,
-               let manager = viewerConnectionManager,
-               let serverURL = URL(string: settings.externalServerURL) {
+            if
+                settings.autoConnectToServer,
+                settings.hasRemoteHosts,
+                let manager = viewerConnectionManager,
+                let serverURL = URL(string: settings.externalServerURL) {
                 await manager.connectAll(
                     pairedHosts: settings.pairedHosts,
                     serverURL: serverURL,
