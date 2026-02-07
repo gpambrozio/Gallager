@@ -10,16 +10,15 @@
         /// URL pattern matching common schemes.
         /// Matches http://, https://, ftp://, and file:// URLs.
         private static let urlPattern: String = {
-            // Match URLs with explicit schemes
-            let schemes = "https?://|ftp://|file://"
+            // Match URLs with explicit schemes (http/https/ftp only, no file:// for security)
+            let schemes = "https?://|ftp://"
             // URL characters: anything except whitespace and common terminal delimiters
             let urlChars = "[^\\s<>\"'`\\]\\)\\}\\|]"
             return "(?:\(schemes))\(urlChars)+"
         }()
 
-        private static let urlRegex: NSRegularExpression? = {
-            try? NSRegularExpression(pattern: urlPattern, options: [])
-        }()
+        // Pattern is a compile-time constant; failure is a programmer error
+        private static let urlRegex = try! NSRegularExpression(pattern: urlPattern, options: [])
 
         /// Represents a detected URL with its column range within a terminal line.
         struct DetectedURL {
@@ -34,9 +33,8 @@
             let text = line.translateToString(trimRight: true)
             guard !text.isEmpty else { return [] }
 
-            guard let regex = urlRegex else { return [] }
             let nsText = text as NSString
-            let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
+            let matches = urlRegex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
 
             return matches.compactMap { match in
                 let urlString = nsText.substring(with: match.range)
@@ -44,10 +42,9 @@
                 let cleaned = cleanTrailingPunctuation(urlString)
                 guard URL(string: cleaned) != nil else { return nil }
 
-                // Map NSRange to column positions
-                // For monospace terminals, character index ≈ column position
+                // Map NSRange to column positions using UTF-16 lengths for consistency
                 let startCol = match.range.location
-                let endCol = startCol + cleaned.count
+                let endCol = startCol + (cleaned as NSString).length
                 return DetectedURL(url: cleaned, startCol: startCol, endCol: endCol)
             }
         }
@@ -431,11 +428,8 @@
             if event.modifierFlags.contains(.command) {
                 commandKeyActive = true
                 // Check if mouse is currently over a URL
-                if let window, let contentView = window.contentView {
-                    let windowPoint = event.locationInWindow
-                    let localPoint = convert(windowPoint, from: contentView)
-                    updateURLHighlight(at: localPoint)
-                }
+                let localPoint = convert(event.locationInWindow, from: nil)
+                updateURLHighlight(at: localPoint)
             } else {
                 commandKeyActive = false
                 removeURLHighlight()
@@ -457,26 +451,23 @@
             }
 
             let terminal = terminalView.getTerminal()
-            if let url = TerminalURLDetector.urlAt(col: pos.col, row: pos.row, in: terminal) {
-                // Check if we already have this URL highlighted
-                let urls = TerminalURLDetector.detectURLs(in: terminal, row: pos.row)
-                if let detected = urls.first(where: { pos.col >= $0.startCol && pos.col < $0.endCol }) {
-                    let newRange = (row: pos.row, startCol: detected.startCol, endCol: detected.endCol)
-                    if highlightedURLRange?.row == newRange.row,
-                       highlightedURLRange?.startCol == newRange.startCol,
-                       highlightedURLRange?.endCol == newRange.endCol
-                    {
-                        return // Already highlighting this URL
-                    }
-                    highlightedURLRange = newRange
-                    showURLHighlight(row: pos.row, startCol: detected.startCol, endCol: detected.endCol)
-                    showURLPreview(url)
-                    NSCursor.pointingHand.set()
+            let urls = TerminalURLDetector.detectURLs(in: terminal, row: pos.row)
+            if let detected = urls.first(where: { pos.col >= $0.startCol && pos.col < $0.endCol }) {
+                let newRange = (row: pos.row, startCol: detected.startCol, endCol: detected.endCol)
+                if highlightedURLRange?.row == newRange.row,
+                   highlightedURLRange?.startCol == newRange.startCol,
+                   highlightedURLRange?.endCol == newRange.endCol
+                {
+                    return // Already highlighting this URL
                 }
+                highlightedURLRange = newRange
+                showURLHighlight(row: pos.row, startCol: detected.startCol, endCol: detected.endCol)
+                showURLPreview(detected.url)
+                NSCursor.pointingHand.set()
             } else {
                 removeURLHighlight()
                 removeURLPreview()
-                NSCursor.arrow.set()
+                NSCursor.iBeam.set()
             }
         }
 
@@ -517,16 +508,19 @@
             if let preview = urlPreviewField {
                 preview.stringValue = url
                 preview.sizeToFit()
+                preview.frame.size.width = min(preview.frame.size.width, bounds.width - 8)
             } else {
                 let field = NSTextField(string: url)
                 field.isBezeled = false
                 field.isEditable = false
                 field.isSelectable = false
+                field.lineBreakMode = .byTruncatingMiddle
                 field.font = NSFont.systemFont(ofSize: 11)
                 field.backgroundColor = NSColor.windowBackgroundColor
                 field.textColor = NSColor.labelColor
                 field.sizeToFit()
                 field.frame.origin = CGPoint(x: 4, y: 4)
+                field.frame.size.width = min(field.frame.size.width, bounds.width - 8)
                 addSubview(field)
                 urlPreviewField = field
             }
