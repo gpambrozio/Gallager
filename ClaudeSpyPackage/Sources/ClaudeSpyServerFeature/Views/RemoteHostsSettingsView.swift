@@ -202,13 +202,16 @@ public struct RemoteHostsSettingsView: View {
 
     private func removeHost(_ host: PairedHost) async {
         // Send unpair notification via WebSocket (notifies partner and server)
-        await coordinator.viewerConnectionManager?.sendUnpairNotification(to: host.id)
+        let sent = await coordinator.viewerConnectionManager?.sendUnpairNotification(to: host.id) ?? false
 
-        // HTTP DELETE fallback in case the partner is offline and the WebSocket
-        // notification didn't reach the server's pairing record
-        let serverURL = settings.externalServerURL
-        Task {
-            await ViewerConnectionManager.deletePairFromServer(pairId: host.id, serverURL: serverURL)
+        // HTTP DELETE fallback only when the WebSocket notification couldn't be sent
+        // (e.g. partner is offline). When sent, the server's handleUnpair already
+        // removes the pairing record.
+        if !sent {
+            let serverURL = settings.externalServerURL
+            Task {
+                await coordinator.viewerConnectionManager?.deletePairFromServer(pairId: host.id, serverURL: serverURL)
+            }
         }
 
         // Clear cached session data for this host

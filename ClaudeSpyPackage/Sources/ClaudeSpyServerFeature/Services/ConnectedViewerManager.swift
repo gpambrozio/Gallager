@@ -179,16 +179,19 @@ final public class ConnectedViewerManager {
     /// Send an unpair notification to a specific viewer and disconnect.
     ///
     /// - Parameter viewerId: The pair ID of the viewer to unpair from
-    public func sendUnpairNotification(to viewerId: String) async {
+    /// - Returns: `true` if the WebSocket message was sent, `false` if the connection was inactive
+    @discardableResult
+    public func sendUnpairNotification(to viewerId: String) async -> Bool {
         guard let connection = connections[viewerId] else {
             logger.warning("No connection found for viewer to unpair: \(viewerId)")
-            return
+            return false
         }
 
-        await connection.sendUnpairNotification()
+        let sent = await connection.sendUnpairNotification()
         await connection.disconnect()
         connections.removeValue(forKey: viewerId)
         logger.info("Sent unpair notification and disconnected from viewer: \(connection.viewerName)")
+        return sent
     }
 
     /// Disconnect from a specific viewer.

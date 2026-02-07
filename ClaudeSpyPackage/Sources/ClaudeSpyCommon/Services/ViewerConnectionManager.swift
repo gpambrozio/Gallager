@@ -183,16 +183,19 @@ final public class ViewerConnectionManager {
     /// Send an unpair notification to a specific host and disconnect.
     ///
     /// - Parameter hostId: The pair ID of the host to unpair from
-    public func sendUnpairNotification(to hostId: String) async {
+    /// - Returns: `true` if the WebSocket message was sent, `false` if the connection was inactive
+    @discardableResult
+    public func sendUnpairNotification(to hostId: String) async -> Bool {
         guard let connection = connections[hostId] else {
             logger.warning("No connection found for host to unpair: \(hostId)")
-            return
+            return false
         }
 
-        await connection.sendUnpairNotification()
+        let sent = await connection.sendUnpairNotification()
         await connection.disconnect()
         connections.removeValue(forKey: hostId)
         logger.info("Sent unpair notification and disconnected from host: \(connection.hostName)")
+        return sent
     }
 
     /// Disconnect from a specific host.
@@ -294,9 +297,7 @@ final public class ViewerConnectionManager {
     /// - Parameters:
     ///   - pairId: The pair ID to delete
     ///   - serverURL: The relay server URL (wss/ws scheme is converted to https/http)
-    public static func deletePairFromServer(pairId: String, serverURL: String) async {
-        let logger = Logger(label: "com.claudespy.viewerconnectionmanager")
-
+    public func deletePairFromServer(pairId: String, serverURL: String) async {
         let httpURL = serverURL
             .replacingOccurrences(of: "wss://", with: "https://")
             .replacingOccurrences(of: "ws://", with: "http://")

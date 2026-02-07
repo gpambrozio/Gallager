@@ -271,12 +271,15 @@ final public class ConnectedViewer: Identifiable {
     }
 
     /// Send unpair notification to the relay server (which forwards to viewer)
-    public func sendUnpairNotification() async {
+    /// - Returns: `true` if the message was sent (connection was active), `false` otherwise
+    @discardableResult
+    public func sendUnpairNotification() async -> Bool {
         guard state.isConnected else {
             logger.debug("Not connected, cannot send unpair notification")
-            return
+            return false
         }
         await send(.unpairNotification)
+        return true
     }
 
     // MARK: - Private Connection Methods

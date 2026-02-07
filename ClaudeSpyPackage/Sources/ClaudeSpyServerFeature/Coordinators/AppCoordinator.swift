@@ -353,7 +353,9 @@
                 )
             }
 
-            // Set up unpair handler - called when a viewer notifies that it has unpaired
+            // Set up unpair handler - called when a viewer notifies that it has unpaired.
+            // Note: No E2EE key cleanup needed here — the host uses a single key pair
+            // (not per-viewer session keys), unlike iOS which stores per-host session keys.
             connectionManager.onUnpaired = { [weak self] viewerId in
                 guard let self else { return }
                 self.logger.info("Viewer unpaired remotely", metadata: ["viewerId": "\(viewerId)"])

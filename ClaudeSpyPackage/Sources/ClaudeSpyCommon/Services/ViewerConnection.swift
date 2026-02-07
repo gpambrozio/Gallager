@@ -91,7 +91,9 @@ final public class ViewerConnection: Identifiable {
     }
 
     /// Send unpair notification to the host via the relay server and disconnect
-    public func sendUnpairNotification() async {
+    /// - Returns: `true` if the message was sent (connection was active), `false` otherwise
+    @discardableResult
+    public func sendUnpairNotification() async -> Bool {
         await relayClient.sendUnpairNotification()
     }
 
