@@ -189,10 +189,8 @@ final public class ViewerConnection: Identifiable {
         guard terminalStreamSubscribers.count == 1 else { return }
         relayClient.onTerminalStream = { [weak self] message in
             guard let self else { return }
-            for (_, subscriber) in self.terminalStreamSubscribers {
-                if subscriber.paneId == message.paneId {
-                    subscriber.handler(message)
-                }
+            for (_, subscriber) in self.terminalStreamSubscribers where subscriber.paneId == message.paneId {
+                subscriber.handler(message)
             }
         }
     }
