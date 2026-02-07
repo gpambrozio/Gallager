@@ -38,7 +38,7 @@ Transform ClaudeSpy from a standalone Mac app into a distributed system with thr
 │                  │         │   │   Session    │   │         │                  │
 │ ┌──────────────┐ │         │   │   State      │   │         │ ┌──────────────┐ │
 │ │ Hook Server  │ │         │   └──────────────┘   │         │ │ Pairing UI   │ │
-│ │ (port 6111)  │ │         │                      │         │ └──────────────┘ │
+│ │ (dynamic)    │ │         │                      │         │ └──────────────┘ │
 │ └──────────────┘ │         │   Docker Container   │         │ ┌──────────────┐ │
 │ ┌──────────────┐ │         │   (port 443/8080)    │         │ │ Session View │ │
 │ │ WS Client    │ │         │                      │         │ └──────────────┘ │
@@ -53,7 +53,7 @@ Transform ClaudeSpy from a standalone Mac app into a distributed system with thr
 
 ### Event Flow (Mac → iOS)
 ```
-1. Claude Code sends hook event to Mac app (HTTP POST localhost:6111)
+1. Claude Code sends hook event to Mac app (HTTP POST localhost:<dynamic port>)
 2. Mac app processes event locally (updates UI, session state)
 3. Mac app forwards event to external server via WebSocket
 4. External server relays to connected iOS client via WebSocket

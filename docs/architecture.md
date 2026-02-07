@@ -41,7 +41,7 @@ ClaudeSpy is a native macOS application that mirrors tmux panes in dedicated win
 
 | Component | Type | Responsibility |
 |-----------|------|----------------|
-| **HookServerService** | `actor` | HTTP server (port 6111) receiving Claude Code hook events |
+| **HookServerService** | `actor` | HTTP server (dynamic port) receiving Claude Code hook events |
 
 ### Plugin & Claude Integration
 
@@ -149,7 +149,7 @@ PaneStreamManager (multiplexer)
 ## Hook Event Flow
 
 ```
-Claude Code → POST localhost:6111/api/hooks?tmux_pane=main:0.1
+Claude Code → POST localhost:<port>/api/hooks?tmux_pane=main:0.1
     │
     ▼
 HookServerService (actor)
@@ -219,7 +219,7 @@ ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/
 │   └── AppCoordinator.swift           # Central service coordinator
 ├── Hooks/
 │   ├── HookModels.swift               # Event types, ToolInput enum
-│   └── HookServerService.swift        # HTTP server (port 6111)
+│   └── HookServerService.swift        # HTTP server (dynamic port)
 ├── Managers/
 │   ├── DockIconManager.swift          # Dock icon visibility
 │   ├── MirrorWindowManager.swift      # Window lifecycle
