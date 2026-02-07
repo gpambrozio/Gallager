@@ -1,0 +1,6 @@
+// Release-macOS.xcconfig
+// Release configuration for macOS targets
+
+#include "Shared-macOS.xcconfig"
+
+// No additional release-specific overrides needed

@@ -1,0 +1,10 @@
+// Shared-macOS.xcconfig
+// Shared configuration for macOS targets
+
+#include "Shared-Base.xcconfig"
+
+// ==========================================
+// Platform Configuration
+// ==========================================
+SDKROOT = macosx
+MACOSX_DEPLOYMENT_TARGET = 26.0
