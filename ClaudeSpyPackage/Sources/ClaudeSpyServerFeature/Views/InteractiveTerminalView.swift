@@ -1,5 +1,6 @@
 #if os(macOS)
     import AppKit
+    import ClaudeSpyCommon
     import ClaudeSpyNetworking
     import SwiftTerm
 
@@ -390,7 +391,7 @@
         /// Converts a point in this view's coordinate space to a viewport grid position (col, row).
         /// The returned row is a viewport row suitable for `Terminal.getLine(row:)`.
         private func gridPosition(for point: NSPoint) -> (col: Int, row: Int)? {
-            let cellSize = computeCellSize()
+            let cellSize = FontMetrics.calculateCellSize(font: terminalView.font as CTFont)
             guard cellSize.width > 0, cellSize.height > 0 else { return nil }
 
             // Convert point to terminal view coordinates (accounting for horizontal scroll offset)
@@ -409,19 +410,6 @@
             let clampedRow = min(max(0, row), terminal.rows - 1)
 
             return (clampedCol, clampedRow)
-        }
-
-        /// Computes the cell size matching SwiftTerm's internal calculations.
-        private func computeCellSize() -> CGSize {
-            let font = terminalView.font
-            let ctFont = font as CTFont
-            let lineAscent = CTFontGetAscent(ctFont)
-            let lineDescent = CTFontGetDescent(ctFont)
-            let lineLeading = CTFontGetLeading(ctFont)
-            let cellHeight = ceil(lineAscent + lineDescent + lineLeading)
-            let glyph = font.glyph(withName: "W")
-            let cellWidth = font.advancement(forGlyph: glyph).width
-            return CGSize(width: max(1, cellWidth), height: max(1, cellHeight))
         }
 
         private func handleFlagsChanged(_ event: NSEvent) {
@@ -472,7 +460,7 @@
         }
 
         private func showURLHighlight(row: Int, startCol: Int, endCol: Int) {
-            let cellSize = computeCellSize()
+            let cellSize = FontMetrics.calculateCellSize(font: terminalView.font as CTFont)
 
             // row is a viewport row. Calculate rect in terminal view coordinates
             // (NSView: origin at bottom-left, but terminal rows count from top)

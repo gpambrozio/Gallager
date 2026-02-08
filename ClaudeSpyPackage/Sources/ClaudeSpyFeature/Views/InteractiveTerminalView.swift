@@ -1,4 +1,5 @@
 #if os(iOS)
+    import ClaudeSpyCommon
     import ClaudeSpyNetworking
     import SwiftTerm
     import UIKit
@@ -166,22 +167,10 @@
             addGestureRecognizer(longPress)
         }
 
-        /// Computes the cell size matching SwiftTerm's internal calculations.
-        private func computeCellSize() -> CGSize {
-            let ctFont = font as CTFont
-            let lineAscent = CTFontGetAscent(ctFont)
-            let lineDescent = CTFontGetDescent(ctFont)
-            let lineLeading = CTFontGetLeading(ctFont)
-            let cellHeight = ceil(lineAscent + lineDescent + lineLeading)
-            let fontAttributes: [NSAttributedString.Key: Any] = [.font: font]
-            let cellWidth = "W".size(withAttributes: fontAttributes).width
-            return CGSize(width: max(1, cellWidth), height: max(1, cellHeight))
-        }
-
         /// Converts a content-space point to a viewport grid position (col, viewportRow).
         /// The viewportRow is suitable for use with `Terminal.getLine(row:)`.
         private func gridPosition(for point: CGPoint) -> (col: Int, row: Int)? {
-            let cellSize = computeCellSize()
+            let cellSize = FontMetrics.calculateCellSize(font: font as CTFont)
             guard cellSize.width > 0, cellSize.height > 0 else { return nil }
 
             let terminal = getTerminal()
@@ -226,7 +215,7 @@
         }
 
         private func showURLHighlight(row: Int, startCol: Int, endCol: Int) {
-            let cellSize = computeCellSize()
+            let cellSize = FontMetrics.calculateCellSize(font: font as CTFont)
 
             // row is a viewport row. Convert to content coordinates for positioning.
             let x = CGFloat(startCol) * cellSize.width
