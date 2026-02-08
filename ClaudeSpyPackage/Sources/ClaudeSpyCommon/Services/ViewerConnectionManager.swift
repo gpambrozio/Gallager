@@ -21,9 +21,9 @@ final public class ViewerConnectionManager {
     /// Hosts currently being connected to (guards against duplicate concurrent connect calls)
     private var connectingHosts: Set<String> = []
 
-    /// Key manager for creating E2EE services
+    /// Secrets service for key operations and E2EE
     @ObservationIgnored
-    private let keyManager: KeyManager
+    private let secrets: SecretsService
 
     /// Our stored key pair for E2EE
     private var keyPair: StoredKeyPair?
@@ -72,7 +72,7 @@ final public class ViewerConnectionManager {
     /// E2EE service for pairing operations (not tied to any specific host).
     public var pairingService: E2EEService? {
         guard let keyPair else { return nil }
-        return E2EEService(keyPair: keyPair, keyManager: keyManager)
+        return E2EEService(keyPair: keyPair, keyManager: try? secrets.keyManager())
     }
 
     // MARK: - Initialization
@@ -83,15 +83,14 @@ final public class ViewerConnectionManager {
     /// - Throws: If key pair initialization fails
     public init() async throws {
         @Dependency(SecretsService.self) var secrets
-        let keyManager = try secrets.keyManager()
-        self.keyManager = keyManager
+        self.secrets = secrets
 
         // Load or generate key pair
-        if let existing = try await keyManager.loadKeyPair() {
+        if let existing = try await secrets.loadKeyPair() {
             self.keyPair = existing
             logger.info("Loaded existing key pair for viewer mode")
         } else {
-            self.keyPair = try await keyManager.generateKeyPair()
+            self.keyPair = try await secrets.generateKeyPair()
             logger.info("Generated new key pair for viewer mode")
         }
     }
@@ -278,7 +277,7 @@ final public class ViewerConnectionManager {
         }
 
         do {
-            let e2eeService = E2EEService(keyPair: keyPair, keyManager: keyManager)
+            let e2eeService = E2EEService(keyPair: keyPair, keyManager: try? secrets.keyManager())
 
             // Establish session with this host's public key if available
             if
