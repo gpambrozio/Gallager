@@ -1,21 +1,26 @@
 import Foundation
+import RegexBuilder
 
 /// Detects plain-text URLs in terminal buffer text at a given grid position.
 ///
 /// Platform-agnostic: takes a closure to retrieve line text rather than depending on SwiftTerm directly.
 /// Callers bridge to SwiftTerm via: `{ terminal.getLine(row: $0)?.translateToString(trimRight: true) }`
 public enum TerminalURLDetector {
-    /// URL pattern matching common schemes.
-    /// Matches http://, https://, and ftp:// URLs. file:// is excluded for security.
-    private static let urlPattern: String = {
-        let schemes = "https?://|ftp://"
-        // URL characters: anything except whitespace and common terminal delimiters
-        let urlChars = "[^\\s<>\"'`\\]\\)\\}\\|]"
-        return "(?:\(schemes))\(urlChars)+"
-    }()
-
-    // Pattern is a compile-time constant; failure is a programmer error
-    private static let urlRegex = try! NSRegularExpression(pattern: urlPattern, options: [])
+    /// Matches http://, https://, and ftp:// URLs.
+    /// file:// is excluded for security (prevents opening local files from remote terminal sessions).
+    private nonisolated(unsafe) static let urlRegex = Regex {
+        ChoiceOf {
+            "http://"
+            "https://"
+            "ftp://"
+        }
+        OneOrMore {
+            CharacterClass(
+                .anyOf("<>\"'`])}|"),
+                .whitespace
+            ).inverted
+        }
+    }
 
     /// Represents a detected URL with its column range within a terminal line.
     public struct DetectedURL: Sendable {
@@ -33,17 +38,16 @@ public enum TerminalURLDetector {
     public static func detectURLs(row: Int, lineText: (Int) -> String?) -> [DetectedURL] {
         guard let text = lineText(row), !text.isEmpty else { return [] }
 
-        let nsText = text as NSString
-        let matches = urlRegex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
-
-        return matches.compactMap { match in
-            let urlString = nsText.substring(with: match.range)
+        return text.matches(of: urlRegex).compactMap { match in
+            let urlString = String(match.output)
             let cleaned = cleanTrailingPunctuation(urlString)
-            guard URL(string: cleaned) != nil else { return nil }
+            guard
+                let parsedURL = URL(string: cleaned),
+                let host = parsedURL.host, !host.isEmpty else { return nil }
 
-            // Map NSRange to column positions using UTF-16 lengths for consistency
-            let startCol = match.range.location
-            let endCol = startCol + (cleaned as NSString).length
+            // Map match range to UTF-16 column positions for SwiftTerm grid consistency
+            let startCol = text.utf16.distance(from: text.utf16.startIndex, to: match.range.lowerBound)
+            let endCol = startCol + cleaned.utf16.count
             return DetectedURL(url: cleaned, startCol: startCol, endCol: endCol)
         }
     }
