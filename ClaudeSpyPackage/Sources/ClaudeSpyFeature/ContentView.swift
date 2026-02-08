@@ -1,7 +1,6 @@
 #if os(iOS)
     import ClaudeSpyCommon
     import ClaudeSpyNetworking
-    import Dependencies
     import SwiftUI
     import UserNotifications
 
@@ -180,8 +179,7 @@
             guard connectionManager == nil else { return }
 
             do {
-                @Dependency(SecretsService.self) var secrets
-                connectionManager = try await ViewerConnectionManager(keyManager: secrets.keyManager())
+                connectionManager = try await ViewerConnectionManager()
             } catch {
                 initializationError = "Failed to initialize encryption: \(error.localizedDescription)"
             }

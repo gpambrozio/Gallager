@@ -1,5 +1,6 @@
 import ClaudeSpyEncryption
 import ClaudeSpyNetworking
+import Dependencies
 import Foundation
 
 /// Manages connections to all paired hosts (when acting as a viewer).
@@ -21,6 +22,7 @@ final public class ViewerConnectionManager {
     private var connectingHosts: Set<String> = []
 
     /// Key manager for creating E2EE services
+    @ObservationIgnored
     private let keyManager: KeyManager
 
     /// Our stored key pair for E2EE
@@ -77,9 +79,11 @@ final public class ViewerConnectionManager {
 
     /// Creates a new viewer connection manager.
     ///
-    /// - Parameter keyManager: Key manager for E2EE key operations
+    /// Resolves `SecretsService` via `@Dependency` to get the key manager.
     /// - Throws: If key pair initialization fails
-    public init(keyManager: KeyManager) async throws {
+    public init() async throws {
+        @Dependency(SecretsService.self) var secrets
+        let keyManager = try secrets.keyManager()
         self.keyManager = keyManager
 
         // Load or generate key pair

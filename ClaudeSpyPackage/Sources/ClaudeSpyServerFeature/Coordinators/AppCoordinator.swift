@@ -81,9 +81,6 @@
         @ObservationIgnored
         @Dependency(PreferencesService.self) private var preferences
 
-        @ObservationIgnored
-        @Dependency(SecretsService.self) private var secrets
-
         private let logger = Logger(label: "com.claudespy.coordinator")
 
         // MARK: - Initialization
@@ -456,7 +453,7 @@
             }
 
             do {
-                let manager = try await ViewerConnectionManager(keyManager: secrets.keyManager())
+                let manager = try await ViewerConnectionManager()
                 viewerConnectionManager = manager
 
                 // Create session store for remote sessions

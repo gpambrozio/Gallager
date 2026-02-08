@@ -73,7 +73,7 @@ final public class AppSettings {
 
     /// Preferences service for persistent storage
     @ObservationIgnored
-    private var preferences: PreferencesService
+    @Dependency(PreferencesService.self) private var preferences
 
     // MARK: - UI State (transient, not persisted)
 
@@ -83,93 +83,93 @@ final public class AppSettings {
     // MARK: - Terminal Settings
 
     /// Font name for terminal display
-    public var fontName: String {
+    public var fontName: String = Defaults.fontName {
         didSet { preferences.setString(fontName, Keys.fontName) }
     }
 
     /// Font size for terminal display
-    public var fontSize: Double {
+    public var fontSize: Double = Defaults.fontSize {
         didSet { preferences.setDouble(fontSize, Keys.fontSize) }
     }
 
     /// Number of scrollback lines to keep
-    public var scrollbackLines: Int {
+    public var scrollbackLines: Int = Defaults.scrollbackLines {
         didSet { preferences.setInt(scrollbackLines, Keys.scrollbackLines) }
     }
 
     /// Terminal color theme
-    public var theme: TerminalTheme {
+    public var theme: TerminalTheme = Defaults.theme {
         didSet { preferences.setString(theme.rawValue, Keys.theme) }
     }
 
     // MARK: - Behavior Settings
 
     /// Whether to restore windows on launch
-    public var restoreWindowsOnLaunch: Bool {
+    public var restoreWindowsOnLaunch: Bool = Defaults.restoreWindowsOnLaunch {
         didSet { preferences.setBool(restoreWindowsOnLaunch, Keys.restoreWindowsOnLaunch) }
     }
 
     /// Whether to show the status bar in mirror windows
-    public var showStatusBar: Bool {
+    public var showStatusBar: Bool = Defaults.showStatusBar {
         didSet { preferences.setBool(showStatusBar, Keys.showStatusBar) }
     }
 
     /// Whether to auto-reconnect on connection loss
-    public var autoReconnect: Bool {
+    public var autoReconnect: Bool = Defaults.autoReconnect {
         didSet { preferences.setBool(autoReconnect, Keys.autoReconnect) }
     }
 
     /// Whether to automatically open mirror window when Claude session starts
-    public var autoOpenMirrorOnSession: Bool {
+    public var autoOpenMirrorOnSession: Bool = Defaults.autoOpenMirrorOnSession {
         didSet { preferences.setBool(autoOpenMirrorOnSession, Keys.autoOpenMirrorOnSession) }
     }
 
     /// Whether to prevent host from sleeping while Claude sessions are active
-    public var preventSleepDuringSessions: Bool {
+    public var preventSleepDuringSessions: Bool = Defaults.preventSleepDuringSessions {
         didSet { preferences.setBool(preventSleepDuringSessions, Keys.preventSleepDuringSessions) }
     }
 
     /// Delay before attempting reconnection (in seconds)
-    public var reconnectDelay: Int {
+    public var reconnectDelay: Int = Defaults.reconnectDelay {
         didSet { preferences.setInt(reconnectDelay, Keys.reconnectDelay) }
     }
 
     // MARK: - tmux Settings
 
     /// Path to tmux binary
-    public var tmuxPath: String {
+    public var tmuxPath: String = Defaults.tmuxPath {
         didSet { preferences.setString(tmuxPath, Keys.tmuxPath) }
     }
 
     /// Whether to automatically run a command when creating sessions in project folders
-    public var autoRunClaudeInProjects: Bool {
+    public var autoRunClaudeInProjects: Bool = Defaults.autoRunClaudeInProjects {
         didSet { preferences.setBool(autoRunClaudeInProjects, Keys.autoRunClaudeInProjects) }
     }
 
     /// Path to claude command (for auto-run in project folders)
-    public var claudeCommandPath: String {
+    public var claudeCommandPath: String = Defaults.claudeCommandPath {
         didSet { preferences.setString(claudeCommandPath, Keys.claudeCommandPath) }
     }
 
     /// tmux socket path (empty for default)
-    public var tmuxSocket: String {
+    public var tmuxSocket: String = Defaults.tmuxSocket {
         didSet { preferences.setString(tmuxSocket, Keys.tmuxSocket) }
     }
 
     /// Terminal application to use for attaching to sessions
-    public var terminalApp: TerminalApp {
+    public var terminalApp: TerminalApp = Defaults.terminalApp {
         didSet { preferences.setString(terminalApp.rawValue, Keys.terminalApp) }
     }
 
     /// Path to custom terminal application (when terminalApp is .custom)
-    public var customTerminalPath: String {
+    public var customTerminalPath: String = Defaults.customTerminalPath {
         didSet { preferences.setString(customTerminalPath, Keys.customTerminalPath) }
     }
 
     // MARK: - Remote Access Settings
 
     /// URL of the external relay server
-    public var externalServerURL: String {
+    public var externalServerURL: String = Defaults.externalServerURL {
         didSet { preferences.setString(externalServerURL, Keys.externalServerURL) }
     }
 
@@ -184,40 +184,37 @@ final public class AppSettings {
     }
 
     /// Whether to automatically connect to relay server on launch
-    public var autoConnectToServer: Bool {
+    public var autoConnectToServer: Bool = Defaults.autoConnectToServer {
         didSet { preferences.setBool(autoConnectToServer, Keys.autoConnectToServer) }
     }
 
     /// Unique device identifier for this host (generated on first launch)
-    public var deviceId: String {
+    public var deviceId: String = "" {
         didSet { preferences.setString(deviceId, Keys.deviceId) }
     }
 
     // MARK: - Plugin Settings
 
     /// Whether the user has completed the plugin setup (or dismissed it)
-    public var hasCompletedPluginSetup: Bool {
+    public var hasCompletedPluginSetup: Bool = Defaults.hasCompletedPluginSetup {
         didSet { preferences.setBool(hasCompletedPluginSetup, Keys.hasCompletedPluginSetup) }
     }
 
     // MARK: - Launch at Login Settings
 
     /// Whether the app should launch at login (synced with system login items)
-    public var launchAtLogin: Bool {
+    public var launchAtLogin: Bool = Defaults.launchAtLogin {
         didSet { preferences.setBool(launchAtLogin, Keys.launchAtLogin) }
     }
 
     /// Whether the user has been asked about launching at login
-    public var hasAskedAboutLaunchAtLogin: Bool {
+    public var hasAskedAboutLaunchAtLogin: Bool = Defaults.hasAskedAboutLaunchAtLogin {
         didSet { preferences.setBool(hasAskedAboutLaunchAtLogin, Keys.hasAskedAboutLaunchAtLogin) }
     }
 
     // MARK: - Initialization
 
     public init() {
-        @Dependency(PreferencesService.self) var preferences
-        self.preferences = preferences
-
         self.fontName = preferences.string(Keys.fontName) ?? Defaults.fontName
         self.fontSize = preferences.optionalDouble(Keys.fontSize) ?? Defaults.fontSize
         self.scrollbackLines = preferences.optionalInt(Keys.scrollbackLines) ?? Defaults.scrollbackLines

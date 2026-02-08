@@ -27,7 +27,7 @@
 
         /// Preferences service for persistent storage
         @ObservationIgnored
-        private var preferences: PreferencesService
+        @Dependency(PreferencesService.self) private var preferences
 
         // MARK: - Singleton
 
@@ -36,7 +36,7 @@
         // MARK: - Properties
 
         /// Unique device identifier (generated once and persisted)
-        public var deviceId: String {
+        public var deviceId: String = "" {
             didSet { preferences.setString(deviceId, Keys.deviceId) }
         }
 
@@ -46,37 +46,38 @@
         }
 
         /// External relay server URL
-        public var externalServerURL: String {
+        public var externalServerURL: String = "" {
             didSet { preferences.setString(externalServerURL, Keys.externalServerURL) }
         }
 
         /// Whether to automatically reconnect on app launch
-        public var autoReconnect: Bool {
+        public var autoReconnect: Bool = false {
             didSet { preferences.setBool(autoReconnect, Keys.autoReconnect) }
         }
 
         /// Font name for terminal snapshot display
-        public var terminalFontName: String {
+        public var terminalFontName: String = "Menlo" {
             didSet { preferences.setString(terminalFontName, Keys.terminalFontName) }
         }
 
         /// Font size for terminal snapshot display
-        public var terminalFontSize: Double {
+        // swiftlint:disable:next custom_no_number_decimals
+        public var terminalFontSize: Double = 10.0 {
             didSet { preferences.setDouble(terminalFontSize, Keys.terminalFontSize) }
         }
 
         /// Base name for new tmux sessions created from iOS
-        public var newSessionName: String {
+        public var newSessionName: String = "claude" {
             didSet { preferences.setString(newSessionName, Keys.newSessionName) }
         }
 
         /// Width (columns) for new tmux sessions
-        public var newSessionWidth: Int {
+        public var newSessionWidth: Int = 120 {
             didSet { preferences.setInt(newSessionWidth, Keys.newSessionWidth) }
         }
 
         /// Height (rows) for new tmux sessions
-        public var newSessionHeight: Int {
+        public var newSessionHeight: Int = 40 {
             didSet { preferences.setInt(newSessionHeight, Keys.newSessionHeight) }
         }
 
@@ -95,9 +96,6 @@
         // MARK: - Initialization
 
         private init() {
-            @Dependency(PreferencesService.self) var preferences
-            self.preferences = preferences
-
             // Load or generate device ID
             if let savedDeviceId = preferences.string(Keys.deviceId) {
                 self.deviceId = savedDeviceId
