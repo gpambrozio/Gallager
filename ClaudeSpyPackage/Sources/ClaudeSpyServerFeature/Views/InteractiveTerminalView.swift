@@ -105,9 +105,9 @@
         override func mouseUp(with event: NSEvent) {
             // If Cmd is held, check for plain-text URL before forwarding to SwiftTerm.
             // SwiftTerm handles OSC 8 links in its own mouseUp; this handles plain-text URLs.
-            if event.modifierFlags.contains(.command),
-               let interactive = interactiveView
-            {
+            if
+                event.modifierFlags.contains(.command),
+                let interactive = interactiveView {
                 let point = interactive.convert(event.locationInWindow, from: nil)
                 if interactive.handleCommandClick(at: point) {
                     return
@@ -149,6 +149,7 @@
         private var urlPreviewField: NSTextField?
         private var highlightedURLRange: (row: Int, startCol: Int, endCol: Int)?
         private var urlHighlightLayer: CALayer?
+        private var urlUnderlineLayers: [CALayer] = []
 
         private var isFocused = false {
             didSet {
@@ -394,10 +395,10 @@
             }
             if let detected = urls.first(where: { pos.col >= $0.startCol && pos.col < $0.endCol }) {
                 let newRange = (row: pos.row, startCol: detected.startCol, endCol: detected.endCol)
-                if highlightedURLRange?.row == newRange.row,
-                   highlightedURLRange?.startCol == newRange.startCol,
-                   highlightedURLRange?.endCol == newRange.endCol
-                {
+                if
+                    highlightedURLRange?.row == newRange.row,
+                    highlightedURLRange?.startCol == newRange.startCol,
+                    highlightedURLRange?.endCol == newRange.endCol {
                     return // Already highlighting this URL
                 }
                 highlightedURLRange = newRange
@@ -486,13 +487,51 @@
             guard let pos = gridPosition(for: point) else { return false }
             let terminal = terminalView.getTerminal()
             let lineText: (Int) -> String? = { terminal.getLine(row: $0)?.translateToString(trimRight: true) }
-            if let url = TerminalURLDetector.urlAt(col: pos.col, row: pos.row, lineText: lineText),
-               let nsURL = URL(string: url)
-            {
+            if
+                let url = TerminalURLDetector.urlAt(col: pos.col, row: pos.row, lineText: lineText),
+                let nsURL = URL(string: url) {
                 NSWorkspace.shared.open(nsURL)
                 return true
             }
             return false
+        }
+
+        // MARK: - URL Underlines
+
+        /// Scans visible rows for URLs and draws persistent underline decorations.
+        /// Called when terminal content changes or scrolls.
+        private func updateURLUnderlines() {
+            for layer in urlUnderlineLayers {
+                layer.removeFromSuperlayer()
+            }
+            urlUnderlineLayers.removeAll()
+
+            let terminal = terminalView.getTerminal()
+            let cellSize = FontMetrics.calculateCellSize(font: terminalView.font as CTFont)
+            guard cellSize.width > 0, cellSize.height > 0 else { return }
+
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+
+            for row in 0..<terminal.rows {
+                let urls = TerminalURLDetector.detectURLs(row: row) {
+                    terminal.getLine(row: $0)?.translateToString(trimRight: true)
+                }
+                for url in urls {
+                    let x = CGFloat(url.startCol) * cellSize.width - horizontalOffset
+                    // Position underline near cell bottom (NSView: origin at bottom-left)
+                    let y = terminalView.frame.height - CGFloat(row + 1) * cellSize.height
+                    let width = CGFloat(url.endCol - url.startCol) * cellSize.width
+
+                    let underline = CALayer()
+                    underline.backgroundColor = NSColor.linkColor.withAlphaComponent(0.9).cgColor
+                    underline.frame = CGRect(x: x, y: y, width: width, height: 2)
+                    terminalView.layer?.addSublayer(underline)
+                    urlUnderlineLayers.append(underline)
+                }
+            }
+
+            CATransaction.commit()
         }
 
         // MARK: - Horizontal Scrolling
@@ -566,6 +605,7 @@
             }
             terminalView.frame.size.height = bounds.height
             updateHorizontalScroller()
+            updateURLUnderlines()
             onResize?(frame.size)
         }
 
@@ -595,6 +635,7 @@
 
         func feed(byteArray: ArraySlice<UInt8>) {
             terminalView.feed(byteArray: byteArray)
+            updateURLUnderlines()
         }
 
         func feedPreservingScroll(_ bytes: ArraySlice<UInt8>) {
@@ -607,6 +648,7 @@
             if preserveUserScroll, !wasAtExtreme {
                 terminalView.scroll(toPosition: savedPosition)
             }
+            updateURLUnderlines()
         }
 
         func scroll(toPosition position: Double) {
@@ -634,7 +676,7 @@
         }
 
         func scrolled(source: TerminalView, position: Double) {
-            // No-op - scrolling is handled by the view
+            updateURLUnderlines()
         }
 
         func setTerminalTitle(source: TerminalView, title: String) {
@@ -667,7 +709,7 @@
         }
 
         func rangeChanged(source: TerminalView, startY: Int, endY: Int) {
-            // No-op
+            updateURLUnderlines()
         }
 
         func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {

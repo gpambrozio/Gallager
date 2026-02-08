@@ -40,6 +40,7 @@
 
         /// Highlight layer shown over detected URL during long-press
         private var urlHighlightLayer: CALayer?
+        private var urlUnderlineLayers: [CALayer] = []
 
         override init(frame: CGRect, font: UIFont?) {
             super.init(frame: frame, font: font)
@@ -78,6 +79,7 @@
             feed(byteArray: bytes)
 
             blockScrollChanges = false
+            updateURLUnderlines()
         }
 
         // MARK: - Focus Management
@@ -99,32 +101,52 @@
         private func setupURLLongPress() {
             let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleURLLongPress))
             longPress.minimumPressDuration = 0.5
+            longPress.cancelsTouchesInView = false
             longPress.delegate = self
             addGestureRecognizer(longPress)
+
+            let tap = UITapGestureRecognizer(target: self, action: #selector(handleURLTap))
+            tap.cancelsTouchesInView = false
+            tap.require(toFail: longPress)
+            tap.delegate = self
+            addGestureRecognizer(tap)
         }
 
-        /// Converts a content-space point to a viewport grid position (col, viewportRow).
-        /// The viewportRow is suitable for use with `Terminal.getLine(row:)`.
+        /// Converts a content-space point to a grid position (col, row) suitable for `Terminal.getLine(row:)`.
+        ///
+        /// Computes the absolute buffer row from content-space coordinates, then derives
+        /// the viewport row via `buffer.yDisp`. This avoids drift between `contentOffset`
+        /// and `yDisp` that occurs when the user scrolls the UIScrollView.
         private func gridPosition(for point: CGPoint) -> (col: Int, row: Int)? {
             let cellSize = FontMetrics.calculateCellSize(font: font as CTFont)
             guard cellSize.width > 0, cellSize.height > 0 else { return nil }
 
             let terminal = getTerminal()
 
-            // gesture.location(in: self) returns content coordinates in a UIScrollView.
-            // Subtract contentOffset to get the position within the visible viewport.
-            // This viewport-relative row maps correctly to Terminal.getLine(row:), which
-            // also uses viewport-relative indexing (row 0 = top of visible area).
-            let visibleX = point.x
-            let visibleY = point.y - contentOffset.y
+            let col = Int(point.x / cellSize.width)
+            // Absolute buffer row from content-space y, then convert to viewport row.
+            // getLine(row:) adds yDisp back, so: lines[row + yDisp] = lines[absoluteRow] ✓
+            let absoluteRow = Int(point.y / cellSize.height)
+            let row = absoluteRow - terminal.buffer.yDisp
 
-            let col = Int(visibleX / cellSize.width)
-            let row = Int(visibleY / cellSize.height)
-
+            guard row >= 0, row < terminal.rows else { return nil }
             let clampedCol = min(max(0, col), terminal.cols - 1)
-            let clampedRow = min(max(0, row), terminal.rows - 1)
 
-            return (clampedCol, clampedRow)
+            return (clampedCol, row)
+        }
+
+        @objc
+        private func handleURLTap(_ gesture: UITapGestureRecognizer) {
+            let point = gesture.location(in: self)
+            guard let pos = gridPosition(for: point) else { return }
+
+            let terminal = getTerminal()
+            let lineText: (Int) -> String? = { terminal.getLine(row: $0)?.translateToString(trimRight: true) }
+            if
+                let url = TerminalURLDetector.urlAt(col: pos.col, row: pos.row, lineText: lineText),
+                let nsURL = URL(string: url) {
+                UIApplication.shared.open(nsURL)
+            }
         }
 
         @objc
@@ -146,7 +168,9 @@
                 showURLHighlight(row: pos.row, startCol: detected.startCol, endCol: detected.endCol)
                 showURLActionSheet(url: detected.url)
 
-            case .ended, .cancelled, .failed:
+            case .ended,
+                 .cancelled,
+                 .failed:
                 removeURLHighlight()
 
             default:
@@ -157,9 +181,10 @@
         private func showURLHighlight(row: Int, startCol: Int, endCol: Int) {
             let cellSize = FontMetrics.calculateCellSize(font: font as CTFont)
 
-            // row is a viewport row. Convert to content coordinates for positioning.
+            // row is a viewport row. Use yDisp for absolute content-space positioning.
             let x = CGFloat(startCol) * cellSize.width
-            let y = CGFloat(row) * cellSize.height + contentOffset.y
+            let absoluteRow = row + getTerminal().buffer.yDisp
+            let y = CGFloat(absoluteRow) * cellSize.height
             let width = CGFloat(endCol - startCol) * cellSize.width
 
             let highlightRect = CGRect(x: x, y: y, width: width, height: cellSize.height)
@@ -229,6 +254,46 @@
             }
             return nil
         }
+
+        // MARK: - URL Underlines
+
+        /// Scans visible rows for URLs and draws persistent underline decorations.
+        /// Positions use absolute content-space coordinates so underlines scroll with text.
+        private func updateURLUnderlines() {
+            for underline in urlUnderlineLayers {
+                underline.removeFromSuperlayer()
+            }
+            urlUnderlineLayers.removeAll()
+
+            let terminal = getTerminal()
+            let cellSize = FontMetrics.calculateCellSize(font: font as CTFont)
+            guard cellSize.width > 0, cellSize.height > 0 else { return }
+            let yDisp = terminal.buffer.yDisp
+
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+
+            for row in 0..<terminal.rows {
+                let urls = TerminalURLDetector.detectURLs(row: row) {
+                    terminal.getLine(row: $0)?.translateToString(trimRight: true)
+                }
+                for url in urls {
+                    let x = CGFloat(url.startCol) * cellSize.width
+                    // Absolute content-space y using buffer offset, so underlines scroll with text
+                    let absoluteRow = row + yDisp
+                    let y = CGFloat(absoluteRow) * cellSize.height + cellSize.height - 2
+                    let width = CGFloat(url.endCol - url.startCol) * cellSize.width
+
+                    let underline = CALayer()
+                    underline.backgroundColor = UIColor.tintColor.withAlphaComponent(0.6).cgColor
+                    underline.frame = CGRect(x: x, y: y, width: width, height: 2)
+                    layer.addSublayer(underline)
+                    urlUnderlineLayers.append(underline)
+                }
+            }
+
+            CATransaction.commit()
+        }
     }
 
     // MARK: - UIGestureRecognizerDelegate
@@ -238,7 +303,7 @@
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
-            // Allow long-press to work alongside scroll gestures
+            // Allow URL gestures to work alongside scroll gestures
             true
         }
     }
@@ -257,7 +322,7 @@
         }
 
         func scrolled(source: TerminalView, position: Double) {
-            // No-op - scrolling is handled by the view
+            // No-op - URL underlines scroll naturally with content via absolute positioning
         }
 
         func setTerminalTitle(source: TerminalView, title: String) {
@@ -290,7 +355,7 @@
         }
 
         func rangeChanged(source: TerminalView, startY: Int, endY: Int) {
-            // No-op
+            updateURLUnderlines()
         }
 
         func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {
