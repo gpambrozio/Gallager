@@ -32,6 +32,14 @@ extension Target.Dependency {
         .product(name: "Sparkle", package: "Sparkle", condition: .when(platforms: [.macOS]))
     }
 
+    static var dependencies: Self {
+        .product(name: "Dependencies", package: "swift-dependencies")
+    }
+
+    static var dependenciesMacros: Self {
+        .product(name: "DependenciesMacros", package: "swift-dependencies")
+    }
+
     static var claudeSpyNetworking: Self { "ClaudeSpyNetworking" }
     static var claudeSpyCommon: Self { "ClaudeSpyCommon" }
     static var claudeSpyEncryption: Self { "ClaudeSpyEncryption" }
@@ -79,6 +87,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
+        .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.0.0"),
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -99,6 +108,8 @@ let package = Package(
                 .claudeSpyEncryption,
                 .sfSymbolsMacro,
                 .logging,
+                .dependencies,
+                .dependenciesMacros,
             ]
         ),
         // End-to-end encryption module using CryptoKit (Apple) / Swift Crypto (Linux)
