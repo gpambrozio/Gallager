@@ -46,6 +46,7 @@
         var onHorizontalScroll: ((CGFloat) -> Void)?
         var onMouseDown: (() -> Void)?
         var onMouseMoved: ((NSEvent) -> Void)?
+        var onMouseExited: (() -> Void)?
         var onFlagsChanged: ((NSEvent) -> Void)?
 
         private var trackingArea: NSTrackingArea?
@@ -73,6 +74,10 @@
 
         override func mouseMoved(with event: NSEvent) {
             onMouseMoved?(event)
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            onMouseExited?()
         }
 
         override func flagsChanged(with event: NSEvent) {
@@ -140,6 +145,7 @@
 
         // URL detection state
         private var commandKeyActive = false
+        private var urlCursorPushed = false
         private var urlPreviewField: NSTextField?
         private var highlightedURLRange: (row: Int, startCol: Int, endCol: Int)?
         private var urlHighlightLayer: CALayer?
@@ -193,6 +199,9 @@
             }
             overlay.onMouseMoved = { [weak self] event in
                 self?.handleMouseMoved(event)
+            }
+            overlay.onMouseExited = { [weak self] in
+                self?.handleMouseExited()
             }
             overlay.onFlagsChanged = { [weak self] event in
                 self?.handleFlagsChanged(event)
@@ -353,6 +362,7 @@
                 updateURLHighlight(at: localPoint)
             } else {
                 commandKeyActive = false
+                resetURLCursor()
                 removeURLHighlight()
                 removeURLPreview()
             }
@@ -364,8 +374,15 @@
             updateURLHighlight(at: point)
         }
 
+        private func handleMouseExited() {
+            resetURLCursor()
+            removeURLHighlight()
+            removeURLPreview()
+        }
+
         private func updateURLHighlight(at point: NSPoint) {
             guard let pos = gridPosition(for: point) else {
+                resetURLCursor()
                 removeURLHighlight()
                 removeURLPreview()
                 return
@@ -386,11 +403,14 @@
                 highlightedURLRange = newRange
                 showURLHighlight(row: pos.row, startCol: detected.startCol, endCol: detected.endCol)
                 showURLPreview(detected.url)
-                NSCursor.pointingHand.set()
+                if !urlCursorPushed {
+                    NSCursor.pointingHand.push()
+                    urlCursorPushed = true
+                }
             } else {
+                resetURLCursor()
                 removeURLHighlight()
                 removeURLPreview()
-                NSCursor.iBeam.set()
             }
         }
 
@@ -454,8 +474,15 @@
             urlPreviewField = nil
         }
 
+        private func resetURLCursor() {
+            if urlCursorPushed {
+                NSCursor.pop()
+                urlCursorPushed = false
+            }
+        }
+
         /// Called by the scroll overlay when Cmd+click happens - check for plain-text URL.
-        func handleCommandClick(at point: NSPoint) -> Bool {
+        fileprivate func handleCommandClick(at point: NSPoint) -> Bool {
             guard let pos = gridPosition(for: point) else { return false }
             let terminal = terminalView.getTerminal()
             let lineText: (Int) -> String? = { terminal.getLine(row: $0)?.translateToString(trimRight: true) }

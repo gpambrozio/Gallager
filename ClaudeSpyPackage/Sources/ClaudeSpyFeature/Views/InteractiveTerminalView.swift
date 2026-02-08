@@ -112,7 +112,9 @@
             let terminal = getTerminal()
 
             // gesture.location(in: self) returns content coordinates in a UIScrollView.
-            // Subtract contentOffset to get position within the visible viewport.
+            // Subtract contentOffset to get the position within the visible viewport.
+            // This viewport-relative row maps correctly to Terminal.getLine(row:), which
+            // also uses viewport-relative indexing (row 0 = top of visible area).
             let visibleX = point.x
             let visibleY = point.y - contentOffset.y
 

@@ -18,7 +18,7 @@ public enum TerminalURLDetector {
     private static let urlRegex = try! NSRegularExpression(pattern: urlPattern, options: [])
 
     /// Represents a detected URL with its column range within a terminal line.
-    public struct DetectedURL {
+    public struct DetectedURL: Sendable {
         public let url: String
         public let startCol: Int
         public let endCol: Int
