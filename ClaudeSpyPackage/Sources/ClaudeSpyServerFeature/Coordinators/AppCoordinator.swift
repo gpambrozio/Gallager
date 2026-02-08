@@ -64,6 +64,9 @@
         /// Sleep prevention manager
         public let sleepPreventionManager: SleepPreventionManager
 
+        /// Key manager for E2EE operations
+        private let keyManager: any KeychainStorable
+
         // MARK: - Private Services
 
         private let hookServer: HookServerService
@@ -85,11 +88,12 @@
         ///
         /// Synchronous initialization sets up core services. Call `setupAllServices()` asynchronously
         /// to complete service initialization and start connections.
-        public init(settings: AppSettings = AppSettings()) {
+        public init(settings: AppSettings = AppSettings(), keyManager: any KeychainStorable = KeyManager()) {
             // Disable macOS automatic window restoration to prevent duplicate windows on launch
             UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
 
             self.settings = settings
+            self.keyManager = keyManager
 
             // Create tmux service
             self.tmuxService = TmuxService(
@@ -136,7 +140,7 @@
 
             // CRITICAL: Load E2EEService synchronously from Keychain BEFORE any view rendering.
             // This prevents createPairingManager() from generating temporary keys.
-            if let e2ee = try? E2EEService.loadFromKeychainSync() {
+            if let e2ee = try? E2EEService.loadFromKeychainSync(keyManager: keyManager) {
                 self.e2eeService = e2ee
                 self.keyPair = e2ee.storedKeyPair
             }
@@ -201,7 +205,7 @@
             // Create E2EEService if not already created
             if e2eeService == nil {
                 do {
-                    let e2ee = try await E2EEService()
+                    let e2ee = try await E2EEService(keyManager: keyManager)
                     e2eeService = e2ee
                     keyPair = e2ee.storedKeyPair
                 } catch {
@@ -449,7 +453,6 @@
             }
 
             do {
-                let keyManager = KeyManager()
                 let manager = try await ViewerConnectionManager(keyManager: keyManager)
                 viewerConnectionManager = manager
 

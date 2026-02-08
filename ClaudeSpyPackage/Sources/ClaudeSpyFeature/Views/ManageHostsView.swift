@@ -10,6 +10,7 @@
     struct ManageHostsView: View {
         @Environment(IOSSettings.self) private var settings
         @Environment(ViewerConnectionManager.self) private var connectionManager
+        @Environment(\.keychainStorage) private var keychainStorage
 
         @State private var showPairingSheet = false
         @State private var hostToDelete: PairedHost?
@@ -87,8 +88,9 @@
             await connectionManager.disconnect(from: host.id)
 
             // Delete encryption session key for this host
-            let keyManager = KeyManager(accessGroup: sharedKeychainAccessGroup)
-            try? await keyManager.deleteSessionKey(for: host.id)
+            let km: any KeychainStorable = keychainStorage
+                ?? KeyManager(accessGroup: sharedKeychainAccessGroup)
+            try? await km.deleteSessionKey(for: host.id)
 
             // Remove from settings
             settings.removePairing(id: host.id)

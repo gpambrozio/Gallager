@@ -13,16 +13,19 @@
     /// - Handles WebSocket connections for all paired hosts
     /// - Manages background task to keep connections alive when backgrounded
     public struct ContentView: View {
-        @State private var settings = IOSSettings.shared
+        @State private var settings: IOSSettings
         @State private var connectionManager: ViewerConnectionManager?
         @State private var sessionStore = SessionStore()
         @State private var initializationError: String?
 
         @Environment(\.scenePhase) private var scenePhase
+        @Environment(\.keychainStorage) private var keychainStorage
         @State private var pushService = PushNotificationService.shared
         @State private var backgroundTaskService = BackgroundTaskService.shared
 
-        public init() { }
+        public init(settings: IOSSettings = .shared) {
+            _settings = State(initialValue: settings)
+        }
 
         public var body: some View {
             Group {
@@ -180,9 +183,11 @@
             guard connectionManager == nil else { return }
 
             do {
-                // Use shared keychain access group so Notification Service Extension can decrypt
-                let keyManager = KeyManager(accessGroup: sharedKeychainAccessGroup)
-                connectionManager = try await ViewerConnectionManager(keyManager: keyManager)
+                // Use injected keychain storage if available (e.g., for E2E tests),
+                // otherwise use shared keychain access group so Notification Service Extension can decrypt
+                let km: any KeychainStorable = keychainStorage
+                    ?? KeyManager(accessGroup: sharedKeychainAccessGroup)
+                connectionManager = try await ViewerConnectionManager(keyManager: km)
             } catch {
                 initializationError = "Failed to initialize encryption: \(error.localizedDescription)"
             }

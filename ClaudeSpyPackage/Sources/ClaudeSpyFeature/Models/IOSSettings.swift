@@ -22,6 +22,11 @@
             static let newSessionHeight = "newSessionHeight"
         }
 
+        // MARK: - Storage
+
+        /// Backing store for persistence (real UserDefaults or in-memory for tests)
+        private let defaults: UserDefaultsStorable
+
         // MARK: - Singleton
 
         public static let shared = IOSSettings()
@@ -30,7 +35,7 @@
 
         /// Unique device identifier (generated once and persisted)
         public var deviceId: String {
-            didSet { UserDefaults.standard.set(deviceId, forKey: Keys.deviceId) }
+            didSet { defaults.set(deviceId, forKey: Keys.deviceId) }
         }
 
         /// All paired host servers
@@ -40,37 +45,37 @@
 
         /// External relay server URL
         public var externalServerURL: String {
-            didSet { UserDefaults.standard.set(externalServerURL, forKey: Keys.externalServerURL) }
+            didSet { defaults.set(externalServerURL, forKey: Keys.externalServerURL) }
         }
 
         /// Whether to automatically reconnect on app launch
         public var autoReconnect: Bool {
-            didSet { UserDefaults.standard.set(autoReconnect, forKey: Keys.autoReconnect) }
+            didSet { defaults.set(autoReconnect, forKey: Keys.autoReconnect) }
         }
 
         /// Font name for terminal snapshot display
         public var terminalFontName: String {
-            didSet { UserDefaults.standard.set(terminalFontName, forKey: Keys.terminalFontName) }
+            didSet { defaults.set(terminalFontName, forKey: Keys.terminalFontName) }
         }
 
         /// Font size for terminal snapshot display
         public var terminalFontSize: Double {
-            didSet { UserDefaults.standard.set(terminalFontSize, forKey: Keys.terminalFontSize) }
+            didSet { defaults.set(terminalFontSize, forKey: Keys.terminalFontSize) }
         }
 
         /// Base name for new tmux sessions created from iOS
         public var newSessionName: String {
-            didSet { UserDefaults.standard.set(newSessionName, forKey: Keys.newSessionName) }
+            didSet { defaults.set(newSessionName, forKey: Keys.newSessionName) }
         }
 
         /// Width (columns) for new tmux sessions
         public var newSessionWidth: Int {
-            didSet { UserDefaults.standard.set(newSessionWidth, forKey: Keys.newSessionWidth) }
+            didSet { defaults.set(newSessionWidth, forKey: Keys.newSessionWidth) }
         }
 
         /// Height (rows) for new tmux sessions
         public var newSessionHeight: Int {
-            didSet { UserDefaults.standard.set(newSessionHeight, forKey: Keys.newSessionHeight) }
+            didSet { defaults.set(newSessionHeight, forKey: Keys.newSessionHeight) }
         }
 
         // MARK: - Computed Properties
@@ -87,8 +92,8 @@
 
         // MARK: - Initialization
 
-        private init() {
-            let defaults = UserDefaults.standard
+        public init(defaults: UserDefaultsStorable = UserDefaults.standard) {
+            self.defaults = defaults
 
             // Load or generate device ID
             if let savedDeviceId = defaults.string(forKey: Keys.deviceId) {
@@ -121,7 +126,7 @@
         // MARK: - Paired Hosts Storage
 
         private func loadPairedHosts() -> [PairedHost] {
-            guard let data = UserDefaults.standard.data(forKey: Keys.pairedHosts) else {
+            guard let data = defaults.data(forKey: Keys.pairedHosts) else {
                 return []
             }
 
@@ -137,7 +142,7 @@
             guard let data = try? JSONEncoder().encode(pairedHosts) else {
                 return
             }
-            UserDefaults.standard.set(data, forKey: Keys.pairedHosts)
+            defaults.set(data, forKey: Keys.pairedHosts)
         }
 
         // MARK: - Pairing Management

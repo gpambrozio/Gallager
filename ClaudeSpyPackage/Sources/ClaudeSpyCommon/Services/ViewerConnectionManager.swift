@@ -21,7 +21,7 @@ final public class ViewerConnectionManager {
     private var connectingHosts: Set<String> = []
 
     /// Key manager for creating E2EE services
-    private let keyManager: KeyManager
+    private let keyManager: any KeychainStorable
 
     /// Our stored key pair for E2EE
     private var keyPair: StoredKeyPair?
@@ -79,7 +79,7 @@ final public class ViewerConnectionManager {
     ///
     /// - Parameter keyManager: Key manager for E2EE key operations
     /// - Throws: If key pair initialization fails
-    public init(keyManager: KeyManager) async throws {
+    public init(keyManager: any KeychainStorable) async throws {
         self.keyManager = keyManager
 
         // Load or generate key pair
