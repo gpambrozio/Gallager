@@ -4,70 +4,6 @@
     import SwiftTerm
     import UIKit
 
-    // MARK: - Terminal URL Detection
-
-    /// Detects plain-text URLs in terminal buffer text at a given grid position.
-    private enum TerminalURLDetector {
-        /// URL pattern matching common schemes.
-        /// Matches http://, https://, ftp://, and file:// URLs.
-        private static let urlPattern: String = {
-            // Match URLs with explicit schemes (http/https/ftp only, no file:// for security)
-            let schemes = "https?://|ftp://"
-            let urlChars = "[^\\s<>\"'`\\]\\)\\}\\|]"
-            return "(?:\(schemes))\(urlChars)+"
-        }()
-
-        // Pattern is a compile-time constant; failure is a programmer error
-        private static let urlRegex = try! NSRegularExpression(pattern: urlPattern, options: [])
-
-        /// Represents a detected URL with its column range within a terminal line.
-        struct DetectedURL {
-            let url: String
-            let startCol: Int
-            let endCol: Int
-        }
-
-        /// Extracts text from a terminal line and finds all URLs in it.
-        static func detectURLs(in terminal: Terminal, row: Int) -> [DetectedURL] {
-            guard let line = terminal.getLine(row: row) else { return [] }
-            let text = line.translateToString(trimRight: true)
-            guard !text.isEmpty else { return [] }
-
-            let nsText = text as NSString
-            let matches = urlRegex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
-
-            return matches.compactMap { match in
-                let urlString = nsText.substring(with: match.range)
-                let cleaned = cleanTrailingPunctuation(urlString)
-                guard URL(string: cleaned) != nil else { return nil }
-
-                // Map NSRange to column positions using UTF-16 lengths for consistency
-                let startCol = match.range.location
-                let endCol = startCol + (cleaned as NSString).length
-                return DetectedURL(url: cleaned, startCol: startCol, endCol: endCol)
-            }
-        }
-
-        /// Finds the URL at a specific column position in a terminal row.
-        static func urlAt(col: Int, row: Int, in terminal: Terminal) -> String? {
-            let urls = detectURLs(in: terminal, row: row)
-            return urls.first(where: { col >= $0.startCol && col < $0.endCol })?.url
-        }
-
-        /// Removes trailing punctuation that commonly follows URLs in text but isn't part of the URL.
-        private static func cleanTrailingPunctuation(_ url: String) -> String {
-            var result = url
-            let trailingChars: Set<Character> = [".", ",", ";", ":", "!", "?"]
-            while let last = result.last, trailingChars.contains(last) {
-                result.removeLast()
-            }
-            if result.hasSuffix(")"), !result.contains("(") {
-                result.removeLast()
-            }
-            return result
-        }
-    }
-
     // MARK: - Interactive Terminal View
 
     /// A terminal view that accepts keyboard input and forwards it via a callback.
@@ -197,7 +133,9 @@
                 guard let pos = gridPosition(for: point) else { return }
 
                 let terminal = getTerminal()
-                let urls = TerminalURLDetector.detectURLs(in: terminal, row: pos.row)
+                let urls = TerminalURLDetector.detectURLs(row: pos.row) {
+                    terminal.getLine(row: $0)?.translateToString(trimRight: true)
+                }
                 guard let detected = urls.first(where: { pos.col >= $0.startCol && pos.col < $0.endCol }) else {
                     return
                 }
