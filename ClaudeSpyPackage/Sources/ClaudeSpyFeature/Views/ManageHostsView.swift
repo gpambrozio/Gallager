@@ -1,6 +1,6 @@
 #if os(iOS)
     import ClaudeSpyCommon
-    import ClaudeSpyEncryption
+    import Dependencies
     import SwiftUI
 
     /// View for managing paired hosts.
@@ -87,7 +87,7 @@
             await connectionManager.disconnect(from: host.id)
 
             // Delete encryption session key for this host
-            let secrets = SecretsService.shared(accessGroup: sharedKeychainAccessGroup)
+            @Dependency(SecretsService.self) var secrets
             try? await secrets.deleteSessionKey(host.id)
 
             // Remove from settings

@@ -18,9 +18,6 @@
         /// Loads an existing key pair from the Keychain.
         public var loadKeyPair: @Sendable () async throws -> StoredKeyPair?
 
-        /// Synchronously loads an existing key pair from the Keychain.
-        public var loadKeyPairSync: @Sendable () throws -> StoredKeyPair?
-
         /// Checks if a key pair exists in the Keychain.
         public var hasStoredKeyPair: @Sendable () async -> Bool = { false }
 
@@ -46,72 +43,29 @@
         /// Returns the underlying KeyManager for use with E2EEService.
         /// This allows services that need a KeyManager instance to get one
         /// without directly constructing it.
-        public var keyManager: @Sendable () -> KeyManager = { KeyManager() }
+        public var keyManager: @Sendable () throws -> KeyManager
     }
 
     // MARK: - DependencyKey
 
     extension SecretsService: DependencyKey {
         public static var liveValue: SecretsService {
-            let keyManager = KeyManager()
+            #if os(iOS)
+                let keyManager = KeyManager(accessGroup: sharedKeychainAccessGroup)
+            #else
+                let keyManager = KeyManager()
+            #endif
 
-            return SecretsService(
-                generateKeyPair: {
-                    try await keyManager.generateKeyPair()
-                },
-                loadKeyPair: {
-                    try await keyManager.loadKeyPair()
-                },
-                loadKeyPairSync: {
-                    try keyManager.loadKeyPairSync()
-                },
-                hasStoredKeyPair: {
-                    await keyManager.hasStoredKeyPair()
-                },
-                deleteKeys: {
-                    try await keyManager.deleteKeys()
-                },
-                storeSessionKey: { keyData, pairId in
-                    try await keyManager.storeSessionKey(keyData, for: pairId)
-                },
-                loadSessionKey: { pairId in
-                    try await keyManager.loadSessionKey(for: pairId)
-                },
-                deleteSessionKey: { pairId in
-                    try await keyManager.deleteSessionKey(for: pairId)
-                },
-                hasStoredSessionKey: { pairId in
-                    await keyManager.hasStoredSessionKey(for: pairId)
-                },
-                keyManager: {
-                    keyManager
-                }
-            )
+            return build(from: keyManager)
         }
-    }
 
-    // MARK: - Shared Keychain Access Group
-
-    extension SecretsService {
-        /// Creates a SecretsService configured with a shared keychain access group.
-        ///
-        /// Use this for iOS apps that need to share keys with app extensions
-        /// (e.g., Notification Service Extension).
-        ///
-        /// - Parameter accessGroup: The keychain access group identifier
-        /// - Returns: A configured SecretsService
-        public static func shared(accessGroup: String) -> SecretsService {
-            let keyManager = KeyManager(accessGroup: accessGroup)
-
-            return SecretsService(
+        private static func build(from keyManager: KeyManager) -> SecretsService {
+            SecretsService(
                 generateKeyPair: {
                     try await keyManager.generateKeyPair()
                 },
                 loadKeyPair: {
                     try await keyManager.loadKeyPair()
-                },
-                loadKeyPairSync: {
-                    try keyManager.loadKeyPairSync()
                 },
                 hasStoredKeyPair: {
                     await keyManager.hasStoredKeyPair()

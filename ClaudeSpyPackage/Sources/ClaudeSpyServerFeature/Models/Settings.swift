@@ -73,7 +73,7 @@ final public class AppSettings {
 
     /// Preferences service for persistent storage
     @ObservationIgnored
-    private let preferences: PreferencesService
+    private var preferences: PreferencesService
 
     // MARK: - UI State (transient, not persisted)
 
@@ -214,60 +214,59 @@ final public class AppSettings {
 
     // MARK: - Initialization
 
-    public init(preferences: PreferencesService? = nil) {
-        @Dependency(PreferencesService.self) var defaultPreferences
-        let prefs = preferences ?? defaultPreferences
-        self.preferences = prefs
+    public init() {
+        @Dependency(PreferencesService.self) var preferences
+        self.preferences = preferences
 
-        self.fontName = prefs.string(Keys.fontName) ?? Defaults.fontName
-        self.fontSize = prefs.optionalDouble(Keys.fontSize) ?? Defaults.fontSize
-        self.scrollbackLines = prefs.optionalInt(Keys.scrollbackLines) ?? Defaults.scrollbackLines
-        self.theme = TerminalTheme(rawValue: prefs.string(Keys.theme) ?? "") ?? Defaults.theme
-        self.restoreWindowsOnLaunch = prefs.optionalBool(Keys.restoreWindowsOnLaunch) ?? Defaults.restoreWindowsOnLaunch
-        self.showStatusBar = prefs.optionalBool(Keys.showStatusBar) ?? Defaults.showStatusBar
-        self.autoReconnect = prefs.optionalBool(Keys.autoReconnect) ?? Defaults.autoReconnect
-        self.autoOpenMirrorOnSession = prefs.optionalBool(Keys.autoOpenMirrorOnSession) ?? Defaults.autoOpenMirrorOnSession
-        self.preventSleepDuringSessions = prefs.optionalBool(Keys.preventSleepDuringSessions) ?? Defaults.preventSleepDuringSessions
-        self.reconnectDelay = prefs.optionalInt(Keys.reconnectDelay) ?? Defaults.reconnectDelay
-        self.tmuxPath = prefs.string(Keys.tmuxPath) ?? Defaults.tmuxPath
-        self.tmuxSocket = prefs.string(Keys.tmuxSocket) ?? Defaults.tmuxSocket
+        self.fontName = preferences.string(Keys.fontName) ?? Defaults.fontName
+        self.fontSize = preferences.optionalDouble(Keys.fontSize) ?? Defaults.fontSize
+        self.scrollbackLines = preferences.optionalInt(Keys.scrollbackLines) ?? Defaults.scrollbackLines
+        self.theme = TerminalTheme(rawValue: preferences.string(Keys.theme) ?? "") ?? Defaults.theme
+        self.restoreWindowsOnLaunch = preferences.optionalBool(Keys.restoreWindowsOnLaunch) ?? Defaults.restoreWindowsOnLaunch
+        self.showStatusBar = preferences.optionalBool(Keys.showStatusBar) ?? Defaults.showStatusBar
+        self.autoReconnect = preferences.optionalBool(Keys.autoReconnect) ?? Defaults.autoReconnect
+        self.autoOpenMirrorOnSession = preferences.optionalBool(Keys.autoOpenMirrorOnSession) ?? Defaults.autoOpenMirrorOnSession
+        self.preventSleepDuringSessions = preferences.optionalBool(Keys.preventSleepDuringSessions) ?? Defaults.preventSleepDuringSessions
+        self.reconnectDelay = preferences.optionalInt(Keys.reconnectDelay) ?? Defaults.reconnectDelay
+        self.tmuxPath = preferences.string(Keys.tmuxPath) ?? Defaults.tmuxPath
+        self.tmuxSocket = preferences.string(Keys.tmuxSocket) ?? Defaults.tmuxSocket
 
         // Claude command settings - auto-detect on first launch
-        self.autoRunClaudeInProjects = prefs.optionalBool(Keys.autoRunClaudeInProjects) ?? Defaults.autoRunClaudeInProjects
-        if let savedPath = prefs.string(Keys.claudeCommandPath) {
+        self.autoRunClaudeInProjects = preferences.optionalBool(Keys.autoRunClaudeInProjects) ?? Defaults.autoRunClaudeInProjects
+        if let savedPath = preferences.string(Keys.claudeCommandPath) {
             self.claudeCommandPath = savedPath
         } else {
             // First launch - try to detect claude path
             let detectedPath = ClaudePathDetector.detectPath() ?? Defaults.claudeCommandPath
             self.claudeCommandPath = detectedPath
-            prefs.setString(detectedPath, Keys.claudeCommandPath)
+            preferences.setString(detectedPath, Keys.claudeCommandPath)
         }
-        self.terminalApp = TerminalApp(rawValue: prefs.string(Keys.terminalApp) ?? "") ?? Defaults.terminalApp
-        self.customTerminalPath = prefs.string(Keys.customTerminalPath) ?? Defaults.customTerminalPath
+        self.terminalApp = TerminalApp(rawValue: preferences.string(Keys.terminalApp) ?? "") ?? Defaults.terminalApp
+        self.customTerminalPath = preferences.string(Keys.customTerminalPath) ?? Defaults.customTerminalPath
 
         // Remote Access
-        self.externalServerURL = prefs.string(Keys.externalServerURL) ?? Defaults.externalServerURL
-        self.autoConnectToServer = prefs.optionalBool(Keys.autoConnectToServer) ?? Defaults.autoConnectToServer
+        self.externalServerURL = preferences.string(Keys.externalServerURL) ?? Defaults.externalServerURL
+        self.autoConnectToServer = preferences.optionalBool(Keys.autoConnectToServer) ?? Defaults.autoConnectToServer
 
         // Load paired devices and hosts
-        self.pairedViewers = Self.loadPairedViewers(from: prefs)
-        self.pairedHosts = Self.loadPairedHosts(from: prefs)
+        self.pairedViewers = Self.loadCodable(from: preferences, key: Keys.pairedViewers)
+        self.pairedHosts = Self.loadCodable(from: preferences, key: Keys.pairedHosts)
 
         // Generate device ID if not already set
-        if let existingDeviceId = prefs.string(Keys.deviceId) {
+        if let existingDeviceId = preferences.string(Keys.deviceId) {
             self.deviceId = existingDeviceId
         } else {
             let newDeviceId = UUID().uuidString
             self.deviceId = newDeviceId
-            prefs.setString(newDeviceId, Keys.deviceId)
+            preferences.setString(newDeviceId, Keys.deviceId)
         }
 
         // Plugin
-        self.hasCompletedPluginSetup = prefs.optionalBool(Keys.hasCompletedPluginSetup) ?? Defaults.hasCompletedPluginSetup
+        self.hasCompletedPluginSetup = preferences.optionalBool(Keys.hasCompletedPluginSetup) ?? Defaults.hasCompletedPluginSetup
 
         // Launch at Login
-        self.launchAtLogin = prefs.optionalBool(Keys.launchAtLogin) ?? Defaults.launchAtLogin
-        self.hasAskedAboutLaunchAtLogin = prefs.optionalBool(Keys.hasAskedAboutLaunchAtLogin) ?? Defaults.hasAskedAboutLaunchAtLogin
+        self.launchAtLogin = preferences.optionalBool(Keys.launchAtLogin) ?? Defaults.launchAtLogin
+        self.hasAskedAboutLaunchAtLogin = preferences.optionalBool(Keys.hasAskedAboutLaunchAtLogin) ?? Defaults.hasAskedAboutLaunchAtLogin
     }
 
     // MARK: - Keys
@@ -344,13 +343,13 @@ final public class AppSettings {
         !pairedHosts.isEmpty
     }
 
-    // MARK: - Paired Viewers Storage
+    // MARK: - Codable Storage
 
-    private static func loadPairedViewers(from preferences: PreferencesService) -> [PairedViewer] {
-        guard let data = preferences.data(Keys.pairedViewers) else {
+    private static func loadCodable<T: Decodable>(from preferences: PreferencesService, key: String) -> [T] {
+        guard let data = preferences.data(key) else {
             return []
         }
-        return (try? JSONDecoder().decode([PairedViewer].self, from: data)) ?? []
+        return (try? JSONDecoder().decode([T].self, from: data)) ?? []
     }
 
     private func savePairedViewers() {
@@ -358,15 +357,6 @@ final public class AppSettings {
             return
         }
         preferences.setData(data, Keys.pairedViewers)
-    }
-
-    // MARK: - Paired Hosts Storage
-
-    private static func loadPairedHosts(from preferences: PreferencesService) -> [PairedHost] {
-        guard let data = preferences.data(Keys.pairedHosts) else {
-            return []
-        }
-        return (try? JSONDecoder().decode([PairedHost].self, from: data)) ?? []
     }
 
     private func savePairedHosts() {

@@ -27,7 +27,7 @@
 
         /// Preferences service for persistent storage
         @ObservationIgnored
-        private let preferences: PreferencesService
+        private var preferences: PreferencesService
 
         // MARK: - Singleton
 

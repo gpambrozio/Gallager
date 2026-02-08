@@ -78,6 +78,12 @@
         @ObservationIgnored
         private var wakeObserverTask: Task<Void, Never>?
 
+        @ObservationIgnored
+        @Dependency(PreferencesService.self) private var preferences
+
+        @ObservationIgnored
+        @Dependency(SecretsService.self) private var secrets
+
         private let logger = Logger(label: "com.claudespy.coordinator")
 
         // MARK: - Initialization
@@ -87,10 +93,6 @@
         /// Synchronous initialization sets up core services. Call `setupAllServices()` asynchronously
         /// to complete service initialization and start connections.
         public init(settings: AppSettings = AppSettings()) {
-            // Disable macOS automatic window restoration to prevent duplicate windows on launch
-            @Dependency(PreferencesService.self) var preferences
-            preferences.setBool(false, "NSQuitAlwaysKeepsWindows")
-
             self.settings = settings
 
             // Create tmux service
@@ -142,6 +144,9 @@
                 self.e2eeService = e2ee
                 self.keyPair = e2ee.storedKeyPair
             }
+
+            // Disable macOS automatic window restoration to prevent duplicate windows on launch
+            preferences.setBool(false, "NSQuitAlwaysKeepsWindows")
         }
 
         // MARK: - Public API
@@ -451,7 +456,6 @@
             }
 
             do {
-                @Dependency(SecretsService.self) var secrets
                 let manager = try await ViewerConnectionManager(keyManager: secrets.keyManager())
                 viewerConnectionManager = manager
 
