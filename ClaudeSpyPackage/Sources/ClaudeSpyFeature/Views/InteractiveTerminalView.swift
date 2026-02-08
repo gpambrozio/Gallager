@@ -303,8 +303,15 @@
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
-            // Allow URL gestures to work alongside scroll gestures
-            true
+            // Block simultaneous long-press recognition to prevent SwiftTerm's
+            // long-press (0.7s) from triggering the system link preview popover
+            // when our long-press (0.5s) already handled the URL.
+            if
+                gestureRecognizer is UILongPressGestureRecognizer,
+                otherGestureRecognizer is UILongPressGestureRecognizer {
+                return false
+            }
+            return true
         }
     }
 
