@@ -87,8 +87,8 @@
             await connectionManager.disconnect(from: host.id)
 
             // Delete encryption session key for this host
-            let keyManager = KeyManager(accessGroup: sharedKeychainAccessGroup)
-            try? await keyManager.deleteSessionKey(for: host.id)
+            let secrets = SecretsService.shared(accessGroup: sharedKeychainAccessGroup)
+            try? await secrets.deleteSessionKey(host.id)
 
             // Remove from settings
             settings.removePairing(id: host.id)

@@ -3,6 +3,7 @@
     import ClaudeSpyCommon
     import ClaudeSpyEncryption
     import ClaudeSpyNetworking
+    import Dependencies
     import Foundation
     import Logging
 
@@ -87,7 +88,8 @@
         /// to complete service initialization and start connections.
         public init(settings: AppSettings = AppSettings()) {
             // Disable macOS automatic window restoration to prevent duplicate windows on launch
-            UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
+            @Dependency(PreferencesService.self) var preferences
+            preferences.setBool(false, "NSQuitAlwaysKeepsWindows")
 
             self.settings = settings
 
@@ -449,8 +451,8 @@
             }
 
             do {
-                let keyManager = KeyManager()
-                let manager = try await ViewerConnectionManager(keyManager: keyManager)
+                @Dependency(SecretsService.self) var secrets
+                let manager = try await ViewerConnectionManager(keyManager: secrets.keyManager())
                 viewerConnectionManager = manager
 
                 // Create session store for remote sessions

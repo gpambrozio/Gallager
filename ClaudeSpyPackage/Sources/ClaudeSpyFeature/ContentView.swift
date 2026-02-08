@@ -2,6 +2,7 @@
     import ClaudeSpyCommon
     import ClaudeSpyEncryption
     import ClaudeSpyNetworking
+    import Dependencies
     import SwiftUI
     import UserNotifications
 
@@ -181,8 +182,8 @@
 
             do {
                 // Use shared keychain access group so Notification Service Extension can decrypt
-                let keyManager = KeyManager(accessGroup: sharedKeychainAccessGroup)
-                connectionManager = try await ViewerConnectionManager(keyManager: keyManager)
+                let secrets = SecretsService.shared(accessGroup: sharedKeychainAccessGroup)
+                connectionManager = try await ViewerConnectionManager(keyManager: secrets.keyManager())
             } catch {
                 initializationError = "Failed to initialize encryption: \(error.localizedDescription)"
             }
