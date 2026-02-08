@@ -66,7 +66,7 @@ struct APNsServiceKey: StorageKey {
     typealias Value = APNsService
 }
 
-// MARK: - Application Extensions
+// MARK: - Application Extensions (Internal)
 
 extension Application {
     var pairingService: PairingService {
@@ -92,5 +92,21 @@ extension Application {
 
     var apnsService: APNsService? {
         storage[APNsServiceKey.self]
+    }
+}
+
+// MARK: - Public Application Extensions (for E2E test inspection)
+
+public extension Application {
+    /// Get the number of active pairings
+    var activePairingCount: Int {
+        get async {
+            await pairingService.activePairCount
+        }
+    }
+
+    /// Reset all pairing state (for testing)
+    func resetPairingState() async {
+        await pairingService.resetState()
     }
 }

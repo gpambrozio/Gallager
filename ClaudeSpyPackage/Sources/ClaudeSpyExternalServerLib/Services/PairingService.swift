@@ -157,9 +157,20 @@ actor PairingService {
         return pendingCodes.values.contains { $0.pairId == pairId }
     }
 
+    /// Number of active pairs (for E2E test inspection)
+    var activePairCount: Int {
+        activePairs.count
+    }
+
     /// Get pair information
     func getPair(pairId: String) -> Pair? {
         activePairs[pairId]
+    }
+
+    /// Clear all state (for testing)
+    func resetState() {
+        pendingCodes.removeAll()
+        activePairs.removeAll()
     }
 
     /// Remove a pair

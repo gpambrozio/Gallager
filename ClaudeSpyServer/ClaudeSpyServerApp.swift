@@ -16,7 +16,16 @@ struct TmuxPaneMirrorApp: App {
         LoggingConfiguration.bootstrap()
 
         // Now create coordinator (which creates loggers internally)
-        _coordinator = State(initialValue: AppCoordinator())
+        let coord = AppCoordinator()
+
+        // E2E test support: override server URL via launch argument
+        if let idx = CommandLine.arguments.firstIndex(of: "--server-url"),
+           idx + 1 < CommandLine.arguments.count
+        {
+            coord.settings.externalServerURL = CommandLine.arguments[idx + 1]
+        }
+
+        _coordinator = State(initialValue: coord)
     }
 
     var body: some Scene {
@@ -64,7 +73,8 @@ struct TmuxPaneMirrorApp: App {
                         .environment(coordinator.settings)
                 }
         }
-        .defaultLaunchBehavior(.suppressed)
+        // TODO: Remove - temporary auto-open for development
+        .defaultLaunchBehavior(.presented)
         .commands {
             // App menu - Check for Updates
             CommandGroup(after: .appInfo) {

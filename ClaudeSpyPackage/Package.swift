@@ -38,6 +38,12 @@ extension Target.Dependency {
     static var claudeSpyFeature: Self { "ClaudeSpyFeature" }
     static var claudeSpyServerFeature: Self { "ClaudeSpyServerFeature" }
     static var claudeSpyExternalServer: Self { "ClaudeSpyExternalServer" }
+    static var claudeSpyExternalServerLib: Self { "ClaudeSpyExternalServerLib" }
+    static var claudeSpyE2ELib: Self { "ClaudeSpyE2ELib" }
+
+    static var argumentParser: Self {
+        .product(name: "ArgumentParser", package: "swift-argument-parser")
+    }
 }
 
 let package = Package(
@@ -69,6 +75,14 @@ let package = Package(
             name: "ClaudeSpyExternalServer",
             targets: ["ClaudeSpyExternalServer"]
         ),
+        .library(
+            name: "ClaudeSpyExternalServerLib",
+            targets: ["ClaudeSpyExternalServerLib"]
+        ),
+        .executable(
+            name: "ClaudeSpyE2E",
+            targets: ["ClaudeSpyE2E"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/nicklockwood/SwiftFormat", from: "0.53.0"),
@@ -79,6 +93,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
+        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -127,17 +142,44 @@ let package = Package(
                 .sparkle,
             ]
         ),
-        .executableTarget(
-            name: "ClaudeSpyExternalServer",
+        // External server library (all business logic, importable by tests and E2E)
+        .target(
+            name: "ClaudeSpyExternalServerLib",
             dependencies: [
                 .claudeSpyNetworking,
                 .claudeSpyEncryption,
                 .vapor,
                 .vaporAPNS,
+            ]
+        ),
+        // External server executable (thin wrapper around library)
+        .executableTarget(
+            name: "ClaudeSpyExternalServer",
+            dependencies: [
+                .claudeSpyExternalServerLib,
+                .vapor,
             ],
             swiftSettings: [
                 // Match Docker build flags to catch issues locally before deployment
                 .unsafeFlags(["-cross-module-optimization"], .when(configuration: .release)),
+            ]
+        ),
+        // E2E test coordinator library
+        .target(
+            name: "ClaudeSpyE2ELib",
+            dependencies: [
+                .claudeSpyNetworking,
+                .claudeSpyExternalServerLib,
+                .vapor,
+                .logging,
+            ]
+        ),
+        // E2E test coordinator executable
+        .executableTarget(
+            name: "ClaudeSpyE2E",
+            dependencies: [
+                .claudeSpyE2ELib,
+                .argumentParser,
             ]
         ),
         .testTarget(
@@ -173,8 +215,14 @@ let package = Package(
         .testTarget(
             name: "ClaudeSpyExternalServerTests",
             dependencies: [
-                .claudeSpyExternalServer,
+                .claudeSpyExternalServerLib,
                 .product(name: "VaporTesting", package: "vapor"),
+            ]
+        ),
+        .testTarget(
+            name: "ClaudeSpyE2ETests",
+            dependencies: [
+                .claudeSpyE2ELib,
             ]
         ),
     ]

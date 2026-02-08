@@ -1,6 +1,6 @@
 import ClaudeSpyNetworking
 import Testing
-@testable import ClaudeSpyExternalServer
+@testable import ClaudeSpyExternalServerLib
 
 @Suite("PairingService Tests")
 struct PairingServiceTests {
