@@ -1,5 +1,6 @@
 #if canImport(Security)
     import Crypto
+    import Dependencies
     import Foundation
 
     /// Salt used for HKDF key derivation. This is a protocol constant.
@@ -8,7 +9,7 @@
     /// End-to-end encryption service for secure communication between paired devices.
     ///
     /// This service handles:
-    /// - Key pair generation and storage via KeyManager
+    /// - Key pair generation and storage via SecretsService
     /// - Session establishment with partner's public key
     /// - Message encryption and decryption using ChaChaPoly
     ///
@@ -38,8 +39,8 @@
         /// Our key pair loaded from storage
         private let keyPair: StoredKeyPair
 
-        /// Key manager for persisting session keys (for extension access)
-        private let keyManager: KeyManager?
+        /// Secrets service for persisting session keys (for extension access)
+        private let secrets: SecretsService
 
         /// The derived symmetric key for this session (nonisolated access requires lock)
         private let sessionState: SessionState
@@ -87,30 +88,30 @@
 
         /// Creates a new E2EE service, loading or generating keys as needed.
         ///
-        /// - Parameter keyManager: The key manager to use for key storage.
-        ///   Defaults to a new KeyManager instance.
+        /// Resolves `SecretsService` via `@Dependency` for key storage.
         /// - Throws: `CryptoError` if key loading/generation fails
-        public init(keyManager: KeyManager = KeyManager()) async throws {
+        public init() async throws {
+            @Dependency(SecretsService.self) var secrets
+            self.secrets = secrets
+
             // Try to load existing key pair, or generate new one
-            if let existingPair = try await keyManager.loadKeyPair() {
+            if let existingPair = try secrets.loadKeyPair() {
                 self.keyPair = existingPair
             } else {
-                self.keyPair = try await keyManager.generateKeyPair()
+                self.keyPair = try await secrets.generateKeyPair()
             }
 
-            self.keyManager = keyManager
             self.sessionState = SessionState()
         }
 
         /// Creates a service with a pre-existing key pair.
-        /// Useful for testing or when keys are managed externally.
+        /// Useful when keys are managed externally.
         ///
-        /// - Parameters:
-        ///   - keyPair: The key pair to use
-        ///   - keyManager: Optional key manager for persisting session keys (for extension access)
-        public init(keyPair: StoredKeyPair, keyManager: KeyManager? = nil) {
+        /// - Parameter keyPair: The key pair to use
+        public init(keyPair: StoredKeyPair) {
+            @Dependency(SecretsService.self) var secrets
+            self.secrets = secrets
             self.keyPair = keyPair
-            self.keyManager = keyManager
             self.sessionState = SessionState()
         }
 
@@ -119,14 +120,15 @@
         /// This initializer is useful for App init() where async is not available.
         /// If no keys exist in Keychain, returns nil (caller should handle first-time setup).
         ///
-        /// - Parameter keyManager: The key manager to use for key storage.
+        /// Resolves `SecretsService` via `@Dependency` for synchronous key loading.
         /// - Returns: E2EEService if keys exist, nil if no keys in Keychain
         /// - Throws: `CryptoError` if key loading fails
-        public static func loadFromKeychainSync(keyManager: KeyManager = KeyManager()) throws -> E2EEService? {
-            guard let existingPair = try keyManager.loadKeyPairSync() else {
+        public static func loadFromKeychainSync() throws -> E2EEService? {
+            @Dependency(SecretsService.self) var secrets
+            guard let existingPair = try secrets.loadKeyPair() else {
                 return nil
             }
-            return E2EEService(keyPair: existingPair, keyManager: keyManager)
+            return E2EEService(keyPair: existingPair)
         }
 
         // MARK: - Public Key Access
@@ -228,16 +230,14 @@
             )
 
             // Persist session key to Keychain for Notification Service Extension access
-            if let keyManager {
-                do {
-                    // Convert SymmetricKey to Data
-                    let keyData = symmetricKey.withUnsafeBytes { Data($0) }
-                    try await keyManager.storeSessionKey(keyData, for: pairId)
-                } catch {
-                    // Log the error - session still works but push notification decryption will fail
-                    print("WARNING: Failed to persist session key to Keychain: \(error)")
-                    print("Push notifications will not decrypt until devices re-pair")
-                }
+            do {
+                // Convert SymmetricKey to Data
+                let keyData = symmetricKey.withUnsafeBytes { Data($0) }
+                try await secrets.storeSessionKey(keyData, pairId)
+            } catch {
+                // Log the error - session still works but push notification decryption will fail
+                print("WARNING: Failed to persist session key to Keychain: \(error)")
+                print("Push notifications will not decrypt until devices re-pair")
             }
         }
 
@@ -250,8 +250,8 @@
             await sessionState.clear()
 
             // Also clear persisted session key from Keychain
-            if let keyManager, let pairId {
-                try? await keyManager.deleteSessionKey(for: pairId)
+            if let pairId {
+                try? await secrets.deleteSessionKey(pairId)
             }
         }
 

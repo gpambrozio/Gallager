@@ -29,7 +29,17 @@ public enum FontMetrics {
     /// - Returns: The size of a single character cell
     public static func calculateCellSize(fontName: String, fontSize: CGFloat) -> CGSize {
         let font = createFont(name: fontName, size: fontSize)
+        return calculateCellSize(font: font)
+    }
 
+    /// Calculates the cell size for an existing font.
+    ///
+    /// This exactly matches SwiftTerm's `computeFontDimensions()` method.
+    /// Use this overload when you already have a font reference (e.g., from `TerminalView.font`).
+    ///
+    /// - Parameter font: The monospace font to measure (NSFont on macOS, UIFont on iOS)
+    /// - Returns: The size of a single character cell
+    public static func calculateCellSize(font: CTFont) -> CGSize {
         // Height: sum of ascent, descent, and leading (same on both platforms)
         let lineAscent = CTFontGetAscent(font)
         let lineDescent = CTFontGetDescent(font)

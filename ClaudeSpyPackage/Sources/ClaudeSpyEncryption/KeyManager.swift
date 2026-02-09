@@ -217,14 +217,6 @@ import Foundation
             return storedPair
         }
 
-        /// Loads an existing key pair from the Keychain.
-        /// - Returns: The stored key pair, or nil if not found
-        /// - Throws: `CryptoError.keychainError` on Keychain access failure
-        public func loadKeyPair() throws -> StoredKeyPair? {
-            // Delegate to the nonisolated sync version (Keychain access is thread-safe)
-            try loadKeyPairSync()
-        }
-
         /// Deletes all stored keys from the Keychain, including session keys.
         /// Use this for factory reset or unpairing.
         public func deleteKeys() throws {
@@ -255,11 +247,13 @@ import Foundation
             return status == errSecSuccess
         }
 
-        /// Synchronously loads an existing key pair from the Keychain.
-        /// This is useful for initialization in contexts where async is not available.
+        /// Loads an existing key pair from the Keychain.
+        ///
+        /// This is `nonisolated` since Keychain APIs are thread-safe, allowing
+        /// synchronous access from any context.
         /// - Returns: The stored key pair, or nil if not found
         /// - Throws: `CryptoError.keychainError` on Keychain access failure
-        public nonisolated func loadKeyPairSync() throws -> StoredKeyPair? {
+        public nonisolated func loadKeyPair() throws -> StoredKeyPair? {
             // Query for private key data
             var privateKeyQuery = baseKeychainAttributes(account: privateKeyAccount)
             privateKeyQuery[kSecReturnData as String] = true
