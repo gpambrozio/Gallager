@@ -1,5 +1,6 @@
 #if os(macOS)
     import AppKit
+    import ClaudeSpyCommon
     import ClaudeSpyNetworking
     import SwiftTerm
 
@@ -41,13 +42,46 @@
     /// Intercepts events: horizontal scrolls handled here, vertical/mouse forwarded to terminal.
     final private class ScrollEventOverlay: NSView {
         weak var terminalView: TerminalView?
+        weak var interactiveView: InteractiveTerminalView?
         var onHorizontalScroll: ((CGFloat) -> Void)?
         var onMouseDown: (() -> Void)?
+        var onMouseMoved: ((NSEvent) -> Void)?
+        var onMouseExited: (() -> Void)?
+        var onCursorUpdate: ((NSEvent) -> Void)?
+
+        private var trackingArea: NSTrackingArea?
 
         override var acceptsFirstResponder: Bool { false }
 
         override func hitTest(_ point: NSPoint) -> NSView? {
             bounds.contains(point) ? self : nil
+        }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            if let existing = trackingArea {
+                removeTrackingArea(existing)
+            }
+            let area = NSTrackingArea(
+                rect: bounds,
+                options: [.activeAlways, .mouseMoved, .mouseEnteredAndExited, .cursorUpdate],
+                owner: self,
+                userInfo: nil
+            )
+            addTrackingArea(area)
+            trackingArea = area
+        }
+
+        override func mouseMoved(with event: NSEvent) {
+            onMouseMoved?(event)
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            onMouseExited?()
+        }
+
+        override func cursorUpdate(with event: NSEvent) {
+            onCursorUpdate?(event)
         }
 
         override func scrollWheel(with event: NSEvent) {
@@ -68,6 +102,13 @@
         }
 
         override func mouseUp(with event: NSEvent) {
+            // Check for plain-text URL click before forwarding to SwiftTerm.
+            if let interactive = interactiveView {
+                let point = interactive.convert(event.locationInWindow, from: nil)
+                if interactive.handleURLClick(at: point) {
+                    return
+                }
+            }
             terminalView?.mouseUp(with: event)
         }
     }
@@ -83,6 +124,7 @@
     /// - Preserves scroll position when new content arrives
     /// - Shows subtle border highlight when focused
     /// - Supports horizontal scrolling for wide terminals
+    /// - Detects plain-text URLs: Cmd+hover highlights, Cmd+click opens in browser
     final class InteractiveTerminalView: NSView {
         let terminalView: TerminalView
         private var horizontalScroller: NSScroller?
@@ -96,6 +138,15 @@
 
         var preserveUserScroll = false
         var onResize: ((NSSize) -> Void)?
+
+        // URL detection state
+        private var isOverURL = false
+        private var urlPreviewField: NSTextField?
+        private var highlightedURLRange: (row: Int, startCol: Int, endCol: Int)?
+        private var urlHighlightLayer: CALayer?
+        private var urlUnderlineLayers: [CALayer] = []
+        private var cachedCellSize: CGSize?
+        private var lastMouseGridPosition: (col: Int, row: Int)?
 
         private var isFocused = false {
             didSet {
@@ -137,11 +188,21 @@
             let overlay = ScrollEventOverlay(frame: bounds)
             overlay.autoresizingMask = [.width, .height]
             overlay.terminalView = terminalView
+            overlay.interactiveView = self
             overlay.onHorizontalScroll = { [weak self] delta in
                 self?.scrollHorizontally(by: delta)
             }
             overlay.onMouseDown = { [weak self] in
                 self?.window?.makeFirstResponder(self)
+            }
+            overlay.onMouseMoved = { [weak self] event in
+                self?.handleMouseMoved(event)
+            }
+            overlay.onMouseExited = { [weak self] in
+                self?.handleMouseExited()
+            }
+            overlay.onCursorUpdate = { [weak self] event in
+                self?.updateCursor(for: event)
             }
             addSubview(overlay)
             scrollOverlay = overlay
@@ -174,6 +235,14 @@
             borderView.autoresizingMask = [.width, .height]
             addSubview(borderView)
             focusBorderView = borderView
+        }
+
+        /// Returns cached cell size, recalculating only when the font changes.
+        private var cellSize: CGSize {
+            if let cached = cachedCellSize { return cached }
+            let size = FontMetrics.calculateCellSize(font: terminalView.font as CTFont)
+            cachedCellSize = size
+            return size
         }
 
         // MARK: - First Responder
@@ -265,6 +334,200 @@
             terminalView.keyDown(with: event)
         }
 
+        // MARK: - URL Detection
+
+        /// Converts a point in this view's coordinate space to a viewport grid position (col, row).
+        /// The returned row is a viewport row suitable for `Terminal.getLine(row:)`.
+        private func gridPosition(for point: NSPoint) -> (col: Int, row: Int)? {
+            guard cellSize.width > 0, cellSize.height > 0 else { return nil }
+
+            // Convert point to terminal view coordinates (accounting for horizontal scroll offset)
+            let terminalPoint = NSPoint(
+                x: point.x + horizontalOffset,
+                y: point.y
+            )
+
+            let terminal = terminalView.getTerminal()
+
+            // SwiftTerm uses flipped coordinates (origin at top-left for content)
+            let col = Int(terminalPoint.x / cellSize.width)
+            let row = Int((terminalView.frame.height - terminalPoint.y) / cellSize.height)
+
+            let clampedCol = min(max(0, col), terminal.cols - 1)
+            let clampedRow = min(max(0, row), terminal.rows - 1)
+
+            return (clampedCol, clampedRow)
+        }
+
+        private func handleMouseMoved(_ event: NSEvent) {
+            let point = convert(event.locationInWindow, from: nil)
+            updateURLHighlight(at: point)
+        }
+
+        private func handleMouseExited() {
+            lastMouseGridPosition = nil
+            isOverURL = false
+            removeURLHighlight()
+            removeURLPreview()
+        }
+
+        private func updateURLHighlight(at point: NSPoint) {
+            guard let pos = gridPosition(for: point) else {
+                lastMouseGridPosition = nil
+                isOverURL = false
+                removeURLHighlight()
+                removeURLPreview()
+                return
+            }
+
+            // Skip redundant detection when mouse stays in the same cell
+            if let last = lastMouseGridPosition, last.col == pos.col, last.row == pos.row {
+                return
+            }
+            lastMouseGridPosition = pos
+
+            let terminal = terminalView.getTerminal()
+            let urls = TerminalURLDetector.detectURLs(row: pos.row) {
+                terminal.getLine(row: $0)?.translateToString(trimRight: true)
+            }
+            if let detected = urls.first(where: { pos.col >= $0.startCol && pos.col < $0.endCol }) {
+                let newRange = (row: pos.row, startCol: detected.startCol, endCol: detected.endCol)
+                if
+                    highlightedURLRange?.row == newRange.row,
+                    highlightedURLRange?.startCol == newRange.startCol,
+                    highlightedURLRange?.endCol == newRange.endCol {
+                    return // Already highlighting this URL
+                }
+                highlightedURLRange = newRange
+                showURLHighlight(row: pos.row, startCol: detected.startCol, endCol: detected.endCol)
+                showURLPreview(detected.url)
+                isOverURL = true
+            } else {
+                isOverURL = false
+                removeURLHighlight()
+                removeURLPreview()
+            }
+        }
+
+        private func showURLHighlight(row: Int, startCol: Int, endCol: Int) {
+            // row is a viewport row. Calculate rect in terminal view coordinates
+            // (NSView: origin at bottom-left, but terminal rows count from top)
+            let x = CGFloat(startCol) * cellSize.width - horizontalOffset
+            let y = terminalView.frame.height - CGFloat(row + 1) * cellSize.height
+            let width = CGFloat(endCol - startCol) * cellSize.width
+
+            let highlightRect = CGRect(x: x, y: y, width: width, height: cellSize.height)
+
+            if urlHighlightLayer == nil {
+                let layer = CALayer()
+                layer.backgroundColor = NSColor.linkColor.withAlphaComponent(0.15).cgColor
+                layer.borderColor = NSColor.linkColor.withAlphaComponent(0.3).cgColor
+                layer.borderWidth = 1
+                layer.cornerRadius = 2
+                terminalView.layer?.addSublayer(layer)
+                urlHighlightLayer = layer
+            }
+
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            urlHighlightLayer?.frame = highlightRect
+            CATransaction.commit()
+        }
+
+        private func removeURLHighlight() {
+            urlHighlightLayer?.removeFromSuperlayer()
+            urlHighlightLayer = nil
+            highlightedURLRange = nil
+        }
+
+        private func showURLPreview(_ url: String) {
+            if let preview = urlPreviewField {
+                preview.stringValue = url
+                preview.sizeToFit()
+                preview.frame.size.width = min(preview.frame.size.width, bounds.width - 8)
+            } else {
+                let field = NSTextField(string: url)
+                field.isBezeled = false
+                field.isEditable = false
+                field.isSelectable = false
+                field.lineBreakMode = .byTruncatingMiddle
+                field.font = NSFont.systemFont(ofSize: 11)
+                field.backgroundColor = NSColor.windowBackgroundColor
+                field.textColor = NSColor.labelColor
+                field.sizeToFit()
+                field.frame.origin = CGPoint(x: 4, y: 4)
+                field.frame.size.width = min(field.frame.size.width, bounds.width - 8)
+                addSubview(field)
+                urlPreviewField = field
+            }
+        }
+
+        private func removeURLPreview() {
+            urlPreviewField?.removeFromSuperview()
+            urlPreviewField = nil
+        }
+
+        /// Called by the system's cursor tracking when the cursor enters/moves within the view.
+        /// Sets the cursor based on whether the mouse is over a detected URL.
+        private func updateCursor(for event: NSEvent) {
+            if isOverURL {
+                NSCursor.pointingHand.set()
+            } else {
+                NSCursor.iBeam.set()
+            }
+        }
+
+        /// Called by the scroll overlay on click — opens URL if one is at the click position.
+        fileprivate func handleURLClick(at point: NSPoint) -> Bool {
+            guard let pos = gridPosition(for: point) else { return false }
+            let terminal = terminalView.getTerminal()
+            let lineText: (Int) -> String? = { terminal.getLine(row: $0)?.translateToString(trimRight: true) }
+            if
+                let url = TerminalURLDetector.urlAt(col: pos.col, row: pos.row, lineText: lineText),
+                let nsURL = URL(string: url) {
+                NSWorkspace.shared.open(nsURL)
+                return true
+            }
+            return false
+        }
+
+        // MARK: - URL Underlines
+
+        /// Scans visible rows for URLs and draws persistent underline decorations.
+        /// Called when terminal content changes or scrolls.
+        private func updateURLUnderlines() {
+            for layer in urlUnderlineLayers {
+                layer.removeFromSuperlayer()
+            }
+            urlUnderlineLayers.removeAll()
+
+            let terminal = terminalView.getTerminal()
+            guard cellSize.width > 0, cellSize.height > 0 else { return }
+
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+
+            for row in 0..<terminal.rows {
+                let urls = TerminalURLDetector.detectURLs(row: row) {
+                    terminal.getLine(row: $0)?.translateToString(trimRight: true)
+                }
+                for url in urls {
+                    let x = CGFloat(url.startCol) * cellSize.width - horizontalOffset
+                    // Position underline near cell bottom (NSView: origin at bottom-left)
+                    let y = terminalView.frame.height - CGFloat(row + 1) * cellSize.height
+                    let width = CGFloat(url.endCol - url.startCol) * cellSize.width
+
+                    let underline = CALayer()
+                    underline.backgroundColor = NSColor.linkColor.withAlphaComponent(0.9).cgColor
+                    underline.frame = CGRect(x: x, y: y, width: width, height: 2)
+                    terminalView.layer?.addSublayer(underline)
+                    urlUnderlineLayers.append(underline)
+                }
+            }
+
+            CATransaction.commit()
+        }
+
         // MARK: - Horizontal Scrolling
 
         @objc
@@ -336,6 +599,7 @@
             }
             terminalView.frame.size.height = bounds.height
             updateHorizontalScroller()
+            updateURLUnderlines()
             onResize?(frame.size)
         }
 
@@ -343,7 +607,10 @@
 
         var font: NSFont {
             get { terminalView.font }
-            set { terminalView.font = newValue }
+            set {
+                terminalView.font = newValue
+                cachedCellSize = nil
+            }
         }
 
         var nativeForegroundColor: NSColor {
@@ -365,6 +632,7 @@
 
         func feed(byteArray: ArraySlice<UInt8>) {
             terminalView.feed(byteArray: byteArray)
+            needsLayout = true
         }
 
         func feedPreservingScroll(_ bytes: ArraySlice<UInt8>) {
@@ -377,6 +645,7 @@
             if preserveUserScroll, !wasAtExtreme {
                 terminalView.scroll(toPosition: savedPosition)
             }
+            needsLayout = true
         }
 
         func scroll(toPosition position: Double) {
@@ -404,7 +673,7 @@
         }
 
         func scrolled(source: TerminalView, position: Double) {
-            // No-op - scrolling is handled by the view
+            needsLayout = true
         }
 
         func setTerminalTitle(source: TerminalView, title: String) {
@@ -437,7 +706,7 @@
         }
 
         func rangeChanged(source: TerminalView, startY: Int, endY: Int) {
-            // No-op
+            needsLayout = true
         }
 
         func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {
