@@ -78,11 +78,11 @@ type_name:
 custom_rules:
     custom_no_number_decimals:
         name: "Remove number decimals when not needed"
-        regex: '[^$".](\d+)\.0+\b(?!\d)'
+        regex: '[^$".](\d+)\.0+\b(?![\d.])'
         message: "Remove unnecessary decimal places from numbers"
         severity: warning
         correction:
-            regex: '[^$".](\d+)\.0+\b(?!\d)'
+            regex: '[^$".](\d+)\.0+\b(?![\d.])'
             replacement: '$1'
 
     custom_sf_symbols:
