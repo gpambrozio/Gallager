@@ -308,21 +308,40 @@ private struct TestMessage: Codable, Equatable {
 
 // MARK: - SecretsService Test Support
 
+/// Thread-safe wrapper around a stored key pair for synchronous test access.
+private final class KeyPairStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var keyPair: StoredKeyPair?
+
+    func get() -> StoredKeyPair? {
+        lock.withLock { keyPair }
+    }
+
+    func set(_ value: StoredKeyPair?) {
+        lock.withLock { keyPair = value }
+    }
+}
+
 extension SecretsService {
     /// Creates a `SecretsService` backed by an `InMemoryKeyManager` for testing.
     static func from(_ keyManager: InMemoryKeyManager) -> SecretsService {
-        SecretsService(
+        let keyPairStore = KeyPairStore()
+
+        return SecretsService(
             generateKeyPair: {
-                try await keyManager.generateKeyPair()
+                let keyPair = try await keyManager.generateKeyPair()
+                keyPairStore.set(keyPair)
+                return keyPair
             },
             loadKeyPair: {
-                await keyManager.loadKeyPair()
+                keyPairStore.get()
             },
             hasStoredKeyPair: {
                 await keyManager.hasStoredKeyPair()
             },
             deleteKeys: {
                 await keyManager.deleteKeys()
+                keyPairStore.set(nil)
             },
             storeSessionKey: { keyData, pairId in
                 await keyManager.storeSessionKey(keyData, for: pairId)

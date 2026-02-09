@@ -112,8 +112,6 @@ let package = Package(
                 .claudeSpyEncryption,
                 .sfSymbolsMacro,
                 .logging,
-                .dependencies,
-                .dependenciesMacros,
             ]
         ),
         // End-to-end encryption module using CryptoKit (Apple) / Swift Crypto (Linux)

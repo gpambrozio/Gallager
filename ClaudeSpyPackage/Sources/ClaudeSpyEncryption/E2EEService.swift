@@ -95,7 +95,7 @@
             self.secrets = secrets
 
             // Try to load existing key pair, or generate new one
-            if let existingPair = try await secrets.loadKeyPair() {
+            if let existingPair = try secrets.loadKeyPair() {
                 self.keyPair = existingPair
             } else {
                 self.keyPair = try await secrets.generateKeyPair()
@@ -120,13 +120,12 @@
         /// This initializer is useful for App init() where async is not available.
         /// If no keys exist in Keychain, returns nil (caller should handle first-time setup).
         ///
-        /// Uses a plain `KeyManager` for synchronous Keychain access (macOS only,
-        /// where no access group is needed).
+        /// Resolves `SecretsService` via `@Dependency` for synchronous key loading.
         /// - Returns: E2EEService if keys exist, nil if no keys in Keychain
         /// - Throws: `CryptoError` if key loading fails
         public static func loadFromKeychainSync() throws -> E2EEService? {
-            let keyManager = KeyManager()
-            guard let existingPair = try keyManager.loadKeyPairSync() else {
+            @Dependency(SecretsService.self) var secrets
+            guard let existingPair = try secrets.loadKeyPair() else {
                 return nil
             }
             return E2EEService(keyPair: existingPair)

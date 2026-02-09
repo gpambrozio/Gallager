@@ -81,7 +81,7 @@ final public class ViewerConnectionManager {
         @Dependency(SecretsService.self) var secrets
 
         // Load or generate key pair
-        if let existing = try await secrets.loadKeyPair() {
+        if let existing = try secrets.loadKeyPair() {
             self.keyPair = existing
             logger.info("Loaded existing key pair for viewer mode")
         } else {

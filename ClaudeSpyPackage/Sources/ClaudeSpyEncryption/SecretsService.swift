@@ -15,7 +15,7 @@
         public var generateKeyPair: @Sendable () async throws -> StoredKeyPair
 
         /// Loads an existing key pair from the Keychain.
-        public var loadKeyPair: @Sendable () async throws -> StoredKeyPair?
+        public var loadKeyPair: @Sendable () throws -> StoredKeyPair?
 
         /// Checks if a key pair exists in the Keychain.
         public var hasStoredKeyPair: @Sendable () async -> Bool = { false }
@@ -57,7 +57,7 @@
                     try await keyManager.generateKeyPair()
                 },
                 loadKeyPair: {
-                    try await keyManager.loadKeyPair()
+                    try keyManager.loadKeyPair()
                 },
                 hasStoredKeyPair: {
                     await keyManager.hasStoredKeyPair()
