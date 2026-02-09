@@ -79,6 +79,11 @@
             feed(byteArray: bytes)
 
             blockScrollChanges = false
+            setNeedsLayout()
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
             updateURLUnderlines()
         }
 
@@ -362,7 +367,7 @@
         }
 
         func rangeChanged(source: TerminalView, startY: Int, endY: Int) {
-            updateURLUnderlines()
+            setNeedsLayout()
         }
 
         func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {

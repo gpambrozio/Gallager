@@ -145,6 +145,8 @@
         private var highlightedURLRange: (row: Int, startCol: Int, endCol: Int)?
         private var urlHighlightLayer: CALayer?
         private var urlUnderlineLayers: [CALayer] = []
+        private var cachedCellSize: CGSize?
+        private var lastMouseGridPosition: (col: Int, row: Int)?
 
         private var isFocused = false {
             didSet {
@@ -233,6 +235,14 @@
             borderView.autoresizingMask = [.width, .height]
             addSubview(borderView)
             focusBorderView = borderView
+        }
+
+        /// Returns cached cell size, recalculating only when the font changes.
+        private var cellSize: CGSize {
+            if let cached = cachedCellSize { return cached }
+            let size = FontMetrics.calculateCellSize(font: terminalView.font as CTFont)
+            cachedCellSize = size
+            return size
         }
 
         // MARK: - First Responder
@@ -329,7 +339,6 @@
         /// Converts a point in this view's coordinate space to a viewport grid position (col, row).
         /// The returned row is a viewport row suitable for `Terminal.getLine(row:)`.
         private func gridPosition(for point: NSPoint) -> (col: Int, row: Int)? {
-            let cellSize = FontMetrics.calculateCellSize(font: terminalView.font as CTFont)
             guard cellSize.width > 0, cellSize.height > 0 else { return nil }
 
             // Convert point to terminal view coordinates (accounting for horizontal scroll offset)
@@ -356,6 +365,7 @@
         }
 
         private func handleMouseExited() {
+            lastMouseGridPosition = nil
             isOverURL = false
             removeURLHighlight()
             removeURLPreview()
@@ -363,11 +373,18 @@
 
         private func updateURLHighlight(at point: NSPoint) {
             guard let pos = gridPosition(for: point) else {
+                lastMouseGridPosition = nil
                 isOverURL = false
                 removeURLHighlight()
                 removeURLPreview()
                 return
             }
+
+            // Skip redundant detection when mouse stays in the same cell
+            if let last = lastMouseGridPosition, last.col == pos.col, last.row == pos.row {
+                return
+            }
+            lastMouseGridPosition = pos
 
             let terminal = terminalView.getTerminal()
             let urls = TerminalURLDetector.detectURLs(row: pos.row) {
@@ -393,8 +410,6 @@
         }
 
         private func showURLHighlight(row: Int, startCol: Int, endCol: Int) {
-            let cellSize = FontMetrics.calculateCellSize(font: terminalView.font as CTFont)
-
             // row is a viewport row. Calculate rect in terminal view coordinates
             // (NSView: origin at bottom-left, but terminal rows count from top)
             let x = CGFloat(startCol) * cellSize.width - horizontalOffset
@@ -487,7 +502,6 @@
             urlUnderlineLayers.removeAll()
 
             let terminal = terminalView.getTerminal()
-            let cellSize = FontMetrics.calculateCellSize(font: terminalView.font as CTFont)
             guard cellSize.width > 0, cellSize.height > 0 else { return }
 
             CATransaction.begin()
@@ -593,7 +607,10 @@
 
         var font: NSFont {
             get { terminalView.font }
-            set { terminalView.font = newValue }
+            set {
+                terminalView.font = newValue
+                cachedCellSize = nil
+            }
         }
 
         var nativeForegroundColor: NSColor {
@@ -615,7 +632,7 @@
 
         func feed(byteArray: ArraySlice<UInt8>) {
             terminalView.feed(byteArray: byteArray)
-            updateURLUnderlines()
+            needsLayout = true
         }
 
         func feedPreservingScroll(_ bytes: ArraySlice<UInt8>) {
@@ -628,7 +645,7 @@
             if preserveUserScroll, !wasAtExtreme {
                 terminalView.scroll(toPosition: savedPosition)
             }
-            updateURLUnderlines()
+            needsLayout = true
         }
 
         func scroll(toPosition position: Double) {
@@ -656,7 +673,7 @@
         }
 
         func scrolled(source: TerminalView, position: Double) {
-            updateURLUnderlines()
+            needsLayout = true
         }
 
         func setTerminalTitle(source: TerminalView, title: String) {
@@ -689,7 +706,7 @@
         }
 
         func rangeChanged(source: TerminalView, startY: Int, endY: Int) {
-            updateURLUnderlines()
+            needsLayout = true
         }
 
         func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {

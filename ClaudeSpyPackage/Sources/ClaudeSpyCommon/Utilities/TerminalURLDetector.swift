@@ -43,7 +43,7 @@ public enum TerminalURLDetector {
             let cleaned = cleanTrailingPunctuation(urlString)
             guard
                 let parsedURL = URL(string: cleaned),
-                let host = parsedURL.host, !host.isEmpty else { return nil }
+                let host = parsedURL.host(percentEncoded: false), !host.isEmpty else { return nil }
 
             // Map match range to UTF-16 column positions for SwiftTerm grid consistency
             let startCol = text.utf16.distance(from: text.utf16.startIndex, to: match.range.lowerBound)
