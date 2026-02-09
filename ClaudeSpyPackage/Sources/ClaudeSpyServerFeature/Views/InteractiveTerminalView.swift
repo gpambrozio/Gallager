@@ -47,7 +47,7 @@
         var onMouseDown: (() -> Void)?
         var onMouseMoved: ((NSEvent) -> Void)?
         var onMouseExited: (() -> Void)?
-        var onFlagsChanged: ((NSEvent) -> Void)?
+        var onCursorUpdate: ((NSEvent) -> Void)?
 
         private var trackingArea: NSTrackingArea?
 
@@ -64,7 +64,7 @@
             }
             let area = NSTrackingArea(
                 rect: bounds,
-                options: [.activeAlways, .mouseMoved, .mouseEnteredAndExited],
+                options: [.activeAlways, .mouseMoved, .mouseEnteredAndExited, .cursorUpdate],
                 owner: self,
                 userInfo: nil
             )
@@ -80,9 +80,8 @@
             onMouseExited?()
         }
 
-        override func flagsChanged(with event: NSEvent) {
-            onFlagsChanged?(event)
-            super.flagsChanged(with: event)
+        override func cursorUpdate(with event: NSEvent) {
+            onCursorUpdate?(event)
         }
 
         override func scrollWheel(with event: NSEvent) {
@@ -103,13 +102,10 @@
         }
 
         override func mouseUp(with event: NSEvent) {
-            // If Cmd is held, check for plain-text URL before forwarding to SwiftTerm.
-            // SwiftTerm handles OSC 8 links in its own mouseUp; this handles plain-text URLs.
-            if
-                event.modifierFlags.contains(.command),
-                let interactive = interactiveView {
+            // Check for plain-text URL click before forwarding to SwiftTerm.
+            if let interactive = interactiveView {
                 let point = interactive.convert(event.locationInWindow, from: nil)
-                if interactive.handleCommandClick(at: point) {
+                if interactive.handleURLClick(at: point) {
                     return
                 }
             }
@@ -144,8 +140,7 @@
         var onResize: ((NSSize) -> Void)?
 
         // URL detection state
-        private var commandKeyActive = false
-        private var urlCursorPushed = false
+        private var isOverURL = false
         private var urlPreviewField: NSTextField?
         private var highlightedURLRange: (row: Int, startCol: Int, endCol: Int)?
         private var urlHighlightLayer: CALayer?
@@ -204,8 +199,8 @@
             overlay.onMouseExited = { [weak self] in
                 self?.handleMouseExited()
             }
-            overlay.onFlagsChanged = { [weak self] event in
-                self?.handleFlagsChanged(event)
+            overlay.onCursorUpdate = { [weak self] event in
+                self?.updateCursor(for: event)
             }
             addSubview(overlay)
             scrollOverlay = overlay
@@ -355,35 +350,20 @@
             return (clampedCol, clampedRow)
         }
 
-        private func handleFlagsChanged(_ event: NSEvent) {
-            if event.modifierFlags.contains(.command) {
-                commandKeyActive = true
-                // Check if mouse is currently over a URL
-                let localPoint = convert(event.locationInWindow, from: nil)
-                updateURLHighlight(at: localPoint)
-            } else {
-                commandKeyActive = false
-                resetURLCursor()
-                removeURLHighlight()
-                removeURLPreview()
-            }
-        }
-
         private func handleMouseMoved(_ event: NSEvent) {
-            guard commandKeyActive else { return }
             let point = convert(event.locationInWindow, from: nil)
             updateURLHighlight(at: point)
         }
 
         private func handleMouseExited() {
-            resetURLCursor()
+            isOverURL = false
             removeURLHighlight()
             removeURLPreview()
         }
 
         private func updateURLHighlight(at point: NSPoint) {
             guard let pos = gridPosition(for: point) else {
-                resetURLCursor()
+                isOverURL = false
                 removeURLHighlight()
                 removeURLPreview()
                 return
@@ -404,12 +384,9 @@
                 highlightedURLRange = newRange
                 showURLHighlight(row: pos.row, startCol: detected.startCol, endCol: detected.endCol)
                 showURLPreview(detected.url)
-                if !urlCursorPushed {
-                    NSCursor.pointingHand.push()
-                    urlCursorPushed = true
-                }
+                isOverURL = true
             } else {
-                resetURLCursor()
+                isOverURL = false
                 removeURLHighlight()
                 removeURLPreview()
             }
@@ -475,15 +452,18 @@
             urlPreviewField = nil
         }
 
-        private func resetURLCursor() {
-            if urlCursorPushed {
-                NSCursor.pop()
-                urlCursorPushed = false
+        /// Called by the system's cursor tracking when the cursor enters/moves within the view.
+        /// Sets the cursor based on whether the mouse is over a detected URL.
+        private func updateCursor(for event: NSEvent) {
+            if isOverURL {
+                NSCursor.pointingHand.set()
+            } else {
+                NSCursor.iBeam.set()
             }
         }
 
-        /// Called by the scroll overlay when Cmd+click happens - check for plain-text URL.
-        fileprivate func handleCommandClick(at point: NSPoint) -> Bool {
+        /// Called by the scroll overlay on click — opens URL if one is at the click position.
+        fileprivate func handleURLClick(at point: NSPoint) -> Bool {
             guard let pos = gridPosition(for: point) else { return false }
             let terminal = terminalView.getTerminal()
             let lineText: (Int) -> String? = { terminal.getLine(row: $0)?.translateToString(trimRight: true) }
