@@ -6,6 +6,63 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.4</title>
+         <sparkle:version>4</sparkle:version>
+         <sparkle:shortVersionString>1.4</sparkle:shortVersionString>
+         <pubDate>Sat, 07 Feb 2026 13:53:21 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.4 Release Notes
+
+<h2>New Features</h2>
+
+<h3>Mac-to-Mac Viewer Mode</h3>
+Monitor Claude Code sessions running on remote Macs directly from another Mac. Includes full terminal streaming, a dedicated pairing flow, and viewer UI — extending ClaudeSpy beyond mobile monitoring.
+
+<h3>Session Creation from Sidebar</h3>
+Quickly start new Claude Code sessions directly from the macOS and iOS sidebars, with support for both local and remote hosts.
+
+<h3>Multi-Device Pairing</h3>
+Pair multiple iOS devices with a single Mac app, so your whole team can monitor sessions simultaneously.
+
+<h3>Launch at Login</h3>
+Optionally start ClaudeSpy automatically when you log in, with a first-launch prompt to configure the setting.
+
+<h3>Additional Hook Types</h3>
+Added support for `TeammateIdle`, `TaskCompleted`, and other previously missing hook event types, enabling richer session monitoring and notifications.
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Dynamic port allocation for hook server</strong> — Multiple users on the same machine no longer conflict over ports.</li>
+<li><strong>Sessions grouped by Claude status</strong> — The macOS sidebar now organizes sessions by their current status for easier scanning.</li>
+<li><strong>Username included in Mac-to-iOS data</strong> — iOS devices now display which user a session belongs to.</li>
+<li><strong>Terminal view shown by default</strong> — iOS Claude sessions open directly to the terminal view instead of requiring an extra tap.</li>
+<li><strong>Improved terminal sizing</strong> — New sessions on Mac start with better default terminal dimensions.</li>
+<li><strong>Landscape layout refinements on iOS</strong> — Hidden tab bar and reduced navigation bar give more screen space in landscape orientation.</li>
+<li><strong>Updated SwiftTerm to v1.10.1</strong> — Incorporates upstream terminal emulation fixes.</li>
+<li><strong>Refactored pairing protocol</strong> — Internal improvements to pairing response handling for better reliability.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Fixed Cmd+V paste on macOS terminal</strong> — Paste now works reliably in the built-in terminal.</li>
+<li><strong>Fixed Cmd+Left/Right word movement</strong> — These shortcuts now move the cursor by word instead of typing "b" or "f".</li>
+<li><strong>Fixed menu bar window activation</strong> — Clicking the menu bar icon now reliably brings windows to the front.</li>
+<li><strong>Fixed push notifications not opening sessions</strong> — Tapping a notification now correctly navigates to the relevant session.</li>
+<li><strong>Fixed terminal reconnection getting stuck</strong> — Stream reconnections no longer hang on "connecting" indefinitely.</li>
+<li><strong>Fixed session sync on Mac reconnect</strong> — Sessions now sync correctly when the Mac reconnects while iOS is already connected.</li>
+<li><strong>Fixed iOS new session popover</strong> — The popover for creating sessions on the first paired Mac no longer opens blank.</li>
+<li><strong>Fixed high CPU usage</strong> — Resolved an issue that could cause excessive CPU consumption.</li>
+<li><strong>Fixed iOS compilation</strong> — Resolved a build issue affecting the iOS target.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/ClaudeSpyServer-1.4.dmg"
+                    sparkle:edSignature="YdwQiXa2M0OaKNboqa8SRh0fEmbAMH0aaKBWKkCPFHsHaehCR8GXTKptqGDwWZCQfF9r1BHWHo0cDvrkMWCrAw=="
+                    length="18830882"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.1</title>
          <sparkle:version>2</sparkle:version>
          <sparkle:shortVersionString>1.1</sparkle:shortVersionString>
