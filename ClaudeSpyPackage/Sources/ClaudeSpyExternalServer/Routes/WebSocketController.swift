@@ -39,8 +39,21 @@ struct WebSocketController: RouteCollection {
         let connectionHub = req.application.connectionHub
         let relayService = req.application.relayService
 
+        // Generate a unique ID for this connection instance to prevent stale close handlers
+        // from unregistering newer connections during reconnect races.
+        let connectionId = UUID()
+
+        // Close any existing connection for this slot before registering the new one.
+        // This ensures the old WebSocket is torn down, but we use connectionId-aware
+        // unregister in the close handler so the old handler won't remove the new connection.
+        if let existing = await connectionHub.getConnection(pairId: pairId, deviceType: deviceType) {
+            req.logger.info("Closing stale \(deviceType) connection for pair \(pairId) before registering new one")
+            try? await existing.webSocket.close(code: .goingAway)
+        }
+
         // Register connection
         let connection = Connection(
+            connectionId: connectionId,
             pairId: pairId,
             deviceType: deviceType,
             deviceId: deviceId,
@@ -76,12 +89,22 @@ struct WebSocketController: RouteCollection {
             )
         }
 
-        // Handle disconnect
+        // Handle disconnect - only unregister if this connection is still the current one.
+        // This prevents a race where a stale close handler (from a replaced connection)
+        // removes a newer connection that has already taken its place.
         ws.onClose.whenComplete { _ in
             Task {
-                await connectionHub.unregister(pairId: pairId, deviceType: deviceType)
-                await relayService.notifyConnection(pairId: pairId, deviceType: deviceType, connected: false)
-                req.logger.info("WebSocket disconnected: \(deviceType) for pair \(pairId)")
+                let didUnregister = await connectionHub.unregisterIfCurrent(
+                    pairId: pairId,
+                    deviceType: deviceType,
+                    connectionId: connectionId
+                )
+                if didUnregister {
+                    await relayService.notifyConnection(pairId: pairId, deviceType: deviceType, connected: false)
+                    req.logger.info("WebSocket disconnected: \(deviceType) for pair \(pairId)")
+                } else {
+                    req.logger.info("Stale WebSocket close ignored: \(deviceType) for pair \(pairId) (superseded by newer connection)")
+                }
             }
         }
     }

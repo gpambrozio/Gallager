@@ -29,6 +29,27 @@ actor ConnectionHub {
         }
     }
 
+    /// Unregister a connection only if the current connection matches the given connectionId.
+    ///
+    /// This prevents stale WebSocket close handlers from removing newer connections
+    /// when a device reconnects before the old close event is processed.
+    ///
+    /// - Returns: `true` if the connection was unregistered, `false` if skipped (stale close).
+    @discardableResult
+    func unregisterIfCurrent(pairId: String, deviceType: DeviceType, connectionId: UUID) -> Bool {
+        guard let current = connections[pairId]?[deviceType], current.connectionId == connectionId else {
+            logger.info("Ignoring stale close for superseded connection", metadata: [
+                "pairId": "\(pairId)",
+                "deviceType": "\(deviceType)",
+                "staleConnectionId": "\(connectionId)",
+            ])
+            return false
+        }
+
+        unregister(pairId: pairId, deviceType: deviceType)
+        return true
+    }
+
     /// Disconnect all connections for a pair
     func disconnectAll(pairId: String) {
         guard let pairConnections = connections[pairId] else { return }
