@@ -1,5 +1,6 @@
 import ClaudeSpyEncryption
 import ClaudeSpyNetworking
+import Dependencies
 import Foundation
 
 /// Manages connections to all paired hosts (when acting as a viewer).
@@ -19,9 +20,6 @@ final public class ViewerConnectionManager {
 
     /// Hosts currently being connected to (guards against duplicate concurrent connect calls)
     private var connectingHosts: Set<String> = []
-
-    /// Key manager for creating E2EE services
-    private let keyManager: KeyManager
 
     /// Our stored key pair for E2EE
     private var keyPair: StoredKeyPair?
@@ -70,24 +68,24 @@ final public class ViewerConnectionManager {
     /// E2EE service for pairing operations (not tied to any specific host).
     public var pairingService: E2EEService? {
         guard let keyPair else { return nil }
-        return E2EEService(keyPair: keyPair, keyManager: keyManager)
+        return E2EEService(keyPair: keyPair)
     }
 
     // MARK: - Initialization
 
     /// Creates a new viewer connection manager.
     ///
-    /// - Parameter keyManager: Key manager for E2EE key operations
+    /// Resolves `SecretsService` via `@Dependency` to load or generate keys.
     /// - Throws: If key pair initialization fails
-    public init(keyManager: KeyManager) async throws {
-        self.keyManager = keyManager
+    public init() async throws {
+        @Dependency(SecretsService.self) var secrets
 
         // Load or generate key pair
-        if let existing = try await keyManager.loadKeyPair() {
+        if let existing = try secrets.loadKeyPair() {
             self.keyPair = existing
             logger.info("Loaded existing key pair for viewer mode")
         } else {
-            self.keyPair = try await keyManager.generateKeyPair()
+            self.keyPair = try await secrets.generateKeyPair()
             logger.info("Generated new key pair for viewer mode")
         }
     }
@@ -274,7 +272,7 @@ final public class ViewerConnectionManager {
         }
 
         do {
-            let e2eeService = E2EEService(keyPair: keyPair, keyManager: keyManager)
+            let e2eeService = E2EEService(keyPair: keyPair)
 
             // Establish session with this host's public key if available
             if

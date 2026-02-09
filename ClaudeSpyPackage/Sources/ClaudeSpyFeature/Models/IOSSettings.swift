@@ -1,5 +1,6 @@
 #if os(iOS)
     import ClaudeSpyCommon
+    import Dependencies
     import Foundation
     import SwiftUI
     import UIKit
@@ -22,6 +23,12 @@
             static let newSessionHeight = "newSessionHeight"
         }
 
+        // MARK: - Dependencies
+
+        /// Preferences service for persistent storage
+        @ObservationIgnored
+        @Dependency(PreferencesService.self) private var preferences
+
         // MARK: - Singleton
 
         public static let shared = IOSSettings()
@@ -29,8 +36,8 @@
         // MARK: - Properties
 
         /// Unique device identifier (generated once and persisted)
-        public var deviceId: String {
-            didSet { UserDefaults.standard.set(deviceId, forKey: Keys.deviceId) }
+        public var deviceId: String = "" {
+            didSet { preferences.setString(deviceId, Keys.deviceId) }
         }
 
         /// All paired host servers
@@ -39,38 +46,39 @@
         }
 
         /// External relay server URL
-        public var externalServerURL: String {
-            didSet { UserDefaults.standard.set(externalServerURL, forKey: Keys.externalServerURL) }
+        public var externalServerURL: String = "" {
+            didSet { preferences.setString(externalServerURL, Keys.externalServerURL) }
         }
 
         /// Whether to automatically reconnect on app launch
-        public var autoReconnect: Bool {
-            didSet { UserDefaults.standard.set(autoReconnect, forKey: Keys.autoReconnect) }
+        public var autoReconnect: Bool = false {
+            didSet { preferences.setBool(autoReconnect, Keys.autoReconnect) }
         }
 
         /// Font name for terminal snapshot display
-        public var terminalFontName: String {
-            didSet { UserDefaults.standard.set(terminalFontName, forKey: Keys.terminalFontName) }
+        public var terminalFontName: String = "Menlo" {
+            didSet { preferences.setString(terminalFontName, Keys.terminalFontName) }
         }
 
         /// Font size for terminal snapshot display
-        public var terminalFontSize: Double {
-            didSet { UserDefaults.standard.set(terminalFontSize, forKey: Keys.terminalFontSize) }
+        // swiftlint:disable:next custom_no_number_decimals
+        public var terminalFontSize: Double = 10.0 {
+            didSet { preferences.setDouble(terminalFontSize, Keys.terminalFontSize) }
         }
 
         /// Base name for new tmux sessions created from iOS
-        public var newSessionName: String {
-            didSet { UserDefaults.standard.set(newSessionName, forKey: Keys.newSessionName) }
+        public var newSessionName: String = "claude" {
+            didSet { preferences.setString(newSessionName, Keys.newSessionName) }
         }
 
         /// Width (columns) for new tmux sessions
-        public var newSessionWidth: Int {
-            didSet { UserDefaults.standard.set(newSessionWidth, forKey: Keys.newSessionWidth) }
+        public var newSessionWidth: Int = 120 {
+            didSet { preferences.setInt(newSessionWidth, Keys.newSessionWidth) }
         }
 
         /// Height (rows) for new tmux sessions
-        public var newSessionHeight: Int {
-            didSet { UserDefaults.standard.set(newSessionHeight, forKey: Keys.newSessionHeight) }
+        public var newSessionHeight: Int = 40 {
+            didSet { preferences.setInt(newSessionHeight, Keys.newSessionHeight) }
         }
 
         // MARK: - Computed Properties
@@ -88,31 +96,29 @@
         // MARK: - Initialization
 
         private init() {
-            let defaults = UserDefaults.standard
-
             // Load or generate device ID
-            if let savedDeviceId = defaults.string(forKey: Keys.deviceId) {
+            if let savedDeviceId = preferences.string(Keys.deviceId) {
                 self.deviceId = savedDeviceId
             } else {
                 let newDeviceId = UUID().uuidString
-                defaults.set(newDeviceId, forKey: Keys.deviceId)
+                preferences.setString(newDeviceId, Keys.deviceId)
                 self.deviceId = newDeviceId
             }
 
             // Load settings
-            self.externalServerURL = defaults.string(forKey: Keys.externalServerURL)
+            self.externalServerURL = preferences.string(Keys.externalServerURL)
                 ?? "wss://claudespy.gustavo.eng.br"
-            self.autoReconnect = defaults.bool(forKey: Keys.autoReconnect)
+            self.autoReconnect = preferences.optionalBool(Keys.autoReconnect) ?? false
 
             // Terminal settings with iOS-appropriate defaults
-            self.terminalFontName = defaults.string(forKey: Keys.terminalFontName) ?? "Menlo"
+            self.terminalFontName = preferences.string(Keys.terminalFontName) ?? "Menlo"
             // swiftlint:disable:next custom_no_number_decimals
-            self.terminalFontSize = defaults.object(forKey: Keys.terminalFontSize) as? Double ?? 10.0
+            self.terminalFontSize = preferences.optionalDouble(Keys.terminalFontSize) ?? 10.0
 
             // New session settings
-            self.newSessionName = defaults.string(forKey: Keys.newSessionName) ?? "claude"
-            self.newSessionWidth = defaults.object(forKey: Keys.newSessionWidth) as? Int ?? 120
-            self.newSessionHeight = defaults.object(forKey: Keys.newSessionHeight) as? Int ?? 40
+            self.newSessionName = preferences.string(Keys.newSessionName) ?? "claude"
+            self.newSessionWidth = preferences.optionalInt(Keys.newSessionWidth) ?? 120
+            self.newSessionHeight = preferences.optionalInt(Keys.newSessionHeight) ?? 40
 
             // Load paired hosts
             self.pairedHosts = loadPairedHosts()
@@ -121,7 +127,7 @@
         // MARK: - Paired Hosts Storage
 
         private func loadPairedHosts() -> [PairedHost] {
-            guard let data = UserDefaults.standard.data(forKey: Keys.pairedHosts) else {
+            guard let data = preferences.data(Keys.pairedHosts) else {
                 return []
             }
 
@@ -137,7 +143,7 @@
             guard let data = try? JSONEncoder().encode(pairedHosts) else {
                 return
             }
-            UserDefaults.standard.set(data, forKey: Keys.pairedHosts)
+            preferences.setData(data, Keys.pairedHosts)
         }
 
         // MARK: - Pairing Management
