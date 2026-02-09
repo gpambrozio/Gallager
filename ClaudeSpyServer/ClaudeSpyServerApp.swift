@@ -15,14 +15,8 @@ struct TmuxPaneMirrorApp: App {
         // Log level is determined by LOG_LEVEL env var (default: warning)
         LoggingConfiguration.bootstrap()
 
-        // E2E test mode: use in-memory storage to avoid polluting developer's real data
-        let isE2ETest = CommandLine.arguments.contains("--e2e-test")
-
-        let defaults: UserDefaultsStorable = isE2ETest ? InMemoryDefaults() : UserDefaults.standard
-        let keyManager: any KeychainStorable = isE2ETest ? InMemoryKeyManager() : KeyManager()
-
-        let settings = AppSettings(defaults: defaults)
-        let coord = AppCoordinator(settings: settings, keyManager: keyManager)
+        // Now create coordinator (which creates loggers internally)
+        let coord = AppCoordinator()
 
         // E2E test support: override server URL via launch argument
         if let idx = CommandLine.arguments.firstIndex(of: "--server-url"),

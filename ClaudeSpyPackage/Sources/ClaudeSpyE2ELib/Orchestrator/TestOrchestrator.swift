@@ -119,7 +119,7 @@ public actor TestOrchestrator {
         case let .launchIOSApp(arguments):
             try await simulatorDriver.bootSimulator(name: simulatorName)
             try await simulatorDriver.installApp(appPath: iosAppPath)
-            let resolvedArgs = ["--e2e-test"] + arguments.map { context.resolve($0) }
+            let resolvedArgs = arguments.map { context.resolve($0) }
             try await simulatorDriver.launchApp(
                 bundleId: iosBundleId(),
                 arguments: resolvedArgs
@@ -148,7 +148,7 @@ public actor TestOrchestrator {
 
         // macOS App
         case let .launchMacApp(arguments):
-            let resolvedArgs = ["--e2e-test"] + arguments.map { context.resolve($0) }
+            let resolvedArgs = arguments.map { context.resolve($0) }
             try await macOSDriver.launchApp(path: macOSAppPath, arguments: resolvedArgs)
 
         case .terminateMacApp:

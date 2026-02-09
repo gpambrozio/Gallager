@@ -39,7 +39,7 @@
         private let keyPair: StoredKeyPair
 
         /// Key manager for persisting session keys (for extension access)
-        private let keyManager: (any KeychainStorable)?
+        private let keyManager: KeyManager?
 
         /// The derived symmetric key for this session (nonisolated access requires lock)
         private let sessionState: SessionState
@@ -90,7 +90,7 @@
         /// - Parameter keyManager: The key manager to use for key storage.
         ///   Defaults to a new KeyManager instance.
         /// - Throws: `CryptoError` if key loading/generation fails
-        public init(keyManager: some KeychainStorable = KeyManager()) async throws {
+        public init(keyManager: KeyManager = KeyManager()) async throws {
             // Try to load existing key pair, or generate new one
             if let existingPair = try await keyManager.loadKeyPair() {
                 self.keyPair = existingPair
@@ -108,7 +108,7 @@
         /// - Parameters:
         ///   - keyPair: The key pair to use
         ///   - keyManager: Optional key manager for persisting session keys (for extension access)
-        public init(keyPair: StoredKeyPair, keyManager: (any KeychainStorable)? = nil) {
+        public init(keyPair: StoredKeyPair, keyManager: KeyManager? = nil) {
             self.keyPair = keyPair
             self.keyManager = keyManager
             self.sessionState = SessionState()
@@ -122,7 +122,7 @@
         /// - Parameter keyManager: The key manager to use for key storage.
         /// - Returns: E2EEService if keys exist, nil if no keys in Keychain
         /// - Throws: `CryptoError` if key loading fails
-        public static func loadFromKeychainSync(keyManager: some KeychainStorable = KeyManager()) throws -> E2EEService? {
+        public static func loadFromKeychainSync(keyManager: KeyManager = KeyManager()) throws -> E2EEService? {
             guard let existingPair = try keyManager.loadKeyPairSync() else {
                 return nil
             }

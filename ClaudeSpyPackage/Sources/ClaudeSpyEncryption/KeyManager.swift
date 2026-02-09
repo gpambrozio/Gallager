@@ -138,7 +138,7 @@ import Foundation
     /// let keyManager = KeyManager(accessGroup: "group.com.yourapp.shared")
     /// ```
     /// Both the main app and extension must have matching entitlements.
-    public actor KeyManager: KeychainStorable {
+    public actor KeyManager {
         // MARK: - Constants
 
         private let keychainService = "com.claudespy.e2ee"
@@ -423,7 +423,8 @@ import Foundation
 /// - Warning: **TESTING ONLY** - This manager provides NO SECURITY.
 ///   Keys are lost when the process terminates and are not protected from memory dumps.
 ///   Never use this in production code.
-public actor InMemoryKeyManager: KeychainStorable {
+@_spi(Testing)
+public actor InMemoryKeyManager {
     private var storedKeyPair: StoredKeyPair?
     private var storedSessionKeys: [String: Data] = [:]
 
@@ -453,13 +454,6 @@ public actor InMemoryKeyManager: KeychainStorable {
     public func deleteKeys() {
         storedKeyPair = nil
         storedSessionKeys.removeAll()
-    }
-
-    public nonisolated func loadKeyPairSync() throws -> StoredKeyPair? {
-        // In-memory storage is not actor-isolated in a meaningful way for sync access,
-        // but we cannot safely access actor state from nonisolated context.
-        // Return nil — callers should use the async loadKeyPair() instead.
-        nil
     }
 
     public func hasStoredKeyPair() -> Bool {

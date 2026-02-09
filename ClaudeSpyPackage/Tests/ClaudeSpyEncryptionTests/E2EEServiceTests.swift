@@ -1,4 +1,4 @@
-import ClaudeSpyEncryption
+@_spi(Testing) import ClaudeSpyEncryption
 import Crypto
 import Foundation
 import Testing
@@ -294,5 +294,20 @@ private struct TestMessage: Codable, Equatable {
     let timestamp: Date
 }
 
-// The InMemoryKeyManager extension is no longer needed since E2EEService
-// now accepts any KeychainStorable (which InMemoryKeyManager conforms to).
+// MARK: - InMemoryKeyManager Extension for Testing
+
+/// Extension to allow E2EEService to use InMemoryKeyManager
+extension E2EEService {
+    /// Creates a service using an in-memory key manager for testing.
+    convenience init(keyManager: InMemoryKeyManager) async throws {
+        // Load or generate key pair
+        let keyPair: StoredKeyPair
+        if let existing = await keyManager.loadKeyPair() {
+            keyPair = existing
+        } else {
+            keyPair = try await keyManager.generateKeyPair()
+        }
+
+        self.init(keyPair: keyPair)
+    }
+}

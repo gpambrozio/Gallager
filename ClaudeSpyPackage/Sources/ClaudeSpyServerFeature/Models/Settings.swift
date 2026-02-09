@@ -68,11 +68,6 @@ public struct PairedViewer: Codable, Identifiable, Sendable, Hashable {
 @Observable
 @MainActor
 final public class AppSettings {
-    // MARK: - Storage
-
-    /// Backing store for persistence (real UserDefaults or in-memory for tests)
-    private let defaults: UserDefaultsStorable
-
     // MARK: - UI State (transient, not persisted)
 
     /// Currently selected settings tab (for programmatic navigation)
@@ -82,93 +77,93 @@ final public class AppSettings {
 
     /// Font name for terminal display
     public var fontName: String {
-        didSet { defaults.set(fontName, forKey: Keys.fontName) }
+        didSet { UserDefaults.standard.set(fontName, forKey: Keys.fontName) }
     }
 
     /// Font size for terminal display
     public var fontSize: Double {
-        didSet { defaults.set(fontSize, forKey: Keys.fontSize) }
+        didSet { UserDefaults.standard.set(fontSize, forKey: Keys.fontSize) }
     }
 
     /// Number of scrollback lines to keep
     public var scrollbackLines: Int {
-        didSet { defaults.set(scrollbackLines, forKey: Keys.scrollbackLines) }
+        didSet { UserDefaults.standard.set(scrollbackLines, forKey: Keys.scrollbackLines) }
     }
 
     /// Terminal color theme
     public var theme: TerminalTheme {
-        didSet { defaults.set(theme.rawValue, forKey: Keys.theme) }
+        didSet { UserDefaults.standard.set(theme.rawValue, forKey: Keys.theme) }
     }
 
     // MARK: - Behavior Settings
 
     /// Whether to restore windows on launch
     public var restoreWindowsOnLaunch: Bool {
-        didSet { defaults.set(restoreWindowsOnLaunch, forKey: Keys.restoreWindowsOnLaunch) }
+        didSet { UserDefaults.standard.set(restoreWindowsOnLaunch, forKey: Keys.restoreWindowsOnLaunch) }
     }
 
     /// Whether to show the status bar in mirror windows
     public var showStatusBar: Bool {
-        didSet { defaults.set(showStatusBar, forKey: Keys.showStatusBar) }
+        didSet { UserDefaults.standard.set(showStatusBar, forKey: Keys.showStatusBar) }
     }
 
     /// Whether to auto-reconnect on connection loss
     public var autoReconnect: Bool {
-        didSet { defaults.set(autoReconnect, forKey: Keys.autoReconnect) }
+        didSet { UserDefaults.standard.set(autoReconnect, forKey: Keys.autoReconnect) }
     }
 
     /// Whether to automatically open mirror window when Claude session starts
     public var autoOpenMirrorOnSession: Bool {
-        didSet { defaults.set(autoOpenMirrorOnSession, forKey: Keys.autoOpenMirrorOnSession) }
+        didSet { UserDefaults.standard.set(autoOpenMirrorOnSession, forKey: Keys.autoOpenMirrorOnSession) }
     }
 
     /// Whether to prevent host from sleeping while Claude sessions are active
     public var preventSleepDuringSessions: Bool {
-        didSet { defaults.set(preventSleepDuringSessions, forKey: Keys.preventSleepDuringSessions) }
+        didSet { UserDefaults.standard.set(preventSleepDuringSessions, forKey: Keys.preventSleepDuringSessions) }
     }
 
     /// Delay before attempting reconnection (in seconds)
     public var reconnectDelay: Int {
-        didSet { defaults.set(reconnectDelay, forKey: Keys.reconnectDelay) }
+        didSet { UserDefaults.standard.set(reconnectDelay, forKey: Keys.reconnectDelay) }
     }
 
     // MARK: - tmux Settings
 
     /// Path to tmux binary
     public var tmuxPath: String {
-        didSet { defaults.set(tmuxPath, forKey: Keys.tmuxPath) }
+        didSet { UserDefaults.standard.set(tmuxPath, forKey: Keys.tmuxPath) }
     }
 
     /// Whether to automatically run a command when creating sessions in project folders
     public var autoRunClaudeInProjects: Bool {
-        didSet { defaults.set(autoRunClaudeInProjects, forKey: Keys.autoRunClaudeInProjects) }
+        didSet { UserDefaults.standard.set(autoRunClaudeInProjects, forKey: Keys.autoRunClaudeInProjects) }
     }
 
     /// Path to claude command (for auto-run in project folders)
     public var claudeCommandPath: String {
-        didSet { defaults.set(claudeCommandPath, forKey: Keys.claudeCommandPath) }
+        didSet { UserDefaults.standard.set(claudeCommandPath, forKey: Keys.claudeCommandPath) }
     }
 
     /// tmux socket path (empty for default)
     public var tmuxSocket: String {
-        didSet { defaults.set(tmuxSocket, forKey: Keys.tmuxSocket) }
+        didSet { UserDefaults.standard.set(tmuxSocket, forKey: Keys.tmuxSocket) }
     }
 
     /// Terminal application to use for attaching to sessions
     public var terminalApp: TerminalApp {
-        didSet { defaults.set(terminalApp.rawValue, forKey: Keys.terminalApp) }
+        didSet { UserDefaults.standard.set(terminalApp.rawValue, forKey: Keys.terminalApp) }
     }
 
     /// Path to custom terminal application (when terminalApp is .custom)
     public var customTerminalPath: String {
-        didSet { defaults.set(customTerminalPath, forKey: Keys.customTerminalPath) }
+        didSet { UserDefaults.standard.set(customTerminalPath, forKey: Keys.customTerminalPath) }
     }
 
     // MARK: - Remote Access Settings
 
     /// URL of the external relay server
     public var externalServerURL: String {
-        didSet { defaults.set(externalServerURL, forKey: Keys.externalServerURL) }
+        didSet { UserDefaults.standard.set(externalServerURL, forKey: Keys.externalServerURL) }
     }
 
     /// All paired viewers
@@ -183,37 +178,37 @@ final public class AppSettings {
 
     /// Whether to automatically connect to relay server on launch
     public var autoConnectToServer: Bool {
-        didSet { defaults.set(autoConnectToServer, forKey: Keys.autoConnectToServer) }
+        didSet { UserDefaults.standard.set(autoConnectToServer, forKey: Keys.autoConnectToServer) }
     }
 
     /// Unique device identifier for this host (generated on first launch)
     public var deviceId: String {
-        didSet { defaults.set(deviceId, forKey: Keys.deviceId) }
+        didSet { UserDefaults.standard.set(deviceId, forKey: Keys.deviceId) }
     }
 
     // MARK: - Plugin Settings
 
     /// Whether the user has completed the plugin setup (or dismissed it)
     public var hasCompletedPluginSetup: Bool {
-        didSet { defaults.set(hasCompletedPluginSetup, forKey: Keys.hasCompletedPluginSetup) }
+        didSet { UserDefaults.standard.set(hasCompletedPluginSetup, forKey: Keys.hasCompletedPluginSetup) }
     }
 
     // MARK: - Launch at Login Settings
 
     /// Whether the app should launch at login (synced with system login items)
     public var launchAtLogin: Bool {
-        didSet { defaults.set(launchAtLogin, forKey: Keys.launchAtLogin) }
+        didSet { UserDefaults.standard.set(launchAtLogin, forKey: Keys.launchAtLogin) }
     }
 
     /// Whether the user has been asked about launching at login
     public var hasAskedAboutLaunchAtLogin: Bool {
-        didSet { defaults.set(hasAskedAboutLaunchAtLogin, forKey: Keys.hasAskedAboutLaunchAtLogin) }
+        didSet { UserDefaults.standard.set(hasAskedAboutLaunchAtLogin, forKey: Keys.hasAskedAboutLaunchAtLogin) }
     }
 
     // MARK: - Initialization
 
-    public init(defaults: UserDefaultsStorable = UserDefaults.standard) {
-        self.defaults = defaults
+    public init() {
+        let defaults = UserDefaults.standard
 
         self.fontName = defaults.string(forKey: Keys.fontName) ?? Defaults.fontName
         self.fontSize = defaults.object(forKey: Keys.fontSize) as? Double ?? Defaults.fontSize
@@ -342,7 +337,7 @@ final public class AppSettings {
 
     // MARK: - Paired Viewers Storage
 
-    private static func loadPairedViewers(from defaults: UserDefaultsStorable) -> [PairedViewer] {
+    private static func loadPairedViewers(from defaults: UserDefaults) -> [PairedViewer] {
         guard let data = defaults.data(forKey: Keys.pairedViewers) else {
             return []
         }
@@ -353,12 +348,12 @@ final public class AppSettings {
         guard let data = try? JSONEncoder().encode(pairedViewers) else {
             return
         }
-        defaults.set(data, forKey: Keys.pairedViewers)
+        UserDefaults.standard.set(data, forKey: Keys.pairedViewers)
     }
 
     // MARK: - Paired Hosts Storage
 
-    private static func loadPairedHosts(from defaults: UserDefaultsStorable) -> [PairedHost] {
+    private static func loadPairedHosts(from defaults: UserDefaults) -> [PairedHost] {
         guard let data = defaults.data(forKey: Keys.pairedHosts) else {
             return []
         }
@@ -369,7 +364,7 @@ final public class AppSettings {
         guard let data = try? JSONEncoder().encode(pairedHosts) else {
             return
         }
-        defaults.set(data, forKey: Keys.pairedHosts)
+        UserDefaults.standard.set(data, forKey: Keys.pairedHosts)
     }
 
     // MARK: - Pairing Management
