@@ -1,6 +1,7 @@
 import ClaudeSpyCommon
 import ClaudeSpyEncryption
 import ClaudeSpyServerFeature
+import Dependencies
 import SwiftUI
 
 @main
@@ -14,6 +15,14 @@ struct TmuxPaneMirrorApp: App {
         // Bootstrap logging FIRST, before any Logger instances are created
         // Log level is determined by LOG_LEVEL env var (default: warning)
         LoggingConfiguration.bootstrap()
+
+        // E2E test support: use in-memory storage to avoid polluting real UserDefaults/Keychain
+        if CommandLine.arguments.contains("--e2e-test") {
+            prepareDependencies {
+                $0[PreferencesService.self] = .inMemory()
+                $0[SecretsService.self] = .inMemory()
+            }
+        }
 
         // Now create coordinator (which creates loggers internally)
         let coord = AppCoordinator()

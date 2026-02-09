@@ -1,5 +1,7 @@
 import ClaudeSpyCommon
+import ClaudeSpyEncryption
 import ClaudeSpyFeature
+import Dependencies
 import SwiftUI
 
 @main
@@ -11,6 +13,14 @@ struct ClaudeSpyApp: App {
         // Bootstrap logging FIRST, before any Logger instances are created
         // Log level is determined by LOG_LEVEL env var (default: warning)
         LoggingConfiguration.bootstrap()
+
+        // E2E test support: use in-memory storage to avoid polluting real UserDefaults/Keychain
+        if CommandLine.arguments.contains("--e2e-test") {
+            prepareDependencies {
+                $0[PreferencesService.self] = .inMemory()
+                $0[SecretsService.self] = .inMemory()
+            }
+        }
 
         // E2E test support: override server URL via launch argument
         if let idx = CommandLine.arguments.firstIndex(of: "--server-url"),

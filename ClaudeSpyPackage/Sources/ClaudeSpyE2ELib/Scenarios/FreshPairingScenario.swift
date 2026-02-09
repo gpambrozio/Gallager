@@ -11,12 +11,12 @@ public enum FreshPairingScenario {
         TestStep.verifyServerHealth
 
         // 2. Launch iOS in simulator
-        TestStep.launchIOSApp(arguments: ["--server-url", "ws://127.0.0.1:8765"])
+        TestStep.launchIOSApp(arguments: ["--e2e-test", "--server-url", "ws://127.0.0.1:8765"])
         TestStep.iosWaitForElement(.labelContains("pairing code"), timeout: 15)
         TestStep.iosScreenshot(label: "01-ios-pairing-view")
 
         // 3. Launch macOS app
-        TestStep.launchMacApp(arguments: ["--server-url", "ws://127.0.0.1:8765"])
+        TestStep.launchMacApp(arguments: ["--e2e-test", "--server-url", "ws://127.0.0.1:8765"])
         TestStep.wait(seconds: 3)
 
         // 4. Generate pairing code on macOS
