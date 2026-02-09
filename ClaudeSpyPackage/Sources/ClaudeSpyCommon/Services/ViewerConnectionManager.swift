@@ -21,10 +21,6 @@ final public class ViewerConnectionManager {
     /// Hosts currently being connected to (guards against duplicate concurrent connect calls)
     private var connectingHosts: Set<String> = []
 
-    /// Secrets service for key operations and E2EE
-    @ObservationIgnored
-    private let secrets: SecretsService
-
     /// Our stored key pair for E2EE
     private var keyPair: StoredKeyPair?
 
@@ -72,18 +68,17 @@ final public class ViewerConnectionManager {
     /// E2EE service for pairing operations (not tied to any specific host).
     public var pairingService: E2EEService? {
         guard let keyPair else { return nil }
-        return E2EEService(keyPair: keyPair, keyManager: try? secrets.keyManager())
+        return E2EEService(keyPair: keyPair)
     }
 
     // MARK: - Initialization
 
     /// Creates a new viewer connection manager.
     ///
-    /// Resolves `SecretsService` via `@Dependency` to get the key manager.
+    /// Resolves `SecretsService` via `@Dependency` to load or generate keys.
     /// - Throws: If key pair initialization fails
     public init() async throws {
         @Dependency(SecretsService.self) var secrets
-        self.secrets = secrets
 
         // Load or generate key pair
         if let existing = try await secrets.loadKeyPair() {
@@ -277,7 +272,7 @@ final public class ViewerConnectionManager {
         }
 
         do {
-            let e2eeService = E2EEService(keyPair: keyPair, keyManager: try? secrets.keyManager())
+            let e2eeService = E2EEService(keyPair: keyPair)
 
             // Establish session with this host's public key if available
             if

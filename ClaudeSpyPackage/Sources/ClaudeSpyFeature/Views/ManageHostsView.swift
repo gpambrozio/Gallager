@@ -1,5 +1,6 @@
 #if os(iOS)
     import ClaudeSpyCommon
+    import ClaudeSpyEncryption
     import Dependencies
     import SwiftUI
 

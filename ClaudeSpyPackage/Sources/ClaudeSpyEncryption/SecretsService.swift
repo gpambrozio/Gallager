@@ -1,5 +1,4 @@
 #if canImport(Security)
-    import ClaudeSpyEncryption
     import Dependencies
     import DependenciesMacros
     import Foundation
@@ -37,13 +36,6 @@
 
         /// Checks if a session key exists for a specific pair ID.
         public var hasStoredSessionKey: @Sendable (_ pairId: String) async -> Bool = { _ in false }
-
-        // MARK: - Key Manager Access
-
-        /// Returns the underlying KeyManager for use with E2EEService.
-        /// This allows services that need a KeyManager instance to get one
-        /// without directly constructing it.
-        public var keyManager: @Sendable () throws -> KeyManager
     }
 
     // MARK: - DependencyKey
@@ -84,9 +76,6 @@
                 },
                 hasStoredSessionKey: { pairId in
                     await keyManager.hasStoredSessionKey(for: pairId)
-                },
-                keyManager: {
-                    keyManager
                 }
             )
         }

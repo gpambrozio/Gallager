@@ -121,6 +121,8 @@ let package = Package(
             name: "ClaudeSpyEncryption",
             dependencies: [
                 .crypto,
+                .dependencies,
+                .dependenciesMacros,
             ]
         ),
         .target(
@@ -172,6 +174,7 @@ let package = Package(
             name: "ClaudeSpyEncryptionTests",
             dependencies: [
                 "ClaudeSpyEncryption",
+                .dependenciesTestSupport,
             ]
         ),
         .testTarget(

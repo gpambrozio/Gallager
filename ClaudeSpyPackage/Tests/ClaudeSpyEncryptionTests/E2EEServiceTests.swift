@@ -1,5 +1,6 @@
 @_spi(Testing) import ClaudeSpyEncryption
 import Crypto
+import DependenciesTestSupport
 import Foundation
 import Testing
 
@@ -9,8 +10,7 @@ struct E2EEServiceTests {
 
     @Test("Service generates valid key pair on init")
     func serviceGeneratesKeyPair() async throws {
-        let keyManager = InMemoryKeyManager()
-        let service = try await E2EEService(keyManager: keyManager)
+        let service = try await createService()
 
         // Public key should be 32 bytes (Curve25519)
         #expect(service.publicKey.count == 32)
@@ -22,12 +22,12 @@ struct E2EEServiceTests {
         let keyManager = InMemoryKeyManager()
 
         // First service generates a key
-        let service1 = try await E2EEService(keyManager: keyManager)
+        let service1 = try await createService(keyManager: keyManager)
         let publicKey1 = service1.publicKey
         let keyId1 = service1.keyId
 
         // Second service should reuse the same key
-        let service2 = try await E2EEService(keyManager: keyManager)
+        let service2 = try await createService(keyManager: keyManager)
         let publicKey2 = service2.publicKey
         let keyId2 = service2.keyId
 
@@ -255,17 +255,29 @@ struct E2EEServiceTests {
 
     // MARK: - Helpers
 
-    private func createService() async throws -> E2EEService {
-        let keyManager = InMemoryKeyManager()
-        return try await E2EEService(keyManager: keyManager)
+    private func createService(keyManager: InMemoryKeyManager = InMemoryKeyManager()) async throws -> E2EEService {
+        try await withDependencies {
+            $0[SecretsService.self] = .from(keyManager)
+        } operation: {
+            try await E2EEService()
+        }
     }
 
     private func createPairedServices() async throws -> (E2EEService, E2EEService) {
         let keyManager1 = InMemoryKeyManager()
         let keyManager2 = InMemoryKeyManager()
 
-        let service1 = try await E2EEService(keyManager: keyManager1)
-        let service2 = try await E2EEService(keyManager: keyManager2)
+        let service1 = try await withDependencies {
+            $0[SecretsService.self] = .from(keyManager1)
+        } operation: {
+            try await E2EEService()
+        }
+
+        let service2 = try await withDependencies {
+            $0[SecretsService.self] = .from(keyManager2)
+        } operation: {
+            try await E2EEService()
+        }
 
         let pairId = "test-pair"
 
@@ -294,20 +306,36 @@ private struct TestMessage: Codable, Equatable {
     let timestamp: Date
 }
 
-// MARK: - InMemoryKeyManager Extension for Testing
+// MARK: - SecretsService Test Support
 
-/// Extension to allow E2EEService to use InMemoryKeyManager
-extension E2EEService {
-    /// Creates a service using an in-memory key manager for testing.
-    convenience init(keyManager: InMemoryKeyManager) async throws {
-        // Load or generate key pair
-        let keyPair: StoredKeyPair
-        if let existing = await keyManager.loadKeyPair() {
-            keyPair = existing
-        } else {
-            keyPair = try await keyManager.generateKeyPair()
-        }
-
-        self.init(keyPair: keyPair)
+extension SecretsService {
+    /// Creates a `SecretsService` backed by an `InMemoryKeyManager` for testing.
+    static func from(_ keyManager: InMemoryKeyManager) -> SecretsService {
+        SecretsService(
+            generateKeyPair: {
+                try await keyManager.generateKeyPair()
+            },
+            loadKeyPair: {
+                await keyManager.loadKeyPair()
+            },
+            hasStoredKeyPair: {
+                await keyManager.hasStoredKeyPair()
+            },
+            deleteKeys: {
+                await keyManager.deleteKeys()
+            },
+            storeSessionKey: { keyData, pairId in
+                await keyManager.storeSessionKey(keyData, for: pairId)
+            },
+            loadSessionKey: { pairId in
+                await keyManager.loadSessionKey(for: pairId)
+            },
+            deleteSessionKey: { pairId in
+                await keyManager.deleteSessionKey(for: pairId)
+            },
+            hasStoredSessionKey: { pairId in
+                await keyManager.hasStoredSessionKey(for: pairId)
+            }
+        )
     }
 }
