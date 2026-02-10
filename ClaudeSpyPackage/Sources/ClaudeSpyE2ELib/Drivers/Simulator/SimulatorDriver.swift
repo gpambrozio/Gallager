@@ -140,16 +140,29 @@ public actor SimulatorDriver {
     // MARK: - UI Inspection
 
     /// Describe the current UI tree
-    public func describeUI(maxDepth: Int = 15) -> [UIElement] {
-        guard let pid = simulatorPID else {
+    public func describeUI(maxDepth: Int = 15) async -> [UIElement] {
+        guard var pid = simulatorPID else {
             logger.warning("No Simulator PID available")
             return []
         }
 
-        let (elements, origin) = SimulatorAccessibility.describeUI(
+        var (elements, origin) = SimulatorAccessibility.describeUI(
             simulatorPID: pid,
             maxDepth: maxDepth
         )
+
+        // If content group wasn't found, refresh PID and retry once
+        if origin == nil {
+            logger.info("Content group not found, refreshing Simulator PID and retrying...")
+            try? await findSimulatorPID()
+            if let newPid = simulatorPID, newPid != pid {
+                pid = newPid
+                (elements, origin) = SimulatorAccessibility.describeUI(
+                    simulatorPID: pid,
+                    maxDepth: maxDepth
+                )
+            }
+        }
 
         if let origin {
             cachedContentOrigin = origin
@@ -159,8 +172,8 @@ public actor SimulatorDriver {
     }
 
     /// Find the first element matching a query
-    public func findElement(matching query: ElementQuery) -> UIElement? {
-        let elements = describeUI()
+    public func findElement(matching query: ElementQuery) async -> UIElement? {
+        let elements = await describeUI()
         return query.findFirst(in: elements)
     }
 

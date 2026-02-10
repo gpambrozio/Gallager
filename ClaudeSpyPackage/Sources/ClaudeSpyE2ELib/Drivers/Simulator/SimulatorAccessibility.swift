@@ -15,7 +15,7 @@ enum SimulatorAccessibility {
         let appElement = AXUIElementCreateApplication(simulatorPID)
 
         // Walk the AX tree to find the iOSContentGroup (the actual iOS screen area)
-        guard let contentGroup = findIOSContentGroup(in: appElement, depth: 0, maxDepth: 5) else {
+        guard let contentGroup = findIOSContentGroup(in: appElement, depth: 0, maxDepth: 10) else {
             logger.warning("Could not find iOSContentGroup in Simulator AX tree")
             // Fall back to full app tree
             let elements = parseElement(appElement, depth: 0, maxDepth: maxDepth)
