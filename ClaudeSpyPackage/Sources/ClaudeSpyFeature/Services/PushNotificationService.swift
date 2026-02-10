@@ -48,6 +48,9 @@
         /// Request notification permissions and register for remote notifications
         /// Call this after the user has paired their device
         public func requestAuthorization() async throws {
+            // Skip during E2E tests to avoid the system permission dialog
+            guard !CommandLine.arguments.contains("--e2e-test") else { return }
+
             let center = UNUserNotificationCenter.current()
 
             // Request permission

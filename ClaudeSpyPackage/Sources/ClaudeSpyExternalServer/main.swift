@@ -1,3 +1,4 @@
+import ClaudeSpyExternalServerLib
 import Vapor
 
 var env = try Environment.detect()

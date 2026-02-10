@@ -227,7 +227,6 @@ final public class ViewerConnectionManager {
         guard let connection = connections[hostId] else {
             return .failure(ViewerRelayClientError.notConnected)
         }
-
         return await connection.sendCommand(command, paneId: paneId, timeout: timeout)
     }
 

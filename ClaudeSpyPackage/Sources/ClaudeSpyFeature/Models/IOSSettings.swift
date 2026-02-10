@@ -5,22 +5,37 @@
     import SwiftUI
     import UIKit
 
+// MARK: - PreferencesService + AppSettings.Keys
+
+    extension PreferencesService {
+        func string(_ key: IOSSettings.Keys) -> String? { string(key.rawValue) }
+        func setString(_ value: String?, _ key: IOSSettings.Keys) { setString(value, key.rawValue) }
+        func optionalBool(_ key: IOSSettings.Keys) -> Bool? { optionalBool(key.rawValue) }
+        func setBool(_ value: Bool, _ key: IOSSettings.Keys) { setBool(value, key.rawValue) }
+        func optionalInt(_ key: IOSSettings.Keys) -> Int? { optionalInt(key.rawValue) }
+        func setInt(_ value: Int, _ key: IOSSettings.Keys) { setInt(value, key.rawValue) }
+        func optionalDouble(_ key: IOSSettings.Keys) -> Double? { optionalDouble(key.rawValue) }
+        func setDouble(_ value: Double, _ key: IOSSettings.Keys) { setDouble(value, key.rawValue) }
+        func data(_ key: IOSSettings.Keys) -> Data? { data(key.rawValue) }
+        func setData(_ value: Data?, _ key: IOSSettings.Keys) { setData(value, key.rawValue) }
+    }
+
     /// Settings for the ClaudeSpy iOS app with UserDefaults persistence.
     @Observable
     @MainActor
     final public class IOSSettings {
         // MARK: - UserDefaults Keys
 
-        private enum Keys {
-            static let deviceId = "deviceId"
-            static let pairedHosts = "pairedHosts"
-            static let externalServerURL = "externalServerURL"
-            static let autoReconnect = "autoReconnect"
-            static let terminalFontName = "terminalFontName"
-            static let terminalFontSize = "terminalFontSize"
-            static let newSessionName = "newSessionName"
-            static let newSessionWidth = "newSessionWidth"
-            static let newSessionHeight = "newSessionHeight"
+        public enum Keys: String {
+            case deviceId
+            case pairedHosts
+            case externalServerURL
+            case autoReconnect
+            case terminalFontName
+            case terminalFontSize
+            case newSessionName
+            case newSessionWidth
+            case newSessionHeight
         }
 
         // MARK: - Dependencies
@@ -61,8 +76,7 @@
         }
 
         /// Font size for terminal snapshot display
-        // swiftlint:disable:next custom_no_number_decimals
-        public var terminalFontSize: Double = 10.0 {
+        public var terminalFontSize: Double = 10 {
             didSet { preferences.setDouble(terminalFontSize, Keys.terminalFontSize) }
         }
 
@@ -112,8 +126,7 @@
 
             // Terminal settings with iOS-appropriate defaults
             self.terminalFontName = preferences.string(Keys.terminalFontName) ?? "Menlo"
-            // swiftlint:disable:next custom_no_number_decimals
-            self.terminalFontSize = preferences.optionalDouble(Keys.terminalFontSize) ?? 10.0
+            self.terminalFontSize = preferences.optionalDouble(Keys.terminalFontSize) ?? 10
 
             // New session settings
             self.newSessionName = preferences.string(Keys.newSessionName) ?? "claude"

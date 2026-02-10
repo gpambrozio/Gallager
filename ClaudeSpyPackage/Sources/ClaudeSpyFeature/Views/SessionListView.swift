@@ -295,6 +295,7 @@
                 }
                 .disabled(connection?.isHostConnected != true)
                 .buttonStyle(.borderless)
+                .accessibilityLabel("New Session")
 
                 // Connection status indicator
                 Circle()

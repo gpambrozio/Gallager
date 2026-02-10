@@ -50,6 +50,64 @@ public struct PreferencesService: Sendable {
     public var setData: @Sendable (_ value: Data?, _ forKey: String) -> Void
 }
 
+// MARK: - In-Memory Implementation
+
+public extension PreferencesService {
+    /// Creates a `PreferencesService` backed by an in-memory dictionary.
+    ///
+    /// Use this for E2E tests where the app must not write to real UserDefaults.
+    static func inMemory() -> PreferencesService {
+        let store = InMemoryStore()
+
+        return PreferencesService(
+            string: { key in
+                store.get(key) as? String
+            },
+            setString: { value, key in
+                store.set(value, forKey: key)
+            },
+            optionalBool: { key in
+                store.get(key) as? Bool
+            },
+            setBool: { value, key in
+                store.set(value, forKey: key)
+            },
+            optionalInt: { key in
+                store.get(key) as? Int
+            },
+            setInt: { value, key in
+                store.set(value, forKey: key)
+            },
+            optionalDouble: { key in
+                store.get(key) as? Double
+            },
+            setDouble: { value, key in
+                store.set(value, forKey: key)
+            },
+            data: { key in
+                store.get(key) as? Data
+            },
+            setData: { value, key in
+                store.set(value, forKey: key)
+            }
+        )
+    }
+}
+
+/// Thread-safe in-memory key-value store for `PreferencesService.inMemory()`.
+final private class InMemoryStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String: Any] = [:]
+
+    func get(_ key: String) -> Any? {
+        lock.withLock { storage[key] }
+    }
+
+    func set(_ value: Any?, forKey key: String) {
+        lock.withLock { storage[key] = value }
+    }
+}
+
 // MARK: - DependencyKey
 
 extension PreferencesService: DependencyKey {
