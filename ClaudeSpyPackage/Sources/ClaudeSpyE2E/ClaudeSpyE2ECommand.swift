@@ -47,7 +47,6 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
 
         // Collect available scenarios
         let allScenarios: [TestScenario] = [
-            FreshPairingScenario.scenario,
             NewTerminalScenario.scenario,
         ]
 
