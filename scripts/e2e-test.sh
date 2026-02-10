@@ -18,6 +18,7 @@ SCREENSHOTS_DIR="/tmp/e2e-screenshots"
 TMUX_SOCKET="/tmp/claudespy-e2e.sock"
 SKIP_BUILD=false
 INTERACTIVE=false
+LIST_SCENARIOS=false
 
 # =====================================================
 # PARSE ARGUMENTS
@@ -44,6 +45,10 @@ while [[ $# -gt 0 ]]; do
             TMUX_SOCKET="$2"
             shift 2
             ;;
+        --list-scenarios)
+            LIST_SCENARIOS=true
+            shift
+            ;;
         --interactive|-i)
             INTERACTIVE=true
             shift
@@ -57,6 +62,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --port PORT      Server port (default: $SERVER_PORT)"
             echo "  --screenshots DIR Screenshot output dir (default: $SCREENSHOTS_DIR)"
             echo "  --tmux-socket PATH Tmux socket path for isolation (default: $TMUX_SOCKET)"
+            echo "  --list-scenarios   List all available scenarios and exit"
             echo "  --interactive, -i  Start all apps, wait for Enter, then shut down"
             echo "  -h, --help       Show this help"
             exit 0
@@ -109,6 +115,19 @@ print('', end='')
 sys.exit(1)
 "
 }
+
+# =====================================================
+# LIST SCENARIOS (no build needed)
+# =====================================================
+if [ "$LIST_SCENARIOS" = true ]; then
+    if [ ! -e "$E2E_BIN" ]; then
+        echo "ERROR: E2E binary not found at $E2E_BIN"
+        echo "Run without --skip-build first."
+        exit 1
+    fi
+    "$E2E_BIN" --list-scenarios
+    exit 0
+fi
 
 # =====================================================
 # BUILD PHASE

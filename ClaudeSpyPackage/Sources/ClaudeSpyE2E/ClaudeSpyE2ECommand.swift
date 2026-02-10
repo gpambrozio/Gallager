@@ -10,10 +10,10 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     )
 
     @Option(name: .long, help: "Path to built ClaudeSpy.app (iOS simulator)")
-    var iosAppPath: String
+    var iosAppPath: String?
 
     @Option(name: .long, help: "Path to built ClaudeSpyServer.app (macOS)")
-    var macosAppPath: String
+    var macosAppPath: String?
 
     @Option(name: .long, help: "Simulator device name")
     var simName = "iPhone 16"
@@ -33,7 +33,24 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     @Flag(name: .long, help: "Start server and apps, then wait for Enter before shutting down")
     var interactive = false
 
+    @Flag(name: .long, help: "List all available scenarios and exit")
+    var listScenarios = false
+
     func run() async throws {
+        if listScenarios {
+            printScenarioList()
+            return
+        }
+
+        guard let iosAppPath else {
+            print("ERROR: --ios-app-path is required")
+            throw ExitCode.failure
+        }
+        guard let macosAppPath else {
+            print("ERROR: --macos-app-path is required")
+            throw ExitCode.failure
+        }
+
         print("ClaudeSpy E2E Test Coordinator")
         print("==============================")
         print("iOS app:     \(iosAppPath)")
@@ -57,6 +74,15 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             try await runInteractive(orchestrator: orchestrator)
         } else {
             try await runTests(orchestrator: orchestrator)
+        }
+    }
+
+    private func printScenarioList() {
+        print("Available scenarios:")
+        print()
+        for scenario in Self.allScenarios {
+            let tags = scenario.tags.map { "[\($0)]" }.joined(separator: " ")
+            print("  \(scenario.name) (\(scenario.steps.count) steps) \(tags)")
         }
     }
 
