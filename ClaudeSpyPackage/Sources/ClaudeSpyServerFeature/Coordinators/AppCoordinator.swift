@@ -3,6 +3,7 @@
     import ClaudeSpyCommon
     import ClaudeSpyEncryption
     import ClaudeSpyNetworking
+    import Dependencies
     import Foundation
     import Logging
 
@@ -77,6 +78,9 @@
         @ObservationIgnored
         private var wakeObserverTask: Task<Void, Never>?
 
+        @ObservationIgnored
+        @Dependency(PreferencesService.self) private var preferences
+
         private let logger = Logger(label: "com.claudespy.coordinator")
 
         // MARK: - Initialization
@@ -86,9 +90,6 @@
         /// Synchronous initialization sets up core services. Call `setupAllServices()` asynchronously
         /// to complete service initialization and start connections.
         public init(settings: AppSettings = AppSettings()) {
-            // Disable macOS automatic window restoration to prevent duplicate windows on launch
-            UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
-
             self.settings = settings
 
             // Create tmux service
@@ -140,6 +141,9 @@
                 self.e2eeService = e2ee
                 self.keyPair = e2ee.storedKeyPair
             }
+
+            // Disable macOS automatic window restoration to prevent duplicate windows on launch
+            preferences.setBool(false, "NSQuitAlwaysKeepsWindows")
         }
 
         // MARK: - Public API
@@ -449,8 +453,7 @@
             }
 
             do {
-                let keyManager = KeyManager()
-                let manager = try await ViewerConnectionManager(keyManager: keyManager)
+                let manager = try await ViewerConnectionManager()
                 viewerConnectionManager = manager
 
                 // Create session store for remote sessions

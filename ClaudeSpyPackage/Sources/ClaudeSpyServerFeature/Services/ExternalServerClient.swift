@@ -100,6 +100,9 @@ final public class ExternalServerClient {
     /// Task for ping/pong keep-alive
     private var pingTask: Task<Void, Never>?
 
+    /// Task for retrying registration (handles server-side race condition)
+    private var registrationRetryTask: Task<Void, Never>?
+
     // MARK: - E2EE Properties
 
     /// E2EE service for encrypting/decrypting messages
@@ -456,6 +459,26 @@ final public class ExternalServerClient {
         )
         await send(registerMessage)
 
+        // Transition to connected immediately. The server's hostRegistered
+        // response may be lost due to a race condition in Vapor's WebSocket
+        // upgrade: the onUpgrade Task may not have set up onText handlers
+        // before the client's registration frame arrives, causing it to be
+        // silently consumed by the default no-op handler. We retry below
+        // to handle this.
+        await updateState(.connected)
+
+        // Retry registration after a delay to handle server-side race condition.
+        // Vapor calls onUpgrade from a Swift Concurrency Task, not directly on
+        // the NIO event loop. On localhost, the client's registration frame can
+        // arrive before that Task runs and sets up the onText handler. The server
+        // handles duplicate registrations idempotently.
+        registrationRetryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            self?.logger.debug("Retrying registration (race condition mitigation)")
+            await self?.send(registerMessage)
+        }
+
         // Start ping task for keep-alive
         pingTask = Task { [weak self] in
             await self?.pingLoop()
@@ -464,7 +487,9 @@ final public class ExternalServerClient {
 
     private func receiveMessages() async {
         while !Task.isCancelled {
-            guard let task = webSocketTask else { break }
+            guard let task = webSocketTask else {
+                break
+            }
 
             do {
                 let message = try await task.receive()
@@ -736,6 +761,9 @@ final public class ExternalServerClient {
 
         pingTask?.cancel()
         pingTask = nil
+
+        registrationRetryTask?.cancel()
+        registrationRetryTask = nil
 
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil

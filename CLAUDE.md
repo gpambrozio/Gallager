@@ -91,6 +91,7 @@ Use XcodeBuildTools skills. Scheme: `ClaudeSpyServer` (macOS), `ClaudeSpy` (iOS)
 - **Services:** `docs/services-reference.md` - TmuxService, PaneStream, etc.
 - **Architecture:** `docs/distributed-architecture-plan.md`
 - **Encryption:** `docs/e2ee-encryption-plan.md`
+- **E2E testing:** `docs/e2e-testing.md` - Test framework, running tests, writing scenarios
 - **Self-hosting:** `docs/self-hosting.md` - Deploy your own relay server
 - **Known issues:** `docs/known-issues.md`
 - **Terminal sizing (macOS):** `docs/swiftterm-sizing.md`
