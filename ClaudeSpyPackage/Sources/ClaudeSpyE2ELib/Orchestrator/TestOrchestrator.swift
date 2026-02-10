@@ -83,14 +83,14 @@ public actor TestOrchestrator {
         )
     }
 
-    /// Run multiple scenarios, guaranteeing cleanup after the last one
+    /// Run multiple scenarios, cleaning up after each one
     public func runAll(_ scenarios: [TestScenario]) async -> [ScenarioResult] {
         var results: [ScenarioResult] = []
         for scenario in scenarios {
             let result = await run(scenario)
+            await cleanup()
             results.append(result)
         }
-        await cleanup()
         return results
     }
 

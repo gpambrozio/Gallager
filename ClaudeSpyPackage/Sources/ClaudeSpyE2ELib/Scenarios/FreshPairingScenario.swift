@@ -45,10 +45,5 @@ public enum FreshPairingScenario {
 
         // 8. Verify server state
         TestStep.verifyServerHasPairings(count: 1)
-
-        // 9. Cleanup
-        TestStep.terminateIOSApp
-        TestStep.terminateMacApp
-        TestStep.stopServer
     }
 }

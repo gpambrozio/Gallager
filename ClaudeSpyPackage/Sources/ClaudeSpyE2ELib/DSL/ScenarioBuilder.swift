@@ -30,6 +30,10 @@ public struct ScenarioBuilder {
     public static func buildExpression(_ step: TestStep) -> [TestStep] {
         [step]
     }
+
+    public static func buildExpression(_ scenario: TestScenario) -> [TestStep] {
+        scenario.steps
+    }
 }
 
 // MARK: - Convenience factory
