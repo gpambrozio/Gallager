@@ -38,11 +38,6 @@ actor ConnectionHub {
     @discardableResult
     func unregisterIfCurrent(pairId: String, deviceType: DeviceType, connectionId: UUID) -> Bool {
         guard let current = connections[pairId]?[deviceType], current.connectionId == connectionId else {
-            logger.info("Ignoring stale close for superseded connection", metadata: [
-                "pairId": "\(pairId)",
-                "deviceType": "\(deviceType)",
-                "staleConnectionId": "\(connectionId)",
-            ])
             return false
         }
 

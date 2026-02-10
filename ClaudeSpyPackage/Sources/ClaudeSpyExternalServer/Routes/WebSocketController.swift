@@ -48,7 +48,11 @@ struct WebSocketController: RouteCollection {
         // unregister in the close handler so the old handler won't remove the new connection.
         if let existing = await connectionHub.getConnection(pairId: pairId, deviceType: deviceType) {
             req.logger.info("Closing stale \(deviceType) connection for pair \(pairId) before registering new one")
-            try? await existing.webSocket.close(code: .goingAway)
+            // Fire-and-forget: don't block the new connection's registration if the old
+            // peer is unreachable and the TCP close handshake takes a long time.
+            // The connectionId guard in the close handler already prevents the stale
+            // handler from unregistering the new connection.
+            Task { try? await existing.webSocket.close(code: .goingAway) }
         }
 
         // Register connection
