@@ -83,14 +83,24 @@ public actor TestOrchestrator {
         )
     }
 
-    /// Run multiple scenarios
+    /// Run multiple scenarios, guaranteeing cleanup after the last one
     public func runAll(_ scenarios: [TestScenario]) async -> [ScenarioResult] {
         var results: [ScenarioResult] = []
         for scenario in scenarios {
             let result = await run(scenario)
             results.append(result)
         }
+        await cleanup()
         return results
+    }
+
+    /// Tear down all running processes regardless of scenario outcome
+    private func cleanup() async {
+        logger.info("=== Cleaning up ===")
+        try? await simulatorDriver.terminateApp()
+        try? await macOSDriver.terminateApp()
+        try? await serverDriver.stop()
+        logger.info("=== Cleanup complete ===")
     }
 
     // MARK: - Step Execution
