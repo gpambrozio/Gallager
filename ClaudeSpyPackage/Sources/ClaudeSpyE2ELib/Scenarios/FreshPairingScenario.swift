@@ -20,7 +20,11 @@ public enum FreshPairingScenario {
         TestStep.iosScreenshot(label: "01-ios-pairing-view")
 
         // 4. Launch macOS app (must be fresh launch for --e2e-test args to take effect)
-        TestStep.launchMacApp(arguments: ["--e2e-test", "--server-url", "ws://127.0.0.1:8765"])
+        TestStep.launchMacApp(arguments: [
+            "--e2e-test",
+            "--server-url", "ws://127.0.0.1:8765",
+            "--tmux-socket", "/tmp/claudespy-e2e.sock",
+        ])
         TestStep.wait(seconds: 3)
 
         // 5. Generate pairing code on macOS

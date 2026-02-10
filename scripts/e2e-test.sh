@@ -15,6 +15,7 @@ DERIVED_DATA="$PROJECT_ROOT/build/e2e-derived-data"
 SIM_NAME="iPhone 17 Pro"
 SERVER_PORT=8765
 SCREENSHOTS_DIR="/tmp/e2e-screenshots"
+TMUX_SOCKET="/tmp/claudespy-e2e.sock"
 SKIP_BUILD=false
 INTERACTIVE=false
 
@@ -39,6 +40,10 @@ while [[ $# -gt 0 ]]; do
             SCREENSHOTS_DIR="$2"
             shift 2
             ;;
+        --tmux-socket)
+            TMUX_SOCKET="$2"
+            shift 2
+            ;;
         --interactive|-i)
             INTERACTIVE=true
             shift
@@ -51,7 +56,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --sim-name NAME  iOS Simulator name (default: $SIM_NAME)"
             echo "  --port PORT      Server port (default: $SERVER_PORT)"
             echo "  --screenshots DIR Screenshot output dir (default: $SCREENSHOTS_DIR)"
-            echo "  --interactive, -i  Start everything paired, wait for Enter, then shut down"
+            echo "  --tmux-socket PATH Tmux socket path for isolation (default: $TMUX_SOCKET)"
+            echo "  --interactive, -i  Start all apps, wait for Enter, then shut down"
             echo "  -h, --help       Show this help"
             exit 0
             ;;
@@ -166,6 +172,7 @@ echo "macOS app:   $MACOS_APP"
 echo "iOS app:     $IOS_APP"
 echo "Simulator:   $SIM_NAME"
 echo "Server port: $SERVER_PORT"
+echo "Tmux socket: $TMUX_SOCKET"
 echo "Screenshots: $SCREENSHOTS_DIR"
 echo ""
 
@@ -175,6 +182,7 @@ E2E_ARGS=(
     --sim-name "$SIM_NAME"
     --server-port "$SERVER_PORT"
     --screenshots-dir "$SCREENSHOTS_DIR"
+    --tmux-socket "$TMUX_SOCKET"
 )
 
 if [ "$INTERACTIVE" = true ]; then

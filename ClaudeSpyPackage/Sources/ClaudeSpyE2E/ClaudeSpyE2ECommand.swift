@@ -21,13 +21,16 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     @Option(name: .long, help: "Port for test server")
     var serverPort = 8_765
 
-    @Option(name: .long, help: "Run specific scenario by name")
+    @Option(name: .long, help: "Run specific scenario by name (in interactive mode, runs it before waiting)")
     var scenario: String?
 
     @Option(name: .long, help: "Directory for screenshots")
     var screenshotsDir = "/tmp/e2e-screenshots"
 
-    @Flag(name: .long, help: "Start server and apps with pairing, then wait for Enter before shutting down")
+    @Option(name: .long, help: "Tmux socket path for isolation")
+    var tmuxSocket: String?
+
+    @Flag(name: .long, help: "Start server and apps, then wait for Enter before shutting down")
     var interactive = false
 
     func run() async throws {
@@ -38,6 +41,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         print("Simulator:   \(simName)")
         print("Server port: \(serverPort)")
         print("Screenshots: \(screenshotsDir)")
+        print("Tmux socket: \(tmuxSocket ?? "(default)")")
         print()
 
         let orchestrator = TestOrchestrator(
@@ -45,7 +49,8 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             macOSAppPath: macosAppPath,
             simulatorName: simName,
             serverPort: serverPort,
-            screenshotsDir: screenshotsDir
+            screenshotsDir: screenshotsDir,
+            tmuxSocket: tmuxSocket
         )
 
         if interactive {
@@ -56,10 +61,22 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     }
 
     private func runInteractive(orchestrator: TestOrchestrator) async throws {
-        print("Interactive mode: setting up pairing...")
+        let setupScenario: TestScenario
+        if let scenarioName = scenario {
+            guard let found = Self.allScenarios.first(where: { $0.name == scenarioName }) else {
+                print("ERROR: No scenario named '\(scenarioName)'")
+                print("Available: \(Self.allScenarios.map(\.name).joined(separator: ", "))")
+                throw ExitCode.failure
+            }
+            print("Interactive mode: running '\(scenarioName)' then waiting...")
+            setupScenario = found
+        } else {
+            print("Interactive mode: launching all apps...")
+            setupScenario = LaunchAllScenario.scenario
+        }
         print()
 
-        let result = await orchestrator.run(FreshPairingScenario.scenario)
+        let result = await orchestrator.run(setupScenario)
 
         guard result.success else {
             print("Setup failed at step \(result.failedStep ?? 0): \(result.error ?? "Unknown")")
@@ -69,7 +86,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
 
         print()
         print("==========================================")
-        print("  Everything is running and paired!")
+        print("  Everything is running!")
         print("  Server:  http://127.0.0.1:\(serverPort)")
         print("  Press Enter to shut down...")
         print("==========================================")
@@ -82,23 +99,23 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         print("Done.")
     }
 
-    private func runTests(orchestrator: TestOrchestrator) async throws {
-        // Collect available scenarios
-        let allScenarios: [TestScenario] = [
-            NewTerminalScenario.scenario,
-        ]
+    private static let allScenarios: [TestScenario] = [
+        FreshPairingScenario.scenario,
+        NewTerminalScenario.scenario,
+    ]
 
+    private func runTests(orchestrator: TestOrchestrator) async throws {
         // Filter if a specific scenario is requested
         let scenariosToRun: [TestScenario]
         if let scenarioName = scenario {
-            scenariosToRun = allScenarios.filter { $0.name == scenarioName }
+            scenariosToRun = Self.allScenarios.filter { $0.name == scenarioName }
             if scenariosToRun.isEmpty {
                 print("ERROR: No scenario named '\(scenarioName)'")
-                print("Available: \(allScenarios.map(\.name).joined(separator: ", "))")
+                print("Available: \(Self.allScenarios.map(\.name).joined(separator: ", "))")
                 throw ExitCode.failure
             }
         } else {
-            scenariosToRun = allScenarios
+            scenariosToRun = Self.allScenarios
         }
 
         print("Running \(scenariosToRun.count) scenario(s)...")

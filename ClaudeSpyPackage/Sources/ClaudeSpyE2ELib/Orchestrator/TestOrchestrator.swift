@@ -14,6 +14,7 @@ public actor TestOrchestrator {
     private let simulatorName: String
     private let serverPort: Int
     private let screenshotsDir: String
+    private let tmuxSocket: String?
 
     /// Result of running a scenario
     public struct ScenarioResult: Sendable {
@@ -29,13 +30,15 @@ public actor TestOrchestrator {
         macOSAppPath: String,
         simulatorName: String = "iPhone 16",
         serverPort: Int = 8_765,
-        screenshotsDir: String = "/tmp/e2e-screenshots"
+        screenshotsDir: String = "/tmp/e2e-screenshots",
+        tmuxSocket: String? = nil
     ) {
         self.iosAppPath = iosAppPath
         self.macOSAppPath = macOSAppPath
         self.simulatorName = simulatorName
         self.serverPort = serverPort
         self.screenshotsDir = screenshotsDir
+        self.tmuxSocket = tmuxSocket
     }
 
     // MARK: - Run Scenarios
@@ -100,6 +103,14 @@ public actor TestOrchestrator {
         try? await simulatorDriver.terminateApp()
         try? await macOSDriver.terminateApp()
         try? await serverDriver.stop()
+
+        // Kill the isolated tmux server so the socket file is cleaned up
+        if let tmuxSocket {
+            logger.info("Killing isolated tmux server at \(tmuxSocket)")
+            let runner = ProcessRunner()
+            _ = try? await runner.run("tmux", arguments: ["-S", tmuxSocket, "kill-server"])
+        }
+
         logger.info("=== Cleanup complete ===")
     }
 

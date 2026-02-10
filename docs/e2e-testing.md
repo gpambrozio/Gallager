@@ -37,6 +37,10 @@ ClaudeSpyPackage/Sources/
 
 Both apps accept `--e2e-test` as a launch argument. When present, `prepareDependencies` (swift-dependencies) overrides `PreferencesService` and `SecretsService` with in-memory implementations. This prevents E2E tests from writing to real UserDefaults or Keychain.
 
+### Tmux socket isolation
+
+The macOS app accepts `--tmux-socket <path>` (alongside `--e2e-test`) to use a dedicated tmux server socket instead of the system default. This prevents E2E tests from polluting the developer's real tmux sessions. The default socket path is `/tmp/claudespy-e2e.sock`. During cleanup, the orchestrator kills the isolated tmux server and removes the socket file.
+
 ### Variable interpolation
 
 Steps can pass data between each other via `ExecutionContext`. Use `macReadClipboard(storeAs: "key")` or `storeValue(key:value:)` to store, and `"${key}"` in any string argument to reference it. The orchestrator resolves variables before passing to drivers.
@@ -57,6 +61,15 @@ Steps can pass data between each other via `ExecutionContext`. Use `macReadClipb
 
 # Other options
 ./scripts/e2e-test.sh --port 9000 --screenshots /path/to/dir
+
+# Interactive mode: launch all apps and wait (no pairing)
+./scripts/e2e-test.sh --skip-build --interactive
+
+# Interactive mode: run a scenario then wait
+./scripts/e2e-test.sh --skip-build --interactive --scenario "Fresh Pairing"
+
+# Custom tmux socket path
+./scripts/e2e-test.sh --tmux-socket /tmp/my-test.sock
 ```
 
 ### Running manually
@@ -69,7 +82,8 @@ ClaudeSpyE2E \
     --macos-app-path /path/to/ClaudeSpyServer.app \
     --sim-name "iPhone 17 Pro" \
     --server-port 8765 \
-    --screenshots-dir /tmp/e2e-screenshots
+    --screenshots-dir /tmp/e2e-screenshots \
+    --tmux-socket /tmp/claudespy-e2e.sock
 ```
 
 ### Running a specific scenario
@@ -142,7 +156,7 @@ Scenarios should **not** include cleanup steps (terminate apps, stop server) —
 Add it to the `allScenarios` array in `ClaudeSpyE2ECommand.swift`:
 
 ```swift
-let allScenarios: [TestScenario] = [
+private static let allScenarios: [TestScenario] = [
     FreshPairingScenario.scenario,
     NewTerminalScenario.scenario,
     MyScenario.scenario,  // add here

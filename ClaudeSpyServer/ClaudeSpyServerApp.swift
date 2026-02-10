@@ -31,6 +31,13 @@ struct TmuxPaneMirrorApp: App {
                 prefs.setString(CommandLine.arguments[idx + 1], AppSettings.Keys.externalServerURL.rawValue)
             }
 
+            // E2E test support: override tmux socket for isolation
+            if let idx = CommandLine.arguments.firstIndex(of: "--tmux-socket"),
+               idx + 1 < CommandLine.arguments.count
+            {
+                prefs.setString(CommandLine.arguments[idx + 1], AppSettings.Keys.tmuxSocket.rawValue)
+            }
+
             prepareDependencies {
                 $0[PreferencesService.self] = prefs
                 $0[SecretsService.self] = .inMemory()
