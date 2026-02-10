@@ -85,8 +85,7 @@ struct TmuxPaneMirrorApp: App {
                         .environment(coordinator.settings)
                 }
         }
-        // TODO: Remove - temporary auto-open for development
-        .defaultLaunchBehavior(.presented)
+        .defaultLaunchBehavior(.suppressed)
         .commands {
             // App menu - Check for Updates
             CommandGroup(after: .appInfo) {
