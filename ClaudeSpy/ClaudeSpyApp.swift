@@ -16,17 +16,19 @@ struct ClaudeSpyApp: App {
 
         // E2E test support: use in-memory storage to avoid polluting real UserDefaults/Keychain
         if CommandLine.arguments.contains("--e2e-test") {
+            let prefs = PreferencesService.inMemory()
+
+            // E2E test support: override server URL via launch argument
+            if let idx = CommandLine.arguments.firstIndex(of: "--server-url"),
+               idx + 1 < CommandLine.arguments.count
+            {
+                prefs.setString(CommandLine.arguments[idx + 1], IOSSettings.Keys.externalServerURL.rawValue)
+            }
+
             prepareDependencies {
-                $0[PreferencesService.self] = .inMemory()
+                $0[PreferencesService.self] = prefs
                 $0[SecretsService.self] = .inMemory()
             }
-        }
-
-        // E2E test support: override server URL via launch argument
-        if let idx = CommandLine.arguments.firstIndex(of: "--server-url"),
-           idx + 1 < CommandLine.arguments.count
-        {
-            IOSSettings.shared.externalServerURL = CommandLine.arguments[idx + 1]
         }
     }
 

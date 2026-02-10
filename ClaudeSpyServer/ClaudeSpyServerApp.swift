@@ -19,9 +19,17 @@ struct TmuxPaneMirrorApp: App {
         // E2E test support: use in-memory storage to avoid polluting real UserDefaults/Keychain
         if CommandLine.arguments.contains("--e2e-test") {
             let prefs = PreferencesService.inMemory()
+
             // Suppress first-launch dialogs (plugin setup, launch-at-login prompt)
             prefs.setBool(true, AppSettings.Keys.hasCompletedPluginSetup.rawValue)
             prefs.setBool(true, AppSettings.Keys.hasAskedAboutLaunchAtLogin.rawValue)
+
+            // E2E test support: override server URL via launch argument
+            if let idx = CommandLine.arguments.firstIndex(of: "--server-url"),
+               idx + 1 < CommandLine.arguments.count
+            {
+                prefs.setString(CommandLine.arguments[idx + 1], AppSettings.Keys.externalServerURL.rawValue)
+            }
 
             prepareDependencies {
                 $0[PreferencesService.self] = prefs
@@ -29,17 +37,7 @@ struct TmuxPaneMirrorApp: App {
             }
         }
 
-        // Now create coordinator (which creates loggers internally)
-        let coord = AppCoordinator()
-
-        // E2E test support: override server URL via launch argument
-        if let idx = CommandLine.arguments.firstIndex(of: "--server-url"),
-           idx + 1 < CommandLine.arguments.count
-        {
-            coord.settings.externalServerURL = CommandLine.arguments[idx + 1]
-        }
-
-        _coordinator = State(initialValue: coord)
+        _coordinator = State(initialValue: AppCoordinator())
     }
 
     var body: some Scene {
