@@ -27,6 +27,9 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     @Option(name: .long, help: "Directory for screenshots")
     var screenshotsDir = "/tmp/e2e-screenshots"
 
+    @Flag(name: .long, help: "Start server and apps with pairing, then wait for Enter before shutting down")
+    var interactive = false
+
     func run() async throws {
         print("ClaudeSpy E2E Test Coordinator")
         print("==============================")
@@ -45,6 +48,41 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             screenshotsDir: screenshotsDir
         )
 
+        if interactive {
+            try await runInteractive(orchestrator: orchestrator)
+        } else {
+            try await runTests(orchestrator: orchestrator)
+        }
+    }
+
+    private func runInteractive(orchestrator: TestOrchestrator) async throws {
+        print("Interactive mode: setting up pairing...")
+        print()
+
+        let result = await orchestrator.run(FreshPairingScenario.scenario)
+
+        guard result.success else {
+            print("Setup failed at step \(result.failedStep ?? 0): \(result.error ?? "Unknown")")
+            await orchestrator.cleanup()
+            throw ExitCode.failure
+        }
+
+        print()
+        print("==========================================")
+        print("  Everything is running and paired!")
+        print("  Server:  http://127.0.0.1:\(serverPort)")
+        print("  Press Enter to shut down...")
+        print("==========================================")
+        print()
+
+        _ = readLine()
+
+        print("Shutting down...")
+        await orchestrator.cleanup()
+        print("Done.")
+    }
+
+    private func runTests(orchestrator: TestOrchestrator) async throws {
         // Collect available scenarios
         let allScenarios: [TestScenario] = [
             NewTerminalScenario.scenario,

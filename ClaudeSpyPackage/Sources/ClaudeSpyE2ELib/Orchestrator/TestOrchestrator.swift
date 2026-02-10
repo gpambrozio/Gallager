@@ -95,7 +95,7 @@ public actor TestOrchestrator {
     }
 
     /// Tear down all running processes regardless of scenario outcome
-    private func cleanup() async {
+    public func cleanup() async {
         logger.info("=== Cleaning up ===")
         try? await simulatorDriver.terminateApp()
         try? await macOSDriver.terminateApp()

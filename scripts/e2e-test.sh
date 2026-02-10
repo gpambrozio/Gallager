@@ -16,6 +16,7 @@ SIM_NAME="iPhone 17 Pro"
 SERVER_PORT=8765
 SCREENSHOTS_DIR="/tmp/e2e-screenshots"
 SKIP_BUILD=false
+INTERACTIVE=false
 
 # =====================================================
 # PARSE ARGUMENTS
@@ -38,6 +39,10 @@ while [[ $# -gt 0 ]]; do
             SCREENSHOTS_DIR="$2"
             shift 2
             ;;
+        --interactive|-i)
+            INTERACTIVE=true
+            shift
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -46,6 +51,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --sim-name NAME  iOS Simulator name (default: $SIM_NAME)"
             echo "  --port PORT      Server port (default: $SERVER_PORT)"
             echo "  --screenshots DIR Screenshot output dir (default: $SCREENSHOTS_DIR)"
+            echo "  --interactive, -i  Start everything paired, wait for Enter, then shut down"
             echo "  -h, --help       Show this help"
             exit 0
             ;;
@@ -150,7 +156,11 @@ fi
 # =====================================================
 # RUN E2E TEST
 # =====================================================
-step "Running E2E test"
+if [ "$INTERACTIVE" = true ]; then
+    step "Starting interactive mode"
+else
+    step "Running E2E test"
+fi
 
 echo "macOS app:   $MACOS_APP"
 echo "iOS app:     $IOS_APP"
@@ -159,9 +169,16 @@ echo "Server port: $SERVER_PORT"
 echo "Screenshots: $SCREENSHOTS_DIR"
 echo ""
 
-"$E2E_BIN" \
-    --ios-app-path "$IOS_APP" \
-    --macos-app-path "$MACOS_APP" \
-    --sim-name "$SIM_NAME" \
-    --server-port "$SERVER_PORT" \
+E2E_ARGS=(
+    --ios-app-path "$IOS_APP"
+    --macos-app-path "$MACOS_APP"
+    --sim-name "$SIM_NAME"
+    --server-port "$SERVER_PORT"
     --screenshots-dir "$SCREENSHOTS_DIR"
+)
+
+if [ "$INTERACTIVE" = true ]; then
+    E2E_ARGS+=(--interactive)
+fi
+
+"$E2E_BIN" "${E2E_ARGS[@]}"
