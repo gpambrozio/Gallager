@@ -44,7 +44,8 @@ enum SimulatorAccessibility {
     ) -> AXUIElement? {
         guard depth < maxDepth else { return nil }
 
-        if getSubrole(of: element) == "AXiOSContentGroup" {
+        let subrole = getSubrole(of: element) ?? ""
+        if subrole == "iOSContentGroup" || subrole == "AXiOSContentGroup" {
             return element
         }
 
