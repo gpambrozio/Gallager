@@ -158,6 +158,7 @@ let allScenarios: [TestScenario] = [
 | `startServer(port:)` | Start the in-process Vapor relay server |
 | `verifyServerHealth` | Wait for the server health endpoint to respond |
 | `verifyServerHasPairings(count:)` | Assert the number of active pairings |
+| `waitForHostConnected(timeout:)` | Wait for the macOS host to connect via WebSocket |
 | `stopServer` | Stop the server and clean up `pairs.json` |
 
 ### iOS Simulator

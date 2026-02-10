@@ -103,6 +103,12 @@ public actor ServerDriver {
         return await app.activePairingCount
     }
 
+    /// Check if any host is connected via WebSocket
+    public func isAnyHostConnected() async -> Bool {
+        guard let app else { return false }
+        return await app.isAnyHostConnected
+    }
+
     /// Reset all server state
     public func resetState() async {
         guard let app else { return }

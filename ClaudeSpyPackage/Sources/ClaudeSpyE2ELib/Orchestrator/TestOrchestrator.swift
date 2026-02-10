@@ -122,6 +122,15 @@ public actor TestOrchestrator {
                 )
             }
 
+        case let .waitForHostConnected(timeout):
+            try await Polling.waitUntil(
+                description: "host connected to relay server",
+                timeout: timeout,
+                pollInterval: 1
+            ) {
+                await self.serverDriver.isAnyHostConnected()
+            }
+
         case .stopServer:
             try await serverDriver.stop()
 
@@ -166,7 +175,7 @@ public actor TestOrchestrator {
             try await macOSDriver.launchApp(path: macOSAppPath, arguments: resolvedArgs)
 
         case .terminateMacApp:
-            try await macOSDriver.terminateApp()
+            try? await macOSDriver.terminateApp()
 
         case .macOpenSettings:
             try await macOSDriver.openSettings()

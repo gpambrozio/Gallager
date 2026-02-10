@@ -23,6 +23,8 @@ public enum TestStep: Sendable {
     case verifyServerHealth
     /// Verify the number of active pairings
     case verifyServerHasPairings(count: Int)
+    /// Wait for the macOS host to connect to the server via WebSocket
+    case waitForHostConnected(timeout: TimeInterval = 15)
     /// Stop the server
     case stopServer
 

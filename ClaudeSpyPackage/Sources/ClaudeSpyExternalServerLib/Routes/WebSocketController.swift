@@ -24,36 +24,21 @@ struct WebSocketController: RouteCollection {
             return
         }
 
-        // Validate pair exists
         let pairingService = req.application.pairingService
-        guard await pairingService.isValidPair(pairId: pairId) else {
-            req.logger.warning("WebSocket connection rejected: invalid pairId \(pairId)")
-            let errorMessage = WebSocketMessage.error(.invalidPair())
-            if let data = try? JSONEncoder().encode(errorMessage) {
-                try? await ws.send(raw: data, opcode: .text)
-            }
-            try? await ws.close(code: .policyViolation)
-            return
-        }
-
         let connectionHub = req.application.connectionHub
         let relayService = req.application.relayService
 
-        // Register connection
-        let connection = Connection(
-            pairId: pairId,
-            deviceType: deviceType,
-            deviceId: deviceId,
-            webSocket: ws
-        )
-
-        await connectionHub.register(connection)
-        req.logger.info("WebSocket connected: \(deviceType) for pair \(pairId)")
-
-        // Notify the other device
-        await relayService.notifyConnection(pairId: pairId, deviceType: deviceType, connected: true)
-
-        // Handle incoming messages
+        // CRITICAL: Set up message handlers BEFORE any `await` suspension point.
+        //
+        // On localhost (E2E tests), the client sends its registration message almost
+        // instantly after the WebSocket upgrade completes. Every `await` creates a
+        // suspension point where NIO can deliver the client's frame. If the handler
+        // isn't registered yet, the frame is silently dropped.
+        //
+        // The message handler calls into relayService (an actor), which eventually calls
+        // connectionHub.send() to reply. Since connectionHub.register() runs in the main
+        // task below, and the handler goes through multiple actor hops before reaching
+        // connectionHub.send(), the registration completes first in practice.
         ws.onText { _, text in
             let data = Data(text.utf8)
             await handleIncomingMessage(
@@ -76,7 +61,6 @@ struct WebSocketController: RouteCollection {
             )
         }
 
-        // Handle disconnect
         ws.onClose.whenComplete { _ in
             Task {
                 await connectionHub.unregister(pairId: pairId, deviceType: deviceType)
@@ -84,6 +68,31 @@ struct WebSocketController: RouteCollection {
                 req.logger.info("WebSocket disconnected: \(deviceType) for pair \(pairId)")
             }
         }
+
+        // Now validate (first await — handlers are already set, so no messages are lost)
+        guard await pairingService.isValidPair(pairId: pairId) else {
+            req.logger.warning("WebSocket connection rejected: invalid pairId \(pairId)")
+            let errorMessage = WebSocketMessage.error(.invalidPair())
+            if let data = try? JSONEncoder().encode(errorMessage) {
+                try? await ws.send(raw: data, opcode: .text)
+            }
+            try? await ws.close(code: .policyViolation)
+            return
+        }
+
+        // Register connection
+        let connection = Connection(
+            pairId: pairId,
+            deviceType: deviceType,
+            deviceId: deviceId,
+            webSocket: ws
+        )
+
+        await connectionHub.register(connection)
+        req.logger.info("WebSocket connected: \(deviceType) for pair \(pairId)")
+
+        // Notify the other device
+        await relayService.notifyConnection(pairId: pairId, deviceType: deviceType, connected: true)
     }
 }
 

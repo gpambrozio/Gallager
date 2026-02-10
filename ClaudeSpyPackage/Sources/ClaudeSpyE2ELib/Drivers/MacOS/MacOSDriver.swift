@@ -22,6 +22,7 @@ public actor MacOSDriver {
         let url = URL(fileURLWithPath: path)
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.arguments = arguments
+        configuration.environment = ["LOG_LEVEL": "debug"]
 
         try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
 

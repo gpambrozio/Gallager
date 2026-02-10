@@ -109,4 +109,15 @@ public extension Application {
     func resetPairingState() async {
         await pairingService.resetState()
     }
+
+    /// Check if a host is connected via WebSocket for any active pair
+    var isAnyHostConnected: Bool {
+        get async {
+            let pairs = await pairingService.activePairIds
+            for pairId in pairs where await connectionHub.isHostConnected(pairId: pairId) {
+                return true
+            }
+            return false
+        }
+    }
 }

@@ -6,8 +6,9 @@ public enum FreshPairingScenario {
         "Fresh Pairing",
         tags: ["pairing", "smoke"]
     ) {
-        // 1. Uninstall previous app to ensure fresh state
+        // 1. Clean up any previous state
         TestStep.uninstallIOSApp
+        TestStep.terminateMacApp
 
         // 2. Start server on localhost
         TestStep.startServer(port: 8_765)
@@ -18,7 +19,7 @@ public enum FreshPairingScenario {
         TestStep.iosWaitForElement(.labelContains("pairing code"), timeout: 15)
         TestStep.iosScreenshot(label: "01-ios-pairing-view")
 
-        // 4. Launch macOS app
+        // 4. Launch macOS app (must be fresh launch for --e2e-test args to take effect)
         TestStep.launchMacApp(arguments: ["--e2e-test", "--server-url", "ws://127.0.0.1:8765"])
         TestStep.wait(seconds: 3)
 
@@ -45,5 +46,8 @@ public enum FreshPairingScenario {
 
         // 8. Verify server state
         TestStep.verifyServerHasPairings(count: 1)
+
+        // 9. Wait for macOS host to establish WebSocket connection to relay
+        TestStep.waitForHostConnected(timeout: 15)
     }
 }

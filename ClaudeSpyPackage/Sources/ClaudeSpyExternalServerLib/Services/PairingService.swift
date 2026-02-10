@@ -162,6 +162,11 @@ actor PairingService {
         activePairs.count
     }
 
+    /// IDs of all active pairs (for E2E test inspection)
+    var activePairIds: [String] {
+        Array(activePairs.keys)
+    }
+
     /// Get pair information
     func getPair(pairId: String) -> Pair? {
         activePairs[pairId]

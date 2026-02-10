@@ -108,6 +108,9 @@ final public class ViewerRelayClient {
     /// Task for delayed reconnection (exponential backoff)
     private var reconnectionTask: Task<Void, Never>?
 
+    /// Task for retrying registration (handles server-side race condition)
+    private var registrationRetryTask: Task<Void, Never>?
+
     // MARK: - E2EE Properties
 
     /// E2EE service for encrypting/decrypting messages
@@ -146,6 +149,11 @@ final public class ViewerRelayClient {
     // MARK: - Initialization
 
     public init() { }
+
+    private func setState(_ newState: ConnectionState) {
+        state = newState
+        logger.info("Connection state: \(newState)")
+    }
 
     // MARK: - Connection Management
 
@@ -194,7 +202,7 @@ final public class ViewerRelayClient {
             guard let keyData = Data(base64Encoded: partnerKey) else {
                 let errorMessage = "Failed to decode partner public key - encryption setup failed"
                 logger.error("\(errorMessage)")
-                state = .error(errorMessage)
+                setState(.error(errorMessage))
                 return
             }
             do {
@@ -207,7 +215,7 @@ final public class ViewerRelayClient {
             } catch {
                 let errorMessage = "Failed to establish E2EE session: \(error.localizedDescription)"
                 logger.error("\(errorMessage)")
-                state = .error(errorMessage)
+                setState(.error(errorMessage))
                 return
             }
         }
@@ -219,7 +227,7 @@ final public class ViewerRelayClient {
     public func disconnect() async {
         shouldReconnect = false
         await cleanupConnection()
-        state = .disconnected
+        setState(.disconnected)
     }
 
     /// Reset reconnection backoff and immediately attempt to reconnect.
@@ -324,11 +332,11 @@ final public class ViewerRelayClient {
             let publicKey, let publicKeyId
         else {
             logger.error("Missing connection parameters")
-            state = .error("Missing connection parameters")
+            setState(.error("Missing connection parameters"))
             return
         }
 
-        state = .connecting
+        setState(.connecting)
 
         // Build WebSocket URL with query parameters
         var components = URLComponents(url: serverURL, resolvingAgainstBaseURL: false)
@@ -351,7 +359,7 @@ final public class ViewerRelayClient {
 
         guard let wsURL = components?.url else {
             logger.error("Failed to build WebSocket URL")
-            state = .error("Invalid server URL")
+            setState(.error("Invalid server URL"))
             return
         }
 
@@ -380,6 +388,26 @@ final public class ViewerRelayClient {
         )
         await send(registerMessage)
 
+        // Transition to connected immediately. The server's viewerRegistered
+        // response may be lost due to a race condition in Vapor's WebSocket
+        // upgrade: the onUpgrade Task may not have set up onText handlers
+        // before the client's registration frame arrives, causing it to be
+        // silently consumed by the default no-op handler. We retry below
+        // to handle this.
+        setState(.connected)
+
+        // Retry registration after a delay to handle server-side race condition.
+        // Vapor calls onUpgrade from a Swift Concurrency Task, not directly on
+        // the NIO event loop. On localhost, the client's registration frame can
+        // arrive before that Task runs and sets up the onText handler. The server
+        // handles duplicate registrations idempotently.
+        registrationRetryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            self?.logger.debug("Retrying registration (race condition mitigation)")
+            await self?.send(registerMessage)
+        }
+
         pingTask = Task { [weak self] in
             await self?.pingLoop()
         }
@@ -387,7 +415,9 @@ final public class ViewerRelayClient {
 
     private func receiveMessages() async {
         while !Task.isCancelled {
-            guard let task = webSocketTask else { break }
+            guard let task = webSocketTask else {
+                break
+            }
 
             do {
                 let message = try await task.receive()
@@ -434,7 +464,6 @@ final public class ViewerRelayClient {
             }
             do {
                 decryptedMessage = try await message.decrypt(using: e2eeService)
-                logger.trace("Decrypted message: \(decryptedMessage.messageType)")
             } catch {
                 logger.error("Failed to decrypt message: \(error)")
                 return
@@ -447,7 +476,7 @@ final public class ViewerRelayClient {
         case let .viewerRegistered(response):
             if response.success {
                 logger.info("Successfully registered with relay server as viewer")
-                state = .connected
+                setState(.connected)
                 connectedHostName = response.hostDeviceName
                 isHostConnected = response.hostDeviceName != nil
 
@@ -482,7 +511,7 @@ final public class ViewerRelayClient {
                 }
             } else {
                 logger.error("Registration failed: \(response.error ?? "Unknown error")")
-                state = .error(response.error ?? "Registration failed")
+                setState(.error(response.error ?? "Registration failed"))
                 await disconnect()
             }
 
@@ -561,7 +590,7 @@ final public class ViewerRelayClient {
         case let .error(errorMessage):
             logger.error("Server error: \(errorMessage.message)")
             if !errorMessage.recoverable {
-                state = .error(errorMessage.message)
+                setState(.error(errorMessage.message))
                 await disconnect()
             }
 
@@ -620,7 +649,7 @@ final public class ViewerRelayClient {
         if shouldReconnect, reconnectionAttempt < maxReconnectionAttempts {
             reconnectionAttempt += 1
             let currentAttempt = reconnectionAttempt
-            state = .reconnecting(attempt: currentAttempt)
+            setState(.reconnecting(attempt: currentAttempt))
 
             let delay = min(60, Int(pow(2, Double(currentAttempt - 1))))
             logger.info("Reconnecting in \(delay) seconds (attempt \(currentAttempt))")
@@ -638,7 +667,7 @@ final public class ViewerRelayClient {
             }
         } else if shouldReconnect {
             logger.error("Max reconnection attempts reached")
-            state = .error("Connection lost after \(maxReconnectionAttempts) attempts")
+            setState(.error("Connection lost after \(maxReconnectionAttempts) attempts"))
         }
     }
 
@@ -651,6 +680,9 @@ final public class ViewerRelayClient {
 
         reconnectionTask?.cancel()
         reconnectionTask = nil
+
+        registrationRetryTask?.cancel()
+        registrationRetryTask = nil
 
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
