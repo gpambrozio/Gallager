@@ -12,7 +12,6 @@ public actor TestOrchestrator {
     private let iosAppPath: String
     private let macOSAppPath: String
     private let simulatorName: String
-    private let serverPort: Int
     private let screenshotsDir: String
     private let tmuxSocket: String?
 
@@ -25,18 +24,19 @@ public actor TestOrchestrator {
         public let duration: TimeInterval
     }
 
+    /// - Note: The server port is controlled per-scenario via `TestStep.startServer(port:)`,
+    ///   not as an orchestrator-level configuration. The tmux socket path is injected into
+    ///   the execution context as `${tmuxSocket}` for scenarios to reference.
     public init(
         iosAppPath: String,
         macOSAppPath: String,
         simulatorName: String = "iPhone 16",
-        serverPort: Int = 8_765,
         screenshotsDir: String = "/tmp/e2e-screenshots",
         tmuxSocket: String? = nil
     ) {
         self.iosAppPath = iosAppPath
         self.macOSAppPath = macOSAppPath
         self.simulatorName = simulatorName
-        self.serverPort = serverPort
         self.screenshotsDir = screenshotsDir
         self.tmuxSocket = tmuxSocket
     }
@@ -55,6 +55,9 @@ public actor TestOrchestrator {
         )
 
         context.clear()
+
+        // Pre-populate context with orchestrator configuration
+        context.set("tmuxSocket", value: tmuxSocket ?? "/tmp/claudespy-e2e.sock")
 
         for (index, step) in scenario.steps.enumerated() {
             let stepNumber = index + 1

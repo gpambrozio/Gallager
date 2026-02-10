@@ -13,7 +13,6 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 WORKSPACE="$PROJECT_ROOT/ClaudeSpy.xcworkspace"
 DERIVED_DATA="$PROJECT_ROOT/build/e2e-derived-data"
 SIM_NAME="iPhone 17 Pro"
-SERVER_PORT=8765
 SCREENSHOTS_DIR="/tmp/e2e-screenshots"
 TMUX_SOCKET="/tmp/claudespy-e2e.sock"
 SKIP_BUILD=false
@@ -31,10 +30,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --sim-name)
             SIM_NAME="$2"
-            shift 2
-            ;;
-        --port)
-            SERVER_PORT="$2"
             shift 2
             ;;
         --screenshots)
@@ -59,7 +54,6 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --skip-build     Skip building, use previously built artifacts"
             echo "  --sim-name NAME  iOS Simulator name (default: $SIM_NAME)"
-            echo "  --port PORT      Server port (default: $SERVER_PORT)"
             echo "  --screenshots DIR Screenshot output dir (default: $SCREENSHOTS_DIR)"
             echo "  --tmux-socket PATH Tmux socket path for isolation (default: $TMUX_SOCKET)"
             echo "  --list-scenarios   List all available scenarios and exit"
@@ -190,7 +184,6 @@ fi
 echo "macOS app:   $MACOS_APP"
 echo "iOS app:     $IOS_APP"
 echo "Simulator:   $SIM_NAME"
-echo "Server port: $SERVER_PORT"
 echo "Tmux socket: $TMUX_SOCKET"
 echo "Screenshots: $SCREENSHOTS_DIR"
 echo ""
@@ -199,7 +192,6 @@ E2E_ARGS=(
     --ios-app-path "$IOS_APP"
     --macos-app-path "$MACOS_APP"
     --sim-name "$SIM_NAME"
-    --server-port "$SERVER_PORT"
     --screenshots-dir "$SCREENSHOTS_DIR"
     --tmux-socket "$TMUX_SOCKET"
 )

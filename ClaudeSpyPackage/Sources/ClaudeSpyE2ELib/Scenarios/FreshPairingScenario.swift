@@ -23,7 +23,7 @@ public enum FreshPairingScenario {
         TestStep.launchMacApp(arguments: [
             "--e2e-test",
             "--server-url", "ws://127.0.0.1:8765",
-            "--tmux-socket", "/tmp/claudespy-e2e.sock",
+            "--tmux-socket", "${tmuxSocket}",
         ])
         TestStep.wait(seconds: 3)
 

@@ -8,7 +8,7 @@ enum SimulatorInteraction {
     private static let processRunner = ProcessRunner()
 
     /// Tap at absolute screen coordinates using CGEvent
-    static func tap(at point: CGPoint) {
+    static func tap(at point: CGPoint) async throws {
         logger.info("Tapping at screen coordinates: (\(point.x), \(point.y))")
 
         let mouseDown = CGEvent(
@@ -26,7 +26,7 @@ enum SimulatorInteraction {
 
         mouseDown?.post(tap: .cghidEventTap)
         // Small delay between down and up for reliability
-        usleep(50_000) // 50ms
+        try await Task.sleep(for: .milliseconds(50))
         mouseUp?.post(tap: .cghidEventTap)
     }
 
@@ -63,7 +63,7 @@ enum SimulatorInteraction {
     }
 
     /// Perform a swipe gesture (using mouse drag)
-    static func swipe(from start: CGPoint, to end: CGPoint, duration: TimeInterval = 0.3) {
+    static func swipe(from start: CGPoint, to end: CGPoint, duration: TimeInterval = 0.3) async throws {
         logger.info("Swiping from (\(start.x), \(start.y)) to (\(end.x), \(end.y))")
 
         let steps = Int(duration / 0.016) // ~60fps
@@ -92,7 +92,7 @@ enum SimulatorInteraction {
                 mouseButton: .left
             )
             drag?.post(tap: .cghidEventTap)
-            usleep(16_000) // ~16ms
+            try await Task.sleep(for: .milliseconds(16))
         }
 
         // Mouse up at end

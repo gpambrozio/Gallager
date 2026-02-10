@@ -18,9 +18,6 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     @Option(name: .long, help: "Simulator device name")
     var simName = "iPhone 16"
 
-    @Option(name: .long, help: "Port for test server")
-    var serverPort = 8_765
-
     @Option(name: .long, help: "Run specific scenario by name (in interactive mode, runs it before waiting)")
     var scenario: String?
 
@@ -56,7 +53,6 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         print("iOS app:     \(iosAppPath)")
         print("macOS app:   \(macosAppPath)")
         print("Simulator:   \(simName)")
-        print("Server port: \(serverPort)")
         print("Screenshots: \(screenshotsDir)")
         print("Tmux socket: \(tmuxSocket ?? "(default)")")
         print()
@@ -65,7 +61,6 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             iosAppPath: iosAppPath,
             macOSAppPath: macosAppPath,
             simulatorName: simName,
-            serverPort: serverPort,
             screenshotsDir: screenshotsDir,
             tmuxSocket: tmuxSocket
         )
@@ -113,7 +108,6 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         print()
         print("==========================================")
         print("  Everything is running!")
-        print("  Server:  http://127.0.0.1:\(serverPort)")
         print("  Press Enter to shut down...")
         print("==========================================")
         print()

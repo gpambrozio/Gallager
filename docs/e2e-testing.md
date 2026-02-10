@@ -60,7 +60,7 @@ Steps can pass data between each other via `ExecutionContext`. Use `macReadClipb
 ./scripts/e2e-test.sh --sim-name "iPhone 16 Pro"
 
 # Other options
-./scripts/e2e-test.sh --port 9000 --screenshots /path/to/dir
+./scripts/e2e-test.sh --screenshots /path/to/dir
 
 # Interactive mode: launch all apps and wait (no pairing)
 ./scripts/e2e-test.sh --skip-build --interactive
@@ -81,7 +81,6 @@ ClaudeSpyE2E \
     --ios-app-path /path/to/ClaudeSpy.app \
     --macos-app-path /path/to/ClaudeSpyServer.app \
     --sim-name "iPhone 17 Pro" \
-    --server-port 8765 \
     --screenshots-dir /tmp/e2e-screenshots \
     --tmux-socket /tmp/claudespy-e2e.sock
 ```

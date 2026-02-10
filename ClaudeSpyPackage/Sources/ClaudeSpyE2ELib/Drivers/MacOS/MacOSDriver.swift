@@ -75,7 +75,7 @@ public actor MacOSDriver {
             tell process "\(appName)"
                 set windowTitles to title of every window
                 repeat with t in windowTitles
-                    if t contains "\(title)" then return true
+                    if t contains "\(escapeForAppleScript(title))" then return true
                 end repeat
                 return false
             end tell
@@ -91,7 +91,7 @@ public actor MacOSDriver {
         tell application "System Events"
             tell process "\(appName)"
                 tell toolbar 1 of window 1
-                    click button "\(tabName)"
+                    click button "\(escapeForAppleScript(tabName))"
                 end tell
             end tell
         end tell
@@ -135,7 +135,7 @@ public actor MacOSDriver {
             tell process "\(appName)"
                 set frontmost to true
                 delay 0.2
-                my findAndClickButton(window 1, "\(titled)")
+                my findAndClickButton(window 1, "\(escapeForAppleScript(titled))")
             end tell
         end tell
         """
@@ -182,6 +182,12 @@ public actor MacOSDriver {
             return windowNumber
         }
         return nil
+    }
+
+    /// Escapes a string for safe interpolation into AppleScript source code.
+    private func escapeForAppleScript(_ text: String) -> String {
+        text.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
     }
 
     @discardableResult

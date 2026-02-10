@@ -197,12 +197,12 @@ public actor SimulatorDriver {
     // MARK: - Interaction
 
     /// Tap on a UI element (AX frames are already in screen coordinates)
-    public func tap(element: UIElement) {
-        SimulatorInteraction.tap(at: element.center)
+    public func tap(element: UIElement) async throws {
+        try await SimulatorInteraction.tap(at: element.center)
     }
 
     /// Tap at raw iOS coordinates
-    public func tap(x: CGFloat, y: CGFloat) throws {
+    public func tap(x: CGFloat, y: CGFloat) async throws {
         guard let contentOrigin = cachedContentOrigin else {
             throw SimulatorDriverError.noContentGroup
         }
@@ -211,7 +211,7 @@ public actor SimulatorDriver {
             point: CGPoint(x: x, y: y),
             contentOrigin: contentOrigin
         )
-        SimulatorInteraction.tap(at: screenPoint)
+        try await SimulatorInteraction.tap(at: screenPoint)
     }
 
     /// Type text (sends keystrokes to Simulator)

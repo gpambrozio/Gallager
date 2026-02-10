@@ -135,7 +135,11 @@ public actor ProcessRunner {
                 try await Task.sleep(for: .milliseconds(50))
             }
         } else {
-            process.waitUntilExit()
+            await withCheckedContinuation { continuation in
+                process.terminationHandler = { _ in
+                    continuation.resume()
+                }
+            }
         }
 
         // Give pipes a moment to flush
