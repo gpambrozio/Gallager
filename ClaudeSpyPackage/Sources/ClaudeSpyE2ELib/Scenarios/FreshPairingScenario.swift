@@ -21,7 +21,7 @@ public enum FreshPairingScenario {
 
         // 4. Generate pairing code on macOS
         TestStep.macOpenSettings
-        TestStep.macWaitForWindow(titled: "Settings", timeout: 5)
+        TestStep.macWaitForWindow(titled: "General", timeout: 5)
         TestStep.macSelectSettingsTab("Remote Access")
         TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "Generate Pairing Code")

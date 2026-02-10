@@ -18,8 +18,13 @@ struct TmuxPaneMirrorApp: App {
 
         // E2E test support: use in-memory storage to avoid polluting real UserDefaults/Keychain
         if CommandLine.arguments.contains("--e2e-test") {
+            let prefs = PreferencesService.inMemory()
+            // Suppress first-launch dialogs (plugin setup, launch-at-login prompt)
+            prefs.setBool(true, AppSettings.Keys.hasCompletedPluginSetup.rawValue)
+            prefs.setBool(true, AppSettings.Keys.hasAskedAboutLaunchAtLogin.rawValue)
+
             prepareDependencies {
-                $0[PreferencesService.self] = .inMemory()
+                $0[PreferencesService.self] = prefs
                 $0[SecretsService.self] = .inMemory()
             }
         }

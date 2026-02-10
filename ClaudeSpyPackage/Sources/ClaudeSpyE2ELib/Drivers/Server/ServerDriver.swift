@@ -20,7 +20,7 @@ public actor ServerDriver {
         logger.info("Starting test server on port \(port)")
 
         var env = Environment.testing
-        env.arguments = ["serve", "--port", "\(port)", "--hostname", "127.0.0.1"]
+        env.arguments = ["vapor", "serve", "--port", "\(port)", "--hostname", "127.0.0.1"]
 
         let app = try await Application.make(env)
 

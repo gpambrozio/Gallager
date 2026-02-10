@@ -33,14 +33,14 @@ public actor MacOSDriver {
     public func terminateApp() async throws {
         logger.info("Terminating macOS app")
         let script = "tell application \"\(appName)\" to quit"
-        try runAppleScript(script)
+        try await runAppleScript(script)
         try await Task.sleep(for: .seconds(1))
     }
 
     // MARK: - Settings Navigation
 
     /// Open the Settings window (Cmd+,)
-    public func openSettings() throws {
+    public func openSettings() async throws {
         logger.info("Opening Settings")
         let script = """
         tell application "\(appName)" to activate
@@ -50,7 +50,7 @@ public actor MacOSDriver {
         end tell
         delay 0.5
         """
-        try runAppleScript(script)
+        try await runAppleScript(script)
     }
 
     /// Wait for a window to appear
@@ -66,19 +66,25 @@ public actor MacOSDriver {
     }
 
     /// Check if a window with the given title exists (helper for polling)
-    private func checkWindowExists(appName: String, title: String) -> Bool {
+    private func checkWindowExists(appName: String, title: String) async -> Bool {
+        // Note: `whose title contains` fails with error -1728 in System Events,
+        // so we iterate manually instead.
         let script = """
         tell application "System Events"
             tell process "\(appName)"
-                return (count of windows whose title contains "\(title)") > 0
+                set windowTitles to title of every window
+                repeat with t in windowTitles
+                    if t contains "\(title)" then return true
+                end repeat
+                return false
             end tell
         end tell
         """
-        return (try? runAppleScriptReturning(script)) == "true"
+        return (try? await runAppleScriptReturning(script)) == "true"
     }
 
     /// Select a tab in the Settings window
-    public func selectSettingsTab(_ tabName: String) throws {
+    public func selectSettingsTab(_ tabName: String) async throws {
         logger.info("Selecting settings tab: \(tabName)")
         let script = """
         tell application "System Events"
@@ -90,53 +96,49 @@ public actor MacOSDriver {
         end tell
         delay 0.3
         """
-        try runAppleScript(script)
+        try await runAppleScript(script)
     }
 
-    /// Click a button by title (searches recursively)
-    public func clickButton(titled: String) throws {
+    /// Click a button by title or help text (searches recursively)
+    ///
+    /// Matches against both the button's `title` and `help` (AXHelp) attributes,
+    /// since SwiftUI buttons often lack a title but expose `.help()` as AXHelp.
+    public func clickButton(titled: String) async throws {
         logger.info("Clicking button: \(titled)")
         let script = """
+        on findAndClickButton(theElement, buttonLabel)
+            tell application "System Events"
+                repeat with btn in (buttons of theElement)
+                    try
+                        if (title of btn) is buttonLabel then
+                            click btn
+                            return true
+                        end if
+                    end try
+                    try
+                        if (help of btn) is buttonLabel then
+                            click btn
+                            return true
+                        end if
+                    end try
+                end repeat
+                repeat with child in (UI elements of theElement)
+                    set found to my findAndClickButton(child, buttonLabel)
+                    if found then return true
+                end repeat
+            end tell
+            return false
+        end findAndClickButton
+
         tell application "System Events"
             tell process "\(appName)"
                 set frontmost to true
                 delay 0.2
-                click button "\(titled)" of group 1 of group 1 of window 1
+                my findAndClickButton(window 1, "\(titled)")
             end tell
         end tell
         """
-
-        // Try direct path first, fall back to recursive search
-        do {
-            try runAppleScript(script)
-        } catch {
-            logger.info("Direct button path failed, trying recursive search")
-            let recursiveScript = """
-            on findAndClickButton(theElement, buttonTitle)
-                tell application "System Events"
-                    try
-                        click button buttonTitle of theElement
-                        return true
-                    end try
-                    set theElements to UI elements of theElement
-                    repeat with anElement in theElements
-                        set result to my findAndClickButton(anElement, buttonTitle)
-                        if result then return true
-                    end repeat
-                end tell
-                return false
-            end findAndClickButton
-
-            tell application "System Events"
-                tell process "\(appName)"
-                    set frontmost to true
-                    delay 0.2
-                    my findAndClickButton(window 1, "\(titled)")
-                end tell
-            end tell
-            """
-            try runAppleScript(recursiveScript)
-        }
+        try await runAppleScript(script)
     }
 
     // MARK: - Clipboard
@@ -151,33 +153,51 @@ public actor MacOSDriver {
     /// Take a screenshot of the macOS app window
     public func screenshot(output: String) async throws {
         logger.info("Taking macOS screenshot: \(output)")
+
+        guard let windowID = getWindowID() else {
+            throw MacOSDriverError.windowNotFound(appName)
+        }
+
         _ = try await processRunner.runOrThrow(
             "/usr/sbin/screencapture",
-            arguments: ["-l", getWindowID(), output]
+            arguments: ["-x", "-l", "\(windowID)", output]
         )
     }
 
     // MARK: - Private Helpers
 
-    private func getWindowID() -> String {
-        // Use a simple approach - capture the frontmost window
-        "0" // Will use screencapture without window ID (captures front window)
+    /// Finds the CGWindowID for the first on-screen window owned by our app.
+    private func getWindowID() -> CGWindowID? {
+        guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return nil
+        }
+
+        for window in windowList {
+            guard
+                let ownerName = window[kCGWindowOwnerName as String] as? String,
+                ownerName == appName,
+                let windowNumber = window[kCGWindowNumber as String] as? CGWindowID
+            else { continue }
+            return windowNumber
+        }
+        return nil
     }
 
     @discardableResult
-    private func runAppleScript(_ source: String) throws -> String {
-        try runAppleScriptReturning(source)
+    private func runAppleScript(_ source: String) async throws -> String {
+        try await runAppleScriptReturning(source)
     }
 
-    private func runAppleScriptReturning(_ source: String) throws -> String {
-        let script = NSAppleScript(source: source)
-        var error: NSDictionary?
-        let result = script?.executeAndReturnError(&error)
-        if let error {
-            let message = error[NSAppleScript.errorMessage] as? String ?? "Unknown AppleScript error"
+    private func runAppleScriptReturning(_ source: String) async throws -> String {
+        let result = try await processRunner.run(
+            "/usr/bin/osascript",
+            arguments: ["-e", source]
+        )
+        if !result.isSuccess {
+            let message = result.stderrString.isEmpty ? "Unknown osascript error" : result.stderrString
             throw MacOSDriverError.appleScriptFailed(message)
         }
-        return result?.stringValue ?? ""
+        return result.stdoutString
     }
 }
 

@@ -5,6 +5,7 @@ import Logging
 /// Low-level interaction with the iOS Simulator (tap, type, swipe)
 enum SimulatorInteraction {
     private static let logger = Logger(label: "e2e.sim-interaction")
+    private static let processRunner = ProcessRunner()
 
     /// Tap at absolute screen coordinates using CGEvent
     static func tap(at point: CGPoint) {
@@ -30,7 +31,7 @@ enum SimulatorInteraction {
     }
 
     /// Type text into the Simulator using AppleScript keystroke
-    static func type(text: String, slow: Bool = false) throws {
+    static func type(text: String, slow: Bool = false) async throws {
         logger.info("Typing text: \"\(text)\" (slow: \(slow))")
 
         // Activate Simulator first
@@ -38,7 +39,7 @@ enum SimulatorInteraction {
         tell application "Simulator" to activate
         delay 0.3
         """
-        try runAppleScript(activateScript)
+        try await runAppleScript(activateScript)
 
         if slow {
             // Type one character at a time with delay
@@ -49,7 +50,7 @@ enum SimulatorInteraction {
                 end tell
                 delay 0.1
                 """
-                try runAppleScript(charScript)
+                try await runAppleScript(charScript)
             }
         } else {
             let typeScript = """
@@ -57,7 +58,7 @@ enum SimulatorInteraction {
                 keystroke "\(escapeForAppleScript(text))"
             end tell
             """
-            try runAppleScript(typeScript)
+            try await runAppleScript(typeScript)
         }
     }
 
@@ -105,7 +106,7 @@ enum SimulatorInteraction {
     }
 
     /// Ensure Simulator is in Point Accurate mode (Cmd+2) for 1:1 coordinate mapping
-    static func ensurePointAccurateMode() throws {
+    static func ensurePointAccurateMode() async throws {
         let script = """
         tell application "Simulator" to activate
         delay 0.3
@@ -114,17 +115,18 @@ enum SimulatorInteraction {
         end tell
         delay 0.3
         """
-        try runAppleScript(script)
+        try await runAppleScript(script)
     }
 
     // MARK: - Private Helpers
 
-    static func runAppleScript(_ source: String) throws {
-        let script = NSAppleScript(source: source)
-        var error: NSDictionary?
-        script?.executeAndReturnError(&error)
-        if let error {
-            let message = error[NSAppleScript.errorMessage] as? String ?? "Unknown AppleScript error"
+    static func runAppleScript(_ source: String) async throws {
+        let result = try await processRunner.run(
+            "/usr/bin/osascript",
+            arguments: ["-e", source]
+        )
+        if !result.isSuccess {
+            let message = result.stderrString.isEmpty ? "Unknown osascript error" : result.stderrString
             logger.error("AppleScript error: \(message)")
             throw SimulatorDriverError.appleScriptFailed(message)
         }

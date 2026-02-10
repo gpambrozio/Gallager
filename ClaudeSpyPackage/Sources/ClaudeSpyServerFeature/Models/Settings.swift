@@ -4,6 +4,21 @@ import Dependencies
 import Foundation
 import SwiftUI
 
+// MARK: - PreferencesService + AppSettings.Keys
+
+extension PreferencesService {
+    func string(_ key: AppSettings.Keys) -> String? { string(key.rawValue) }
+    func setString(_ value: String?, _ key: AppSettings.Keys) { setString(value, key.rawValue) }
+    func optionalBool(_ key: AppSettings.Keys) -> Bool? { optionalBool(key.rawValue) }
+    func setBool(_ value: Bool, _ key: AppSettings.Keys) { setBool(value, key.rawValue) }
+    func optionalInt(_ key: AppSettings.Keys) -> Int? { optionalInt(key.rawValue) }
+    func setInt(_ value: Int, _ key: AppSettings.Keys) { setInt(value, key.rawValue) }
+    func optionalDouble(_ key: AppSettings.Keys) -> Double? { optionalDouble(key.rawValue) }
+    func setDouble(_ value: Double, _ key: AppSettings.Keys) { setDouble(value, key.rawValue) }
+    func data(_ key: AppSettings.Keys) -> Data? { data(key.rawValue) }
+    func setData(_ value: Data?, _ key: AppSettings.Keys) { setData(value, key.rawValue) }
+}
+
 /// Settings tab for programmatic navigation
 public enum SettingsTab: String, Sendable {
     case general
@@ -189,7 +204,7 @@ final public class AppSettings {
     }
 
     /// Unique device identifier for this host (generated on first launch)
-    public var deviceId: String = "" {
+    public var deviceId = "" {
         didSet { preferences.setString(deviceId, Keys.deviceId) }
     }
 
@@ -268,34 +283,34 @@ final public class AppSettings {
 
     // MARK: - Keys
 
-    private enum Keys {
-        static let fontName = "fontName"
-        static let fontSize = "fontSize"
-        static let scrollbackLines = "scrollbackLines"
-        static let theme = "theme"
-        static let restoreWindowsOnLaunch = "restoreWindowsOnLaunch"
-        static let showStatusBar = "showStatusBar"
-        static let autoReconnect = "autoReconnect"
-        static let autoOpenMirrorOnSession = "autoOpenMirrorOnSession"
-        static let preventSleepDuringSessions = "preventSleepDuringSessions"
-        static let reconnectDelay = "reconnectDelay"
-        static let tmuxPath = "tmuxPath"
-        static let tmuxSocket = "tmuxSocket"
-        static let autoRunClaudeInProjects = "autoRunClaudeInProjects"
-        static let claudeCommandPath = "claudeCommandPath"
-        static let terminalApp = "terminalApp"
-        static let customTerminalPath = "customTerminalPath"
+    public enum Keys: String {
+        case fontName
+        case fontSize
+        case scrollbackLines
+        case theme
+        case restoreWindowsOnLaunch
+        case showStatusBar
+        case autoReconnect
+        case autoOpenMirrorOnSession
+        case preventSleepDuringSessions
+        case reconnectDelay
+        case tmuxPath
+        case tmuxSocket
+        case autoRunClaudeInProjects
+        case claudeCommandPath
+        case terminalApp
+        case customTerminalPath
         // Remote Access
-        static let externalServerURL = "externalServerURL"
-        static let pairedViewers = "pairedDevices"
-        static let pairedHosts = "pairedHosts"
-        static let autoConnectToServer = "autoConnectToServer"
-        static let deviceId = "deviceId"
+        case externalServerURL
+        case pairedViewers = "pairedDevices"
+        case pairedHosts
+        case autoConnectToServer
+        case deviceId
         // Plugin
-        static let hasCompletedPluginSetup = "hasCompletedPluginSetup"
+        case hasCompletedPluginSetup
         // Launch at Login
-        static let launchAtLogin = "launchAtLogin"
-        static let hasAskedAboutLaunchAtLogin = "hasAskedAboutLaunchAtLogin"
+        case launchAtLogin
+        case hasAskedAboutLaunchAtLogin
     }
 
     // MARK: - Defaults
@@ -342,7 +357,7 @@ final public class AppSettings {
 
     // MARK: - Codable Storage
 
-    private static func loadCodable<T: Decodable>(from preferences: PreferencesService, key: String) -> [T] {
+    private static func loadCodable<T: Decodable>(from preferences: PreferencesService, key: Keys) -> [T] {
         guard let data = preferences.data(key) else {
             return []
         }

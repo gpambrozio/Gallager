@@ -73,7 +73,7 @@ public actor SimulatorDriver {
         try await findSimulatorPID()
 
         // Ensure Point Accurate mode
-        try SimulatorInteraction.ensurePointAccurateMode()
+        try await SimulatorInteraction.ensurePointAccurateMode()
 
         return udid
     }
@@ -195,8 +195,8 @@ public actor SimulatorDriver {
     }
 
     /// Type text (sends keystrokes to Simulator)
-    public func type(text: String, slow: Bool = false) throws {
-        try SimulatorInteraction.type(text: text, slow: slow)
+    public func type(text: String, slow: Bool = false) async throws {
+        try await SimulatorInteraction.type(text: text, slow: slow)
     }
 
     /// Take a screenshot

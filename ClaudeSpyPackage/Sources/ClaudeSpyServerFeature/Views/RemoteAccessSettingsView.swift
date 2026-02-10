@@ -201,6 +201,7 @@ public struct RemoteAccessSettingsView: View {
             } label: {
                 Label("Generate Pairing Code", symbol: .linkCircle)
             }
+            .help("Generate Pairing Code")
             .buttonStyle(.borderedProminent)
         }
     }
@@ -228,6 +229,7 @@ public struct RemoteAccessSettingsView: View {
             } label: {
                 Label(showCopiedFeedback ? "Copied!" : "Copy Code", symbol: .docOnClipboard)
             }
+            .help("Copy Code")
             .buttonStyle(.bordered)
 
             // Expiry countdown
