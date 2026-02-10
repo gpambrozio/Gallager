@@ -17,6 +17,7 @@ enum SimulatorAccessibility {
         // Walk the AX tree to find the iOSContentGroup (the actual iOS screen area)
         guard let contentGroup = findIOSContentGroup(in: appElement, depth: 0, maxDepth: 10) else {
             logger.warning("Could not find iOSContentGroup in Simulator AX tree")
+            dumpAXTree(appElement, depth: 0, maxDepth: 4)
             // Fall back to full app tree
             let elements = parseElement(appElement, depth: 0, maxDepth: maxDepth)
             return (elements.map { [$0] } ?? [], nil)
@@ -92,6 +93,24 @@ enum SimulatorAccessibility {
             frame: frame,
             children: children
         )
+    }
+
+    // MARK: - Diagnostics
+
+    /// Dump the AX tree structure for debugging
+    private static func dumpAXTree(_ element: AXUIElement, depth: Int, maxDepth: Int) {
+        guard depth < maxDepth else { return }
+        let indent = String(repeating: "  ", count: depth)
+        let role = getStringAttribute(of: element, attribute: kAXRoleAttribute as String) ?? "?"
+        let subrole = getSubrole(of: element) ?? ""
+        let title = getStringAttribute(of: element, attribute: kAXTitleAttribute as String) ?? ""
+        let children = getChildren(of: element)
+        let subroleStr = subrole.isEmpty ? "" : " subrole=\(subrole)"
+        let titleStr = title.isEmpty ? "" : " title=\"\(title)\""
+        logger.info("\(indent)\(role)\(subroleStr)\(titleStr) [\(children.count) children]")
+        for child in children {
+            dumpAXTree(child, depth: depth + 1, maxDepth: maxDepth)
+        }
     }
 
     // MARK: - AX Helpers

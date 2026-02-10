@@ -151,11 +151,13 @@ public actor SimulatorDriver {
             maxDepth: maxDepth
         )
 
-        // If content group wasn't found, refresh PID and retry once
+        // If content group wasn't found, bring Simulator to foreground, refresh PID, and retry
         if origin == nil {
-            logger.info("Content group not found, refreshing Simulator PID and retrying...")
+            logger.info("Content group not found, bringing Simulator to foreground and retrying...")
+            _ = try? await processRunner.run("/usr/bin/open", arguments: ["-a", "Simulator"])
+            try? await Task.sleep(for: .seconds(1))
             try? await findSimulatorPID()
-            if let newPid = simulatorPID, newPid != pid {
+            if let newPid = simulatorPID {
                 pid = newPid
                 (elements, origin) = SimulatorAccessibility.describeUI(
                     simulatorPID: pid,
