@@ -196,17 +196,9 @@ public actor SimulatorDriver {
 
     // MARK: - Interaction
 
-    /// Tap on a UI element
-    public func tap(element: UIElement) throws {
-        guard let contentOrigin = cachedContentOrigin else {
-            throw SimulatorDriverError.noContentGroup
-        }
-
-        let screenPoint = SimulatorWindow.toScreenCoordinates(
-            point: element.center,
-            contentOrigin: contentOrigin
-        )
-        SimulatorInteraction.tap(at: screenPoint)
+    /// Tap on a UI element (AX frames are already in screen coordinates)
+    public func tap(element: UIElement) {
+        SimulatorInteraction.tap(at: element.center)
     }
 
     /// Tap at raw iOS coordinates
