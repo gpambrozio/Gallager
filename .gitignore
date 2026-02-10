@@ -72,5 +72,6 @@ ClaudeSpyPackage/.env
 .claude/iOSSimulator.json
 build/
 build-ios/
+claudespy-signing.tar.gz
 .DS_Store
 /.claude/swiftDevelopment.json
