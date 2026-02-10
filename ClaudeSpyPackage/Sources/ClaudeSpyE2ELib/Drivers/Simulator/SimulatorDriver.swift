@@ -124,6 +124,19 @@ public actor SimulatorDriver {
         )
     }
 
+    /// Uninstall an app from the simulator
+    public func uninstallApp(bundleId: String? = nil) async throws {
+        guard let udid else { return }
+        let bid = bundleId ?? appBundleId ?? ""
+        guard !bid.isEmpty else { return }
+
+        logger.info("Uninstalling app: \(bid)")
+        _ = try await processRunner.run(
+            "/usr/bin/xcrun",
+            arguments: ["simctl", "uninstall", udid, bid]
+        )
+    }
+
     // MARK: - UI Inspection
 
     /// Describe the current UI tree

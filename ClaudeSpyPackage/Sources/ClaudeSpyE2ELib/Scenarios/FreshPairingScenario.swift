@@ -6,20 +6,23 @@ public enum FreshPairingScenario {
         "Fresh Pairing",
         tags: ["pairing", "smoke"]
     ) {
-        // 1. Start server on localhost
+        // 1. Uninstall previous app to ensure fresh state
+        TestStep.uninstallIOSApp
+
+        // 2. Start server on localhost
         TestStep.startServer(port: 8_765)
         TestStep.verifyServerHealth
 
-        // 2. Launch iOS in simulator
+        // 3. Launch iOS in simulator
         TestStep.launchIOSApp(arguments: ["--e2e-test", "--server-url", "ws://127.0.0.1:8765"])
         TestStep.iosWaitForElement(.labelContains("pairing code"), timeout: 15)
         TestStep.iosScreenshot(label: "01-ios-pairing-view")
 
-        // 3. Launch macOS app
+        // 4. Launch macOS app
         TestStep.launchMacApp(arguments: ["--e2e-test", "--server-url", "ws://127.0.0.1:8765"])
         TestStep.wait(seconds: 3)
 
-        // 4. Generate pairing code on macOS
+        // 5. Generate pairing code on macOS
         TestStep.macOpenSettings
         TestStep.macWaitForWindow(titled: "General", timeout: 5)
         TestStep.macSelectSettingsTab("Remote Access")
@@ -31,19 +34,19 @@ public enum FreshPairingScenario {
         TestStep.macReadClipboard(storeAs: "pairingCode")
         TestStep.macScreenshot(label: "02-mac-code-generated")
 
-        // 5. Enter code on iOS
+        // 6. Enter code on iOS
         TestStep.wait(seconds: 1)
         TestStep.iosType(text: "${pairingCode}")
         TestStep.wait(seconds: 5)
 
-        // 6. Verify iOS transitioned to main view
+        // 7. Verify iOS transitioned to main view
         TestStep.iosWaitForElement(.labelContains("Sessions"), timeout: 10)
         TestStep.iosScreenshot(label: "03-ios-paired")
 
-        // 7. Verify server state
+        // 8. Verify server state
         TestStep.verifyServerHasPairings(count: 1)
 
-        // 8. Cleanup
+        // 9. Cleanup
         TestStep.terminateIOSApp
         TestStep.terminateMacApp
         TestStep.stopServer

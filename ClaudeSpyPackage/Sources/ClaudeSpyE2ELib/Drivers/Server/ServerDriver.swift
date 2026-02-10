@@ -54,6 +54,13 @@ public actor ServerDriver {
             try await app.asyncShutdown()
         }
         app = nil
+
+        // Clean up pairs.json created by the server in the working directory
+        let pairsFile = FileManager.default.currentDirectoryPath + "/pairs.json"
+        if FileManager.default.fileExists(atPath: pairsFile) {
+            try? FileManager.default.removeItem(atPath: pairsFile)
+            logger.info("Removed pairs.json")
+        }
     }
 
     /// Wait for the server to be healthy

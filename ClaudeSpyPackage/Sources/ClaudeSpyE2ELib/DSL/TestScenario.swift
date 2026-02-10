@@ -32,6 +32,8 @@ public enum TestStep: Sendable {
     case launchIOSApp(arguments: [String] = [])
     /// Terminate the iOS app
     case terminateIOSApp
+    /// Uninstall the iOS app from the simulator
+    case uninstallIOSApp
     /// Wait for an iOS UI element to appear
     case iosWaitForElement(ElementQuery, timeout: TimeInterval = 10)
     /// Tap an iOS UI element

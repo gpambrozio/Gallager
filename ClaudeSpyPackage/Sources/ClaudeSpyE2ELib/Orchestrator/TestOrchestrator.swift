@@ -128,6 +128,10 @@ public actor TestOrchestrator {
         case .terminateIOSApp:
             try await simulatorDriver.terminateApp()
 
+        case .uninstallIOSApp:
+            try await simulatorDriver.terminateApp()
+            try await simulatorDriver.uninstallApp()
+
         case let .iosWaitForElement(query, timeout):
             _ = try await simulatorDriver.waitForElement(matching: query, timeout: timeout)
 
