@@ -16,7 +16,7 @@ public enum NewTerminalScenario {
 
         // 2. Tap "New Terminal" in the project picker sheet
         TestStep.iosTap(.labelContains("New Terminal"))
-        TestStep.wait(seconds: 8)
+        TestStep.wait(seconds: 3)
 
         // 3. Verify we navigated to the terminal view
         TestStep.iosScreenshot(label: "05-new-terminal")
