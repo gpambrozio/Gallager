@@ -61,8 +61,7 @@
         }
 
         /// Font size for terminal snapshot display
-        // swiftlint:disable:next custom_no_number_decimals
-        public var terminalFontSize: Double = 10.0 {
+        public var terminalFontSize: Double = 10 {
             didSet { preferences.setDouble(terminalFontSize, Keys.terminalFontSize) }
         }
 
@@ -112,8 +111,7 @@
 
             // Terminal settings with iOS-appropriate defaults
             self.terminalFontName = preferences.string(Keys.terminalFontName) ?? "Menlo"
-            // swiftlint:disable:next custom_no_number_decimals
-            self.terminalFontSize = preferences.optionalDouble(Keys.terminalFontSize) ?? 10.0
+            self.terminalFontSize = preferences.optionalDouble(Keys.terminalFontSize) ?? 10
 
             // New session settings
             self.newSessionName = preferences.string(Keys.newSessionName) ?? "claude"
