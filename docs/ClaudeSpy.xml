@@ -6,6 +6,45 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.5</title>
+         <sparkle:version>5</sparkle:version>
+         <sparkle:shortVersionString>1.5</sparkle:shortVersionString>
+         <pubDate>Tue, 10 Feb 2026 14:19:48 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.5 Release Notes
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Clickable Links in Terminal Mirrors</strong> — URLs displayed in mirrored terminal panes are now highlighted and clickable, making it easier to open links directly from monitored sessions.</li>
+</ul>
+
+<ul>
+<li><strong>E2E Test Coordinator with Storage Isolation</strong> — A new end-to-end test coordinator enables reliable integration testing with fully isolated storage, improving confidence in the test suite.</li>
+</ul>
+
+<ul>
+<li><strong>Signing Credentials Transfer for Multi-Machine Builds</strong> — A new script allows transferring code signing credentials between machines, simplifying setup for developers building on multiple Macs.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Dependency Injection with PointFree Dependencies</strong> — Adopted the PointFree Dependencies library for structured dependency injection, improving testability and modularity across the codebase.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Fixed Signing Certificate Selection</strong> — The transfer-signing process now correctly filters certificates by team and searches the Xcode provisioning profile directory, resolving issues where the wrong certificate could be selected during builds.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/ClaudeSpyServer-1.5.dmg"
+                    sparkle:edSignature="pOKNEnY4JL3IPA3TyNM93jcXjYfvFEegvTr2/zR4Se0YOS5UVamaATq5e4UYoNQ8yr6hRdT5RRSzBq2i3x5cDw=="
+                    length="19368738"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.4</title>
          <sparkle:version>4</sparkle:version>
          <sparkle:shortVersionString>1.4</sparkle:shortVersionString>
