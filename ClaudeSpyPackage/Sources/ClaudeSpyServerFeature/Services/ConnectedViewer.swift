@@ -133,6 +133,9 @@ final public class ConnectedViewer: Identifiable {
     /// Called when partner's public key is received (for persisting to settings)
     public var onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)?
 
+    /// Called when the server notifies that this pairing was removed by the other side
+    public var onUnpaired: (@MainActor @Sendable () async -> Void)?
+
     // MARK: - Initialization
 
     /// Creates a new viewer connection.
@@ -433,6 +436,13 @@ final public class ConnectedViewer: Identifiable {
             logger.info("Viewer device disconnected")
             isViewerConnected = false
             connectedViewerDeviceName = nil
+
+        case .unpaired:
+            logger.info("Pairing removed by the other side")
+            shouldReconnect = false
+            await cleanupConnection()
+            await updateState(.disconnected)
+            await onUnpaired?()
 
         case .requestSessionState:
             logger.info("Viewer requested session state")

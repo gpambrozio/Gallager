@@ -133,11 +133,13 @@ final public class ViewerConnection: Identifiable {
     ///   - onSessionState: Called when session state is received
     ///   - onTerminalStream: Called when terminal stream data is received
     ///   - onPartnerKeyReceived: Called when partner's public key is updated
+    ///   - onUnpaired: Called when the pairing was removed by the other side
     public func setupCallbacks(
         onHookEvent: (@Sendable (HookEventMessage) -> Void)? = nil,
         onSessionState: (@Sendable (SessionStateMessage) -> Void)? = nil,
         onTerminalStream: (@MainActor @Sendable (TerminalStreamMessage) -> Void)? = nil,
-        onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)? = nil
+        onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)? = nil,
+        onUnpaired: (@MainActor @Sendable () async -> Void)? = nil
     ) {
         relayClient.onHookEvent = onHookEvent
         relayClient.onSessionState = onSessionState
@@ -147,6 +149,7 @@ final public class ViewerConnection: Identifiable {
             relayClient.onTerminalStream = onTerminalStream
         }
         relayClient.onPartnerKeyReceived = onPartnerKeyReceived
+        relayClient.onUnpaired = onUnpaired
     }
 
     // MARK: - Terminal Stream Subscriptions

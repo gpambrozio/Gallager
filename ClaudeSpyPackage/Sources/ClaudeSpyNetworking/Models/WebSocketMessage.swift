@@ -37,6 +37,9 @@ public enum WebSocketMessage: Codable, Sendable {
     /// Server notifies host that viewer has disconnected
     case viewerDisconnected
 
+    /// Server notifies that this pairing has been removed (the other side unpaired)
+    case unpaired
+
     // MARK: - Viewer → Server
 
     /// Viewer registers with the relay server after connecting
@@ -157,6 +160,7 @@ public extension WebSocketMessage {
         case pushTokenRegistered
         case hostConnected
         case hostDisconnected
+        case unpaired
         case ping
         case pong
         case error
@@ -214,6 +218,8 @@ public extension WebSocketMessage {
             self = .hostConnected(payload)
         case .hostDisconnected:
             self = .hostDisconnected
+        case .unpaired:
+            self = .unpaired
         case .ping:
             self = .ping
         case .pong:
@@ -279,6 +285,8 @@ public extension WebSocketMessage {
             try container.encode(payload, forKey: .payload)
         case .hostDisconnected:
             try container.encode(MessageType.hostDisconnected, forKey: .type)
+        case .unpaired:
+            try container.encode(MessageType.unpaired, forKey: .type)
         case .ping:
             try container.encode(MessageType.ping, forKey: .type)
         case .pong:
@@ -314,6 +322,7 @@ public extension WebSocketMessage {
         case .pushTokenRegistered: MessageType.pushTokenRegistered.rawValue
         case .hostConnected: MessageType.hostConnected.rawValue
         case .hostDisconnected: MessageType.hostDisconnected.rawValue
+        case .unpaired: MessageType.unpaired.rawValue
         case .ping: MessageType.ping.rawValue
         case .pong: MessageType.pong.rawValue
         case .error: MessageType.error.rawValue

@@ -146,6 +146,9 @@ final public class ViewerRelayClient {
     /// Called when partner's public key is received (for persisting to settings)
     public var onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)?
 
+    /// Called when the server notifies that this pairing was removed by the other side
+    public var onUnpaired: (@MainActor @Sendable () async -> Void)?
+
     // MARK: - Initialization
 
     public init() { }
@@ -573,6 +576,13 @@ final public class ViewerRelayClient {
             logger.info("Host device disconnected")
             isHostConnected = false
             connectedHostName = nil
+
+        case .unpaired:
+            logger.info("Pairing removed by the other side")
+            shouldReconnect = false
+            await cleanupConnection()
+            setState(.disconnected)
+            await onUnpaired?()
 
         case .ping:
             await send(.pong)

@@ -357,6 +357,13 @@
                 )
             }
 
+            // Handle unpair notifications from viewers
+            connectionManager.onUnpaired = { [weak self] pairId in
+                guard let self else { return }
+                self.logger.info("Viewer unpaired remotely", metadata: ["pairId": "\(pairId)"])
+                self.settings.removePairing(id: pairId)
+            }
+
             // Push session state to all viewers whenever panes change
             tmuxService.setPanesChangedHandler { [weak connectionManager] in
                 await connectionManager?.pushSessionStateToAll()
@@ -484,6 +491,13 @@
                         customName: host.customName
                     )
                     settings.updateHostPairing(updatedHost)
+                }
+
+                // Handle unpair notifications from remote hosts
+                manager.onUnpaired = { [weak self] hostId in
+                    guard let self else { return }
+                    self.logger.info("Host unpaired remotely", metadata: ["hostId": "\(hostId)"])
+                    self.settings.removeHostPairing(id: hostId)
                 }
 
                 logger.info("ViewerConnectionManager set up successfully")

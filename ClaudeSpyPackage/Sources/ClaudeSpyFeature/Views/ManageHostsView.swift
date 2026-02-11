@@ -87,6 +87,11 @@
             // Disconnect from this host
             await connectionManager.disconnect(from: host.id)
 
+            // Notify relay server so it removes the pairing record and notifies the host (best effort)
+            Task {
+                try? await deletePairingFromServer(pairId: host.id)
+            }
+
             // Delete encryption session key for this host
             @Dependency(SecretsService.self) var secrets
             try? await secrets.deleteSessionKey(host.id)
@@ -95,6 +100,21 @@
             settings.removePairing(id: host.id)
 
             hostToDelete = nil
+        }
+
+        private func deletePairingFromServer(pairId: String) async throws {
+            let serverURL = settings.externalServerURL
+                .replacingOccurrences(of: "wss://", with: "https://")
+                .replacingOccurrences(of: "ws://", with: "http://")
+
+            guard let url = URL(string: "\(serverURL)/api/pairing/\(pairId)") else {
+                return
+            }
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "DELETE"
+
+            _ = try await URLSession.shared.data(for: request)
         }
     }
 
