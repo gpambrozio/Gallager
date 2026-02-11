@@ -89,8 +89,7 @@ public struct RemoteAccessSettingsView: View {
             Symbols.wifiSlash.image
                 .foregroundStyle(.secondary)
         case .connecting,
-             .reconnecting,
-             .extendedBackoff:
+             .reconnecting:
             ProgressView()
                 .controlSize(.small)
         case .connected:
@@ -368,8 +367,6 @@ private struct ViewerRow: View {
                 Text("Connecting...")
             case let .reconnecting(attempt):
                 Text("Reconnecting (\(attempt))")
-            case .extendedBackoff:
-                Text("Reconnecting...")
             case let .error(message):
                 Text(message)
                     .foregroundStyle(.red)

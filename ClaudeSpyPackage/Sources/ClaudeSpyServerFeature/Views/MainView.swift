@@ -336,10 +336,6 @@ public struct MainView: View {
             ProgressView()
                 .controlSize(.small)
                 .help("Reconnecting (attempt \(attempt))...")
-        case .extendedBackoff:
-            ProgressView()
-                .controlSize(.small)
-                .help("Reconnecting in 5 minutes...")
         case .connected:
             Symbols.wifi.image
                 .foregroundStyle(.green)

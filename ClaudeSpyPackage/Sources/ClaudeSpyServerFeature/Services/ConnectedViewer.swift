@@ -19,7 +19,6 @@ final public class ConnectedViewer: Identifiable {
         case connecting
         case connected
         case reconnecting(attempt: Int)
-        case extendedBackoff
         case error(String)
 
         public var isConnected: Bool {
@@ -33,7 +32,6 @@ final public class ConnectedViewer: Identifiable {
             case .connecting: "Connecting..."
             case .connected: "Connected"
             case let .reconnecting(attempt): "Reconnecting (\(attempt))..."
-            case .extendedBackoff: "Reconnecting in 5 min..."
             case let .error(message): "Error: \(message)"
             }
         }
@@ -98,11 +96,8 @@ final public class ConnectedViewer: Identifiable {
     /// Current reconnection attempt
     private var reconnectionAttempt = 0
 
-    /// Maximum reconnection attempts before entering extended backoff
-    private let maxReconnectionAttempts = 10
-
-    /// Extended backoff delay when max attempts reached (5 minutes)
-    private let extendedBackoffDelay = 300
+    /// Maximum backoff delay in seconds (capped exponential backoff)
+    private let maxBackoffDelay = 60
 
     /// Task for delayed reconnection
     private var reconnectionDelayTask: Task<Void, Never>?
@@ -396,6 +391,7 @@ final public class ConnectedViewer: Identifiable {
         case let .hostRegistered(response):
             if response.success {
                 logger.info("Successfully registered with relay server for viewer: \(viewerName)")
+                reconnectionAttempt = 0
                 await updateState(.connected)
                 connectedViewerDeviceName = response.viewerDeviceName
                 isViewerConnected = response.viewerDeviceName != nil
@@ -572,17 +568,12 @@ final public class ConnectedViewer: Identifiable {
 
         guard shouldReconnect else { return }
 
-        let delay: Int
-        if reconnectionAttempt < maxReconnectionAttempts {
-            reconnectionAttempt += 1
-            delay = min(60, Int(pow(2, Double(reconnectionAttempt - 1))))
-            await updateState(.reconnecting(attempt: reconnectionAttempt))
-            logger.info("Reconnecting to \(viewerName) in \(delay)s (attempt \(reconnectionAttempt))")
-        } else {
-            delay = extendedBackoffDelay
-            logger.warning("Max reconnection attempts reached for \(viewerName), extended backoff")
-            await updateState(.extendedBackoff)
-        }
+        reconnectionAttempt += 1
+        // Exponential backoff: 1s, 2s, 4s, 8s, ... capped at maxBackoffDelay
+        let exponent = min(reconnectionAttempt - 1, 20)
+        let delay = min(maxBackoffDelay, Int(pow(2, Double(exponent))))
+        await updateState(.reconnecting(attempt: reconnectionAttempt))
+        logger.info("Reconnecting to \(viewerName) in \(delay)s (attempt \(reconnectionAttempt))")
 
         reconnectionDelayTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -594,10 +585,6 @@ final public class ConnectedViewer: Identifiable {
             }
 
             guard !Task.isCancelled, self.shouldReconnect else { return }
-
-            if self.reconnectionAttempt >= self.maxReconnectionAttempts {
-                self.reconnectionAttempt = 0
-            }
 
             await self.performConnect()
         }

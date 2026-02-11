@@ -80,9 +80,6 @@ final public class ConnectedViewerManager {
             }) {
             return reconnecting.state
         }
-        if connections.values.contains(where: { $0.state == .extendedBackoff }) {
-            return .extendedBackoff
-        }
         if
             let error = connections.values.first(where: {
                 if case .error = $0.state { return true }
