@@ -72,6 +72,42 @@ Use: `Symbols.starFill.image` or `Label("Text", symbol: .starFill)`
 - No GCD, Swift Concurrency only
 - All cross-boundary types must be `Sendable`
 
+### Dependencies (Dependency Injection)
+
+Use [Point-Free Dependencies](https://github.com/pointfreeco/swift-dependencies) for services that wrap system APIs or perform I/O. This enables testability without real system interaction.
+
+**When to use `@DependencyClient`:**
+- Stateless utilities wrapping system APIs (UserDefaults, Keychain, SMAppService, IOKit, etc.)
+- Process execution and filesystem access
+- Services that are hard to test without mocking (network, push notifications)
+
+**When NOT to use it:**
+- `@Observable` classes with complex state and many wired callbacks (use init injection instead)
+- Services already using Vapor's DI container (external server)
+- Simple value types or pure functions
+
+**Pattern:** Define as `@DependencyClient struct`, conform to `DependencyKey`, provide `liveValue` and optional `inMemory()`. See `docs/swift-patterns.md` for full examples.
+
+**Usage in `@Observable` classes:**
+```swift
+@ObservationIgnored
+@Dependency(MyService.self) private var myService
+```
+
+**Usage in initializers:**
+```swift
+@Dependency(MyService.self) var service
+```
+
+**Testing:**
+```swift
+try await withDependencies {
+    $0[MyService.self] = .testValue
+} operation: {
+    // code under test
+}
+```
+
 ### Error Handling
 
 - `guard let` / `if let` for optionals
@@ -87,7 +123,7 @@ Use XcodeBuildTools skills. Scheme: `ClaudeSpyServer` (macOS), `ClaudeSpy` (iOS)
 
 ## Reference Docs
 
-- **Code examples:** `docs/swift-patterns.md` - SwiftUI patterns, Sendable, testing
+- **Code examples:** `docs/swift-patterns.md` - SwiftUI patterns, Sendable, Dependencies, testing
 - **Services:** `docs/services-reference.md` - TmuxService, PaneStream, etc.
 - **Architecture:** `docs/distributed-architecture-plan.md`
 - **Encryption:** `docs/e2ee-encryption-plan.md`
