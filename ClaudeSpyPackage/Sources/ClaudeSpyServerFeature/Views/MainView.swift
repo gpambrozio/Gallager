@@ -264,7 +264,11 @@ public struct MainView: View {
                 }
                 .help("Open mirror in new window")
 
-                resizeToolbarGroup(resizeKey: pane.target, localTarget: pane.target)
+                resizeToolbarGroup(
+                    resizeKey: pane.target,
+                    localTarget: pane.target,
+                    isSessionAttached: tmuxService.attachedSessionNames.contains(pane.sessionName)
+                )
 
                 Button {
                     showingCloseConfirmation = true
@@ -401,8 +405,11 @@ public struct MainView: View {
         resizeKey: String,
         localTarget: String? = nil,
         remoteHostId: String? = nil,
-        remotePaneId: String? = nil
+        remotePaneId: String? = nil,
+        isSessionAttached: Bool = false
     ) -> some View {
+        let attachedHelp = "Cannot resize: session is attached to a terminal"
+
         Button {
             Task {
                 await performResize(localTarget: localTarget, remoteHostId: remoteHostId, remotePaneId: remotePaneId)
@@ -410,7 +417,8 @@ public struct MainView: View {
         } label: {
             Symbols.arrowUpLeftAndArrowDownRight.image
         }
-        .help("Resize tmux pane to fit mirror view")
+        .help(isSessionAttached ? attachedHelp : "Resize tmux pane to fit mirror view")
+        .disabled(isSessionAttached)
 
         Toggle(isOn: Binding(
             get: { autoResizeEnabled.contains(resizeKey) },
@@ -428,7 +436,8 @@ public struct MainView: View {
             Symbols.arrowDownRightAndArrowUpLeft.image
         }
         .toggleStyle(.button)
-        .help("Auto-resize tmux pane when mirror view changes size")
+        .help(isSessionAttached ? attachedHelp : "Auto-resize tmux pane when mirror view changes size")
+        .disabled(isSessionAttached)
     }
 
     private func handleAutoResize() {
@@ -443,6 +452,7 @@ public struct MainView: View {
 
         if let pane = selectedPane, selectedRemotePane == nil {
             guard autoResizeEnabled.contains(pane.target) else { return }
+            guard !tmuxService.attachedSessionNames.contains(pane.sessionName) else { return }
             let target = pane.target
             Task {
                 await performResize(localTarget: target)
