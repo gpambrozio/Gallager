@@ -450,8 +450,11 @@ final public class TmuxService {
     ///   - width: New width in columns
     ///   - height: New height in rows
     public func resizePane(_ target: String, width: Int, height: Int) async throws {
+        // Use resize-window instead of resize-pane: pane resize is constrained by the window
+        // dimensions, and control-mode clients (used by this app) set the window size.
+        // resize-window changes the window itself, and the pane follows.
         let result = try await runTmuxCommand([
-            "resize-pane",
+            "resize-window",
             "-t", target,
             "-x", String(width),
             "-y", String(height),

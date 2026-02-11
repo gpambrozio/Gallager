@@ -31,6 +31,8 @@ public struct MainView: View {
     @State private var autoResizeEnabled: Set<String> = []
     /// Last dimensions sent via auto-resize, used to skip redundant calls during window drag
     @State private var lastAutoResizeDimensions: (columns: Int, rows: Int)?
+    /// Debounce task for auto-resize (cancelled on each new geometry change)
+    @State private var autoResizeTask: Task<Void, Never>?
 
     public var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -71,6 +73,13 @@ public struct MainView: View {
                 !newPanes.contains(where: { $0.id == selected.id }) {
                 selectedPane = nil
             }
+        }
+        .onChange(of: selectedPane) {
+            // Reset cached dimensions so the new pane gets resized on next auto-resize
+            lastAutoResizeDimensions = nil
+        }
+        .onChange(of: selectedRemotePane) {
+            lastAutoResizeDimensions = nil
         }
     }
 
@@ -437,27 +446,31 @@ public struct MainView: View {
     }
 
     private func handleAutoResize() {
-        let dimensions = calculateOptimalTerminalDimensions()
+        // Cancel any pending debounced resize
+        autoResizeTask?.cancel()
+        autoResizeTask = Task {
+            // Debounce: wait for layout to stabilize (especially during session switches)
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
 
-        // Skip if dimensions unchanged (cell-size rounding eliminates most redundant calls during drag)
-        if
-            let last = lastAutoResizeDimensions,
-            last.columns == dimensions.columns && last.rows == dimensions.rows {
-            return
-        }
+            let dimensions = calculateOptimalTerminalDimensions()
 
-        if let pane = selectedPane, selectedRemotePane == nil {
-            guard autoResizeEnabled.contains(pane.target) else { return }
-            guard !tmuxService.attachedSessionNames.contains(pane.sessionName) else { return }
-            let target = pane.target
-            Task {
-                await performResize(localTarget: target)
+            // Skip if dimensions unchanged (cell-size rounding eliminates most redundant calls during drag)
+            if
+                let last = lastAutoResizeDimensions,
+                last.columns == dimensions.columns && last.rows == dimensions.rows {
+                return
             }
-        } else if let remote = selectedRemotePane {
-            guard autoResizeEnabled.contains(remote.resizeKey) else { return }
-            let hostId = remote.hostId
-            let paneId = remote.paneId
-            Task {
+
+            if let pane = selectedPane, selectedRemotePane == nil {
+                guard autoResizeEnabled.contains(pane.target) else { return }
+                guard !tmuxService.attachedSessionNames.contains(pane.sessionName) else { return }
+                let target = pane.target
+                await performResize(localTarget: target)
+            } else if let remote = selectedRemotePane {
+                guard autoResizeEnabled.contains(remote.resizeKey) else { return }
+                let hostId = remote.hostId
+                let paneId = remote.paneId
                 await performResize(remoteHostId: hostId, remotePaneId: paneId)
             }
         }
