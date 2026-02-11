@@ -29,6 +29,8 @@ public struct MainView: View {
 
     /// Per-session auto-resize state (keyed by pane target for local, "remote-hostId-paneId" for remote)
     @State private var autoResizeEnabled: Set<String> = []
+    /// Last dimensions sent via auto-resize, used to skip redundant calls during window drag
+    @State private var lastAutoResizeDimensions: (columns: Int, rows: Int)?
 
     public var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -216,7 +218,7 @@ public struct MainView: View {
                 connection: connection,
                 settings: settings
             )
-            .id("remote-\(remote.hostId)-\(remote.paneId)")
+            .id(remote.resizeKey)
         } else if let pane = selectedPane {
             MirrorWindowView(paneInfo: pane)
                 .id(pane.id)
@@ -262,7 +264,7 @@ public struct MainView: View {
                 }
                 .help("Open mirror in new window")
 
-                resizeToolbarGroup(resizeKey: pane.target, isRemote: false)
+                resizeToolbarGroup(resizeKey: pane.target, localTarget: pane.target)
 
                 Button {
                     showingCloseConfirmation = true
@@ -283,7 +285,7 @@ public struct MainView: View {
                     Text("This will end all processes in the session.")
                 }
             } else if let remote = selectedRemotePane {
-                resizeToolbarGroup(resizeKey: "remote-\(remote.hostId)-\(remote.paneId)", isRemote: true)
+                resizeToolbarGroup(resizeKey: remote.resizeKey, remoteHostId: remote.hostId, remotePaneId: remote.paneId)
             }
 
             Button {
@@ -395,10 +397,15 @@ public struct MainView: View {
     // MARK: - Resize
 
     @ViewBuilder
-    private func resizeToolbarGroup(resizeKey: String, isRemote: Bool) -> some View {
+    private func resizeToolbarGroup(
+        resizeKey: String,
+        localTarget: String? = nil,
+        remoteHostId: String? = nil,
+        remotePaneId: String? = nil
+    ) -> some View {
         Button {
             Task {
-                await resizeTerminalToFit(resizeKey: resizeKey, isRemote: isRemote)
+                await performResize(localTarget: localTarget, remoteHostId: remoteHostId, remotePaneId: remotePaneId)
             }
         } label: {
             Symbols.arrowUpLeftAndArrowDownRight.image
@@ -410,9 +417,8 @@ public struct MainView: View {
             set: { enabled in
                 if enabled {
                     autoResizeEnabled.insert(resizeKey)
-                    // Immediately resize when enabling
                     Task {
-                        await resizeTerminalToFit(resizeKey: resizeKey, isRemote: isRemote)
+                        await performResize(localTarget: localTarget, remoteHostId: remoteHostId, remotePaneId: remotePaneId)
                     }
                 } else {
                     autoResizeEnabled.remove(resizeKey)
@@ -421,50 +427,59 @@ public struct MainView: View {
         )) {
             Symbols.arrowDownRightAndArrowUpLeft.image
         }
-        .toggleStyle(.checkbox)
+        .toggleStyle(.button)
         .help("Auto-resize tmux pane when mirror view changes size")
     }
 
     private func handleAutoResize() {
-        // Check if current selection has auto-resize enabled
+        let dimensions = calculateOptimalTerminalDimensions()
+
+        // Skip if dimensions unchanged (cell-size rounding eliminates most redundant calls during drag)
+        if
+            let last = lastAutoResizeDimensions,
+            last.columns == dimensions.columns && last.rows == dimensions.rows {
+            return
+        }
+
         if let pane = selectedPane, selectedRemotePane == nil {
             guard autoResizeEnabled.contains(pane.target) else { return }
+            let target = pane.target
             Task {
-                await resizeTerminalToFit(resizeKey: pane.target, isRemote: false)
+                await performResize(localTarget: target)
             }
         } else if let remote = selectedRemotePane {
-            let key = "remote-\(remote.hostId)-\(remote.paneId)"
-            guard autoResizeEnabled.contains(key) else { return }
+            guard autoResizeEnabled.contains(remote.resizeKey) else { return }
+            let hostId = remote.hostId
+            let paneId = remote.paneId
             Task {
-                await resizeTerminalToFit(resizeKey: key, isRemote: true)
+                await performResize(remoteHostId: hostId, remotePaneId: paneId)
             }
         }
     }
 
-    private func resizeTerminalToFit(resizeKey: String, isRemote: Bool) async {
+    private func performResize(
+        localTarget: String? = nil,
+        remoteHostId: String? = nil,
+        remotePaneId: String? = nil
+    ) async {
         let dimensions = calculateOptimalTerminalDimensions()
+        lastAutoResizeDimensions = dimensions
 
-        if isRemote {
-            guard
-                let remote = selectedRemotePane,
-                let manager = coordinator.viewerConnectionManager
-            else { return }
-
-            let result = await manager.sendCommand(
-                ResizeTmuxPane(width: dimensions.columns, height: dimensions.rows),
-                paneId: remote.paneId,
-                hostId: remote.hostId
-            )
-
-            if case let .failure(error) = result {
-                attachError = "Failed to resize remote pane: \(error.localizedDescription)"
-            }
-        } else {
-            guard let pane = selectedPane else { return }
+        if let localTarget {
             do {
-                try await tmuxService.resizePane(pane.target, width: dimensions.columns, height: dimensions.rows)
+                try await tmuxService.resizePane(localTarget, width: dimensions.columns, height: dimensions.rows)
             } catch {
                 attachError = "Failed to resize: \(error.localizedDescription)"
+            }
+        } else if let remoteHostId, let remotePaneId {
+            guard let manager = coordinator.viewerConnectionManager else { return }
+            let result = await manager.sendCommand(
+                ResizeTmuxPane(width: dimensions.columns, height: dimensions.rows),
+                paneId: remotePaneId,
+                hostId: remoteHostId
+            )
+            if case let .failure(error) = result {
+                attachError = "Failed to resize remote pane: \(error.localizedDescription)"
             }
         }
     }
@@ -891,6 +906,8 @@ private struct RemotePaneSelection: Equatable, Hashable {
     let hostId: String
     let hostName: String
     let paneId: String
+
+    var resizeKey: String { "remote-\(hostId)-\(paneId)" }
 }
 
 // MARK: - Remote Host Sidebar Section
