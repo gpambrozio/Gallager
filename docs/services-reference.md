@@ -160,7 +160,7 @@ TmuxControlClient ──%layout-change──→ buffers output
 
 `@Observable @MainActor` WebSocket connection to a single paired iOS device.
 
-**States:** `disconnected` → `connecting` → `connected` | `reconnecting(attempt)` | `extendedBackoff` | `error`
+**States:** `disconnected` → `connecting` → `connected` | `reconnecting(attempt)` | `error`
 
 - Manages WebSocket lifecycle with relay server
 - E2EE encryption per device

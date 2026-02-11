@@ -19,7 +19,6 @@ final public class ExternalServerClient {
         case connecting
         case connected
         case reconnecting(attempt: Int)
-        case extendedBackoff
         case error(String)
 
         public var isConnected: Bool {
@@ -33,7 +32,6 @@ final public class ExternalServerClient {
             case .connecting: "Connecting..."
             case .connected: "Connected"
             case let .reconnecting(attempt): "Reconnecting (\(attempt))..."
-            case .extendedBackoff: "Reconnecting in 5 min..."
             case let .error(message): "Error: \(message)"
             }
         }
@@ -85,11 +83,8 @@ final public class ExternalServerClient {
     /// Current reconnection attempt
     private var reconnectionAttempt = 0
 
-    /// Maximum reconnection attempts before entering extended backoff
-    private let maxReconnectionAttempts = 10
-
-    /// Extended backoff delay when max attempts reached (5 minutes)
-    private let extendedBackoffDelay = 300
+    /// Maximum backoff delay in seconds (capped exponential backoff)
+    private let maxBackoffDelay = 60
 
     /// Task for delayed reconnection (can be cancelled for immediate reconnect)
     private var reconnectionDelayTask: Task<Void, Never>?
@@ -712,23 +707,11 @@ final public class ExternalServerClient {
 
         guard shouldReconnect else { return }
 
-        // Calculate delay based on attempt count
-        let delay: Int
-        if reconnectionAttempt < maxReconnectionAttempts {
-            reconnectionAttempt += 1
-            // Exponential backoff: 1s, 2s, 4s, 8s, etc. up to 60s
-            delay = min(60, Int(pow(2, Double(reconnectionAttempt - 1))))
-            await updateState(.reconnecting(attempt: reconnectionAttempt))
-            logger.info("Reconnecting in \(delay) seconds (attempt \(reconnectionAttempt))")
-        } else {
-            // After max attempts, use extended backoff (5 minutes) and reset counter
-            // This prevents giving up entirely while avoiding aggressive reconnection
-            delay = extendedBackoffDelay
-            logger.warning(
-                "Max reconnection attempts reached, entering extended backoff (\(delay)s)"
-            )
-            await updateState(.extendedBackoff)
-        }
+        reconnectionAttempt += 1
+        // Exponential backoff: 1s, 2s, 4s, 8s, ... capped at maxBackoffDelay
+        let delay = min(maxBackoffDelay, Int(pow(2, Double(reconnectionAttempt - 1))))
+        await updateState(.reconnecting(attempt: reconnectionAttempt))
+        logger.info("Reconnecting in \(delay) seconds (attempt \(reconnectionAttempt))")
 
         // Spawn reconnection in a new task - the current task was cancelled by cleanupConnection()
         // so we need a fresh task that won't have Task.isCancelled == true.
@@ -744,12 +727,6 @@ final public class ExternalServerClient {
             }
 
             guard self.shouldReconnect else { return }
-
-            // Reset attempt counter after extended backoff
-            if self.reconnectionAttempt >= self.maxReconnectionAttempts {
-                self.reconnectionAttempt = 0
-                self.logger.info("Resetting reconnection attempt counter after extended backoff")
-            }
 
             await self.performConnect()
         }
