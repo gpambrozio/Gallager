@@ -2,6 +2,7 @@
     import ClaudeSpyCommon
     import ClaudeSpyEncryption
     import Dependencies
+    import Logging
     import SwiftUI
 
     /// View for managing paired hosts.
@@ -11,6 +12,8 @@
     struct ManageHostsView: View {
         @Environment(IOSSettings.self) private var settings
         @Environment(ViewerConnectionManager.self) private var connectionManager
+
+        private let logger = Logger(label: "com.claudespy.managehosts")
 
         @State private var showPairingSheet = false
         @State private var hostToDelete: PairedHost?
@@ -89,7 +92,12 @@
 
             // Notify relay server so it removes the pairing record and notifies the host (best effort)
             Task {
-                try? await deletePairingFromServer(pairId: host.id)
+                do {
+                    try await deletePairingFromServer(pairId: host.id)
+                } catch {
+                    // Best effort — server will clean up stale pairings eventually
+                    logger.debug("Failed to notify server of unpair: \(error)")
+                }
             }
 
             // Delete encryption session key for this host
@@ -103,9 +111,7 @@
         }
 
         private func deletePairingFromServer(pairId: String) async throws {
-            let serverURL = settings.externalServerURL
-                .replacingOccurrences(of: "wss://", with: "https://")
-                .replacingOccurrences(of: "ws://", with: "http://")
+            let serverURL = settings.externalServerURL.httpURL
 
             guard let url = URL(string: "\(serverURL)/api/pairing/\(pairId)") else {
                 return

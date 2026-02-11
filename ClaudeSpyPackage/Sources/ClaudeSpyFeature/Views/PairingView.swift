@@ -206,9 +206,7 @@
         }
 
         private func completePairing(code: String) async throws -> PairingResponse {
-            let serverURL = settings.externalServerURL
-                .replacingOccurrences(of: "wss://", with: "https://")
-                .replacingOccurrences(of: "ws://", with: "http://")
+            let serverURL = settings.externalServerURL.httpURL
 
             guard let url = URL(string: "\(serverURL)/api/pairing/complete") else {
                 throw PairingError.invalidURL
