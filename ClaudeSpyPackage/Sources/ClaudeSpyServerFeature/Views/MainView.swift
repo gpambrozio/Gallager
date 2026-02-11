@@ -27,6 +27,9 @@ public struct MainView: View {
     @State private var creatingSelection: NewSessionCreatingState?
     @State private var detailPaneSize: CGSize = .zero
 
+    /// Per-session auto-resize state (keyed by pane target for local, "remote-hostId-paneId" for remote)
+    @State private var autoResizeEnabled: Set<String> = []
+
     public var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarContent
@@ -36,6 +39,7 @@ public struct MainView: View {
                     proxy.size
                 } action: { newSize in
                     detailPaneSize = newSize
+                    handleAutoResize()
                 }
         }
         .navigationSplitViewStyle(.balanced)
@@ -243,7 +247,7 @@ public struct MainView: View {
 
         // Actions for selected pane
         ToolbarItemGroup(placement: .primaryAction) {
-            if selectedRemotePane == nil, let pane = selectedPane {
+            if let pane = selectedPane, selectedRemotePane == nil {
                 Button {
                     attachToTerminal(pane)
                 } label: {
@@ -257,6 +261,8 @@ public struct MainView: View {
                     Symbols.macwindowBadgePlus.image
                 }
                 .help("Open mirror in new window")
+
+                resizeToolbarGroup(resizeKey: pane.target, isRemote: false)
 
                 Button {
                     showingCloseConfirmation = true
@@ -276,6 +282,8 @@ public struct MainView: View {
                 } message: {
                     Text("This will end all processes in the session.")
                 }
+            } else if let remote = selectedRemotePane {
+                resizeToolbarGroup(resizeKey: "remote-\(remote.hostId)-\(remote.paneId)", isRemote: true)
             }
 
             Button {
@@ -381,6 +389,83 @@ public struct MainView: View {
             }
             .controlSize(.small)
             .help("Connect to relay server for iOS monitoring")
+        }
+    }
+
+    // MARK: - Resize
+
+    @ViewBuilder
+    private func resizeToolbarGroup(resizeKey: String, isRemote: Bool) -> some View {
+        Button {
+            Task {
+                await resizeTerminalToFit(resizeKey: resizeKey, isRemote: isRemote)
+            }
+        } label: {
+            Symbols.arrowUpLeftAndArrowDownRight.image
+        }
+        .help("Resize tmux pane to fit mirror view")
+
+        Toggle(isOn: Binding(
+            get: { autoResizeEnabled.contains(resizeKey) },
+            set: { enabled in
+                if enabled {
+                    autoResizeEnabled.insert(resizeKey)
+                    // Immediately resize when enabling
+                    Task {
+                        await resizeTerminalToFit(resizeKey: resizeKey, isRemote: isRemote)
+                    }
+                } else {
+                    autoResizeEnabled.remove(resizeKey)
+                }
+            }
+        )) {
+            Symbols.arrowDownRightAndArrowUpLeft.image
+        }
+        .toggleStyle(.checkbox)
+        .help("Auto-resize tmux pane when mirror view changes size")
+    }
+
+    private func handleAutoResize() {
+        // Check if current selection has auto-resize enabled
+        if let pane = selectedPane, selectedRemotePane == nil {
+            guard autoResizeEnabled.contains(pane.target) else { return }
+            Task {
+                await resizeTerminalToFit(resizeKey: pane.target, isRemote: false)
+            }
+        } else if let remote = selectedRemotePane {
+            let key = "remote-\(remote.hostId)-\(remote.paneId)"
+            guard autoResizeEnabled.contains(key) else { return }
+            Task {
+                await resizeTerminalToFit(resizeKey: key, isRemote: true)
+            }
+        }
+    }
+
+    private func resizeTerminalToFit(resizeKey: String, isRemote: Bool) async {
+        let dimensions = calculateOptimalTerminalDimensions()
+
+        if isRemote {
+            guard
+                let remote = selectedRemotePane,
+                let manager = coordinator.viewerConnectionManager
+            else { return }
+
+            let result = await manager.sendCommand(
+                ResizeTmuxPane(width: dimensions.columns, height: dimensions.rows),
+                paneId: remote.paneId,
+                hostId: remote.hostId
+            )
+
+            if case let .failure(error) = result {
+                attachError = "Failed to resize remote pane: \(error.localizedDescription)"
+            }
+        } else {
+            guard let pane = selectedPane else { return }
+            do {
+                try await tmuxService.resizePane(pane.target, width: dimensions.columns, height: dimensions.rows)
+            } catch {
+                attachError = "Failed to resize: \(error.localizedDescription)"
+            }
         }
     }
 

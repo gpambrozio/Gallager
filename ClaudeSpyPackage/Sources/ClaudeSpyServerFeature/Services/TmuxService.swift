@@ -435,6 +435,24 @@ final public class TmuxService {
         }
     }
 
+    /// Resizes a tmux pane to the specified dimensions
+    /// - Parameters:
+    ///   - target: The pane target (e.g., "%5" or "session:0.1")
+    ///   - width: New width in columns
+    ///   - height: New height in rows
+    public func resizePane(_ target: String, width: Int, height: Int) async throws {
+        let result = try await runTmuxCommand([
+            "resize-pane",
+            "-t", target,
+            "-x", String(width),
+            "-y", String(height),
+        ])
+
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+    }
+
     /// Sends Ctrl+C to cancel the current operation in a pane
     public func sendInterrupt(_ target: String) async throws {
         _ = try await runTmuxCommand([
