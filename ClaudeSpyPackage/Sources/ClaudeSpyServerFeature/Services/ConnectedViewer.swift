@@ -391,6 +391,7 @@ final public class ConnectedViewer: Identifiable {
         case let .hostRegistered(response):
             if response.success {
                 logger.info("Successfully registered with relay server for viewer: \(viewerName)")
+                reconnectionAttempt = 0
                 await updateState(.connected)
                 connectedViewerDeviceName = response.viewerDeviceName
                 isViewerConnected = response.viewerDeviceName != nil
@@ -569,7 +570,8 @@ final public class ConnectedViewer: Identifiable {
 
         reconnectionAttempt += 1
         // Exponential backoff: 1s, 2s, 4s, 8s, ... capped at maxBackoffDelay
-        let delay = min(maxBackoffDelay, Int(pow(2, Double(reconnectionAttempt - 1))))
+        let exponent = min(reconnectionAttempt - 1, 20)
+        let delay = min(maxBackoffDelay, Int(pow(2, Double(exponent))))
         await updateState(.reconnecting(attempt: reconnectionAttempt))
         logger.info("Reconnecting to \(viewerName) in \(delay)s (attempt \(reconnectionAttempt))")
 

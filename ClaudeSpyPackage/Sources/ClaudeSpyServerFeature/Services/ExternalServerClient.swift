@@ -460,6 +460,7 @@ final public class ExternalServerClient {
         // before the client's registration frame arrives, causing it to be
         // silently consumed by the default no-op handler. We retry below
         // to handle this.
+        reconnectionAttempt = 0
         await updateState(.connected)
 
         // Retry registration after a delay to handle server-side race condition.
@@ -544,6 +545,7 @@ final public class ExternalServerClient {
         case let .hostRegistered(response):
             if response.success {
                 logger.info("Successfully registered with relay server")
+                reconnectionAttempt = 0
                 await updateState(.connected)
                 connectedViewerDeviceName = response.viewerDeviceName
                 isViewerConnected = response.viewerDeviceName != nil
@@ -709,9 +711,14 @@ final public class ExternalServerClient {
 
         reconnectionAttempt += 1
         // Exponential backoff: 1s, 2s, 4s, 8s, ... capped at maxBackoffDelay
-        let delay = min(maxBackoffDelay, Int(pow(2, Double(reconnectionAttempt - 1))))
+        let exponent = min(reconnectionAttempt - 1, 20)
+        let delay = min(maxBackoffDelay, Int(pow(2, Double(exponent))))
         await updateState(.reconnecting(attempt: reconnectionAttempt))
-        logger.info("Reconnecting in \(delay) seconds (attempt \(reconnectionAttempt))")
+        if reconnectionAttempt <= 10 {
+            logger.info("Reconnecting in \(delay) seconds (attempt \(reconnectionAttempt))")
+        } else {
+            logger.debug("Reconnecting in \(delay) seconds (attempt \(reconnectionAttempt))")
+        }
 
         // Spawn reconnection in a new task - the current task was cancelled by cleanupConnection()
         // so we need a fresh task that won't have Task.isCancelled == true.
