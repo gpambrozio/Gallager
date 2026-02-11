@@ -49,6 +49,17 @@ public struct RemoteAccessSettingsView: View {
         .formStyle(.grouped)
         .frame(minWidth: 400, minHeight: 300)
         .navigationTitle("Remote Access")
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: .init("com.claudespy.e2e.unpairViewer")
+            )
+        ) { _ in
+            guard let viewer = pairingManager.pairedViewers.first else { return }
+            Task {
+                await pairingManager.unpair(deviceId: viewer.id)
+                await coordinator.connectedViewerManager?.disconnect(from: viewer.id)
+            }
+        }
     }
 
     // MARK: - Connection Status Row
@@ -326,6 +337,7 @@ private struct ViewerRow: View {
             } label: {
                 Symbols.ellipsisCircle.image
             }
+            .help("Manage Viewer")
             .menuStyle(.borderlessButton)
             .fixedSize()
         }

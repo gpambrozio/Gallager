@@ -37,6 +37,10 @@ enum SimulatorAccessibility {
     }
 
     /// Find the element with subrole "iOSContentGroup" in the AX tree
+    ///
+    /// On newer Xcode/Simulator versions, windows may not appear in
+    /// `kAXChildrenAttribute` but are accessible via `kAXWindowsAttribute`.
+    /// We search both paths to find the iOS content group.
     private static func findIOSContentGroup(
         in element: AXUIElement,
         depth: Int,
@@ -49,9 +53,33 @@ enum SimulatorAccessibility {
             return element
         }
 
+        // Search children first (works on older Simulator versions)
         for child in getChildren(of: element) {
             if let found = findIOSContentGroup(in: child, depth: depth + 1, maxDepth: maxDepth) {
                 return found
+            }
+        }
+
+        // Also search windows (newer Simulator versions expose windows via
+        // kAXWindowsAttribute but not kAXChildrenAttribute)
+        if depth == 0 {
+            let windows = getWindows(of: element)
+            logger.info("Windows search: found \(windows.count) windows at depth 0")
+            for window in windows {
+                let windowRole = getStringAttribute(of: window, attribute: kAXRoleAttribute as String) ?? "?"
+                let windowTitle = getStringAttribute(of: window, attribute: kAXTitleAttribute as String) ?? "?"
+                let windowSubrole = getSubrole(of: window) ?? ""
+                logger.info("  Window: role=\(windowRole) title=\(windowTitle) subrole=\(windowSubrole)")
+                let windowChildren = getChildren(of: window)
+                logger.info("  Window children: \(windowChildren.count)")
+                for child in windowChildren {
+                    let childRole = getStringAttribute(of: child, attribute: kAXRoleAttribute as String) ?? "?"
+                    let childSubrole = getSubrole(of: child) ?? ""
+                    logger.info("    child: role=\(childRole) subrole=\(childSubrole)")
+                }
+                if let found = findIOSContentGroup(in: window, depth: depth + 1, maxDepth: maxDepth) {
+                    return found
+                }
             }
         }
 
@@ -69,6 +97,7 @@ enum SimulatorAccessibility {
         let role = getStringAttribute(of: element, attribute: kAXRoleAttribute as String) ?? "Unknown"
         let subrole = getStringAttribute(of: element, attribute: kAXSubroleAttribute as String)
         let label = getStringAttribute(of: element, attribute: kAXDescriptionAttribute as String)
+            ?? getStringAttribute(of: element, attribute: "AXLabel")
             ?? getStringAttribute(of: element, attribute: kAXTitleAttribute as String)
         let value = getValueString(of: element)
         let title = getStringAttribute(of: element, attribute: kAXTitleAttribute as String)
@@ -159,6 +188,14 @@ enum SimulatorAccessibility {
         }
 
         return CGRect(origin: position, size: size)
+    }
+
+    /// Get windows of an AX application element (via kAXWindowsAttribute)
+    private static func getWindows(of element: AXUIElement) -> [AXUIElement] {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, kAXWindowsAttribute as CFString, &value)
+        guard result == .success, let windows = value as? [AXUIElement] else { return [] }
+        return windows
     }
 
     static func getChildren(of element: AXUIElement) -> [AXUIElement] {

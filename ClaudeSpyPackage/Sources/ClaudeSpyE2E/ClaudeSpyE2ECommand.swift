@@ -122,6 +122,10 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     private static let allScenarios: [TestScenario] = [
         FreshPairingScenario.scenario,
         NewTerminalScenario.scenario,
+        UnpairFromIOSScenario.scenario,
+        UnpairFromMacOSScenario.scenario,
+        DisconnectIOSUnpairMacOSScenario.scenario,
+        DisconnectMacOSUnpairIOSScenario.scenario,
     ]
 
     private func runTests(orchestrator: TestOrchestrator) async throws {

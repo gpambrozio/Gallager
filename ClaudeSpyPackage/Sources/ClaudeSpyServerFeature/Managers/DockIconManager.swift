@@ -8,6 +8,10 @@ import AppKit
 /// the dock icon when the user is actively working with windows.
 @MainActor
 final public class DockIconManager {
+    /// When true, the manager will not switch activation policy.
+    /// Set during E2E testing so the app keeps its menu bar visible.
+    public static var isE2ETestMode = false
+
     private var observationTask: Task<Void, Never>?
     private var updatePolicyTask: Task<Void, Never>?
 
@@ -155,6 +159,7 @@ final public class DockIconManager {
 
     /// Updates the activation policy based on visible window count.
     private func updateActivationPolicy() {
+        guard !Self.isE2ETestMode else { return }
         let visibleCount = countVisibleAppWindows()
         let currentPolicy = NSApp.activationPolicy()
 

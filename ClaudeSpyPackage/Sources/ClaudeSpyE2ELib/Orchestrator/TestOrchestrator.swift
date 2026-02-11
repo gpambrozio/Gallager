@@ -145,6 +145,12 @@ public actor TestOrchestrator {
                 await self.serverDriver.isAnyHostConnected()
             }
 
+        case let .serverDisconnectDevice(deviceType):
+            await serverDriver.disconnectDevice(type: deviceType)
+
+        case let .waitForNoPairings(timeout):
+            try await serverDriver.waitForNoPairings(timeout: timeout)
+
         case .stopServer:
             try await serverDriver.stop()
 
@@ -169,8 +175,7 @@ public actor TestOrchestrator {
             _ = try await simulatorDriver.waitForElement(matching: query, timeout: timeout)
 
         case let .iosTap(query):
-            let element = try await simulatorDriver.waitForElement(matching: query, timeout: 5)
-            try await simulatorDriver.tap(element: element)
+            try await simulatorDriver.tap(query: query)
 
         case let .iosTapCoordinate(x, y):
             try await simulatorDriver.tap(x: x, y: y)
@@ -179,9 +184,34 @@ public actor TestOrchestrator {
             let resolvedText = context.resolve(text)
             try await simulatorDriver.type(text: resolvedText)
 
+        case let .iosSwipeLeft(query):
+            // Use HTTP custom action "Delete" (triggers SwiftUI .onDelete) instead of
+            // CGEvent swipe which doesn't work reliably on Simulator.
+            let success = try await simulatorDriver.performCustomAction(query: query, action: "Delete")
+            if !success {
+                // Fall back to CGEvent swipe if custom action isn't available
+                let element = try await simulatorDriver.waitForElement(matching: query, timeout: 5)
+                try await simulatorDriver.swipeLeft(on: element)
+            }
+
+        case let .iosWaitForElementToDisappear(query, timeout):
+            try await simulatorDriver.waitForElementToDisappear(matching: query, timeout: timeout)
+
         case let .iosScreenshot(label):
             let path = "\(screenshotsDir)/\(label).png"
             _ = try await simulatorDriver.screenshot(output: path)
+
+        case .iosLogUI:
+            let elements = await simulatorDriver.describeUI()
+            func logTree(_ elements: [UIElement], indent: String = "") {
+                for element in elements {
+                    logger.info("\(indent)\(element)")
+                    logTree(element.children, indent: indent + "  ")
+                }
+            }
+            logger.info("=== iOS UI Tree ===")
+            logTree(elements)
+            logger.info("=== End iOS UI Tree ===")
 
         // macOS App
         case let .launchMacApp(arguments):
@@ -203,6 +233,12 @@ public actor TestOrchestrator {
         case let .macClickButton(titled):
             try await macOSDriver.clickButton(titled: titled)
 
+        case let .macClickMenuItem(menuButtonTitle, itemTitle):
+            try await macOSDriver.clickMenuItem(menuButtonTitle: menuButtonTitle, itemTitle: itemTitle)
+
+        case .macUnpair:
+            try await macOSDriver.unpair()
+
         case let .macReadClipboard(storeAs):
             let value = await macOSDriver.readClipboard()
             logger.info("  Clipboard value: \(value) → stored as ${\(storeAs)}")
@@ -210,7 +246,11 @@ public actor TestOrchestrator {
 
         case let .macScreenshot(label):
             let path = "\(screenshotsDir)/\(label).png"
-            try await macOSDriver.screenshot(output: path)
+            do {
+                try await macOSDriver.screenshot(output: path)
+            } catch {
+                logger.warning("macOS screenshot failed (non-fatal): \(error.localizedDescription)")
+            }
 
         // General
         case let .wait(seconds):

@@ -19,6 +19,13 @@ public actor ServerDriver {
         self.port = port
         logger.info("Starting test server on port \(port)")
 
+        // Clean up stale pairs.json from a previous aborted test run
+        let pairsFile = FileManager.default.currentDirectoryPath + "/pairs.json"
+        if FileManager.default.fileExists(atPath: pairsFile) {
+            try? FileManager.default.removeItem(atPath: pairsFile)
+            logger.info("Removed stale pairs.json before starting server")
+        }
+
         var env = Environment.testing
         env.arguments = ["vapor", "serve", "--port", "\(port)", "--hostname", "127.0.0.1"]
 
@@ -114,5 +121,23 @@ public actor ServerDriver {
         guard let app else { return }
         await app.resetPairingState()
         logger.info("Server state reset")
+    }
+
+    /// Disconnect all WebSocket connections for a given device type
+    public func disconnectDevice(type: E2EDeviceType) async {
+        guard let app else { return }
+        await app.disconnectDevice(deviceType: type.rawValue)
+        logger.info("Disconnected all \(type.rawValue) connections")
+    }
+
+    /// Wait until the server has no active pairings
+    public func waitForNoPairings(timeout: TimeInterval = 15) async throws {
+        try await Polling.waitUntil(
+            description: "server has no active pairings",
+            timeout: timeout,
+            pollInterval: 1
+        ) {
+            await self.getActivePairingCount() == 0
+        }
     }
 }

@@ -7,9 +7,16 @@ enum SimulatorInteraction {
     private static let logger = Logger(label: "e2e.sim-interaction")
     private static let processRunner = ProcessRunner()
 
-    /// Tap at absolute screen coordinates using CGEvent
+    /// Tap at absolute screen coordinates using CGEvent.
+    /// Activates the Simulator first to ensure it's in the foreground.
     static func tap(at point: CGPoint) async throws {
         logger.info("Tapping at screen coordinates: (\(point.x), \(point.y))")
+
+        // Bring Simulator to front so the CGEvent hits the right window
+        try await runAppleScript("""
+        tell application "Simulator" to activate
+        delay 0.3
+        """)
 
         let mouseDown = CGEvent(
             mouseEventSource: nil,
@@ -62,9 +69,16 @@ enum SimulatorInteraction {
         }
     }
 
-    /// Perform a swipe gesture (using mouse drag)
+    /// Perform a swipe gesture (using mouse drag).
+    /// Activates the Simulator first to ensure it's in the foreground.
     static func swipe(from start: CGPoint, to end: CGPoint, duration: TimeInterval = 0.3) async throws {
         logger.info("Swiping from (\(start.x), \(start.y)) to (\(end.x), \(end.y))")
+
+        // Bring Simulator to front so the CGEvent hits the right window
+        try await runAppleScript("""
+        tell application "Simulator" to activate
+        delay 0.3
+        """)
 
         let steps = Int(duration / 0.016) // ~60fps
         let dx = (end.x - start.x) / CGFloat(steps)
@@ -116,6 +130,26 @@ enum SimulatorInteraction {
         delay 0.3
         """
         try await runAppleScript(script)
+    }
+
+    /// Enable "Connect Hardware Keyboard" for a simulator device via PlistBuddy.
+    /// This is required for AppleScript keystrokes to reach iOS text fields.
+    static func enableHardwareKeyboard(udid: String) async throws {
+        logger.info("Enabling hardware keyboard for simulator \(udid)")
+        let plistPath = NSHomeDirectory() + "/Library/Preferences/com.apple.iphonesimulator.plist"
+        let keyPath = "DevicePreferences:\(udid):ConnectHardwareKeyboard"
+
+        // Try Set first, then Add if the key doesn't exist
+        let setResult = try await processRunner.run(
+            "/usr/libexec/PlistBuddy",
+            arguments: ["-c", "Set :\(keyPath) true", plistPath]
+        )
+        if !setResult.isSuccess {
+            _ = try await processRunner.run(
+                "/usr/libexec/PlistBuddy",
+                arguments: ["-c", "Add :\(keyPath) bool true", plistPath]
+            )
+        }
     }
 
     // MARK: - Private Helpers

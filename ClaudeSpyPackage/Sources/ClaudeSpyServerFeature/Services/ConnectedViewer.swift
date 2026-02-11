@@ -455,10 +455,18 @@ final public class ConnectedViewer: Identifiable {
             break
 
         case let .error(errorMessage):
-            logger.error("Server error: \(errorMessage.message)")
-            if !errorMessage.recoverable {
-                await updateState(.error(errorMessage.message))
-                await disconnect()
+            if errorMessage.code == "INVALID_PAIR" {
+                logger.info("Received INVALID_PAIR error, treating as unpair")
+                shouldReconnect = false
+                await cleanupConnection()
+                await updateState(.disconnected)
+                await onUnpaired?()
+            } else {
+                logger.error("Server error: \(errorMessage.message)")
+                if !errorMessage.recoverable {
+                    await updateState(.error(errorMessage.message))
+                    await disconnect()
+                }
             }
 
         default:

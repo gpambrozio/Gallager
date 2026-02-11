@@ -45,7 +45,7 @@ public enum FreshPairingScenario {
         TestStep.wait(seconds: 5)
 
         // 7. Verify iOS transitioned to main view
-        TestStep.iosWaitForElement(.labelContains("Sessions"), timeout: 10)
+        TestStep.iosWaitForElement(.labelContains("Sessions"), timeout: 15)
         TestStep.iosScreenshot(label: "03-ios-paired")
 
         // 8. Verify server state

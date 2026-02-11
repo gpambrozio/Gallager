@@ -42,6 +42,13 @@ struct TmuxPaneMirrorApp: App {
                 $0[PreferencesService.self] = prefs
                 $0[SecretsService.self] = .inMemory()
             }
+
+            // Force regular activation policy so the app has a menu bar
+            DockIconManager.isE2ETestMode = true
+            NSApplication.shared.setActivationPolicy(.regular)
+
+            // Start accessibility server for E2E UI inspection
+            TestAccessibilityServer.startIfNeeded()
         }
 
         _coordinator = State(initialValue: AppCoordinator())

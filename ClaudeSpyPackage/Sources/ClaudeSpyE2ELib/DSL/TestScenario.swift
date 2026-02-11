@@ -13,6 +13,12 @@ public struct TestScenario: Sendable {
     }
 }
 
+/// Device type for E2E server-side operations
+public enum E2EDeviceType: String, Sendable {
+    case host
+    case viewer
+}
+
 /// An individual test step that the orchestrator executes
 public enum TestStep: Sendable {
     // MARK: - Server
@@ -25,6 +31,10 @@ public enum TestStep: Sendable {
     case verifyServerHasPairings(count: Int)
     /// Wait for the macOS host to connect to the server via WebSocket
     case waitForHostConnected(timeout: TimeInterval = 15)
+    /// Disconnect a device type's WebSocket connections on the server
+    case serverDisconnectDevice(E2EDeviceType)
+    /// Wait until the server has no active pairings
+    case waitForNoPairings(timeout: TimeInterval = 15)
     /// Stop the server
     case stopServer
 
@@ -44,8 +54,14 @@ public enum TestStep: Sendable {
     case iosTapCoordinate(x: CGFloat, y: CGFloat)
     /// Type text into the iOS app
     case iosType(text: String)
+    /// Swipe left on an iOS UI element
+    case iosSwipeLeft(ElementQuery)
+    /// Wait for an iOS UI element to disappear
+    case iosWaitForElementToDisappear(ElementQuery, timeout: TimeInterval = 10)
     /// Take an iOS screenshot
     case iosScreenshot(label: String)
+    /// Dump the iOS AX tree to the log (for debugging)
+    case iosLogUI
 
     // MARK: - macOS App
 
@@ -61,6 +77,10 @@ public enum TestStep: Sendable {
     case macSelectSettingsTab(String)
     /// Click a button by title
     case macClickButton(titled: String)
+    /// Click a menu trigger button then click a menu item
+    case macClickMenuItem(menuButtonTitle: String, itemTitle: String)
+    /// Trigger unpair on the first paired viewer via test HTTP endpoint
+    case macUnpair
     /// Read the clipboard and store in context
     case macReadClipboard(storeAs: String)
     /// Take a macOS screenshot

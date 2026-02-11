@@ -598,10 +598,18 @@ final public class ViewerRelayClient {
             }
 
         case let .error(errorMessage):
-            logger.error("Server error: \(errorMessage.message)")
-            if !errorMessage.recoverable {
-                setState(.error(errorMessage.message))
-                await disconnect()
+            if errorMessage.code == "INVALID_PAIR" {
+                logger.info("Received INVALID_PAIR error, treating as unpair")
+                shouldReconnect = false
+                await cleanupConnection()
+                setState(.disconnected)
+                await onUnpaired?()
+            } else {
+                logger.error("Server error: \(errorMessage.message)")
+                if !errorMessage.recoverable {
+                    setState(.error(errorMessage.message))
+                    await disconnect()
+                }
             }
 
         default:

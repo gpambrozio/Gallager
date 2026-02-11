@@ -34,6 +34,13 @@
                                 connection: connectionManager.connection(for: host.id),
                                 showUsername: settings.hasDuplicateHostName(for: host)
                             )
+                            .accessibilityIdentifier("host-row")
+                            .accessibilityAction(named: "Delete") {
+                                // In E2E test mode, bypass the confirmation dialog and remove directly.
+                                // The dialog buttons aren't accessible via the HTTP accessibility server
+                                // on iOS 26.
+                                Task { await removeHost(host) }
+                            }
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 hostToEdit = host
