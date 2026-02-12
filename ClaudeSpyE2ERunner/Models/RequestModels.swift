@@ -27,11 +27,9 @@ struct CustomActionRequest: Codable {
 }
 
 struct ViewHierarchyRequest: Codable {
-    let excludeKeyboardElements: Bool
     let bundleId: String?
 
-    init(excludeKeyboardElements: Bool = false, bundleId: String? = nil) {
-        self.excludeKeyboardElements = excludeKeyboardElements
+    init(bundleId: String? = nil) {
         self.bundleId = bundleId
     }
 }

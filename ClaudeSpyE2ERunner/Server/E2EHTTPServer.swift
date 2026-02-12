@@ -7,7 +7,6 @@ enum Route: String, CaseIterable {
     case swipe
     case inputText
     case customAction
-    case screenshot
     case status
 
     func toHTTPRoute() -> HTTPRoute {

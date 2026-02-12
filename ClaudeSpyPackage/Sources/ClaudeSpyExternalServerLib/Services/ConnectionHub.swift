@@ -54,11 +54,6 @@ actor ConnectionHub {
         }
     }
 
-    /// Whether there are any active connections at all (for E2E testing)
-    var hasConnections: Bool {
-        !connections.isEmpty
-    }
-
     // MARK: - Connection Status
 
     /// Check if host is connected for a pair

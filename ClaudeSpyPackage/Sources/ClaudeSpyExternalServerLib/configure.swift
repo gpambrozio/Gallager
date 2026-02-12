@@ -137,11 +137,4 @@ public extension Application {
             return false
         }
     }
-
-    /// Whether there are any active WebSocket connections (for E2E testing)
-    var hasNoConnections: Bool {
-        get async {
-            await !connectionHub.hasConnections
-        }
-    }
 }

@@ -11,16 +11,6 @@ struct PointerEventPath {
         return Self(path: path, offset: offset)
     }
 
-    static func pathForTextInput(offset: TimeInterval = 0) -> Self {
-        let alloced = objc_lookUpClass("XCPointerEventPath")!.alloc() as! NSObject
-        let selector = NSSelectorFromString("initForTextInput")
-        let imp = alloced.method(for: selector)
-        typealias Method = @convention(c) (NSObject, Selector) -> NSObject
-        let method = unsafeBitCast(imp, to: Method.self)
-        let path = method(alloced, selector)
-        return Self(path: path, offset: offset)
-    }
-
     let path: NSObject
     var offset: TimeInterval
 

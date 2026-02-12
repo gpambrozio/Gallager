@@ -15,8 +15,6 @@ enum RouteHandlerFactory {
             InputTextHandler()
         case .customAction:
             CustomActionHandler()
-        case .screenshot:
-            ScreenshotHandler()
         case .status:
             StatusHandler()
         }

@@ -318,11 +318,6 @@ public actor SimulatorDriver {
         try await SimulatorInteraction.tap(at: element.center)
     }
 
-    /// Tap on a UI element (frames are in iOS coordinates)
-    public func tap(element: UIElement) async throws {
-        try await SimulatorHTTPClient.tap(x: element.center.x, y: element.center.y)
-    }
-
     /// Tap at raw iOS coordinates
     public func tap(x: CGFloat, y: CGFloat) async throws {
         try await SimulatorHTTPClient.tap(x: x, y: y)

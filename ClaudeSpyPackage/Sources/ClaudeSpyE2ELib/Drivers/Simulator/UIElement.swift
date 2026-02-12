@@ -31,23 +31,4 @@ public struct UIElement: Sendable, CustomStringConvertible {
     public func flattened() -> [UIElement] {
         [self] + children.flatMap { $0.flattened() }
     }
-
-    /// Return a copy with all frames offset by the given origin (iOS → macOS screen coordinates)
-    func offsettingFrames(by origin: CGPoint) -> UIElement {
-        UIElement(
-            role: role,
-            subrole: subrole,
-            label: label,
-            value: value,
-            title: title,
-            identifier: identifier,
-            frame: CGRect(
-                x: frame.origin.x + origin.x,
-                y: frame.origin.y + origin.y,
-                width: frame.size.width,
-                height: frame.size.height
-            ),
-            children: children.map { $0.offsettingFrames(by: origin) }
-        )
-    }
 }
