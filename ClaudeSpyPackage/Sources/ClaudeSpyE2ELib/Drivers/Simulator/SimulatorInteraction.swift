@@ -180,6 +180,7 @@ public enum SimulatorDriverError: Error, LocalizedError {
     case elementNotFound(ElementQuery)
     case noContentGroup
     case screenshotFailed(String)
+    case configurationError(String)
 
     public var errorDescription: String? {
         switch self {
@@ -195,6 +196,8 @@ public enum SimulatorDriverError: Error, LocalizedError {
             "Could not find iOS content group in Simulator"
         case let .screenshotFailed(reason):
             "Screenshot failed: \(reason)"
+        case let .configurationError(message):
+            "Configuration error: \(message)"
         }
     }
 }

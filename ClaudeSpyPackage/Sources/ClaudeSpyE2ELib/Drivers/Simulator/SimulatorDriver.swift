@@ -9,10 +9,10 @@ public actor SimulatorDriver {
     private var udid: String?
     private var simulatorPID: pid_t?
     private var appBundleId: String?
-    private var cachedContentOrigin: CGPoint?
-    /// Skip macOS AX tree traversal (broken on Xcode 26.x — can't find
-    /// iOSContentGroup, traversal takes ~2 min). Use HTTP-only by default.
-    private var useHTTPOnly = true
+    /// XCTest runner xcodebuild process (background)
+    private var runnerProcess: Process?
+    /// Path to the derived data containing the built XCTest runner
+    private var e2eRunnerDerivedDataPath: String?
 
     public init() { }
 
@@ -110,6 +110,11 @@ public actor SimulatorDriver {
             throw SimulatorDriverError.simulatorNotRunning
         }
 
+        // Start the XCTest runner if we have a derived data path and it's not already running
+        if e2eRunnerDerivedDataPath != nil && runnerProcess == nil {
+            try await startE2ERunner()
+        }
+
         logger.info("Launching app: \(bundleId)")
         var args = ["simctl", "launch", udid, bundleId]
         args.append(contentsOf: arguments)
@@ -150,49 +155,124 @@ public actor SimulatorDriver {
         )
     }
 
-    // MARK: - UI Inspection
+    // MARK: - E2E Runner Lifecycle
 
-    /// Describe the current UI tree.
-    ///
-    /// Tries macOS Accessibility API first (direct AX tree traversal).
-    /// If that fails (broken on Xcode 26.3.0 RC), falls back to querying
-    /// the iOS app's built-in HTTP accessibility server.
-    public func describeUI(maxDepth: Int = 15) async -> [UIElement] {
-        // Try AX-based approach first (skip if previously failed)
-        if !useHTTPOnly, let pid = simulatorPID {
-            let (elements, origin) = SimulatorAccessibility.describeUI(
-                simulatorPID: pid,
-                maxDepth: maxDepth
-            )
-            if let origin {
-                cachedContentOrigin = origin
-                return elements
-            }
-            // AX tree failed — don't try again (saves ~2 min per call)
-            useHTTPOnly = true
-            logger.info("AX tree failed, switching to HTTP-only mode")
+    /// Set the path to the E2E runner derived data (from build-for-testing)
+    public func setE2ERunnerPath(_ path: String) {
+        e2eRunnerDerivedDataPath = path
+    }
+
+    /// Install and start the XCTest E2E runner
+    public func startE2ERunner() async throws {
+        guard let udid else {
+            throw SimulatorDriverError.simulatorNotRunning
+        }
+        guard let derivedDataPath = e2eRunnerDerivedDataPath else {
+            throw SimulatorDriverError.configurationError("E2E runner derived data path not set")
         }
 
-        // HTTP-based fallback
+        // Find the xctestrun file
+        let xctestrunPath = try await findXCTestRunFile(in: derivedDataPath)
+        logger.info("Found xctestrun: \(xctestrunPath)")
+
+        // Install the host app
+        let hostAppPath = try await findHostApp(in: derivedDataPath)
+        logger.info("Installing E2E host app: \(hostAppPath)")
+        _ = try await processRunner.runOrThrow(
+            "/usr/bin/xcrun",
+            arguments: ["simctl", "install", udid, hostAppPath]
+        )
+
+        // Start xcodebuild test-without-building in the background
+        logger.info("Starting XCTest runner via xcodebuild test-without-building")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcodebuild")
+        process.arguments = [
+            "test-without-building",
+            "-xctestrun", xctestrunPath,
+            "-destination", "id=\(udid)",
+        ]
+        // Silence xcodebuild output
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        try process.run()
+        runnerProcess = process
+
+        // Wait for the runner to be responsive
+        try await waitForRunnerReady()
+    }
+
+    /// Stop the XCTest runner
+    public func stopE2ERunner() {
+        if let process = runnerProcess, process.isRunning {
+            logger.info("Stopping XCTest runner (PID: \(process.processIdentifier))")
+            process.terminate()
+        }
+        runnerProcess = nil
+    }
+
+    /// Wait for the runner's HTTP server to become responsive
+    private func waitForRunnerReady(timeout: TimeInterval = 30) async throws {
+        logger.info("Waiting for XCTest runner to be ready...")
+        let deadline = Date().addingTimeInterval(timeout)
+
+        while Date() < deadline {
+            if await SimulatorHTTPClient.isRunnerReady() {
+                logger.info("XCTest runner is ready")
+                return
+            }
+            try await Task.sleep(for: .seconds(1))
+        }
+
+        throw SimulatorDriverError.configurationError("XCTest runner did not start within \(Int(timeout))s")
+    }
+
+    /// Find the .xctestrun file in the derived data
+    private func findXCTestRunFile(in derivedDataPath: String) async throws -> String {
+        let buildDir = "\(derivedDataPath)/Build/Products"
+        let fm = FileManager.default
+
+        guard let items = try? fm.contentsOfDirectory(atPath: buildDir) else {
+            throw SimulatorDriverError.configurationError("Build products not found at \(buildDir)")
+        }
+
+        if let xctestrun = items.first(where: { $0.hasSuffix(".xctestrun") }) {
+            return "\(buildDir)/\(xctestrun)"
+        }
+
+        throw SimulatorDriverError.configurationError("No .xctestrun file found in \(buildDir)")
+    }
+
+    /// Find the E2E host app bundle in the derived data
+    private func findHostApp(in derivedDataPath: String) async throws -> String {
+        let buildDir = "\(derivedDataPath)/Build/Products"
+        let fm = FileManager.default
+
+        // Look in Debug-iphonesimulator or any *-iphonesimulator directory
+        guard let items = try? fm.contentsOfDirectory(atPath: buildDir) else {
+            throw SimulatorDriverError.configurationError("Build products not found at \(buildDir)")
+        }
+
+        for dir in items where dir.contains("iphonesimulator") {
+            let appPath = "\(buildDir)/\(dir)/ClaudeSpyE2EHost.app"
+            if fm.fileExists(atPath: appPath) {
+                return appPath
+            }
+        }
+
+        throw SimulatorDriverError.configurationError("ClaudeSpyE2EHost.app not found in \(buildDir)")
+    }
+
+    // MARK: - UI Inspection
+
+    /// Describe the current UI tree via the XCTest runner's HTTP endpoint.
+    public func describeUI(maxDepth: Int = 15) async -> [UIElement] {
         do {
             let response = try await SimulatorHTTPClient.describeUI()
-
-            // Calculate content origin from CGWindowList if we don't have one yet
-            if cachedContentOrigin == nil {
-                cachedContentOrigin = SimulatorHTTPClient.calculateContentOrigin(
-                    screenSize: response.screenSize
-                )
-            }
-
-            // Convert iOS screen coordinates to macOS screen coordinates
-            if let contentOrigin = cachedContentOrigin {
-                return response.elements.map { $0.offsettingFrames(by: contentOrigin) }
-            } else {
-                logger.warning("No content origin available, returning elements with iOS coordinates")
-                return response.elements
-            }
+            return response.elements
         } catch {
-            logger.warning("HTTP accessibility server not available: \(error)")
+            logger.warning("XCTest runner not available: \(error)")
             return []
         }
     }
@@ -221,49 +301,32 @@ public actor SimulatorDriver {
     // MARK: - Interaction
 
     /// Tap on a UI element by query.
-    /// Prefers HTTP-based tap (reliable, happens inside the app process).
-    /// Falls back to CGEvent tap if HTTP is unavailable.
+    /// Uses the XCTest runner's HTTP API for coordinate-based tapping.
     public func tap(query: ElementQuery) async throws {
-        // Try HTTP-based tap first (works regardless of window z-ordering)
-        do {
-            let success = try await SimulatorHTTPClient.tap(query: query)
-            if success {
-                logger.info("Tapped via HTTP: \(query)")
-                return
-            }
-            logger.warning("HTTP tap returned not_found for \(query), falling back to CGEvent")
-        } catch {
-            logger.warning("HTTP tap failed (\(error)), falling back to CGEvent")
+        let success = try await SimulatorHTTPClient.tap(query: query)
+        if success {
+            logger.info("Tapped via XCTest runner: \(query)")
+            return
         }
 
-        // Fall back to CGEvent-based tap
+        logger.warning("XCTest runner tap returned not_found for \(query), falling back to CGEvent")
         let element = try await waitForElement(matching: query, timeout: 5)
         try await SimulatorInteraction.tap(at: element.center)
     }
 
-    /// Tap on a UI element (AX frames are already in screen coordinates)
+    /// Tap on a UI element (frames are in iOS coordinates)
     public func tap(element: UIElement) async throws {
-        try await SimulatorInteraction.tap(at: element.center)
+        try await SimulatorHTTPClient.tap(x: element.center.x, y: element.center.y)
     }
 
     /// Tap at raw iOS coordinates
     public func tap(x: CGFloat, y: CGFloat) async throws {
-        guard let contentOrigin = cachedContentOrigin else {
-            throw SimulatorDriverError.noContentGroup
-        }
-
-        let screenPoint = SimulatorWindow.toScreenCoordinates(
-            point: CGPoint(x: x, y: y),
-            contentOrigin: contentOrigin
-        )
-        try await SimulatorInteraction.tap(at: screenPoint)
+        try await SimulatorHTTPClient.tap(x: x, y: y)
     }
 
-    /// Swipe left on a UI element (AX frames are already in screen coordinates)
+    /// Swipe left on a UI element via the XCTest runner
     public func swipeLeft(on element: UIElement) async throws {
         let center = element.center
-        // Use at least 200px swipe distance — small elements (e.g., label-only frames)
-        // produce swipes too short to trigger iOS's swipe-to-delete gesture.
         let swipeDistance: CGFloat = max(element.frame.width * 0.6, 200)
         let start = CGPoint(x: center.x + swipeDistance / 2, y: center.y)
         let end = CGPoint(x: center.x - swipeDistance / 2, y: center.y)
@@ -271,16 +334,15 @@ public actor SimulatorDriver {
     }
 
     /// Perform a custom accessibility action on an element.
-    /// Used for swipe-to-delete via accessibility rather than gesture simulation.
     public func performCustomAction(query: ElementQuery, action: String) async throws -> Bool {
         do {
             let success = try await SimulatorHTTPClient.performCustomAction(query: query, action: action)
             if success {
-                logger.info("Custom action '\(action)' via HTTP on \(query)")
+                logger.info("Custom action '\(action)' via XCTest runner on \(query)")
                 return true
             }
         } catch {
-            logger.warning("HTTP custom action failed: \(error)")
+            logger.warning("XCTest runner custom action failed: \(error)")
         }
         return false
     }
@@ -300,22 +362,14 @@ public actor SimulatorDriver {
         }
     }
 
-    /// Type text into the focused field.
-    /// Prefers the HTTP accessibility server (reliable, no hardware keyboard needed).
-    /// Falls back to AppleScript keystrokes if HTTP is unavailable.
+    /// Type text into the focused field via the XCTest runner.
     public func type(text: String, slow: Bool = false) async throws {
-        // Try HTTP-based typing first (works regardless of hardware keyboard setting)
-        do {
-            let success = try await SimulatorHTTPClient.type(text: text)
-            if success {
-                logger.info("Typed via HTTP accessibility server")
-                return
-            }
-            logger.warning("HTTP type returned no_responder, falling back to AppleScript")
-        } catch {
-            logger.warning("HTTP type failed (\(error)), falling back to AppleScript")
+        let success = try await SimulatorHTTPClient.type(text: text)
+        if success {
+            logger.info("Typed via XCTest runner")
+            return
         }
-
+        logger.warning("XCTest runner type failed, falling back to AppleScript")
         try await SimulatorInteraction.type(text: text, slow: slow)
     }
 

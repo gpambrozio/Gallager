@@ -2,163 +2,294 @@ import CoreGraphics
 import Foundation
 import Logging
 
-/// Client for the iOS app's test accessibility HTTP endpoint.
+/// Client for the XCUITest runner's HTTP accessibility endpoint.
 ///
-/// When the macOS Accessibility API cannot read the Simulator's AX tree,
-/// this client queries the iOS app directly via HTTP for its accessibility tree.
+/// Queries the XCUITest runner (separate process in the Simulator) via HTTP
+/// for UI tree inspection, touch synthesis, text input, and custom actions.
+/// The runner uses XCUIElement.snapshot().dictionaryRepresentation for
+/// privileged, complete view hierarchy access.
 enum SimulatorHTTPClient {
     private static let logger = Logger(label: "e2e.sim-http")
-    private static let port: UInt16 = 18_080
+    private static let port: UInt16 = 22_087
+
+    private static var baseURL: String { "http://127.0.0.1:\(port)" }
 
     struct Response: Sendable {
         let elements: [UIElement]
-        let screenSize: CGSize
     }
 
-    /// Fetch the iOS app's accessibility tree via HTTP
+    // MARK: - Health Check
+
+    /// Check if the XCTest runner is responsive
+    static func isRunnerReady() async -> Bool {
+        guard let url = URL(string: "\(baseURL)/status") else { return false }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard
+                let httpResponse = response as? HTTPURLResponse,
+                httpResponse.statusCode == 200
+            else { return false }
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
+                return json["status"] == "ok"
+            }
+            return false
+        } catch {
+            return false
+        }
+    }
+
+    // MARK: - UI Inspection
+
+    /// Fetch the iOS app's accessibility tree via the XCTest runner
     static func describeUI() async throws -> Response {
-        let url = URL(string: "http://127.0.0.1:\(port)/describe-ui")!
-        let (data, _) = try await URLSession.shared.data(from: url)
+        let url = URL(string: "\(baseURL)/viewHierarchy")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let requestBody = try JSONEncoder().encode(["excludeKeyboardElements": false])
+        request.httpBody = requestBody
+
+        let (data, _) = try await URLSession.shared.data(for: request)
 
         guard
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let elementsArray = json["elements"] as? [[String: Any]],
-            let sizeDict = json["screenSize"] as? [String: Any]
+            let axElementDict = json["axElement"] as? [String: Any]
         else {
             throw SimulatorHTTPError.invalidResponse
         }
 
-        let screenWidth = sizeDict["width"] as? CGFloat ?? 0
-        let screenHeight = sizeDict["height"] as? CGFloat ?? 0
-        let elements = elementsArray.compactMap { parseElement($0) }
-
-        logger.info("HTTP describe-ui: \(elements.count) elements, screen \(screenWidth)x\(screenHeight)")
-        return Response(
-            elements: elements,
-            screenSize: CGSize(width: screenWidth, height: screenHeight)
-        )
+        let elements = parseAXElement(axElementDict)
+        logger.info("HTTP describe-ui: \(elements.count) top-level elements")
+        return Response(elements: elements)
     }
 
-    private static func parseElement(_ dict: [String: Any]) -> UIElement? {
-        let role = dict["role"] as? String ?? "AXGroup"
+    /// Parse an AXElement dictionary (from the XCTest runner) into UIElements.
+    /// The root element is a container — we return its children as the top-level elements.
+    private static func parseAXElement(_ dict: [String: Any]) -> [UIElement] {
+        let element = convertAXElement(dict)
+
+        // The root from the runner is a synthetic container — return its children
+        if element.role == "Other" && element.label == nil && element.identifier == nil {
+            return element.children
+        }
+
+        return [element]
+    }
+
+    private static func convertAXElement(_ dict: [String: Any]) -> UIElement {
         let label = dict["label"] as? String
         let identifier = dict["identifier"] as? String
         let value = dict["value"] as? String
+        let title = dict["title"] as? String
+        let elementType = dict["elementType"] as? Int ?? 0
 
         var frame = CGRect.zero
         if let frameDict = dict["frame"] as? [String: Any] {
             frame = CGRect(
-                x: frameDict["x"] as? CGFloat ?? 0,
-                y: frameDict["y"] as? CGFloat ?? 0,
-                width: frameDict["width"] as? CGFloat ?? 0,
-                height: frameDict["height"] as? CGFloat ?? 0
+                x: frameDict["X"] as? CGFloat ?? 0,
+                y: frameDict["Y"] as? CGFloat ?? 0,
+                width: frameDict["Width"] as? CGFloat ?? 0,
+                height: frameDict["Height"] as? CGFloat ?? 0
             )
         }
 
         var children: [UIElement] = []
         if let childrenArray = dict["children"] as? [[String: Any]] {
-            children = childrenArray.compactMap { parseElement($0) }
-        }
-
-        // Skip elements with no useful information
-        if label == nil && identifier == nil && value == nil && children.isEmpty && frame == .zero {
-            return nil
+            children = childrenArray.map { convertAXElement($0) }
         }
 
         return UIElement(
-            role: role,
+            role: elementTypeToRole(elementType),
             subrole: nil,
             label: label,
             value: value,
-            title: nil,
+            title: title,
             identifier: identifier,
             frame: frame,
             children: children
         )
     }
 
-    /// Type text into the focused text field via the iOS app's HTTP server.
-    /// This bypasses hardware keyboard requirements entirely.
-    /// Returns true if the text was typed successfully.
-    @discardableResult
-    static func type(text: String) async throws -> Bool {
-        let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? text
-        let url = URL(string: "http://127.0.0.1:\(port)/type?text=\(encoded)")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        let (data, _) = try await URLSession.shared.data(for: request)
-        let body = String(data: data, encoding: .utf8) ?? ""
-        logger.info("HTTP type '\(text)': \(body)")
-        return body == "typed"
+    /// Map XCUIElement.ElementType raw values to role strings
+    private static func elementTypeToRole(_ type: Int) -> String {
+        switch type {
+        case 0: "Any"
+        case 1: "Other"
+        case 2: "Application"
+        case 3: "Group"
+        case 4: "Window"
+        case 5: "Sheet"
+        case 6: "Drawer"
+        case 7: "Alert"
+        case 8: "Dialog"
+        case 9: "Button"
+        case 10: "RadioButton"
+        case 11: "RadioGroup"
+        case 12: "CheckBox"
+        case 13: "DisclosureTriangle"
+        case 14: "PopUpButton"
+        case 15: "ComboBox"
+        case 16: "MenuButton"
+        case 17: "ToolbarButton"
+        case 18: "Popover"
+        case 19: "Keyboard"
+        case 20: "Key"
+        case 21: "NavigationBar"
+        case 22: "TabBar"
+        case 23: "TabGroup"
+        case 24: "Toolbar"
+        case 25: "StatusBar"
+        case 26: "Table"
+        case 27: "TableRow"
+        case 28: "TableColumn"
+        case 29: "Outline"
+        case 30: "OutlineRow"
+        case 31: "Browser"
+        case 32: "CollectionView"
+        case 33: "Slider"
+        case 34: "PageIndicator"
+        case 35: "ProgressIndicator"
+        case 36: "ActivityIndicator"
+        case 37: "SegmentedControl"
+        case 38: "Picker"
+        case 39: "PickerWheel"
+        case 40: "Switch"
+        case 41: "Toggle"
+        case 42: "Link"
+        case 43: "Image"
+        case 44: "Icon"
+        case 45: "SearchField"
+        case 46: "ScrollView"
+        case 47: "ScrollBar"
+        case 48: "StaticText"
+        case 49: "TextField"
+        case 50: "SecureTextField"
+        case 51: "DatePicker"
+        case 52: "TextView"
+        case 53: "Menu"
+        case 54: "MenuItem"
+        case 55: "MenuBar"
+        case 56: "MenuBarItem"
+        case 57: "Map"
+        case 58: "WebView"
+        case 59: "IncrementArrow"
+        case 60: "DecrementArrow"
+        case 61: "Timeline"
+        case 62: "RatingIndicator"
+        case 63: "ValueIndicator"
+        case 64: "SplitGroup"
+        case 65: "Splitter"
+        case 66: "RelevanceIndicator"
+        case 67: "ColorWell"
+        case 68: "HelpTag"
+        case 69: "Matte"
+        case 70: "DockItem"
+        case 71: "Ruler"
+        case 72: "RulerMarker"
+        case 73: "Grid"
+        case 74: "LevelIndicator"
+        case 75: "Cell"
+        case 76: "LayoutArea"
+        case 77: "LayoutItem"
+        case 78: "Handle"
+        case 79: "Stepper"
+        case 80: "Tab"
+        case 81: "TouchBar"
+        case 82: "StatusItem"
+        default: "Other"
+        }
     }
 
-    /// Tap an accessibility element via the iOS app's HTTP server.
-    /// The tap happens inside the app process using accessibilityActivate().
+    // MARK: - Touch
+
+    /// Tap at iOS coordinates via the XCTest runner's touch synthesis
+    @discardableResult
+    static func tap(x: Double, y: Double, duration: TimeInterval? = nil) async throws -> Bool {
+        let url = URL(string: "\(baseURL)/touch")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        var body: [String: Any] = ["x": x, "y": y]
+        if let duration { body["duration"] = duration }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        let httpResponse = response as? HTTPURLResponse
+        let success = httpResponse?.statusCode == 200
+        logger.info("HTTP touch (\(x), \(y)): \(success ? "ok" : "failed")")
+        return success
+    }
+
+    /// Tap an element by finding it in the UI tree first, then tapping its center coordinates
     @discardableResult
     static func tap(query: ElementQuery) async throws -> Bool {
-        var params: [String] = []
-        switch query {
-        case let .label(text):
-            params.append("label=\(urlEncode(text))")
-        case let .labelContains(text):
-            params.append("labelContains=\(urlEncode(text))")
-        case let .identifier(id):
-            params.append("identifier=\(urlEncode(id))")
-        default:
-            // For complex queries, extract the most specific param
-            if let (key, value) = extractPrimaryParam(from: query) {
-                params.append("\(key)=\(urlEncode(value))")
-            } else {
-                return false
-            }
+        let response = try await describeUI()
+        guard let element = query.findFirst(in: response.elements) else {
+            logger.warning("HTTP tap: element not found for \(query)")
+            return false
         }
 
-        let url = URL(string: "http://127.0.0.1:\(port)/tap?\(params.joined(separator: "&"))")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        let (data, _) = try await URLSession.shared.data(for: request)
-        let body = String(data: data, encoding: .utf8) ?? ""
-        logger.info("HTTP tap \(query): \(body)")
-        return body == "tapped"
+        let center = element.center
+        return try await tap(x: center.x, y: center.y)
     }
 
-    /// Perform a custom accessibility action on an element via the iOS app's HTTP server.
-    /// Used for swipe-to-delete and other custom actions.
+    // MARK: - Text Input
+
+    /// Type text via the XCTest runner's daemon proxy
+    @discardableResult
+    static func type(text: String) async throws -> Bool {
+        let url = URL(string: "\(baseURL)/inputText")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(["text": text])
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        let httpResponse = response as? HTTPURLResponse
+        let success = httpResponse?.statusCode == 200
+        logger.info("HTTP type '\(text)': \(success ? "ok" : "failed")")
+        return success
+    }
+
+    // MARK: - Custom Actions
+
+    /// Perform a custom accessibility action on an element via the XCTest runner
     @discardableResult
     static func performCustomAction(
         query: ElementQuery,
         action: String
     ) async throws -> Bool {
-        var params = ["action=\(urlEncode(action))"]
+        let url = URL(string: "\(baseURL)/customAction")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        var body: [String: String] = ["action": action]
         switch query {
         case let .label(text):
-            params.append("label=\(urlEncode(text))")
+            body["label"] = text
         case let .labelContains(text):
-            params.append("labelContains=\(urlEncode(text))")
+            body["labelContains"] = text
         case let .identifier(id):
-            params.append("identifier=\(urlEncode(id))")
+            body["identifier"] = id
         default:
             if let (key, value) = extractPrimaryParam(from: query) {
-                params.append("\(key)=\(urlEncode(value))")
+                body[key] = value
             } else {
                 return false
             }
         }
 
-        let url = URL(string: "http://127.0.0.1:\(port)/custom-action?\(params.joined(separator: "&"))")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        let (data, _) = try await URLSession.shared.data(for: request)
-        let body = String(data: data, encoding: .utf8) ?? ""
-        logger.info("HTTP custom-action '\(action)' on \(query): \(body)")
-        return body == "performed"
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (_, response) = try await URLSession.shared.data(for: request)
+        let httpResponse = response as? HTTPURLResponse
+        let success = httpResponse?.statusCode == 200
+        logger.info("HTTP custom-action '\(action)' on \(query): \(success ? "ok" : "failed")")
+        return success
     }
 
     // MARK: - Private Helpers
-
-    private static func urlEncode(_ text: String) -> String {
-        text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? text
-    }
 
     /// Extract the most specific query parameter from a complex ElementQuery.
     private static func extractPrimaryParam(from query: ElementQuery) -> (key: String, value: String)? {
@@ -172,51 +303,10 @@ enum SimulatorHTTPClient {
         case let .roleAndLabelContains(_, label):
             ("labelContains", label)
         case let .allOf(queries):
-            // Find the first label-like query
             queries.lazy.compactMap { extractPrimaryParam(from: $0) }.first
         default:
             nil
         }
-    }
-
-    /// Calculate the content origin (macOS screen position of iOS point 0,0)
-    /// from the CGWindowList and iOS screen size.
-    static func calculateContentOrigin(screenSize: CGSize) -> CGPoint? {
-        let windowList = CGWindowListCopyWindowInfo(
-            [.optionOnScreenOnly], kCGNullWindowID
-        ) as? [[String: Any]] ?? []
-
-        for window in windowList {
-            guard
-                (window[kCGWindowOwnerName as String] as? String) == "Simulator",
-                let bounds = window[kCGWindowBounds as String] as? [String: Any],
-                let winWidth = bounds["Width"] as? CGFloat,
-                winWidth > 100
-            else { continue }
-
-            let winX = bounds["X"] as? CGFloat ?? 0
-            let winY = bounds["Y"] as? CGFloat ?? 0
-            let winHeight = bounds["Height"] as? CGFloat ?? 0
-
-            // Calculate chrome (window decorations around the iOS content)
-            let horizontalChrome = winWidth - screenSize.width
-            let verticalChrome = winHeight - screenSize.height
-
-            // Horizontal: content is centered
-            let leftChrome = horizontalChrome / 2
-
-            // Vertical: assume bottom chrome = side chrome, rest is top chrome
-            // (title bar + device top bezel)
-            let bottomChrome = leftChrome
-            let topChrome = verticalChrome - bottomChrome
-
-            let origin = CGPoint(x: winX + leftChrome, y: winY + topChrome)
-            logger.info("Calculated content origin: \(origin) (window=\(winX),\(winY) \(winWidth)x\(winHeight), iOS=\(screenSize))")
-            return origin
-        }
-
-        logger.warning("Could not find Simulator window in CGWindowList")
-        return nil
     }
 }
 
@@ -227,9 +317,9 @@ enum SimulatorHTTPError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidResponse:
-            "Invalid response from iOS accessibility server"
+            "Invalid response from XCTest runner"
         case .serverNotRunning:
-            "iOS accessibility server not running (is --e2e-test flag set?)"
+            "XCTest runner not running"
         }
     }
 }

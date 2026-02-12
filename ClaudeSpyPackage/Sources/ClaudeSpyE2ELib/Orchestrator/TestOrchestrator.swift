@@ -14,6 +14,7 @@ public actor TestOrchestrator {
     private let simulatorName: String
     private let screenshotsDir: String
     private let tmuxSocket: String?
+    private let e2eRunnerPath: String?
 
     /// Result of running a scenario
     public struct ScenarioResult: Sendable {
@@ -32,13 +33,15 @@ public actor TestOrchestrator {
         macOSAppPath: String,
         simulatorName: String = "iPhone 16",
         screenshotsDir: String = "/tmp/e2e-screenshots",
-        tmuxSocket: String? = nil
+        tmuxSocket: String? = nil,
+        e2eRunnerPath: String? = nil
     ) {
         self.iosAppPath = iosAppPath
         self.macOSAppPath = macOSAppPath
         self.simulatorName = simulatorName
         self.screenshotsDir = screenshotsDir
         self.tmuxSocket = tmuxSocket
+        self.e2eRunnerPath = e2eRunnerPath
     }
 
     // MARK: - Run Scenarios
@@ -103,6 +106,7 @@ public actor TestOrchestrator {
     /// Tear down all running processes regardless of scenario outcome
     public func cleanup() async {
         logger.info("=== Cleaning up ===")
+        await simulatorDriver.stopE2ERunner()
         try? await simulatorDriver.terminateApp()
         try? await macOSDriver.terminateApp()
         try? await serverDriver.stop()
@@ -157,6 +161,9 @@ public actor TestOrchestrator {
         // iOS Simulator
         case let .launchIOSApp(arguments):
             try await simulatorDriver.bootSimulator(name: simulatorName)
+            if let e2eRunnerPath {
+                await simulatorDriver.setE2ERunnerPath(e2eRunnerPath)
+            }
             try await simulatorDriver.installApp(appPath: iosAppPath)
             let resolvedArgs = arguments.map { context.resolve($0) }
             try await simulatorDriver.launchApp(

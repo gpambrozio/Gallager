@@ -29,9 +29,6 @@ struct ClaudeSpyApp: App {
                 $0[PreferencesService.self] = prefs
                 $0[SecretsService.self] = .inMemory()
             }
-
-            // Start accessibility server for E2E UI inspection
-            TestAccessibilityServer.startIfNeeded()
         }
     }
 

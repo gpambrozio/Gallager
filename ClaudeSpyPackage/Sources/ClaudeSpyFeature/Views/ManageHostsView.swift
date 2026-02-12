@@ -36,9 +36,8 @@
                             )
                             .accessibilityIdentifier("host-row")
                             .accessibilityAction(named: "Delete") {
-                                // In E2E test mode, bypass the confirmation dialog and remove directly.
-                                // The dialog buttons aren't accessible via the HTTP accessibility server
-                                // on iOS 26.
+                                // E2E tests use this custom action to delete without the
+                                // confirmation dialog (triggered via XCUITest runner).
                                 Task { await removeHost(host) }
                             }
                             .contentShape(Rectangle())
