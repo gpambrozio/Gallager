@@ -5,16 +5,22 @@ final class RunnerDaemonProxy {
     private let proxy: NSObject
 
     init() {
-        let clazz: AnyClass = NSClassFromString("XCTRunnerDaemonSession")!
+        guard let clazz = NSClassFromString("XCTRunnerDaemonSession") else {
+            fatalError("XCTRunnerDaemonSession not found — XCTest private API may have changed")
+        }
         let selector = NSSelectorFromString("sharedSession")
         let imp = clazz.method(for: selector)
         typealias Method = @convention(c) (AnyClass, Selector) -> NSObject
         let method = unsafeBitCast(imp, to: Method.self)
         let session = method(clazz, selector)
 
-        proxy = session
-            .perform(NSSelectorFromString("daemonProxy"))
-            .takeUnretainedValue() as! NSObject
+        guard let daemonProxy = session
+            .perform(NSSelectorFromString("daemonProxy"))?
+            .takeUnretainedValue() as? NSObject
+        else {
+            fatalError("XCTRunnerDaemonSession.daemonProxy not found — XCTest private API may have changed")
+        }
+        proxy = daemonProxy
     }
 
     func send(string: String, typingFrequency: Int = 10) async throws {

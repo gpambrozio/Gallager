@@ -79,13 +79,14 @@ struct ViewHierarchyHandler: HTTPHandler {
         }
     }
 
-    private func findRecoveryElement(_ element: XCUIElement) throws -> XCUIElement {
+    private func findRecoveryElement(_ element: XCUIElement, depth: Int = 0) throws -> XCUIElement {
+        guard depth < 30 else { return element }
         if try element.snapshot().children.count > 1 {
             return element
         }
         let firstOther = element.children(matching: .other).firstMatch
         if firstOther.exists {
-            return try findRecoveryElement(firstOther)
+            return try findRecoveryElement(firstOther, depth: depth + 1)
         }
         return element
     }

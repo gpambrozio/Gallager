@@ -1,18 +1,24 @@
 import Foundation
+import os
 import XCTest
 
-private nonisolated(unsafe) var _overwriteDefaultParameters = [String: Int]()
+private let _lock = OSAllocatedUnfairLock(initialState: [String: Int]())
 
 enum AXClientSwizzler {
     static var overwriteDefaultParameters: [String: Int] {
-        get { _overwriteDefaultParameters }
-        set { setup; _overwriteDefaultParameters = newValue }
+        get { _lock.withLock { $0 } }
+        set { setup; _lock.withLock { $0 = newValue } }
     }
 
     private static let setup: Void = {
-        let axClientiOSClass: AnyClass = objc_getClass("XCAXClient_iOS") as! AnyClass
+        guard let axClientiOSClass: AnyClass = objc_getClass("XCAXClient_iOS") as? AnyClass else {
+            fatalError("XCAXClient_iOS class not found — XCTest private API may have changed")
+        }
+
         let defaultParametersSelector = Selector(("defaultParameters"))
-        let original = class_getInstanceMethod(axClientiOSClass, defaultParametersSelector)!
+        guard let original = class_getInstanceMethod(axClientiOSClass, defaultParametersSelector) else {
+            fatalError("XCAXClient_iOS.defaultParameters method not found — XCTest private API may have changed")
+        }
 
         let replaced = class_getInstanceMethod(
             AXClientiOS_Standin.self,
@@ -35,7 +41,8 @@ enum AXClientSwizzler {
 
     @objc func swizzledDefaultParameters() -> NSDictionary {
         let defaultParameters = originalDefaultParameters().mutableCopy() as! NSMutableDictionary
-        for (key, value) in _overwriteDefaultParameters {
+        let overrides = _lock.withLock { $0 }
+        for (key, value) in overrides {
             defaultParameters[key] = value
         }
         return defaultParameters

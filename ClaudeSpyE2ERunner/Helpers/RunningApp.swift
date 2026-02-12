@@ -4,6 +4,7 @@ import XCTest
 
 enum RunningApp {
     static let springboardBundleId = "com.apple.springboard"
+    static let e2eHostBundleId = "br.eng.gustavo.claudespy.e2ehost"
 
     /// Get an XCUIApplication for a known bundle ID
     static func getApp(bundleId: String) -> XCUIApplication {
@@ -34,7 +35,7 @@ enum RunningApp {
 
         // Filter out springboard and the E2E host app
         let appIds = runningAppIds.filter {
-            $0 != springboardBundleId && $0 != "br.eng.gustavo.claudespy.e2ehost"
+            $0 != springboardBundleId && $0 != e2eHostBundleId
         }
 
         if let bundleId = appIds.first {
