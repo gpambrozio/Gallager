@@ -15,6 +15,8 @@ public actor TestOrchestrator {
     private let screenshotsDir: String
     private let tmuxSocket: String?
     private let e2eRunnerPath: String?
+    private let e2eHostBundleId = "br.eng.gustavo.claudespy.e2ehost"
+    private let e2eRunnerBundleId = "br.eng.gustavo.claudespy.e2erunner.xctrunner"
 
     /// Result of running a scenario
     public struct ScenarioResult: Sendable {
@@ -100,7 +102,21 @@ public actor TestOrchestrator {
             await cleanup()
             results.append(result)
         }
+        await uninstallSimulatorApps()
         return results
+    }
+
+    /// Remove all E2E apps from the simulator after test runs complete
+    private func uninstallSimulatorApps() async {
+        logger.info("=== Uninstalling simulator apps ===")
+        await simulatorDriver.stopE2ERunner()
+        try? await simulatorDriver.terminateApp()
+        try? await simulatorDriver.uninstallApp()
+        try? await simulatorDriver.terminateApp(bundleId: e2eHostBundleId)
+        try? await simulatorDriver.uninstallApp(bundleId: e2eHostBundleId)
+        try? await simulatorDriver.terminateApp(bundleId: e2eRunnerBundleId)
+        try? await simulatorDriver.uninstallApp(bundleId: e2eRunnerBundleId)
+        logger.info("=== Simulator apps uninstalled ===")
     }
 
     /// Tear down all running processes regardless of scenario outcome
