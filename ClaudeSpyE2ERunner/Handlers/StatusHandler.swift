@@ -1,4 +1,5 @@
 import FlyingFox
+import Foundation
 
 struct StatusHandler: HTTPHandler {
     func handleRequest(_: FlyingFox.HTTPRequest) async throws -> HTTPResponse {

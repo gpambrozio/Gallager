@@ -6,7 +6,7 @@ struct TouchHandler: HTTPHandler {
     private let daemonProxy = RunnerDaemonProxy()
 
     func handleRequest(_ request: FlyingFox.HTTPRequest) async throws -> HTTPResponse {
-        guard let touchRequest = try? JSONDecoder().decode(TouchRequest.self, from: Data(request.body)) else {
+        guard let touchRequest = try? JSONDecoder().decode(TouchRequest.self, from: Data(await request.bodyData)) else {
             return errorResponse("Invalid touch request body")
         }
 

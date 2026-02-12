@@ -165,6 +165,12 @@ else
         -destination "id=$SIM_UDID" \
         build 2>&1 | xcsift --format toon --warnings --executable
 
+    step "Building E2E XCUITest runner (ClaudeSpyE2EHost)"
+    xcodebuild "${XCODEBUILD_FLAGS[@]}" \
+        -scheme ClaudeSpyE2EHost \
+        -destination "id=$SIM_UDID" \
+        build-for-testing 2>&1 | xcsift --format toon --warnings --executable
+
     step "Building E2E coordinator"
     xcodebuild "${XCODEBUILD_FLAGS[@]}" \
         -scheme ClaudeSpyE2E \
@@ -194,6 +200,7 @@ E2E_ARGS=(
     --sim-name "$SIM_NAME"
     --screenshots-dir "$SCREENSHOTS_DIR"
     --tmux-socket "$TMUX_SOCKET"
+    --e2e-runner-path "$DERIVED_DATA"
 )
 
 if [ "$INTERACTIVE" = true ]; then
