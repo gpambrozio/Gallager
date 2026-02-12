@@ -113,6 +113,9 @@ final public class ConnectedViewer: Identifiable {
     /// Task for ping/pong keep-alive
     private var pingTask: Task<Void, Never>?
 
+    /// Task for retrying registration if the first attempt is dropped
+    private var registrationRetryTask: Task<Void, Never>?
+
     /// Partner's public key received during registration or connection (Base64-encoded)
     private var partnerPublicKey: String
 
@@ -336,6 +339,19 @@ final public class ConnectedViewer: Identifiable {
         )
         await send(registerMessage)
 
+        // Retry registration if the server's async WebSocket handler wasn't ready.
+        // On localhost, the client can send registerHost before the server's
+        // onUpgrade Task is scheduled, causing the frame to be silently dropped.
+        registrationRetryTask = Task { [weak self] in
+            for attempt in 1...3 {
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+                guard let self, self.state == .connecting else { return }
+                self.logger.info("Registration not confirmed, resending registerHost (attempt \(attempt))")
+                await self.send(registerMessage)
+            }
+        }
+
         pingTask = Task { [weak self] in
             await self?.pingLoop()
         }
@@ -397,6 +413,9 @@ final public class ConnectedViewer: Identifiable {
 
         switch decryptedMessage {
         case let .hostRegistered(response):
+            registrationRetryTask?.cancel()
+            registrationRetryTask = nil
+
             if response.success {
                 logger.info("Successfully registered with relay server for viewer: \(viewerName)")
                 await updateState(.connected)
@@ -627,6 +646,9 @@ final public class ConnectedViewer: Identifiable {
 
         pingTask?.cancel()
         pingTask = nil
+
+        registrationRetryTask?.cancel()
+        registrationRetryTask = nil
 
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
