@@ -192,14 +192,11 @@ public actor TestOrchestrator {
             try await simulatorDriver.type(text: resolvedText)
 
         case let .iosSwipeLeft(query):
-            // Use HTTP custom action "Delete" (triggers SwiftUI .onDelete) instead of
-            // CGEvent swipe which doesn't work reliably on Simulator.
-            let success = try await simulatorDriver.performCustomAction(query: query, action: "Delete")
-            if !success {
-                // Fall back to CGEvent swipe if custom action isn't available
-                let element = try await simulatorDriver.waitForElement(matching: query, timeout: 5)
-                try await simulatorDriver.swipeLeft(on: element)
-            }
+            // Swipe left via XCTest runner's touch synthesis.
+            // The scenario should follow this with taps for the revealed delete button
+            // and confirmation dialog — the XCUITest runner can see all UI elements.
+            let element = try await simulatorDriver.waitForElement(matching: query, timeout: 5)
+            try await simulatorDriver.swipeLeft(on: element)
 
         case let .iosWaitForElementToDisappear(query, timeout):
             try await simulatorDriver.waitForElementToDisappear(matching: query, timeout: timeout)

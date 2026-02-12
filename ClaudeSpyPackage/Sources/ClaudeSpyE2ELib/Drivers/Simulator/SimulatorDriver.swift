@@ -192,9 +192,13 @@ public actor SimulatorDriver {
             "-xctestrun", xctestrunPath,
             "-destination", "id=\(udid)",
         ]
-        // Silence xcodebuild output
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
+        // Pipe xcodebuild output to a log file for debugging
+        let logPath = "/tmp/e2e-runner-xcodebuild.log"
+        FileManager.default.createFile(atPath: logPath, contents: nil)
+        let logHandle = FileHandle(forWritingAtPath: logPath)
+        process.standardOutput = logHandle ?? FileHandle.nullDevice
+        process.standardError = logHandle ?? FileHandle.nullDevice
+        logger.info("XCTest runner output: \(logPath)")
 
         try process.run()
         runnerProcess = process
@@ -269,7 +273,7 @@ public actor SimulatorDriver {
     /// Describe the current UI tree via the XCTest runner's HTTP endpoint.
     public func describeUI(maxDepth: Int = 15) async -> [UIElement] {
         do {
-            let response = try await SimulatorHTTPClient.describeUI()
+            let response = try await SimulatorHTTPClient.describeUI(bundleId: appBundleId)
             return response.elements
         } catch {
             logger.warning("XCTest runner not available: \(error)")
@@ -303,7 +307,7 @@ public actor SimulatorDriver {
     /// Tap on a UI element by query.
     /// Uses the XCTest runner's HTTP API for coordinate-based tapping.
     public func tap(query: ElementQuery) async throws {
-        let success = try await SimulatorHTTPClient.tap(query: query)
+        let success = try await SimulatorHTTPClient.tap(query: query, bundleId: appBundleId)
         if success {
             logger.info("Tapped via XCTest runner: \(query)")
             return
@@ -324,19 +328,22 @@ public actor SimulatorDriver {
         try await SimulatorHTTPClient.tap(x: x, y: y)
     }
 
-    /// Swipe left on a UI element via the XCTest runner
+    /// Swipe left on a UI element via the XCTest runner's touch synthesis
     public func swipeLeft(on element: UIElement) async throws {
         let center = element.center
         let swipeDistance: CGFloat = max(element.frame.width * 0.6, 200)
-        let start = CGPoint(x: center.x + swipeDistance / 2, y: center.y)
-        let end = CGPoint(x: center.x - swipeDistance / 2, y: center.y)
-        try await SimulatorInteraction.swipe(from: start, to: end)
+        let startX = center.x + swipeDistance / 2
+        let endX = max(center.x - swipeDistance / 2, 10) // Don't swipe off-screen
+        try await SimulatorHTTPClient.swipe(
+            startX: startX, startY: center.y,
+            endX: endX, endY: center.y
+        )
     }
 
     /// Perform a custom accessibility action on an element.
     public func performCustomAction(query: ElementQuery, action: String) async throws -> Bool {
         do {
-            let success = try await SimulatorHTTPClient.performCustomAction(query: query, action: action)
+            let success = try await SimulatorHTTPClient.performCustomAction(query: query, action: action, bundleId: appBundleId)
             if success {
                 logger.info("Custom action '\(action)' via XCTest runner on \(query)")
                 return true

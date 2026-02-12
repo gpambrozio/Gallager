@@ -4,6 +4,7 @@ import Foundation
 enum Route: String, CaseIterable {
     case viewHierarchy
     case touch
+    case swipe
     case inputText
     case customAction
     case screenshot

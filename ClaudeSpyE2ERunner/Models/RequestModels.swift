@@ -23,12 +23,15 @@ struct CustomActionRequest: Codable {
     let labelContains: String?
     let identifier: String?
     let action: String
+    let bundleId: String?
 }
 
 struct ViewHierarchyRequest: Codable {
     let excludeKeyboardElements: Bool
+    let bundleId: String?
 
-    init(excludeKeyboardElements: Bool = false) {
+    init(excludeKeyboardElements: Bool = false, bundleId: String? = nil) {
         self.excludeKeyboardElements = excludeKeyboardElements
+        self.bundleId = bundleId
     }
 }

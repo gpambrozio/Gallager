@@ -13,24 +13,30 @@ public enum DisconnectMacOSUnpairIOSScenario {
         TestStep.serverDisconnectDevice(.host)
         TestStep.wait(seconds: 1)
 
-        // 3. iOS: navigate to Manage Hosts and unpair.
-        // The "Delete" action directly removes the pairing (bypasses confirmation
-        // dialog, which isn't accessible via HTTP on iOS 26).
+        // 3. iOS: navigate to Manage Hosts and unpair
         TestStep.iosTap(.labelContains("Settings"))
         TestStep.wait(seconds: 0.5)
         TestStep.iosTap(.labelContains("Paired Hosts"))
         TestStep.wait(seconds: 0.5)
+
+        // 4. Swipe left to reveal delete button, tap it
         TestStep.iosSwipeLeft(.identifier("host-row"))
+        TestStep.wait(seconds: 1)
+        TestStep.iosTap(.label("Delete"))
+        TestStep.wait(seconds: 1)
+
+        // 5. Tap the confirmation dialog button (use Button role to avoid matching dialog title)
+        TestStep.iosTap(.roleAndLabelContains(role: "Button", label: "Remove"))
         TestStep.wait(seconds: 2)
 
-        // 4. Verify server has 0 pairings
+        // 6. Verify server has 0 pairings
         TestStep.waitForNoPairings(timeout: 15)
         TestStep.verifyServerHasPairings(count: 0)
 
-        // 5. Wait for macOS to auto-reconnect and receive INVALID_PAIR → removes pairing
+        // 7. Wait for macOS to auto-reconnect and receive INVALID_PAIR → removes pairing
         TestStep.wait(seconds: 15)
 
-        // 6. macOS screenshot to verify cleanup
+        // 8. macOS screenshot to verify cleanup
         TestStep.macScreenshot(label: "disconnect-macos-unpair-ios-done")
     }
 }

@@ -10,7 +10,13 @@ struct CustomActionHandler: HTTPHandler {
 
         NSLog("[CustomAction] action=\(actionRequest.action) label=\(actionRequest.label ?? "nil") identifier=\(actionRequest.identifier ?? "nil")")
 
-        guard let app = RunningApp.getForegroundApp() else {
+        let app: XCUIApplication? = if let bundleId = actionRequest.bundleId {
+            RunningApp.getApp(bundleId: bundleId)
+        } else {
+            RunningApp.getForegroundApp()
+        }
+
+        guard let app else {
             return errorResponse("No foreground app")
         }
 

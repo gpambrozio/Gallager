@@ -41,13 +41,14 @@ enum SimulatorHTTPClient {
     // MARK: - UI Inspection
 
     /// Fetch the iOS app's accessibility tree via the XCTest runner
-    static func describeUI() async throws -> Response {
+    static func describeUI(bundleId: String? = nil) async throws -> Response {
         let url = URL(string: "\(baseURL)/viewHierarchy")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let requestBody = try JSONEncoder().encode(["excludeKeyboardElements": false])
-        request.httpBody = requestBody
+        var body: [String: Any] = ["excludeKeyboardElements": false]
+        if let bundleId { body["bundleId"] = bundleId }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, _) = try await URLSession.shared.data(for: request)
 
@@ -60,6 +61,7 @@ enum SimulatorHTTPClient {
 
         let elements = parseAXElement(axElementDict)
         logger.info("HTTP describe-ui: \(elements.count) top-level elements")
+
         return Response(elements: elements)
     }
 
@@ -68,8 +70,12 @@ enum SimulatorHTTPClient {
     private static func parseAXElement(_ dict: [String: Any]) -> [UIElement] {
         let element = convertAXElement(dict)
 
-        // The root from the runner is a synthetic container — return its children
-        if element.role == "Other" && element.label == nil && element.identifier == nil {
+        // The root from the runner is a synthetic container — return its children.
+        // The container has elementType 0 (→ "Any") or 1 (→ "Other"), with empty/nil label.
+        let isSynthetic = (element.role == "Other" || element.role == "Any")
+            && (element.label == nil || element.label?.isEmpty == true)
+            && (element.identifier == nil || element.identifier?.isEmpty == true)
+        if isSynthetic && !element.children.isEmpty {
             return element.children
         }
 
@@ -223,8 +229,8 @@ enum SimulatorHTTPClient {
 
     /// Tap an element by finding it in the UI tree first, then tapping its center coordinates
     @discardableResult
-    static func tap(query: ElementQuery) async throws -> Bool {
-        let response = try await describeUI()
+    static func tap(query: ElementQuery, bundleId: String? = nil) async throws -> Bool {
+        let response = try await describeUI(bundleId: bundleId)
         guard let element = query.findFirst(in: response.elements) else {
             logger.warning("HTTP tap: element not found for \(query)")
             return false
@@ -232,6 +238,30 @@ enum SimulatorHTTPClient {
 
         let center = element.center
         return try await tap(x: center.x, y: center.y)
+    }
+
+    // MARK: - Swipe
+
+    /// Swipe gesture via the XCTest runner's touch synthesis
+    @discardableResult
+    static func swipe(startX: Double, startY: Double, endX: Double, endY: Double, duration: TimeInterval = 0.3) async throws -> Bool {
+        let url = URL(string: "\(baseURL)/swipe")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = [
+            "startX": startX, "startY": startY,
+            "endX": endX, "endY": endY,
+            "duration": duration,
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        let httpResponse = response as? HTTPURLResponse
+        let success = httpResponse?.statusCode == 200
+        logger.info("HTTP swipe (\(startX),\(startY))→(\(endX),\(endY)): \(success ? "ok" : "failed")")
+        return success
     }
 
     // MARK: - Text Input
@@ -258,7 +288,8 @@ enum SimulatorHTTPClient {
     @discardableResult
     static func performCustomAction(
         query: ElementQuery,
-        action: String
+        action: String,
+        bundleId: String? = nil
     ) async throws -> Bool {
         let url = URL(string: "\(baseURL)/customAction")!
         var request = URLRequest(url: url)
@@ -266,6 +297,7 @@ enum SimulatorHTTPClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         var body: [String: String] = ["action": action]
+        if let bundleId { body["bundleId"] = bundleId }
         switch query {
         case let .label(text):
             body["label"] = text

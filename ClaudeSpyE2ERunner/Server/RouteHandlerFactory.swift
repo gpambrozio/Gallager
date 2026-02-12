@@ -9,6 +9,8 @@ enum RouteHandlerFactory {
             ViewHierarchyHandler()
         case .touch:
             TouchHandler()
+        case .swipe:
+            SwipeHandler()
         case .inputText:
             InputTextHandler()
         case .customAction:

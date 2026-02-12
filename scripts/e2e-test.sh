@@ -18,6 +18,7 @@ TMUX_SOCKET="/tmp/claudespy-e2e.sock"
 SKIP_BUILD=false
 INTERACTIVE=false
 LIST_SCENARIOS=false
+SCENARIO=""
 
 # =====================================================
 # PARSE ARGUMENTS
@@ -44,6 +45,10 @@ while [[ $# -gt 0 ]]; do
             LIST_SCENARIOS=true
             shift
             ;;
+        --scenario)
+            SCENARIO="$2"
+            shift 2
+            ;;
         --interactive|-i)
             INTERACTIVE=true
             shift
@@ -56,6 +61,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --sim-name NAME  iOS Simulator name (default: $SIM_NAME)"
             echo "  --screenshots DIR Screenshot output dir (default: $SCREENSHOTS_DIR)"
             echo "  --tmux-socket PATH Tmux socket path for isolation (default: $TMUX_SOCKET)"
+            echo "  --scenario NAME  Run specific scenario by name"
             echo "  --list-scenarios   List all available scenarios and exit"
             echo "  --interactive, -i  Start all apps, wait for Enter, then shut down"
             echo "  -h, --help       Show this help"
@@ -205,6 +211,10 @@ E2E_ARGS=(
 
 if [ "$INTERACTIVE" = true ]; then
     E2E_ARGS+=(--interactive)
+fi
+
+if [ -n "$SCENARIO" ]; then
+    E2E_ARGS+=(--scenario "$SCENARIO")
 fi
 
 "$E2E_BIN" "${E2E_ARGS[@]}"

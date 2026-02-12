@@ -6,9 +6,17 @@ struct ViewHierarchyHandler: HTTPHandler {
     private let springboardApplication = XCUIApplication(bundleIdentifier: "com.apple.springboard")
     private let snapshotMaxDepth = 60
 
-    func handleRequest(_: FlyingFox.HTTPRequest) async throws -> HTTPResponse {
+    func handleRequest(_ request: FlyingFox.HTTPRequest) async throws -> HTTPResponse {
         do {
-            let foregroundApp = RunningApp.getForegroundApp()
+            // Parse optional bundleId from request body
+            let viewRequest = try? JSONDecoder().decode(ViewHierarchyRequest.self, from: Data(await request.bodyData))
+
+            let foregroundApp: XCUIApplication? = if let bundleId = viewRequest?.bundleId {
+                RunningApp.getApp(bundleId: bundleId)
+            } else {
+                RunningApp.getForegroundApp()
+            }
+
             guard let foregroundApp else {
                 NSLog("[ViewHierarchy] No foreground app found, returning springboard hierarchy")
                 let springboardHierarchy = try elementHierarchy(xcuiElement: springboardApplication)
