@@ -127,6 +127,17 @@ public extension Application {
         await connectionHub.disconnectAll(deviceType: type)
     }
 
+    /// Check if a viewer is connected via WebSocket for any active pair
+    var isAnyViewerConnected: Bool {
+        get async {
+            let pairs = await pairingService.activePairIds
+            for pairId in pairs where await connectionHub.isViewerConnected(pairId: pairId) {
+                return true
+            }
+            return false
+        }
+    }
+
     /// Whether there are any active WebSocket connections (for E2E testing)
     var hasNoConnections: Bool {
         get async {

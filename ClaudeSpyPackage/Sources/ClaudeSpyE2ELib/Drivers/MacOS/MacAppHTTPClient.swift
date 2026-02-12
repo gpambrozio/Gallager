@@ -34,6 +34,7 @@ enum MacAppHTTPClient {
         func matches(titled: String) -> Bool {
             if let t = title, t.contains(titled) { return true }
             if let l = label, l.contains(titled) { return true }
+            if let v = value, v.contains(titled) { return true }
             if let h = help, h == titled { return true }
             return false
         }

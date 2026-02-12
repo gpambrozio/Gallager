@@ -51,7 +51,11 @@ public enum FreshPairingScenario {
         // 8. Verify server state
         TestStep.verifyServerHasPairings(count: 1)
 
-        // 9. Wait for macOS host to establish WebSocket connection to relay
+        // 9. Wait for both host and viewer to connect to relay server
         TestStep.waitForHostConnected(timeout: 15)
+        TestStep.waitForViewerConnected(timeout: 15)
+
+        // 10. Verify macOS shows "Connected" on settings page (not "Waiting for viewer")
+        TestStep.macWaitForElement(titled: "Connected", timeout: 15)
     }
 }

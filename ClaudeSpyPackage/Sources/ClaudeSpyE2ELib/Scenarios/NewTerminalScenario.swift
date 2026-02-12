@@ -6,19 +6,26 @@ public enum NewTerminalScenario {
         "New Terminal",
         tags: ["terminal", "smoke"]
     ) {
-        // Reuse the full pairing flow (includes waitForHostConnected)
+        // Reuse the full pairing flow (includes waitForHostConnected + waitForViewerConnected)
         FreshPairingScenario.scenario
 
         // 1. Tap the "+" button on the host header
         TestStep.iosTap(.label("New Session"))
         TestStep.wait(seconds: 2)
+
+        // 2. Verify projects loaded (the "Loading projects..." spinner should disappear)
+        TestStep.iosWaitForElementToDisappear(.labelContains("Loading projects"), timeout: 15)
         TestStep.iosScreenshot(label: "04-new-session")
 
-        // 2. Tap "New Terminal" in the project picker sheet
+        // 3. Tap "New Terminal" in the project picker sheet
         TestStep.iosTap(.labelContains("New Terminal"))
-        TestStep.wait(seconds: 3)
+        TestStep.wait(seconds: 2)
 
-        // 3. Verify we navigated to the terminal view
+        // 4. Verify the terminal view was pushed
+        TestStep.iosWaitForElement(.labelContains("Terminal"), timeout: 15)
+
+        // 5. Verify the terminal connected (the "Connecting to terminal..." text should disappear)
+        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting to terminal"), timeout: 15)
         TestStep.iosScreenshot(label: "05-new-terminal")
     }
 }

@@ -343,9 +343,12 @@
                 let obj = element as AnyObject
                 let label = obj.accessibilityLabel?() ?? ""
                 let title = obj.accessibilityTitle?() ?? ""
+                let value = (obj.accessibilityValue?() as Any?) as? String ?? ""
                 let help = obj.accessibilityHelp?() ?? ""
 
-                if title.contains(searchTitle) || label.contains(searchTitle) || help == searchTitle {
+                if
+                    title.contains(searchTitle) || label.contains(searchTitle)
+                    || value.contains(searchTitle) || help == searchTitle {
                     return obj
                 }
 

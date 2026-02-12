@@ -31,6 +31,8 @@ public enum TestStep: Sendable {
     case verifyServerHasPairings(count: Int)
     /// Wait for the macOS host to connect to the server via WebSocket
     case waitForHostConnected(timeout: TimeInterval = 15)
+    /// Wait for the iOS viewer to connect to the server via WebSocket
+    case waitForViewerConnected(timeout: TimeInterval = 15)
     /// Disconnect a device type's WebSocket connections on the server
     case serverDisconnectDevice(E2EDeviceType)
     /// Wait until the server has no active pairings
@@ -83,6 +85,8 @@ public enum TestStep: Sendable {
     case macUnpair
     /// Read the clipboard and store in context
     case macReadClipboard(storeAs: String)
+    /// Wait for a text element to appear in the macOS app's accessibility tree
+    case macWaitForElement(titled: String, timeout: TimeInterval = 10)
     /// Take a macOS screenshot
     case macScreenshot(label: String)
 

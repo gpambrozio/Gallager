@@ -150,6 +150,13 @@ public actor MacOSDriver {
         }
     }
 
+    // MARK: - Wait for Element
+
+    /// Wait for an element with the given title to appear in the macOS app
+    public func waitForElement(titled: String, timeout: TimeInterval = 10) async throws {
+        _ = try await waitForHTTPElement(titled: titled, timeout: timeout)
+    }
+
     // MARK: - Clipboard
 
     /// Read the system clipboard

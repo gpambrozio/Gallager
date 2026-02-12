@@ -241,6 +241,7 @@ private static let allScenarios: [TestScenario] = [
 | `verifyServerHealth` | Wait for the server health endpoint to respond |
 | `verifyServerHasPairings(count:)` | Assert the number of active pairings |
 | `waitForHostConnected(timeout:)` | Wait for the macOS host to connect via WebSocket |
+| `waitForViewerConnected(timeout:)` | Wait for the iOS viewer to connect via WebSocket |
 | `waitForNoPairings(timeout:)` | Wait until the server has no active pairings |
 | `serverDisconnectDevice(_:)` | Disconnect a device's (`.host` or `.viewer`) WebSocket connections |
 | `stopServer` | Stop the server and clean up `pairs.json` |
@@ -273,6 +274,7 @@ private static let allScenarios: [TestScenario] = [
 | `macClickButton(titled:)` | Click a button by title or `.help()` attribute |
 | `macClickMenuItem(menuButtonTitle:itemTitle:)` | Click a menu trigger button then click a menu item |
 | `macUnpair` | Trigger unpair on the first paired viewer via test HTTP endpoint |
+| `macWaitForElement(titled:timeout:)` | Wait for a text element to appear in the macOS app's accessibility tree |
 | `macReadClipboard(storeAs:)` | Read clipboard contents into a variable |
 | `macScreenshot(label:)` | Save a screenshot of the macOS app window |
 

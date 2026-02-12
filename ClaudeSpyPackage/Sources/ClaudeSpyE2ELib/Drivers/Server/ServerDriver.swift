@@ -116,6 +116,12 @@ public actor ServerDriver {
         return await app.isAnyHostConnected
     }
 
+    /// Check if any viewer is connected via WebSocket
+    public func isAnyViewerConnected() async -> Bool {
+        guard let app else { return false }
+        return await app.isAnyViewerConnected
+    }
+
     /// Reset all server state
     public func resetState() async {
         guard let app else { return }

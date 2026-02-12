@@ -149,6 +149,15 @@ public actor TestOrchestrator {
                 await self.serverDriver.isAnyHostConnected()
             }
 
+        case let .waitForViewerConnected(timeout):
+            try await Polling.waitUntil(
+                description: "viewer connected to relay server",
+                timeout: timeout,
+                pollInterval: 1
+            ) {
+                await self.serverDriver.isAnyViewerConnected()
+            }
+
         case let .serverDisconnectDevice(deviceType):
             await serverDriver.disconnectDevice(type: deviceType)
 
@@ -247,6 +256,9 @@ public actor TestOrchestrator {
             let value = await macOSDriver.readClipboard()
             logger.info("  Clipboard value: \(value) → stored as ${\(storeAs)}")
             context.set(storeAs, value: value)
+
+        case let .macWaitForElement(titled, timeout):
+            try await macOSDriver.waitForElement(titled: titled, timeout: timeout)
 
         case let .macScreenshot(label):
             let path = "\(screenshotsDir)/\(label).png"
