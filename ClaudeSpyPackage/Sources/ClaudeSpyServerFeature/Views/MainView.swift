@@ -83,6 +83,9 @@ public struct MainView: View {
             lastAutoResizeDimensions = nil
             handleAutoResize()
         }
+        .onDisappear {
+            autoResizeTask?.cancel()
+        }
     }
 
     // MARK: - Sidebar
@@ -450,6 +453,11 @@ public struct MainView: View {
     private func handleAutoResize() {
         // Cancel any pending debounced resize
         autoResizeTask?.cancel()
+
+        // Capture current selection before the debounce sleep to avoid racing with pane switches
+        let currentPane = selectedPane
+        let currentRemote = selectedRemotePane
+
         autoResizeTask = Task {
             // Debounce: wait for layout to stabilize (especially during session switches)
             try? await Task.sleep(for: .milliseconds(200))
@@ -464,16 +472,13 @@ public struct MainView: View {
                 return
             }
 
-            if let pane = selectedPane, selectedRemotePane == nil {
+            if let pane = currentPane, currentRemote == nil {
                 guard autoResizeEnabled.contains(pane.target) else { return }
                 guard !tmuxService.attachedSessionNames.contains(pane.sessionName) else { return }
-                let target = pane.target
-                await performResize(localTarget: target)
-            } else if let remote = selectedRemotePane {
+                await performResize(localTarget: pane.target)
+            } else if let remote = currentRemote {
                 guard autoResizeEnabled.contains(remote.resizeKey) else { return }
-                let hostId = remote.hostId
-                let paneId = remote.paneId
-                await performResize(remoteHostId: hostId, remotePaneId: paneId)
+                await performResize(remoteHostId: remote.hostId, remotePaneId: remote.paneId)
             }
         }
     }
