@@ -1,8 +1,9 @@
 import AppKit
+import CoreGraphics
 import Foundation
 import Logging
 
-/// Drives the macOS ClaudeSpyServer app via AppleScript and NSWorkspace
+/// Drives the macOS ClaudeSpyServer app via HTTP accessibility server, CGEvent, and AppleScript
 public actor MacOSDriver {
     private let processRunner = ProcessRunner()
     private let logger = Logger(label: "e2e.macos-driver")
@@ -40,106 +41,120 @@ public actor MacOSDriver {
 
     // MARK: - Settings Navigation
 
-    /// Open the Settings window (Cmd+,)
+    /// Open the Settings window via the status item menu
     public func openSettings() async throws {
-        logger.info("Opening Settings")
+        logger.info("Opening Settings via status item menu")
         let script = """
-        tell application "\(appName)" to activate
-        delay 0.5
         tell application "System Events"
-            keystroke "," using command down
+            tell process "\(appName)"
+                click menu bar item 1 of menu bar 2
+                delay 0.5
+                click menu item "Settings..." of menu 1 of menu bar item 1 of menu bar 2
+            end tell
         end tell
-        delay 0.5
+        delay 1
         """
         try await runAppleScript(script)
     }
 
-    /// Wait for a window to appear
+    /// Wait for a window to appear (uses CGWindowList since AX is broken on Xcode 26.x)
     public func waitForWindow(titled: String, timeout: TimeInterval = 5) async throws {
-        let name = appName
         try await Polling.waitUntil(
             description: "window titled \"\(titled)\"",
             timeout: timeout,
             pollInterval: 0.5
         ) {
-            await self.checkWindowExists(appName: name, title: titled)
+            self.checkWindowExistsCG(titled: titled)
         }
     }
 
-    /// Check if a window with the given title exists (helper for polling)
-    private func checkWindowExists(appName: String, title: String) async -> Bool {
-        // Note: `whose title contains` fails with error -1728 in System Events,
-        // so we iterate manually instead.
-        let script = """
-        tell application "System Events"
-            tell process "\(appName)"
-                set windowTitles to title of every window
-                repeat with t in windowTitles
-                    if t contains "\(escapeForAppleScript(title))" then return true
-                end repeat
-                return false
-            end tell
-        end tell
-        """
-        return (try? await runAppleScriptReturning(script)) == "true"
+    /// Check if a window with the given title exists via CGWindowList
+    private nonisolated func checkWindowExistsCG(titled: String) -> Bool {
+        guard
+            let windowList = CGWindowListCopyWindowInfo(
+                [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+            ) as? [[String: Any]] else {
+            return false
+        }
+
+        for window in windowList {
+            guard
+                let ownerName = window[kCGWindowOwnerName as String] as? String,
+                ownerName == appName,
+                let windowName = window[kCGWindowName as String] as? String,
+                windowName.contains(titled)
+            else { continue }
+            return true
+        }
+        return false
     }
 
-    /// Select a tab in the Settings window
+    /// Select a tab in the Settings window by clicking it via the app's HTTP server.
+    /// The click happens inside the app process, bypassing window z-ordering issues.
     public func selectSettingsTab(_ tabName: String) async throws {
         logger.info("Selecting settings tab: \(tabName)")
-        let script = """
-        tell application "System Events"
-            tell process "\(appName)"
-                tell toolbar 1 of window 1
-                    click button "\(escapeForAppleScript(tabName))"
-                end tell
-            end tell
-        end tell
-        delay 0.3
-        """
-        try await runAppleScript(script)
+        // Wait for the element to appear, then click via HTTP
+        _ = try await waitForHTTPElement(titled: tabName, timeout: 5)
+        let clicked = try await MacAppHTTPClient.click(titled: tabName)
+        if !clicked {
+            throw MacOSDriverError.elementNotFound(tabName)
+        }
+        try await Task.sleep(for: .milliseconds(500))
     }
 
-    /// Click a button by title or help text (searches recursively)
-    ///
-    /// Matches against both the button's `title` and `help` (AXHelp) attributes,
-    /// since SwiftUI buttons often lack a title but expose `.help()` as AXHelp.
+    /// Click a button by title or help text via the app's HTTP server.
     public func clickButton(titled: String) async throws {
         logger.info("Clicking button: \(titled)")
-        let script = """
-        on findAndClickButton(theElement, buttonLabel)
-            tell application "System Events"
-                repeat with btn in (buttons of theElement)
-                    try
-                        if (title of btn) is buttonLabel then
-                            click btn
-                            return true
-                        end if
-                    end try
-                    try
-                        if (help of btn) is buttonLabel then
-                            click btn
-                            return true
-                        end if
-                    end try
-                end repeat
-                repeat with child in (UI elements of theElement)
-                    set found to my findAndClickButton(child, buttonLabel)
-                    if found then return true
-                end repeat
-            end tell
-            return false
-        end findAndClickButton
+        _ = try await waitForHTTPElement(titled: titled, timeout: 5)
+        let clicked = try await MacAppHTTPClient.click(titled: titled)
+        if !clicked {
+            throw MacOSDriverError.elementNotFound(titled)
+        }
+    }
 
-        tell application "System Events"
-            tell process "\(appName)"
-                set frontmost to true
-                delay 0.2
-                my findAndClickButton(window 1, "\(escapeForAppleScript(titled))")
-            end tell
-        end tell
-        """
-        try await runAppleScript(script)
+    /// Click a menu trigger button then click a menu item.
+    /// Uses HTTP clicks: first to open the popup menu, then polls for the item.
+    /// SwiftUI Menu popups appear as separate windows that the HTTP server can search.
+    public func clickMenuItem(menuButtonTitle: String, itemTitle: String) async throws {
+        logger.info("Clicking menu '\(menuButtonTitle)' → '\(itemTitle)'")
+
+        // Step 1: Click the menu trigger via HTTP (opens the popup)
+        _ = try await waitForHTTPElement(titled: menuButtonTitle, timeout: 5)
+        let clicked = try await MacAppHTTPClient.click(titled: menuButtonTitle)
+        if !clicked {
+            throw MacOSDriverError.elementNotFound(menuButtonTitle)
+        }
+
+        // Step 2: Poll for the menu item (popup needs time to appear and populate)
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            try await Task.sleep(for: .milliseconds(300))
+            let itemClicked = try await MacAppHTTPClient.click(titled: itemTitle)
+            if itemClicked {
+                return
+            }
+        }
+
+        throw MacOSDriverError.elementNotFound("\(menuButtonTitle) → \(itemTitle)")
+    }
+
+    // MARK: - Unpair
+
+    /// Trigger unpair on the first paired viewer via the macOS app's test HTTP endpoint.
+    /// Bypasses the SwiftUI Menu (whose NSMenu popup isn't in the accessibility tree).
+    public func unpair() async throws {
+        logger.info("Triggering unpair via HTTP endpoint")
+        let success = try await MacAppHTTPClient.unpair()
+        if !success {
+            throw MacOSDriverError.elementNotFound("unpair endpoint returned failure")
+        }
+    }
+
+    // MARK: - Wait for Element
+
+    /// Wait for an element with the given title to appear in the macOS app
+    public func waitForElement(titled: String, timeout: TimeInterval = 10) async throws {
+        _ = try await waitForHTTPElement(titled: titled, timeout: timeout)
     }
 
     // MARK: - Clipboard
@@ -165,11 +180,56 @@ public actor MacOSDriver {
         )
     }
 
-    // MARK: - Private Helpers
+    // MARK: - Private: HTTP Element Interaction
+
+    /// Wait for an element to appear in the HTTP accessibility tree
+    private func waitForHTTPElement(
+        titled: String,
+        timeout: TimeInterval
+    ) async throws -> MacAppHTTPClient.MacUIElement {
+        try await Polling.waitFor(
+            description: "macOS UI element '\(titled)'",
+            timeout: timeout,
+            pollInterval: 0.5
+        ) {
+            try? await MacAppHTTPClient.findElement(titled: titled)
+        }
+    }
+
+    /// Click at absolute screen coordinates using CGEvent
+    private func clickAtScreenPoint(_ point: CGPoint) async throws {
+        logger.info("Clicking at screen coordinates: (\(point.x), \(point.y))")
+
+        // Bring the app's windows to front via HTTP endpoint
+        try await MacAppHTTPClient.activate()
+        try await Task.sleep(for: .milliseconds(300))
+
+        let mouseDown = CGEvent(
+            mouseEventSource: nil,
+            mouseType: .leftMouseDown,
+            mouseCursorPosition: point,
+            mouseButton: .left
+        )
+        let mouseUp = CGEvent(
+            mouseEventSource: nil,
+            mouseType: .leftMouseUp,
+            mouseCursorPosition: point,
+            mouseButton: .left
+        )
+
+        mouseDown?.post(tap: .cghidEventTap)
+        try await Task.sleep(for: .milliseconds(50))
+        mouseUp?.post(tap: .cghidEventTap)
+    }
+
+    // MARK: - Private: CGWindowList
 
     /// Finds the CGWindowID for the first on-screen window owned by our app.
     private func getWindowID() -> CGWindowID? {
-        guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+        guard
+            let windowList = CGWindowListCopyWindowInfo(
+                [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+            ) as? [[String: Any]] else {
             return nil
         }
 
@@ -184,7 +244,8 @@ public actor MacOSDriver {
         return nil
     }
 
-    /// Escapes a string for safe interpolation into AppleScript source code.
+    // MARK: - Private: AppleScript Helpers
+
     private func escapeForAppleScript(_ text: String) -> String {
         text.replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
@@ -213,6 +274,7 @@ public enum MacOSDriverError: Error, LocalizedError {
     case appNotRunning
     case appleScriptFailed(String)
     case windowNotFound(String)
+    case elementNotFound(String)
 
     public var errorDescription: String? {
         switch self {
@@ -222,6 +284,8 @@ public enum MacOSDriverError: Error, LocalizedError {
             "AppleScript failed: \(message)"
         case let .windowNotFound(title):
             "Window not found: \(title)"
+        case let .elementNotFound(title):
+            "Element not found for click: \(title)"
         }
     }
 }

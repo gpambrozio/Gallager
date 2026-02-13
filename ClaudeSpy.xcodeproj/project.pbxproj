@@ -14,6 +14,7 @@
 		8B41F6832DEDD23B001A66F9 /* ClaudeSpyFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6822DEDD23B001A66F9 /* ClaudeSpyFeature */; };
 		8B41F6852DEDD25C001A66F9 /* ClaudeSpyFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6842DEDD25C001A66F9 /* ClaudeSpyFeature */; };
 		AABBCC112F2A00000063PLGN /* plugin in Resources */ = {isa = PBXBuildFile; fileRef = AABBCC102F2A00000063PLGN /* plugin */; };
+		DCF13F6A89DA4860A5776FD7 /* FlyingFox in Frameworks */ = {isa = PBXBuildFile; productRef = 0FF9E03F3BF7435B8FDA207D /* FlyingFox */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -45,6 +46,13 @@
 			remoteGlobalIDString = 8B41F6442DEDD0D5001A66F9;
 			remoteInfo = ClaudeSpy;
 		};
+		FCB2ACD285174C4B80DE1973 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8B41F63D2DEDD0D5001A66F9 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 11661051F1244B379044AF6F;
+			remoteInfo = ClaudeSpyE2EHost;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -69,6 +77,8 @@
 		8B41F6452DEDD0D5001A66F9 /* ClaudeSpy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeSpy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8B41F65C2DEDD0D6001A66F9 /* ClaudeSpy.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeSpy.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AABBCC102F2A00000063PLGN /* plugin */ = {isa = PBXFileReference; lastKnownFileType = folder; path = plugin; sourceTree = "<group>"; };
+		A45795AAFABA49589FBB2F35 /* ClaudeSpyE2EHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeSpyE2EHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		9EE526E9177246FAB164195B /* ClaudeSpyE2ERunner.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeSpyE2ERunner.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -106,6 +116,13 @@
 				Tests.xcconfig,
 			);
 			target = 8B41F6442DEDD0D5001A66F9 /* ClaudeSpy */;
+		};
+		615D0E852B034FFBB280892B /* Exceptions for "ClaudeSpyE2EHost" folder in "ClaudeSpyE2EHost" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 11661051F1244B379044AF6F /* ClaudeSpyE2EHost */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -155,6 +172,19 @@
 				8BD71C0A2DEE41E000CEDD92 /* Exceptions for "Config" folder in "ClaudeSpy" target */,
 			);
 			path = Config;
+			sourceTree = "<group>";
+		};
+		5F8636777B20418884930E87 /* ClaudeSpyE2EHost */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				615D0E852B034FFBB280892B /* Exceptions for "ClaudeSpyE2EHost" folder in "ClaudeSpyE2EHost" target */,
+			);
+			path = ClaudeSpyE2EHost;
+			sourceTree = "<group>";
+		};
+		6CAE4E3F41BA40068B04C82E /* ClaudeSpyE2ERunner */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ClaudeSpyE2ERunner;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -207,6 +237,21 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A974AB0173AB4B78B0BCD5C5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EBFBD835F524444CA72FB796 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DCF13F6A89DA4860A5776FD7 /* FlyingFox in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -220,6 +265,8 @@
 				815F9E6C2F09BFF9003791F7 /* ClaudeSpyServerTests */,
 				815F9E762F09BFF9003791F7 /* ClaudeSpyServerUITests */,
 				81581B4B2F11B9BF005EA7FD /* ClaudeSpyNotificationExtension */,
+				5F8636777B20418884930E87 /* ClaudeSpyE2EHost */,
+				6CAE4E3F41BA40068B04C82E /* ClaudeSpyE2ERunner */,
 				AABBCC102F2A00000063PLGN /* plugin */,
 				8B41F6812DEDD23B001A66F9 /* Frameworks */,
 				8B41F6462DEDD0D5001A66F9 /* Products */,
@@ -235,6 +282,8 @@
 				815F9E692F09BFF9003791F7 /* ClaudeSpyServerTests.xctest */,
 				815F9E732F09BFF9003791F7 /* ClaudeSpyServerUITests.xctest */,
 				81581B4A2F11B9BF005EA7FD /* ClaudeSpyNotificationExtension.appex */,
+				A45795AAFABA49589FBB2F35 /* ClaudeSpyE2EHost.app */,
+				9EE526E9177246FAB164195B /* ClaudeSpyE2ERunner.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -394,6 +443,52 @@
 			productReference = 8B41F65C2DEDD0D6001A66F9 /* ClaudeSpy.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		11661051F1244B379044AF6F /* ClaudeSpyE2EHost */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5375C99F62CE42F790A77C72 /* Build configuration list for PBXNativeTarget "ClaudeSpyE2EHost" */;
+			buildPhases = (
+				F5D5929D34F042149DA3341A /* Sources */,
+				A974AB0173AB4B78B0BCD5C5 /* Frameworks */,
+				4DF8C592D0A04589AFE9D0B7 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				5F8636777B20418884930E87 /* ClaudeSpyE2EHost */,
+			);
+			name = ClaudeSpyE2EHost;
+			packageProductDependencies = (
+			);
+			productName = ClaudeSpyE2EHost;
+			productReference = A45795AAFABA49589FBB2F35 /* ClaudeSpyE2EHost.app */;
+			productType = "com.apple.product-type.application";
+		};
+		E3BC9293B2B7447CB28061F1 /* ClaudeSpyE2ERunner */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9146E98A98584807BD18C9EE /* Build configuration list for PBXNativeTarget "ClaudeSpyE2ERunner" */;
+			buildPhases = (
+				77EBBDC851274BEC845997E6 /* Sources */,
+				EBFBD835F524444CA72FB796 /* Frameworks */,
+				0B9338F4D0424FD2B52826FF /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				CDB17D8FF9D54F84ABC7DF47 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				6CAE4E3F41BA40068B04C82E /* ClaudeSpyE2ERunner */,
+			);
+			name = ClaudeSpyE2ERunner;
+			packageProductDependencies = (
+				0FF9E03F3BF7435B8FDA207D /* FlyingFox */,
+			);
+			productName = ClaudeSpyE2ERunner;
+			productReference = 9EE526E9177246FAB164195B /* ClaudeSpyE2ERunner.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -425,6 +520,13 @@
 						CreatedOnToolsVersion = 16.3;
 						TestTargetID = 8B41F6442DEDD0D5001A66F9;
 					};
+					11661051F1244B379044AF6F = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					E3BC9293B2B7447CB28061F1 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 11661051F1244B379044AF6F;
+					};
 				};
 			};
 			buildConfigurationList = 8B41F6402DEDD0D5001A66F9 /* Build configuration list for PBXProject "ClaudeSpy" */;
@@ -438,6 +540,9 @@
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 8B41F6462DEDD0D5001A66F9 /* Products */;
+			packageReferences = (
+				45FE32EF18D8427899BE768B /* XCRemoteSwiftPackageReference "FlyingFox" */,
+			);
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -447,6 +552,8 @@
 				815F9E682F09BFF9003791F7 /* ClaudeSpyServerTests */,
 				815F9E722F09BFF9003791F7 /* ClaudeSpyServerUITests */,
 				81581B492F11B9BF005EA7FD /* ClaudeSpyNotificationExtension */,
+				11661051F1244B379044AF6F /* ClaudeSpyE2EHost */,
+				E3BC9293B2B7447CB28061F1 /* ClaudeSpyE2ERunner */,
 			);
 		};
 /* End PBXProject section */
@@ -489,6 +596,20 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		8B41F65A2DEDD0D6001A66F9 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4DF8C592D0A04589AFE9D0B7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0B9338F4D0424FD2B52826FF /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -583,6 +704,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F5D5929D34F042149DA3341A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		77EBBDC851274BEC845997E6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -605,6 +740,11 @@
 			isa = PBXTargetDependency;
 			target = 8B41F6442DEDD0D5001A66F9 /* ClaudeSpy */;
 			targetProxy = 8B41F65D2DEDD0D6001A66F9 /* PBXContainerItemProxy */;
+		};
+		CDB17D8FF9D54F84ABC7DF47 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 11661051F1244B379044AF6F /* ClaudeSpyE2EHost */;
+			targetProxy = FCB2ACD285174C4B80DE1973 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -1066,6 +1206,106 @@
 			};
 			name = Release;
 		};
+		43B76C554E484787B8E443E5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = XG2WG7U93U;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ClaudeSpyE2EHost/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.claudespy.e2ehost;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		85683CCEACFF496E984B98CA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = XG2WG7U93U;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ClaudeSpyE2EHost/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.claudespy.e2ehost;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		6E023A0C47344B8289573011 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = XG2WG7U93U;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.claudespy.e2erunner;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = ClaudeSpyE2EHost;
+			};
+			name = Debug;
+		};
+		A510258F0D6D425A91F0C820 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = XG2WG7U93U;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.claudespy.e2erunner;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = ClaudeSpyE2EHost;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1132,6 +1372,24 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		5375C99F62CE42F790A77C72 /* Build configuration list for PBXNativeTarget "ClaudeSpyE2EHost" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				43B76C554E484787B8E443E5 /* Debug */,
+				85683CCEACFF496E984B98CA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		9146E98A98584807BD18C9EE /* Build configuration list for PBXNativeTarget "ClaudeSpyE2ERunner" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6E023A0C47344B8289573011 /* Debug */,
+				A510258F0D6D425A91F0C820 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1155,7 +1413,23 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = ClaudeSpyFeature;
 		};
+		0FF9E03F3BF7435B8FDA207D /* FlyingFox */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 45FE32EF18D8427899BE768B /* XCRemoteSwiftPackageReference "FlyingFox" */;
+			productName = FlyingFox;
+		};
 /* End XCSwiftPackageProductDependency section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		45FE32EF18D8427899BE768B /* XCRemoteSwiftPackageReference "FlyingFox" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/swhitty/FlyingFox.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.22.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
 	};
 	rootObject = 8B41F63D2DEDD0D5001A66F9 /* Project object */;
 }

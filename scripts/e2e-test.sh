@@ -18,6 +18,7 @@ TMUX_SOCKET="/tmp/claudespy-e2e.sock"
 SKIP_BUILD=false
 INTERACTIVE=false
 LIST_SCENARIOS=false
+SCENARIO=""
 
 # =====================================================
 # PARSE ARGUMENTS
@@ -44,6 +45,10 @@ while [[ $# -gt 0 ]]; do
             LIST_SCENARIOS=true
             shift
             ;;
+        --scenario)
+            SCENARIO="$2"
+            shift 2
+            ;;
         --interactive|-i)
             INTERACTIVE=true
             shift
@@ -56,6 +61,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --sim-name NAME  iOS Simulator name (default: $SIM_NAME)"
             echo "  --screenshots DIR Screenshot output dir (default: $SCREENSHOTS_DIR)"
             echo "  --tmux-socket PATH Tmux socket path for isolation (default: $TMUX_SOCKET)"
+            echo "  --scenario NAME  Run specific scenario by name"
             echo "  --list-scenarios   List all available scenarios and exit"
             echo "  --interactive, -i  Start all apps, wait for Enter, then shut down"
             echo "  -h, --help       Show this help"
@@ -165,6 +171,12 @@ else
         -destination "id=$SIM_UDID" \
         build 2>&1 | xcsift --format toon --warnings --executable
 
+    step "Building E2E XCUITest runner (ClaudeSpyE2EHost)"
+    xcodebuild "${XCODEBUILD_FLAGS[@]}" \
+        -scheme ClaudeSpyE2EHost \
+        -destination "id=$SIM_UDID" \
+        build-for-testing 2>&1 | xcsift --format toon --warnings --executable
+
     step "Building E2E coordinator"
     xcodebuild "${XCODEBUILD_FLAGS[@]}" \
         -scheme ClaudeSpyE2E \
@@ -194,10 +206,15 @@ E2E_ARGS=(
     --sim-name "$SIM_NAME"
     --screenshots-dir "$SCREENSHOTS_DIR"
     --tmux-socket "$TMUX_SOCKET"
+    --e2e-runner-path "$DERIVED_DATA"
 )
 
 if [ "$INTERACTIVE" = true ]; then
     E2E_ARGS+=(--interactive)
+fi
+
+if [ -n "$SCENARIO" ]; then
+    E2E_ARGS+=(--scenario "$SCENARIO")
 fi
 
 "$E2E_BIN" "${E2E_ARGS[@]}"

@@ -42,6 +42,18 @@ actor ConnectionHub {
         connections.removeValue(forKey: pairId)
     }
 
+    /// Disconnect all connections of a given device type across all pairs (for E2E testing)
+    func disconnectAll(deviceType: DeviceType) async {
+        for (pairId, pairConnections) in connections {
+            guard let connection = pairConnections[deviceType] else { continue }
+            try? await connection.webSocket.close()
+            connections[pairId]?[deviceType] = nil
+            if connections[pairId]?.isEmpty == true {
+                connections.removeValue(forKey: pairId)
+            }
+        }
+    }
+
     // MARK: - Connection Status
 
     /// Check if host is connected for a pair

@@ -17,7 +17,7 @@ public enum FreshPairingScenario {
         // 3. Launch iOS in simulator
         TestStep.launchIOSApp(arguments: ["--e2e-test", "--server-url", "ws://127.0.0.1:8765"])
         TestStep.iosWaitForElement(.labelContains("pairing code"), timeout: 15)
-        TestStep.iosScreenshot(label: "01-ios-pairing-view")
+        TestStep.iosScreenshot(label: "01.1-ios-pairing-view")
 
         // 4. Launch macOS app (must be fresh launch for --e2e-test args to take effect)
         TestStep.launchMacApp(arguments: [
@@ -37,7 +37,7 @@ public enum FreshPairingScenario {
         TestStep.macClickButton(titled: "Copy Code")
         TestStep.wait(seconds: 0.5)
         TestStep.macReadClipboard(storeAs: "pairingCode")
-        TestStep.macScreenshot(label: "02-mac-code-generated")
+        TestStep.macScreenshot(label: "01.2-mac-code-generated")
 
         // 6. Enter code on iOS
         TestStep.wait(seconds: 1)
@@ -45,13 +45,18 @@ public enum FreshPairingScenario {
         TestStep.wait(seconds: 5)
 
         // 7. Verify iOS transitioned to main view
-        TestStep.iosWaitForElement(.labelContains("Sessions"), timeout: 10)
-        TestStep.iosScreenshot(label: "03-ios-paired")
+        TestStep.iosWaitForElement(.labelContains("Sessions"), timeout: 15)
+        TestStep.iosScreenshot(label: "01.3-ios-paired")
 
         // 8. Verify server state
         TestStep.verifyServerHasPairings(count: 1)
 
-        // 9. Wait for macOS host to establish WebSocket connection to relay
+        // 9. Wait for both host and viewer to connect to relay server
         TestStep.waitForHostConnected(timeout: 15)
+        TestStep.waitForViewerConnected(timeout: 15)
+        TestStep.macScreenshot(label: "01.4-mac-connected")
+
+        // 10. Verify macOS shows "Connected" on settings page (not "Waiting for viewer")
+        TestStep.macWaitForElement(titled: "Connected", timeout: 15)
     }
 }

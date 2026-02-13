@@ -2,6 +2,7 @@
     import ClaudeSpyCommon
     import ClaudeSpyEncryption
     import Dependencies
+    import Logging
     import SwiftUI
 
     /// View for managing paired hosts.
@@ -11,6 +12,8 @@
     struct ManageHostsView: View {
         @Environment(IOSSettings.self) private var settings
         @Environment(ViewerConnectionManager.self) private var connectionManager
+
+        private let logger = Logger(label: "com.claudespy.managehosts")
 
         @State private var showPairingSheet = false
         @State private var hostToDelete: PairedHost?
@@ -31,6 +34,12 @@
                                 connection: connectionManager.connection(for: host.id),
                                 showUsername: settings.hasDuplicateHostName(for: host)
                             )
+                            .accessibilityIdentifier("host-row")
+                            .accessibilityAction(named: "Delete") {
+                                // E2E tests use this custom action to delete without the
+                                // confirmation dialog (triggered via XCUITest runner).
+                                Task { await removeHost(host) }
+                            }
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 hostToEdit = host
@@ -87,6 +96,16 @@
             // Disconnect from this host
             await connectionManager.disconnect(from: host.id)
 
+            // Notify relay server so it removes the pairing record and notifies the host (best effort)
+            Task {
+                do {
+                    try await deletePairingFromServer(pairId: host.id)
+                } catch {
+                    // Best effort — server will clean up stale pairings eventually
+                    logger.debug("Failed to notify server of unpair: \(error)")
+                }
+            }
+
             // Delete encryption session key for this host
             @Dependency(SecretsService.self) var secrets
             try? await secrets.deleteSessionKey(host.id)
@@ -95,6 +114,19 @@
             settings.removePairing(id: host.id)
 
             hostToDelete = nil
+        }
+
+        private func deletePairingFromServer(pairId: String) async throws {
+            let serverURL = settings.externalServerURL.httpURL
+
+            guard let url = URL(string: "\(serverURL)/api/pairing/\(pairId)") else {
+                return
+            }
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "DELETE"
+
+            _ = try await URLSession.shared.data(for: request)
         }
     }
 

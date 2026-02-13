@@ -42,6 +42,10 @@ final public class ViewerConnectionManager {
     /// Parameters are: hostId, publicKey (base64), keyId
     public var onPartnerKeyReceived: ((_ hostId: String, _ publicKey: String, _ keyId: String) async -> Void)?
 
+    /// Called when a pairing was removed by the other side.
+    /// Parameter is the pairId that was unpaired.
+    public var onUnpaired: ((_ hostId: String) async -> Void)?
+
     // MARK: - Computed Properties
 
     /// All active connections
@@ -312,6 +316,11 @@ final public class ViewerConnectionManager {
             onPartnerKeyReceived: { [weak self] publicKey, keyId in
                 guard let self else { return }
                 await self.onPartnerKeyReceived?(hostId, publicKey, keyId)
+            },
+            onUnpaired: { [weak self] in
+                guard let self else { return }
+                self.connections.removeValue(forKey: hostId)
+                await self.onUnpaired?(hostId)
             }
         )
     }

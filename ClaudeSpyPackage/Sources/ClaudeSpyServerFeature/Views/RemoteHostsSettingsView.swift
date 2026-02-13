@@ -411,12 +411,8 @@ private struct AddHostSheet: View {
     }
 
     private func completePairing(code: String) async throws -> PairingResponse {
-        guard var components = URLComponents(string: settings.externalServerURL) else {
-            throw HostPairingError.invalidURL
-        }
-        components.scheme = components.scheme == "wss" ? "https" : "http"
-        components.path = "/api/pairing/complete"
-        guard let url = components.url else {
+        let serverURL = settings.externalServerURL.httpURL
+        guard let url = URL(string: "\(serverURL)/api/pairing/complete") else {
             throw HostPairingError.invalidURL
         }
 

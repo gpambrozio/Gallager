@@ -27,6 +27,9 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     @Option(name: .long, help: "Tmux socket path for isolation")
     var tmuxSocket: String?
 
+    @Option(name: .long, help: "Path to E2E runner derived data (from build-for-testing)")
+    var e2eRunnerPath: String?
+
     @Flag(name: .long, help: "Start server and apps, then wait for Enter before shutting down")
     var interactive = false
 
@@ -55,6 +58,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         print("Simulator:   \(simName)")
         print("Screenshots: \(screenshotsDir)")
         print("Tmux socket: \(tmuxSocket ?? "(default)")")
+        print("E2E runner:  \(e2eRunnerPath ?? "(none)")")
         print()
 
         let orchestrator = TestOrchestrator(
@@ -62,7 +66,8 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             macOSAppPath: macosAppPath,
             simulatorName: simName,
             screenshotsDir: screenshotsDir,
-            tmuxSocket: tmuxSocket
+            tmuxSocket: tmuxSocket,
+            e2eRunnerPath: e2eRunnerPath
         )
 
         if interactive {
@@ -122,6 +127,10 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     private static let allScenarios: [TestScenario] = [
         FreshPairingScenario.scenario,
         NewTerminalScenario.scenario,
+        UnpairFromIOSScenario.scenario,
+        UnpairFromMacOSScenario.scenario,
+        DisconnectIOSUnpairMacOSScenario.scenario,
+        DisconnectMacOSUnpairIOSScenario.scenario,
     ]
 
     private func runTests(orchestrator: TestOrchestrator) async throws {

@@ -1,63 +1,8 @@
 import ApplicationServices
 import Foundation
-import Logging
 
 /// Traverses the iOS Simulator's AX tree to extract UI elements
 enum SimulatorAccessibility {
-    private static let logger = Logger(label: "e2e.sim-accessibility")
-
-    /// Get the full UI element tree for the Simulator app's iOS content area
-    /// Returns the parsed tree along with the iOS content group's screen origin
-    static func describeUI(
-        simulatorPID: pid_t,
-        maxDepth: Int = 15
-    ) -> (elements: [UIElement], contentOrigin: CGPoint?) {
-        let appElement = AXUIElementCreateApplication(simulatorPID)
-
-        // Walk the AX tree to find the iOSContentGroup (the actual iOS screen area)
-        guard let contentGroup = findIOSContentGroup(in: appElement, depth: 0, maxDepth: 10) else {
-            logger.warning("Could not find iOSContentGroup in Simulator AX tree")
-            dumpAXTree(appElement, depth: 0, maxDepth: 4)
-            // Fall back to full app tree
-            let elements = parseElement(appElement, depth: 0, maxDepth: maxDepth)
-            return (elements.map { [$0] } ?? [], nil)
-        }
-
-        // Get the content group's frame for coordinate conversion
-        let contentFrame = getFrame(of: contentGroup)
-        let contentOrigin = contentFrame?.origin
-
-        // Parse the content group's children as the UI tree
-        let children = getChildren(of: contentGroup)
-        let elements = children.compactMap { child in
-            parseElement(child, depth: 0, maxDepth: maxDepth)
-        }
-
-        return (elements, contentOrigin)
-    }
-
-    /// Find the element with subrole "iOSContentGroup" in the AX tree
-    private static func findIOSContentGroup(
-        in element: AXUIElement,
-        depth: Int,
-        maxDepth: Int
-    ) -> AXUIElement? {
-        guard depth < maxDepth else { return nil }
-
-        let subrole = getSubrole(of: element) ?? ""
-        if subrole == "iOSContentGroup" || subrole == "AXiOSContentGroup" {
-            return element
-        }
-
-        for child in getChildren(of: element) {
-            if let found = findIOSContentGroup(in: child, depth: depth + 1, maxDepth: maxDepth) {
-                return found
-            }
-        }
-
-        return nil
-    }
-
     /// Parse an AXUIElement into a UIElement
     static func parseElement(
         _ element: AXUIElement,
@@ -69,6 +14,7 @@ enum SimulatorAccessibility {
         let role = getStringAttribute(of: element, attribute: kAXRoleAttribute as String) ?? "Unknown"
         let subrole = getStringAttribute(of: element, attribute: kAXSubroleAttribute as String)
         let label = getStringAttribute(of: element, attribute: kAXDescriptionAttribute as String)
+            ?? getStringAttribute(of: element, attribute: "AXLabel")
             ?? getStringAttribute(of: element, attribute: kAXTitleAttribute as String)
         let value = getValueString(of: element)
         let title = getStringAttribute(of: element, attribute: kAXTitleAttribute as String)
@@ -96,24 +42,6 @@ enum SimulatorAccessibility {
         )
     }
 
-    // MARK: - Diagnostics
-
-    /// Dump the AX tree structure for debugging
-    private static func dumpAXTree(_ element: AXUIElement, depth: Int, maxDepth: Int) {
-        guard depth < maxDepth else { return }
-        let indent = String(repeating: "  ", count: depth)
-        let role = getStringAttribute(of: element, attribute: kAXRoleAttribute as String) ?? "?"
-        let subrole = getSubrole(of: element) ?? ""
-        let title = getStringAttribute(of: element, attribute: kAXTitleAttribute as String) ?? ""
-        let children = getChildren(of: element)
-        let subroleStr = subrole.isEmpty ? "" : " subrole=\(subrole)"
-        let titleStr = title.isEmpty ? "" : " title=\"\(title)\""
-        logger.info("\(indent)\(role)\(subroleStr)\(titleStr) [\(children.count) children]")
-        for child in children {
-            dumpAXTree(child, depth: depth + 1, maxDepth: maxDepth)
-        }
-    }
-
     // MARK: - AX Helpers
 
     private static func getStringAttribute(of element: AXUIElement, attribute: String) -> String? {
@@ -130,10 +58,6 @@ enum SimulatorAccessibility {
         if let str = value as? String { return str }
         if let num = value as? NSNumber { return num.stringValue }
         return nil
-    }
-
-    private static func getSubrole(of element: AXUIElement) -> String? {
-        getStringAttribute(of: element, attribute: kAXSubroleAttribute as String)
     }
 
     private static func getFrame(of element: AXUIElement) -> CGRect? {

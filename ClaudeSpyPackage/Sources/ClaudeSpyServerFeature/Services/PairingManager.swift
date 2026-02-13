@@ -195,9 +195,7 @@ final public class PairingManager {
             throw PairingError.settingsNotAvailable
         }
 
-        let serverURL = settings.externalServerURL
-            .replacingOccurrences(of: "wss://", with: "https://")
-            .replacingOccurrences(of: "ws://", with: "http://")
+        let serverURL = settings.externalServerURL.httpURL
 
         guard let url = URL(string: "\(serverURL)/api/pairing/register") else {
             throw PairingError.invalidURL
@@ -238,9 +236,7 @@ final public class PairingManager {
             throw PairingError.settingsNotAvailable
         }
 
-        let serverURL = settings.externalServerURL
-            .replacingOccurrences(of: "wss://", with: "https://")
-            .replacingOccurrences(of: "ws://", with: "http://")
+        let serverURL = settings.externalServerURL.httpURL
 
         guard let url = URL(string: "\(serverURL)/api/pairing/\(pairId)/status") else {
             throw PairingError.invalidURL
@@ -263,9 +259,7 @@ final public class PairingManager {
     private func deletePairing(pairId: String) async throws {
         guard let settings else { return }
 
-        let serverURL = settings.externalServerURL
-            .replacingOccurrences(of: "wss://", with: "https://")
-            .replacingOccurrences(of: "ws://", with: "http://")
+        let serverURL = settings.externalServerURL.httpURL
 
         guard let url = URL(string: "\(serverURL)/api/pairing/\(pairId)") else {
             return

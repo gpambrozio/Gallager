@@ -21,11 +21,13 @@ final public class ResponseState {
     private var isInitialized = false
 
     /// The user's response, if they've responded.
-    /// Setting this persists the response to SessionStore.
+    /// Setting this persists the response to SessionStore (iOS only).
     public var response: ResponseType? {
         didSet {
             guard isInitialized else { return }
-            sessionStore?.setResponse(response, for: event.id)
+            #if os(iOS)
+                sessionStore?.setResponse(response, for: event.id)
+            #endif
         }
     }
 
@@ -34,7 +36,9 @@ final public class ResponseState {
         self.sessionStore = sessionStore
         // Restore any existing response from the store.
         // isInitialized is false, so didSet won't trigger @Observable mutations.
-        self.response = sessionStore?.response(for: event.id)
+        #if os(iOS)
+            self.response = sessionStore?.response(for: event.id)
+        #endif
         self.isInitialized = true
     }
 }

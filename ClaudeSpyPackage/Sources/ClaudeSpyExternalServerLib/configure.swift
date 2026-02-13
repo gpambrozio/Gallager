@@ -120,4 +120,21 @@ public extension Application {
             return false
         }
     }
+
+    /// Disconnect all WebSocket connections for a given device type (for E2E testing)
+    func disconnectDevice(deviceType: String) async {
+        guard let type = DeviceType(rawValue: deviceType) else { return }
+        await connectionHub.disconnectAll(deviceType: type)
+    }
+
+    /// Check if a viewer is connected via WebSocket for any active pair
+    var isAnyViewerConnected: Bool {
+        get async {
+            let pairs = await pairingService.activePairIds
+            for pairId in pairs where await connectionHub.isViewerConnected(pairId: pairId) {
+                return true
+            }
+            return false
+        }
+    }
 }
