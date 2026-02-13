@@ -18,6 +18,7 @@ public actor TestOrchestrator {
     private let e2eRunnerPath: String?
     private let e2eHostBundleId = "br.eng.gustavo.claudespy.e2ehost"
     private let e2eRunnerBundleId = "br.eng.gustavo.claudespy.e2erunner.xctrunner"
+    private let serverPort = 8_765
 
     /// Result of running a scenario
     public struct ScenarioResult: Sendable {
@@ -28,9 +29,8 @@ public actor TestOrchestrator {
         public let duration: TimeInterval
     }
 
-    /// - Note: The server port is controlled per-scenario via `TestStep.startServer(port:)`,
-    ///   not as an orchestrator-level configuration. The tmux socket path is injected into
-    ///   the execution context as `${tmuxSocket}` for scenarios to reference.
+    /// - Note: The tmux socket path is injected into the execution context as `${tmuxSocket}`
+    ///   for scenarios to reference.
     public init(
         iosAppPath: String? = nil,
         macOSAppPath: String,
@@ -143,8 +143,8 @@ public actor TestOrchestrator {
     private func executeStep(_ step: TestStep) async throws {
         switch step {
         // Server
-        case let .startServer(port):
-            try await serverDriver.start(port: port)
+        case .startServer:
+            try await serverDriver.start(port: serverPort)
 
         case .verifyServerHealth:
             try await serverDriver.waitForHealthy()
@@ -185,7 +185,7 @@ public actor TestOrchestrator {
             try await serverDriver.stop()
 
         // iOS Simulator
-        case let .launchIOSApp(arguments):
+        case .launchIOSApp:
             guard let iosAppPath else {
                 throw OrchestratorError.configurationError("--ios-app-path is required for iOS scenarios")
             }
@@ -194,10 +194,9 @@ public actor TestOrchestrator {
                 await simulatorDriver.setE2ERunnerPath(e2eRunnerPath)
             }
             try await simulatorDriver.installApp(appPath: iosAppPath)
-            let resolvedArgs = arguments.map { context.resolve($0) }
             try await simulatorDriver.launchApp(
                 bundleId: iosBundleId(),
-                arguments: resolvedArgs
+                arguments: ["--e2e-test", "--server-url", "ws://127.0.0.1:\(serverPort)"]
             )
 
         case .terminateIOSApp:
@@ -247,9 +246,16 @@ public actor TestOrchestrator {
             logger.info("=== End iOS UI Tree ===")
 
         // macOS App
-        case let .launchMacApp(arguments):
-            let resolvedArgs = arguments.map { context.resolve($0) }
-            try await macOSDriver.launchApp(path: macOSAppPath, arguments: resolvedArgs)
+        case .launchMacApp:
+            let resolvedSocket = context.resolve("${tmuxSocket}")
+            try await macOSDriver.launchApp(
+                path: macOSAppPath,
+                arguments: [
+                    "--e2e-test",
+                    "--server-url", "ws://127.0.0.1:\(serverPort)",
+                    "--tmux-socket", resolvedSocket,
+                ]
+            )
 
         case .terminateMacApp:
             try? await macOSDriver.terminateApp()

@@ -24,7 +24,7 @@ public enum TestStep: Sendable {
     // MARK: - Server
 
     /// Start the in-process Vapor server
-    case startServer(port: Int = 8_765)
+    case startServer
     /// Verify the server is healthy
     case verifyServerHealth
     /// Verify the number of active pairings
@@ -43,7 +43,7 @@ public enum TestStep: Sendable {
     // MARK: - iOS Simulator
 
     /// Launch the iOS app in the simulator
-    case launchIOSApp(arguments: [String] = [])
+    case launchIOSApp
     /// Terminate the iOS app
     case terminateIOSApp
     /// Uninstall the iOS app from the simulator
@@ -68,7 +68,7 @@ public enum TestStep: Sendable {
     // MARK: - macOS App
 
     /// Launch the macOS app
-    case launchMacApp(arguments: [String] = [])
+    case launchMacApp
     /// Terminate the macOS app
     case terminateMacApp
     /// Open Settings window

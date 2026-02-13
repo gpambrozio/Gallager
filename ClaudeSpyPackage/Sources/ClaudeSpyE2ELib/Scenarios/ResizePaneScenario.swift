@@ -13,10 +13,7 @@ public enum ResizePaneScenario {
         TestStep.tmuxCreateSession(name: "resize-test-1", width: 80, height: 24)
         TestStep.tmuxCreateSession(name: "resize-test-2", width: 80, height: 24)
 
-        TestStep.launchMacApp(arguments: [
-            "--e2e-test",
-            "--tmux-socket", "${tmuxSocket}",
-        ])
+        TestStep.launchMacApp
         TestStep.wait(seconds: 3)
 
         TestStep.macOpenPanesWindow
