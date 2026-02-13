@@ -122,8 +122,11 @@ public struct ErrorMessage: Codable, Sendable {
         self.recoverable = recoverable
     }
 
+    /// Error code sent by the server when a pair ID is no longer valid.
+    public static let invalidPairCode = "INVALID_PAIR"
+
     public static func invalidPair() -> ErrorMessage {
-        ErrorMessage(code: "INVALID_PAIR", message: "Pair ID is invalid or expired", recoverable: false)
+        ErrorMessage(code: invalidPairCode, message: "Pair ID is invalid or expired", recoverable: false)
     }
 
     public static func notConnected(_ device: String) -> ErrorMessage {

@@ -474,7 +474,7 @@ final public class ConnectedViewer: Identifiable {
             break
 
         case let .error(errorMessage):
-            if errorMessage.code == "INVALID_PAIR" {
+            if errorMessage.code == ErrorMessage.invalidPairCode {
                 logger.info("Received INVALID_PAIR error, treating as unpair")
                 shouldReconnect = false
                 await cleanupConnection()

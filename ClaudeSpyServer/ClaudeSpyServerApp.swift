@@ -48,7 +48,9 @@ struct TmuxPaneMirrorApp: App {
             NSApplication.shared.setActivationPolicy(.regular)
 
             // Start accessibility server for E2E UI inspection
-            TestAccessibilityServer.startIfNeeded()
+            #if DEBUG
+                TestAccessibilityServer.startIfNeeded()
+            #endif
         }
 
         _coordinator = State(initialValue: AppCoordinator())
