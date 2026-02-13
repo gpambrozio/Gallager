@@ -75,11 +75,13 @@ public struct MainView: View {
             }
         }
         .onChange(of: selectedPane) {
-            // Reset cached dimensions so the new pane gets resized on next auto-resize
+            // Reset cached dimensions and trigger auto-resize for the newly selected pane
             lastAutoResizeDimensions = nil
+            handleAutoResize()
         }
         .onChange(of: selectedRemotePane) {
             lastAutoResizeDimensions = nil
+            handleAutoResize()
         }
     }
 
