@@ -30,7 +30,7 @@ public enum ResizePaneScenario {
         TestStep.log("Phase 1: Manual Resize")
 
         // Type into the app to test keyboard input path (app → SwiftTerm → tmux)
-        TestStep.macType(text: "seq 1 500", pressReturn: true)
+        TestStep.macType(text: "seq -f '%0190g' 1 20", pressReturn: true)
         TestStep.wait(seconds: 1)
 
         // Record initial pane dimensions (should be ~80x24)
