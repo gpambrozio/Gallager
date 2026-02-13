@@ -1,0 +1,212 @@
+# Common E2E Scenario Patterns
+
+Patterns extracted from existing scenarios in `ClaudeSpyPackage/Sources/ClaudeSpyE2ELib/Scenarios/`.
+
+## Pattern: Standard Setup (Server + Both Apps)
+
+Most scenarios need the server running and both apps launched. The `FreshPairingScenario` handles this:
+
+```swift
+public static let scenario = ClaudeSpyE2ELib.scenario("My Scenario", tags: ["mytag"]) {
+    // Reuse full pairing flow (includes server start, both app launches, pairing, verification)
+    FreshPairingScenario.scenario
+
+    // Now both apps are paired and connected; add scenario-specific steps
+    TestStep.iosTap(.label("Some Button"))
+}
+```
+
+### What FreshPairingScenario Provides
+
+After embedding FreshPairingScenario, the state is:
+- Server running on port 8765
+- iOS app launched and paired
+- macOS app launched and paired
+- Both WebSocket connections verified (host + viewer)
+- macOS Settings window open on "Remote Access" tab showing "Connected"
+
+## Pattern: Clean State Start
+
+Begin scenarios that don't compose on FreshPairingScenario with cleanup:
+
+```swift
+TestStep.uninstallIOSApp    // Remove previous iOS install
+TestStep.terminateMacApp    // Kill previous macOS process
+
+TestStep.startServer
+TestStep.verifyServerHealth
+
+TestStep.launchIOSApp
+TestStep.launchMacApp
+```
+
+## Pattern: macOS-Only Scenario
+
+For scenarios that don't need iOS or the relay server, tag with `"macos-only"` and use tmux directly. No need to call `startServer` - `launchMacApp` still passes `--server-url` to prevent accidental production connections, but no running server is required:
+
+```swift
+public static let scenario = ClaudeSpyE2ELib.scenario("My macOS Test", tags: ["macos-only"]) {
+    TestStep.tmuxCreateSession(name: "test-session", width: 80, height: 24)
+
+    TestStep.launchMacApp
+    TestStep.wait(seconds: 3)
+
+    TestStep.macOpenPanesWindow
+    TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
+    TestStep.wait(seconds: 1)
+
+    // Select a pane in the sidebar
+    TestStep.macClickButton(titled: "test-session:0.0")
+    TestStep.wait(seconds: 1)
+
+    // Interact with terminal
+    TestStep.macType(text: "echo hello", pressReturn: true)
+}
+```
+
+Note: `launchMacApp` always includes `--server-url` to prevent accidental production connections, even without a running server.
+
+## Pattern: Unpair Verification
+
+After triggering unpair from either side, verify the full cleanup chain:
+
+```swift
+// Trigger unpair (various methods)
+TestStep.macUnpair                    // Via test HTTP endpoint
+// OR
+TestStep.iosTap(.label("Delete"))     // Via iOS UI
+TestStep.iosTap(.roleAndLabelContains(role: "Button", label: "Remove"))
+
+// Verify cleanup
+TestStep.waitForNoPairings(timeout: 15)           // Wait for server to process
+TestStep.verifyServerHasPairings(count: 0)         // Assert count
+TestStep.iosWaitForElement(.labelContains("pairing code"), timeout: 10)  // iOS returned to pairing view
+```
+
+## Pattern: iOS Swipe-to-Delete
+
+Reveal and tap swipe actions on list rows:
+
+```swift
+// The row must have .accessibilityIdentifier("host-row") in SwiftUI
+TestStep.iosSwipeLeft(.identifier("host-row"))
+TestStep.wait(seconds: 1)
+TestStep.iosTap(.label("Delete"))
+TestStep.wait(seconds: 1)
+
+// Handle confirmation dialog
+TestStep.iosTap(.roleAndLabelContains(role: "Button", label: "Remove"))
+```
+
+## Pattern: Pairing Code Transfer
+
+Transfer the pairing code from macOS clipboard to iOS:
+
+```swift
+// Generate and copy on macOS
+TestStep.macOpenSettings
+TestStep.macWaitForWindow(titled: "General", timeout: 5)
+TestStep.macSelectSettingsTab("Remote Access")
+TestStep.wait(seconds: 1)
+TestStep.macClickButton(titled: "Generate Pairing Code")
+TestStep.wait(seconds: 3)
+TestStep.macClickButton(titled: "Copy Code")
+TestStep.wait(seconds: 0.5)
+TestStep.macReadClipboard(storeAs: "pairingCode")
+
+// Enter on iOS
+TestStep.wait(seconds: 1)
+TestStep.iosType(text: "${pairingCode}")
+TestStep.wait(seconds: 5)
+```
+
+## Pattern: Reconnection Testing
+
+Test how apps handle server-side disconnections:
+
+```swift
+// Start with paired state
+FreshPairingScenario.scenario
+
+// Disconnect one side via server
+TestStep.serverDisconnectDevice(.viewer)   // Disconnect iOS
+// OR
+TestStep.serverDisconnectDevice(.host)     // Disconnect macOS
+TestStep.wait(seconds: 1)
+
+// Take action while disconnected
+TestStep.macUnpair
+TestStep.wait(seconds: 2)
+
+// Verify the disconnected side handles INVALID_PAIR on reconnect
+TestStep.waitForNoPairings(timeout: 15)
+TestStep.iosWaitForElement(.labelContains("pairing code"), timeout: 30)
+```
+
+## Pattern: Multi-Phase Assertion Testing
+
+Use stored values to track state changes across phases:
+
+```swift
+// Phase 1: Record initial state
+TestStep.tmuxStorePaneDimensions(target: "session:0.0", widthKey: "initialWidth", heightKey: "initialHeight")
+TestStep.log("Initial: ${initialWidth}x${initialHeight}")
+
+// Phase 2: Take action
+TestStep.macResizeWindow(width: 1400, height: 900)
+TestStep.macClickButton(titled: "Resize tmux pane to fit mirror view")
+TestStep.wait(seconds: 1)
+
+// Phase 3: Record and assert
+TestStep.tmuxStorePaneDimensions(target: "session:0.0", widthKey: "newWidth", heightKey: "newHeight")
+TestStep.log("After resize: ${newWidth}x${newHeight}")
+TestStep.assertStoredNotEqual(key: "newWidth", otherKey: "initialWidth")
+```
+
+## Pattern: Screenshot Naming Convention
+
+Use a consistent numbering scheme per scenario:
+
+```
+NN.M-description
+```
+
+Where:
+- `NN` = scenario number (01 for FreshPairing, 02 for NewTerminal, 03 for UnpairFromIOS, etc.)
+- `M` = step within the scenario (sequential)
+- `description` = brief kebab-case description
+
+Examples:
+```swift
+TestStep.iosScreenshot(label: "01.1-ios-pairing-view")
+TestStep.macScreenshot(label: "01.2-mac-code-generated")
+TestStep.iosScreenshot(label: "01.3-ios-paired")
+TestStep.macScreenshot(label: "01.4-mac-connected")
+```
+
+## Pattern: Waiting for UI Transitions
+
+After actions that trigger navigation or state changes, wait appropriately:
+
+```swift
+// After launching apps: 3 seconds for app initialization
+TestStep.launchMacApp
+TestStep.wait(seconds: 3)
+
+// After button clicks: 0.5-1 second for UI response
+TestStep.macClickButton(titled: "Some Button")
+TestStep.wait(seconds: 1)
+
+// After pairing code entry: 5 seconds for network + crypto handshake
+TestStep.iosType(text: "${pairingCode}")
+TestStep.wait(seconds: 5)
+
+// For loading states: use waitForElementToDisappear instead of fixed waits
+TestStep.iosWaitForElementToDisappear(.labelContains("Loading"), timeout: 15)
+
+// For appearance: use waitForElement instead of fixed waits
+TestStep.iosWaitForElement(.labelContains("Sessions"), timeout: 15)
+TestStep.macWaitForElement(titled: "Connected", timeout: 15)
+```
+
+Prefer `waitForElement`/`waitForElementToDisappear` over fixed `wait(seconds:)` when possible - they're more reliable and fail faster.
