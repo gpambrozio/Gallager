@@ -328,6 +328,26 @@ public struct StopTerminalStream: CommandSpec, Equatable {
     }
 }
 
+/// Resize a tmux pane to new dimensions. Returns success/failure.
+public struct ResizeTmuxPane: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// Terminal width in columns
+    public let width: Int
+
+    /// Terminal height in rows
+    public let height: Int
+
+    public init(width: Int, height: Int) {
+        self.width = width
+        self.height = height
+    }
+
+    public var commandType: CommandType {
+        .resizeTmuxPane(self)
+    }
+}
+
 /// Create a new tmux session. Returns success/failure.
 public struct CreateTmuxSession: CommandSpec, Equatable {
     public typealias Response = CommandResponseMessage
@@ -372,6 +392,8 @@ public enum CommandType: Codable, Sendable, Equatable {
     case stopTerminalStream(StopTerminalStream)
     /// Create a new tmux session
     case createTmuxSession(CreateTmuxSession)
+    /// Resize a tmux pane
+    case resizeTmuxPane(ResizeTmuxPane)
 
     // MARK: - Convenience Factory Methods
 
@@ -393,6 +415,11 @@ public enum CommandType: Codable, Sendable, Equatable {
     /// Create a stopTerminalStream command
     public static var stopTerminalStream: CommandType {
         .stopTerminalStream(StopTerminalStream())
+    }
+
+    /// Create a resizeTmuxPane command
+    public static func resizeTmuxPane(width: Int, height: Int) -> CommandType {
+        .resizeTmuxPane(ResizeTmuxPane(width: width, height: height))
     }
 
     /// Create a createTmuxSession command

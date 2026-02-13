@@ -37,6 +37,9 @@ public actor TmuxCommandExecutor {
             case .cancelOperation:
                 try await tmuxService.sendInterrupt(command.paneId)
 
+            case let .resizeTmuxPane(spec):
+                try await tmuxService.resizePane(command.paneId, width: spec.width, height: spec.height)
+
             case .startTerminalStream,
                  .stopTerminalStream,
                  .createTmuxSession:

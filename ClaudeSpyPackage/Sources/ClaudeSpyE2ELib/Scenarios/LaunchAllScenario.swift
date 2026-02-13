@@ -11,19 +11,15 @@ public enum LaunchAllScenario {
         TestStep.terminateMacApp
 
         // 2. Start server on localhost
-        TestStep.startServer(port: 8_765)
+        TestStep.startServer
         TestStep.verifyServerHealth
 
         // 3. Launch iOS in simulator
-        TestStep.launchIOSApp(arguments: ["--e2e-test", "--server-url", "ws://127.0.0.1:8765"])
+        TestStep.launchIOSApp
         TestStep.wait(seconds: 3)
 
         // 4. Launch macOS app
-        TestStep.launchMacApp(arguments: [
-            "--e2e-test",
-            "--server-url", "ws://127.0.0.1:8765",
-            "--tmux-socket", "${tmuxSocket}",
-        ])
+        TestStep.launchMacApp
         TestStep.wait(seconds: 3)
     }
 }

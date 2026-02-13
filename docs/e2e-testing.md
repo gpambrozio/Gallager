@@ -182,19 +182,26 @@ public enum MyScenario {
         "My Scenario",
         tags: ["mytag"]
     ) {
-        TestStep.startServer(port: 8_765)
+        TestStep.startServer
         TestStep.verifyServerHealth
 
-        TestStep.launchIOSApp(arguments: ["--e2e-test", "--server-url", "ws://127.0.0.1:8765"])
+        TestStep.launchIOSApp
         TestStep.iosWaitForElement(.labelContains("some text"), timeout: 10)
         TestStep.iosScreenshot(label: "my-screenshot")
 
-        TestStep.launchMacApp(arguments: ["--e2e-test", "--server-url", "ws://127.0.0.1:8765"])
+        TestStep.launchMacApp
         TestStep.wait(seconds: 2)
         TestStep.macScreenshot(label: "mac-screenshot")
     }
 }
 ```
+
+The orchestrator builds launch arguments automatically:
+- `startServer` uses a fixed port (8765)
+- `launchIOSApp` passes `--e2e-test --server-url ws://127.0.0.1:8765`
+- `launchMacApp` passes `--e2e-test --server-url ws://127.0.0.1:8765 --tmux-socket <path>`
+
+The server URL is always included (even for macOS-only scenarios without a running server) to prevent accidental connection to production.
 
 ### Composing scenarios
 
@@ -237,7 +244,7 @@ private static let allScenarios: [TestScenario] = [
 
 | Step | Description |
 |------|-------------|
-| `startServer(port:)` | Start the in-process Vapor relay server |
+| `startServer` | Start the in-process Vapor relay server (fixed port 8765) |
 | `verifyServerHealth` | Wait for the server health endpoint to respond |
 | `verifyServerHasPairings(count:)` | Assert the number of active pairings |
 | `waitForHostConnected(timeout:)` | Wait for the macOS host to connect via WebSocket |
@@ -250,7 +257,7 @@ private static let allScenarios: [TestScenario] = [
 
 | Step | Description |
 |------|-------------|
-| `launchIOSApp(arguments:)` | Boot simulator, install, launch iOS app, and start XCUITest runner |
+| `launchIOSApp` | Boot simulator, install, launch iOS app, and start XCUITest runner |
 | `terminateIOSApp` | Terminate the running iOS app |
 | `uninstallIOSApp` | Terminate and uninstall the iOS app |
 | `iosWaitForElement(_:timeout:)` | Wait for a UI element matching an `ElementQuery` |
@@ -266,17 +273,34 @@ private static let allScenarios: [TestScenario] = [
 
 | Step | Description |
 |------|-------------|
-| `launchMacApp(arguments:)` | Launch the macOS app |
+| `launchMacApp` | Launch the macOS app (args built by orchestrator) |
 | `terminateMacApp` | Terminate the macOS app |
 | `macOpenSettings` | Open the Settings window |
+| `macOpenPanesWindow` | Open the Panes window |
 | `macWaitForWindow(titled:timeout:)` | Wait for a window with the given title |
 | `macSelectSettingsTab(_:)` | Click a Settings sidebar tab |
-| `macClickButton(titled:)` | Click a button by title or `.help()` attribute |
+| `macClickButton(titled:)` | Click a button/element by title, label, or `.help()` attribute |
 | `macClickMenuItem(menuButtonTitle:itemTitle:)` | Click a menu trigger button then click a menu item |
 | `macUnpair` | Trigger unpair on the first paired viewer via test HTTP endpoint |
 | `macWaitForElement(titled:timeout:)` | Wait for a text element to appear in the macOS app's accessibility tree |
 | `macReadClipboard(storeAs:)` | Read clipboard contents into a variable |
+| `macResizeWindow(width:height:)` | Resize the app's frontmost window |
+| `macType(text:pressReturn:)` | Type text via AppleScript keystroke (supports `${variable}` interpolation) |
 | `macScreenshot(label:)` | Save a screenshot of the macOS app window |
+
+### Tmux
+
+| Step | Description |
+|------|-------------|
+| `tmuxCreateSession(name:width:height:)` | Create a tmux session on the test socket |
+| `tmuxStorePaneDimensions(target:widthKey:heightKey:)` | Store pane dimensions in context variables |
+
+### Assertions
+
+| Step | Description |
+|------|-------------|
+| `assertStoredEqual(key:otherKey:)` | Assert two stored context values are equal |
+| `assertStoredNotEqual(key:otherKey:)` | Assert two stored context values differ |
 
 ### General
 
@@ -324,7 +348,15 @@ For confirmation dialogs, use `roleAndLabelContains` to target buttons specifica
 TestStep.iosTap(.roleAndLabelContains(role: "Button", label: "Remove"))
 ```
 
-### macOS (AppleScript/System Events)
+### macOS (TestAccessibilityServer)
+
+The macOS app runs an in-process HTTP server (`TestAccessibilityServer` on port 18081) when launched with `--e2e-test`. The `macClickButton(titled:)` step queries this server, which searches for elements using multiple strategies:
+
+1. **Toolbar items** — matches by `label`
+2. **Sidebar/outline rows** — walks the NSView hierarchy to find `NSOutlineView` rows, then calls `accessibilityPerformPress()` on the `AXButton` inside
+3. **Accessibility tree** — recursive walk via `accessibilityChildren()`, matching by `title`, `label`, `value`, or `help`
+
+#### Toolbar buttons
 
 SwiftUI buttons with `Label` don't expose a title in System Events. Use `.help()` which maps to the `AXHelp` attribute:
 
@@ -333,4 +365,23 @@ Button { ... } label: { Label("Generate Code", symbol: .key) }
     .help("Generate Pairing Code")  // discoverable by macClickButton
 ```
 
-The `macClickButton(titled:)` step searches recursively by both `title` and `help` attributes.
+#### Sidebar rows (List items)
+
+Sidebar rows in `List` must use `Button` (not `onTapGesture`) to be discoverable. Place `.accessibilityLabel()` on the `Button`, not on the row content — otherwise the label gets duplicated in the accessibility tree:
+
+```swift
+// Good: Button with accessibilityLabel on the button itself
+Button {
+    selectedPane = pane
+} label: {
+    PaneSidebarRow(pane: pane)
+}
+.buttonStyle(.plain)
+.accessibilityLabel(pane.target)  // → macClickButton(titled: "session:0.0")
+
+// Bad: onTapGesture — no AXPress action, clicks are unreliable
+PaneSidebarRow(pane: pane)
+    .onTapGesture { selectedPane = pane }
+```
+
+**Why Button matters:** `NSOutlineView` doesn't expose its rows through `accessibilityChildren()`, so the generic accessibility tree walker can't find them. The test server walks the NSView hierarchy instead, locates the matching row, then finds the `AXButton` inside it and calls `accessibilityPerformPress()`. Without a `Button`, there's no `AXPress` action to invoke.

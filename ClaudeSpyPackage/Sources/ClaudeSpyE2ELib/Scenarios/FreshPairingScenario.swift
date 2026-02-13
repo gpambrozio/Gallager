@@ -11,20 +11,16 @@ public enum FreshPairingScenario {
         TestStep.terminateMacApp
 
         // 2. Start server on localhost
-        TestStep.startServer(port: 8_765)
+        TestStep.startServer
         TestStep.verifyServerHealth
 
         // 3. Launch iOS in simulator
-        TestStep.launchIOSApp(arguments: ["--e2e-test", "--server-url", "ws://127.0.0.1:8765"])
+        TestStep.launchIOSApp
         TestStep.iosWaitForElement(.labelContains("pairing code"), timeout: 15)
         TestStep.iosScreenshot(label: "01.1-ios-pairing-view")
 
         // 4. Launch macOS app (must be fresh launch for --e2e-test args to take effect)
-        TestStep.launchMacApp(arguments: [
-            "--e2e-test",
-            "--server-url", "ws://127.0.0.1:8765",
-            "--tmux-socket", "${tmuxSocket}",
-        ])
+        TestStep.launchMacApp
         TestStep.wait(seconds: 3)
 
         // 5. Generate pairing code on macOS

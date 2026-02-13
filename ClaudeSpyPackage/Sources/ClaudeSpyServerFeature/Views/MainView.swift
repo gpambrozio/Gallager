@@ -27,6 +27,13 @@ public struct MainView: View {
     @State private var creatingSelection: NewSessionCreatingState?
     @State private var detailPaneSize: CGSize = .zero
 
+    /// Per-session auto-resize state (keyed by pane target for local, "remote-hostId-paneId" for remote)
+    @State private var autoResizeEnabled: Set<String> = []
+    /// Last dimensions sent via auto-resize, used to skip redundant calls during window drag
+    @State private var lastAutoResizeDimensions: (columns: Int, rows: Int)?
+    /// Debounce task for auto-resize (cancelled on each new geometry change)
+    @State private var autoResizeTask: Task<Void, Never>?
+
     public var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarContent
@@ -36,6 +43,7 @@ public struct MainView: View {
                     proxy.size
                 } action: { newSize in
                     detailPaneSize = newSize
+                    handleAutoResize()
                 }
         }
         .navigationSplitViewStyle(.balanced)
@@ -65,6 +73,18 @@ public struct MainView: View {
                 !newPanes.contains(where: { $0.id == selected.id }) {
                 selectedPane = nil
             }
+        }
+        .onChange(of: selectedPane) {
+            // Reset cached dimensions and trigger auto-resize for the newly selected pane
+            lastAutoResizeDimensions = nil
+            handleAutoResize()
+        }
+        .onChange(of: selectedRemotePane) {
+            lastAutoResizeDimensions = nil
+            handleAutoResize()
+        }
+        .onDisappear {
+            autoResizeTask?.cancel()
         }
     }
 
@@ -120,13 +140,16 @@ public struct MainView: View {
             if !panesWithClaude.isEmpty {
                 Section {
                     ForEach(panesWithClaude) { pane in
-                        PaneSidebarRow(pane: pane)
-                            .listRowBackground(selectedPane == pane && selectedRemotePane == nil ? Color.accentColor.opacity(0.2) : nil)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                selectedPane = pane
-                                selectedRemotePane = nil
-                            }
+                        Button {
+                            selectedPane = pane
+                            selectedRemotePane = nil
+                        } label: {
+                            PaneSidebarRow(pane: pane)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(pane.target)
+                        .help("Claude Code session active")
+                        .listRowBackground(selectedPane == pane && selectedRemotePane == nil ? Color.accentColor.opacity(0.2) : nil)
                     }
                 } header: {
                     SectionHeader(title: "Claude Sessions", symbol: .sparkles) {
@@ -138,13 +161,15 @@ public struct MainView: View {
             if !panesWithoutClaude.isEmpty {
                 Section {
                     ForEach(panesWithoutClaude) { pane in
-                        PaneSidebarRow(pane: pane)
-                            .listRowBackground(selectedPane == pane && selectedRemotePane == nil ? Color.accentColor.opacity(0.2) : nil)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                selectedPane = pane
-                                selectedRemotePane = nil
-                            }
+                        Button {
+                            selectedPane = pane
+                            selectedRemotePane = nil
+                        } label: {
+                            PaneSidebarRow(pane: pane)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(pane.target)
+                        .listRowBackground(selectedPane == pane && selectedRemotePane == nil ? Color.accentColor.opacity(0.2) : nil)
                     }
                 } header: {
                     if panesWithClaude.isEmpty {
@@ -212,7 +237,7 @@ public struct MainView: View {
                 connection: connection,
                 settings: settings
             )
-            .id("remote-\(remote.hostId)-\(remote.paneId)")
+            .id(remote.resizeKey)
         } else if let pane = selectedPane {
             MirrorWindowView(paneInfo: pane)
                 .id(pane.id)
@@ -243,7 +268,7 @@ public struct MainView: View {
 
         // Actions for selected pane
         ToolbarItemGroup(placement: .primaryAction) {
-            if selectedRemotePane == nil, let pane = selectedPane {
+            if let pane = selectedPane, selectedRemotePane == nil {
                 Button {
                     attachToTerminal(pane)
                 } label: {
@@ -257,6 +282,12 @@ public struct MainView: View {
                     Symbols.macwindowBadgePlus.image
                 }
                 .help("Open mirror in new window")
+
+                resizeToolbarGroup(
+                    resizeKey: pane.target,
+                    localTarget: pane.target,
+                    isSessionAttached: tmuxService.attachedSessionNames.contains(pane.sessionName)
+                )
 
                 Button {
                     showingCloseConfirmation = true
@@ -276,6 +307,8 @@ public struct MainView: View {
                 } message: {
                     Text("This will end all processes in the session.")
                 }
+            } else if let remote = selectedRemotePane {
+                resizeToolbarGroup(resizeKey: remote.resizeKey, remoteHostId: remote.hostId, remotePaneId: remote.paneId)
             }
 
             Button {
@@ -377,6 +410,108 @@ public struct MainView: View {
             }
             .controlSize(.small)
             .help("Connect to relay server for iOS monitoring")
+        }
+    }
+
+    // MARK: - Resize
+
+    @ViewBuilder
+    private func resizeToolbarGroup(
+        resizeKey: String,
+        localTarget: String? = nil,
+        remoteHostId: String? = nil,
+        remotePaneId: String? = nil,
+        isSessionAttached: Bool = false
+    ) -> some View {
+        let attachedHelp = "Cannot resize: session is attached to a terminal"
+
+        Button {
+            Task {
+                await performResize(localTarget: localTarget, remoteHostId: remoteHostId, remotePaneId: remotePaneId)
+            }
+        } label: {
+            Symbols.arrowUpLeftAndArrowDownRight.image
+        }
+        .help(isSessionAttached ? attachedHelp : "Resize tmux pane to fit mirror view")
+        .disabled(isSessionAttached)
+
+        Toggle(isOn: Binding(
+            get: { autoResizeEnabled.contains(resizeKey) },
+            set: { enabled in
+                if enabled {
+                    autoResizeEnabled.insert(resizeKey)
+                    Task {
+                        await performResize(localTarget: localTarget, remoteHostId: remoteHostId, remotePaneId: remotePaneId)
+                    }
+                } else {
+                    autoResizeEnabled.remove(resizeKey)
+                }
+            }
+        )) {
+            Symbols.arrowDownRightAndArrowUpLeft.image
+        }
+        .toggleStyle(.button)
+        .help(isSessionAttached ? attachedHelp : "Auto-resize tmux pane when mirror view changes size")
+        .disabled(isSessionAttached)
+    }
+
+    private func handleAutoResize() {
+        // Cancel any pending debounced resize
+        autoResizeTask?.cancel()
+
+        // Capture current selection before the debounce sleep to avoid racing with pane switches
+        let currentPane = selectedPane
+        let currentRemote = selectedRemotePane
+
+        autoResizeTask = Task {
+            // Debounce: wait for layout to stabilize (especially during session switches)
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+
+            let dimensions = calculateOptimalTerminalDimensions()
+
+            // Skip if dimensions unchanged (cell-size rounding eliminates most redundant calls during drag)
+            if
+                let last = lastAutoResizeDimensions,
+                last.columns == dimensions.columns && last.rows == dimensions.rows {
+                return
+            }
+
+            if let pane = currentPane, currentRemote == nil {
+                guard autoResizeEnabled.contains(pane.target) else { return }
+                guard !tmuxService.attachedSessionNames.contains(pane.sessionName) else { return }
+                await performResize(localTarget: pane.target)
+            } else if let remote = currentRemote {
+                guard autoResizeEnabled.contains(remote.resizeKey) else { return }
+                await performResize(remoteHostId: remote.hostId, remotePaneId: remote.paneId)
+            }
+        }
+    }
+
+    private func performResize(
+        localTarget: String? = nil,
+        remoteHostId: String? = nil,
+        remotePaneId: String? = nil
+    ) async {
+        let dimensions = calculateOptimalTerminalDimensions()
+        lastAutoResizeDimensions = dimensions
+
+        if let localTarget {
+            do {
+                try await tmuxService.resizePane(localTarget, width: dimensions.columns, height: dimensions.rows)
+            } catch {
+                attachError = "Failed to resize: \(error.localizedDescription)"
+            }
+        } else if let remoteHostId, let remotePaneId {
+            guard let manager = coordinator.viewerConnectionManager else { return }
+            let result = await manager.sendCommand(
+                ResizeTmuxPane(width: dimensions.columns, height: dimensions.rows),
+                paneId: remotePaneId,
+                hostId: remoteHostId
+            )
+            if case let .failure(error) = result {
+                attachError = "Failed to resize remote pane: \(error.localizedDescription)"
+            }
         }
     }
 
@@ -707,7 +842,7 @@ private struct PaneSidebarRow: View {
             Spacer()
         }
         .padding(.vertical, 4)
-        .help(hasClaude ? "Claude Code session active" : "")
+        .contentShape(Rectangle())
     }
 }
 
@@ -802,6 +937,8 @@ private struct RemotePaneSelection: Equatable, Hashable {
     let hostId: String
     let hostName: String
     let paneId: String
+
+    var resizeKey: String { "remote-\(hostId)-\(paneId)" }
 }
 
 // MARK: - Remote Host Sidebar Section
@@ -834,43 +971,47 @@ private struct RemoteHostSidebarSection: View {
         Section {
             if hasContent {
                 ForEach(sessions, id: \.paneId) { item in
-                    RemotePaneSidebarRow(
-                        title: item.session.displayName,
-                        subtitle: item.paneId,
-                        hasClaude: true
-                    )
-                    .listRowBackground(
-                        selectedRemotePane?.paneId == item.paneId && selectedRemotePane?.hostId == host.id
-                            ? Color.accentColor.opacity(0.2) : nil
-                    )
-                    .contentShape(Rectangle())
-                    .onTapGesture {
+                    Button {
                         onSelect(RemotePaneSelection(
                             hostId: host.id,
                             hostName: host.displayName,
                             paneId: item.paneId
                         ))
+                    } label: {
+                        RemotePaneSidebarRow(
+                            title: item.session.displayName,
+                            subtitle: item.paneId,
+                            hasClaude: true
+                        )
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(item.paneId)
+                    .listRowBackground(
+                        selectedRemotePane?.paneId == item.paneId && selectedRemotePane?.hostId == host.id
+                            ? Color.accentColor.opacity(0.2) : nil
+                    )
                 }
 
                 ForEach(panes) { pane in
-                    RemotePaneSidebarRow(
-                        title: pane.currentPath.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? pane.id,
-                        subtitle: "\(pane.sessionName):\(pane.windowIndex).\(pane.paneIndex)",
-                        hasClaude: false
-                    )
-                    .listRowBackground(
-                        selectedRemotePane?.paneId == pane.id && selectedRemotePane?.hostId == host.id
-                            ? Color.accentColor.opacity(0.2) : nil
-                    )
-                    .contentShape(Rectangle())
-                    .onTapGesture {
+                    Button {
                         onSelect(RemotePaneSelection(
                             hostId: host.id,
                             hostName: host.displayName,
                             paneId: pane.id
                         ))
+                    } label: {
+                        RemotePaneSidebarRow(
+                            title: pane.currentPath.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? pane.id,
+                            subtitle: "\(pane.sessionName):\(pane.windowIndex).\(pane.paneIndex)",
+                            hasClaude: false
+                        )
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(pane.sessionName):\(pane.windowIndex).\(pane.paneIndex)")
+                    .listRowBackground(
+                        selectedRemotePane?.paneId == pane.id && selectedRemotePane?.hostId == host.id
+                            ? Color.accentColor.opacity(0.2) : nil
+                    )
                 }
             } else if connection?.isHostConnected == true {
                 Text("No active sessions")
@@ -942,6 +1083,7 @@ private struct RemotePaneSidebarRow: View {
             Spacer()
         }
         .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 }
 

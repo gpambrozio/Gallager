@@ -69,7 +69,7 @@
                             let json = self?.describeUI() ?? "{}"
                             let body = Data(json.utf8)
                             let header =
-                                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
+                                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
                             var response = Data(header.utf8)
                             response.append(body)
                             connection.send(content: response, completion: .contentProcessed { _ in
@@ -96,6 +96,31 @@
                             )
                             let response = Data(
                                 "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+                                    .utf8)
+                            connection.send(content: response, completion: .contentProcessed { _ in
+                                connection.cancel()
+                            })
+                        }
+                    } else if request.hasPrefix("POST /resize-window") {
+                        let widthStr = Self.extractQueryParam(from: request, key: "width")
+                        let heightStr = Self.extractQueryParam(from: request, key: "height")
+                        Task { @MainActor in
+                            let width = Int(widthStr ?? "") ?? 0
+                            let height = Int(heightStr ?? "") ?? 0
+                            var resized = false
+                            if width > 0, height > 0 {
+                                for window in NSApp.windows
+                                    where window.isVisible && window.level == .normal {
+                                    var frame = window.frame
+                                    frame.size = NSSize(width: width, height: height)
+                                    window.setFrame(frame, display: true)
+                                    resized = true
+                                    break
+                                }
+                            }
+                            let body = resized ? "resized" : "not_found"
+                            let response = Data(
+                                "HTTP/1.1 200 OK\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n\(body)"
                                     .utf8)
                             connection.send(content: response, completion: .contentProcessed { _ in
                                 connection.cancel()
@@ -178,6 +203,13 @@
                             contentsOf: walkAccessibilityTree(children, screenHeight: screenHeight))
                     }
 
+                    // Walk the view hierarchy to find NSOutlineView rows (SwiftUI sidebar List)
+                    // which aren't exposed through the accessibility tree wrapper
+                    if let contentView = window.contentView {
+                        elements.append(
+                            contentsOf: findSidebarRows(in: contentView, screenHeight: screenHeight))
+                    }
+
                     windowInfo["elements"] = elements
 
                     windows.append(windowInfo)
@@ -208,6 +240,17 @@
                                 sendClick(to: itemView, in: window)
                                 return true
                             }
+                        }
+                    }
+
+                    // Try sidebar/outline rows: walk the NSView hierarchy to find the
+                    // row, then use accessibilityPerformPress() on the Button inside it.
+                    // NSOutlineView doesn't expose rows via accessibilityChildren(), so
+                    // the generic tree walker below can't reach them.
+                    if let contentView = window.contentView {
+                        if let pressed = findAndPressOutlineButton(in: contentView, titled: searchTitle) {
+                            print("[TestAccessibilityServer-Mac] performClick: pressed outline button '\(searchTitle)' (\(pressed))")
+                            return true
                         }
                     }
 
@@ -448,6 +491,139 @@
                 }
 
                 return results
+            }
+
+            /// Walk the NSView hierarchy to find an NSOutlineView row matching the title,
+            /// then locate the AXButton inside it and call accessibilityPerformPress().
+            /// Returns a description of what was pressed, or nil if not found.
+            private func findAndPressOutlineButton(in view: NSView, titled searchTitle: String) -> String? {
+                if view.accessibilityRole() == .outline {
+                    for rowView in view.subviews {
+                        let texts = collectAccessibilityTexts(from: rowView)
+                        if texts.contains(where: { $0.contains(searchTitle) }) {
+                            // Found the row — now find the button in its accessibility children
+                            if let button = findPressableElement(in: rowView) {
+                                if button.accessibilityPerformPress?() == true {
+                                    return "accessibilityPerformPress on button"
+                                }
+                            }
+                        }
+                    }
+                    return nil
+                }
+                for subview in view.subviews {
+                    if let result = findAndPressOutlineButton(in: subview, titled: searchTitle) {
+                        return result
+                    }
+                }
+                return nil
+            }
+
+            /// Recursively search a view's accessibility children for a pressable element (AXButton).
+            private func findPressableElement(in view: NSView, depth: Int = 0) -> AnyObject? {
+                guard depth < 10 else { return nil }
+                guard let children = view.accessibilityChildren() as? [AnyObject] else { return nil }
+                for child in children {
+                    if child.accessibilityRole?() == .button {
+                        return child
+                    }
+                    if let nested = child.accessibilityChildren?() as? [AnyObject], !nested.isEmpty {
+                        for nestedChild in nested where nestedChild.accessibilityRole?() == .button {
+                            return nestedChild
+                        }
+                    }
+                }
+                // Also check subviews if the view has them
+                for subview in view.subviews {
+                    if let found = findPressableElement(in: subview, depth: depth + 1) {
+                        return found
+                    }
+                }
+                return nil
+            }
+
+            /// Walk the view hierarchy to find outline list views and extract row content.
+            /// SwiftUI sidebar uses ListTableRowView → ListTableCellView → CellHostingView
+            /// which renders text via accessibility children, not NSTextField subviews.
+            private func findSidebarRows(
+                in view: NSView,
+                screenHeight: CGFloat
+            ) -> [[String: Any]] {
+                var results: [[String: Any]] = []
+
+                if view.accessibilityRole() == .outline {
+                    // Walk the outline view's subviews (ListTableRowView instances)
+                    for rowView in view.subviews {
+                        let texts = collectAccessibilityTexts(from: rowView)
+                        guard !texts.isEmpty else { continue }
+                        let label = texts.joined(separator: " ")
+
+                        let windowRect = rowView.convert(rowView.bounds, to: nil)
+                        let screenRect = rowView.window?.convertToScreen(windowRect) ?? windowRect
+                        let flippedY = screenHeight - screenRect.origin.y - screenRect.height
+
+                        results.append([
+                            "role": "AXRow",
+                            "label": label,
+                            "frame": [
+                                "x": screenRect.origin.x,
+                                "y": flippedY,
+                                "width": screenRect.size.width,
+                                "height": screenRect.size.height,
+                            ],
+                        ])
+                    }
+                    return results
+                }
+
+                for subview in view.subviews {
+                    results.append(contentsOf: findSidebarRows(in: subview, screenHeight: screenHeight))
+                }
+
+                return results
+            }
+
+            /// Collect unique text from a view's accessibility tree.
+            /// SwiftUI cells render text through CellHostingView which exposes text
+            /// via accessibility children, not NSTextField subviews.
+            /// Uses ordered deduplication since both the accessibility tree and
+            /// NSView subview walks can surface the same text.
+            private func collectAccessibilityTexts(from view: NSView) -> [String] {
+                var seen = Set<String>()
+                var texts: [String] = []
+
+                func add(_ text: String) {
+                    guard !text.isEmpty, seen.insert(text).inserted else { return }
+                    texts.append(text)
+                }
+
+                add(view.accessibilityLabel() ?? "")
+                if let v = view.accessibilityValue() as? String { add(v) }
+
+                // Walk accessibility children for SwiftUI-hosted content
+                if let children = view.accessibilityChildren() {
+                    for child in children {
+                        let obj = child as AnyObject
+                        add(obj.accessibilityLabel?() ?? "")
+                        add((obj.accessibilityValue?() as Any?) as? String ?? "")
+                        if let grandChildren = obj.accessibilityChildren?() as? [Any] {
+                            for gc in grandChildren {
+                                let gcObj = gc as AnyObject
+                                add(gcObj.accessibilityLabel?() ?? "")
+                                add((gcObj.accessibilityValue?() as Any?) as? String ?? "")
+                            }
+                        }
+                    }
+                }
+
+                // Also recurse into NSView subviews
+                for subview in view.subviews {
+                    for text in collectAccessibilityTexts(from: subview) {
+                        add(text)
+                    }
+                }
+
+                return texts
             }
         }
     #endif

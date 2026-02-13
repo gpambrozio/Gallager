@@ -56,6 +56,8 @@
             case let .createTmuxSession(spec):
                 // Session creation doesn't target an existing pane, but handle for exhaustiveness
                 _ = await relayClient.sendCommand(spec, paneId: "")
+            case let .resizeTmuxPane(spec):
+                _ = await relayClient.sendCommand(spec, paneId: paneId)
             }
         }
     }

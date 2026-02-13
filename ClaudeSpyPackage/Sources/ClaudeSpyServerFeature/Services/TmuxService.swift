@@ -44,6 +44,9 @@ final public class TmuxService {
     /// Whether a refresh is currently in progress
     public private(set) var isRefreshing = false
 
+    /// Sessions that currently have terminal clients attached (resize is controlled by the client)
+    public private(set) var attachedSessionNames: Set<String> = []
+
     public init(tmuxPath: String = "/opt/homebrew/bin/tmux", socketPath: String? = nil) {
         self.tmuxPath = tmuxPath
         self.socketPath = socketPath
@@ -110,6 +113,7 @@ final public class TmuxService {
 
             // Get sessions with attached clients to prefer them during deduplication
             let attachedSessions = await getAttachedSessionNames()
+            attachedSessionNames = attachedSessions
 
             // Format: #{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}
             let format = "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}"
@@ -163,19 +167,24 @@ final public class TmuxService {
         return panes
     }
 
-    /// Gets the names of sessions that have clients attached
+    /// Gets the names of sessions that have real terminal clients attached (excludes control-mode clients used by this app)
     private func getAttachedSessionNames() async -> Set<String> {
         guard
-            let result = try? await runTmuxCommand(["list-clients", "-F", "#{session_name}"]),
+            let result = try? await runTmuxCommand(["list-clients", "-F", "#{client_control_mode}|#{session_name}"]),
             result.isSuccess
         else {
             return []
         }
 
+        // Filter out control-mode clients (created by this app for mirroring) — only real terminal clients constrain pane size
         let sessions = result.stdoutString
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .split(separator: "\n")
-            .map(String.init)
+            .compactMap { line -> String? in
+                let parts = line.split(separator: "|", maxSplits: 1)
+                guard parts.count == 2, parts[0] == "0" else { return nil }
+                return String(parts[1])
+            }
 
         return Set(sessions)
     }
@@ -430,6 +439,27 @@ final public class TmuxService {
         args.append(keys)
 
         let result = try await runTmuxCommand(args)
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+    }
+
+    /// Resizes a tmux pane to the specified dimensions
+    /// - Parameters:
+    ///   - target: The pane target (e.g., "%5" or "session:0.1")
+    ///   - width: New width in columns
+    ///   - height: New height in rows
+    public func resizePane(_ target: String, width: Int, height: Int) async throws {
+        // Use resize-window instead of resize-pane: pane resize is constrained by the window
+        // dimensions, and control-mode clients (used by this app) set the window size.
+        // resize-window changes the window itself, and the pane follows.
+        let result = try await runTmuxCommand([
+            "resize-window",
+            "-t", target,
+            "-x", String(width),
+            "-y", String(height),
+        ])
+
         guard result.isSuccess else {
             throw TmuxError.commandFailed(message: result.stderrString)
         }
