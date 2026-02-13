@@ -22,8 +22,8 @@ COPY Sources ./Sources
 
 # Step 5: Create empty test directories to satisfy package structure
 # (tests are not needed for the release build)
-RUN mkdir -p Tests/ClaudeSpyNetworkingTests Tests/ClaudeSpyCommonTests Tests/ClaudeSpyFeatureTests Tests/ClaudeSpyServerFeatureTests Tests/ClaudeSpyExternalServerTests Tests/ClaudeSpyEncryptionTests && \
-    touch Tests/ClaudeSpyNetworkingTests/.gitkeep Tests/ClaudeSpyCommonTests/.gitkeep Tests/ClaudeSpyFeatureTests/.gitkeep Tests/ClaudeSpyServerFeatureTests/.gitkeep Tests/ClaudeSpyExternalServerTests/.gitkeep Tests/ClaudeSpyEncryptionTests/.gitkeep
+RUN mkdir -p Tests/ClaudeSpyNetworkingTests Tests/ClaudeSpyCommonTests Tests/ClaudeSpyFeatureTests Tests/ClaudeSpyServerFeatureTests Tests/ClaudeSpyExternalServerTests Tests/ClaudeSpyEncryptionTests Tests/ClaudeSpyE2ETests && \
+    touch Tests/ClaudeSpyNetworkingTests/.gitkeep Tests/ClaudeSpyCommonTests/.gitkeep Tests/ClaudeSpyFeatureTests/.gitkeep Tests/ClaudeSpyServerFeatureTests/.gitkeep Tests/ClaudeSpyExternalServerTests/.gitkeep Tests/ClaudeSpyEncryptionTests/.gitkeep Tests/ClaudeSpyE2ETests/.gitkeep
 
 # Step 6: Build release binary with BuildKit cache mount for incremental builds
 # The cache mount persists .build across builds but isn't included in the layer,
