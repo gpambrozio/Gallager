@@ -144,96 +144,100 @@ struct SessionDetailServiceTests {
     }
 
     // MARK: - Response Persistence Tests (Issue #31)
+    // These tests use SessionStore.response(for:) / setResponse(_:for:)
+    // which are only available on iOS.
 
-    @Test("Response is persisted to SessionStore when set")
-    func responsePersistsToStore() {
-        let sessionStore = SessionStore()
-        let relayClient = ViewerRelayClient()
+    #if os(iOS)
+        @Test("Response is persisted to SessionStore when set")
+        func responsePersistsToStore() {
+            let sessionStore = SessionStore()
+            let relayClient = ViewerRelayClient()
 
-        // Add a session with a permission request event
-        let event = HookEvent(
-            action: .permissionRequest(PermissionRequestBody.preview),
-            projectPath: nil,
-            tmuxPane: "%1"
-        )
-        sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event))
+            // Add a session with a permission request event
+            let event = HookEvent(
+                action: .permissionRequest(PermissionRequestBody.preview),
+                projectPath: nil,
+                tmuxPane: "%1"
+            )
+            sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event))
 
-        let service = SessionDetailService(
-            paneId: "%1",
-            sessionStore: sessionStore,
-            relayClient: relayClient
-        )
+            let service = SessionDetailService(
+                paneId: "%1",
+                sessionStore: sessionStore,
+                relayClient: relayClient
+            )
 
-        // Set a response
-        service.responseState?.response = .accepted
+            // Set a response
+            service.responseState?.response = .accepted
 
-        // Verify response is persisted in the store
-        #expect(sessionStore.response(for: event.id) == .accepted)
-    }
-
-    @Test("Response is restored when service is recreated")
-    func responseRestoredOnServiceRecreation() {
-        let sessionStore = SessionStore()
-        let relayClient = ViewerRelayClient()
-
-        // Add a session with a permission request event
-        let event = HookEvent(
-            action: .permissionRequest(PermissionRequestBody.preview),
-            projectPath: nil,
-            tmuxPane: "%1"
-        )
-        sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event))
-
-        // First service - set a response
-        let service1 = SessionDetailService(
-            paneId: "%1",
-            sessionStore: sessionStore,
-            relayClient: relayClient
-        )
-        service1.responseState?.response = .accepted
-
-        // Create a new service (simulating navigation away and back)
-        let service2 = SessionDetailService(
-            paneId: "%1",
-            sessionStore: sessionStore,
-            relayClient: relayClient
-        )
-
-        // Response should be restored from the store
-        #expect(service2.responseState?.response == .accepted)
-    }
-
-    @Test("Different response types are persisted correctly")
-    func differentResponseTypesPersist() {
-        let sessionStore = SessionStore()
-        let relayClient = ViewerRelayClient()
-
-        // Add a session with an event
-        let event = HookEvent(
-            action: .permissionRequest(PermissionRequestBody.preview),
-            projectPath: nil,
-            tmuxPane: "%1"
-        )
-        sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event))
-
-        let service = SessionDetailService(
-            paneId: "%1",
-            sessionStore: sessionStore,
-            relayClient: relayClient
-        )
-
-        // Test different response types
-        service.responseState?.response = .rejected
-        #expect(sessionStore.response(for: event.id) == .rejected)
-
-        service.responseState?.response = .allQuestionsAnswered
-        #expect(sessionStore.response(for: event.id) == .allQuestionsAnswered)
-
-        service.responseState?.response = .customInstructions("test input")
-        if case let .customInstructions(text) = sessionStore.response(for: event.id) {
-            #expect(text == "test input")
-        } else {
-            Issue.record("Expected customInstructions response")
+            // Verify response is persisted in the store
+            #expect(sessionStore.response(for: event.id) == .accepted)
         }
-    }
+
+        @Test("Response is restored when service is recreated")
+        func responseRestoredOnServiceRecreation() {
+            let sessionStore = SessionStore()
+            let relayClient = ViewerRelayClient()
+
+            // Add a session with a permission request event
+            let event = HookEvent(
+                action: .permissionRequest(PermissionRequestBody.preview),
+                projectPath: nil,
+                tmuxPane: "%1"
+            )
+            sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event))
+
+            // First service - set a response
+            let service1 = SessionDetailService(
+                paneId: "%1",
+                sessionStore: sessionStore,
+                relayClient: relayClient
+            )
+            service1.responseState?.response = .accepted
+
+            // Create a new service (simulating navigation away and back)
+            let service2 = SessionDetailService(
+                paneId: "%1",
+                sessionStore: sessionStore,
+                relayClient: relayClient
+            )
+
+            // Response should be restored from the store
+            #expect(service2.responseState?.response == .accepted)
+        }
+
+        @Test("Different response types are persisted correctly")
+        func differentResponseTypesPersist() {
+            let sessionStore = SessionStore()
+            let relayClient = ViewerRelayClient()
+
+            // Add a session with an event
+            let event = HookEvent(
+                action: .permissionRequest(PermissionRequestBody.preview),
+                projectPath: nil,
+                tmuxPane: "%1"
+            )
+            sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event))
+
+            let service = SessionDetailService(
+                paneId: "%1",
+                sessionStore: sessionStore,
+                relayClient: relayClient
+            )
+
+            // Test different response types
+            service.responseState?.response = .rejected
+            #expect(sessionStore.response(for: event.id) == .rejected)
+
+            service.responseState?.response = .allQuestionsAnswered
+            #expect(sessionStore.response(for: event.id) == .allQuestionsAnswered)
+
+            service.responseState?.response = .customInstructions("test input")
+            if case let .customInstructions(text) = sessionStore.response(for: event.id) {
+                #expect(text == "test input")
+            } else {
+                Issue.record("Expected customInstructions response")
+            }
+        }
+    #endif
 }
