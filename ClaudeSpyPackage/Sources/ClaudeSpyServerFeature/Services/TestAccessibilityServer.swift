@@ -89,24 +89,6 @@
                                 connection.cancel()
                             })
                         }
-                    } else if request.hasPrefix("POST /select-pane") {
-                        let target = Self.extractQueryParam(from: request, key: "target")
-                        Task { @MainActor in
-                            if let target {
-                                NotificationCenter.default.post(
-                                    name: .init("com.claudespy.e2e.selectPane"),
-                                    object: nil,
-                                    userInfo: ["target": target]
-                                )
-                            }
-                            let body = target != nil ? "ok" : "missing_target"
-                            let response = Data(
-                                "HTTP/1.1 200 OK\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n\(body)"
-                                    .utf8)
-                            connection.send(content: response, completion: .contentProcessed { _ in
-                                connection.cancel()
-                            })
-                        }
                     } else if request.hasPrefix("POST /unpair") {
                         Task { @MainActor in
                             NotificationCenter.default.post(
@@ -258,6 +240,17 @@
                                 sendClick(to: itemView, in: window)
                                 return true
                             }
+                        }
+                    }
+
+                    // Try sidebar/outline rows: walk the NSView hierarchy to find the
+                    // row, then use accessibilityPerformPress() on the Button inside it.
+                    // NSOutlineView doesn't expose rows via accessibilityChildren(), so
+                    // the generic tree walker below can't reach them.
+                    if let contentView = window.contentView {
+                        if let pressed = findAndPressOutlineButton(in: contentView, titled: searchTitle) {
+                            print("[TestAccessibilityServer-Mac] performClick: pressed outline button '\(searchTitle)' (\(pressed))")
+                            return true
                         }
                     }
 
@@ -498,6 +491,55 @@
                 }
 
                 return results
+            }
+
+            /// Walk the NSView hierarchy to find an NSOutlineView row matching the title,
+            /// then locate the AXButton inside it and call accessibilityPerformPress().
+            /// Returns a description of what was pressed, or nil if not found.
+            private func findAndPressOutlineButton(in view: NSView, titled searchTitle: String) -> String? {
+                if view.accessibilityRole() == .outline {
+                    for rowView in view.subviews {
+                        let texts = collectAccessibilityTexts(from: rowView)
+                        if texts.contains(where: { $0.contains(searchTitle) }) {
+                            // Found the row — now find the button in its accessibility children
+                            if let button = findPressableElement(in: rowView) {
+                                if button.accessibilityPerformPress?() == true {
+                                    return "accessibilityPerformPress on button"
+                                }
+                            }
+                        }
+                    }
+                    return nil
+                }
+                for subview in view.subviews {
+                    if let result = findAndPressOutlineButton(in: subview, titled: searchTitle) {
+                        return result
+                    }
+                }
+                return nil
+            }
+
+            /// Recursively search a view's accessibility children for a pressable element (AXButton).
+            private func findPressableElement(in view: NSView, depth: Int = 0) -> AnyObject? {
+                guard depth < 10 else { return nil }
+                guard let children = view.accessibilityChildren() as? [AnyObject] else { return nil }
+                for child in children {
+                    if child.accessibilityRole?() == .button {
+                        return child
+                    }
+                    if let nested = child.accessibilityChildren?() as? [AnyObject], !nested.isEmpty {
+                        for nestedChild in nested where nestedChild.accessibilityRole?() == .button {
+                            return nestedChild
+                        }
+                    }
+                }
+                // Also check subviews if the view has them
+                for subview in view.subviews {
+                    if let found = findPressableElement(in: subview, depth: depth + 1) {
+                        return found
+                    }
+                }
+                return nil
             }
 
             /// Walk the view hierarchy to find outline list views and extract row content.

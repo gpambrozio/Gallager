@@ -107,19 +107,6 @@ enum MacAppHTTPClient {
         return body == "ok"
     }
 
-    /// Select a pane by target string (e.g. "resize-test-1:0.0")
-    @discardableResult
-    static func selectPane(target: String) async throws -> Bool {
-        let encoded = target.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? target
-        let url = URL(string: "http://127.0.0.1:\(port)/select-pane?target=\(encoded)")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        let (data, _) = try await URLSession.shared.data(for: request)
-        let body = String(data: data, encoding: .utf8) ?? ""
-        logger.info("HTTP select-pane '\(target)': \(body)")
-        return body == "ok"
-    }
-
     /// Resize the app's frontmost normal-level window
     @discardableResult
     static func resizeWindow(width: Int, height: Int) async throws -> Bool {

@@ -86,19 +86,6 @@ public struct MainView: View {
         .onDisappear {
             autoResizeTask?.cancel()
         }
-        #if DEBUG
-        .onReceive(
-                NotificationCenter.default.publisher(
-                    for: .init("com.claudespy.e2e.selectPane")
-                )
-            ) { notification in
-                guard let target = notification.userInfo?["target"] as? String else { return }
-                if let pane = tmuxService.panes.first(where: { $0.target == target }) {
-                    selectedPane = pane
-                    selectedRemotePane = nil
-                }
-            }
-        #endif
     }
 
     // MARK: - Sidebar
@@ -153,13 +140,16 @@ public struct MainView: View {
             if !panesWithClaude.isEmpty {
                 Section {
                     ForEach(panesWithClaude) { pane in
-                        PaneSidebarRow(pane: pane)
-                            .listRowBackground(selectedPane == pane && selectedRemotePane == nil ? Color.accentColor.opacity(0.2) : nil)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                selectedPane = pane
-                                selectedRemotePane = nil
-                            }
+                        Button {
+                            selectedPane = pane
+                            selectedRemotePane = nil
+                        } label: {
+                            PaneSidebarRow(pane: pane)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(pane.target)
+                        .help("Claude Code session active")
+                        .listRowBackground(selectedPane == pane && selectedRemotePane == nil ? Color.accentColor.opacity(0.2) : nil)
                     }
                 } header: {
                     SectionHeader(title: "Claude Sessions", symbol: .sparkles) {
@@ -171,13 +161,15 @@ public struct MainView: View {
             if !panesWithoutClaude.isEmpty {
                 Section {
                     ForEach(panesWithoutClaude) { pane in
-                        PaneSidebarRow(pane: pane)
-                            .listRowBackground(selectedPane == pane && selectedRemotePane == nil ? Color.accentColor.opacity(0.2) : nil)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                selectedPane = pane
-                                selectedRemotePane = nil
-                            }
+                        Button {
+                            selectedPane = pane
+                            selectedRemotePane = nil
+                        } label: {
+                            PaneSidebarRow(pane: pane)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(pane.target)
+                        .listRowBackground(selectedPane == pane && selectedRemotePane == nil ? Color.accentColor.opacity(0.2) : nil)
                     }
                 } header: {
                     if panesWithClaude.isEmpty {
@@ -850,8 +842,7 @@ private struct PaneSidebarRow: View {
             Spacer()
         }
         .padding(.vertical, 4)
-        .accessibilityLabel(pane.target)
-        .help(hasClaude ? "Claude Code session active" : "")
+        .contentShape(Rectangle())
     }
 }
 
@@ -980,43 +971,47 @@ private struct RemoteHostSidebarSection: View {
         Section {
             if hasContent {
                 ForEach(sessions, id: \.paneId) { item in
-                    RemotePaneSidebarRow(
-                        title: item.session.displayName,
-                        subtitle: item.paneId,
-                        hasClaude: true
-                    )
-                    .listRowBackground(
-                        selectedRemotePane?.paneId == item.paneId && selectedRemotePane?.hostId == host.id
-                            ? Color.accentColor.opacity(0.2) : nil
-                    )
-                    .contentShape(Rectangle())
-                    .onTapGesture {
+                    Button {
                         onSelect(RemotePaneSelection(
                             hostId: host.id,
                             hostName: host.displayName,
                             paneId: item.paneId
                         ))
+                    } label: {
+                        RemotePaneSidebarRow(
+                            title: item.session.displayName,
+                            subtitle: item.paneId,
+                            hasClaude: true
+                        )
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(item.paneId)
+                    .listRowBackground(
+                        selectedRemotePane?.paneId == item.paneId && selectedRemotePane?.hostId == host.id
+                            ? Color.accentColor.opacity(0.2) : nil
+                    )
                 }
 
                 ForEach(panes) { pane in
-                    RemotePaneSidebarRow(
-                        title: pane.currentPath.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? pane.id,
-                        subtitle: "\(pane.sessionName):\(pane.windowIndex).\(pane.paneIndex)",
-                        hasClaude: false
-                    )
-                    .listRowBackground(
-                        selectedRemotePane?.paneId == pane.id && selectedRemotePane?.hostId == host.id
-                            ? Color.accentColor.opacity(0.2) : nil
-                    )
-                    .contentShape(Rectangle())
-                    .onTapGesture {
+                    Button {
                         onSelect(RemotePaneSelection(
                             hostId: host.id,
                             hostName: host.displayName,
                             paneId: pane.id
                         ))
+                    } label: {
+                        RemotePaneSidebarRow(
+                            title: pane.currentPath.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? pane.id,
+                            subtitle: "\(pane.sessionName):\(pane.windowIndex).\(pane.paneIndex)",
+                            hasClaude: false
+                        )
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(pane.sessionName):\(pane.windowIndex).\(pane.paneIndex)")
+                    .listRowBackground(
+                        selectedRemotePane?.paneId == pane.id && selectedRemotePane?.hostId == host.id
+                            ? Color.accentColor.opacity(0.2) : nil
+                    )
                 }
             } else if connection?.isHostConnected == true {
                 Text("No active sessions")
@@ -1088,6 +1083,7 @@ private struct RemotePaneSidebarRow: View {
             Spacer()
         }
         .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 }
 

@@ -93,8 +93,6 @@ public enum TestStep: Sendable {
     case macResizeWindow(width: Int, height: Int)
     /// Type text into the macOS app (via AppleScript keystroke)
     case macType(text: String, pressReturn: Bool = false)
-    /// Select a pane by target via the E2E HTTP endpoint (bypasses click simulation)
-    case macSelectPane(target: String)
     /// Take a macOS screenshot
     case macScreenshot(label: String)
 

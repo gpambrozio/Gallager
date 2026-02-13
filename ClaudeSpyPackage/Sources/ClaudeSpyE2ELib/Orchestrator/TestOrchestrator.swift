@@ -296,13 +296,6 @@ public actor TestOrchestrator {
             let resolvedText = context.resolve(text)
             try await macOSDriver.type(text: resolvedText, pressReturn: pressReturn)
 
-        case let .macSelectPane(target):
-            let resolvedTarget = context.resolve(target)
-            let selected = try await MacAppHTTPClient.selectPane(target: resolvedTarget)
-            if !selected {
-                throw OrchestratorError.assertionFailed("Failed to select pane '\(resolvedTarget)'")
-            }
-
         case let .macScreenshot(label):
             let path = "\(screenshotsDir)/\(label).png"
             do {
