@@ -15,12 +15,15 @@ public enum UnpairFromIOSScenario {
         TestStep.wait(seconds: 0.5)
         TestStep.iosTap(.labelContains("Paired Hosts"))
         TestStep.wait(seconds: 0.5)
+        TestStep.iosScreenshot(label: "03.1-ios-paired-hosts")
 
         // 3. Swipe left to reveal delete button, tap it
         TestStep.iosSwipeLeft(.identifier("host-row"))
         TestStep.wait(seconds: 1)
+        TestStep.iosScreenshot(label: "03.2-ios-swipe-delete")
         TestStep.iosTap(.label("Delete"))
         TestStep.wait(seconds: 1)
+        TestStep.iosScreenshot(label: "03.3-ios-confirm-dialog")
 
         // 4. Tap the confirmation dialog button (use Button role to avoid matching dialog title)
         TestStep.iosTap(.roleAndLabelContains(role: "Button", label: "Remove"))
@@ -32,6 +35,6 @@ public enum UnpairFromIOSScenario {
 
         // 6. Verify iOS returns to pairing view
         TestStep.iosWaitForElement(.labelContains("pairing code"), timeout: 10)
-        TestStep.iosScreenshot(label: "unpair-ios-done")
+        TestStep.iosScreenshot(label: "03.4-ios-back-to-pairing")
     }
 }

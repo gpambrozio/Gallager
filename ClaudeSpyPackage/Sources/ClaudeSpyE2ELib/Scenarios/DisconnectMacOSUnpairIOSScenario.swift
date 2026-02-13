@@ -12,18 +12,21 @@ public enum DisconnectMacOSUnpairIOSScenario {
         // 2. Server: disconnect the host (macOS) WebSocket
         TestStep.serverDisconnectDevice(.host)
         TestStep.wait(seconds: 1)
+        TestStep.macScreenshot(label: "06.1-mac-after-disconnect")
 
         // 3. iOS: navigate to Manage Hosts and unpair
         TestStep.iosTap(.labelContains("Settings"))
         TestStep.wait(seconds: 0.5)
         TestStep.iosTap(.labelContains("Paired Hosts"))
         TestStep.wait(seconds: 0.5)
+        TestStep.iosScreenshot(label: "06.2-ios-paired-hosts")
 
         // 4. Swipe left to reveal delete button, tap it
         TestStep.iosSwipeLeft(.identifier("host-row"))
         TestStep.wait(seconds: 1)
         TestStep.iosTap(.label("Delete"))
         TestStep.wait(seconds: 1)
+        TestStep.iosScreenshot(label: "06.3-ios-confirm-dialog")
 
         // 5. Tap the confirmation dialog button (use Button role to avoid matching dialog title)
         TestStep.iosTap(.roleAndLabelContains(role: "Button", label: "Remove"))
@@ -36,7 +39,7 @@ public enum DisconnectMacOSUnpairIOSScenario {
         // 7. Wait for macOS to auto-reconnect and receive INVALID_PAIR → removes pairing
         TestStep.wait(seconds: 15)
 
-        // 8. macOS screenshot to verify cleanup
-        TestStep.macScreenshot(label: "disconnect-macos-unpair-ios-done")
+        // 8. Verify both sides cleaned up
+        TestStep.macScreenshot(label: "06.4-mac-invalid-pair-cleanup")
     }
 }
