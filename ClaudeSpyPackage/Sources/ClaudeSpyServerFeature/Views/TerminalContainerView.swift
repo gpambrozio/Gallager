@@ -103,6 +103,9 @@ struct TerminalContainerView: NSViewRepresentable {
         private var consecutiveKeyFailures = 0
         private let maxConsecutiveKeyFailures = 3
 
+        // Serializes key sends so concurrent onInput callbacks don't race
+        private var pendingKeyTask: Task<Void, Never>?
+
         // MARK: Initialization
 
         init() {
@@ -131,10 +134,12 @@ struct TerminalContainerView: NSViewRepresentable {
             updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
             applyTheme(settings.theme)
 
-            // Wire up input handling
+            // Wire up input handling — chained tasks ensure keys are sent in order
             terminalView.onInput = { [weak self] keys in
                 guard let self, let paneInfo = self.paneInfo else { return }
-                Task {
+                let previous = self.pendingKeyTask
+                self.pendingKeyTask = Task {
+                    _ = await previous?.value
                     await self.sendKeysToTmux(keys, target: paneInfo.target)
                 }
             }
@@ -174,6 +179,8 @@ struct TerminalContainerView: NSViewRepresentable {
         }
 
         func stop() {
+            pendingKeyTask?.cancel()
+            pendingKeyTask = nil
             guard let subId = subscriptionId else { return }
             let manager = paneStreamManager
             Task {
