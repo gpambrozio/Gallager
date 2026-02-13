@@ -149,7 +149,7 @@ deploy() {
     # Run remote commands and capture exit code
     BUILD_OUTPUT=$(ssh -T -o LogLevel=ERROR "$REMOTE_HOST" << REMOTE_SCRIPT 2>&1
         cd $REMOTE_DIR
-        set -e
+        set -eo pipefail
 
         # Build the image with BuildKit enabled for cache mounts (incremental Swift builds)
         echo "Building Docker image with BuildKit..."

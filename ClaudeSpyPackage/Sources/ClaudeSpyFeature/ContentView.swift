@@ -143,6 +143,11 @@
                     settings.updatePairing(updatedHost)
                 }
             }
+
+            connectionManager.onUnpaired = { hostId in
+                let settings = IOSSettings.shared
+                settings.removePairing(id: hostId)
+            }
         }
 
         private func autoConnectIfNeeded() async {

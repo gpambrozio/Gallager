@@ -1,5 +1,6 @@
 @_spi(Testing) import ClaudeSpyEncryption
 import Crypto
+import Dependencies
 import DependenciesTestSupport
 import Foundation
 import Testing
@@ -309,7 +310,7 @@ private struct TestMessage: Codable, Equatable {
 // MARK: - SecretsService Test Support
 
 /// Thread-safe wrapper around a stored key pair for synchronous test access.
-private final class KeyPairStore: @unchecked Sendable {
+final private class KeyPairStore: @unchecked Sendable {
     private let lock = NSLock()
     private var keyPair: StoredKeyPair?
 

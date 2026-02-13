@@ -15,12 +15,42 @@ ClaudeSpyPackage/Sources/
     ├── Drivers/               # Platform-specific automation
     │   ├── MacOS/             # AppleScript via osascript + ProcessRunner
     │   ├── Server/            # In-process Vapor server lifecycle
-    │   └── Simulator/         # simctl, Accessibility tree, coordinate mapping
+    │   └── Simulator/         # simctl, XCUITest runner HTTP client
     ├── Orchestrator/          # Step execution + cleanup
     │   ├── TestOrchestrator.swift
     │   └── ExecutionContext.swift  # Variable storage between steps
     ├── Scenarios/             # Test scenario definitions
     └── Utilities/             # ProcessRunner, Polling helpers
+
+ClaudeSpyE2EHost/              # Minimal iOS app target (host for UITest bundle)
+├── AppDelegate.swift
+├── ViewController.swift
+└── Info.plist
+
+ClaudeSpyE2ERunner/            # UI Testing Bundle target
+├── ClaudeSpyE2ERunnerTests.swift  # Entry point: starts HTTP server
+├── Server/
+│   ├── E2EHTTPServer.swift    # FlyingFox HTTP server (port 22087)
+│   └── RouteHandlerFactory.swift
+├── Handlers/                  # HTTP route handlers
+│   ├── ViewHierarchyHandler.swift  # XCUIElement.snapshot() → JSON
+│   ├── TouchHandler.swift     # Tap at coordinates
+│   ├── SwipeHandler.swift     # Swipe gestures
+│   ├── InputTextHandler.swift # Type text
+│   ├── CustomActionHandler.swift  # Trigger named accessibility actions
+│   ├── ScreenshotHandler.swift
+│   └── StatusHandler.swift    # Health check
+├── XCTest/                    # Private API wrappers
+│   ├── EventRecord.swift      # XCSynthesizedEventRecord wrapper
+│   ├── PointerEventPath.swift # XCPointerEventPath wrapper
+│   ├── RunnerDaemonProxy.swift # XCTRunnerDaemonSession.daemonProxy
+│   └── AXClientSwizzler.swift # Override maxDepth via swizzle
+├── Models/
+│   ├── AXElement.swift        # Parsed snapshot element (Codable)
+│   └── RequestModels.swift
+└── Helpers/
+    ├── RunningApp.swift       # Find foreground app
+    └── ScreenSizeHelper.swift
 ```
 
 ### How it works
@@ -28,10 +58,35 @@ ClaudeSpyPackage/Sources/
 1. **ClaudeSpyE2ECommand** parses CLI args and creates a `TestOrchestrator`
 2. **TestOrchestrator** runs scenarios sequentially, executing each `TestStep` via the appropriate driver
 3. **Drivers** handle platform interaction:
-   - **SimulatorDriver** — boots simulator, installs/launches apps, reads AX tree, taps elements, types text
+   - **SimulatorDriver** — boots simulator, installs/launches apps, manages XCUITest runner lifecycle, communicates with it via HTTP for UI inspection, taps, swipes, and text input
    - **MacOSDriver** — launches macOS app, clicks buttons via AppleScript (`osascript`), takes screenshots
    - **ServerDriver** — starts/stops an in-process Vapor server, checks health and pairing state
-4. After each scenario, the orchestrator runs **cleanup** (terminate both apps, stop server) regardless of pass/fail
+4. After each scenario, the orchestrator runs **cleanup** (stop XCUITest runner, terminate both apps, stop server) regardless of pass/fail
+
+### XCUITest runner
+
+iOS UI automation uses a separate **XCUITest runner** process running in the Simulator. This replaces the previous in-app accessibility server approach.
+
+The runner is a UI Testing bundle (`ClaudeSpyE2ERunner`) hosted by a minimal app (`ClaudeSpyE2EHost`). It exposes an HTTP server on port 22087 with endpoints for:
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/status` | GET | Health check |
+| `/viewHierarchy` | POST | Full UI tree via `XCUIElement.snapshot().dictionaryRepresentation` |
+| `/touch` | POST | Tap at (x,y) via synthesized touch events |
+| `/swipe` | POST | Swipe gesture via synthesized touch events |
+| `/inputText` | POST | Type text via daemon proxy |
+| `/customAction` | POST | Trigger named accessibility action on an element |
+| `/screenshot` | POST | Capture screenshot |
+
+The runner uses XCTest private APIs (`XCSynthesizedEventRecord`, `XCPointerEventPath`, `XCTRunnerDaemonSession`) for touch synthesis and `XCUIElement.snapshot()` for privileged, complete view hierarchy access. This gives it visibility into confirmation dialogs, system alerts, and other UI elements that an in-app server cannot see.
+
+The `SimulatorDriver` manages the runner lifecycle:
+1. Installs the host app via `xcrun simctl install`
+2. Starts the runner via `xcodebuild test-without-building`
+3. Polls `/status` until responsive
+4. Sends the target app's `bundleId` in requests so the runner inspects the correct app
+5. Kills the runner process on cleanup
 
 ### Storage isolation
 
@@ -56,6 +111,10 @@ Steps can pass data between each other via `ExecutionContext`. Use `macReadClipb
 # Skip build, just run tests with previously built artifacts
 ./scripts/e2e-test.sh --skip-build
 
+# Run a specific scenario
+./scripts/e2e-test.sh --scenario "Fresh Pairing"
+./scripts/e2e-test.sh --skip-build --scenario "Unpair from iOS"
+
 # Run with a specific simulator
 ./scripts/e2e-test.sh --sim-name "iPhone 16 Pro"
 
@@ -68,13 +127,18 @@ Steps can pass data between each other via `ExecutionContext`. Use `macReadClipb
 # Interactive mode: run a scenario then wait
 ./scripts/e2e-test.sh --skip-build --interactive --scenario "Fresh Pairing"
 
+# List available scenarios
+./scripts/e2e-test.sh --skip-build --list-scenarios
+
 # Custom tmux socket path
 ./scripts/e2e-test.sh --tmux-socket /tmp/my-test.sock
 ```
 
+The script builds four targets: ClaudeSpyServer (macOS), ClaudeSpy (iOS), ClaudeSpyE2EHost (build-for-testing), and ClaudeSpyE2E (CLI coordinator).
+
 ### Running manually
 
-Build all three targets first (macOS app, iOS app, E2E coordinator), then:
+Build all targets first, then:
 
 ```bash
 ClaudeSpyE2E \
@@ -82,13 +146,18 @@ ClaudeSpyE2E \
     --macos-app-path /path/to/ClaudeSpyServer.app \
     --sim-name "iPhone 17 Pro" \
     --screenshots-dir /tmp/e2e-screenshots \
-    --tmux-socket /tmp/claudespy-e2e.sock
+    --tmux-socket /tmp/claudespy-e2e.sock \
+    --e2e-runner-path /path/to/derived-data
 ```
+
+The `--e2e-runner-path` points to the derived data directory from `xcodebuild build-for-testing` of the `ClaudeSpyE2EHost` scheme. It contains the `.xctestrun` file and host app needed to start the XCUITest runner.
 
 ### Running a specific scenario
 
 ```bash
-./scripts/e2e-test.sh --skip-build  # then manually:
+./scripts/e2e-test.sh --scenario "Fresh Pairing"
+
+# Or manually:
 ClaudeSpyE2E --scenario "Fresh Pairing" ...
 ```
 
@@ -172,20 +241,26 @@ private static let allScenarios: [TestScenario] = [
 | `verifyServerHealth` | Wait for the server health endpoint to respond |
 | `verifyServerHasPairings(count:)` | Assert the number of active pairings |
 | `waitForHostConnected(timeout:)` | Wait for the macOS host to connect via WebSocket |
+| `waitForViewerConnected(timeout:)` | Wait for the iOS viewer to connect via WebSocket |
+| `waitForNoPairings(timeout:)` | Wait until the server has no active pairings |
+| `serverDisconnectDevice(_:)` | Disconnect a device's (`.host` or `.viewer`) WebSocket connections |
 | `stopServer` | Stop the server and clean up `pairs.json` |
 
 ### iOS Simulator
 
 | Step | Description |
 |------|-------------|
-| `launchIOSApp(arguments:)` | Boot simulator, install, and launch the iOS app |
+| `launchIOSApp(arguments:)` | Boot simulator, install, launch iOS app, and start XCUITest runner |
 | `terminateIOSApp` | Terminate the running iOS app |
 | `uninstallIOSApp` | Terminate and uninstall the iOS app |
 | `iosWaitForElement(_:timeout:)` | Wait for a UI element matching an `ElementQuery` |
+| `iosWaitForElementToDisappear(_:timeout:)` | Wait for a UI element to disappear |
 | `iosTap(_:)` | Wait for and tap a UI element |
 | `iosTapCoordinate(x:y:)` | Tap at raw iOS point coordinates |
 | `iosType(text:)` | Type text (supports `${variable}` interpolation) |
+| `iosSwipeLeft(_:)` | Swipe left on a UI element (via XCUITest runner touch synthesis) |
 | `iosScreenshot(label:)` | Save a simulator screenshot |
+| `iosLogUI` | Dump the full iOS accessibility tree to the log (for debugging) |
 
 ### macOS App
 
@@ -197,6 +272,9 @@ private static let allScenarios: [TestScenario] = [
 | `macWaitForWindow(titled:timeout:)` | Wait for a window with the given title |
 | `macSelectSettingsTab(_:)` | Click a Settings sidebar tab |
 | `macClickButton(titled:)` | Click a button by title or `.help()` attribute |
+| `macClickMenuItem(menuButtonTitle:itemTitle:)` | Click a menu trigger button then click a menu item |
+| `macUnpair` | Trigger unpair on the first paired viewer via test HTTP endpoint |
+| `macWaitForElement(titled:timeout:)` | Wait for a text element to appear in the macOS app's accessibility tree |
 | `macReadClipboard(storeAs:)` | Read clipboard contents into a variable |
 | `macScreenshot(label:)` | Save a screenshot of the macOS app window |
 
@@ -210,27 +288,40 @@ private static let allScenarios: [TestScenario] = [
 
 ## Element queries (iOS)
 
-The `ElementQuery` enum matches against the simulator's Accessibility tree:
+The `ElementQuery` enum matches against the iOS accessibility tree (provided by the XCUITest runner):
 
 | Query | Matches |
 |-------|---------|
-| `.label("exact text")` | Exact AXLabel match |
-| `.labelContains("substring")` | AXLabel contains (case-insensitive) |
-| `.role("AXButton")` | AXRole match |
-| `.identifier("id")` | AXIdentifier match |
+| `.label("exact text")` | Exact label match |
+| `.labelContains("substring")` | Label contains (case-insensitive) |
+| `.role("Button")` | Role match (e.g., Button, StaticText, TextField) |
+| `.identifier("id")` | Accessibility identifier match |
 | `.roleAndLabelContains(role:label:)` | Both role and label substring |
-| `.valueContains("text")` | AXValue contains |
+| `.valueContains("text")` | Value contains |
 | `.allOf([...])` | All sub-queries must match |
+
+Role values use XCUIElement.ElementType names: Button, StaticText, TextField, Image, Window, Alert, etc.
 
 ## Making UI elements discoverable
 
-### iOS (Simulator AX tree)
+### iOS (XCUITest runner)
 
-Use standard SwiftUI accessibility modifiers. These map to AX attributes that `ElementQuery` can match:
+Use standard SwiftUI accessibility modifiers. These map to attributes the XCUITest runner exposes via `snapshot().dictionaryRepresentation`:
 
 ```swift
 Button { ... } label: { Image(systemName: "plus") }
     .accessibilityLabel("New Session")  // → ElementQuery.label("New Session")
+
+HStack { ... }
+    .accessibilityIdentifier("host-row")  // → ElementQuery.identifier("host-row")
+```
+
+For confirmation dialogs, use `roleAndLabelContains` to target buttons specifically and avoid matching dialog titles or message text:
+
+```swift
+// Dialog title: "Remove Pairing"
+// Button label: "Remove MacBook Pro"
+TestStep.iosTap(.roleAndLabelContains(role: "Button", label: "Remove"))
 ```
 
 ### macOS (AppleScript/System Events)

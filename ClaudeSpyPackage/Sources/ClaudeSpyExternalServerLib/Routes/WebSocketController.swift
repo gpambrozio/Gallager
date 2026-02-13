@@ -35,27 +35,35 @@ struct WebSocketController: RouteCollection {
         // suspension point where NIO can deliver the client's frame. If the handler
         // isn't registered yet, the frame is silently dropped.
         //
-        // The message handler calls into relayService (an actor), which eventually calls
-        // connectionHub.send() to reply. Since connectionHub.register() runs in the main
-        // task below, and the handler goes through multiple actor hops before reaching
-        // connectionHub.send(), the registration completes first in practice.
-        ws.onText { _, text in
+        // Each handler ensures the connection is registered BEFORE processing the
+        // message. This guarantees connectionHub.send() can find the connection when
+        // sending responses (e.g. hostRegistered). Without this, the response could
+        // be silently dropped because Swift actors do not guarantee FIFO ordering
+        // of enqueued jobs — register() and send() on the same actor can execute
+        // in either order even if register() was enqueued first.
+        ws.onText { ws, text in
             let data = Data(text.utf8)
             await handleIncomingMessage(
                 data: data,
+                ws: ws,
                 pairId: pairId,
                 deviceType: deviceType,
+                deviceId: deviceId,
+                connectionHub: connectionHub,
                 relayService: relayService,
                 logger: req.logger
             )
         }
 
-        ws.onBinary { _, buffer in
+        ws.onBinary { ws, buffer in
             let data = Data(buffer: buffer)
             await handleIncomingMessage(
                 data: data,
+                ws: ws,
                 pairId: pairId,
                 deviceType: deviceType,
+                deviceId: deviceId,
+                connectionHub: connectionHub,
                 relayService: relayService,
                 logger: req.logger
             )
@@ -69,9 +77,23 @@ struct WebSocketController: RouteCollection {
             }
         }
 
-        // Now validate (first await — handlers are already set, so no messages are lost)
+        // Register connection. The message handlers above also register defensively
+        // before processing each message, so this is not strictly required for
+        // correctness — but it keeps the connection registered for the notifyConnection
+        // call below even if no message has arrived yet.
+        let connection = Connection(
+            pairId: pairId,
+            deviceType: deviceType,
+            deviceId: deviceId,
+            webSocket: ws
+        )
+        await connectionHub.register(connection)
+        req.logger.info("WebSocket connected: \(deviceType) for pair \(pairId)")
+
+        // Validate the pair (after registration so messages aren't lost)
         guard await pairingService.isValidPair(pairId: pairId) else {
             req.logger.warning("WebSocket connection rejected: invalid pairId \(pairId)")
+            await connectionHub.unregister(pairId: pairId, deviceType: deviceType)
             let errorMessage = WebSocketMessage.error(.invalidPair())
             if let data = try? JSONEncoder().encode(errorMessage) {
                 try? await ws.send(raw: data, opcode: .text)
@@ -79,17 +101,6 @@ struct WebSocketController: RouteCollection {
             try? await ws.close(code: .policyViolation)
             return
         }
-
-        // Register connection
-        let connection = Connection(
-            pairId: pairId,
-            deviceType: deviceType,
-            deviceId: deviceId,
-            webSocket: ws
-        )
-
-        await connectionHub.register(connection)
-        req.logger.info("WebSocket connected: \(deviceType) for pair \(pairId)")
 
         // Notify the other device
         await relayService.notifyConnection(pairId: pairId, deviceType: deviceType, connected: true)
@@ -100,11 +111,21 @@ struct WebSocketController: RouteCollection {
 
 private func handleIncomingMessage(
     data: Data,
+    ws: WebSocket,
     pairId: String,
     deviceType: DeviceType,
+    deviceId: String,
+    connectionHub: ConnectionHub,
     relayService: RelayService,
     logger: Logger
 ) async {
+    // Ensure connection is registered before processing. This is critical because the
+    // message handler may run before handleWebSocketUpgrade's register() call completes.
+    // By registering here (sequentially, before relay processing), we guarantee that
+    // connectionHub.send() will find the connection when sending responses like hostRegistered.
+    let connection = Connection(pairId: pairId, deviceType: deviceType, deviceId: deviceId, webSocket: ws)
+    await connectionHub.register(connection)
+
     do {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

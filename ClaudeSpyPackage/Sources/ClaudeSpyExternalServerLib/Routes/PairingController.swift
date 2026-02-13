@@ -77,6 +77,9 @@ struct PairingController: RouteCollection {
             throw Abort(.badRequest, reason: "Missing pairId parameter")
         }
 
+        // Notify both sides that the pairing has been removed before disconnecting
+        await req.application.connectionHub.broadcast(.unpaired, to: pairId)
+
         await req.application.pairingService.removePair(pairId: pairId)
         await req.application.connectionHub.disconnectAll(pairId: pairId)
 
