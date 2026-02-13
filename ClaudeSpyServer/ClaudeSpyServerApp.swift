@@ -44,7 +44,7 @@ struct TmuxPaneMirrorApp: App {
             }
 
             // Force regular activation policy so the app has a menu bar
-            DockIconManager.isE2ETestMode = true
+            DockIconConfig.isE2ETestMode = true
             NSApplication.shared.setActivationPolicy(.regular)
 
             // Start accessibility server for E2E UI inspection
@@ -67,7 +67,6 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator.getOrCreatePairingManager())
                 .environment(coordinator)
                 .environment(coordinator.pluginService)
-                .environment(\.claudeProjectScanner, coordinator.projectScanner)
                 .environment(\.e2eeService, coordinator.e2eeService)
                 .task {
                     // Check if we should show the plugin setup on first launch

@@ -1,63 +1,71 @@
+import Dependencies
+import DependenciesMacros
 import Foundation
 import Logging
 import Vapor
 
-/// Service that runs a local HTTP server to receive Claude Code hook events.
+/// A dependency for receiving Claude Code hook events via a local HTTP server.
 ///
-/// The server listens on localhost starting at port 6111, trying successive ports if
-/// already in use, and accepts POST requests at `/api/hooks` from the Claude Code plugin.
-/// Hook events are parsed and forwarded via callback.
-///
-/// The actual port is written to `~/.claudespy-port` (permissions 0600) so hook scripts
-/// can discover it. This enables multiple users to run ClaudeSpy simultaneously.
-public actor HookServerService {
-    // MARK: - Properties
+/// Wraps Vapor HTTP server so it can be controlled in tests.
+/// Use `@Dependency(HookServerService.self)` to access it.
+@DependencyClient
+public struct HookServerService: Sendable {
+    /// Sets the event handler callback for hook events.
+    public var setEventHandler: @Sendable (_ handler: @escaping @Sendable (HookEvent) async -> Void) async -> Void
 
+    /// Start the HTTP server.
+    public var startServer: @Sendable () async -> Void
+
+    /// Stop the HTTP server.
+    public var stopServer: @Sendable () async -> Void
+}
+
+// MARK: - DependencyKey
+
+extension HookServerService: DependencyKey {
+    public static var liveValue: HookServerService {
+        let server = LiveHookServer()
+
+        return HookServerService(
+            setEventHandler: { handler in
+                await server.setEventHandler(handler)
+            },
+            startServer: {
+                await server.startServer()
+            },
+            stopServer: {
+                await server.stopServer()
+            }
+        )
+    }
+}
+
+// MARK: - Live Implementation
+
+/// Actor that runs a local HTTP server to receive Claude Code hook events.
+private actor LiveHookServer {
     private let logger = Logger(label: "com.claudespy.hookserver")
-
-    /// The Vapor application instance
     private var app: Application?
-
-    /// Whether the server is currently running
-    public private(set) var isRunning = false
-
-    /// The actual port the server is listening on (resolved after startup)
-    public private(set) var serverPort: Int?
-
-    /// Last error message if server failed to start
-    public private(set) var lastError: String?
-
-    /// Unified callback for all hook events
+    private var isRunning = false
+    private var serverPort: Int?
+    private var lastError: String?
     private var onHookEvent: (@Sendable (HookEvent) async -> Void)?
 
-    /// Starting port for the hook server (will increment if in use)
     private static let basePort = 6_111
-
-    /// Maximum number of ports to try before giving up
     private static let maxPortAttempts = 10
 
-    /// Path to the port file for hook script discovery
     private static let portFilePath: String = {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return "\(home)/.claudespy-port"
     }()
 
-    // MARK: - Initialization
+    init() { }
 
-    public init() { }
-
-    // MARK: - Configuration
-
-    /// Sets the event handler callback for hook events
-    /// - Parameter handler: Callback invoked when a hook event is received
-    public func setEventHandler(_ handler: @escaping @Sendable (HookEvent) async -> Void) {
+    func setEventHandler(_ handler: @escaping @Sendable (HookEvent) async -> Void) {
         onHookEvent = handler
     }
 
-    // MARK: - Server Lifecycle
-
-    /// Start the HTTP server, trying ports starting from `basePort`.
-    public func startServer() async {
+    func startServer() async {
         guard !isRunning else {
             logger.warning("Hook server is already running")
             return
@@ -88,7 +96,6 @@ public actor HookServerService {
                 logger.info("Hook server started on port \(actualPort)")
                 return
             } catch {
-                // Clean up the failed attempt
                 try? await app?.asyncShutdown()
                 app = nil
 
@@ -104,8 +111,7 @@ public actor HookServerService {
         }
     }
 
-    /// Stop the HTTP server
-    public func stopServer() async {
+    func stopServer() async {
         guard isRunning else {
             logger.warning("Hook server is not running")
             return
@@ -136,7 +142,6 @@ public actor HookServerService {
 
     // MARK: - Port File Management
 
-    /// Writes the actual listening port to a per-user file for hook script discovery.
     private func writePortFile(port: Int) {
         let path = Self.portFilePath
         do {
@@ -151,27 +156,21 @@ public actor HookServerService {
         }
     }
 
-    /// Removes the port file on shutdown.
     private func removePortFile() {
         let path = Self.portFilePath
         do {
             try FileManager.default.removeItem(atPath: path)
             logger.info("Removed port file: \(path)")
         } catch {
-            // File may not exist, which is fine
             logger.debug("Port file removal skipped: \(error)")
         }
     }
 
     private func configureRoutes(_ app: Application) {
-        // Health check endpoint
         app.get("health") { _ -> HTTPStatus in
             .ok
         }
 
-        // Main hook endpoint - receives all hook types
-        // Increase body size limit to 50MB to handle large tool payloads
-        // (e.g., Write/Edit tools with large file content)
         app.on(.POST, "api", "hooks", body: .collect(maxSize: "50mb")) { [weak self] req async throws -> Response in
             guard let self else {
                 throw Abort(.internalServerError)
@@ -184,12 +183,10 @@ public actor HookServerService {
     // MARK: - Request Handling
 
     private func handleHookRequest(_ req: Request) async throws -> Response {
-        // Parse query parameters
         let queryParams = try? req.query.decode(HookQueryParams.self)
         let projectPath = queryParams?.projectPath
         let tmuxPane = queryParams?.tmuxPane
 
-        // Read request body
         guard let bodyBuffer = req.body.data else {
             logger.error("Hook request with empty body")
             throw Abort(.badRequest, reason: "Empty request body")
@@ -204,17 +201,14 @@ public actor HookServerService {
 
         let bodyData = Data(bodyString.utf8)
 
-        // Parse the hook action
         let hookAction: HookAction
         do {
             hookAction = try HookAction.from(jsonData: bodyData)
         } catch {
             logger.error("Failed to parse hook body: \(error)")
-            // Still accept the request but log the error
             return emptyResponse()
         }
 
-        // Create the event and notify caller
         let event = HookEvent(
             action: hookAction,
             projectPath: projectPath,

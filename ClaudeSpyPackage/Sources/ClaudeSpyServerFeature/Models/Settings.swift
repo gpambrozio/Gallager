@@ -90,6 +90,9 @@ final public class AppSettings {
     @ObservationIgnored
     @Dependency(PreferencesService.self) private var preferences
 
+    @ObservationIgnored
+    @Dependency(ClaudePathDetector.self) private var claudePathDetector
+
     // MARK: - UI State (transient, not persisted)
 
     /// Currently selected settings tab (for programmatic navigation)
@@ -249,7 +252,7 @@ final public class AppSettings {
             self.claudeCommandPath = savedPath
         } else {
             // First launch - try to detect claude path
-            let detectedPath = ClaudePathDetector.detectPath() ?? Defaults.claudeCommandPath
+            let detectedPath = claudePathDetector.detectPath() ?? Defaults.claudeCommandPath
             self.claudeCommandPath = detectedPath
             preferences.setString(detectedPath, Keys.claudeCommandPath)
         }
