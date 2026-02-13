@@ -86,6 +86,19 @@ public struct MainView: View {
         .onDisappear {
             autoResizeTask?.cancel()
         }
+        #if DEBUG
+        .onReceive(
+                NotificationCenter.default.publisher(
+                    for: .init("com.claudespy.e2e.selectPane")
+                )
+            ) { notification in
+                guard let target = notification.userInfo?["target"] as? String else { return }
+                if let pane = tmuxService.panes.first(where: { $0.target == target }) {
+                    selectedPane = pane
+                    selectedRemotePane = nil
+                }
+            }
+        #endif
     }
 
     // MARK: - Sidebar
@@ -837,6 +850,7 @@ private struct PaneSidebarRow: View {
             Spacer()
         }
         .padding(.vertical, 4)
+        .accessibilityLabel(pane.target)
         .help(hasClaude ? "Claude Code session active" : "")
     }
 }

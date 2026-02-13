@@ -87,8 +87,30 @@ public enum TestStep: Sendable {
     case macReadClipboard(storeAs: String)
     /// Wait for a text element to appear in the macOS app's accessibility tree
     case macWaitForElement(titled: String, timeout: TimeInterval = 10)
+    /// Open the Panes window via the status item menu
+    case macOpenPanesWindow
+    /// Resize the macOS app window
+    case macResizeWindow(width: Int, height: Int)
+    /// Type text into the macOS app (via AppleScript keystroke)
+    case macType(text: String, pressReturn: Bool = false)
+    /// Select a pane by target via the E2E HTTP endpoint (bypasses click simulation)
+    case macSelectPane(target: String)
     /// Take a macOS screenshot
     case macScreenshot(label: String)
+
+    // MARK: - Tmux
+
+    /// Create a tmux session on the test socket
+    case tmuxCreateSession(name: String, width: Int, height: Int)
+    /// Query pane dimensions and store them in the execution context
+    case tmuxStorePaneDimensions(target: String, widthKey: String, heightKey: String)
+
+    // MARK: - Assertions
+
+    /// Assert two stored context values are equal
+    case assertStoredEqual(key: String, otherKey: String)
+    /// Assert two stored context values are NOT equal
+    case assertStoredNotEqual(key: String, otherKey: String)
 
     // MARK: - General
 

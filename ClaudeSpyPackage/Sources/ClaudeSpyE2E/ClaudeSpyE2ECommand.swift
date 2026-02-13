@@ -42,9 +42,20 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             return
         }
 
-        guard let iosAppPath else {
-            print("ERROR: --ios-app-path is required")
-            throw ExitCode.failure
+        // Determine which scenarios we'll run to validate required paths
+        let selectedScenarios: [TestScenario]
+        if let scenarioName = scenario {
+            selectedScenarios = Self.allScenarios.filter { $0.name == scenarioName }
+        } else {
+            selectedScenarios = Self.allScenarios
+        }
+        let needsIOS = selectedScenarios.contains { !$0.tags.contains("macos-only") }
+
+        if needsIOS {
+            guard iosAppPath != nil else {
+                print("ERROR: --ios-app-path is required for scenarios that use iOS")
+                throw ExitCode.failure
+            }
         }
         guard let macosAppPath else {
             print("ERROR: --macos-app-path is required")
@@ -53,7 +64,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
 
         print("ClaudeSpy E2E Test Coordinator")
         print("==============================")
-        print("iOS app:     \(iosAppPath)")
+        print("iOS app:     \(iosAppPath ?? "(not needed)")")
         print("macOS app:   \(macosAppPath)")
         print("Simulator:   \(simName)")
         print("Screenshots: \(screenshotsDir)")
@@ -131,6 +142,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         UnpairFromMacOSScenario.scenario,
         DisconnectIOSUnpairMacOSScenario.scenario,
         DisconnectMacOSUnpairIOSScenario.scenario,
+        ResizePaneScenario.scenario,
     ]
 
     private func runTests(orchestrator: TestOrchestrator) async throws {

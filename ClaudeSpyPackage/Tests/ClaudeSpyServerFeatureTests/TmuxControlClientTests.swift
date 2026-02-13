@@ -125,7 +125,6 @@
             @Test("Session with numbers")
             @MainActor
             func sessionWithNumbers() async {
-                // swiftlint:disable:next custom_no_number_decimals
                 let result = TmuxControlClientManager.extractSessionName(from: "session123:2.0")
                 #expect(result == "session123")
             }

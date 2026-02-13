@@ -43,7 +43,9 @@ enum MacAppHTTPClient {
     /// Fetch the macOS app's accessibility tree via HTTP
     static func describeUI() async throws -> [WindowInfo] {
         let url = URL(string: "http://127.0.0.1:\(port)/describe-ui")!
-        let (data, _) = try await URLSession.shared.data(from: url)
+        var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        let (data, _) = try await URLSession.shared.data(for: request)
 
         guard
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -103,6 +105,31 @@ enum MacAppHTTPClient {
         let body = String(data: data, encoding: .utf8) ?? ""
         logger.info("HTTP unpair: \(body)")
         return body == "ok"
+    }
+
+    /// Select a pane by target string (e.g. "resize-test-1:0.0")
+    @discardableResult
+    static func selectPane(target: String) async throws -> Bool {
+        let encoded = target.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? target
+        let url = URL(string: "http://127.0.0.1:\(port)/select-pane?target=\(encoded)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let body = String(data: data, encoding: .utf8) ?? ""
+        logger.info("HTTP select-pane '\(target)': \(body)")
+        return body == "ok"
+    }
+
+    /// Resize the app's frontmost normal-level window
+    @discardableResult
+    static func resizeWindow(width: Int, height: Int) async throws -> Bool {
+        let url = URL(string: "http://127.0.0.1:\(port)/resize-window?width=\(width)&height=\(height)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let body = String(data: data, encoding: .utf8) ?? ""
+        logger.info("HTTP resize-window \(width)x\(height): \(body)")
+        return body == "resized"
     }
 
     /// Check if a window with the given title exists

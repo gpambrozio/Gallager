@@ -6,10 +6,11 @@ public actor TestOrchestrator {
     private let simulatorDriver = SimulatorDriver()
     private let macOSDriver = MacOSDriver()
     private let serverDriver = ServerDriver()
+    private let processRunner = ProcessRunner()
     private let context = ExecutionContext()
     private let logger = Logger(label: "e2e.orchestrator")
 
-    private let iosAppPath: String
+    private let iosAppPath: String?
     private let macOSAppPath: String
     private let simulatorName: String
     private let screenshotsDir: String
@@ -31,7 +32,7 @@ public actor TestOrchestrator {
     ///   not as an orchestrator-level configuration. The tmux socket path is injected into
     ///   the execution context as `${tmuxSocket}` for scenarios to reference.
     public init(
-        iosAppPath: String,
+        iosAppPath: String? = nil,
         macOSAppPath: String,
         simulatorName: String = "iPhone 16",
         screenshotsDir: String = "/tmp/e2e-screenshots",
@@ -130,7 +131,7 @@ public actor TestOrchestrator {
         // Kill the isolated tmux server so the socket file is cleaned up
         if let tmuxSocket {
             logger.info("Killing isolated tmux server at \(tmuxSocket)")
-            let runner = ProcessRunner()
+            let runner = processRunner
             _ = try? await runner.run("tmux", arguments: ["-S", tmuxSocket, "kill-server"])
         }
 
@@ -185,6 +186,9 @@ public actor TestOrchestrator {
 
         // iOS Simulator
         case let .launchIOSApp(arguments):
+            guard let iosAppPath else {
+                throw OrchestratorError.configurationError("--ios-app-path is required for iOS scenarios")
+            }
             try await simulatorDriver.bootSimulator(name: simulatorName)
             if let e2eRunnerPath {
                 await simulatorDriver.setE2ERunnerPath(e2eRunnerPath)
@@ -276,12 +280,86 @@ public actor TestOrchestrator {
         case let .macWaitForElement(titled, timeout):
             try await macOSDriver.waitForElement(titled: titled, timeout: timeout)
 
+        case .macOpenPanesWindow:
+            try await macOSDriver.openPanesWindow()
+
+        case let .macResizeWindow(width, height):
+            try await macOSDriver.resizeWindow(width: width, height: height)
+
+        case let .macType(text, pressReturn):
+            let resolvedText = context.resolve(text)
+            try await macOSDriver.type(text: resolvedText, pressReturn: pressReturn)
+
+        case let .macSelectPane(target):
+            let resolvedTarget = context.resolve(target)
+            let selected = try await MacAppHTTPClient.selectPane(target: resolvedTarget)
+            if !selected {
+                throw OrchestratorError.assertionFailed("Failed to select pane '\(resolvedTarget)'")
+            }
+
         case let .macScreenshot(label):
             let path = "\(screenshotsDir)/\(label).png"
             do {
                 try await macOSDriver.screenshot(output: path)
             } catch {
                 logger.warning("macOS screenshot failed (non-fatal): \(error.localizedDescription)")
+            }
+
+        // Tmux
+        case let .tmuxCreateSession(name, width, height):
+            let socket = context.resolve("${tmuxSocket}")
+            let resolvedName = context.resolve(name)
+            let runner = processRunner
+            // Use -f /dev/null to ignore user's tmux.conf (avoids base-index/pane-base-index
+            // being set to non-zero values which would change pane targets)
+            _ = try await runner.runOrThrow(
+                "tmux",
+                arguments: ["-f", "/dev/null", "-S", socket, "new-session", "-d", "-s", resolvedName, "-x", "\(width)", "-y", "\(height)"]
+            )
+
+        case let .tmuxStorePaneDimensions(target, widthKey, heightKey):
+            let socket = context.resolve("${tmuxSocket}")
+            let resolvedTarget = context.resolve(target)
+            let runner = processRunner
+            let result = try await runner.runOrThrow(
+                "tmux",
+                arguments: ["-S", socket, "display-message", "-t", resolvedTarget, "-p", "#{pane_width} #{pane_height}"]
+            )
+            let parts = result.stdoutString.split(separator: " ")
+            guard parts.count == 2 else {
+                throw OrchestratorError.assertionFailed(
+                    "Expected 'width height' from tmux display-message, got: '\(result.stdoutString)'"
+                )
+            }
+            context.set(widthKey, value: String(parts[0]))
+            context.set(heightKey, value: String(parts[1]))
+            logger.info("  Stored \(widthKey)=\(parts[0]), \(heightKey)=\(parts[1])")
+
+        // Assertions
+        case let .assertStoredEqual(key, otherKey):
+            guard let value1 = context.get(key) else {
+                throw OrchestratorError.assertionFailed("Key '\(key)' not found in context")
+            }
+            guard let value2 = context.get(otherKey) else {
+                throw OrchestratorError.assertionFailed("Key '\(otherKey)' not found in context")
+            }
+            guard value1 == value2 else {
+                throw OrchestratorError.assertionFailed(
+                    "\(key)='\(value1)' != \(otherKey)='\(value2)'"
+                )
+            }
+
+        case let .assertStoredNotEqual(key, otherKey):
+            guard let value1 = context.get(key) else {
+                throw OrchestratorError.assertionFailed("Key '\(key)' not found in context")
+            }
+            guard let value2 = context.get(otherKey) else {
+                throw OrchestratorError.assertionFailed("Key '\(otherKey)' not found in context")
+            }
+            guard value1 != value2 else {
+                throw OrchestratorError.assertionFailed(
+                    "\(key)='\(value1)' should differ from \(otherKey)='\(value2)'"
+                )
             }
 
         // General
@@ -299,6 +377,9 @@ public actor TestOrchestrator {
     // MARK: - Helpers
 
     private func iosBundleId() throws -> String {
+        guard let iosAppPath else {
+            throw OrchestratorError.configurationError("--ios-app-path is required to read bundle ID")
+        }
         // Extract bundle ID from the app's Info.plist
         let plistPath = "\(iosAppPath)/Info.plist"
         guard

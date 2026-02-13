@@ -138,6 +138,57 @@ public actor MacOSDriver {
         throw MacOSDriverError.elementNotFound("\(menuButtonTitle) → \(itemTitle)")
     }
 
+    // MARK: - Panes Window
+
+    /// Open the Panes window via the status item menu
+    public func openPanesWindow() async throws {
+        logger.info("Opening Panes window via status item menu")
+        let script = """
+        tell application "System Events"
+            tell process "\(appName)"
+                click menu bar item 1 of menu bar 2
+                delay 0.5
+                click menu item "Show Panes Window" of menu 1 of menu bar item 1 of menu bar 2
+            end tell
+        end tell
+        delay 1
+        """
+        try await runAppleScript(script)
+    }
+
+    /// Resize the macOS app window via the in-app HTTP server.
+    /// Uses NSWindow.setFrame instead of AppleScript because MenuBarExtra apps
+    /// don't expose windows through System Events.
+    public func resizeWindow(width: Int, height: Int) async throws {
+        logger.info("Resizing window to \(width)x\(height)")
+        let resized = try await MacAppHTTPClient.resizeWindow(width: width, height: height)
+        if !resized {
+            throw MacOSDriverError.appleScriptFailed(
+                "Failed to resize window to \(width)x\(height) — no visible window found"
+            )
+        }
+    }
+
+    /// Type text into the macOS app via AppleScript keystroke
+    public func type(text: String, pressReturn: Bool) async throws {
+        logger.info("Typing text: \(text.prefix(30))... (pressReturn: \(pressReturn))")
+        let escaped = escapeForAppleScript(text)
+        let returnClause = pressReturn ? """
+
+                delay 0.1
+                keystroke return
+        """ : ""
+        let script = """
+        tell application "System Events"
+            tell process "\(appName)"
+                set frontmost to true
+                keystroke "\(escaped)"\(returnClause)
+            end tell
+        end tell
+        """
+        try await runAppleScript(script)
+    }
+
     // MARK: - Unpair
 
     /// Trigger unpair on the first paired viewer via the macOS app's test HTTP endpoint.
