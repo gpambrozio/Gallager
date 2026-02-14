@@ -1,6 +1,5 @@
-import CoreGraphics
+import CoreImage
 import Foundation
-import ImageIO
 import Logging
 
 /// Result of comparing a screenshot against a baseline
@@ -23,7 +22,6 @@ public struct ComparisonResult: Sendable {
 public enum ScreenshotComparisonError: Error, LocalizedError {
     case failedToLoadImage(path: String)
     case sizeMismatch(actual: (Int, Int), baseline: (Int, Int))
-    case failedToCreateContext
     case failedToWriteImage(path: String)
 
     public var errorDescription: String? {
@@ -32,22 +30,24 @@ public enum ScreenshotComparisonError: Error, LocalizedError {
             "Failed to load image: \(path)"
         case let .sizeMismatch(actual, baseline):
             "Image size mismatch: actual=\(actual.0)x\(actual.1), baseline=\(baseline.0)x\(baseline.1)"
-        case .failedToCreateContext:
-            "Failed to create bitmap context for comparison"
         case let .failedToWriteImage(path):
             "Failed to write image: \(path)"
         }
     }
 }
 
-/// Compares screenshots against stored baselines using pixel-by-pixel comparison
+/// Compares screenshots against stored baselines using Core Image filters.
+///
+/// Uses `CIDifferenceBlendMode` for per-pixel difference, `CIMaximumComponent`
+/// + `CIColorThreshold` for binary differing-pixel detection, and `CIAreaAverage`
+/// to compute the diff percentage — all GPU-accelerated via Core Image.
 public enum ScreenshotComparator {
     private static let logger = Logger(label: "e2e.screenshot-comparator")
 
     /// Compare a screenshot at `actualPath` against a baseline.
     ///
     /// - If no baseline exists, the actual screenshot is stored as the new baseline.
-    /// - If a baseline exists, a pixel-by-pixel comparison is performed.
+    /// - If a baseline exists, comparison is performed using Core Image filters.
     /// - A diff image is generated when the comparison fails.
     ///
     /// - Parameters:
@@ -89,33 +89,29 @@ public enum ScreenshotComparator {
         }
 
         // Load both images
-        guard let actualImage = loadCGImage(from: actualPath) else {
+        let actualURL = URL(fileURLWithPath: actualPath)
+        let baselineURL = URL(fileURLWithPath: baselinePath)
+
+        guard let actualImage = CIImage(contentsOf: actualURL) else {
             throw ScreenshotComparisonError.failedToLoadImage(path: actualPath)
         }
-        guard let baselineImage = loadCGImage(from: baselinePath) else {
+        guard let baselineImage = CIImage(contentsOf: baselineURL) else {
             throw ScreenshotComparisonError.failedToLoadImage(path: baselinePath)
         }
 
         // Verify sizes match
-        let actualWidth = actualImage.width
-        let actualHeight = actualImage.height
-        let baselineWidth = baselineImage.width
-        let baselineHeight = baselineImage.height
+        let actualSize = actualImage.extent.size
+        let baselineSize = baselineImage.extent.size
 
-        guard actualWidth == baselineWidth, actualHeight == baselineHeight else {
+        guard actualSize == baselineSize else {
             throw ScreenshotComparisonError.sizeMismatch(
-                actual: (actualWidth, actualHeight),
-                baseline: (baselineWidth, baselineHeight)
+                actual: (Int(actualSize.width), Int(actualSize.height)),
+                baseline: (Int(baselineSize.width), Int(baselineSize.height))
             )
         }
 
-        // Perform pixel-by-pixel comparison
-        let (diffPercentage, diffImage) = try comparePixels(
-            actual: actualImage,
-            baseline: baselineImage,
-            width: actualWidth,
-            height: actualHeight
-        )
+        // Compare using Core Image filter pipeline
+        let (diffPercentage, diffImage) = computeDiff(actual: actualImage, baseline: baselineImage)
 
         let passed = diffPercentage <= tolerance
 
@@ -145,124 +141,88 @@ public enum ScreenshotComparator {
 
     // MARK: - Private
 
-    /// Load a CGImage from a file path
-    private static func loadCGImage(from path: String) -> CGImage? {
-        let url = URL(fileURLWithPath: path)
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    /// Compare two images using Core Image filters, returning the diff percentage
+    /// and an optional composite diff image (red = different, dimmed = matching).
+    private static func computeDiff(
+        actual: CIImage,
+        baseline: CIImage
+    ) -> (Double, CIImage?) {
+        let extent = actual.extent
+
+        // 1. Per-pixel absolute difference (identical pixels → black)
+        let difference = actual.applyingFilter("CIDifferenceBlendMode", parameters: [
+            kCIInputBackgroundImageKey: baseline,
+        ])
+
+        // 2. Grayscale: max(R, G, B) per pixel so any channel difference is captured
+        let grayscale = difference.applyingFilter("CIMaximumComponent")
+
+        // 3. Binary mask: any non-zero difference → white, otherwise black
+        let binary = grayscale.applyingFilter("CIColorThreshold", parameters: [
+            "inputThreshold": 0.001 as NSNumber,
+        ])
+
+        // 4. Average of binary image = fraction of differing pixels
+        let average = binary.applyingFilter("CIAreaAverage", parameters: [
+            kCIInputExtentKey: CIVector(cgRect: extent),
+        ])
+
+        // Read the 1×1 average pixel
+        let context = CIContext()
+        var pixel = [Float](repeating: 0, count: 4)
+        context.render(
+            average,
+            toBitmap: &pixel,
+            rowBytes: 16,
+            bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+            format: .RGBAf,
+            colorSpace: nil
+        )
+        let diffPercentage = Double(pixel[0]) * 100.0
+
+        guard diffPercentage > 0 else { return (0, nil) }
+
+        // 5. Composite diff image: semi-transparent red tint over actual where different,
+        //    dimmed baseline where matching
+        let dimmed = baseline.applyingFilter("CIColorMatrix", parameters: [
+            "inputRVector": CIVector(x: 0.33, y: 0, z: 0, w: 0),
+            "inputGVector": CIVector(x: 0, y: 0.33, z: 0, w: 0),
+            "inputBVector": CIVector(x: 0, y: 0, z: 0.33, w: 0),
+            "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1),
+        ])
+
+        // Tint differing pixels: blend actual content with red at 50% opacity
+        let redTint = CIImage(color: CIColor(red: 1, green: 0, blue: 0, alpha: 0.5))
+            .cropped(to: extent)
+        let tinted = redTint.applyingFilter("CISourceOverCompositing", parameters: [
+            kCIInputBackgroundImageKey: actual,
+        ])
+
+        let composited = tinted.applyingFilter("CIBlendWithMask", parameters: [
+            kCIInputBackgroundImageKey: dimmed,
+            kCIInputMaskImageKey: binary,
+        ])
+
+        return (diffPercentage, composited)
     }
 
-    /// Compare two images pixel-by-pixel, returning the diff percentage and an optional diff image.
-    private static func comparePixels(
-        actual: CGImage,
-        baseline: CGImage,
-        width: Int,
-        height: Int
-    ) throws -> (Double, CGImage?) {
-        let bytesPerPixel = 4
-        let bytesPerRow = width * bytesPerPixel
-        let totalPixels = width * height
-
-        // Create buffers for pixel data
-        var actualPixels = [UInt8](repeating: 0, count: totalPixels * bytesPerPixel)
-        var baselinePixels = [UInt8](repeating: 0, count: totalPixels * bytesPerPixel)
-
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
-
-        // Render actual image into buffer
-        guard let actualContext = CGContext(
-            data: &actualPixels,
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: bytesPerRow,
-            space: colorSpace,
-            bitmapInfo: bitmapInfo.rawValue
-        ) else {
-            throw ScreenshotComparisonError.failedToCreateContext
-        }
-        actualContext.draw(actual, in: CGRect(x: 0, y: 0, width: width, height: height))
-
-        // Render baseline image into buffer
-        guard let baselineContext = CGContext(
-            data: &baselinePixels,
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: bytesPerRow,
-            space: colorSpace,
-            bitmapInfo: bitmapInfo.rawValue
-        ) else {
-            throw ScreenshotComparisonError.failedToCreateContext
-        }
-        baselineContext.draw(baseline, in: CGRect(x: 0, y: 0, width: width, height: height))
-
-        // Compare pixels and build diff image
-        var diffPixels = [UInt8](repeating: 0, count: totalPixels * bytesPerPixel)
-        var differingPixels = 0
-
-        for i in 0 ..< totalPixels {
-            let offset = i * bytesPerPixel
-            let r1 = actualPixels[offset]
-            let g1 = actualPixels[offset + 1]
-            let b1 = actualPixels[offset + 2]
-            let a1 = actualPixels[offset + 3]
-            let r2 = baselinePixels[offset]
-            let g2 = baselinePixels[offset + 1]
-            let b2 = baselinePixels[offset + 2]
-            let a2 = baselinePixels[offset + 3]
-
-            if r1 != r2 || g1 != g2 || b1 != b2 || a1 != a2 {
-                differingPixels += 1
-                // Mark differing pixels in red
-                diffPixels[offset] = 255     // R
-                diffPixels[offset + 1] = 0   // G
-                diffPixels[offset + 2] = 0   // B
-                diffPixels[offset + 3] = 255 // A
-            } else {
-                // Dim matching pixels
-                diffPixels[offset] = r1 / 3
-                diffPixels[offset + 1] = g1 / 3
-                diffPixels[offset + 2] = b1 / 3
-                diffPixels[offset + 3] = 255
-            }
-        }
-
-        let diffPercentage = (Double(differingPixels) / Double(totalPixels)) * 100.0
-
-        // Only create the diff image if there are differences
-        var diffImage: CGImage?
-        if differingPixels > 0 {
-            diffImage = diffPixels.withUnsafeMutableBufferPointer { buffer in
-                guard let diffContext = CGContext(
-                    data: buffer.baseAddress,
-                    width: width,
-                    height: height,
-                    bitsPerComponent: 8,
-                    bytesPerRow: bytesPerRow,
-                    space: colorSpace,
-                    bitmapInfo: bitmapInfo.rawValue
-                ) else { return nil as CGImage? }
-                return diffContext.makeImage()
-            }
-        }
-
-        return (diffPercentage, diffImage)
-    }
-
-    /// Write a CGImage as a PNG file
+    /// Write a CIImage as a PNG file
     @discardableResult
-    private static func writePNG(image: CGImage, to path: String) -> Bool {
+    private static func writePNG(image: CIImage, to path: String) -> Bool {
+        let context = CIContext()
         let url = URL(fileURLWithPath: path)
-        guard let destination = CGImageDestinationCreateWithURL(
-            url as CFURL,
-            "public.png" as CFString,
-            1,
-            nil
-        ) else { return false }
-
-        CGImageDestinationAddImage(destination, image, nil)
-        return CGImageDestinationFinalize(destination)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        do {
+            try context.writePNGRepresentation(
+                of: image,
+                to: url,
+                format: .RGBA8,
+                colorSpace: colorSpace
+            )
+            return true
+        } catch {
+            logger.warning("Failed to write diff image: \(error.localizedDescription)")
+            return false
+        }
     }
 }
