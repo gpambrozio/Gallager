@@ -13,7 +13,7 @@ final public class SleepPreventionManager {
     public private(set) var isPreventingSleep = false
 
     /// The reason shown in Activity Monitor under "Assertions" (for debugging)
-    private let assertionReason = "ClaudeSpy: Active Claude Code sessions" as CFString
+    private let assertionReason = "Gallager: Active Claude Code sessions" as CFString
 
     /// IOKit assertion ID (0 when no assertion is held)
     private var assertionID: IOPMAssertionID = 0

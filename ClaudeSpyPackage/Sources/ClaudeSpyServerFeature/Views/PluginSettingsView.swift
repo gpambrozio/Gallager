@@ -168,7 +168,7 @@
         @ViewBuilder
         private var installationContent: some View {
             VStack(alignment: .leading, spacing: 12) {
-                Text("The plugin is required for ClaudeSpy to receive events from Claude Code sessions.")
+                Text("The plugin is required for Gallager to receive events from Claude Code sessions.")
                     .foregroundStyle(.secondary)
 
                 Button {

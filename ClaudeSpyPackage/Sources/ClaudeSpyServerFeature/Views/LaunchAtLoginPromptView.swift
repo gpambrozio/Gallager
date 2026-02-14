@@ -57,12 +57,12 @@
         @ViewBuilder
         private var explanationSection: some View {
             VStack(spacing: 16) {
-                Text("Would you like ClaudeSpy to start automatically when you log in?")
+                Text("Would you like Gallager to start automatically when you log in?")
                     .font(.title3)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("This allows ClaudeSpy to monitor your Claude Code sessions in the background. You can change this later in Settings.")
+                Text("This allows Gallager to monitor your Claude Code sessions in the background. You can change this later in Settings.")
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

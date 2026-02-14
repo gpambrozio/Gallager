@@ -489,6 +489,35 @@
 
                     LabeledContent("Device Name", value: settings.deviceName)
                 }
+
+                // Why Gallager Section
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Gallager is named after Robert G. Gallager, a pioneering information theorist and close colleague of Claude Shannon, after whom Anthropic's Claude AI is named.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Link(destination: URL(string: "https://en.wikipedia.org/wiki/Robert_G._Gallager")!) {
+                        HStack {
+                            Text("Robert G. Gallager")
+                            Spacer()
+                            Text("Wikipedia")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Link(destination: URL(string: "https://en.wikipedia.org/wiki/Claude_Shannon")!) {
+                        HStack {
+                            Text("Claude Shannon")
+                            Spacer()
+                            Text("Wikipedia")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("Why \"Gallager\"?")
+                }
             }
             .navigationTitle("Settings")
         }

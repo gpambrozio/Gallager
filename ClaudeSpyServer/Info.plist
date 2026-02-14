@@ -4,7 +4,7 @@
 <dict>
 	<!-- Apple Events Usage Description - required for AppleScript automation -->
 	<key>NSAppleEventsUsageDescription</key>
-	<string>ClaudeSpy needs to control terminal applications to open tmux sessions.</string>
+	<string>Gallager needs to control terminal applications to open tmux sessions.</string>
 
 	<!-- Sparkle Auto-Update Configuration -->
 	<key>SUFeedURL</key>

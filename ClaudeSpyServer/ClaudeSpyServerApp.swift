@@ -103,6 +103,11 @@ struct TmuxPaneMirrorApp: App {
         }
         .defaultLaunchBehavior(.suppressed)
         .commands {
+            // App menu - custom About window
+            CommandGroup(replacing: .appInfo) {
+                AboutMenuItem()
+            }
+
             // App menu - Check for Updates
             CommandGroup(after: .appInfo) {
                 CheckForUpdatesView(updaterController: updaterController)
@@ -148,6 +153,13 @@ struct TmuxPaneMirrorApp: App {
             }
         }
 
+        // About window - custom About panel with Gallager explanation
+        Window("About Gallager", id: "about") {
+            AboutWindowView()
+        }
+        .windowResizability(.contentSize)
+        .defaultLaunchBehavior(.suppressed)
+
         // Settings window
         Settings {
             SettingsView()
@@ -180,6 +192,22 @@ struct TmuxPaneMirrorApp: App {
         // Small delay to avoid sheet animation conflicts
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             showingLaunchAtLoginPrompt = true
+        }
+    }
+}
+
+/// Menu item that opens the custom About window.
+///
+/// Extracted to a separate view so it has access to `@Environment(\.openWindow)`,
+/// which is not available directly in `CommandGroup` closures.
+private struct AboutMenuItem: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("About Gallager") {
+            NSApp.setActivationPolicy(.regular)
+            openWindow(id: "about")
+            NSApp.activate()
         }
     }
 }

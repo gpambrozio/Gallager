@@ -44,7 +44,7 @@ public struct MenuBarExtraView: View {
 
         Divider()
 
-        Button("Quit ClaudeSpy") {
+        Button("Quit Gallager") {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q", modifiers: .command)

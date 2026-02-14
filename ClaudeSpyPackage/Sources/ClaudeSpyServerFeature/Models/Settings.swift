@@ -25,6 +25,7 @@ public enum SettingsTab: String, Sendable {
     case remoteAccess
     case remoteHosts
     case plugin
+    case about
 }
 
 // MARK: - Paired Viewer Model
