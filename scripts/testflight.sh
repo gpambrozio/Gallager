@@ -22,9 +22,9 @@ SCHEME="ClaudeSpy"
 CONFIG_FILE="$PROJECT_ROOT/Config/Shared.xcconfig"
 EXPORT_OPTIONS="$SCRIPT_DIR/export-options-ios.plist"
 BUILD_DIR="$PROJECT_ROOT/build-ios"
-ARCHIVE_PATH="$BUILD_DIR/ClaudeSpy.xcarchive"
+ARCHIVE_PATH="$BUILD_DIR/Gallager.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
-APP_NAME="ClaudeSpy"
+APP_NAME="Gallager"
 TEAM_ID="XG2WG7U93U"
 
 # =====================================================

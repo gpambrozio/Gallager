@@ -11,4 +11,4 @@ PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.claudespy
 TEST_TARGET_NAME = ClaudeSpy
 
 // Fix duplicate module name issue
-PRODUCT_MODULE_NAME = $(PRODUCT_NAME)UITests
+PRODUCT_MODULE_NAME = ClaudeSpyUITests

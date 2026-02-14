@@ -5,7 +5,7 @@
 
     /// About view explaining the Gallager name and its connection to Claude Shannon.
     ///
-    /// Used in both the macOS About window and the Settings "About" tab.
+    /// Used in the Settings "About" tab.
     public struct AboutView: View {
         public init() { }
 
@@ -23,7 +23,7 @@
                 }
 
                 Section("Links") {
-                    Link(destination: URL(string: "https://en.wikipedia.org/wiki/Robert_G._Gallager")!) {
+                    Link(destination: AboutLinks.gallagerWikipedia) {
                         HStack {
                             Label("Robert G. Gallager", symbol: .linkCircle)
                             Spacer()
@@ -32,7 +32,7 @@
                         }
                     }
 
-                    Link(destination: URL(string: "https://en.wikipedia.org/wiki/Claude_Shannon")!) {
+                    Link(destination: AboutLinks.shannonWikipedia) {
                         HStack {
                             Label("Claude Shannon", symbol: .linkCircle)
                             Spacer()

@@ -8,8 +8,6 @@
     /// Explains why the app is called "Gallager" and provides links to
     /// the Wikipedia pages for Robert Gallager and Claude Shannon.
     public struct AboutWindowView: View {
-        @Environment(\.dismiss) private var dismiss
-
         public init() { }
 
         public var body: some View {
@@ -44,9 +42,9 @@
                     .font(.title)
                     .fontWeight(.bold)
 
-                if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
-                   let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
-                {
+                if
+                    let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+                    let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String {
                     Text("Version \(version) (\(build))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -77,11 +75,11 @@
         @ViewBuilder
         private var linksSection: some View {
             HStack(spacing: 16) {
-                Link(destination: URL(string: "https://en.wikipedia.org/wiki/Robert_G._Gallager")!) {
+                Link(destination: AboutLinks.gallagerWikipedia) {
                     Label("Robert G. Gallager", symbol: .linkCircle)
                 }
 
-                Link(destination: URL(string: "https://en.wikipedia.org/wiki/Claude_Shannon")!) {
+                Link(destination: AboutLinks.shannonWikipedia) {
                     Label("Claude Shannon", symbol: .linkCircle)
                 }
             }

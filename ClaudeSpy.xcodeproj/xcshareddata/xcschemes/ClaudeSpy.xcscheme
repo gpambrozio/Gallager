@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "8B41F6442DEDD0D5001A66F9"
-               BuildableName = "ClaudeSpy.app"
+               BuildableName = "Gallager.app"
                BlueprintName = "ClaudeSpy"
                ReferencedContainer = "container:ClaudeSpy.xcodeproj">
             </BuildableReference>
@@ -43,7 +43,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "8B41F65B2DEDD0D6001A66F9"
-               BuildableName = "ClaudeSpy.xctest"
+               BuildableName = "Gallager.xctest"
                BlueprintName = "ClaudeSpyUITests"
                ReferencedContainer = "container:ClaudeSpy.xcodeproj">
             </BuildableReference>
@@ -65,7 +65,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "8B41F6442DEDD0D5001A66F9"
-            BuildableName = "ClaudeSpy.app"
+            BuildableName = "Gallager.app"
             BlueprintName = "ClaudeSpy"
             ReferencedContainer = "container:ClaudeSpy.xcodeproj">
          </BuildableReference>
@@ -82,7 +82,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "8B41F6442DEDD0D5001A66F9"
-            BuildableName = "ClaudeSpy.app"
+            BuildableName = "Gallager.app"
             BlueprintName = "ClaudeSpy"
             ReferencedContainer = "container:ClaudeSpy.xcodeproj">
          </BuildableReference>

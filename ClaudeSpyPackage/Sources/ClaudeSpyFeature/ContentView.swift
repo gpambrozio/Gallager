@@ -498,7 +498,7 @@
                             .foregroundStyle(.secondary)
                     }
 
-                    Link(destination: URL(string: "https://en.wikipedia.org/wiki/Robert_G._Gallager")!) {
+                    Link(destination: AboutLinks.gallagerWikipedia) {
                         HStack {
                             Text("Robert G. Gallager")
                             Spacer()
@@ -507,7 +507,7 @@
                         }
                     }
 
-                    Link(destination: URL(string: "https://en.wikipedia.org/wiki/Claude_Shannon")!) {
+                    Link(destination: AboutLinks.shannonWikipedia) {
                         HStack {
                             Text("Claude Shannon")
                             Spacer()
