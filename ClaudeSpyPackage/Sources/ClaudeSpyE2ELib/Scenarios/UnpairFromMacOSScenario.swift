@@ -10,13 +10,13 @@ public enum UnpairFromMacOSScenario {
         FreshPairingScenario.scenario
 
         // 2. Screenshot before unpair
-        TestStep.macScreenshot(label: "04.1-mac-before-unpair")
+        TestStep.macScreenshot(label: "mac-before-unpair")
 
         // 3. macOS: trigger unpair via test HTTP endpoint
         // (SwiftUI Menu creates native NSMenu popups invisible to the accessibility tree)
         TestStep.macUnpair
         TestStep.wait(seconds: 2)
-        TestStep.macScreenshot(label: "04.2-mac-after-unpair")
+        TestStep.macScreenshot(label: "mac-after-unpair")
 
         // 4. Verify server has 0 pairings
         TestStep.waitForNoPairings(timeout: 15)
@@ -24,6 +24,6 @@ public enum UnpairFromMacOSScenario {
 
         // 5. Verify iOS returns to pairing view
         TestStep.iosWaitForElement(.labelContains("pairing code"), timeout: 10)
-        TestStep.iosScreenshot(label: "04.3-ios-back-to-pairing")
+        TestStep.iosScreenshot(label: "ios-back-to-pairing")
     }
 }

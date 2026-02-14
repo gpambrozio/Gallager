@@ -20,6 +20,7 @@ public actor TestOrchestrator {
     private let e2eHostBundleId = "br.eng.gustavo.claudespy.e2ehost"
     private let e2eRunnerBundleId = "br.eng.gustavo.claudespy.e2erunner.xctrunner"
     private let serverPort = 8_765
+    private var screenshotCounter = 0
 
     /// Result of running a scenario
     public struct ScenarioResult: Sendable {
@@ -64,6 +65,7 @@ public actor TestOrchestrator {
         )
 
         context.clear()
+        screenshotCounter = 0
 
         // Pre-populate context with orchestrator configuration
         context.set("tmuxSocket", value: tmuxSocket ?? "/tmp/claudespy-e2e.sock")
@@ -234,13 +236,15 @@ public actor TestOrchestrator {
             try await simulatorDriver.waitForElementToDisappear(matching: query, timeout: timeout)
 
         case let .iosScreenshot(label):
-            let path = "\(screenshotsDir)/\(label).png"
+            let numberedLabel = nextScreenshotLabel(label)
+            let path = "\(screenshotsDir)/\(numberedLabel).png"
             _ = try await simulatorDriver.screenshot(output: path)
 
         case let .iosCompareScreenshot(label, tolerance):
-            let actualPath = "\(screenshotsDir)/\(label).png"
+            let numberedLabel = nextScreenshotLabel(label)
+            let actualPath = "\(screenshotsDir)/\(numberedLabel).png"
             _ = try await simulatorDriver.screenshot(output: actualPath)
-            try compareScreenshot(actualPath: actualPath, label: label, tolerance: tolerance)
+            try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance)
 
         case .iosLogUI:
             let elements = await simulatorDriver.describeUI()
@@ -309,7 +313,8 @@ public actor TestOrchestrator {
             try await macOSDriver.type(text: resolvedText, pressReturn: pressReturn)
 
         case let .macScreenshot(label):
-            let path = "\(screenshotsDir)/\(label).png"
+            let numberedLabel = nextScreenshotLabel(label)
+            let path = "\(screenshotsDir)/\(numberedLabel).png"
             do {
                 try await macOSDriver.screenshot(output: path)
             } catch {
@@ -319,9 +324,10 @@ public actor TestOrchestrator {
         case let .macCompareScreenshot(label, tolerance):
             // Screenshot errors propagate (unlike macScreenshot which is non-fatal)
             // because a comparison step must fail if we can't take the screenshot.
-            let actualPath = "\(screenshotsDir)/\(label).png"
+            let numberedLabel = nextScreenshotLabel(label)
+            let actualPath = "\(screenshotsDir)/\(numberedLabel).png"
             try await macOSDriver.screenshot(output: actualPath)
-            try compareScreenshot(actualPath: actualPath, label: label, tolerance: tolerance)
+            try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance)
 
         // Tmux
         case let .tmuxCreateSession(name, width, height):
@@ -413,6 +419,12 @@ public actor TestOrchestrator {
                 "Screenshot '\(label)' differs from baseline by \(diffStr)% (tolerance: \(tolStr)%)\(diffInfo)"
             )
         }
+    }
+
+    /// Return a screenshot label prefixed with an auto-incremented counter (e.g. "01-label")
+    private func nextScreenshotLabel(_ label: String) -> String {
+        screenshotCounter += 1
+        return String(format: "%02d-\(label)", screenshotCounter)
     }
 
     /// Convert a scenario name into a safe directory name
