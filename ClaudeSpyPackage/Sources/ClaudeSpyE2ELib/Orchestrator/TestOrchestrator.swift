@@ -20,6 +20,7 @@ public actor TestOrchestrator {
     private let e2eHostBundleId = "br.eng.gustavo.claudespy.e2ehost"
     private let e2eRunnerBundleId = "br.eng.gustavo.claudespy.e2erunner.xctrunner"
     private let serverPort = 8_765
+    private let scenarioNames: [String]
     private var screenshotCounter = 0
 
     /// Result of running a scenario
@@ -33,6 +34,8 @@ public actor TestOrchestrator {
 
     /// - Note: The tmux socket path is injected into the execution context as `${tmuxSocket}`
     ///   for scenarios to reference.
+    /// - Parameter scenarioNames: The full ordered list of scenario names (used to number
+    ///   screenshot directories consistently regardless of which subset is actually run).
     public init(
         iosAppPath: String? = nil,
         macOSAppPath: String,
@@ -40,7 +43,8 @@ public actor TestOrchestrator {
         screenshotsDir: String = "/tmp/e2e-screenshots",
         baselinesDir: String = "E2ETests",
         tmuxSocket: String? = nil,
-        e2eRunnerPath: String? = nil
+        e2eRunnerPath: String? = nil,
+        scenarioNames: [String] = []
     ) {
         self.iosAppPath = iosAppPath
         self.macOSAppPath = macOSAppPath
@@ -49,6 +53,7 @@ public actor TestOrchestrator {
         self.baselinesDir = baselinesDir
         self.tmuxSocket = tmuxSocket
         self.e2eRunnerPath = e2eRunnerPath
+        self.scenarioNames = scenarioNames
     }
 
     // MARK: - Run Scenarios
@@ -58,8 +63,19 @@ public actor TestOrchestrator {
         logger.info("=== Starting scenario: \(scenario.name) ===")
         let startTime = ContinuousClock.now
 
+        // Build the numbered scenario directory name (e.g. "03-fresh-pairing").
+        // The number comes from the scenario's position in the full registry so it
+        // stays stable even when running a single scenario.
+        let sanitizedName = sanitizeForPath(scenario.name)
+        let scenarioDirName: String
+        if let index = scenarioNames.firstIndex(of: scenario.name) {
+            scenarioDirName = String(format: "%02d-\(sanitizedName)", index + 1)
+        } else {
+            scenarioDirName = sanitizedName
+        }
+
         // Ensure per-scenario screenshots directory exists
-        let scenarioScreenshotsDir = "\(screenshotsDir)/\(sanitizeForPath(scenario.name))"
+        let scenarioScreenshotsDir = "\(screenshotsDir)/\(scenarioDirName)"
         try? FileManager.default.createDirectory(
             atPath: scenarioScreenshotsDir,
             withIntermediateDirectories: true
@@ -70,7 +86,7 @@ public actor TestOrchestrator {
 
         // Pre-populate context with orchestrator configuration
         context.set("tmuxSocket", value: tmuxSocket ?? "/tmp/claudespy-e2e.sock")
-        context.set("scenarioName", value: sanitizeForPath(scenario.name))
+        context.set("scenarioName", value: scenarioDirName)
 
         for (index, step) in scenario.steps.enumerated() {
             let stepNumber = index + 1

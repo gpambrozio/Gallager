@@ -182,24 +182,18 @@ public enum ScreenshotComparator {
 
         guard diffPercentage > 0 else { return (0, nil) }
 
-        // 5. Composite diff image: semi-transparent red tint over actual where different,
-        //    dimmed baseline where matching
-        let dimmed = baseline.applyingFilter("CIColorMatrix", parameters: [
-            "inputRVector": CIVector(x: 0.33, y: 0, z: 0, w: 0),
-            "inputGVector": CIVector(x: 0, y: 0.33, z: 0, w: 0),
-            "inputBVector": CIVector(x: 0, y: 0, z: 0.33, w: 0),
-            "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1),
-        ])
-
-        // Tint differing pixels: blend actual content with red at 50% opacity
+        // 5. Composite diff image: actual image at full brightness with semi-transparent
+        //    red overlay only on differing pixels
         let redTint = CIImage(color: CIColor(red: 1, green: 0, blue: 0, alpha: 0.5))
             .cropped(to: extent)
         let tinted = redTint.applyingFilter("CISourceOverCompositing", parameters: [
             kCIInputBackgroundImageKey: actual,
         ])
 
+        // Where mask is white (different) → show red-tinted actual
+        // Where mask is black (matching) → show actual at full brightness
         let composited = tinted.applyingFilter("CIBlendWithMask", parameters: [
-            kCIInputBackgroundImageKey: dimmed,
+            kCIInputBackgroundImageKey: actual,
             kCIInputMaskImageKey: binary,
         ])
 

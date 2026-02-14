@@ -83,7 +83,8 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             screenshotsDir: screenshotsDir,
             baselinesDir: baselinesDir,
             tmuxSocket: tmuxSocket,
-            e2eRunnerPath: e2eRunnerPath
+            e2eRunnerPath: e2eRunnerPath,
+            scenarioNames: Self.allScenarios.map(\.name)
         )
 
         if interactive {
@@ -96,9 +97,10 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     private func printScenarioList() {
         print("Available scenarios:")
         print()
-        for scenario in Self.allScenarios {
+        for (index, scenario) in Self.allScenarios.enumerated() {
+            let num = String(format: "%02d", index + 1)
             let tags = scenario.tags.map { "[\($0)]" }.joined(separator: " ")
-            print("  \(scenario.name) (\(scenario.steps.count) steps) \(tags)")
+            print("  \(num). \(scenario.name) (\(scenario.steps.count) steps) \(tags)")
         }
     }
 
