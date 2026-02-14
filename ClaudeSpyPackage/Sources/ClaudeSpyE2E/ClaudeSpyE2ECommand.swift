@@ -9,10 +9,10 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         abstract: "E2E test coordinator for ClaudeSpy"
     )
 
-    @Option(name: .long, help: "Path to built ClaudeSpy.app (iOS simulator)")
+    @Option(name: .long, help: "Path to built Gallager.app (iOS simulator)")
     var iosAppPath: String?
 
-    @Option(name: .long, help: "Path to built ClaudeSpyServer.app (macOS)")
+    @Option(name: .long, help: "Path to built Gallager.app (macOS)")
     var macosAppPath: String?
 
     @Option(name: .long, help: "Simulator device name")

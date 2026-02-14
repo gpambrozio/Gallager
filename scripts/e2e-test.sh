@@ -79,7 +79,7 @@ done
 # =====================================================
 PRODUCTS_DEBUG="$DERIVED_DATA/Build/Products/Debug"
 PRODUCTS_SIM="$DERIVED_DATA/Build/Products/Debug-iphonesimulator"
-MACOS_APP="$PRODUCTS_DEBUG/ClaudeSpyServer.app"
+MACOS_APP="$PRODUCTS_DEBUG/Gallager.app"
 IOS_APP="$PRODUCTS_SIM/Gallager.app"
 E2E_BIN="$PRODUCTS_DEBUG/ClaudeSpyE2E"
 

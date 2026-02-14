@@ -3,13 +3,13 @@ import CoreGraphics
 import Foundation
 import Logging
 
-/// Drives the macOS ClaudeSpyServer app via HTTP accessibility server, CGEvent, and AppleScript
+/// Drives the macOS Gallager app via HTTP accessibility server, CGEvent, and AppleScript
 public actor MacOSDriver {
     private let processRunner = ProcessRunner()
     private let logger = Logger(label: "e2e.macos-driver")
 
     private var appPath: String?
-    private let appName = "ClaudeSpyServer"
+    private let appName = "Gallager"
 
     public init() { }
 

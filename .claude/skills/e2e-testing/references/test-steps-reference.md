@@ -69,7 +69,7 @@ Dump the full iOS accessibility tree to the console log. For debugging only - he
 Launch the macOS app with `--e2e-test --server-url ws://127.0.0.1:8765 --tmux-socket <path>` arguments. The `--server-url` flag is always included to prevent accidental production connections. For macOS-only scenarios, a running server is not required - the app will simply fail to connect (which is fine).
 
 ### `terminateMacApp`
-Terminate the macOS app using `osascript -e 'quit app "ClaudeSpyServer"'`. Use at scenario start for clean state, or orchestrator handles it in cleanup.
+Terminate the macOS app using `osascript -e 'quit app "Gallager"'`. Use at scenario start for clean state, or orchestrator handles it in cleanup.
 
 ### `macOpenSettings`
 Open the Settings window via the status item menu.

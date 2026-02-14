@@ -142,8 +142,8 @@ Build all targets first, then:
 
 ```bash
 ClaudeSpyE2E \
-    --ios-app-path /path/to/ClaudeSpy.app \
-    --macos-app-path /path/to/ClaudeSpyServer.app \
+    --ios-app-path /path/to/Gallager.app \
+    --macos-app-path /path/to/Gallager.app \
     --sim-name "iPhone 17 Pro" \
     --screenshots-dir /tmp/e2e-screenshots \
     --tmux-socket /tmp/claudespy-e2e.sock \

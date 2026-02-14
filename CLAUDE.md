@@ -119,7 +119,7 @@ try await withDependencies {
 
 Use XcodeBuildTools skills. Scheme: `ClaudeSpyServer` (macOS), `ClaudeSpy` (iOS).
 
-**Killing Mac app:** Use `osascript -e 'quit app "ClaudeSpyServer"'` — `pkill`/`killall` don't work reliably.
+**Killing Mac app:** Use `osascript -e 'quit app "Gallager"'` — `pkill`/`killall` don't work reliably.
 
 ## Reference Docs
 

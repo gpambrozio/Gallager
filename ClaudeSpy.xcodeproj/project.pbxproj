@@ -71,11 +71,11 @@
 
 /* Begin PBXFileReference section */
 		81581B4A2F11B9BF005EA7FD /* ClaudeSpyNotificationExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ClaudeSpyNotificationExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		815F9E5D2F09BFF8003791F7 /* ClaudeSpyServer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeSpyServer.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		815F9E5D2F09BFF8003791F7 /* Gallager.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Gallager.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		815F9E692F09BFF9003791F7 /* ClaudeSpyServerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeSpyServerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		815F9E732F09BFF9003791F7 /* ClaudeSpyServerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeSpyServerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		8B41F6452DEDD0D5001A66F9 /* ClaudeSpy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeSpy.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		8B41F65C2DEDD0D6001A66F9 /* ClaudeSpy.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeSpy.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		8B41F6452DEDD0D5001A66F9 /* Gallager.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Gallager.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8B41F65C2DEDD0D6001A66F9 /* Gallager.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Gallager.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AABBCC102F2A00000063PLGN /* plugin */ = {isa = PBXFileReference; lastKnownFileType = folder; path = plugin; sourceTree = "<group>"; };
 		A45795AAFABA49589FBB2F35 /* ClaudeSpyE2EHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeSpyE2EHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9EE526E9177246FAB164195B /* ClaudeSpyE2ERunner.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeSpyE2ERunner.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -276,9 +276,9 @@
 		8B41F6462DEDD0D5001A66F9 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				8B41F6452DEDD0D5001A66F9 /* ClaudeSpy.app */,
-				8B41F65C2DEDD0D6001A66F9 /* ClaudeSpy.xctest */,
-				815F9E5D2F09BFF8003791F7 /* ClaudeSpyServer.app */,
+				8B41F6452DEDD0D5001A66F9 /* Gallager.app */,
+				8B41F65C2DEDD0D6001A66F9 /* Gallager.xctest */,
+				815F9E5D2F09BFF8003791F7 /* Gallager.app */,
 				815F9E692F09BFF9003791F7 /* ClaudeSpyServerTests.xctest */,
 				815F9E732F09BFF9003791F7 /* ClaudeSpyServerUITests.xctest */,
 				81581B4A2F11B9BF005EA7FD /* ClaudeSpyNotificationExtension.appex */,
@@ -343,7 +343,7 @@
 				817BF9B92F09C7CC00BD1D53 /* ClaudeSpyServerFeature */,
 			);
 			productName = ClaudeSpyServer;
-			productReference = 815F9E5D2F09BFF8003791F7 /* ClaudeSpyServer.app */;
+			productReference = 815F9E5D2F09BFF8003791F7 /* Gallager.app */;
 			productType = "com.apple.product-type.application";
 		};
 		815F9E682F09BFF9003791F7 /* ClaudeSpyServerTests */ = {
@@ -416,7 +416,7 @@
 				8B41F6842DEDD25C001A66F9 /* ClaudeSpyFeature */,
 			);
 			productName = ClaudeSpy;
-			productReference = 8B41F6452DEDD0D5001A66F9 /* ClaudeSpy.app */;
+			productReference = 8B41F6452DEDD0D5001A66F9 /* Gallager.app */;
 			productType = "com.apple.product-type.application";
 		};
 		8B41F65B2DEDD0D6001A66F9 /* ClaudeSpyUITests */ = {
@@ -440,7 +440,7 @@
 				8B41F6822DEDD23B001A66F9 /* ClaudeSpyFeature */,
 			);
 			productName = ClaudeSpyUITests;
-			productReference = 8B41F65C2DEDD0D6001A66F9 /* ClaudeSpy.xctest */;
+			productReference = 8B41F65C2DEDD0D6001A66F9 /* Gallager.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 		11661051F1244B379044AF6F /* ClaudeSpyE2EHost */ = {
@@ -841,7 +841,7 @@
 					"@executable_path/../Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.ClaudeSpyServer;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = Gallager;
 				REGISTER_APP_GROUPS = YES;
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
@@ -892,7 +892,7 @@
 					"@executable_path/../Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.ClaudeSpyServer;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = Gallager;
 				REGISTER_APP_GROUPS = YES;
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
@@ -928,7 +928,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ClaudeSpyServer.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ClaudeSpyServer";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Gallager.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Gallager";
 			};
 			name = Debug;
 		};
@@ -951,7 +951,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ClaudeSpyServer.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ClaudeSpyServer";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Gallager.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Gallager";
 			};
 			name = Release;
 		};
