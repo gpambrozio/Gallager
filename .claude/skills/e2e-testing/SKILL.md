@@ -93,7 +93,7 @@ Button { } label: { Label("Generate Code", symbol: .key) }
 2. **Start with clean state** - Begin scenarios with `uninstallIOSApp` + `terminateMacApp` if needed
 3. **Always start server before apps** - Apps need the server URL for `--e2e-test` args
 4. **Use composition** - Reuse existing scenarios by embedding them (steps get flattened inline)
-5. **Add screenshots at key checkpoints** - Use sequential numbering: `"03.1-description"`, `"03.2-next-step"`
+5. **Add screenshots at key checkpoints** - Labels are auto-numbered (`01-`, `02-`, etc.) per scenario run; do not add manual number prefixes. Screenshots compare against baselines by default; pass `compare: false` for capture-only.
 6. **Use `wait(seconds:)` after actions** - UI transitions need time; typical waits are 0.5-3 seconds
 7. **Use numbered comments** - Group steps into logical phases with `// 1. Description` comments
 
@@ -133,8 +133,8 @@ Steps are defined as `TestStep` enum cases. Full signatures and details are in `
 | Category | Key Steps |
 |----------|-----------|
 | **Server** | `startServer`, `verifyServerHealth`, `verifyServerHasPairings(count:)`, `waitForHostConnected`, `waitForViewerConnected`, `serverDisconnectDevice(_:)`, `waitForNoPairings` |
-| **iOS** | `launchIOSApp`, `iosWaitForElement(_:timeout:)`, `iosTap(_:)`, `iosType(text:)`, `iosSwipeLeft(_:)`, `iosWaitForElementToDisappear(_:timeout:)`, `iosScreenshot(label:)`, `iosLogUI` |
-| **macOS** | `launchMacApp`, `terminateMacApp`, `macOpenSettings`, `macWaitForWindow(titled:timeout:)`, `macSelectSettingsTab(_:)`, `macClickButton(titled:)`, `macClickMenuItem(menuButtonTitle:itemTitle:)`, `macUnpair`, `macReadClipboard(storeAs:)`, `macWaitForElement(titled:timeout:)`, `macOpenPanesWindow`, `macResizeWindow(width:height:)`, `macType(text:pressReturn:)`, `macScreenshot(label:)` |
+| **iOS** | `launchIOSApp`, `iosWaitForElement(_:timeout:)`, `iosTap(_:)`, `iosType(text:)`, `iosSwipeLeft(_:)`, `iosWaitForElementToDisappear(_:timeout:)`, `iosScreenshot(label:compare:tolerance:)`, `iosLogUI` |
+| **macOS** | `launchMacApp`, `terminateMacApp`, `macOpenSettings`, `macWaitForWindow(titled:timeout:)`, `macSelectSettingsTab(_:)`, `macClickButton(titled:)`, `macClickMenuItem(menuButtonTitle:itemTitle:)`, `macUnpair`, `macReadClipboard(storeAs:)`, `macWaitForElement(titled:timeout:)`, `macOpenPanesWindow`, `macResizeWindow(width:height:)`, `macType(text:pressReturn:)`, `macScreenshot(label:compare:tolerance:)` |
 | **Tmux** | `tmuxCreateSession(name:width:height:)`, `tmuxStorePaneDimensions(target:widthKey:heightKey:)` |
 | **Assertions** | `assertStoredEqual(key:otherKey:)`, `assertStoredNotEqual(key:otherKey:)` |
 | **General** | `wait(seconds:)`, `storeValue(key:value:)`, `log(_:)` |
@@ -169,7 +169,7 @@ Detailed patterns are in `references/patterns.md`. Key patterns:
 
 - Use `TestStep.iosLogUI` to dump the full iOS accessibility tree when element queries don't match
 - Use `TestStep.log("message ${var}")` to trace variable values
-- Add `TestStep.iosScreenshot(label:)` / `TestStep.macScreenshot(label:)` before failing steps
+- Add `TestStep.iosScreenshot(label:compare:tolerance:)` / `TestStep.macScreenshot(label:compare:tolerance:)` before failing steps
 - Run specific scenario: `./scripts/e2e-test.sh --skip-build --scenario "Name"`
 - Interactive mode to inspect state: `./scripts/e2e-test.sh --skip-build --interactive --scenario "Name"`
 
@@ -185,6 +185,7 @@ For detailed information, consult:
 - **`references/test-steps-reference.md`** - Complete test step reference with all signatures, defaults, and usage notes
 - **`references/element-queries.md`** - ElementQuery enum details, matching behavior, and best practices
 - **`references/patterns.md`** - Common scenario patterns with full examples from the codebase
+- **`docs/e2e-testing.md`** (project root) - Screenshot comparison workflow, baseline storage, auto-numbering, and CLI options
 
 ### Existing Scenarios (in `ClaudeSpyE2ELib/Scenarios/`)
 

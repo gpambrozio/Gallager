@@ -57,8 +57,8 @@ Wait for an element matching the query, then perform a left swipe gesture on it.
 ### `iosWaitForElementToDisappear(_ query: ElementQuery, timeout: TimeInterval = 10)`
 Wait for a UI element to no longer be present in the accessibility tree. Useful for waiting for loading spinners or transitional text to disappear.
 
-### `iosScreenshot(label: String)`
-Save a screenshot of the iOS simulator. The label becomes the filename. Convention: `"NN.N-description"` (e.g., `"01.3-ios-paired"`).
+### `iosScreenshot(label: String, compare: Bool = true, tolerance: Double = 0.0)`
+Take a screenshot of the iOS simulator. The label is auto-prefixed with a zero-padded counter (`01-`, `02-`, etc.) that resets per scenario — do not add manual number prefixes. By default, the screenshot is compared against a stored baseline (see `docs/e2e-testing.md` for screenshot comparison details). Pass `compare: false` for capture-only screenshots.
 
 ### `iosLogUI`
 Dump the full iOS accessibility tree to the console log. For debugging only - helps discover element labels, roles, and identifiers when writing queries.
@@ -107,8 +107,8 @@ Resize the macOS app's frontmost window to the specified pixel dimensions.
 ### `macType(text: String, pressReturn: Bool = false)`
 Type text into the macOS app via AppleScript `keystroke`. Supports `${variable}` interpolation. Set `pressReturn: true` to press Return after typing (useful for terminal commands).
 
-### `macScreenshot(label: String)`
-Save a screenshot of the macOS app window. Convention: `"NN.N-description"` (e.g., `"01.4-mac-connected"`).
+### `macScreenshot(label: String, compare: Bool = true, tolerance: Double = 0.0)`
+Take a screenshot of the macOS app window. The label is auto-prefixed with a zero-padded counter (`01-`, `02-`, etc.) that resets per scenario — do not add manual number prefixes. By default, the screenshot is compared against a stored baseline (see `docs/e2e-testing.md` for screenshot comparison details). Pass `compare: false` for capture-only screenshots. When `compare: false`, screenshot errors are non-fatal (logged as warnings).
 
 ## Tmux Steps
 
