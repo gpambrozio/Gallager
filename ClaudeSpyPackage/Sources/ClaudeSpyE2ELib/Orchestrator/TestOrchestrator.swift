@@ -21,6 +21,7 @@ public actor TestOrchestrator {
     private let e2eRunnerBundleId = "br.eng.gustavo.claudespy.e2erunner.xctrunner"
     private let serverPort = 8_765
     private let scenarioNames: [String]
+    private let skipComparison: Bool
     private var screenshotCounter = 0
 
     /// Result of running a scenario
@@ -44,7 +45,8 @@ public actor TestOrchestrator {
         baselinesDir: String = "E2ETests",
         tmuxSocket: String? = nil,
         e2eRunnerPath: String? = nil,
-        scenarioNames: [String] = []
+        scenarioNames: [String] = [],
+        skipComparison: Bool = false
     ) {
         self.iosAppPath = iosAppPath
         self.macOSAppPath = macOSAppPath
@@ -54,6 +56,7 @@ public actor TestOrchestrator {
         self.tmuxSocket = tmuxSocket
         self.e2eRunnerPath = e2eRunnerPath
         self.scenarioNames = scenarioNames
+        self.skipComparison = skipComparison
     }
 
     // MARK: - Run Scenarios
@@ -253,12 +256,12 @@ public actor TestOrchestrator {
         case let .iosWaitForElementToDisappear(query, timeout):
             try await simulatorDriver.waitForElementToDisappear(matching: query, timeout: timeout)
 
-        case let .iosScreenshot(label, compare, tolerance):
+        case let .iosScreenshot(label, compare, tolerance, perPixelThreshold):
             let numberedLabel = nextScreenshotLabel(label)
             let actualPath = screenshotPath(for: numberedLabel)
             _ = try await simulatorDriver.screenshot(output: actualPath)
-            if compare {
-                try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance)
+            if compare, !skipComparison {
+                try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance, perPixelThreshold: perPixelThreshold)
             }
 
         case .iosLogUI:
@@ -327,14 +330,14 @@ public actor TestOrchestrator {
             let resolvedText = context.resolve(text)
             try await macOSDriver.type(text: resolvedText, pressReturn: pressReturn)
 
-        case let .macScreenshot(label, compare, tolerance):
+        case let .macScreenshot(label, compare, tolerance, perPixelThreshold):
             let numberedLabel = nextScreenshotLabel(label)
             let actualPath = screenshotPath(for: numberedLabel)
-            if compare {
+            if compare, !skipComparison {
                 // Screenshot errors propagate when comparing — the step must fail
                 // if we can't take the screenshot.
                 try await macOSDriver.screenshot(output: actualPath)
-                try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance)
+                try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance, perPixelThreshold: perPixelThreshold)
             } else {
                 do {
                     try await macOSDriver.screenshot(output: actualPath)
@@ -415,13 +418,14 @@ public actor TestOrchestrator {
     // MARK: - Helpers
 
     /// Compare a screenshot against its baseline and throw on mismatch
-    private func compareScreenshot(actualPath: String, label: String, tolerance: Double) throws {
+    private func compareScreenshot(actualPath: String, label: String, tolerance: Double, perPixelThreshold: Double) throws {
         let scenarioBaselineDir = "\(baselinesDir)/\(context.resolve("${scenarioName}"))"
         let result = try ScreenshotComparator.compare(
             actualPath: actualPath,
             baselineDir: scenarioBaselineDir,
             label: label,
-            tolerance: tolerance
+            tolerance: tolerance,
+            perPixelThreshold: perPixelThreshold
         )
         if result.baselineCreated {
             logger.info("  Baseline created for '\(label)'")

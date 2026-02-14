@@ -55,12 +55,15 @@ public enum ScreenshotComparator {
     ///   - baselineDir: Directory where baselines are stored (organized by scenario)
     ///   - label: A descriptive label used as the filename for the baseline
     ///   - tolerance: Maximum allowed percentage of differing pixels (0–100)
+    ///   - perPixelThreshold: Minimum per-pixel difference (0–1) to count as changed.
+    ///     Defaults to 0.02 (~5/255) which ignores sub-pixel anti-aliasing.
     /// - Returns: A `ComparisonResult` describing the outcome
     public static func compare(
         actualPath: String,
         baselineDir: String,
         label: String,
-        tolerance: Double = 0
+        tolerance: Double = 0,
+        perPixelThreshold: Double = 0.02
     ) throws -> ComparisonResult {
         let fm = FileManager.default
         let baselinePath = "\(baselineDir)/\(label).png"
@@ -111,7 +114,11 @@ public enum ScreenshotComparator {
         }
 
         // Compare using Core Image filter pipeline
-        let (diffPercentage, diffImage) = computeDiff(actual: actualImage, baseline: baselineImage)
+        let (diffPercentage, diffImage) = computeDiff(
+            actual: actualImage,
+            baseline: baselineImage,
+            perPixelThreshold: perPixelThreshold
+        )
 
         let passed = diffPercentage <= tolerance
 
@@ -142,10 +149,11 @@ public enum ScreenshotComparator {
     // MARK: - Private
 
     /// Compare two images using Core Image filters, returning the diff percentage
-    /// and an optional composite diff image (red = different, dimmed = matching).
+    /// and an optional composite diff image (red = different, full brightness = matching).
     private static func computeDiff(
         actual: CIImage,
-        baseline: CIImage
+        baseline: CIImage,
+        perPixelThreshold: Double
     ) -> (Double, CIImage?) {
         let extent = actual.extent
 
@@ -157,9 +165,9 @@ public enum ScreenshotComparator {
         // 2. Grayscale: max(R, G, B) per pixel so any channel difference is captured
         let grayscale = difference.applyingFilter("CIMaximumComponent")
 
-        // 3. Binary mask: any non-zero difference → white, otherwise black
+        // 3. Binary mask: differences above threshold → white, otherwise black
         let binary = grayscale.applyingFilter("CIColorThreshold", parameters: [
-            "inputThreshold": 0.001 as NSNumber,
+            "inputThreshold": perPixelThreshold as NSNumber,
         ])
 
         // 4. Average of binary image = fraction of differing pixels

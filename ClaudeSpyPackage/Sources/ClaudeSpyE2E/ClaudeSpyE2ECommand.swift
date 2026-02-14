@@ -36,6 +36,9 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     @Flag(name: .long, help: "Start server and apps, then wait for Enter before shutting down")
     var interactive = false
 
+    @Flag(name: .long, help: "Skip all screenshot comparisons (still takes screenshots)")
+    var noCompare = false
+
     @Flag(name: .long, help: "List all available scenarios and exit")
     var listScenarios = false
 
@@ -72,6 +75,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         print("Simulator:   \(simName)")
         print("Screenshots: \(screenshotsDir)")
         print("Baselines:   \(baselinesDir)")
+        print("Compare:     \(noCompare ? "disabled" : "enabled")")
         print("Tmux socket: \(tmuxSocket ?? "(default)")")
         print("E2E runner:  \(e2eRunnerPath ?? "(none)")")
         print()
@@ -84,7 +88,8 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             baselinesDir: baselinesDir,
             tmuxSocket: tmuxSocket,
             e2eRunnerPath: e2eRunnerPath,
-            scenarioNames: Self.allScenarios.map(\.name)
+            scenarioNames: Self.allScenarios.map(\.name),
+            skipComparison: noCompare
         )
 
         if interactive {

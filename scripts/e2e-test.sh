@@ -19,6 +19,7 @@ TMUX_SOCKET="/tmp/claudespy-e2e.sock"
 SKIP_BUILD=false
 INTERACTIVE=false
 LIST_SCENARIOS=false
+NO_COMPARE=false
 SCENARIO=""
 
 # =====================================================
@@ -50,6 +51,10 @@ while [[ $# -gt 0 ]]; do
             SCENARIO="$2"
             shift 2
             ;;
+        --no-compare)
+            NO_COMPARE=true
+            shift
+            ;;
         --interactive|-i)
             INTERACTIVE=true
             shift
@@ -64,6 +69,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --tmux-socket PATH Tmux socket path for isolation (default: $TMUX_SOCKET)"
             echo "  --scenario NAME  Run specific scenario by name"
             echo "  --list-scenarios   List all available scenarios and exit"
+            echo "  --no-compare       Skip all screenshot comparisons (still takes screenshots)"
             echo "  --interactive, -i  Start all apps, wait for Enter, then shut down"
             echo "  -h, --help       Show this help"
             exit 0
@@ -218,6 +224,10 @@ fi
 
 if [ -n "$SCENARIO" ]; then
     E2E_ARGS+=(--scenario "$SCENARIO")
+fi
+
+if [ "$NO_COMPARE" = true ]; then
+    E2E_ARGS+=(--no-compare)
 fi
 
 "$E2E_BIN" "${E2E_ARGS[@]}"

@@ -61,7 +61,7 @@ public enum TestStep: Sendable {
     /// Wait for an iOS UI element to disappear
     case iosWaitForElementToDisappear(ElementQuery, timeout: TimeInterval = 10)
     /// Take an iOS screenshot, optionally comparing against a stored baseline
-    case iosScreenshot(label: String, compare: Bool = true, tolerance: Double = 1)
+    case iosScreenshot(label: String, compare: Bool = true, tolerance: Double = 1, perPixelThreshold: Double = 0.02)
     /// Dump the iOS AX tree to the log (for debugging)
     case iosLogUI
 
@@ -98,7 +98,7 @@ public enum TestStep: Sendable {
     /// Take a macOS screenshot, optionally comparing against a stored baseline
     /// Default tolerance of 2% because sometimes the image needs to be normalized
     /// and in this case some pixels will differ.
-    case macScreenshot(label: String, compare: Bool = true, tolerance: Double = 2)
+    case macScreenshot(label: String, compare: Bool = true, tolerance: Double = 2, perPixelThreshold: Double = 0.02)
 
     // MARK: - Tmux
 
