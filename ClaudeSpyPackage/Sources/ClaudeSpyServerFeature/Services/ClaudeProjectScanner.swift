@@ -1,42 +1,65 @@
 #if os(macOS)
     import ClaudeSpyNetworking
+    import Dependencies
+    import DependenciesMacros
     import Foundation
     import Logging
 
-    // MARK: - Claude Project Scanner
-
-    /// Scans the local filesystem to discover Claude projects.
+    /// A dependency for scanning the local filesystem to discover Claude projects.
     ///
-    /// Reads `~/.claude.json` to find projects that have been used with Claude Code.
-    /// A valid project must have a `.claude` subdirectory. Projects are sorted by
-    /// most recently used first, based on session timestamps.
-    public actor ClaudeProjectScanner {
-        // MARK: - Properties
+    /// Wraps filesystem access so it can be controlled in tests.
+    /// Use `@Dependency(ClaudeProjectScanner.self)` to access it.
+    @DependencyClient
+    public struct ClaudeProjectScanner: Sendable {
+        /// Scans for Claude projects and returns a list sorted by most recently used.
+        public var scanProjects: @Sendable () async -> [ClaudeProjectInfo] = { [] }
+    }
 
+    // MARK: - In-Memory
+
+    public extension ClaudeProjectScanner {
+        static func inMemory(projects: [ClaudeProjectInfo] = [
+            ClaudeProjectInfo(name: "AlphaProject", path: "/Users/test/AlphaProject"),
+            ClaudeProjectInfo(name: "BetaProject", path: "/Users/test/BetaProject"),
+        ]) -> ClaudeProjectScanner {
+            ClaudeProjectScanner(scanProjects: { projects })
+        }
+    }
+
+    // MARK: - DependencyKey
+
+    extension ClaudeProjectScanner: DependencyKey {
+        public static var liveValue: ClaudeProjectScanner {
+            let scanner = LiveClaudeProjectScanner()
+
+            return ClaudeProjectScanner(
+                scanProjects: {
+                    await scanner.scanProjects()
+                }
+            )
+        }
+    }
+
+    // MARK: - Live Implementation
+
+    /// Actor that scans the filesystem for Claude projects.
+    private actor LiveClaudeProjectScanner {
         private let logger = Logger(label: "com.claudespy.projectscanner")
         private let fileManager = FileManager.default
 
-        /// Path to the Claude configuration file
         private var claudeConfigPath: URL {
             fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".claude.json")
         }
 
-        /// Path to the Claude projects data folder
         private var claudeProjectsPath: URL {
             fileManager.homeDirectoryForCurrentUser
                 .appendingPathComponent(".claude")
                 .appendingPathComponent("projects")
         }
 
-        // MARK: - Initialization
+        init() { }
 
-        public init() { }
-
-        // MARK: - Public API
-
-        /// Scans for Claude projects and returns a list sorted by most recently used.
-        /// - Returns: Array of discovered Claude projects, sorted by last used timestamp (most recent first)
-        public func scanProjects() async -> [ClaudeProjectInfo] {
+        func scanProjects() async -> [ClaudeProjectInfo] {
             logger.debug("Scanning for Claude projects")
 
             guard let projectsData = readClaudeConfig() else {
@@ -50,24 +73,21 @@
             for (path, data) in projectsData {
                 let projectURL = URL(fileURLWithPath: path).standardizedFileURL
 
-                // Skip the home directory entry (represents global config, not a project)
                 if projectURL == homeDirectory {
                     continue
                 }
 
-                // Validate the project and get timestamp
                 if let project = validateProject(at: projectURL, data: data) {
                     projects.append(project)
                 }
             }
 
-            // Sort by last used timestamp (most recent first), then by name for projects without timestamps
             projects.sort { lhs, rhs in
                 switch (lhs.lastUsed, rhs.lastUsed) {
                 case let (lhsDate?, rhsDate?):
                     return lhsDate > rhsDate
                 case (nil, .some):
-                    return false // Projects with timestamps come first
+                    return false
                 case (.some, nil):
                     return true
                 case (nil, nil):
@@ -81,8 +101,6 @@
 
         // MARK: - Private Methods
 
-        /// Reads the Claude config file and extracts project data.
-        /// - Returns: Dictionary mapping project paths to their config data, or nil if config doesn't exist
         private func readClaudeConfig() -> [String: [String: Any]]? {
             let configPath = claudeConfigPath
 
@@ -98,7 +116,6 @@
                     return nil
                 }
 
-                // The "projects" key contains a dictionary where keys are project paths
                 guard let projectsDict = json["projects"] as? [String: [String: Any]] else {
                     logger.debug("No 'projects' key in Claude config")
                     return nil
@@ -111,13 +128,7 @@
             }
         }
 
-        /// Validates a project directory and creates a ClaudeProjectInfo if valid.
-        /// - Parameters:
-        ///   - url: The URL of the project directory
-        ///   - data: The project's configuration data from ~/.claude.json
-        /// - Returns: A ClaudeProjectInfo if the project is valid, nil otherwise
         private func validateProject(at url: URL, data: [String: Any]) -> ClaudeProjectInfo? {
-            // Check if directory exists
             var isDirectory: ObjCBool = false
             guard
                 fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
@@ -127,7 +138,6 @@
                 return nil
             }
 
-            // Check for .claude subdirectory
             let claudeDir = url.appendingPathComponent(".claude")
             guard
                 fileManager.fileExists(atPath: claudeDir.path, isDirectory: &isDirectory),
@@ -137,28 +147,18 @@
                 return nil
             }
 
-            // Extract project name from path
             let name = url.lastPathComponent
-
-            // Try to get the last used timestamp from the session file
             let lastUsed = getLastUsedTimestamp(projectPath: url.path, data: data)
 
             return ClaudeProjectInfo(name: name, path: url.path, lastUsed: lastUsed)
         }
 
-        /// Gets the last used timestamp for a project by reading its most recent session file.
-        /// - Parameters:
-        ///   - projectPath: The full path to the project directory
-        ///   - data: The project's configuration data containing lastSessionId
-        /// - Returns: The timestamp of the last activity, or nil if unavailable
         private func getLastUsedTimestamp(projectPath: String, data: [String: Any]) -> Date? {
-            // Get the lastSessionId from project config
             guard let sessionId = data["lastSessionId"] as? String else {
                 logger.debug("No lastSessionId for project: \(projectPath)")
                 return nil
             }
 
-            // Convert project path to folder name format (replace "/" with "-")
             let folderName = projectPath.replacingOccurrences(of: "/", with: "-")
             let sessionFilePath = claudeProjectsPath
                 .appendingPathComponent(folderName)
@@ -169,20 +169,15 @@
                 return nil
             }
 
-            // Read the last few lines of the session file to find a timestamp
             return readLastTimestamp(from: sessionFilePath)
         }
 
-        /// Reads the last timestamp from a session JSONL file.
-        /// - Parameter url: The URL of the session file
-        /// - Returns: The timestamp from the last line containing one, or nil if not found
         private func readLastTimestamp(from url: URL) -> Date? {
             guard let fileHandle = try? FileHandle(forReadingFrom: url) else {
                 return nil
             }
             defer { try? fileHandle.close() }
 
-            // Read the last portion of the file (last ~10KB should be plenty)
             let fileSize = fileHandle.seekToEndOfFile()
             let readSize: UInt64 = min(fileSize, 10_240)
             fileHandle.seek(toFileOffset: fileSize - readSize)
@@ -194,7 +189,6 @@
                 return nil
             }
 
-            // Parse lines in reverse order to find the most recent timestamp
             let lines = content.components(separatedBy: .newlines).reversed()
 
             let dateFormatter = ISO8601DateFormatter()
@@ -206,14 +200,12 @@
                     continue
                 }
 
-                // Try top-level timestamp first (regular messages)
                 if
                     let timestampString = json["timestamp"] as? String,
                     let date = dateFormatter.date(from: timestampString) {
                     return date
                 }
 
-                // Try nested timestamp in snapshot entries (file-history-snapshot)
                 if
                     let snapshot = json["snapshot"] as? [String: Any],
                     let timestampString = snapshot["timestamp"] as? String,
@@ -226,27 +218,4 @@
         }
     }
 
-    // MARK: - SwiftUI Environment Support
-
-    import SwiftUI
-
-    /// Environment key for ClaudeProjectScanner
-    private struct ClaudeProjectScannerKey: EnvironmentKey {
-        static let defaultValue: ClaudeProjectScanner? = nil
-    }
-
-    public extension EnvironmentValues {
-        /// The Claude project scanner for discovering Claude Code projects
-        var claudeProjectScanner: ClaudeProjectScanner? {
-            get { self[ClaudeProjectScannerKey.self] }
-            set { self[ClaudeProjectScannerKey.self] = newValue }
-        }
-    }
-
-    public extension View {
-        /// Sets the Claude project scanner for this view hierarchy
-        func claudeProjectScanner(_ scanner: ClaudeProjectScanner) -> some View {
-            environment(\.claudeProjectScanner, scanner)
-        }
-    }
 #endif

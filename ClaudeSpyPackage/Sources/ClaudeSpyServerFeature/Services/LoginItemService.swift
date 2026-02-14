@@ -1,4 +1,6 @@
 #if os(macOS)
+    import Dependencies
+    import DependenciesMacros
     import Foundation
     import ServiceManagement
 
@@ -17,56 +19,43 @@
         }
     }
 
-    /// Utility for managing the app's login item status using SMAppService.
+    /// A dependency for managing the app's login item status using SMAppService.
     ///
-    /// This is a stateless utility that interacts with the system's login item management.
-    /// The login item appears in System Settings → General → Login Items.
-    @MainActor
-    public enum LoginItemService {
+    /// This service wraps SMAppService access so it can be controlled in tests.
+    /// Use `@Dependency(LoginItemService.self)` to access it.
+    @DependencyClient
+    public struct LoginItemService: Sendable {
         /// Whether the app is currently registered as a login item
-        public static var isEnabled: Bool {
-            SMAppService.mainApp.status == .enabled
-        }
-
-        /// Current status of the login item
-        public static var status: SMAppService.Status {
-            SMAppService.mainApp.status
-        }
+        public var isEnabled: @Sendable () -> Bool = { false }
 
         /// Enables or disables the app as a login item.
-        ///
-        /// - Parameter enabled: Whether to enable (register) or disable (unregister) the login item.
-        /// - Throws: `LoginItemError` if the operation fails.
-        public static func setEnabled(_ enabled: Bool) throws {
-            if enabled {
-                try register()
-            } else {
-                try unregister()
-            }
-        }
+        public var setEnabled: @Sendable (_ enabled: Bool) throws -> Void
+    }
 
-        /// Registers the app as a login item.
-        ///
-        /// After registration, the app will automatically launch when the user logs in.
-        /// - Throws: `LoginItemError.registrationFailed` if registration fails.
-        public static func register() throws {
-            do {
-                try SMAppService.mainApp.register()
-            } catch {
-                throw LoginItemError.registrationFailed(error)
-            }
-        }
+    // MARK: - DependencyKey
 
-        /// Unregisters the app from login items.
-        ///
-        /// After unregistration, the app will no longer launch automatically at login.
-        /// - Throws: `LoginItemError.unregistrationFailed` if unregistration fails.
-        public static func unregister() throws {
-            do {
-                try SMAppService.mainApp.unregister()
-            } catch {
-                throw LoginItemError.unregistrationFailed(error)
-            }
+    extension LoginItemService: DependencyKey {
+        public static var liveValue: LoginItemService {
+            LoginItemService(
+                isEnabled: {
+                    SMAppService.mainApp.status == .enabled
+                },
+                setEnabled: { enabled in
+                    if enabled {
+                        do {
+                            try SMAppService.mainApp.register()
+                        } catch {
+                            throw LoginItemError.registrationFailed(error)
+                        }
+                    } else {
+                        do {
+                            try SMAppService.mainApp.unregister()
+                        } catch {
+                            throw LoginItemError.unregistrationFailed(error)
+                        }
+                    }
+                }
+            )
         }
     }
 #endif

@@ -145,6 +145,8 @@ let package = Package(
                 .claudeSpyCommon,
                 .claudeSpyEncryption,
                 .swiftTerm,
+                .dependencies,
+                .dependenciesMacros,
             ]
         ),
         .target(
@@ -155,6 +157,8 @@ let package = Package(
                 .swiftTerm,
                 .vapor,
                 .sparkle,
+                .dependencies,
+                .dependenciesMacros,
             ]
         ),
         // External server library (all business logic, importable by tests and E2E)

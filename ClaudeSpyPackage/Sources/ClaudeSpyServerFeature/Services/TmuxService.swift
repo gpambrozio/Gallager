@@ -1,3 +1,4 @@
+import Dependencies
 import Foundation
 
 /// Errors that can occur when interacting with tmux
@@ -28,7 +29,8 @@ enum TmuxError: Error, LocalizedError {
 @Observable
 @MainActor
 final public class TmuxService {
-    private let processRunner = ProcessRunner()
+    @ObservationIgnored
+    @Dependency(ProcessRunner.self) private var processRunner
     private var tmuxPath: String
     private var socketPath: String?
 
@@ -631,7 +633,9 @@ final public class TmuxService {
 
         return try await processRunner.run(
             executable: tmuxPath,
-            arguments: args
+            arguments: args,
+            environment: nil,
+            timeout: nil
         )
     }
 }

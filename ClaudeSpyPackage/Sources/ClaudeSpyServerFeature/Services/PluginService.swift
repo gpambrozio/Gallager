@@ -1,5 +1,6 @@
 #if os(macOS)
     import ClaudeSpyCommon
+    import Dependencies
     import Foundation
     import Logging
 
@@ -26,7 +27,12 @@
 
         private let logger = Logger(label: "com.claudespy.plugin")
         private let fileManager = FileManager.default
-        private let processRunner = ProcessRunner()
+
+        @ObservationIgnored
+        @Dependency(ProcessRunner.self) private var processRunner
+
+        @ObservationIgnored
+        @Dependency(ClaudePathDetector.self) private var claudePathDetector
 
         /// Current plugin state
         public private(set) var state: State = .unknown
@@ -231,7 +237,7 @@
         }
 
         private func runClaudeCommand(arguments: [String], description: String) async throws {
-            guard let executablePath = ClaudePathDetector.detectPath() else {
+            guard let executablePath = claudePathDetector.detectPath() else {
                 throw PluginError.claudeNotFound(attemptedPaths: ClaudePathDetector.commonPaths)
             }
             logger.debug("Found claude at: \(executablePath)")
@@ -241,7 +247,9 @@
             // Use ProcessRunner for non-blocking async execution
             let result = try await processRunner.run(
                 executable: executablePath,
-                arguments: arguments
+                arguments: arguments,
+                environment: nil,
+                timeout: nil
             )
 
             let output = result.stdoutString
