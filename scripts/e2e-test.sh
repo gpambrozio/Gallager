@@ -3,7 +3,7 @@
 # E2E Test Script for ClaudeSpy
 # Builds all targets and runs the E2E test coordinator
 
-set -e
+set -eo pipefail
 
 # =====================================================
 # CONFIGURATION
