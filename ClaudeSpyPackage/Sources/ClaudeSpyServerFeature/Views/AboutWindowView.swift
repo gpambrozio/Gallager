@@ -11,7 +11,7 @@
         public init() { }
 
         public var body: some View {
-            VStack(spacing: 20) {
+            VStack(spacing: 16) {
                 // App icon and name
                 headerSection
 
@@ -22,11 +22,9 @@
 
                 // Links
                 linksSection
-
-                Spacer()
             }
             .padding(24)
-            .frame(width: 480, height: 520)
+            .frame(width: 420)
         }
 
         // MARK: - Header
@@ -36,7 +34,7 @@
             VStack(spacing: 8) {
                 Image(nsImage: NSApplication.shared.applicationIconImage)
                     .resizable()
-                    .frame(width: 80, height: 80)
+                    .frame(width: 64, height: 64)
 
                 Text("Gallager")
                     .font(.title)
@@ -56,7 +54,7 @@
 
         @ViewBuilder
         private var explanationSection: some View {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("Why \"Gallager\"?")
                     .font(.headline)
 
