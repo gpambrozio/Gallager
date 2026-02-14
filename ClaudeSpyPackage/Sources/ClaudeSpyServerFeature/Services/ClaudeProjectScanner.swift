@@ -191,16 +191,14 @@
 
                 if
                     let timestampString = json["timestamp"] as? String,
-                    let date = dateFormatter.date(from: timestampString)
-                {
+                    let date = dateFormatter.date(from: timestampString) {
                     return date
                 }
 
                 if
                     let snapshot = json["snapshot"] as? [String: Any],
                     let timestampString = snapshot["timestamp"] as? String,
-                    let date = dateFormatter.date(from: timestampString)
-                {
+                    let date = dateFormatter.date(from: timestampString) {
                     return date
                 }
             }
@@ -209,27 +207,4 @@
         }
     }
 
-    // MARK: - SwiftUI Environment Support
-
-    import SwiftUI
-
-    /// Environment key for ClaudeProjectScanner
-    private struct ClaudeProjectScannerKey: EnvironmentKey {
-        static let defaultValue: ClaudeProjectScanner? = nil
-    }
-
-    public extension EnvironmentValues {
-        /// The Claude project scanner for discovering Claude Code projects
-        var claudeProjectScanner: ClaudeProjectScanner? {
-            get { self[ClaudeProjectScannerKey.self] }
-            set { self[ClaudeProjectScannerKey.self] = newValue }
-        }
-    }
-
-    public extension View {
-        /// Sets the Claude project scanner for this view hierarchy
-        func claudeProjectScanner(_ scanner: ClaudeProjectScanner) -> some View {
-            environment(\.claudeProjectScanner, scanner)
-        }
-    }
 #endif

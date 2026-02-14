@@ -171,6 +171,8 @@ private actor LiveHookServer {
             .ok
         }
 
+        // Increase body size limit to 50MB to handle large tool payloads
+        // (e.g., Write/Edit tools with large file content)
         app.on(.POST, "api", "hooks", body: .collect(maxSize: "50mb")) { [weak self] req async throws -> Response in
             guard let self else {
                 throw Abort(.internalServerError)

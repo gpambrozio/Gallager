@@ -30,7 +30,9 @@ extension DockIconService: DependencyKey {
     }
 }
 
-/// Thread-safe holder for the singleton LiveDockIconManager instance.
+/// Holds the singleton LiveDockIconManager instance.
+/// A static holder is needed because liveValue is non-async and
+/// cannot create a @MainActor-isolated instance inline.
 @MainActor
 private enum LiveDockIconManagerHolder {
     static let shared = LiveDockIconManager()
@@ -49,7 +51,7 @@ public enum DockIconConfig {
 
 /// Internal class that manages the dock icon visibility based on window state.
 @MainActor
-private final class LiveDockIconManager {
+final private class LiveDockIconManager {
     private var observationTask: Task<Void, Never>?
     private var updatePolicyTask: Task<Void, Never>?
 
@@ -134,6 +136,8 @@ private final class LiveDockIconManager {
     }
 
     private func handleWindowClosing() {
+        // Cancel any pending update and schedule a new one.
+        // This ensures we only update once after rapid window close events.
         updatePolicyTask?.cancel()
         updatePolicyTask = Task {
             do {
