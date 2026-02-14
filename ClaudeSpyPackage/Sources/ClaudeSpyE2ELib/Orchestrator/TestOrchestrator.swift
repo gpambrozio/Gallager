@@ -262,6 +262,8 @@ public actor TestOrchestrator {
             _ = try await simulatorDriver.screenshot(output: actualPath)
             if compare, !skipComparison {
                 try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance, perPixelThreshold: perPixelThreshold)
+            } else {
+                try? saveScreenshot(from: actualPath, to: baselinePath(for: numberedLabel))
             }
 
         case .iosLogUI:
@@ -333,17 +335,13 @@ public actor TestOrchestrator {
         case let .macScreenshot(label, compare, tolerance, perPixelThreshold):
             let numberedLabel = nextScreenshotLabel(label)
             let actualPath = screenshotPath(for: numberedLabel)
+            try await macOSDriver.screenshot(output: actualPath)
             if compare, !skipComparison {
                 // Screenshot errors propagate when comparing — the step must fail
                 // if we can't take the screenshot.
-                try await macOSDriver.screenshot(output: actualPath)
                 try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance, perPixelThreshold: perPixelThreshold)
             } else {
-                do {
-                    try await macOSDriver.screenshot(output: actualPath)
-                } catch {
-                    logger.warning("macOS screenshot failed (non-fatal): \(error.localizedDescription)")
-                }
+                try? saveScreenshot(from: actualPath, to: baselinePath(for: numberedLabel))
             }
 
         // Tmux
@@ -417,19 +415,32 @@ public actor TestOrchestrator {
 
     // MARK: - Helpers
 
-    /// Compare a screenshot against its baseline and throw on mismatch
+    /// Compare a screenshot against its baseline and throw on mismatch.
+    /// If no baseline exists yet, saves the actual screenshot as the new baseline.
     private func compareScreenshot(actualPath: String, label: String, tolerance: Double, perPixelThreshold: Double) throws {
         let scenarioBaselineDir = "\(baselinesDir)/\(context.resolve("${scenarioName}"))"
+        let baselinePath = "\(scenarioBaselineDir)/\(label).png"
+        let diffPath = "\(scenarioBaselineDir)/\(label)_diff.png"
+        let fm = FileManager.default
+
+        // Clean up stale diff images from prior runs
+        try? fm.removeItem(atPath: diffPath)
+
+        // No baseline yet — save this screenshot as the new baseline
+        guard fm.fileExists(atPath: baselinePath) else {
+            try saveScreenshot(from: actualPath, to: baselinePath)
+            logger.info("  Baseline created for '\(label)'")
+            return
+        }
+
         let result = try ScreenshotComparator.compare(
             actualPath: actualPath,
-            baselineDir: scenarioBaselineDir,
-            label: label,
+            baselinePath: baselinePath,
+            diffPath: diffPath,
             tolerance: tolerance,
             perPixelThreshold: perPixelThreshold
         )
-        if result.baselineCreated {
-            logger.info("  Baseline created for '\(label)'")
-        } else if !result.passed {
+        guard result.passed else {
             let diffStr = String(format: "%.2f", result.diffPercentage)
             let tolStr = String(format: "%.2f", tolerance)
             let diffInfo = result.diffPath.map { " — diff: \($0)" } ?? ""
@@ -437,6 +448,17 @@ public actor TestOrchestrator {
                 "Screenshot '\(label)' differs from baseline by \(diffStr)% (tolerance: \(tolStr)%)\(diffInfo)"
             )
         }
+    }
+
+    /// Copy a screenshot to a destination, creating parent directories and overwriting if needed.
+    private func saveScreenshot(from sourcePath: String, to destPath: String) throws {
+        let fm = FileManager.default
+        let dir = (destPath as NSString).deletingLastPathComponent
+        try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        if fm.fileExists(atPath: destPath) {
+            try fm.removeItem(atPath: destPath)
+        }
+        try fm.copyItem(atPath: sourcePath, toPath: destPath)
     }
 
     /// Return a screenshot label prefixed with an auto-incremented counter (e.g. "01-label")
@@ -449,6 +471,12 @@ public actor TestOrchestrator {
     private func screenshotPath(for label: String) -> String {
         let scenarioName = context.resolve("${scenarioName}")
         return "\(screenshotsDir)/\(scenarioName)/\(label).png"
+    }
+
+    /// Build the full path for a baseline file, scoped to the current scenario
+    private func baselinePath(for label: String) -> String {
+        let scenarioName = context.resolve("${scenarioName}")
+        return "\(baselinesDir)/\(scenarioName)/\(label).png"
     }
 
     /// Convert a scenario name into a safe directory name

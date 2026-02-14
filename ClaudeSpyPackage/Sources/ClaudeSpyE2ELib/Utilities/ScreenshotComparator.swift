@@ -2,27 +2,20 @@ import CoreImage
 import Foundation
 import Logging
 
-/// Result of comparing a screenshot against a baseline
+/// Result of comparing two screenshots
 public struct ComparisonResult: Sendable {
     /// Whether the comparison passed (within tolerance)
     public let passed: Bool
     /// Percentage of pixels that differ (0–100)
     public let diffPercentage: Double
-    /// Path to the actual screenshot taken during the test
-    public let actualPath: String
-    /// Path to the baseline screenshot (may not exist if this is the first run)
-    public let baselinePath: String
-    /// Path to the diff image (nil if comparison passed or no baseline existed)
+    /// Path to the diff image (nil if comparison passed)
     public let diffPath: String?
-    /// Whether a new baseline was created (no prior baseline existed)
-    public let baselineCreated: Bool
 }
 
 /// Errors specific to screenshot comparison
 public enum ScreenshotComparisonError: Error, LocalizedError {
     case failedToLoadImage(path: String)
     case sizeMismatch(actual: (Int, Int), baseline: (Int, Int))
-    case failedToWriteImage(path: String)
 
     public var errorDescription: String? {
         switch self {
@@ -30,75 +23,42 @@ public enum ScreenshotComparisonError: Error, LocalizedError {
             "Failed to load image: \(path)"
         case let .sizeMismatch(actual, baseline):
             "Image size mismatch: actual=\(actual.0)x\(actual.1), baseline=\(baseline.0)x\(baseline.1)"
-        case let .failedToWriteImage(path):
-            "Failed to write image: \(path)"
         }
     }
 }
 
-/// Compares screenshots against stored baselines using Core Image filters.
+/// Compares two screenshot images using Core Image filters.
 ///
 /// Uses `CIDifferenceBlendMode` for per-pixel difference, `CIMaximumComponent`
 /// + `CIColorThreshold` for binary differing-pixel detection, and `CIAreaAverage`
 /// to compute the diff percentage — all GPU-accelerated via Core Image.
+///
+/// This type only compares; it does not manage baselines or directories.
 public enum ScreenshotComparator {
     private static let logger = Logger(label: "e2e.screenshot-comparator")
 
-    /// Compare a screenshot at `actualPath` against a baseline.
-    ///
-    /// - If no baseline exists, the actual screenshot is stored as the new baseline.
-    /// - If a baseline exists, comparison is performed using Core Image filters.
-    /// - A diff image is generated when the comparison fails.
+    /// Compare two images and optionally write a diff image on failure.
     ///
     /// - Parameters:
     ///   - actualPath: Path to the screenshot just taken
-    ///   - baselineDir: Directory where baselines are stored (organized by scenario)
-    ///   - label: A descriptive label used as the filename for the baseline
+    ///   - baselinePath: Path to the baseline screenshot to compare against
+    ///   - diffPath: Where to write the diff image if comparison fails
     ///   - tolerance: Maximum allowed percentage of differing pixels (0–100)
     ///   - perPixelThreshold: Minimum per-pixel difference (0–1) to count as changed.
     ///     Defaults to 0.02 (~5/255) which ignores sub-pixel anti-aliasing.
     /// - Returns: A `ComparisonResult` describing the outcome
     public static func compare(
         actualPath: String,
-        baselineDir: String,
-        label: String,
+        baselinePath: String,
+        diffPath: String,
         tolerance: Double = 0,
         perPixelThreshold: Double = 0.02
     ) throws -> ComparisonResult {
-        let fm = FileManager.default
-        let baselinePath = "\(baselineDir)/\(label).png"
-        let diffPath = "\(baselineDir)/\(label)_diff.png"
-
-        // Ensure baseline directory exists
-        try fm.createDirectory(atPath: baselineDir, withIntermediateDirectories: true)
-
-        // Clean up stale diff images from prior runs
-        if fm.fileExists(atPath: diffPath) {
-            try? fm.removeItem(atPath: diffPath)
-        }
-
-        // If no baseline exists, store the current screenshot as the baseline
-        guard fm.fileExists(atPath: baselinePath) else {
-            logger.info("No baseline found for '\(label)'. Storing current screenshot as baseline.")
-            try fm.copyItem(atPath: actualPath, toPath: baselinePath)
-            return ComparisonResult(
-                passed: true,
-                diffPercentage: 0,
-                actualPath: actualPath,
-                baselinePath: baselinePath,
-                diffPath: nil,
-                baselineCreated: true
-            )
-        }
-
         // Load both images
-        let actualURL = URL(fileURLWithPath: actualPath)
-        let baselineURL = URL(fileURLWithPath: baselinePath)
-
-        guard let actualImage = CIImage(contentsOf: actualURL) else {
+        guard let actualImage = CIImage(contentsOf: URL(fileURLWithPath: actualPath)) else {
             throw ScreenshotComparisonError.failedToLoadImage(path: actualPath)
         }
-        guard let baselineImage = CIImage(contentsOf: baselineURL) else {
+        guard let baselineImage = CIImage(contentsOf: URL(fileURLWithPath: baselinePath)) else {
             throw ScreenshotComparisonError.failedToLoadImage(path: baselinePath)
         }
 
@@ -125,7 +85,7 @@ public enum ScreenshotComparator {
         let status = passed ? "PASSED" : "FAILED"
         let diffStr = String(format: "%.2f", diffPercentage)
         let tolStr = String(format: "%.2f", tolerance)
-        logger.info("Screenshot '\(label)': \(diffStr)% diff (tolerance: \(tolStr)%) — \(status)")
+        logger.info("Comparison: \(diffStr)% diff (tolerance: \(tolStr)%) — \(status)")
 
         // Write diff image only when comparison fails
         var writtenDiffPath: String?
@@ -139,10 +99,7 @@ public enum ScreenshotComparator {
         return ComparisonResult(
             passed: passed,
             diffPercentage: diffPercentage,
-            actualPath: actualPath,
-            baselinePath: baselinePath,
-            diffPath: writtenDiffPath,
-            baselineCreated: false
+            diffPath: writtenDiffPath
         )
     }
 
