@@ -37,6 +37,12 @@ public struct SettingsView: View {
                     Label("Plugin", symbol: .puzzlepiece)
                 }
                 .tag(SettingsTab.plugin)
+
+            AboutView()
+                .tabItem {
+                    Label("About", symbol: .infoCircle)
+                }
+                .tag(SettingsTab.about)
         }
         .frame(minWidth: 500, minHeight: 400)
     }
@@ -111,7 +117,7 @@ struct GeneralSettingsView: View {
 
             Section("Behavior") {
                 Toggle("Launch at login", isOn: $launchAtLoginEnabled)
-                    .help("Start ClaudeSpy automatically when you log in")
+                    .help("Start Gallager automatically when you log in")
                     .onChange(of: launchAtLoginEnabled) { _, newValue in
                         do {
                             try loginItemService.setEnabled(newValue)

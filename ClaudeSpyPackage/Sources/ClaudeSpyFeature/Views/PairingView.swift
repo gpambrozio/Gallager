@@ -43,7 +43,7 @@
         }
 
         private var compactHeaderSection: some View {
-            Text("Enter the 6-character pairing code shown in the ClaudeSpy host app")
+            Text("Enter the 6-character pairing code shown in the Gallager host app")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -137,7 +137,7 @@
                     .font(.headline)
 
                 VStack(alignment: .leading, spacing: 8) {
-                    instructionRow(number: 1, text: "Open ClaudeSpy on your host")
+                    instructionRow(number: 1, text: "Open Gallager on your host")
                     instructionRow(number: 2, text: "Go to Settings > Remote Access")
                     instructionRow(number: 3, text: "Click \"Generate Pairing Code\"")
                     instructionRow(number: 4, text: "Enter the code above")

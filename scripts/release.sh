@@ -15,9 +15,9 @@ SCHEME="ClaudeSpyServer"
 CONFIG_FILE="$PROJECT_ROOT/Config/Shared-Base.xcconfig"
 EXPORT_OPTIONS="$SCRIPT_DIR/export-options.plist"
 BUILD_DIR="$PROJECT_ROOT/build"
-ARCHIVE_PATH="$BUILD_DIR/ClaudeSpyServer.xcarchive"
+ARCHIVE_PATH="$BUILD_DIR/Gallager.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
-APP_NAME="ClaudeSpyServer"
+APP_NAME="Gallager"
 
 # Sparkle / FTP configuration
 APPCAST_DIR="$PROJECT_ROOT/docs"

@@ -39,7 +39,7 @@ extension SleepPreventionService: DependencyKey {
 /// Actor-isolated implementation of sleep prevention using IOKit assertions.
 private actor LiveSleepPreventionManager {
     private var isPreventingSleep = false
-    private let assertionReason = "ClaudeSpy: Active Claude Code sessions" as CFString
+    private let assertionReason = "Gallager: Active Claude Code sessions" as CFString
     private var assertionID: IOPMAssertionID = 0
     private let logger = Logger(label: "com.claudespy.sleep-prevention")
 

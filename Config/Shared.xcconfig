@@ -7,8 +7,8 @@
 // ==========================================
 // Project Identity
 // ==========================================
-PRODUCT_NAME = ClaudeSpy
-PRODUCT_DISPLAY_NAME = ClaudeSpy
+PRODUCT_NAME = Gallager
+PRODUCT_DISPLAY_NAME = Gallager
 PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.claudespy
 
 // ==========================================
