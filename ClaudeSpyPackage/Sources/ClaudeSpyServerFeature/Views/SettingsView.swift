@@ -1,5 +1,6 @@
 import AppKit
 import ClaudeSpyCommon
+import Dependencies
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -46,7 +47,8 @@ struct GeneralSettingsView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(UpdaterController.self) private var updaterController
 
-    @State private var launchAtLoginEnabled = LoginItemService.isEnabled
+    @Dependency(LoginItemService.self) private var loginItemService
+    @State private var launchAtLoginEnabled = false
     @State private var showingLoginItemError = false
     @State private var loginItemErrorMessage = ""
 
@@ -112,11 +114,11 @@ struct GeneralSettingsView: View {
                     .help("Start ClaudeSpy automatically when you log in")
                     .onChange(of: launchAtLoginEnabled) { _, newValue in
                         do {
-                            try LoginItemService.setEnabled(newValue)
+                            try loginItemService.setEnabled(newValue)
                             settings.launchAtLogin = newValue
                         } catch {
                             // Revert toggle state on failure
-                            launchAtLoginEnabled = LoginItemService.isEnabled
+                            launchAtLoginEnabled = loginItemService.isEnabled()
                             loginItemErrorMessage = error.localizedDescription
                             showingLoginItemError = true
                         }
@@ -203,7 +205,7 @@ struct GeneralSettingsView: View {
         .formStyle(.grouped)
         .onAppear {
             // Sync with actual system state (in case user changed it in System Settings)
-            launchAtLoginEnabled = LoginItemService.isEnabled
+            launchAtLoginEnabled = loginItemService.isEnabled()
         }
         .alert("Login Item Error", isPresented: $showingLoginItemError) {
             Button("OK") { }

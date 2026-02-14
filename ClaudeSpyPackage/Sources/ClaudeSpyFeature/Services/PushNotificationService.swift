@@ -1,7 +1,77 @@
 #if os(iOS)
+    import Dependencies
+    import DependenciesMacros
     import Foundation
     import UIKit
     import UserNotifications
+
+    /// A dependency for interacting with push notification system APIs.
+    ///
+    /// Wraps `UNUserNotificationCenter` and `UIApplication` so they can be controlled in tests.
+    /// Use `@Dependency(PushNotificationClient.self)` to access it.
+    @DependencyClient
+    public struct PushNotificationClient: Sendable {
+        /// Request notification authorization and return whether granted.
+        public var requestAuthorization: @Sendable () async throws -> Bool = { false }
+
+        /// Register for remote notifications with APNs.
+        public var registerForRemoteNotifications: @Sendable () async -> Void
+
+        /// Get current notification settings.
+        public var getAuthorizationStatus: @Sendable () async -> UNAuthorizationStatus = { .notDetermined }
+
+        /// Set the app badge count.
+        public var setBadgeCount: @Sendable (_ count: Int) -> Void
+
+        /// Schedule a local notification immediately.
+        public var scheduleLocalNotification: @Sendable (
+            _ title: String,
+            _ body: String,
+            _ userInfo: [String: String]
+        ) -> Void
+    }
+
+    // MARK: - DependencyKey
+
+    extension PushNotificationClient: DependencyKey {
+        public static var liveValue: PushNotificationClient {
+            PushNotificationClient(
+                requestAuthorization: {
+                    try await UNUserNotificationCenter.current()
+                        .requestAuthorization(options: [.alert, .badge, .sound])
+                },
+                registerForRemoteNotifications: {
+                    await UIApplication.shared.registerForRemoteNotifications()
+                },
+                getAuthorizationStatus: {
+                    await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+                },
+                setBadgeCount: { count in
+                    UNUserNotificationCenter.current().setBadgeCount(count)
+                },
+                scheduleLocalNotification: { title, body, userInfo in
+                    let content = UNMutableNotificationContent()
+                    content.title = title
+                    content.body = body
+                    content.sound = .default
+                    content.badge = 1
+                    content.userInfo = userInfo
+
+                    let request = UNNotificationRequest(
+                        identifier: UUID().uuidString,
+                        content: content,
+                        trigger: nil
+                    )
+
+                    UNUserNotificationCenter.current().add(request) { error in
+                        if let error {
+                            print("Failed to schedule local notification: \(error)")
+                        }
+                    }
+                }
+            )
+        }
+    }
 
     /// Manages push notification registration and token handling
     @Observable
@@ -23,7 +93,6 @@
         public private(set) var permissionStatus: UNAuthorizationStatus = .notDetermined
 
         /// Deep link info from a tapped notification.
-        /// Set when user taps a notification, consumed by MainView to navigate to the session.
         public var pendingDeepLink: DeepLinkInfo?
 
         /// Information needed to deep link to a specific session
@@ -37,6 +106,9 @@
             tokenString != nil
         }
 
+        @ObservationIgnored
+        @Dependency(PushNotificationClient.self) private var client
+
         // MARK: - Initialization
 
         private override init() {
@@ -46,29 +118,22 @@
         // MARK: - Public API
 
         /// Request notification permissions and register for remote notifications
-        /// Call this after the user has paired their device
         public func requestAuthorization() async throws {
             // Skip during E2E tests to avoid the system permission dialog
             guard !CommandLine.arguments.contains("--e2e-test") else { return }
 
-            let center = UNUserNotificationCenter.current()
+            let granted = try await client.requestAuthorization()
 
-            // Request permission
-            let granted = try await center.requestAuthorization(options: [.alert, .badge, .sound])
-
-            // Update status
             await updatePermissionStatus()
 
             if granted {
-                // Register for remote notifications
-                UIApplication.shared.registerForRemoteNotifications()
+                await client.registerForRemoteNotifications()
             }
         }
 
         /// Check and update current permission status
         public func updatePermissionStatus() async {
-            let settings = await UNUserNotificationCenter.current().notificationSettings()
-            permissionStatus = settings.authorizationStatus
+            permissionStatus = await client.getAuthorizationStatus()
         }
 
         /// Called from AppDelegate when device token is received
@@ -92,66 +157,41 @@
 
         /// Clear the app badge
         public func clearBadge() {
-            UNUserNotificationCenter.current().setBadgeCount(0)
+            client.setBadgeCount(0)
         }
 
         // MARK: - Local Notifications
 
         /// Schedule a local notification immediately.
-        /// Used when app receives WebSocket events while backgrounded - the server
-        /// won't send a push (since we're "connected"), so we show a local notification instead.
         public func scheduleLocalNotification(title: String, body: String, paneId: String? = nil, hostId: String? = nil) {
             guard permissionStatus == .authorized else { return }
 
-            let content = UNMutableNotificationContent()
-            content.title = title
-            content.body = body
-            content.sound = .default
-            content.badge = 1
-
-            // Include paneId and hostId for deep linking when notification is tapped
+            var userInfo: [String: String] = [:]
             if let paneId {
-                content.userInfo["paneId"] = paneId
+                userInfo["paneId"] = paneId
             }
             if let hostId {
-                content.userInfo["pairId"] = hostId
+                userInfo["pairId"] = hostId
             }
 
-            // Trigger immediately
-            let request = UNNotificationRequest(
-                identifier: UUID().uuidString,
-                content: content,
-                trigger: nil
-            )
-
-            UNUserNotificationCenter.current().add(request) { error in
-                if let error {
-                    print("Failed to schedule local notification: \(error)")
-                }
-            }
+            client.scheduleLocalNotification(title, body, userInfo)
         }
 
         // MARK: - Deep Linking
 
         /// Handle a notification response (user tapped on notification).
-        /// Extracts paneId and hostId from userInfo and sets it for deep linking.
-        ///
-        /// - Parameter response: The notification response from UNUserNotificationCenterDelegate
         public func handleNotificationResponse(_ response: UNNotificationResponse) {
             let userInfo = response.notification.request.content.userInfo
 
-            // Extract paneId and hostId from notification payload for deep linking
             if
                 let paneId = userInfo["paneId"] as? String,
-                let hostId = userInfo["pairId"] as? String {
+                let hostId = userInfo["pairId"] as? String
+            {
                 pendingDeepLink = DeepLinkInfo(paneId: paneId, hostId: hostId)
             }
         }
 
         /// Consume the pending deep link, returning and clearing the deep link info.
-        /// Call this after navigation has been performed.
-        ///
-        /// - Returns: The deep link info to navigate to, or nil if no pending deep link
         public func consumePendingDeepLink() -> DeepLinkInfo? {
             let deepLink = pendingDeepLink
             pendingDeepLink = nil

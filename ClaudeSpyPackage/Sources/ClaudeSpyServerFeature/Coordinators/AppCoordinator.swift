@@ -59,18 +59,8 @@
         /// Plugin service for Claude Code plugin management
         public let pluginService: PluginService
 
-        /// Dock icon visibility manager
-        public let dockIconManager: DockIconManager
-
-        /// Sleep prevention manager
-        public let sleepPreventionManager: SleepPreventionManager
-
         // MARK: - Private Services
 
-        private let hookServer: HookServerService
-
-        /// Claude project scanner for discovering Claude Code projects
-        public let projectScanner: ClaudeProjectScanner
         private var commandExecutor: TmuxCommandExecutor?
         private var isServiceSetupComplete = false
 
@@ -80,6 +70,18 @@
 
         @ObservationIgnored
         @Dependency(PreferencesService.self) private var preferences
+
+        @ObservationIgnored
+        @Dependency(DockIconService.self) private var dockIconService
+
+        @ObservationIgnored
+        @Dependency(SleepPreventionService.self) private var sleepPreventionService
+
+        @ObservationIgnored
+        @Dependency(HookServerService.self) private var hookServer
+
+        @ObservationIgnored
+        @Dependency(ClaudeProjectScanner.self) private var projectScanner
 
         private let logger = Logger(label: "com.claudespy.coordinator")
 
@@ -120,18 +122,6 @@
             // Create terminal stream service
             self.terminalStreamService = TerminalStreamService()
 
-            // Create hook server
-            self.hookServer = HookServerService()
-
-            // Create project scanner
-            self.projectScanner = ClaudeProjectScanner()
-
-            // Create dock icon manager
-            self.dockIconManager = DockIconManager()
-
-            // Create sleep prevention manager
-            self.sleepPreventionManager = SleepPreventionManager()
-
             // Create plugin service
             self.pluginService = PluginService()
 
@@ -167,10 +157,10 @@
             isServiceSetupComplete = true
 
             // Start dock icon management (hides dock icon initially, shows when windows open)
-            dockIconManager.startObserving()
+            await dockIconService.startObserving()
 
             // Forward hook events to window manager AND all connected iOS devices
-            await hookServer.setEventHandler { [weak self] event in
+            await hookServer.setEventHandler(handler: { [weak self] event in
                 guard let self else { return }
                 // Handle locally
                 await windowManager.handleHookEvent(event)
@@ -181,7 +171,7 @@
                 guard event.action.body.shouldSendToServer else { return }
                 // Forward to all connected viewers
                 await connectedViewerManager?.sendHookEventToAll(event)
-            }
+            })
 
             await initializeServices()
             await hookServer.startServer()
@@ -373,10 +363,11 @@
         /// Updates sleep prevention based on current session count.
         /// Called after hook events and session cleanup.
         private func updateSleepPrevention() {
-            sleepPreventionManager.updateForSessionCount(
-                windowManager.activeSessions.count,
-                isEnabled: settings.preventSleepDuringSessions
-            )
+            let sessionCount = windowManager.activeSessions.count
+            let isEnabled = settings.preventSleepDuringSessions
+            Task {
+                await sleepPreventionService.updateForSessionCount(sessionCount, isEnabled)
+            }
         }
 
         /// Starts observing system wake notifications to trigger immediate reconnection.

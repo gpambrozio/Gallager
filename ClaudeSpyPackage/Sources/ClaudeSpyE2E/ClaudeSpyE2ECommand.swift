@@ -143,6 +143,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         DisconnectIOSUnpairMacOSScenario.scenario,
         DisconnectMacOSUnpairIOSScenario.scenario,
         ResizePaneScenario.scenario,
+        ProjectListScenario.scenario,
     ]
 
     private func runTests(orchestrator: TestOrchestrator) async throws {
