@@ -101,6 +101,30 @@
                                 connection.cancel()
                             })
                         }
+                    } else if request.hasPrefix("POST /set-sidebar-width") {
+                        let widthStr = Self.extractQueryParam(from: request, key: "width")
+                        Task { @MainActor [weak self] in
+                            let width = Int(widthStr ?? "") ?? 0
+                            var found = false
+                            if width > 0 {
+                                for window in NSApp.windows
+                                    where window.isVisible && window.level == .normal {
+                                    if let contentView = window.contentView,
+                                       let splitView = self?.findSplitView(in: contentView) {
+                                        splitView.setPosition(CGFloat(width), ofDividerAt: 0)
+                                        found = true
+                                        break
+                                    }
+                                }
+                            }
+                            let body = found ? "ok" : "not_found"
+                            let response = Data(
+                                "HTTP/1.1 200 OK\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n\(body)"
+                                    .utf8)
+                            connection.send(content: response, completion: .contentProcessed { _ in
+                                connection.cancel()
+                            })
+                        }
                     } else if request.hasPrefix("POST /resize-window") {
                         let widthStr = Self.extractQueryParam(from: request, key: "width")
                         let heightStr = Self.extractQueryParam(from: request, key: "height")
@@ -491,6 +515,19 @@
                 }
 
                 return results
+            }
+
+            /// Recursively search the view hierarchy for an NSSplitView.
+            private func findSplitView(in view: NSView) -> NSSplitView? {
+                if let splitView = view as? NSSplitView {
+                    return splitView
+                }
+                for subview in view.subviews {
+                    if let found = findSplitView(in: subview) {
+                        return found
+                    }
+                }
+                return nil
             }
 
             /// Walk the NSView hierarchy to find an NSOutlineView row matching the title,

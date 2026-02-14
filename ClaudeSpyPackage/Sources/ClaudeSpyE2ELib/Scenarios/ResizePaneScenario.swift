@@ -18,6 +18,7 @@ public enum ResizePaneScenario {
 
         TestStep.macOpenPanesWindow
         TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
+        TestStep.macSetSidebarWidth(200)
         TestStep.wait(seconds: 1)
 
         // Select first pane by clicking the sidebar row
@@ -49,7 +50,8 @@ public enum ResizePaneScenario {
         // Click manual resize button
         TestStep.macClickButton(titled: "Resize tmux pane to fit mirror view")
         TestStep.wait(seconds: 1)
-        TestStep.macWaitForElement(titled: "155x24", timeout: 1)
+        TestStep.macScreenshot(label: "resize-02-resize")
+        TestStep.macWaitForElement(titled: "157x24", timeout: 1)
 
         // Record dimensions after manual resize
         TestStep.tmuxStorePaneDimensions(
@@ -61,7 +63,7 @@ public enum ResizePaneScenario {
 
         // Assert: pane width changed from initial
         TestStep.assertStoredNotEqual(key: "phase1Width", otherKey: "initialWidth")
-        TestStep.macScreenshot(label: "resize-02-manual-resize")
+        TestStep.macScreenshot(label: "resize-03-manual-resize")
 
         // ── Phase 2: Auto-Resize ───────────────────────────────────
 
@@ -75,7 +77,8 @@ public enum ResizePaneScenario {
         TestStep.macResizeWindow(width: 900, height: 600)
         // Wait for 200ms debounce + margin
         TestStep.wait(seconds: 1)
-        TestStep.macWaitForElement(titled: "88x24", timeout: 1)
+        TestStep.macScreenshot(label: "resize-04-manual-resize")
+        TestStep.macWaitForElement(titled: "90x24", timeout: 1)
 
         // Record dimensions after auto-resize
         TestStep.tmuxStorePaneDimensions(
@@ -87,7 +90,7 @@ public enum ResizePaneScenario {
 
         // Assert: pane width changed from Phase 1
         TestStep.assertStoredNotEqual(key: "phase2Width", otherKey: "phase1Width")
-        TestStep.macScreenshot(label: "resize-03-auto-resize")
+        TestStep.macScreenshot(label: "resize-04-auto-resize")
 
         // ── Phase 3: Per-Session Independence ──────────────────────
 
@@ -99,7 +102,7 @@ public enum ResizePaneScenario {
         TestStep.macWaitForElement(titled: "80x24", timeout: 1)
         TestStep.macType(text: "printf '|%9d' $(seq 10 10 190) | tr ' ' -", pressReturn: true)
         TestStep.wait(seconds: 1)
-        TestStep.macScreenshot(label: "resize-04-second-pane")
+        TestStep.macScreenshot(label: "resize-05-second-pane")
 
         // Record pane 2 dimensions (should still be 80x24)
         TestStep.tmuxStorePaneDimensions(
@@ -125,7 +128,7 @@ public enum ResizePaneScenario {
 
         // Assert: pane 2 width did NOT change (no auto-resize on this pane)
         TestStep.assertStoredEqual(key: "pane2AfterWidth", otherKey: "pane2BeforeWidth")
-        TestStep.macScreenshot(label: "resize-05-per-session-independence")
+        TestStep.macScreenshot(label: "resize-06-per-session-independence")
 
         // ── Phase 4: Auto-Resize on Pane Switch ────────────────────
 
@@ -135,7 +138,7 @@ public enum ResizePaneScenario {
         TestStep.macClickButton(titled: "resize-test-1:0.0")
         // Wait for debounce
         TestStep.wait(seconds: 1)
-        TestStep.macWaitForElement(titled: "128x24", timeout: 1)
+        TestStep.macWaitForElement(titled: "130x24", timeout: 1)
         TestStep.macType(text: "printf '|%9d' $(seq 10 10 190) | tr ' ' -", pressReturn: true)
 
         // Record pane 1 dimensions
@@ -149,6 +152,6 @@ public enum ResizePaneScenario {
         // Assert: pane 1 width changed from Phase 2 (auto-resized to current window size)
         TestStep.assertStoredNotEqual(key: "phase4Width", otherKey: "phase2Width")
         TestStep.wait(seconds: 1)
-        TestStep.macScreenshot(label: "resize-06-pane-switch-auto-resize")
+        TestStep.macScreenshot(label: "resize-07-pane-switch-auto-resize")
     }
 }

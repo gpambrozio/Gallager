@@ -292,6 +292,9 @@ public actor TestOrchestrator {
         case let .macResizeWindow(width, height):
             try await macOSDriver.resizeWindow(width: width, height: height)
 
+        case let .macSetSidebarWidth(width):
+            try await macOSDriver.setSidebarWidth(width)
+
         case let .macType(text, pressReturn):
             let resolvedText = context.resolve(text)
             try await macOSDriver.type(text: resolvedText, pressReturn: pressReturn)
