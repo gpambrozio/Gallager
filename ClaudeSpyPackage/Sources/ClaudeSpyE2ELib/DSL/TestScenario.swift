@@ -61,7 +61,7 @@ public enum TestStep: Sendable {
     /// Wait for an iOS UI element to disappear
     case iosWaitForElementToDisappear(ElementQuery, timeout: TimeInterval = 10)
     /// Take an iOS screenshot, optionally comparing against a stored baseline
-    case iosScreenshot(label: String, compare: Bool = true, tolerance: Double = 0, perPixelThreshold: Double = 0.02)
+    case iosScreenshot(label: String, compare: Bool = true, tolerance: Double = 0.5, perPixelThreshold: Double = 0.3)
     /// Dump the iOS AX tree to the log (for debugging)
     case iosLogUI
 

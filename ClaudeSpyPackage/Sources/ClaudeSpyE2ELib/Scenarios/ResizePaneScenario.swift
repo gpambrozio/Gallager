@@ -18,6 +18,7 @@ public enum ResizePaneScenario {
 
         TestStep.macOpenPanesWindow
         TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
+        TestStep.macResizeWindow(width: 1_000, height: 600)
         TestStep.macSetSidebarWidth(200)
         TestStep.wait(seconds: 1)
 

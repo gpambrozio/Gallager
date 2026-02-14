@@ -11,7 +11,7 @@ public enum DisconnectMacOSUnpairIOSScenario {
 
         // 2. Server: disconnect the host (macOS) WebSocket
         TestStep.serverDisconnectDevice(.host)
-        TestStep.wait(seconds: 1)
+        TestStep.wait(seconds: 3)
         TestStep.macScreenshot(label: "mac-after-disconnect")
 
         // 3. iOS: navigate to Manage Hosts and unpair
