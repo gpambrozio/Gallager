@@ -37,7 +37,7 @@ public actor TestOrchestrator {
         macOSAppPath: String,
         simulatorName: String = "iPhone 16",
         screenshotsDir: String = "/tmp/e2e-screenshots",
-        baselinesDir: String = "/tmp/e2e-baselines",
+        baselinesDir: String = "E2ETests",
         tmuxSocket: String? = nil,
         e2eRunnerPath: String? = nil
     ) {

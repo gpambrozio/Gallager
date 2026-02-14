@@ -25,7 +25,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     var screenshotsDir = "/tmp/e2e-screenshots"
 
     @Option(name: .long, help: "Directory for screenshot baselines (comparison reference images)")
-    var baselinesDir = "/tmp/e2e-baselines"
+    var baselinesDir = "E2ETests"
 
     @Option(name: .long, help: "Tmux socket path for isolation")
     var tmuxSocket: String?

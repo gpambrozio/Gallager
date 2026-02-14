@@ -14,6 +14,7 @@ WORKSPACE="$PROJECT_ROOT/ClaudeSpy.xcworkspace"
 DERIVED_DATA="$PROJECT_ROOT/build/e2e-derived-data"
 SIM_NAME="iPhone 17 Pro"
 SCREENSHOTS_DIR="/tmp/e2e-screenshots"
+BASELINES_DIR="$PROJECT_ROOT/E2ETests"
 TMUX_SOCKET="/tmp/claudespy-e2e.sock"
 SKIP_BUILD=false
 INTERACTIVE=false
@@ -198,6 +199,7 @@ echo "iOS app:     $IOS_APP"
 echo "Simulator:   $SIM_NAME"
 echo "Tmux socket: $TMUX_SOCKET"
 echo "Screenshots: $SCREENSHOTS_DIR"
+echo "Baselines:   $BASELINES_DIR"
 echo ""
 
 E2E_ARGS=(
@@ -205,6 +207,7 @@ E2E_ARGS=(
     --macos-app-path "$MACOS_APP"
     --sim-name "$SIM_NAME"
     --screenshots-dir "$SCREENSHOTS_DIR"
+    --baselines-dir "$BASELINES_DIR"
     --tmux-socket "$TMUX_SOCKET"
     --e2e-runner-path "$DERIVED_DATA"
 )

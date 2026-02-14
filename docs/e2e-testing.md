@@ -146,7 +146,7 @@ ClaudeSpyE2E \
     --macos-app-path /path/to/Gallager.app \
     --sim-name "iPhone 17 Pro" \
     --screenshots-dir /tmp/e2e-screenshots \
-    --baselines-dir /tmp/e2e-baselines \
+    --baselines-dir ./E2ETests \
     --tmux-socket /tmp/claudespy-e2e.sock \
     --e2e-runner-path /path/to/derived-data
 ```
