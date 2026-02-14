@@ -96,7 +96,9 @@ public enum TestStep: Sendable {
     /// Type text into the macOS app (via AppleScript keystroke)
     case macType(text: String, pressReturn: Bool = false)
     /// Take a macOS screenshot, optionally comparing against a stored baseline
-    case macScreenshot(label: String, compare: Bool = true, tolerance: Double = 0)
+    /// Default tolerance of 2% because sometimes the image needs to be normalized
+    /// and in this case some pixels will differ.
+    case macScreenshot(label: String, compare: Bool = true, tolerance: Double = 2)
 
     // MARK: - Tmux
 

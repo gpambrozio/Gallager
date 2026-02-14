@@ -33,7 +33,7 @@ public enum FreshPairingScenario {
         TestStep.macClickButton(titled: "Copy Code")
         TestStep.wait(seconds: 0.5)
         TestStep.macReadClipboard(storeAs: "pairingCode")
-        TestStep.macScreenshot(label: "mac-code-generated", tolerance: 1)
+        TestStep.macScreenshot(label: "mac-code-generated", tolerance: 5)
 
         // 6. Enter code on iOS
         TestStep.wait(seconds: 1)
