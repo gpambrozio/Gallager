@@ -72,7 +72,7 @@ public actor TestOrchestrator {
         let sanitizedName = sanitizeForPath(scenario.name)
         let scenarioDirName: String
         if let index = scenarioNames.firstIndex(of: scenario.name) {
-            scenarioDirName = String(format: "%02d-\(sanitizedName)", index + 1)
+            scenarioDirName = String(format: "%02d-%@", index + 1, sanitizedName)
         } else {
             scenarioDirName = sanitizedName
         }
@@ -262,8 +262,6 @@ public actor TestOrchestrator {
             _ = try await simulatorDriver.screenshot(output: actualPath)
             if compare, !skipComparison {
                 try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance, perPixelThreshold: perPixelThreshold)
-            } else {
-                try? saveScreenshot(from: actualPath, to: baselinePath(for: numberedLabel))
             }
 
         case .iosLogUI:
@@ -337,11 +335,7 @@ public actor TestOrchestrator {
             let actualPath = screenshotPath(for: numberedLabel)
             try await macOSDriver.screenshot(output: actualPath)
             if compare, !skipComparison {
-                // Screenshot errors propagate when comparing — the step must fail
-                // if we can't take the screenshot.
                 try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance, perPixelThreshold: perPixelThreshold)
-            } else {
-                try? saveScreenshot(from: actualPath, to: baselinePath(for: numberedLabel))
             }
 
         // Tmux
@@ -418,9 +412,8 @@ public actor TestOrchestrator {
     /// Compare a screenshot against its baseline and throw on mismatch.
     /// If no baseline exists yet, saves the actual screenshot as the new baseline.
     private func compareScreenshot(actualPath: String, label: String, tolerance: Double, perPixelThreshold: Double) throws {
-        let scenarioBaselineDir = "\(baselinesDir)/\(context.resolve("${scenarioName}"))"
-        let baselinePath = "\(scenarioBaselineDir)/\(label).png"
-        let diffPath = "\(scenarioBaselineDir)/\(label)_diff.png"
+        let baselinePath = baselinePath(for: label)
+        let diffPath = baselinePath.replacingOccurrences(of: ".png", with: "_diff.png")
         let fm = FileManager.default
 
         // Clean up stale diff images from prior runs
@@ -464,7 +457,7 @@ public actor TestOrchestrator {
     /// Return a screenshot label prefixed with an auto-incremented counter (e.g. "01-label")
     private func nextScreenshotLabel(_ label: String) -> String {
         screenshotCounter += 1
-        return String(format: "%02d-\(label)", screenshotCounter)
+        return String(format: "%02d-%@", screenshotCounter, label)
     }
 
     /// Build the full path for a screenshot file, scoped to the current scenario

@@ -402,16 +402,16 @@ Screenshots are automatically numbered with a zero-padded counter (`01-`, `02-`,
 
 ### Baseline storage
 
-Baselines are stored under the `--baselines-dir` directory (default: `/tmp/e2e-baselines`), organized by scenario:
+Baselines are stored under the `--baselines-dir` directory (default: `E2ETests`, relative to the project root), organized by scenario:
 
 ```
-/tmp/e2e-baselines/
-├── fresh-pairing/
-│   ├── ios-paired.png           # baseline
-│   ├── ios-paired_diff.png      # generated on failure
-│   └── mac-settings.png
-└── new-terminal/
-    └── terminal-connected.png
+E2ETests/
+├── 01-fresh-pairing/
+│   ├── 01-ios-pairing-view.png       # baseline
+│   ├── 01-ios-pairing-view_diff.png  # generated on failure
+│   └── 02-mac-code-generated.png
+└── 02-new-terminal/
+    └── 01-new-session.png
 ```
 
 Scenario names are sanitized to lowercase with spaces replaced by hyphens.
@@ -450,13 +450,13 @@ To update baselines after intentional UI changes, delete the relevant baseline f
 
 ```bash
 # Delete all baselines for a scenario
-rm -rf /tmp/e2e-baselines/fresh-pairing/
+rm -rf E2ETests/01-fresh-pairing/
 
 # Delete a specific baseline
-rm /tmp/e2e-baselines/fresh-pairing/ios-paired.png
+rm E2ETests/01-fresh-pairing/01-ios-pairing-view.png
 
 # Delete all baselines
-rm -rf /tmp/e2e-baselines/
+rm -rf E2ETests/
 ```
 
 The next run will regenerate them.

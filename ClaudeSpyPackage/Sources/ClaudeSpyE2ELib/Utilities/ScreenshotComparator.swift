@@ -36,6 +36,7 @@ public enum ScreenshotComparisonError: Error, LocalizedError {
 /// This type only compares; it does not manage baselines or directories.
 public enum ScreenshotComparator {
     private static let logger = Logger(label: "e2e.screenshot-comparator")
+    private static let ciContext = CIContext()
 
     /// Compare two images and optionally write a diff image on failure.
     ///
@@ -133,9 +134,8 @@ public enum ScreenshotComparator {
         ])
 
         // Read the 1×1 average pixel
-        let context = CIContext()
         var pixel = [Float](repeating: 0, count: 4)
-        context.render(
+        ciContext.render(
             average,
             toBitmap: &pixel,
             rowBytes: 16,
@@ -168,11 +168,10 @@ public enum ScreenshotComparator {
     /// Write a CIImage as a PNG file
     @discardableResult
     private static func writePNG(image: CIImage, to path: String) -> Bool {
-        let context = CIContext()
         let url = URL(fileURLWithPath: path)
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         do {
-            try context.writePNGRepresentation(
+            try ciContext.writePNGRepresentation(
                 of: image,
                 to: url,
                 format: .RGBA8,
