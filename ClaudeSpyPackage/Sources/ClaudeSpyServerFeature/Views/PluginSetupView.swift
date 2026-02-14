@@ -51,7 +51,7 @@
                     .resizable()
                     .frame(width: 64, height: 64)
 
-                Text("Welcome to ClaudeSpy")
+                Text("Welcome to Gallager")
                     .font(.title)
                     .fontWeight(.semibold)
 

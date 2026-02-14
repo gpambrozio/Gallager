@@ -1,43 +1,57 @@
+import Dependencies
+import DependenciesMacros
 import Foundation
 import IOKit.pwr_mgt
 import Logging
 
-/// Manages system sleep prevention based on active Claude Code sessions.
+/// A dependency for managing system sleep prevention.
 ///
-/// When Claude Code sessions are active, this manager prevents the host from sleeping
-/// so users can monitor sessions remotely without interruption. The assertion is
-/// automatically released when all sessions end.
-@MainActor
-final public class SleepPreventionManager {
-    /// Whether sleep prevention is currently active
-    public private(set) var isPreventingSleep = false
+/// Wraps IOKit sleep assertion APIs so they can be controlled in tests.
+/// Use `@Dependency(SleepPreventionService.self)` to access it.
+@DependencyClient
+public struct SleepPreventionService: Sendable {
+    /// Updates sleep prevention based on active session count.
+    public var updateForSessionCount: @Sendable (_ sessionCount: Int, _ isEnabled: Bool) async -> Void
 
-    /// The reason shown in Activity Monitor under "Assertions" (for debugging)
-    private let assertionReason = "ClaudeSpy: Active Claude Code sessions" as CFString
+    /// Releases any held assertion (for explicit cleanup).
+    public var releaseIfNeeded: @Sendable () async -> Void
+}
 
-    /// IOKit assertion ID (0 when no assertion is held)
+// MARK: - DependencyKey
+
+extension SleepPreventionService: DependencyKey {
+    public static var liveValue: SleepPreventionService {
+        let manager = LiveSleepPreventionManager()
+
+        return SleepPreventionService(
+            updateForSessionCount: { sessionCount, isEnabled in
+                await manager.updateForSessionCount(sessionCount, isEnabled: isEnabled)
+            },
+            releaseIfNeeded: {
+                await manager.releaseIfNeeded()
+            }
+        )
+    }
+}
+
+// MARK: - Live Implementation
+
+/// Actor-isolated implementation of sleep prevention using IOKit assertions.
+private actor LiveSleepPreventionManager {
+    private var isPreventingSleep = false
+    private let assertionReason = "Gallager: Active Claude Code sessions" as CFString
     private var assertionID: IOPMAssertionID = 0
-
     private let logger = Logger(label: "com.claudespy.sleep-prevention")
 
-    public init() { }
+    init() { }
 
     deinit {
-        // Release any held assertion on cleanup
         if assertionID != 0 {
             IOPMAssertionRelease(assertionID)
         }
     }
 
-    // MARK: - Public API
-
-    /// Updates sleep prevention based on active session count.
-    ///
-    /// Call this whenever the active session count changes.
-    /// - Parameters:
-    ///   - sessionCount: Number of active Claude Code sessions
-    ///   - isEnabled: Whether sleep prevention is enabled in settings
-    public func updateForSessionCount(_ sessionCount: Int, isEnabled: Bool) {
+    func updateForSessionCount(_ sessionCount: Int, isEnabled: Bool) {
         let shouldPreventSleep = isEnabled && sessionCount > 0
 
         if shouldPreventSleep && !isPreventingSleep {
@@ -47,18 +61,13 @@ final public class SleepPreventionManager {
         }
     }
 
-    /// Releases any held assertion (for explicit cleanup).
-    public func releaseIfNeeded() {
+    func releaseIfNeeded() {
         if isPreventingSleep {
             releaseAssertion()
         }
     }
 
-    // MARK: - Private
-
     private func acquireAssertion() {
-        // kIOPMAssertionTypePreventUserIdleSystemSleep prevents idle sleep
-        // but allows sleep from lid close or explicit sleep command
         let result = IOPMAssertionCreateWithName(
             kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
             IOPMAssertionLevel(kIOPMAssertionLevelOn),

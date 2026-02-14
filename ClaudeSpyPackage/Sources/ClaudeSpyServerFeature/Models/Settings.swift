@@ -25,6 +25,7 @@ public enum SettingsTab: String, Sendable {
     case remoteAccess
     case remoteHosts
     case plugin
+    case about
 }
 
 // MARK: - Paired Viewer Model
@@ -89,6 +90,9 @@ final public class AppSettings {
     /// Preferences service for persistent storage
     @ObservationIgnored
     @Dependency(PreferencesService.self) private var preferences
+
+    @ObservationIgnored
+    @Dependency(ClaudePathDetector.self) private var claudePathDetector
 
     // MARK: - UI State (transient, not persisted)
 
@@ -249,7 +253,7 @@ final public class AppSettings {
             self.claudeCommandPath = savedPath
         } else {
             // First launch - try to detect claude path
-            let detectedPath = ClaudePathDetector.detectPath() ?? Defaults.claudeCommandPath
+            let detectedPath = claudePathDetector.detectPath() ?? Defaults.claudeCommandPath
             self.claudeCommandPath = detectedPath
             preferences.setString(detectedPath, Keys.claudeCommandPath)
         }

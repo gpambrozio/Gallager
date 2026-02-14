@@ -1,6 +1,7 @@
 #if os(macOS)
     import AppKit
     import ClaudeSpyCommon
+    import Dependencies
     import SwiftUI
 
     /// First-launch prompt asking if the user wants the app to start at login
@@ -8,6 +9,7 @@
         @Environment(AppSettings.self) private var settings
         @Environment(\.dismiss) private var dismiss
 
+        @Dependency(LoginItemService.self) private var loginItemService
         @State private var showingError = false
         @State private var errorMessage = ""
 
@@ -57,12 +59,12 @@
         @ViewBuilder
         private var explanationSection: some View {
             VStack(spacing: 16) {
-                Text("Would you like ClaudeSpy to start automatically when you log in?")
+                Text("Would you like Gallager to start automatically when you log in?")
                     .font(.title3)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("This allows ClaudeSpy to monitor your Claude Code sessions in the background. You can change this later in Settings.")
+                Text("This allows Gallager to monitor your Claude Code sessions in the background. You can change this later in Settings.")
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -93,7 +95,7 @@
 
         private func enableLaunchAtLogin() {
             do {
-                try LoginItemService.setEnabled(true)
+                try loginItemService.setEnabled(true)
                 settings.launchAtLogin = true
                 markAsAsked()
                 dismiss()

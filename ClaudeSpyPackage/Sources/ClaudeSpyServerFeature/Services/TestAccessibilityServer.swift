@@ -499,13 +499,20 @@
             private func findAndPressOutlineButton(in view: NSView, titled searchTitle: String) -> String? {
                 if view.accessibilityRole() == .outline {
                     for rowView in view.subviews {
+                        // Strategy 1: Row text matches — press the first button in the row
                         let texts = collectAccessibilityTexts(from: rowView)
                         if texts.contains(where: { $0.contains(searchTitle) }) {
-                            // Found the row — now find the button in its accessibility children
                             if let button = findPressableElement(in: rowView) {
                                 if button.accessibilityPerformPress?() == true {
                                     return "accessibilityPerformPress on button"
                                 }
+                            }
+                        }
+
+                        // Strategy 2: A button inside the row matches by label/help
+                        if let button = findPressableElement(in: rowView, matching: searchTitle) {
+                            if button.accessibilityPerformPress?() == true {
+                                return "accessibilityPerformPress on matching button"
                             }
                         }
                     }
@@ -527,15 +534,86 @@
                     if child.accessibilityRole?() == .button {
                         return child
                     }
-                    if let nested = child.accessibilityChildren?() as? [AnyObject], !nested.isEmpty {
-                        for nestedChild in nested where nestedChild.accessibilityRole?() == .button {
-                            return nestedChild
-                        }
+                    if let found = findPressableAccessibilityChild(in: child, depth: 0) {
+                        return found
                     }
                 }
                 // Also check subviews if the view has them
                 for subview in view.subviews {
                     if let found = findPressableElement(in: subview, depth: depth + 1) {
+                        return found
+                    }
+                }
+                return nil
+            }
+
+            /// Search for a pressable element whose label or help matches the given title.
+            /// Matches any role (AXButton, AXHeading, etc.) — section headers use AXHeading.
+            private func findPressableElement(
+                in view: NSView,
+                matching searchTitle: String,
+                depth: Int = 0
+            ) -> AnyObject? {
+                guard depth < 10 else { return nil }
+                if let children = view.accessibilityChildren() as? [AnyObject] {
+                    for child in children {
+                        let label = child.accessibilityLabel?() ?? ""
+                        let help = child.accessibilityHelp?() ?? ""
+                        if label.contains(searchTitle) || help == searchTitle {
+                            return child
+                        }
+                        if
+                            let found = findMatchingAccessibilityElement(
+                                in: child, titled: searchTitle, depth: 0
+                            ) {
+                            return found
+                        }
+                    }
+                }
+                for subview in view.subviews {
+                    if
+                        let found = findPressableElement(
+                            in: subview, matching: searchTitle, depth: depth + 1
+                        ) {
+                        return found
+                    }
+                }
+                return nil
+            }
+
+            /// Recursively walk accessibility children looking for any element matching the title.
+            private func findMatchingAccessibilityElement(
+                in element: AnyObject,
+                titled searchTitle: String,
+                depth: Int
+            ) -> AnyObject? {
+                guard depth < 15 else { return nil }
+                guard let children = element.accessibilityChildren?() as? [AnyObject] else { return nil }
+                for child in children {
+                    let label = child.accessibilityLabel?() ?? ""
+                    let help = child.accessibilityHelp?() ?? ""
+                    if label.contains(searchTitle) || help == searchTitle {
+                        return child
+                    }
+                    if
+                        let found = findMatchingAccessibilityElement(
+                            in: child, titled: searchTitle, depth: depth + 1
+                        ) {
+                        return found
+                    }
+                }
+                return nil
+            }
+
+            /// Recursively walk accessibility children looking for any AXButton.
+            private func findPressableAccessibilityChild(in element: AnyObject, depth: Int) -> AnyObject? {
+                guard depth < 10 else { return nil }
+                guard let children = element.accessibilityChildren?() as? [AnyObject] else { return nil }
+                for child in children {
+                    if child.accessibilityRole?() == .button {
+                        return child
+                    }
+                    if let found = findPressableAccessibilityChild(in: child, depth: depth + 1) {
                         return found
                     }
                 }
@@ -572,6 +650,12 @@
                                 "height": screenRect.size.height,
                             ],
                         ])
+
+                        // Also expose buttons within rows (e.g. section header + buttons)
+                        results.append(
+                            contentsOf: collectAccessibilityInteractiveElements(
+                                from: rowView, screenHeight: screenHeight
+                            ))
                     }
                     return results
                 }
@@ -580,6 +664,62 @@
                     results.append(contentsOf: findSidebarRows(in: subview, screenHeight: screenHeight))
                 }
 
+                return results
+            }
+
+            /// Walk a row view's accessibility children and subviews to find interactive elements
+            /// that aren't exposed through the main accessibility tree (e.g. buttons/headings in section headers).
+            private func collectAccessibilityInteractiveElements(
+                from view: NSView,
+                screenHeight: CGFloat
+            ) -> [[String: Any]] {
+                var results: [[String: Any]] = []
+
+                func walk(_ element: AnyObject, depth: Int) {
+                    guard depth < 15 else { return }
+                    let role = element.accessibilityRole?()
+                    let label = element.accessibilityLabel?() ?? ""
+                    let help = element.accessibilityHelp?() ?? ""
+
+                    // Collect buttons, headings, and any element with non-empty help text
+                    let isInteractive = role == .button
+                        || role?.rawValue == "AXHeading"
+                        || (!help.isEmpty && !label.isEmpty)
+                    if isInteractive, !label.isEmpty || !help.isEmpty {
+                        var info: [String: Any] = ["role": role?.rawValue ?? ""]
+                        if !label.isEmpty { info["label"] = label }
+                        if !help.isEmpty { info["help"] = help }
+
+                        let frame = element.accessibilityFrame?() ?? .zero
+                        if frame != .zero && !frame.isNull && !frame.isInfinite {
+                            let flippedY = screenHeight - frame.origin.y - frame.height
+                            info["frame"] = [
+                                "x": frame.origin.x,
+                                "y": flippedY,
+                                "width": frame.size.width,
+                                "height": frame.size.height,
+                            ]
+                        }
+                        results.append(info)
+                    }
+                    if let children = element.accessibilityChildren?() as? [AnyObject] {
+                        for child in children {
+                            walk(child, depth: depth + 1)
+                        }
+                    }
+                }
+
+                if let children = view.accessibilityChildren() as? [AnyObject] {
+                    for child in children {
+                        walk(child, depth: 0)
+                    }
+                }
+                for subview in view.subviews {
+                    results.append(
+                        contentsOf: collectAccessibilityInteractiveElements(
+                            from: subview, screenHeight: screenHeight
+                        ))
+                }
                 return results
             }
 

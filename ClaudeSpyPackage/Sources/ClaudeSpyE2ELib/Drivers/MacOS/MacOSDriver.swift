@@ -3,13 +3,13 @@ import CoreGraphics
 import Foundation
 import Logging
 
-/// Drives the macOS ClaudeSpyServer app via HTTP accessibility server, CGEvent, and AppleScript
+/// Drives the macOS Gallager app via HTTP accessibility server, CGEvent, and AppleScript
 public actor MacOSDriver {
     private let processRunner = ProcessRunner()
     private let logger = Logger(label: "e2e.macos-driver")
 
     private var appPath: String?
-    private let appName = "ClaudeSpyServer"
+    private let appName = "Gallager"
 
     public init() { }
 
@@ -57,36 +57,17 @@ public actor MacOSDriver {
         try await runAppleScript(script)
     }
 
-    /// Wait for a window to appear (uses CGWindowList since AX is broken on Xcode 26.x)
+    /// Wait for a window to appear via the app's HTTP accessibility server.
+    /// Uses the in-app endpoint instead of CGWindowList because kCGWindowName
+    /// returns nil without Screen Recording permission on macOS 26+.
     public func waitForWindow(titled: String, timeout: TimeInterval = 5) async throws {
         try await Polling.waitUntil(
             description: "window titled \"\(titled)\"",
             timeout: timeout,
             pollInterval: 0.5
         ) {
-            self.checkWindowExistsCG(titled: titled)
+            await MacAppHTTPClient.windowExists(titled: titled)
         }
-    }
-
-    /// Check if a window with the given title exists via CGWindowList
-    private nonisolated func checkWindowExistsCG(titled: String) -> Bool {
-        guard
-            let windowList = CGWindowListCopyWindowInfo(
-                [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
-            ) as? [[String: Any]] else {
-            return false
-        }
-
-        for window in windowList {
-            guard
-                let ownerName = window[kCGWindowOwnerName as String] as? String,
-                ownerName == appName,
-                let windowName = window[kCGWindowName as String] as? String,
-                windowName.contains(titled)
-            else { continue }
-            return true
-        }
-        return false
     }
 
     /// Select a tab in the Settings window by clicking it via the app's HTTP server.
