@@ -24,6 +24,9 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     @Option(name: .long, help: "Directory for screenshots")
     var screenshotsDir = "/tmp/e2e-screenshots"
 
+    @Option(name: .long, help: "Directory for screenshot baselines (comparison reference images)")
+    var baselinesDir = "/tmp/e2e-baselines"
+
     @Option(name: .long, help: "Tmux socket path for isolation")
     var tmuxSocket: String?
 
@@ -68,6 +71,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         print("macOS app:   \(macosAppPath)")
         print("Simulator:   \(simName)")
         print("Screenshots: \(screenshotsDir)")
+        print("Baselines:   \(baselinesDir)")
         print("Tmux socket: \(tmuxSocket ?? "(default)")")
         print("E2E runner:  \(e2eRunnerPath ?? "(none)")")
         print()
@@ -77,6 +81,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             macOSAppPath: macosAppPath,
             simulatorName: simName,
             screenshotsDir: screenshotsDir,
+            baselinesDir: baselinesDir,
             tmuxSocket: tmuxSocket,
             e2eRunnerPath: e2eRunnerPath
         )

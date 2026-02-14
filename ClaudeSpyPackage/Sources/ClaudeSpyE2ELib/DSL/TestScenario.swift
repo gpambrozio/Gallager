@@ -62,6 +62,8 @@ public enum TestStep: Sendable {
     case iosWaitForElementToDisappear(ElementQuery, timeout: TimeInterval = 10)
     /// Take an iOS screenshot
     case iosScreenshot(label: String)
+    /// Take an iOS screenshot and compare against a stored baseline
+    case iosCompareScreenshot(label: String, tolerance: Double = 0.0)
     /// Dump the iOS AX tree to the log (for debugging)
     case iosLogUI
 
@@ -95,6 +97,8 @@ public enum TestStep: Sendable {
     case macType(text: String, pressReturn: Bool = false)
     /// Take a macOS screenshot
     case macScreenshot(label: String)
+    /// Take a macOS screenshot and compare against a stored baseline
+    case macCompareScreenshot(label: String, tolerance: Double = 0.0)
 
     // MARK: - Tmux
 

@@ -14,6 +14,7 @@ public actor TestOrchestrator {
     private let macOSAppPath: String
     private let simulatorName: String
     private let screenshotsDir: String
+    private let baselinesDir: String
     private let tmuxSocket: String?
     private let e2eRunnerPath: String?
     private let e2eHostBundleId = "br.eng.gustavo.claudespy.e2ehost"
@@ -36,6 +37,7 @@ public actor TestOrchestrator {
         macOSAppPath: String,
         simulatorName: String = "iPhone 16",
         screenshotsDir: String = "/tmp/e2e-screenshots",
+        baselinesDir: String = "/tmp/e2e-baselines",
         tmuxSocket: String? = nil,
         e2eRunnerPath: String? = nil
     ) {
@@ -43,6 +45,7 @@ public actor TestOrchestrator {
         self.macOSAppPath = macOSAppPath
         self.simulatorName = simulatorName
         self.screenshotsDir = screenshotsDir
+        self.baselinesDir = baselinesDir
         self.tmuxSocket = tmuxSocket
         self.e2eRunnerPath = e2eRunnerPath
     }
@@ -64,6 +67,7 @@ public actor TestOrchestrator {
 
         // Pre-populate context with orchestrator configuration
         context.set("tmuxSocket", value: tmuxSocket ?? "/tmp/claudespy-e2e.sock")
+        context.set("scenarioName", value: sanitizeForPath(scenario.name))
 
         for (index, step) in scenario.steps.enumerated() {
             let stepNumber = index + 1
@@ -233,6 +237,11 @@ public actor TestOrchestrator {
             let path = "\(screenshotsDir)/\(label).png"
             _ = try await simulatorDriver.screenshot(output: path)
 
+        case let .iosCompareScreenshot(label, tolerance):
+            let actualPath = "\(screenshotsDir)/\(label).png"
+            _ = try await simulatorDriver.screenshot(output: actualPath)
+            try compareScreenshot(actualPath: actualPath, label: label, tolerance: tolerance)
+
         case .iosLogUI:
             let elements = await simulatorDriver.describeUI()
             func logTree(_ elements: [UIElement], indent: String = "") {
@@ -304,6 +313,13 @@ public actor TestOrchestrator {
                 logger.warning("macOS screenshot failed (non-fatal): \(error.localizedDescription)")
             }
 
+        case let .macCompareScreenshot(label, tolerance):
+            // Screenshot errors propagate (unlike macScreenshot which is non-fatal)
+            // because a comparison step must fail if we can't take the screenshot.
+            let actualPath = "\(screenshotsDir)/\(label).png"
+            try await macOSDriver.screenshot(output: actualPath)
+            try compareScreenshot(actualPath: actualPath, label: label, tolerance: tolerance)
+
         // Tmux
         case let .tmuxCreateSession(name, width, height):
             let socket = context.resolve("${tmuxSocket}")
@@ -374,6 +390,34 @@ public actor TestOrchestrator {
     }
 
     // MARK: - Helpers
+
+    /// Compare a screenshot against its baseline and throw on mismatch
+    private func compareScreenshot(actualPath: String, label: String, tolerance: Double) throws {
+        let scenarioBaselineDir = "\(baselinesDir)/\(context.resolve("${scenarioName}"))"
+        let result = try ScreenshotComparator.compare(
+            actualPath: actualPath,
+            baselineDir: scenarioBaselineDir,
+            label: label,
+            tolerance: tolerance
+        )
+        if result.baselineCreated {
+            logger.info("  Baseline created for '\(label)'")
+        } else if !result.passed {
+            let diffStr = String(format: "%.2f", result.diffPercentage)
+            let tolStr = String(format: "%.2f", tolerance)
+            let diffInfo = result.diffPath.map { " — diff: \($0)" } ?? ""
+            throw OrchestratorError.assertionFailed(
+                "Screenshot '\(label)' differs from baseline by \(diffStr)% (tolerance: \(tolStr)%)\(diffInfo)"
+            )
+        }
+    }
+
+    /// Convert a scenario name into a safe directory name
+    private func sanitizeForPath(_ name: String) -> String {
+        name.lowercased()
+            .replacingOccurrences(of: " ", with: "-")
+            .filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
+    }
 
     private func iosBundleId() throws -> String {
         guard let iosAppPath else {
