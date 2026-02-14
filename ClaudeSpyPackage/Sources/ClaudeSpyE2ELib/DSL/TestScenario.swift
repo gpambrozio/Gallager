@@ -60,10 +60,8 @@ public enum TestStep: Sendable {
     case iosSwipeLeft(ElementQuery)
     /// Wait for an iOS UI element to disappear
     case iosWaitForElementToDisappear(ElementQuery, timeout: TimeInterval = 10)
-    /// Take an iOS screenshot
-    case iosScreenshot(label: String)
-    /// Take an iOS screenshot and compare against a stored baseline
-    case iosCompareScreenshot(label: String, tolerance: Double = 0.0)
+    /// Take an iOS screenshot, optionally comparing against a stored baseline
+    case iosScreenshot(label: String, compare: Bool = true, tolerance: Double = 0.0)
     /// Dump the iOS AX tree to the log (for debugging)
     case iosLogUI
 
@@ -97,10 +95,8 @@ public enum TestStep: Sendable {
     case macSetSidebarWidth(_ width: Int)
     /// Type text into the macOS app (via AppleScript keystroke)
     case macType(text: String, pressReturn: Bool = false)
-    /// Take a macOS screenshot
-    case macScreenshot(label: String)
-    /// Take a macOS screenshot and compare against a stored baseline
-    case macCompareScreenshot(label: String, tolerance: Double = 0.0)
+    /// Take a macOS screenshot, optionally comparing against a stored baseline
+    case macScreenshot(label: String, compare: Bool = true, tolerance: Double = 0.0)
 
     // MARK: - Tmux
 

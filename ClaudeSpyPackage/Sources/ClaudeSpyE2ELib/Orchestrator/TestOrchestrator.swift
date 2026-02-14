@@ -235,16 +235,13 @@ public actor TestOrchestrator {
         case let .iosWaitForElementToDisappear(query, timeout):
             try await simulatorDriver.waitForElementToDisappear(matching: query, timeout: timeout)
 
-        case let .iosScreenshot(label):
-            let numberedLabel = nextScreenshotLabel(label)
-            let path = "\(screenshotsDir)/\(numberedLabel).png"
-            _ = try await simulatorDriver.screenshot(output: path)
-
-        case let .iosCompareScreenshot(label, tolerance):
+        case let .iosScreenshot(label, compare, tolerance):
             let numberedLabel = nextScreenshotLabel(label)
             let actualPath = "\(screenshotsDir)/\(numberedLabel).png"
             _ = try await simulatorDriver.screenshot(output: actualPath)
-            try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance)
+            if compare {
+                try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance)
+            }
 
         case .iosLogUI:
             let elements = await simulatorDriver.describeUI()
@@ -312,22 +309,21 @@ public actor TestOrchestrator {
             let resolvedText = context.resolve(text)
             try await macOSDriver.type(text: resolvedText, pressReturn: pressReturn)
 
-        case let .macScreenshot(label):
-            let numberedLabel = nextScreenshotLabel(label)
-            let path = "\(screenshotsDir)/\(numberedLabel).png"
-            do {
-                try await macOSDriver.screenshot(output: path)
-            } catch {
-                logger.warning("macOS screenshot failed (non-fatal): \(error.localizedDescription)")
-            }
-
-        case let .macCompareScreenshot(label, tolerance):
-            // Screenshot errors propagate (unlike macScreenshot which is non-fatal)
-            // because a comparison step must fail if we can't take the screenshot.
+        case let .macScreenshot(label, compare, tolerance):
             let numberedLabel = nextScreenshotLabel(label)
             let actualPath = "\(screenshotsDir)/\(numberedLabel).png"
-            try await macOSDriver.screenshot(output: actualPath)
-            try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance)
+            if compare {
+                // Screenshot errors propagate when comparing — the step must fail
+                // if we can't take the screenshot.
+                try await macOSDriver.screenshot(output: actualPath)
+                try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance)
+            } else {
+                do {
+                    try await macOSDriver.screenshot(output: actualPath)
+                } catch {
+                    logger.warning("macOS screenshot failed (non-fatal): \(error.localizedDescription)")
+                }
+            }
 
         // Tmux
         case let .tmuxCreateSession(name, width, height):

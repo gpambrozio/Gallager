@@ -267,8 +267,7 @@ private static let allScenarios: [TestScenario] = [
 | `iosTapCoordinate(x:y:)` | Tap at raw iOS point coordinates |
 | `iosType(text:)` | Type text (supports `${variable}` interpolation) |
 | `iosSwipeLeft(_:)` | Swipe left on a UI element (via XCUITest runner touch synthesis) |
-| `iosScreenshot(label:)` | Save a simulator screenshot |
-| `iosCompareScreenshot(label:tolerance:)` | Take a screenshot and compare against baseline (see [Screenshot Comparison](#screenshot-comparison)) |
+| `iosScreenshot(label:compare:tolerance:)` | Take a screenshot; compares against baseline by default (see [Screenshot Comparison](#screenshot-comparison)). Pass `compare: false` to skip comparison. |
 | `iosLogUI` | Dump the full iOS accessibility tree to the log (for debugging) |
 
 ### macOS App
@@ -288,8 +287,7 @@ private static let allScenarios: [TestScenario] = [
 | `macReadClipboard(storeAs:)` | Read clipboard contents into a variable |
 | `macResizeWindow(width:height:)` | Resize the app's frontmost window |
 | `macType(text:pressReturn:)` | Type text via AppleScript keystroke (supports `${variable}` interpolation) |
-| `macScreenshot(label:)` | Save a screenshot of the macOS app window |
-| `macCompareScreenshot(label:tolerance:)` | Take a screenshot and compare against baseline (see [Screenshot Comparison](#screenshot-comparison)) |
+| `macScreenshot(label:compare:tolerance:)` | Take a screenshot; compares against baseline by default (see [Screenshot Comparison](#screenshot-comparison)). Pass `compare: false` to skip comparison. |
 
 ### Tmux
 
@@ -391,11 +389,13 @@ PaneSidebarRow(pane: pane)
 
 ## Screenshot comparison
 
-The `iosCompareScreenshot` and `macCompareScreenshot` steps enable visual regression testing by comparing screenshots against stored baselines.
+The `iosScreenshot` and `macScreenshot` steps compare against stored baselines by default (`compare: true`). Pass `compare: false` to take a screenshot without comparison.
+
+Screenshots are automatically numbered with a zero-padded counter (`01-`, `02-`, etc.) that resets per scenario — labels in scenarios should not include manual number prefixes.
 
 ### How it works
 
-1. A screenshot is taken (same as `iosScreenshot` / `macScreenshot`)
+1. A screenshot is taken and auto-numbered (e.g. label `"home-screen"` becomes `01-home-screen.png`)
 2. If no baseline exists for this label + scenario, the screenshot is saved as the new baseline and the step passes
 3. If a baseline exists, a pixel-by-pixel comparison is performed
 4. If the percentage of differing pixels exceeds the tolerance, the step fails and a diff image is generated
@@ -423,11 +423,14 @@ public enum MyScenario {
     public static let scenario = scenario("My Scenario") {
         // ... setup steps ...
 
-        // Exact pixel match (tolerance: 0%)
-        TestStep.iosCompareScreenshot(label: "home-screen")
+        // Exact pixel match (tolerance: 0%, compare: true — both defaults)
+        TestStep.iosScreenshot(label: "home-screen")
 
         // Allow up to 1% pixel difference (for anti-aliasing, animations, etc.)
-        TestStep.macCompareScreenshot(label: "settings-window", tolerance: 1.0)
+        TestStep.macScreenshot(label: "settings-window", tolerance: 1.0)
+
+        // Screenshot without comparison
+        TestStep.iosScreenshot(label: "debug-state", compare: false)
     }
 }
 ```
