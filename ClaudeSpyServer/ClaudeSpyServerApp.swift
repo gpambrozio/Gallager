@@ -41,6 +41,7 @@ struct TmuxPaneMirrorApp: App {
             prepareDependencies {
                 $0[PreferencesService.self] = prefs
                 $0[SecretsService.self] = .inMemory()
+                $0[ClaudeProjectScanner.self] = .inMemory()
             }
 
             // Force regular activation policy so the app has a menu bar

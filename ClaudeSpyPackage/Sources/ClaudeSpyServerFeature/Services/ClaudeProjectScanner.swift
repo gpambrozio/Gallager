@@ -15,6 +15,17 @@
         public var scanProjects: @Sendable () async -> [ClaudeProjectInfo] = { [] }
     }
 
+    // MARK: - In-Memory
+
+    public extension ClaudeProjectScanner {
+        static func inMemory(projects: [ClaudeProjectInfo] = [
+            ClaudeProjectInfo(name: "AlphaProject", path: "/Users/test/AlphaProject"),
+            ClaudeProjectInfo(name: "BetaProject", path: "/Users/test/BetaProject"),
+        ]) -> ClaudeProjectScanner {
+            ClaudeProjectScanner(scanProjects: { projects })
+        }
+    }
+
     // MARK: - DependencyKey
 
     extension ClaudeProjectScanner: DependencyKey {

@@ -739,6 +739,7 @@ private struct SectionHeader<Trailing: View, Popover: View>: View {
                 }
                 .buttonStyle(.borderless)
                 .disabled(isNewSessionDisabled)
+                .accessibilityLabel("Create new session")
                 .help("Create new session")
                 .popover(isPresented: $showingPopover) {
                     popover
