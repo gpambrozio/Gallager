@@ -150,6 +150,15 @@ public actor MacOSDriver {
         }
     }
 
+    /// Set the sidebar width of the NavigationSplitView via the in-app HTTP server.
+    public func setSidebarWidth(_ width: Int) async throws {
+        logger.info("Setting sidebar width to \(width)")
+        let success = try await MacAppHTTPClient.setSidebarWidth(width)
+        if !success {
+            throw MacOSDriverError.elementNotFound("NSSplitView for sidebar width")
+        }
+    }
+
     /// Type text into the macOS app via AppleScript keystroke
     public func type(text: String, pressReturn: Bool) async throws {
         logger.info("Typing text: \(text.prefix(30))... (pressReturn: \(pressReturn))")

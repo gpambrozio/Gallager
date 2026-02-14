@@ -107,6 +107,18 @@ enum MacAppHTTPClient {
         return body == "ok"
     }
 
+    /// Set the sidebar width of the NavigationSplitView
+    @discardableResult
+    static func setSidebarWidth(_ width: Int) async throws -> Bool {
+        let url = URL(string: "http://127.0.0.1:\(port)/set-sidebar-width?width=\(width)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let body = String(data: data, encoding: .utf8) ?? ""
+        logger.info("HTTP set-sidebar-width \(width): \(body)")
+        return body == "ok"
+    }
+
     /// Resize the app's frontmost normal-level window
     @discardableResult
     static func resizeWindow(width: Int, height: Int) async throws -> Bool {

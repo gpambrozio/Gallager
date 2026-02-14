@@ -93,6 +93,8 @@ public enum TestStep: Sendable {
     case macOpenPanesWindow
     /// Resize the macOS app window
     case macResizeWindow(width: Int, height: Int)
+    /// Set the sidebar width of the NavigationSplitView
+    case macSetSidebarWidth(_ width: Int)
     /// Type text into the macOS app (via AppleScript keystroke)
     case macType(text: String, pressReturn: Bool = false)
     /// Take a macOS screenshot
