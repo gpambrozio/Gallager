@@ -58,9 +58,10 @@ public actor TestOrchestrator {
         logger.info("=== Starting scenario: \(scenario.name) ===")
         let startTime = ContinuousClock.now
 
-        // Ensure screenshots directory exists
+        // Ensure per-scenario screenshots directory exists
+        let scenarioScreenshotsDir = "\(screenshotsDir)/\(sanitizeForPath(scenario.name))"
         try? FileManager.default.createDirectory(
-            atPath: screenshotsDir,
+            atPath: scenarioScreenshotsDir,
             withIntermediateDirectories: true
         )
 
@@ -237,7 +238,7 @@ public actor TestOrchestrator {
 
         case let .iosScreenshot(label, compare, tolerance):
             let numberedLabel = nextScreenshotLabel(label)
-            let actualPath = "\(screenshotsDir)/\(numberedLabel).png"
+            let actualPath = screenshotPath(for: numberedLabel)
             _ = try await simulatorDriver.screenshot(output: actualPath)
             if compare {
                 try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance)
@@ -311,7 +312,7 @@ public actor TestOrchestrator {
 
         case let .macScreenshot(label, compare, tolerance):
             let numberedLabel = nextScreenshotLabel(label)
-            let actualPath = "\(screenshotsDir)/\(numberedLabel).png"
+            let actualPath = screenshotPath(for: numberedLabel)
             if compare {
                 // Screenshot errors propagate when comparing — the step must fail
                 // if we can't take the screenshot.
@@ -421,6 +422,12 @@ public actor TestOrchestrator {
     private func nextScreenshotLabel(_ label: String) -> String {
         screenshotCounter += 1
         return String(format: "%02d-\(label)", screenshotCounter)
+    }
+
+    /// Build the full path for a screenshot file, scoped to the current scenario
+    private func screenshotPath(for label: String) -> String {
+        let scenarioName = context.resolve("${scenarioName}")
+        return "\(screenshotsDir)/\(scenarioName)/\(label).png"
     }
 
     /// Convert a scenario name into a safe directory name
