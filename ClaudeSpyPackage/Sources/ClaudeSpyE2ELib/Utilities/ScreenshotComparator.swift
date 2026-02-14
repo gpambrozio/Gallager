@@ -6,7 +6,7 @@ import Logging
 public struct ComparisonResult: Sendable {
     /// Whether the comparison passed (within tolerance)
     public let passed: Bool
-    /// Percentage of pixels that differ (0.0–100.0)
+    /// Percentage of pixels that differ (0–100)
     public let diffPercentage: Double
     /// Path to the actual screenshot taken during the test
     public let actualPath: String
@@ -54,13 +54,13 @@ public enum ScreenshotComparator {
     ///   - actualPath: Path to the screenshot just taken
     ///   - baselineDir: Directory where baselines are stored (organized by scenario)
     ///   - label: A descriptive label used as the filename for the baseline
-    ///   - tolerance: Maximum allowed percentage of differing pixels (0.0–100.0)
+    ///   - tolerance: Maximum allowed percentage of differing pixels (0–100)
     /// - Returns: A `ComparisonResult` describing the outcome
     public static func compare(
         actualPath: String,
         baselineDir: String,
         label: String,
-        tolerance: Double = 0.0
+        tolerance: Double = 0
     ) throws -> ComparisonResult {
         let fm = FileManager.default
         let baselinePath = "\(baselineDir)/\(label).png"
@@ -178,7 +178,7 @@ public enum ScreenshotComparator {
             format: .RGBAf,
             colorSpace: nil
         )
-        let diffPercentage = Double(pixel[0]) * 100.0
+        let diffPercentage = Double(pixel[0]) * 100
 
         guard diffPercentage > 0 else { return (0, nil) }
 
