@@ -148,8 +148,11 @@ fi
 # =====================================================
 step "Collecting results"
 
+IMAGES_DIR="$RESULTS_DIR/images"
+mkdir -p "$IMAGES_DIR"
+
 REPORT_DIR="$RESULTS_DIR/results/$RESULT_FOLDER"
-mkdir -p "$REPORT_DIR/screenshots"
+mkdir -p "$REPORT_DIR"
 
 # Copy JSON results
 if [ -f "$JSON_OUTPUT" ]; then
@@ -159,18 +162,7 @@ else
     echo "[]" > "$REPORT_DIR/results.json"
 fi
 
-# Copy screenshots (actual captures + any diff images)
-if [ -d "$SCREENSHOTS_DIR" ]; then
-    cp -r "$SCREENSHOTS_DIR"/* "$REPORT_DIR/screenshots/" 2>/dev/null || true
-fi
-
-# Copy baseline screenshots for side-by-side comparison
-if [ -d "$BASELINES_DIR" ]; then
-    mkdir -p "$REPORT_DIR/baselines"
-    cp -r "$BASELINES_DIR"/* "$REPORT_DIR/baselines/" 2>/dev/null || true
-fi
-
-# Build report.json (metadata + scenario results)
+# Build report.json (metadata + scenario results with content-addressed images)
 ALL_PASSED=$( [ $E2E_EXIT -eq 0 ] && echo "true" || echo "false" )
 BRANCH="$BRANCH" \
 COMMIT="$COMMIT" \
@@ -183,8 +175,11 @@ DATE_DISPLAY="$DATE_DISPLAY" \
 RESULT_FOLDER="$RESULT_FOLDER" \
 ALL_PASSED="$ALL_PASSED" \
 REPORT_DIR="$REPORT_DIR" \
+IMAGES_DIR="$IMAGES_DIR" \
+SCREENSHOTS_DIR="$SCREENSHOTS_DIR" \
+BASELINES_DIR="$BASELINES_DIR" \
 python3 << 'PYEOF'
-import json, os, sys
+import json, os, sys, hashlib, shutil
 
 metadata = {
     "branch": os.environ["BRANCH"],
@@ -200,6 +195,71 @@ metadata = {
 }
 
 report_dir = os.environ["REPORT_DIR"]
+images_dir = os.environ["IMAGES_DIR"]
+screenshots_dir = os.environ["SCREENSHOTS_DIR"]
+baselines_dir = os.environ["BASELINES_DIR"]
+
+def store_image(src_path):
+    """Compute SHA-256, copy to images/<hash>.png if not present, return hash."""
+    if not src_path or not os.path.isfile(src_path):
+        return None
+    h = hashlib.sha256()
+    with open(src_path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    sha = h.hexdigest()
+    dest = os.path.join(images_dir, f"{sha}.png")
+    if not os.path.exists(dest):
+        shutil.copy2(src_path, dest)
+    return sha
+
+def process_screenshot(ss):
+    """Convert a path-based screenshot dict to hash-based fields."""
+    label = ss.get("label", "")
+    passed = ss.get("passed", True)
+    baseline_created = ss.get("baselineCreated", False)
+    diff_percentage = ss.get("diffPercentage")
+
+    # Resolve source paths
+    actual_path = ss.get("actual") or os.path.join(screenshots_dir, f"{label}.png")
+    baseline_path = ss.get("baseline") or os.path.join(baselines_dir, f"{label}.png")
+    diff_path = ss.get("diff")
+
+    actual_hash = store_image(actual_path)
+    baseline_hash = store_image(baseline_path)
+    diff_hash = store_image(diff_path) if diff_path else None
+
+    if passed and not baseline_created and diff_percentage is not None:
+        # Passed comparison — use baseline hash as imageHash
+        image_hash = baseline_hash
+        result_baseline_hash = baseline_hash
+        result_diff_hash = None
+    elif not passed:
+        # Failed comparison
+        image_hash = actual_hash
+        result_baseline_hash = baseline_hash
+        result_diff_hash = diff_hash
+    elif baseline_created:
+        # Baseline created
+        image_hash = actual_hash
+        result_baseline_hash = actual_hash
+        result_diff_hash = None
+    else:
+        # No comparison (passed, no baseline created, no diff percentage)
+        image_hash = actual_hash
+        result_baseline_hash = baseline_hash
+        result_diff_hash = None
+
+    return {
+        "label": label,
+        "imageHash": image_hash,
+        "baselineHash": result_baseline_hash,
+        "diffHash": result_diff_hash,
+        "diffPercentage": diff_percentage,
+        "passed": passed,
+        "baselineCreated": baseline_created,
+    }
+
 results = []
 try:
     with open(os.path.join(report_dir, "results.json")) as f:
@@ -207,10 +267,18 @@ try:
 except Exception as e:
     print(f"Warning: could not read results.json: {e}", file=sys.stderr)
 
+# Process screenshots in each scenario's steps
+for scenario in results:
+    for step in scenario.get("steps", []):
+        if "screenshots" in step:
+            step["screenshots"] = [process_screenshot(ss) for ss in step["screenshots"]]
+
 report = {"metadata": metadata, "scenarios": results}
 with open(os.path.join(report_dir, "report.json"), "w") as f:
     json.dump(report, f, indent=2)
-print("Report metadata written to report.json")
+
+image_count = len(os.listdir(images_dir)) if os.path.isdir(images_dir) else 0
+print(f"Report written to report.json ({image_count} images in content-addressed store)")
 PYEOF
 
 # =====================================================
@@ -261,7 +329,7 @@ step "Pushing results to repository"
 
 cd "$RESULTS_DIR"
 
-git add results/"$RESULT_FOLDER" results/index.json
+git add results/"$RESULT_FOLDER" results/index.json images/
 git commit -m "E2E results: ${SAFE_BRANCH} @ ${COMMIT} (${TIMESTAMP})
 
 Branch: ${BRANCH}
