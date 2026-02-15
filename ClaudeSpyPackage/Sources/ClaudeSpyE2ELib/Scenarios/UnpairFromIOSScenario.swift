@@ -10,7 +10,6 @@ public enum UnpairFromIOSScenario {
         FreshPairingScenario.scenario
 
         // 2. Navigate to Manage Hosts on iOS
-        TestStep.iosLogUI
         TestStep.iosTap(.labelContains("Settings"))
         TestStep.wait(seconds: 0.5)
         TestStep.iosTap(.labelContains("Paired Hosts"))
