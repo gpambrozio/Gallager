@@ -219,6 +219,10 @@ public actor MacOSDriver {
             "/usr/sbin/screencapture",
             arguments: ["-x", "-l", "\(windowID)", output]
         )
+
+        // Normalize retina screenshots to 1x so pixel dimensions are
+        // consistent regardless of which monitor the window is on.
+        try await normalizeScreenshotDPI(path: output)
     }
 
     // MARK: - Private: HTTP Element Interaction
@@ -261,6 +265,49 @@ public actor MacOSDriver {
         mouseDown?.post(tap: .cghidEventTap)
         try await Task.sleep(for: .milliseconds(50))
         mouseUp?.post(tap: .cghidEventTap)
+    }
+
+    // MARK: - Private: Screenshot Normalization
+
+    /// Resample a retina (144 DPI) screenshot down to 1x (72 DPI) so pixel
+    /// dimensions stay consistent regardless of the display's scale factor.
+    private func normalizeScreenshotDPI(path: String) async throws {
+        let result = try await processRunner.runOrThrow(
+            "/usr/bin/sips",
+            arguments: ["-g", "dpiWidth", "-g", "pixelWidth", "-g", "pixelHeight", path]
+        )
+
+        let output = result.stdoutString
+        func parseValue(_ key: String) -> Double? {
+            guard let range = output.range(of: "\(key): ") else { return nil }
+            let rest = output[range.upperBound...]
+            let valueStr = rest.prefix(while: { $0 != "\n" })
+                .trimmingCharacters(in: .whitespaces)
+            return Double(valueStr)
+        }
+
+        guard
+            let dpi = parseValue("dpiWidth"), dpi > 72,
+            let width = parseValue("pixelWidth"),
+            let height = parseValue("pixelHeight") else {
+            return
+        }
+
+        let scale = dpi / 72
+        let newWidth = Int(width / scale)
+        let newHeight = Int(height / scale)
+
+        _ = try await processRunner.runOrThrow(
+            "/usr/bin/sips",
+            arguments: [
+                "-z", "\(newHeight)", "\(newWidth)",
+                "-s", "dpiWidth", "72",
+                "-s", "dpiHeight", "72",
+                path,
+            ]
+        )
+
+        logger.info("Normalized screenshot from \(Int(width))x\(Int(height)) @\(Int(dpi))dpi to \(newWidth)x\(newHeight) @72dpi")
     }
 
     // MARK: - Private: CGWindowList

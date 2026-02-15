@@ -146,6 +146,7 @@ ClaudeSpyE2E \
     --macos-app-path /path/to/Gallager.app \
     --sim-name "iPhone 17 Pro" \
     --screenshots-dir /tmp/e2e-screenshots \
+    --baselines-dir ./E2ETests \
     --tmux-socket /tmp/claudespy-e2e.sock \
     --e2e-runner-path /path/to/derived-data
 ```
@@ -266,7 +267,7 @@ private static let allScenarios: [TestScenario] = [
 | `iosTapCoordinate(x:y:)` | Tap at raw iOS point coordinates |
 | `iosType(text:)` | Type text (supports `${variable}` interpolation) |
 | `iosSwipeLeft(_:)` | Swipe left on a UI element (via XCUITest runner touch synthesis) |
-| `iosScreenshot(label:)` | Save a simulator screenshot |
+| `iosScreenshot(label:compare:tolerance:)` | Take a screenshot; compares against baseline by default (see [Screenshot Comparison](#screenshot-comparison)). Pass `compare: false` to skip comparison. |
 | `iosLogUI` | Dump the full iOS accessibility tree to the log (for debugging) |
 
 ### macOS App
@@ -286,7 +287,7 @@ private static let allScenarios: [TestScenario] = [
 | `macReadClipboard(storeAs:)` | Read clipboard contents into a variable |
 | `macResizeWindow(width:height:)` | Resize the app's frontmost window |
 | `macType(text:pressReturn:)` | Type text via AppleScript keystroke (supports `${variable}` interpolation) |
-| `macScreenshot(label:)` | Save a screenshot of the macOS app window |
+| `macScreenshot(label:compare:tolerance:)` | Take a screenshot; compares against baseline by default (see [Screenshot Comparison](#screenshot-comparison)). Pass `compare: false` to skip comparison. |
 
 ### Tmux
 
@@ -385,3 +386,87 @@ PaneSidebarRow(pane: pane)
 ```
 
 **Why Button matters:** `NSOutlineView` doesn't expose its rows through `accessibilityChildren()`, so the generic accessibility tree walker can't find them. The test server walks the NSView hierarchy instead, locates the matching row, then finds the `AXButton` inside it and calls `accessibilityPerformPress()`. Without a `Button`, there's no `AXPress` action to invoke.
+
+## Screenshot comparison
+
+The `iosScreenshot` and `macScreenshot` steps compare against stored baselines by default (`compare: true`). Pass `compare: false` to take a screenshot without comparison.
+
+Screenshots are automatically numbered with a zero-padded counter (`01-`, `02-`, etc.) that resets per scenario — labels in scenarios should not include manual number prefixes.
+
+### How it works
+
+1. A screenshot is taken and auto-numbered (e.g. label `"home-screen"` becomes `01-home-screen.png`)
+2. If no baseline exists for this label + scenario, the screenshot is saved as the new baseline and the step passes
+3. If a baseline exists, a pixel-by-pixel comparison is performed
+4. If the percentage of differing pixels exceeds the tolerance, the step fails and a diff image is generated
+
+### Baseline storage
+
+Baselines are stored under the `--baselines-dir` directory (default: `E2ETests`, relative to the project root), organized by scenario:
+
+```
+E2ETests/
+├── 01-fresh-pairing/
+│   ├── 01-ios-pairing-view.png       # baseline
+│   ├── 01-ios-pairing-view_diff.png  # generated on failure
+│   └── 02-mac-code-generated.png
+└── 02-new-terminal/
+    └── 01-new-session.png
+```
+
+Scenario names are sanitized to lowercase with spaces replaced by hyphens.
+
+### Usage in scenarios
+
+```swift
+public enum MyScenario {
+    public static let scenario = scenario("My Scenario") {
+        // ... setup steps ...
+
+        // Exact pixel match (tolerance: 0%, compare: true — both defaults)
+        TestStep.iosScreenshot(label: "home-screen")
+
+        // Allow up to 1% pixel difference (for anti-aliasing, animations, etc.)
+        TestStep.macScreenshot(label: "settings-window", tolerance: 1.0)
+
+        // Screenshot without comparison
+        TestStep.iosScreenshot(label: "debug-state", compare: false)
+    }
+}
+```
+
+### First run (creating baselines)
+
+On the first run, no baselines exist. Each comparison step will:
+- Save the current screenshot as the baseline
+- Log "Baseline created for '...'"
+- Pass (no comparison to fail against)
+
+Subsequent runs compare against these stored baselines.
+
+### Updating baselines
+
+To update baselines after intentional UI changes, delete the relevant baseline files:
+
+```bash
+# Delete all baselines for a scenario
+rm -rf E2ETests/01-fresh-pairing/
+
+# Delete a specific baseline
+rm E2ETests/01-fresh-pairing/01-ios-pairing-view.png
+
+# Delete all baselines
+rm -rf E2ETests/
+```
+
+The next run will regenerate them.
+
+### Diff images
+
+When a comparison fails, a diff image is saved alongside the baseline with a `_diff` suffix. Differing pixels are highlighted in red; matching pixels are dimmed. The diff path is included in the error message.
+
+### CLI option
+
+```bash
+ClaudeSpyE2E --baselines-dir /path/to/baselines ...
+```

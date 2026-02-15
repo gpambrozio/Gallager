@@ -54,6 +54,7 @@ public actor SimulatorDriver {
                         try await findSimulatorPID()
                         try await SimulatorInteraction.enableHardwareKeyboard(udid: deviceUDID)
                         try await SimulatorInteraction.ensurePointAccurateMode()
+                        try await configureForTesting(udid: deviceUDID)
                         return deviceUDID
                     }
                     break
@@ -87,6 +88,7 @@ public actor SimulatorDriver {
         // Ensure hardware keyboard is connected and Point Accurate mode
         try await SimulatorInteraction.enableHardwareKeyboard(udid: udid)
         try await SimulatorInteraction.ensurePointAccurateMode()
+        try await configureForTesting(udid: udid)
 
         return udid
     }
@@ -140,6 +142,16 @@ public actor SimulatorDriver {
             "/usr/bin/xcrun",
             arguments: ["simctl", "terminate", udid, bid]
         )
+    }
+
+    /// Clear the status bar override so the simulator shows real time again.
+    public func resetStatusBar() async {
+        guard let udid else { return }
+        _ = try? await processRunner.run(
+            "/usr/bin/xcrun",
+            arguments: ["simctl", "status_bar", udid, "clear"]
+        )
+        logger.info("Simulator status bar reset to defaults")
     }
 
     /// Uninstall an app from the simulator
@@ -391,6 +403,23 @@ public actor SimulatorDriver {
     }
 
     // MARK: - Private
+
+    /// Set a fixed status bar time and force light mode so screenshots are deterministic.
+    private func configureForTesting(udid: String) async throws {
+        // Fixed time (9:41 is Apple's canonical demo time)
+        _ = try await processRunner.runOrThrow(
+            "/usr/bin/xcrun",
+            arguments: ["simctl", "status_bar", udid, "override", "--time", "9:41"]
+        )
+
+        // Force light mode
+        _ = try await processRunner.runOrThrow(
+            "/usr/bin/xcrun",
+            arguments: ["simctl", "ui", udid, "appearance", "light"]
+        )
+
+        logger.info("Simulator configured: fixed time 9:41, light mode")
+    }
 
     private func findSimulatorPID() async throws {
         let result = try await processRunner.run(

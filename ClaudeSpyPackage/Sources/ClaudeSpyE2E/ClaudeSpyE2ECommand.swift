@@ -24,6 +24,9 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     @Option(name: .long, help: "Directory for screenshots")
     var screenshotsDir = "/tmp/e2e-screenshots"
 
+    @Option(name: .long, help: "Directory for screenshot baselines (comparison reference images)")
+    var baselinesDir = "E2ETests"
+
     @Option(name: .long, help: "Tmux socket path for isolation")
     var tmuxSocket: String?
 
@@ -32,6 +35,9 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
 
     @Flag(name: .long, help: "Start server and apps, then wait for Enter before shutting down")
     var interactive = false
+
+    @Flag(name: .long, help: "Skip all screenshot comparisons (still takes screenshots)")
+    var noCompare = false
 
     @Flag(name: .long, help: "List all available scenarios and exit")
     var listScenarios = false
@@ -68,6 +74,8 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         print("macOS app:   \(macosAppPath)")
         print("Simulator:   \(simName)")
         print("Screenshots: \(screenshotsDir)")
+        print("Baselines:   \(baselinesDir)")
+        print("Compare:     \(noCompare ? "disabled" : "enabled")")
         print("Tmux socket: \(tmuxSocket ?? "(default)")")
         print("E2E runner:  \(e2eRunnerPath ?? "(none)")")
         print()
@@ -77,8 +85,11 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             macOSAppPath: macosAppPath,
             simulatorName: simName,
             screenshotsDir: screenshotsDir,
+            baselinesDir: baselinesDir,
             tmuxSocket: tmuxSocket,
-            e2eRunnerPath: e2eRunnerPath
+            e2eRunnerPath: e2eRunnerPath,
+            scenarioNames: Self.allScenarios.map(\.name),
+            skipComparison: noCompare
         )
 
         if interactive {
@@ -91,9 +102,10 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     private func printScenarioList() {
         print("Available scenarios:")
         print()
-        for scenario in Self.allScenarios {
+        for (index, scenario) in Self.allScenarios.enumerated() {
+            let num = String(format: "%02d", index + 1)
             let tags = scenario.tags.map { "[\($0)]" }.joined(separator: " ")
-            print("  \(scenario.name) (\(scenario.steps.count) steps) \(tags)")
+            print("  \(num). \(scenario.name) (\(scenario.steps.count) steps) \(tags)")
         }
     }
 

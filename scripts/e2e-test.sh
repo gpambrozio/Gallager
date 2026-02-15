@@ -3,7 +3,7 @@
 # E2E Test Script for ClaudeSpy
 # Builds all targets and runs the E2E test coordinator
 
-set -e
+set -eo pipefail
 
 # =====================================================
 # CONFIGURATION
@@ -14,10 +14,12 @@ WORKSPACE="$PROJECT_ROOT/ClaudeSpy.xcworkspace"
 DERIVED_DATA="$PROJECT_ROOT/build/e2e-derived-data"
 SIM_NAME="iPhone 17 Pro"
 SCREENSHOTS_DIR="/tmp/e2e-screenshots"
+BASELINES_DIR="$PROJECT_ROOT/E2ETests"
 TMUX_SOCKET="/tmp/claudespy-e2e.sock"
 SKIP_BUILD=false
 INTERACTIVE=false
 LIST_SCENARIOS=false
+NO_COMPARE=false
 SCENARIO=""
 
 # =====================================================
@@ -49,6 +51,10 @@ while [[ $# -gt 0 ]]; do
             SCENARIO="$2"
             shift 2
             ;;
+        --no-compare)
+            NO_COMPARE=true
+            shift
+            ;;
         --interactive|-i)
             INTERACTIVE=true
             shift
@@ -63,6 +69,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --tmux-socket PATH Tmux socket path for isolation (default: $TMUX_SOCKET)"
             echo "  --scenario NAME  Run specific scenario by name"
             echo "  --list-scenarios   List all available scenarios and exit"
+            echo "  --no-compare       Skip all screenshot comparisons (still takes screenshots)"
             echo "  --interactive, -i  Start all apps, wait for Enter, then shut down"
             echo "  -h, --help       Show this help"
             exit 0
@@ -198,6 +205,7 @@ echo "iOS app:     $IOS_APP"
 echo "Simulator:   $SIM_NAME"
 echo "Tmux socket: $TMUX_SOCKET"
 echo "Screenshots: $SCREENSHOTS_DIR"
+echo "Baselines:   $BASELINES_DIR"
 echo ""
 
 E2E_ARGS=(
@@ -205,6 +213,7 @@ E2E_ARGS=(
     --macos-app-path "$MACOS_APP"
     --sim-name "$SIM_NAME"
     --screenshots-dir "$SCREENSHOTS_DIR"
+    --baselines-dir "$BASELINES_DIR"
     --tmux-socket "$TMUX_SOCKET"
     --e2e-runner-path "$DERIVED_DATA"
 )
@@ -215,6 +224,10 @@ fi
 
 if [ -n "$SCENARIO" ]; then
     E2E_ARGS+=(--scenario "$SCENARIO")
+fi
+
+if [ "$NO_COMPARE" = true ]; then
+    E2E_ARGS+=(--no-compare)
 fi
 
 "$E2E_BIN" "${E2E_ARGS[@]}"

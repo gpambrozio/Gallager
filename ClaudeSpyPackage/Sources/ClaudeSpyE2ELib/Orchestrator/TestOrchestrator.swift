@@ -14,11 +14,15 @@ public actor TestOrchestrator {
     private let macOSAppPath: String
     private let simulatorName: String
     private let screenshotsDir: String
+    private let baselinesDir: String
     private let tmuxSocket: String?
     private let e2eRunnerPath: String?
     private let e2eHostBundleId = "br.eng.gustavo.claudespy.e2ehost"
     private let e2eRunnerBundleId = "br.eng.gustavo.claudespy.e2erunner.xctrunner"
     private let serverPort = 8_765
+    private let scenarioNames: [String]
+    private let skipComparison: Bool
+    private var screenshotCounter = 0
 
     /// Result of running a scenario
     public struct ScenarioResult: Sendable {
@@ -31,20 +35,28 @@ public actor TestOrchestrator {
 
     /// - Note: The tmux socket path is injected into the execution context as `${tmuxSocket}`
     ///   for scenarios to reference.
+    /// - Parameter scenarioNames: The full ordered list of scenario names (used to number
+    ///   screenshot directories consistently regardless of which subset is actually run).
     public init(
         iosAppPath: String? = nil,
         macOSAppPath: String,
         simulatorName: String = "iPhone 16",
         screenshotsDir: String = "/tmp/e2e-screenshots",
+        baselinesDir: String = "E2ETests",
         tmuxSocket: String? = nil,
-        e2eRunnerPath: String? = nil
+        e2eRunnerPath: String? = nil,
+        scenarioNames: [String] = [],
+        skipComparison: Bool = false
     ) {
         self.iosAppPath = iosAppPath
         self.macOSAppPath = macOSAppPath
         self.simulatorName = simulatorName
         self.screenshotsDir = screenshotsDir
+        self.baselinesDir = baselinesDir
         self.tmuxSocket = tmuxSocket
         self.e2eRunnerPath = e2eRunnerPath
+        self.scenarioNames = scenarioNames
+        self.skipComparison = skipComparison
     }
 
     // MARK: - Run Scenarios
@@ -54,16 +66,30 @@ public actor TestOrchestrator {
         logger.info("=== Starting scenario: \(scenario.name) ===")
         let startTime = ContinuousClock.now
 
-        // Ensure screenshots directory exists
+        // Build the numbered scenario directory name (e.g. "03-fresh-pairing").
+        // The number comes from the scenario's position in the full registry so it
+        // stays stable even when running a single scenario.
+        let sanitizedName = sanitizeForPath(scenario.name)
+        let scenarioDirName: String
+        if let index = scenarioNames.firstIndex(of: scenario.name) {
+            scenarioDirName = String(format: "%02d-%@", index + 1, sanitizedName)
+        } else {
+            scenarioDirName = sanitizedName
+        }
+
+        // Ensure per-scenario screenshots directory exists
+        let scenarioScreenshotsDir = "\(screenshotsDir)/\(scenarioDirName)"
         try? FileManager.default.createDirectory(
-            atPath: screenshotsDir,
+            atPath: scenarioScreenshotsDir,
             withIntermediateDirectories: true
         )
 
         context.clear()
+        screenshotCounter = 0
 
         // Pre-populate context with orchestrator configuration
         context.set("tmuxSocket", value: tmuxSocket ?? "/tmp/claudespy-e2e.sock")
+        context.set("scenarioName", value: scenarioDirName)
 
         for (index, step) in scenario.steps.enumerated() {
             let stepNumber = index + 1
@@ -123,6 +149,7 @@ public actor TestOrchestrator {
     /// Tear down all running processes regardless of scenario outcome
     public func cleanup() async {
         logger.info("=== Cleaning up ===")
+        await simulatorDriver.resetStatusBar()
         await simulatorDriver.stopE2ERunner()
         try? await simulatorDriver.terminateApp()
         try? await macOSDriver.terminateApp()
@@ -229,9 +256,18 @@ public actor TestOrchestrator {
         case let .iosWaitForElementToDisappear(query, timeout):
             try await simulatorDriver.waitForElementToDisappear(matching: query, timeout: timeout)
 
-        case let .iosScreenshot(label):
-            let path = "\(screenshotsDir)/\(label).png"
-            _ = try await simulatorDriver.screenshot(output: path)
+        case let .iosScreenshot(label, compare, tolerance, perPixelThreshold):
+            let numberedLabel = nextScreenshotLabel(label)
+            let actualPath = screenshotPath(for: numberedLabel)
+            _ = try await simulatorDriver.screenshot(output: actualPath)
+            if compare, !skipComparison {
+                try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance, perPixelThreshold: perPixelThreshold)
+            } else {
+                let baseline = baselinePath(for: numberedLabel)
+                if !FileManager.default.fileExists(atPath: baseline) {
+                    try saveScreenshot(from: actualPath, to: baseline)
+                }
+            }
 
         case .iosLogUI:
             let elements = await simulatorDriver.describeUI()
@@ -299,12 +335,17 @@ public actor TestOrchestrator {
             let resolvedText = context.resolve(text)
             try await macOSDriver.type(text: resolvedText, pressReturn: pressReturn)
 
-        case let .macScreenshot(label):
-            let path = "\(screenshotsDir)/\(label).png"
-            do {
-                try await macOSDriver.screenshot(output: path)
-            } catch {
-                logger.warning("macOS screenshot failed (non-fatal): \(error.localizedDescription)")
+        case let .macScreenshot(label, compare, tolerance, perPixelThreshold):
+            let numberedLabel = nextScreenshotLabel(label)
+            let actualPath = screenshotPath(for: numberedLabel)
+            try await macOSDriver.screenshot(output: actualPath)
+            if compare, !skipComparison {
+                try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance, perPixelThreshold: perPixelThreshold)
+            } else {
+                let baseline = baselinePath(for: numberedLabel)
+                if !FileManager.default.fileExists(atPath: baseline) {
+                    try saveScreenshot(from: actualPath, to: baseline)
+                }
             }
 
         // Tmux
@@ -377,6 +418,76 @@ public actor TestOrchestrator {
     }
 
     // MARK: - Helpers
+
+    /// Compare a screenshot against its baseline and throw on mismatch.
+    /// If no baseline exists yet, saves the actual screenshot as the new baseline.
+    private func compareScreenshot(actualPath: String, label: String, tolerance: Double, perPixelThreshold: Double) throws {
+        let baselinePath = baselinePath(for: label)
+        let diffPath = baselinePath.replacingOccurrences(of: ".png", with: "_diff.png")
+        let fm = FileManager.default
+
+        // Clean up stale diff images from prior runs
+        try? fm.removeItem(atPath: diffPath)
+
+        // No baseline yet — save this screenshot as the new baseline
+        guard fm.fileExists(atPath: baselinePath) else {
+            try saveScreenshot(from: actualPath, to: baselinePath)
+            logger.info("  Baseline created for '\(label)'")
+            return
+        }
+
+        let result = try ScreenshotComparator.compare(
+            actualPath: actualPath,
+            baselinePath: baselinePath,
+            diffPath: diffPath,
+            tolerance: tolerance,
+            perPixelThreshold: perPixelThreshold
+        )
+        guard result.passed else {
+            let diffStr = String(format: "%.2f", result.diffPercentage)
+            let tolStr = String(format: "%.2f", tolerance)
+            let diffInfo = result.diffPath.map { " — diff: \($0)" } ?? ""
+            throw OrchestratorError.assertionFailed(
+                "Screenshot '\(label)' differs from baseline by \(diffStr)% (tolerance: \(tolStr)%)\(diffInfo)"
+            )
+        }
+    }
+
+    /// Copy a screenshot to a destination, creating parent directories and overwriting if needed.
+    private func saveScreenshot(from sourcePath: String, to destPath: String) throws {
+        let fm = FileManager.default
+        let dir = (destPath as NSString).deletingLastPathComponent
+        try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        if fm.fileExists(atPath: destPath) {
+            try fm.removeItem(atPath: destPath)
+        }
+        try fm.copyItem(atPath: sourcePath, toPath: destPath)
+    }
+
+    /// Return a screenshot label prefixed with an auto-incremented counter (e.g. "01-label")
+    private func nextScreenshotLabel(_ label: String) -> String {
+        screenshotCounter += 1
+        return String(format: "%02d-%@", screenshotCounter, label)
+    }
+
+    /// Build the full path for a screenshot file, scoped to the current scenario
+    private func screenshotPath(for label: String) -> String {
+        let scenarioName = context.resolve("${scenarioName}")
+        return "\(screenshotsDir)/\(scenarioName)/\(label).png"
+    }
+
+    /// Build the full path for a baseline file, scoped to the current scenario
+    private func baselinePath(for label: String) -> String {
+        let scenarioName = context.resolve("${scenarioName}")
+        return "\(baselinesDir)/\(scenarioName)/\(label).png"
+    }
+
+    /// Convert a scenario name into a safe directory name
+    private func sanitizeForPath(_ name: String) -> String {
+        name.lowercased()
+            .replacingOccurrences(of: " ", with: "-")
+            .filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
+    }
 
     private func iosBundleId() throws -> String {
         guard let iosAppPath else {

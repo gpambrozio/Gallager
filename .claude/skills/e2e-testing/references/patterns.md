@@ -163,26 +163,23 @@ TestStep.log("After resize: ${newWidth}x${newHeight}")
 TestStep.assertStoredNotEqual(key: "newWidth", otherKey: "initialWidth")
 ```
 
-## Pattern: Screenshot Naming Convention
+## Pattern: Screenshots
 
-Use a consistent numbering scheme per scenario:
+Screenshots are auto-numbered with a zero-padded counter (`01-`, `02-`, etc.) that resets per scenario run. Labels should be descriptive kebab-case without manual number prefixes. By default, screenshots compare against stored baselines; pass `compare: false` for capture-only.
 
-```
-NN.M-description
-```
-
-Where:
-- `NN` = scenario number (01 for FreshPairing, 02 for NewTerminal, 03 for UnpairFromIOS, etc.)
-- `M` = step within the scenario (sequential)
-- `description` = brief kebab-case description
-
-Examples:
 ```swift
-TestStep.iosScreenshot(label: "01.1-ios-pairing-view")
-TestStep.macScreenshot(label: "01.2-mac-code-generated")
-TestStep.iosScreenshot(label: "01.3-ios-paired")
-TestStep.macScreenshot(label: "01.4-mac-connected")
+// Compared against baseline (default)
+TestStep.iosScreenshot(label: "ios-pairing-view")
+TestStep.macScreenshot(label: "mac-code-generated")
+
+// With tolerance for anti-aliasing
+TestStep.macScreenshot(label: "settings-window", tolerance: 1.0)
+
+// Capture-only, no comparison
+TestStep.iosScreenshot(label: "debug-state", compare: false)
 ```
+
+See `docs/e2e-testing.md` for baseline storage, diff images, and CLI options.
 
 ## Pattern: Waiting for UI Transitions
 

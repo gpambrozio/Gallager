@@ -15,7 +15,7 @@ public enum NewTerminalScenario {
 
         // 2. Verify projects loaded (the "Loading projects..." spinner should disappear)
         TestStep.iosWaitForElementToDisappear(.labelContains("Loading projects"), timeout: 15)
-        TestStep.iosScreenshot(label: "02.1-new-session")
+        TestStep.iosScreenshot(label: "new-session")
 
         // 3. Tap "New Terminal" in the project picker sheet
         TestStep.iosTap(.labelContains("New Terminal"))
@@ -26,6 +26,6 @@ public enum NewTerminalScenario {
 
         // 5. Verify the terminal connected (the "Connecting to terminal..." text should disappear)
         TestStep.iosWaitForElementToDisappear(.labelContains("Connecting to terminal"), timeout: 15)
-        TestStep.iosScreenshot(label: "02.2-new-terminal")
+        TestStep.iosScreenshot(label: "new-terminal")
     }
 }

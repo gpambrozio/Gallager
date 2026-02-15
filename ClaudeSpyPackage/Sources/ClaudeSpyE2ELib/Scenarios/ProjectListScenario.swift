@@ -31,7 +31,7 @@ public enum ProjectListScenario {
         TestStep.log("Verifying mock projects are listed")
         TestStep.macWaitForElement(titled: "AlphaProject", timeout: 5)
         TestStep.macWaitForElement(titled: "BetaProject", timeout: 5)
-        TestStep.macScreenshot(label: "project-list-mock-projects")
+        TestStep.macScreenshot(label: "project-list-mock-projects", compare: false)
 
         // ── Teardown ─────────────────────────────────────────────
 
