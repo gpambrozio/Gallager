@@ -263,7 +263,10 @@ public actor TestOrchestrator {
             if compare, !skipComparison {
                 try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance, perPixelThreshold: perPixelThreshold)
             } else {
-                try saveScreenshot(from: actualPath, to: baselinePath(for: numberedLabel))
+                let baseline = baselinePath(for: numberedLabel)
+                if !FileManager.default.fileExists(atPath: baseline) {
+                    try saveScreenshot(from: actualPath, to: baseline)
+                }
             }
 
         case .iosLogUI:
@@ -339,7 +342,10 @@ public actor TestOrchestrator {
             if compare, !skipComparison {
                 try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance, perPixelThreshold: perPixelThreshold)
             } else {
-                try saveScreenshot(from: actualPath, to: baselinePath(for: numberedLabel))
+                let baseline = baselinePath(for: numberedLabel)
+                if !FileManager.default.fileExists(atPath: baseline) {
+                    try saveScreenshot(from: actualPath, to: baseline)
+                }
             }
 
         // Tmux
