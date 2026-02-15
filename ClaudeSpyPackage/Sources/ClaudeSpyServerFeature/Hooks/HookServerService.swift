@@ -77,7 +77,7 @@ private actor LiveHookServer {
                 let app = try await createApplication(port: port)
                 self.app = app
 
-                try await app.server.start()
+                try app.server.start()
 
                 guard let actualPort = app.http.server.shared.localAddress?.port else {
                     lastError = "Server started but could not resolve listening port"
