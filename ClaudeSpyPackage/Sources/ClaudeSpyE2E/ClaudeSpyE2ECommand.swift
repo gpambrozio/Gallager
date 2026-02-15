@@ -157,6 +157,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         ResizePaneScenario.scenario,
         ProjectListScenario.scenario,
         ClaudeSessionsShowScenario.scenario,
+        ClaudeSessionUpdatesScenario.scenario,
     ]
 
     private func runTests(orchestrator: TestOrchestrator) async throws {
