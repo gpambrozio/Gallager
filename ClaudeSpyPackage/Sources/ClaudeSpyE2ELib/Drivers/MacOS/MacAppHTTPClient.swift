@@ -125,7 +125,7 @@ enum MacAppHTTPClient {
     static func sendHook(json: String, tmuxPane: String, projectPath: String?) async throws -> Bool {
         let hookPort = try readHookServerPort()
 
-        var components = URLComponents(string: "http://127.0.0.1:\(hookPort)/api/hooks")!
+        var components = URLComponents(string: "http://localhost:\(hookPort)/api/hooks")!
         var queryItems = [URLQueryItem(name: "tmux_pane", value: tmuxPane)]
         if let projectPath {
             queryItems.append(URLQueryItem(name: "project_path", value: projectPath))
