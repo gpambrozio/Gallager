@@ -13,8 +13,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 RESULTS_REPO="git@github.com:gpambrozio/ClaudeSpyTestResults.git"
 RESULTS_DIR="$(cd "$PROJECT_ROOT/.." && pwd)/ClaudeSpyTestResults"
-JSON_OUTPUT="/tmp/e2e-results.json"
-SCREENSHOTS_DIR="/tmp/e2e-screenshots"
+E2E_TMPDIR="${TMPDIR:-/tmp}/claudespy-e2e"
+mkdir -p "$E2E_TMPDIR"
+JSON_OUTPUT="$E2E_TMPDIR/e2e-results.json"
+SCREENSHOTS_DIR="$E2E_TMPDIR/e2e-screenshots"
 BASELINES_DIR="$PROJECT_ROOT/E2ETests"
 TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
 DATE_DISPLAY=$(date +"%Y-%m-%d %H:%M:%S")
@@ -221,9 +223,9 @@ def process_screenshot(ss):
     diff_percentage = ss.get("diffPercentage")
 
     # Resolve source paths
-    actual_path = ss.get("actual") or os.path.join(screenshots_dir, f"{label}.png")
-    baseline_path = ss.get("baseline") or os.path.join(baselines_dir, f"{label}.png")
-    diff_path = ss.get("diff")
+    actual_path = ss.get("actualPath") or os.path.join(screenshots_dir, f"{label}.png")
+    baseline_path = ss.get("baselinePath") or os.path.join(baselines_dir, f"{label}.png")
+    diff_path = ss.get("diffPath")
 
     actual_hash = store_image(actual_path)
     baseline_hash = store_image(baseline_path)
@@ -267,11 +269,12 @@ try:
 except Exception as e:
     print(f"Warning: could not read results.json: {e}", file=sys.stderr)
 
-# Process screenshots in each scenario's steps
+# Process screenshot in each scenario's steps
 for scenario in results:
     for step in scenario.get("steps", []):
-        if "screenshots" in step:
-            step["screenshots"] = [process_screenshot(ss) for ss in step["screenshots"]]
+        ss = step.get("screenshot")
+        if ss:
+            step["screenshot"] = process_screenshot(ss)
 
 report = {"metadata": metadata, "scenarios": results}
 with open(os.path.join(report_dir, "report.json"), "w") as f:

@@ -13,9 +13,11 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 WORKSPACE="$PROJECT_ROOT/ClaudeSpy.xcworkspace"
 DERIVED_DATA="$PROJECT_ROOT/build/e2e-derived-data"
 SIM_NAME="iPhone 17 Pro"
-SCREENSHOTS_DIR="/tmp/e2e-screenshots"
+E2E_TMPDIR="${TMPDIR:-/tmp}/claudespy-e2e"
+mkdir -p "$E2E_TMPDIR"
+SCREENSHOTS_DIR="$E2E_TMPDIR/e2e-screenshots"
 BASELINES_DIR="$PROJECT_ROOT/E2ETests"
-TMUX_SOCKET="/tmp/claudespy-e2e.sock"
+TMUX_SOCKET="$E2E_TMPDIR/claudespy-e2e.sock"
 SKIP_BUILD=false
 INTERACTIVE=false
 LIST_SCENARIOS=false
