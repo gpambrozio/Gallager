@@ -35,6 +35,7 @@ public enum ClaudeSessionRepliesPersistScenario {
         TestStep.wait(seconds: 1)
         TestStep.iosType(text: "Hello from e2e test")
         TestStep.wait(seconds: 1)
+        TestStep.iosScreenshot(label: "ios-prompt-filled")
         TestStep.iosTap(.labelContains("Send"))
         TestStep.wait(seconds: 2)
 
@@ -96,6 +97,7 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Verify question 1 shows
         TestStep.iosWaitForElement(.labelContains("Which database"), timeout: 10)
+        TestStep.iosScreenshot(label: "ios-question-1")
 
         // Tap first option (single-select auto-advances to question 2)
         TestStep.iosTap(.labelContains("PostgreSQL"))
@@ -103,6 +105,7 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Verify question 2 shows
         TestStep.iosWaitForElement(.labelContains("Which caching"), timeout: 5)
+        TestStep.iosScreenshot(label: "ios-question-2")
 
         // Tap first option (single-select auto-advances to review)
         TestStep.iosTap(.labelContains("Redis"))
@@ -110,6 +113,7 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Verify review summary shows
         TestStep.iosWaitForElement(.labelContains("Review Your Answers"), timeout: 5)
+        TestStep.iosScreenshot(label: "ios-review-summary")
 
         // Confirm answers
         TestStep.iosTap(.labelContains("Confirm"))
@@ -117,6 +121,7 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Verify completion feedback
         TestStep.iosWaitForElement(.labelContains("All questions answered"), timeout: 5)
+        TestStep.iosScreenshot(label: "ios-answers-submitted")
 
         // Navigate back to session list
         TestStep.iosTap(.labelContains("Sessions"))
@@ -156,6 +161,7 @@ public enum ClaudeSessionRepliesPersistScenario {
         // Verify permission request UI shows
         TestStep.iosWaitForElement(.labelContains("Run Command"), timeout: 10)
         TestStep.iosWaitForElement(.labelContains("Accept"), timeout: 5)
+        TestStep.iosScreenshot(label: "ios-permissions-request")
 
         // Accept the permission
         TestStep.iosTap(.labelContains("Accept"))
@@ -163,6 +169,7 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Verify acceptance feedback
         TestStep.iosWaitForElement(.labelContains("Permission accepted"), timeout: 5)
+        TestStep.iosScreenshot(label: "ios-permission-accepted")
 
         // Navigate back
         TestStep.iosTap(.labelContains("Sessions"))
@@ -204,6 +211,7 @@ public enum ClaudeSessionRepliesPersistScenario {
         // Verify plan approval UI shows
         TestStep.iosWaitForElement(.labelContains("Plan Approval"), timeout: 10)
         TestStep.iosWaitForElement(.labelContains("Approve"), timeout: 5)
+        TestStep.iosScreenshot(label: "ios-plan-approval")
 
         // Approve the plan
         TestStep.iosTap(.labelContains("Approve"))
@@ -211,6 +219,7 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Verify acceptance feedback (ExitPlanMode sets .accepted → "Permission accepted")
         TestStep.iosWaitForElement(.labelContains("Permission accepted"), timeout: 5)
+        TestStep.iosScreenshot(label: "ios-plan-approved")
 
         // Navigate back
         TestStep.iosTap(.labelContains("Sessions"))
