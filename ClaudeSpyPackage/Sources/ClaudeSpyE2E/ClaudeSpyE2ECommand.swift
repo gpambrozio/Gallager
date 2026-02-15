@@ -39,6 +39,9 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     @Flag(name: .long, help: "Skip all screenshot comparisons (still takes screenshots)")
     var noCompare = false
 
+    @Option(name: .long, help: "Write detailed JSON results to this file path")
+    var jsonOutput: String?
+
     @Flag(name: .long, help: "List all available scenarios and exit")
     var listScenarios = false
 
@@ -177,6 +180,11 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
 
         let results = await orchestrator.runAll(scenariosToRun)
 
+        // Write JSON results if requested
+        if let jsonOutputPath = jsonOutput {
+            try writeJSONResults(results, to: jsonOutputPath)
+        }
+
         // Print summary
         print()
         print("Results")
@@ -201,5 +209,41 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             print("Some scenarios failed.")
             throw ExitCode.failure
         }
+    }
+
+    /// JSON-encodable representation of a scenario result
+    private struct JSONScenarioResult: Codable {
+        let scenarioName: String
+        let success: Bool
+        let failedStep: Int?
+        let error: String?
+        let duration: TimeInterval
+        let steps: [TestOrchestrator.StepResult]
+    }
+
+    /// Write detailed results as JSON for report generation
+    private func writeJSONResults(_ results: [TestOrchestrator.ScenarioResult], to path: String) throws {
+        let jsonResults = results.map { result in
+            JSONScenarioResult(
+                scenarioName: result.scenarioName,
+                success: result.success,
+                failedStep: result.failedStep,
+                error: result.error,
+                duration: result.duration,
+                steps: result.steps
+            )
+        }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(jsonResults)
+
+        let url = URL(fileURLWithPath: path)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: url)
+        print("JSON results written to: \(path)")
     }
 }

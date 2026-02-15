@@ -21,6 +21,7 @@ INTERACTIVE=false
 LIST_SCENARIOS=false
 NO_COMPARE=false
 SCENARIO=""
+JSON_OUTPUT=""
 
 # =====================================================
 # PARSE ARGUMENTS
@@ -55,6 +56,10 @@ while [[ $# -gt 0 ]]; do
             NO_COMPARE=true
             shift
             ;;
+        --json-output)
+            JSON_OUTPUT="$2"
+            shift 2
+            ;;
         --interactive|-i)
             INTERACTIVE=true
             shift
@@ -70,6 +75,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --scenario NAME  Run specific scenario by name"
             echo "  --list-scenarios   List all available scenarios and exit"
             echo "  --no-compare       Skip all screenshot comparisons (still takes screenshots)"
+            echo "  --json-output FILE Write detailed JSON results to a file"
             echo "  --interactive, -i  Start all apps, wait for Enter, then shut down"
             echo "  -h, --help       Show this help"
             exit 0
@@ -228,6 +234,10 @@ fi
 
 if [ "$NO_COMPARE" = true ]; then
     E2E_ARGS+=(--no-compare)
+fi
+
+if [ -n "$JSON_OUTPUT" ]; then
+    E2E_ARGS+=(--json-output "$JSON_OUTPUT")
 fi
 
 "$E2E_BIN" "${E2E_ARGS[@]}"
