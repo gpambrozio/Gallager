@@ -42,6 +42,7 @@ struct PromptView: View {
             .overlay(textFieldBorder)
             .focused($isTextFieldFocused)
             .disabled(state.isSending || !isConnected)
+            .accessibilityLabel("Send a message to Claude")
     }
 
     private var textFieldBackground: some View {
