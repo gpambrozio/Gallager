@@ -123,23 +123,51 @@ enum MacAppHTTPClient {
     /// Reads the hook server port from `~/.claudespy-port` (written on startup).
     @discardableResult
     static func sendHook(json: String, tmuxPane: String, projectPath: String?) async throws -> Bool {
-        let hookPort = try readHookServerPort()
+        let portFilePath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claudespy-port").path
+        let fileExists = FileManager.default.fileExists(atPath: portFilePath)
+        logger.info("Port file path: \(portFilePath), exists: \(fileExists)")
 
-        var components = URLComponents(string: "http://localhost:\(hookPort)/api/hooks")!
+        if fileExists {
+            let rawContents = try? String(contentsOfFile: portFilePath, encoding: .utf8)
+            logger.info("Port file raw contents: '\(rawContents ?? "<nil>")'")
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: portFilePath) {
+                logger.info("Port file modified: \(attrs[.modificationDate] ?? "unknown"), size: \(attrs[.size] ?? "unknown")")
+            }
+        }
+
+        let hookPort = try readHookServerPort()
+        logger.info("Resolved hook port: \(hookPort)")
+
+        var components = URLComponents(string: "http://127.0.0.1:\(hookPort)/api/hooks")!
         var queryItems = [URLQueryItem(name: "tmux_pane", value: tmuxPane)]
         if let projectPath {
             queryItems.append(URLQueryItem(name: "project_path", value: projectPath))
         }
         components.queryItems = queryItems
 
-        var request = URLRequest(url: components.url!)
+        let url = components.url!
+        logger.info("Sending hook event to: \(url.absoluteString)")
+
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data(json.utf8)
-        let (_, response) = try await URLSession.shared.data(for: request)
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-        logger.info("HTTP hook event sent to real server on port \(hookPort), status: \(statusCode)")
-        return statusCode == 200
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let body = String(data: data, encoding: .utf8) ?? "<non-utf8>"
+            logger.info("Hook response — status: \(statusCode), body: '\(body)'")
+            return statusCode == 200
+        } catch {
+            logger.error("Hook request failed — error: \(error)")
+            logger.error("Error type: \(type(of: error)), localizedDescription: \(error.localizedDescription)")
+            if let urlError = error as? URLError {
+                logger.error("URLError code: \(urlError.code.rawValue) (\(urlError.code))")
+            }
+            throw error
+        }
     }
 
     /// Read the hook server port from `~/.claudespy-port`.
