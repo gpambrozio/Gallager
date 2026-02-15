@@ -23,6 +23,37 @@ public enum ClaudeSessionRepliesPersistScenario {
         TestStep.iosWaitForElement(.labelContains("Session Info"), timeout: 15)
 
         // ──────────────────────────────────────────────────────────
+        // Phase 0.5: Verify prompt text box and persistence
+        // ──────────────────────────────────────────────────────────
+
+        // Verify the prompt text box is shown (PromptView for SessionStart)
+        TestStep.iosWaitForElement(.labelContains("Send a message to Claude"), timeout: 10)
+        TestStep.iosWaitForElement(.labelContains("Send"), timeout: 5)
+
+        // Enter some text and submit
+        TestStep.iosTap(.labelContains("Send a message to Claude"))
+        TestStep.wait(seconds: 1)
+        TestStep.iosType(text: "Hello from e2e test")
+        TestStep.wait(seconds: 1)
+        TestStep.iosTap(.labelContains("Send"))
+        TestStep.wait(seconds: 2)
+
+        // Verify the prompt view (response UI) is still showing after submission
+        TestStep.iosWaitForElement(.labelContains("Send a message to Claude"), timeout: 5)
+
+        // Navigate back to session list
+        TestStep.iosTap(.labelContains("Sessions"))
+        TestStep.wait(seconds: 2)
+
+        // Re-enter session
+        TestStep.iosTap(.labelContains("MyProject"))
+        TestStep.wait(seconds: 3)
+
+        // Verify the prompt view persists (response UI, not just bare terminal)
+        TestStep.iosWaitForElement(.labelContains("Send a message to Claude"), timeout: 10)
+        TestStep.iosScreenshot(label: "ios-prompt-persists")
+
+        // ──────────────────────────────────────────────────────────
         // Phase 1: AskUserQuestion with 2 questions
         // ──────────────────────────────────────────────────────────
 
@@ -97,6 +128,7 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Verify feedback persists (not prompt box, not questions)
         TestStep.iosWaitForElement(.labelContains("All questions answered"), timeout: 10)
+        TestStep.iosScreenshot(label: "ios-questions-answered-persists")
 
         // ──────────────────────────────────────────────────────────
         // Phase 2: PermissionRequest (Bash tool)
@@ -142,6 +174,7 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Verify feedback persists
         TestStep.iosWaitForElement(.labelContains("Permission accepted"), timeout: 10)
+        TestStep.iosScreenshot(label: "ios-permission-accepted-persists")
 
         // ──────────────────────────────────────────────────────────
         // Phase 3: ExitPlanMode (plan approval)
@@ -189,5 +222,6 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Verify feedback persists
         TestStep.iosWaitForElement(.labelContains("Permission accepted"), timeout: 10)
+        TestStep.iosScreenshot(label: "ios-plan-approved-persists")
     }
 }

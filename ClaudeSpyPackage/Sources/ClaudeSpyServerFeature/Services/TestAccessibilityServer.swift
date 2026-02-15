@@ -89,28 +89,6 @@
                                 connection.cancel()
                             })
                         }
-                    } else if request.hasPrefix("POST /send-hook") {
-                        // Extract query params and JSON body, then forward as a notification
-                        let tmuxPane = Self.extractQueryParam(from: request, key: "tmux_pane")
-                        let projectPath = Self.extractQueryParam(from: request, key: "project_path")
-                        let jsonBody = Self.extractHTTPBody(from: request)
-                        Task { @MainActor in
-                            var userInfo: [String: String] = [:]
-                            if let json = jsonBody { userInfo["json"] = json }
-                            if let pane = tmuxPane { userInfo["tmux_pane"] = pane }
-                            if let path = projectPath { userInfo["project_path"] = path }
-                            NotificationCenter.default.post(
-                                name: .init("com.claudespy.e2e.sendHook"),
-                                object: nil,
-                                userInfo: userInfo
-                            )
-                            let response = Data(
-                                "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
-                                    .utf8)
-                            connection.send(content: response, completion: .contentProcessed { _ in
-                                connection.cancel()
-                            })
-                        }
                     } else if request.hasPrefix("POST /unpair") {
                         Task { @MainActor in
                             NotificationCenter.default.post(
@@ -131,8 +109,9 @@
                             if width > 0 {
                                 for window in NSApp.windows
                                     where window.isVisible && window.level == .normal {
-                                    if let contentView = window.contentView,
-                                       let splitView = self?.findSplitView(in: contentView) {
+                                    if
+                                        let contentView = window.contentView,
+                                        let splitView = self?.findSplitView(in: contentView) {
                                         splitView.setPosition(CGFloat(width), ofDividerAt: 0)
                                         found = true
                                         break
@@ -452,13 +431,6 @@
                     }
                 }
                 return nil
-            }
-
-            /// Extract the HTTP body from a raw HTTP request (everything after the \r\n\r\n separator).
-            private nonisolated static func extractHTTPBody(from request: String) -> String? {
-                guard let range = request.range(of: "\r\n\r\n") else { return nil }
-                let body = String(request[range.upperBound...])
-                return body.isEmpty ? nil : body
             }
 
             /// Extract a query parameter from a raw HTTP request line.

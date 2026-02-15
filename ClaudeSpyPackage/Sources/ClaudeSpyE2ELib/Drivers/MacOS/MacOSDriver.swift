@@ -193,8 +193,8 @@ public actor MacOSDriver {
 
     // MARK: - Hook Events
 
-    /// Send a hook event to the macOS app via the test accessibility server's `/send-hook` endpoint.
-    /// This routes through the same event handling as the real hook server.
+    /// Send a hook event to the macOS app's real hook server (`/api/hooks`).
+    /// The hook server port is read from `~/.claudespy-port`.
     public func sendHookEvent(json: String, tmuxPane: String, projectPath: String?) async throws {
         logger.info("Sending hook event via test server, pane: \(tmuxPane)")
         let success = try await MacAppHTTPClient.sendHook(

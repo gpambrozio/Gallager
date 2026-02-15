@@ -111,9 +111,10 @@ public enum TestStep: Sendable {
 
     // MARK: - Hook Events
 
-    /// Send a hook event to the macOS app's hook server via HTTP POST.
+    /// Send a hook event to the macOS app's real hook server (`/api/hooks`) via HTTP POST.
     /// The `json` parameter is the raw JSON body (supports `${var}` interpolation).
     /// `tmuxPane` and `projectPath` are sent as query parameters.
+    /// The server port is read from `~/.claudespy-port`.
     case macSendHookEvent(json: String, tmuxPane: String, projectPath: String? = nil)
 
     // MARK: - Assertions

@@ -119,11 +119,13 @@ enum MacAppHTTPClient {
         return body == "ok"
     }
 
-    /// Send a hook event to the macOS app via the test accessibility server.
-    /// The app processes the event through the same handler as real Claude Code hooks.
+    /// Send a hook event to the macOS app's real hook server (`/api/hooks`).
+    /// Reads the hook server port from `~/.claudespy-port` (written on startup).
     @discardableResult
     static func sendHook(json: String, tmuxPane: String, projectPath: String?) async throws -> Bool {
-        var components = URLComponents(string: "http://127.0.0.1:\(port)/send-hook")!
+        let hookPort = try readHookServerPort()
+
+        var components = URLComponents(string: "http://localhost:\(hookPort)/api/hooks")!
         var queryItems = [URLQueryItem(name: "tmux_pane", value: tmuxPane)]
         if let projectPath {
             queryItems.append(URLQueryItem(name: "project_path", value: projectPath))
@@ -134,10 +136,23 @@ enum MacAppHTTPClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data(json.utf8)
-        let (data, _) = try await URLSession.shared.data(for: request)
-        let body = String(data: data, encoding: .utf8) ?? ""
-        logger.info("HTTP send-hook: \(body)")
-        return body == "ok"
+        let (_, response) = try await URLSession.shared.data(for: request)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        logger.info("HTTP hook event sent to real server on port \(hookPort), status: \(statusCode)")
+        return statusCode == 200
+    }
+
+    /// Read the hook server port from `~/.claudespy-port`.
+    private static func readHookServerPort() throws -> Int {
+        let portFilePath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claudespy-port").path
+        guard
+            let contents = try? String(contentsOfFile: portFilePath, encoding: .utf8),
+            let port = Int(contents.trimmingCharacters(in: .whitespacesAndNewlines))
+        else {
+            throw MacAppHTTPError.hookServerPortUnavailable
+        }
+        return port
     }
 
     /// Resize the app's frontmost normal-level window
@@ -216,6 +231,7 @@ enum MacAppHTTPError: Error, LocalizedError {
     case invalidResponse
     case serverNotRunning
     case elementNotFound(String)
+    case hookServerPortUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -225,6 +241,8 @@ enum MacAppHTTPError: Error, LocalizedError {
             "macOS accessibility server not running (is --e2e-test flag set?)"
         case let .elementNotFound(title):
             "Element not found: \(title)"
+        case .hookServerPortUnavailable:
+            "Hook server port unavailable (is ~/.claudespy-port present?)"
         }
     }
 }
