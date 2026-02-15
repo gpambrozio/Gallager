@@ -12,7 +12,7 @@ set -eo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 RESULTS_REPO="git@github.com:gpambrozio/ClaudeSpyTestResults.git"
-RESULTS_DIR="/tmp/claudespy-test-results"
+RESULTS_DIR="$(cd "$PROJECT_ROOT/.." && pwd)/ClaudeSpyTestResults"
 JSON_OUTPUT="/tmp/e2e-results.json"
 SCREENSHOTS_DIR="/tmp/e2e-screenshots"
 BASELINES_DIR="$PROJECT_ROOT/E2ETests"
