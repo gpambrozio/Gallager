@@ -119,6 +119,27 @@ enum MacAppHTTPClient {
         return body == "ok"
     }
 
+    /// Send a hook event to the macOS app via the test accessibility server.
+    /// The app processes the event through the same handler as real Claude Code hooks.
+    @discardableResult
+    static func sendHook(json: String, tmuxPane: String, projectPath: String?) async throws -> Bool {
+        var components = URLComponents(string: "http://127.0.0.1:\(port)/send-hook")!
+        var queryItems = [URLQueryItem(name: "tmux_pane", value: tmuxPane)]
+        if let projectPath {
+            queryItems.append(URLQueryItem(name: "project_path", value: projectPath))
+        }
+        components.queryItems = queryItems
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(json.utf8)
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let body = String(data: data, encoding: .utf8) ?? ""
+        logger.info("HTTP send-hook: \(body)")
+        return body == "ok"
+    }
+
     /// Resize the app's frontmost normal-level window
     @discardableResult
     static func resizeWindow(width: Int, height: Int) async throws -> Bool {

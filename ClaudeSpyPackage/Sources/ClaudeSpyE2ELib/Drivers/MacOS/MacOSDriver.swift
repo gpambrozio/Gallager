@@ -191,6 +191,23 @@ public actor MacOSDriver {
         }
     }
 
+    // MARK: - Hook Events
+
+    /// Send a hook event to the macOS app via the test accessibility server's `/send-hook` endpoint.
+    /// This routes through the same event handling as the real hook server.
+    public func sendHookEvent(json: String, tmuxPane: String, projectPath: String?) async throws {
+        logger.info("Sending hook event via test server, pane: \(tmuxPane)")
+        let success = try await MacAppHTTPClient.sendHook(
+            json: json,
+            tmuxPane: tmuxPane,
+            projectPath: projectPath
+        )
+        if !success {
+            throw MacOSDriverError.appleScriptFailed("Hook event POST failed")
+        }
+        logger.info("Hook event sent successfully")
+    }
+
     // MARK: - Wait for Element
 
     /// Wait for an element with the given title to appear in the macOS app

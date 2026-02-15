@@ -68,6 +68,10 @@
         @ObservationIgnored
         private var wakeObserverTask: Task<Void, Never>?
 
+        /// Task for observing E2E hook event notifications.
+        @ObservationIgnored
+        private var e2eHookObserverTask: Task<Void, Never>?
+
         @ObservationIgnored
         @Dependency(PreferencesService.self) private var preferences
 
@@ -187,6 +191,9 @@
 
             // Start observing system wake notifications for reconnection
             startWakeObserver()
+
+            // E2E test support: listen for hook events sent via the test accessibility server
+            startE2EHookObserver()
         }
 
         // MARK: - Private Setup Methods
@@ -388,8 +395,53 @@
             }
         }
 
+        /// Observes E2E test hook event notifications and processes them as if they came
+        /// from the real hook server. This allows e2e tests to simulate Claude Code events
+        /// without needing the hook server port.
+        private func startE2EHookObserver() {
+            guard CommandLine.arguments.contains("--e2e-test") else { return }
+
+            e2eHookObserverTask = Task { [weak self] in
+                let notifications = NotificationCenter.default.notifications(
+                    named: .init("com.claudespy.e2e.sendHook")
+                )
+                for await notification in notifications {
+                    guard !Task.isCancelled, let self else { break }
+                    guard let userInfo = notification.userInfo as? [String: String],
+                          let jsonString = userInfo["json"]
+                    else { continue }
+
+                    let tmuxPane = userInfo["tmux_pane"]
+                    let projectPath = userInfo["project_path"]
+
+                    do {
+                        let hookAction = try HookAction.from(jsonData: Data(jsonString.utf8))
+                        let event = HookEvent(
+                            action: hookAction,
+                            projectPath: projectPath,
+                            tmuxPane: tmuxPane
+                        )
+
+                        // Process exactly like the real hook server does
+                        await windowManager.handleHookEvent(event)
+                        if event.action.body.shouldSendToServer {
+                            await connectedViewerManager?.sendHookEventToAll(event)
+                        }
+
+                        logger.info("E2E hook event processed", metadata: [
+                            "eventName": "\(hookAction.eventName)",
+                            "tmuxPane": "\(tmuxPane ?? "nil")",
+                        ])
+                    } catch {
+                        logger.error("E2E hook event parsing failed: \(error)")
+                    }
+                }
+            }
+        }
+
         deinit {
             wakeObserverTask?.cancel()
+            e2eHookObserverTask?.cancel()
         }
 
         private static func handleStartStream(
