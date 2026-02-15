@@ -106,7 +106,11 @@ step "Preparing results repository"
 
 if [ -d "$RESULTS_DIR/.git" ]; then
     echo "Updating existing clone at $RESULTS_DIR"
-    git -C "$RESULTS_DIR" pull --rebase 2>/dev/null || true
+    if ! git -C "$RESULTS_DIR" pull --rebase 2>&1; then
+        echo "WARNING: pull --rebase failed — resetting to remote state"
+        git -C "$RESULTS_DIR" fetch origin 2>/dev/null
+        git -C "$RESULTS_DIR" reset --hard origin/main 2>/dev/null || true
+    fi
 else
     echo "Cloning results repository to $RESULTS_DIR"
     git clone "$RESULTS_REPO" "$RESULTS_DIR" 2>/dev/null || {
@@ -167,31 +171,44 @@ if [ -d "$BASELINES_DIR" ]; then
 fi
 
 # Build report.json (metadata + scenario results)
-python3 << PYEOF
-import json, sys
+ALL_PASSED=$( [ $E2E_EXIT -eq 0 ] && echo "true" || echo "false" )
+BRANCH="$BRANCH" \
+COMMIT="$COMMIT" \
+COMMIT_FULL="$COMMIT_FULL" \
+COMMIT_MSG="$COMMIT_MSG" \
+PR_NUMBER="$PR_NUMBER" \
+PR_URL="$PR_URL" \
+TIMESTAMP="$TIMESTAMP" \
+DATE_DISPLAY="$DATE_DISPLAY" \
+RESULT_FOLDER="$RESULT_FOLDER" \
+ALL_PASSED="$ALL_PASSED" \
+REPORT_DIR="$REPORT_DIR" \
+python3 << 'PYEOF'
+import json, os, sys
 
 metadata = {
-    "branch": "$BRANCH",
-    "commit": "$COMMIT",
-    "commitFull": "$COMMIT_FULL",
-    "commitMessage": """$COMMIT_MSG""",
-    "prNumber": "$PR_NUMBER" or None,
-    "prUrl": "$PR_URL" or None,
-    "timestamp": "$TIMESTAMP",
-    "date": "$DATE_DISPLAY",
-    "folder": "$RESULT_FOLDER",
-    "allPassed": $( [ $E2E_EXIT -eq 0 ] && echo "True" || echo "False" )
+    "branch": os.environ["BRANCH"],
+    "commit": os.environ["COMMIT"],
+    "commitFull": os.environ["COMMIT_FULL"],
+    "commitMessage": os.environ["COMMIT_MSG"],
+    "prNumber": os.environ["PR_NUMBER"] or None,
+    "prUrl": os.environ["PR_URL"] or None,
+    "timestamp": os.environ["TIMESTAMP"],
+    "date": os.environ["DATE_DISPLAY"],
+    "folder": os.environ["RESULT_FOLDER"],
+    "allPassed": os.environ["ALL_PASSED"] == "true"
 }
 
+report_dir = os.environ["REPORT_DIR"]
 results = []
 try:
-    with open("$REPORT_DIR/results.json") as f:
+    with open(os.path.join(report_dir, "results.json")) as f:
         results = json.load(f)
 except Exception as e:
     print(f"Warning: could not read results.json: {e}", file=sys.stderr)
 
 report = {"metadata": metadata, "scenarios": results}
-with open("$REPORT_DIR/report.json", "w") as f:
+with open(os.path.join(report_dir, "report.json"), "w") as f:
     json.dump(report, f, indent=2)
 print("Report metadata written to report.json")
 PYEOF
@@ -201,10 +218,10 @@ PYEOF
 # =====================================================
 step "Updating results index"
 
-python3 << PYEOF
+RESULTS_DIR="$RESULTS_DIR" python3 << 'PYEOF'
 import json, os, glob
 
-results_base = "$RESULTS_DIR/results"
+results_base = os.path.join(os.environ["RESULTS_DIR"], "results")
 runs = []
 
 for report_file in sorted(glob.glob(os.path.join(results_base, "*/report.json")), reverse=True):
@@ -244,7 +261,7 @@ step "Pushing results to repository"
 
 cd "$RESULTS_DIR"
 
-git add -A
+git add results/"$RESULT_FOLDER" results/index.json
 git commit -m "E2E results: ${SAFE_BRANCH} @ ${COMMIT} (${TIMESTAMP})
 
 Branch: ${BRANCH}

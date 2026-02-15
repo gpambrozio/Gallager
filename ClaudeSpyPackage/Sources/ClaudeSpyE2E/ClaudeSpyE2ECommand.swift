@@ -211,32 +211,11 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         }
     }
 
-    /// JSON-encodable representation of a scenario result
-    private struct JSONScenarioResult: Codable {
-        let scenarioName: String
-        let success: Bool
-        let failedStep: Int?
-        let error: String?
-        let duration: TimeInterval
-        let steps: [TestOrchestrator.StepResult]
-    }
-
     /// Write detailed results as JSON for report generation
     private func writeJSONResults(_ results: [TestOrchestrator.ScenarioResult], to path: String) throws {
-        let jsonResults = results.map { result in
-            JSONScenarioResult(
-                scenarioName: result.scenarioName,
-                success: result.success,
-                failedStep: result.failedStep,
-                error: result.error,
-                duration: result.duration,
-                steps: result.steps
-            )
-        }
-
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(jsonResults)
+        let data = try encoder.encode(results)
 
         let url = URL(fileURLWithPath: path)
         try FileManager.default.createDirectory(

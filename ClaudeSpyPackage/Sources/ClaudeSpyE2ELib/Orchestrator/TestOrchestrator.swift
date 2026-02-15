@@ -45,7 +45,7 @@ public actor TestOrchestrator {
     }
 
     /// Result of running a scenario
-    public struct ScenarioResult: Sendable {
+    public struct ScenarioResult: Sendable, Codable {
         public let scenarioName: String
         public let success: Bool
         public let failedStep: Int?
@@ -310,23 +310,7 @@ public actor TestOrchestrator {
             if compare, !skipComparison {
                 return try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance, perPixelThreshold: perPixelThreshold)
             } else {
-                let baseline = baselinePath(for: numberedLabel)
-                let baselineCreated: Bool
-                if !FileManager.default.fileExists(atPath: baseline) {
-                    try saveScreenshot(from: actualPath, to: baseline)
-                    baselineCreated = true
-                } else {
-                    baselineCreated = false
-                }
-                return ScreenshotResult(
-                    label: numberedLabel,
-                    actualPath: actualPath,
-                    baselinePath: baseline,
-                    diffPath: nil,
-                    diffPercentage: nil,
-                    passed: true,
-                    baselineCreated: baselineCreated
-                )
+                return try captureWithoutComparison(actualPath: actualPath, label: numberedLabel)
             }
 
         case .iosLogUI:
@@ -402,23 +386,7 @@ public actor TestOrchestrator {
             if compare, !skipComparison {
                 return try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance, perPixelThreshold: perPixelThreshold)
             } else {
-                let baseline = baselinePath(for: numberedLabel)
-                let baselineCreated: Bool
-                if !FileManager.default.fileExists(atPath: baseline) {
-                    try saveScreenshot(from: actualPath, to: baseline)
-                    baselineCreated = true
-                } else {
-                    baselineCreated = false
-                }
-                return ScreenshotResult(
-                    label: numberedLabel,
-                    actualPath: actualPath,
-                    baselinePath: baseline,
-                    diffPath: nil,
-                    diffPercentage: nil,
-                    passed: true,
-                    baselineCreated: baselineCreated
-                )
+                return try captureWithoutComparison(actualPath: actualPath, label: numberedLabel)
             }
 
         // Tmux
@@ -492,6 +460,27 @@ public actor TestOrchestrator {
     }
 
     // MARK: - Helpers
+
+    /// Capture a screenshot without comparison, saving it as a baseline if none exists.
+    private func captureWithoutComparison(actualPath: String, label: String) throws -> ScreenshotResult {
+        let baseline = baselinePath(for: label)
+        let baselineCreated: Bool
+        if !FileManager.default.fileExists(atPath: baseline) {
+            try saveScreenshot(from: actualPath, to: baseline)
+            baselineCreated = true
+        } else {
+            baselineCreated = false
+        }
+        return ScreenshotResult(
+            label: label,
+            actualPath: actualPath,
+            baselinePath: baseline,
+            diffPath: nil,
+            diffPercentage: nil,
+            passed: true,
+            baselineCreated: baselineCreated
+        )
+    }
 
     /// Compare a screenshot against its baseline and throw on mismatch.
     /// If no baseline exists yet, saves the actual screenshot as the new baseline.
