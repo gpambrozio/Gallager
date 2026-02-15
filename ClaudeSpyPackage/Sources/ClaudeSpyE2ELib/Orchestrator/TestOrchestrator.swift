@@ -262,6 +262,8 @@ public actor TestOrchestrator {
             _ = try await simulatorDriver.screenshot(output: actualPath)
             if compare, !skipComparison {
                 try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance, perPixelThreshold: perPixelThreshold)
+            } else {
+                try saveScreenshot(from: actualPath, to: baselinePath(for: numberedLabel))
             }
 
         case .iosLogUI:
@@ -336,6 +338,8 @@ public actor TestOrchestrator {
             try await macOSDriver.screenshot(output: actualPath)
             if compare, !skipComparison {
                 try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance, perPixelThreshold: perPixelThreshold)
+            } else {
+                try saveScreenshot(from: actualPath, to: baselinePath(for: numberedLabel))
             }
 
         // Tmux
