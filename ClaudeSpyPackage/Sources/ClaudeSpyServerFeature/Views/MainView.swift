@@ -1048,7 +1048,7 @@ private struct RemoteHostSidebarSection: View {
                         projects: sessionStore.projects(for: host.id),
                         isLoadingProjects: !sessionStore.hasReceivedState(for: host.id),
                         creatingSelection: creatingSelection,
-                        onCreate: { project in onCreate(project) }
+                        onCreate: onCreate
                     )
                 }
             )
@@ -1118,7 +1118,7 @@ private struct NewSessionButton: View {
                 projects: projects,
                 isLoadingProjects: isLoadingProjects,
                 creatingSelection: creatingSelection,
-                onCreate: { project in onCreate(project) }
+                onCreate: onCreate
             )
         }
     }
