@@ -4,7 +4,7 @@
 # Captures terminal content (with ANSI escape codes) from a running tmux pane.
 #
 # Usage:
-#   ./scripts/record-tmux-session.sh --name <recording-name> [--snapshot]
+#   ./scripts/record-tmux-session.sh [--name <recording-name>] [--snapshot]
 #
 # Modes:
 #   Default (streaming): Captures initial state + live output until you press Enter
@@ -31,10 +31,10 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -h|--help)
-            echo "Usage: $0 --name <recording-name> [--snapshot]"
+            echo "Usage: $0 [--name <recording-name>] [--snapshot]"
             echo ""
             echo "Options:"
-            echo "  --name       Name for the recording (required)"
+            echo "  --name       Name for the recording (prompted if omitted)"
             echo "  --snapshot   Capture only current state (no streaming)"
             echo "  -h, --help   Show this help"
             exit 0
@@ -45,12 +45,6 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
-
-if [[ -z "$NAME" ]]; then
-    echo "Error: --name is required"
-    echo "Usage: $0 --name <recording-name> [--snapshot]"
-    exit 1
-fi
 
 # Verify tmux is running
 if ! tmux list-sessions &>/dev/null; then
@@ -86,6 +80,15 @@ fi
 # Extract target from selected pane (first field)
 TARGET=$(echo "${PANES[$SELECTION]}" | awk '{print $1}')
 echo "Selected: $TARGET"
+
+# Prompt for name if not provided via flag
+if [[ -z "$NAME" ]]; then
+    read -rp "Recording name: " NAME
+    if [[ -z "$NAME" ]]; then
+        echo "Error: name cannot be empty"
+        exit 1
+    fi
+fi
 
 # Get pane dimensions
 DIMS=$(tmux display-message -t "$TARGET" -p "#{pane_width} #{pane_height}")
