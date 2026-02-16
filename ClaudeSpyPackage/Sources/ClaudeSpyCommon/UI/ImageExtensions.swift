@@ -25,3 +25,20 @@ public extension ContentUnavailableView where Label == SwiftUI.Label<Text, Image
         }
     }
 }
+
+public extension ContentUnavailableView where Label == SwiftUI.Label<Text, Image>, Description == Text {
+    init(
+        _ title: any StringProtocol,
+        symbol: Symbols,
+        description: any StringProtocol,
+        @ViewBuilder actions: () -> Actions
+    ) {
+        self.init {
+            SwiftUI.Label(title, symbol: symbol)
+        } description: {
+            Text(description)
+        } actions: {
+            actions()
+        }
+    }
+}

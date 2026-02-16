@@ -128,8 +128,17 @@ public struct MainView: View {
         ContentUnavailableView(
             "No Panes Available",
             symbol: .terminal,
-            description: "Start tmux and create some panes to mirror."
-        )
+            description: "No tmux sessions found. Create a new session to get started."
+        ) {
+            NewSessionButton(
+                projects: projects,
+                isLoadingProjects: isLoadingProjects,
+                creatingSelection: creatingSelection,
+                onCreate: { project in
+                    createNewSession(project: project)
+                }
+            )
+        }
     }
 
     private var paneList: some View {
@@ -1085,6 +1094,33 @@ private struct RemotePaneSidebarRow: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+    }
+}
+
+/// A button that shows the new session popover, suitable for use in ContentUnavailableView actions
+private struct NewSessionButton: View {
+    let projects: [ClaudeProjectInfo]
+    let isLoadingProjects: Bool
+    let creatingSelection: NewSessionCreatingState?
+    let onCreate: (ClaudeProjectInfo?) -> Void
+
+    @State private var showingPopover = false
+
+    var body: some View {
+        Button {
+            showingPopover = true
+        } label: {
+            Text("New Session")
+        }
+        .popover(isPresented: $showingPopover) {
+            NewSessionContent(
+                title: "New Session",
+                projects: projects,
+                isLoadingProjects: isLoadingProjects,
+                creatingSelection: creatingSelection,
+                onCreate: { project in onCreate(project) }
+            )
+        }
     }
 }
 
