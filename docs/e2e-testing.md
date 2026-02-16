@@ -470,3 +470,70 @@ When a comparison fails, a diff image is saved alongside the baseline with a `_d
 ```bash
 ClaudeSpyE2E --baselines-dir /path/to/baselines ...
 ```
+
+## Test report generation
+
+The `e2e-report.sh` script runs all E2E scenarios, collects results and screenshots, and publishes a report to the [ClaudeSpyTestResults](https://github.com/gpambrozio/ClaudeSpyTestResults) repository.
+
+### How it works
+
+1. Gathers git metadata (branch, commit, PR number) from the current ClaudeSpy checkout
+2. Clones or updates the results repository as a sibling folder (`../ClaudeSpyTestResults`)
+3. Runs `e2e-test.sh` with `--json-output` to get structured step-level results
+4. Copies screenshots into a **content-addressable image store** (`images/<sha256>.png`) — identical images are stored once
+5. Generates a `report.json` with metadata and per-scenario/per-step results (including screenshot hashes)
+6. Updates `results/index.json` with a summary of all runs (most recent first)
+7. Commits and pushes everything to the results repository
+
+### Usage
+
+```bash
+# Run all e2e tests and publish report
+./scripts/e2e-report.sh
+
+# Skip build (reuse previously built artifacts)
+./scripts/e2e-report.sh --skip-build
+
+# Run a specific scenario
+./scripts/e2e-report.sh --scenario "Fresh Pairing"
+
+# Custom results repo URL or local path
+./scripts/e2e-report.sh --results-repo git@github.com:user/MyResults.git
+./scripts/e2e-report.sh --results-dir /path/to/local/results
+```
+
+All `e2e-test.sh` options (`--skip-build`, `--sim-name`, `--scenario`, etc.) are passed through.
+
+### Results repository structure
+
+The results repository ([ClaudeSpyTestResults](https://github.com/gpambrozio/ClaudeSpyTestResults)) is a separate git repository that stores test results and screenshots. It includes a static HTML viewer that loads results dynamically from JSON — no server-side processing or rebuild needed.
+
+```
+ClaudeSpyTestResults/
+├── index.html                        # Single-page viewer app
+├── serve.sh                          # Local HTTP server for viewing
+├── images/                           # Content-addressable image store
+│   ├── <sha256>.png                  # Deduplicated screenshots
+│   └── ...
+└── results/
+    ├── index.json                    # All runs (most recent first)
+    ├── 2026-02-15_14-30-00_main/
+    │   ├── report.json               # Metadata + scenario results
+    │   └── results.json              # Raw step-level output
+    └── 2026-02-14_10-00-00_feature-branch/
+        ├── report.json
+        └── results.json
+```
+
+Each `report.json` contains:
+- **metadata** — branch, commit, commit message, PR number/URL, timestamp
+- **scenarios** — array of scenario results, each with steps that include screenshot hashes (`imageHash`, `baselineHash`, `diffHash`), pass/fail status, and diff percentages
+
+### Viewing results
+
+```bash
+cd ../ClaudeSpyTestResults && ./serve.sh
+# Open http://localhost:8000
+```
+
+The viewer shows a list of runs with pass/fail status and lets you drill into individual scenarios and screenshot comparisons.
