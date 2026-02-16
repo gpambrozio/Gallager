@@ -24,13 +24,34 @@ public actor TestOrchestrator {
     private let skipComparison: Bool
     private var screenshotCounter = 0
 
+    /// Result of a single step
+    public struct StepResult: Sendable, Codable {
+        public let stepNumber: Int
+        public let description: String
+        public let success: Bool
+        public let error: String?
+        public let screenshot: ScreenshotResult?
+    }
+
+    /// Result of a screenshot comparison
+    public struct ScreenshotResult: Sendable, Codable {
+        public let label: String
+        public let actualPath: String
+        public let baselinePath: String?
+        public let diffPath: String?
+        public let diffPercentage: Double?
+        public let passed: Bool
+        public let baselineCreated: Bool
+    }
+
     /// Result of running a scenario
-    public struct ScenarioResult: Sendable {
+    public struct ScenarioResult: Sendable, Codable {
         public let scenarioName: String
         public let success: Bool
         public let failedStep: Int?
         public let error: String?
         public let duration: TimeInterval
+        public let steps: [StepResult]
     }
 
     /// - Note: The tmux socket path is injected into the execution context as `${tmuxSocket}`
@@ -91,21 +112,45 @@ public actor TestOrchestrator {
         context.set("tmuxSocket", value: tmuxSocket ?? "/tmp/claudespy-e2e.sock")
         context.set("scenarioName", value: scenarioDirName)
 
+        var stepResults: [StepResult] = []
+
         for (index, step) in scenario.steps.enumerated() {
             let stepNumber = index + 1
             logger.info("  Step \(stepNumber)/\(scenario.steps.count): \(step)")
 
             do {
-                try await executeStep(step)
+                let screenshotResult = try await executeStep(step)
+                stepResults.append(StepResult(
+                    stepNumber: stepNumber,
+                    description: "\(step)",
+                    success: true,
+                    error: nil,
+                    screenshot: screenshotResult
+                ))
             } catch {
                 let duration = ContinuousClock.now - startTime
                 logger.error("  FAILED at step \(stepNumber): \(error)")
+                // Extract screenshot result from mismatch errors
+                let screenshotResult: ScreenshotResult?
+                if case let OrchestratorError.screenshotMismatch(result, _) = error {
+                    screenshotResult = result
+                } else {
+                    screenshotResult = nil
+                }
+                stepResults.append(StepResult(
+                    stepNumber: stepNumber,
+                    description: "\(step)",
+                    success: false,
+                    error: error.localizedDescription,
+                    screenshot: screenshotResult
+                ))
                 return ScenarioResult(
                     scenarioName: scenario.name,
                     success: false,
                     failedStep: stepNumber,
                     error: error.localizedDescription,
-                    duration: Double(duration.components.seconds)
+                    duration: Double(duration.components.seconds),
+                    steps: stepResults
                 )
             }
         }
@@ -117,7 +162,8 @@ public actor TestOrchestrator {
             success: true,
             failedStep: nil,
             error: nil,
-            duration: Double(duration.components.seconds)
+            duration: Double(duration.components.seconds),
+            steps: stepResults
         )
     }
 
@@ -167,7 +213,8 @@ public actor TestOrchestrator {
 
     // MARK: - Step Execution
 
-    private func executeStep(_ step: TestStep) async throws {
+    @discardableResult
+    private func executeStep(_ step: TestStep) async throws -> ScreenshotResult? {
         switch step {
         // Server
         case .startServer:
@@ -261,12 +308,9 @@ public actor TestOrchestrator {
             let actualPath = screenshotPath(for: numberedLabel)
             _ = try await simulatorDriver.screenshot(output: actualPath)
             if compare, !skipComparison {
-                try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance, perPixelThreshold: perPixelThreshold)
+                return try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance, perPixelThreshold: perPixelThreshold)
             } else {
-                let baseline = baselinePath(for: numberedLabel)
-                if !FileManager.default.fileExists(atPath: baseline) {
-                    try saveScreenshot(from: actualPath, to: baseline)
-                }
+                return try captureWithoutComparison(actualPath: actualPath, label: numberedLabel)
             }
 
         case .iosLogUI:
@@ -340,12 +384,9 @@ public actor TestOrchestrator {
             let actualPath = screenshotPath(for: numberedLabel)
             try await macOSDriver.screenshot(output: actualPath)
             if compare, !skipComparison {
-                try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance, perPixelThreshold: perPixelThreshold)
+                return try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance, perPixelThreshold: perPixelThreshold)
             } else {
-                let baseline = baselinePath(for: numberedLabel)
-                if !FileManager.default.fileExists(atPath: baseline) {
-                    try saveScreenshot(from: actualPath, to: baseline)
-                }
+                return try captureWithoutComparison(actualPath: actualPath, label: numberedLabel)
             }
 
         // Tmux
@@ -415,13 +456,35 @@ public actor TestOrchestrator {
         case let .log(message):
             logger.info("  LOG: \(context.resolve(message))")
         }
+        return nil
     }
 
     // MARK: - Helpers
 
+    /// Capture a screenshot without comparison, saving it as a baseline if none exists.
+    private func captureWithoutComparison(actualPath: String, label: String) throws -> ScreenshotResult {
+        let baseline = baselinePath(for: label)
+        let baselineCreated: Bool
+        if !FileManager.default.fileExists(atPath: baseline) {
+            try saveScreenshot(from: actualPath, to: baseline)
+            baselineCreated = true
+        } else {
+            baselineCreated = false
+        }
+        return ScreenshotResult(
+            label: label,
+            actualPath: actualPath,
+            baselinePath: baseline,
+            diffPath: nil,
+            diffPercentage: nil,
+            passed: true,
+            baselineCreated: baselineCreated
+        )
+    }
+
     /// Compare a screenshot against its baseline and throw on mismatch.
     /// If no baseline exists yet, saves the actual screenshot as the new baseline.
-    private func compareScreenshot(actualPath: String, label: String, tolerance: Double, perPixelThreshold: Double) throws {
+    private func compareScreenshot(actualPath: String, label: String, tolerance: Double, perPixelThreshold: Double) throws -> ScreenshotResult {
         let baselinePath = baselinePath(for: label)
         let diffPath = baselinePath.replacingOccurrences(of: ".png", with: "_diff.png")
         let fm = FileManager.default
@@ -433,7 +496,15 @@ public actor TestOrchestrator {
         guard fm.fileExists(atPath: baselinePath) else {
             try saveScreenshot(from: actualPath, to: baselinePath)
             logger.info("  Baseline created for '\(label)'")
-            return
+            return ScreenshotResult(
+                label: label,
+                actualPath: actualPath,
+                baselinePath: baselinePath,
+                diffPath: nil,
+                diffPercentage: nil,
+                passed: true,
+                baselineCreated: true
+            )
         }
 
         let result = try ScreenshotComparator.compare(
@@ -443,14 +514,28 @@ public actor TestOrchestrator {
             tolerance: tolerance,
             perPixelThreshold: perPixelThreshold
         )
+
+        let screenshotResult = ScreenshotResult(
+            label: label,
+            actualPath: actualPath,
+            baselinePath: baselinePath,
+            diffPath: result.diffPath,
+            diffPercentage: result.diffPercentage,
+            passed: result.passed,
+            baselineCreated: false
+        )
+
         guard result.passed else {
             let diffStr = String(format: "%.2f", result.diffPercentage)
             let tolStr = String(format: "%.2f", tolerance)
             let diffInfo = result.diffPath.map { " — diff: \($0)" } ?? ""
-            throw OrchestratorError.assertionFailed(
+            throw OrchestratorError.screenshotMismatch(
+                screenshotResult,
                 "Screenshot '\(label)' differs from baseline by \(diffStr)% (tolerance: \(tolStr)%)\(diffInfo)"
             )
         }
+
+        return screenshotResult
     }
 
     /// Copy a screenshot to a destination, creating parent directories and overwriting if needed.
@@ -513,6 +598,7 @@ public enum OrchestratorError: Error, LocalizedError {
     case assertionFailed(String)
     case configurationError(String)
     case stepFailed(step: Int, underlying: Error)
+    case screenshotMismatch(TestOrchestrator.ScreenshotResult, String)
 
     public var errorDescription: String? {
         switch self {
@@ -522,6 +608,8 @@ public enum OrchestratorError: Error, LocalizedError {
             "Configuration error: \(message)"
         case let .stepFailed(step, underlying):
             "Step \(step) failed: \(underlying.localizedDescription)"
+        case let .screenshotMismatch(_, message):
+            "Screenshot mismatch: \(message)"
         }
     }
 }
