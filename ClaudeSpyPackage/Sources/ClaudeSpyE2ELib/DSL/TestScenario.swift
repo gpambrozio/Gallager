@@ -99,6 +99,8 @@ public enum TestStep: Sendable {
     /// Default tolerance of 2% because sometimes the image needs to be normalized
     /// and in this case some pixels will differ.
     case macScreenshot(label: String, compare: Bool = true, tolerance: Double = 2, perPixelThreshold: Double = 0.02)
+    /// Scroll the macOS app terminal view one page up or down.
+    case macScrollPage(up: Bool)
 
     // MARK: - Tmux
 

@@ -9,6 +9,10 @@
 # Modes:
 #   Default (streaming): Captures initial state + live output until you press Enter
 #   --snapshot:          Captures only the current scrollback + visible content
+#
+# Output: E2ETests/Recordings/<name>/
+#   metadata.json  — pane dimensions
+#   recording.data — terminal content (single file, ANSI codes preserved)
 
 set -eo pipefail
 
@@ -102,26 +106,18 @@ mkdir -p "$OUTPUT_DIR"
 
 # Capture initial state (scrollback + visible, with ANSI escape codes)
 echo "Capturing pane content..."
-tmux capture-pane -t "$TARGET" -p -e -S - > "$OUTPUT_DIR/content.data"
+tmux capture-pane -t "$TARGET" -p -e -S - > "$OUTPUT_DIR/recording.data"
 
 if [[ "$SNAPSHOT" == true ]]; then
     echo "Snapshot mode — skipping stream capture."
 else
-    # Start live capture
-    STREAM_TMP="/tmp/claudespy-recording-stream-$$.data"
-    tmux pipe-pane -t "$TARGET" -o "cat >> '$STREAM_TMP'"
+    # Start live capture, appending to the same file
+    tmux pipe-pane -t "$TARGET" -o "cat >> '$OUTPUT_DIR/recording.data'"
     echo "Recording live output... Press Enter to stop."
     read -r
 
     # Stop piping
     tmux pipe-pane -t "$TARGET"
-
-    if [[ -f "$STREAM_TMP" ]]; then
-        mv "$STREAM_TMP" "$OUTPUT_DIR/stream.data"
-        echo "Stream captured: $(wc -c < "$OUTPUT_DIR/stream.data") bytes"
-    else
-        echo "No stream data captured."
-    fi
 fi
 
 # Write metadata
@@ -131,8 +127,5 @@ EOF
 
 echo ""
 echo "Recording saved to: $OUTPUT_DIR/"
-echo "  metadata.json  — ${WIDTH}x${HEIGHT}"
-echo "  content.data   — $(wc -c < "$OUTPUT_DIR/content.data") bytes"
-if [[ -f "$OUTPUT_DIR/stream.data" ]]; then
-    echo "  stream.data    — $(wc -c < "$OUTPUT_DIR/stream.data") bytes"
-fi
+echo "  metadata.json   — ${WIDTH}x${HEIGHT}"
+echo "  recording.data  — $(wc -c < "$OUTPUT_DIR/recording.data") bytes"

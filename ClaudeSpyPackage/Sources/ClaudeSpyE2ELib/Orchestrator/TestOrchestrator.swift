@@ -398,6 +398,9 @@ public actor TestOrchestrator {
                 return try captureWithoutComparison(actualPath: actualPath, label: numberedLabel)
             }
 
+        case let .macScrollPage(up):
+            try await macOSDriver.scrollPage(up: up)
+
         // Tmux
         case let .tmuxCreateSession(name, width, height):
             let socket = context.resolve("${tmuxSocket}")
@@ -453,8 +456,7 @@ public actor TestOrchestrator {
 
             let recordingDir = "\(baselinesDir)/Recordings/\(resolvedName)"
             let metadataPath = "\(recordingDir)/metadata.json"
-            let contentPath = "\(recordingDir)/content.data"
-            let streamPath = "\(recordingDir)/stream.data"
+            let recordingPath = "\(recordingDir)/recording.data"
 
             // Validate recording exists
             let fm = FileManager.default
@@ -463,9 +465,9 @@ public actor TestOrchestrator {
                     "Recording metadata not found: \(metadataPath)"
                 )
             }
-            guard fm.fileExists(atPath: contentPath) else {
+            guard fm.fileExists(atPath: recordingPath) else {
                 throw OrchestratorError.configurationError(
-                    "Recording content not found: \(contentPath)"
+                    "Recording data not found: \(recordingPath)"
                 )
             }
 
@@ -492,8 +494,9 @@ public actor TestOrchestrator {
                 }
             }
 
-            // Build command: cat content, optionally cat stream, then sleep forever
-            let command = "cat '\(contentPath)'; cat '\(streamPath)' 2>/dev/null; sleep infinity"
+            // Cat the recording then block forever to keep the pane alive.
+            // Use `tail -f /dev/null` instead of `sleep infinity` — macOS BSD sleep doesn't support infinity.
+            let command = "cat '\(recordingPath)'; tail -f /dev/null"
 
             _ = try await runner.runOrThrow(
                 "tmux",

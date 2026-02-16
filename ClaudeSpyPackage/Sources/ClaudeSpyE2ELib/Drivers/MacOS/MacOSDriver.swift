@@ -208,6 +208,55 @@ public actor MacOSDriver {
         try await runAppleScript(script)
     }
 
+    // MARK: - Scroll
+
+    /// Scroll the app terminal view one page up or down via CGEvent.
+    public func scrollPage(up: Bool) async throws {
+        let pid = try requirePID()
+        logger.info("Scrolling page \(up ? "up" : "down")")
+
+        // Bring the app's window to front
+        try await MacAppHTTPClient.activate()
+        try await Task.sleep(for: .milliseconds(300))
+
+        // Get the window center to position the scroll event
+        guard
+            let windowID = getWindowID(),
+            let bounds = windowBounds(for: windowID) else {
+            throw MacOSDriverError.windowNotFound(appName)
+        }
+
+        let centerX = bounds.midX
+        let centerY = bounds.midY
+
+        // Move mouse to window center first so the scroll targets the right window
+        if
+            let moveEvent = CGEvent(
+                mouseEventSource: nil,
+                mouseType: .mouseMoved,
+                mouseCursorPosition: CGPoint(x: centerX, y: centerY),
+                mouseButton: .left
+            ) {
+            moveEvent.post(tap: .cghidEventTap)
+            try await Task.sleep(for: .milliseconds(50))
+        }
+
+        // Send a single scroll tick — SwiftTerm treats any scroll as a full page
+        let delta: Int32 = up ? 10 : -10
+        if
+            let scrollEvent = CGEvent(
+                scrollWheelEvent2Source: nil,
+                units: .line,
+                wheelCount: 1,
+                wheel1: delta,
+                wheel2: 0,
+                wheel3: 0
+            ) {
+            scrollEvent.setIntegerValueField(.eventTargetUnixProcessID, value: Int64(pid))
+            scrollEvent.post(tap: .cghidEventTap)
+        }
+    }
+
     // MARK: - Unpair
 
     /// Trigger unpair on the first paired viewer via the macOS app's test HTTP endpoint.
@@ -376,6 +425,27 @@ public actor MacOSDriver {
                 let windowNumber = window[kCGWindowNumber as String] as? CGWindowID
             else { continue }
             return windowNumber
+        }
+        return nil
+    }
+
+    /// Returns the screen-space bounds of a window by its CGWindowID.
+    private func windowBounds(for windowID: CGWindowID) -> CGRect? {
+        guard
+            let windowList = CGWindowListCopyWindowInfo(
+                [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+            ) as? [[String: Any]] else {
+            return nil
+        }
+
+        for window in windowList {
+            guard
+                let number = window[kCGWindowNumber as String] as? CGWindowID,
+                number == windowID,
+                let boundsDict = window[kCGWindowBounds as String] as? [String: Any],
+                let rect = CGRect(dictionaryRepresentation: boundsDict as CFDictionary)
+            else { continue }
+            return rect
         }
         return nil
     }
