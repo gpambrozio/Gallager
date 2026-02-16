@@ -15,6 +15,7 @@ struct RemoteTerminalContainerView: View {
     let hostName: String
     let connection: ViewerConnection
     let settings: AppSettings
+    var onStreamEnd: (() -> Void)?
 
     @State private var streamState: RemoteStreamState = .connecting
     @State private var streamWidth = 80
@@ -39,6 +40,11 @@ struct RemoteTerminalContainerView: View {
             }
         }
         .navigationTitle("Remote: \(hostName) - \(paneId)")
+        .onChange(of: streamState) { _, newState in
+            if newState == .disconnected {
+                onStreamEnd?()
+            }
+        }
     }
 
     private var statusBar: some View {

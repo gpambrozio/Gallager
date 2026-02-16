@@ -245,7 +245,10 @@ public struct MainView: View {
                 paneId: remote.paneId,
                 hostName: remote.hostName,
                 connection: connection,
-                settings: settings
+                settings: settings,
+                onStreamEnd: {
+                    selectedRemotePane = nil
+                }
             )
             .id(remote.resizeKey)
         } else if let pane = selectedPane {
