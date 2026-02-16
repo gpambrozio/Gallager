@@ -16,12 +16,8 @@ public actor MacOSDriver {
     /// PID of the app instance launched by `launchApp`. Used to scope termination,
     /// AppleScript interactions, and window lookup to the test instance only.
     private var appPID: pid_t?
-    /// Port the test instance's TestAccessibilityServer listens on.
-    private let httpPort: UInt16
 
-    public init(httpPort: UInt16 = 18_081) {
-        self.httpPort = httpPort
-    }
+    public init() { }
 
     // MARK: - App Lifecycle
 
@@ -99,7 +95,7 @@ public actor MacOSDriver {
             timeout: timeout,
             pollInterval: 0.5
         ) {
-            await MacAppHTTPClient.windowExists(titled: titled, port: self.httpPort)
+            await MacAppHTTPClient.windowExists(titled: titled)
         }
     }
 
@@ -109,7 +105,7 @@ public actor MacOSDriver {
         logger.info("Selecting settings tab: \(tabName)")
         // Wait for the element to appear, then click via HTTP
         _ = try await waitForHTTPElement(titled: tabName, timeout: 5)
-        let clicked = try await MacAppHTTPClient.click(titled: tabName, port: httpPort)
+        let clicked = try await MacAppHTTPClient.click(titled: tabName)
         if !clicked {
             throw MacOSDriverError.elementNotFound(tabName)
         }
@@ -120,7 +116,7 @@ public actor MacOSDriver {
     public func clickButton(titled: String) async throws {
         logger.info("Clicking button: \(titled)")
         _ = try await waitForHTTPElement(titled: titled, timeout: 5)
-        let clicked = try await MacAppHTTPClient.click(titled: titled, port: httpPort)
+        let clicked = try await MacAppHTTPClient.click(titled: titled)
         if !clicked {
             throw MacOSDriverError.elementNotFound(titled)
         }
@@ -134,7 +130,7 @@ public actor MacOSDriver {
 
         // Step 1: Click the menu trigger via HTTP (opens the popup)
         _ = try await waitForHTTPElement(titled: menuButtonTitle, timeout: 5)
-        let clicked = try await MacAppHTTPClient.click(titled: menuButtonTitle, port: httpPort)
+        let clicked = try await MacAppHTTPClient.click(titled: menuButtonTitle)
         if !clicked {
             throw MacOSDriverError.elementNotFound(menuButtonTitle)
         }
@@ -143,7 +139,7 @@ public actor MacOSDriver {
         let deadline = Date().addingTimeInterval(3)
         while Date() < deadline {
             try await Task.sleep(for: .milliseconds(300))
-            let itemClicked = try await MacAppHTTPClient.click(titled: itemTitle, port: httpPort)
+            let itemClicked = try await MacAppHTTPClient.click(titled: itemTitle)
             if itemClicked {
                 return
             }
@@ -175,7 +171,7 @@ public actor MacOSDriver {
     /// don't expose windows through System Events.
     public func resizeWindow(width: Int, height: Int) async throws {
         logger.info("Resizing window to \(width)x\(height)")
-        let resized = try await MacAppHTTPClient.resizeWindow(width: width, height: height, port: httpPort)
+        let resized = try await MacAppHTTPClient.resizeWindow(width: width, height: height)
         if !resized {
             throw MacOSDriverError.appleScriptFailed(
                 "Failed to resize window to \(width)x\(height) — no visible window found"
@@ -186,7 +182,7 @@ public actor MacOSDriver {
     /// Set the sidebar width of the NavigationSplitView via the in-app HTTP server.
     public func setSidebarWidth(_ width: Int) async throws {
         logger.info("Setting sidebar width to \(width)")
-        let success = try await MacAppHTTPClient.setSidebarWidth(width, port: httpPort)
+        let success = try await MacAppHTTPClient.setSidebarWidth(width)
         if !success {
             throw MacOSDriverError.elementNotFound("NSSplitView for sidebar width")
         }
@@ -218,7 +214,7 @@ public actor MacOSDriver {
     /// Bypasses the SwiftUI Menu (whose NSMenu popup isn't in the accessibility tree).
     public func unpair() async throws {
         logger.info("Triggering unpair via HTTP endpoint")
-        let success = try await MacAppHTTPClient.unpair(port: httpPort)
+        let success = try await MacAppHTTPClient.unpair()
         if !success {
             throw MacOSDriverError.elementNotFound("unpair endpoint returned failure")
         }
@@ -237,7 +233,7 @@ public actor MacOSDriver {
             hookPortFile: hookPortFile
         )
         if !success {
-            throw MacOSDriverError.appleScriptFailed("Hook event POST failed")
+            throw MacOSDriverError.hookEventFailed("Hook event POST failed")
         }
         logger.info("Hook event sent successfully")
     }
@@ -288,7 +284,7 @@ public actor MacOSDriver {
             timeout: timeout,
             pollInterval: 0.5
         ) {
-            try? await MacAppHTTPClient.findElement(titled: titled, port: self.httpPort)
+            try? await MacAppHTTPClient.findElement(titled: titled)
         }
     }
 
@@ -297,7 +293,7 @@ public actor MacOSDriver {
         logger.info("Clicking at screen coordinates: (\(point.x), \(point.y))")
 
         // Bring the app's windows to front via HTTP endpoint
-        try await MacAppHTTPClient.activate(port: httpPort)
+        try await MacAppHTTPClient.activate()
         try await Task.sleep(for: .milliseconds(300))
 
         let mouseDown = CGEvent(
@@ -424,6 +420,7 @@ public enum MacOSDriverError: Error, LocalizedError {
     case appleScriptFailed(String)
     case windowNotFound(String)
     case elementNotFound(String)
+    case hookEventFailed(String)
 
     public var errorDescription: String? {
         switch self {
@@ -435,6 +432,8 @@ public enum MacOSDriverError: Error, LocalizedError {
             "Window not found: \(title)"
         case let .elementNotFound(title):
             "Element not found for click: \(title)"
+        case let .hookEventFailed(message):
+            "Hook event failed: \(message)"
         }
     }
 }

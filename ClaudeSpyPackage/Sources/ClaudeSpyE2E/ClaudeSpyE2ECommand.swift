@@ -42,9 +42,6 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     @Option(name: .long, help: "Write detailed JSON results to this file path")
     var jsonOutput: String?
 
-    @Option(name: .long, help: "Port for the macOS app's test accessibility server (default: 18081)")
-    var macAppPort: UInt16 = 18_081
-
     @Option(name: .long, help: "Path to the hook server port file (default: ~/.claudespy-port-test)")
     var hookPortFile: String?
 
@@ -87,7 +84,6 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         print("Compare:     \(noCompare ? "disabled" : "enabled")")
         print("Tmux socket: \(tmuxSocket ?? "(default)")")
         print("E2E runner:  \(e2eRunnerPath ?? "(none)")")
-        print("Mac app port: \(macAppPort)")
         print("Hook port file: \(hookPortFile ?? "(default: ~/.claudespy-port-test)")")
         print()
 
@@ -101,7 +97,6 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             e2eRunnerPath: e2eRunnerPath,
             scenarioNames: Self.allScenarios.map(\.name),
             skipComparison: noCompare,
-            macAppPort: macAppPort,
             hookPortFile: hookPortFile
         )
 

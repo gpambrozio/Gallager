@@ -18,7 +18,6 @@ mkdir -p "$E2E_TMPDIR"
 SCREENSHOTS_DIR="$E2E_TMPDIR/e2e-screenshots"
 BASELINES_DIR="$PROJECT_ROOT/E2ETests"
 TMUX_SOCKET="$E2E_TMPDIR/claudespy-e2e.sock"
-MAC_APP_PORT=18082
 SKIP_BUILD=false
 INTERACTIVE=false
 LIST_SCENARIOS=false
@@ -45,10 +44,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --tmux-socket)
             TMUX_SOCKET="$2"
-            shift 2
-            ;;
-        --mac-app-port)
-            MAC_APP_PORT="$2"
             shift 2
             ;;
         --list-scenarios)
@@ -79,7 +74,6 @@ while [[ $# -gt 0 ]]; do
             echo "  --sim-name NAME  iOS Simulator name (default: $SIM_NAME)"
             echo "  --screenshots DIR Screenshot output dir (default: $SCREENSHOTS_DIR)"
             echo "  --tmux-socket PATH Tmux socket path for isolation (default: $TMUX_SOCKET)"
-            echo "  --mac-app-port PORT Port for test accessibility server (default: $MAC_APP_PORT)"
             echo "  --scenario NAME  Run specific scenario by name"
             echo "  --list-scenarios   List all available scenarios and exit"
             echo "  --no-compare       Skip all screenshot comparisons (still takes screenshots)"
@@ -218,7 +212,6 @@ echo "macOS app:   $MACOS_APP"
 echo "iOS app:     $IOS_APP"
 echo "Simulator:   $SIM_NAME"
 echo "Tmux socket: $TMUX_SOCKET"
-echo "Mac app port: $MAC_APP_PORT"
 echo "Screenshots: $SCREENSHOTS_DIR"
 echo "Baselines:   $BASELINES_DIR"
 echo ""
@@ -230,7 +223,6 @@ E2E_ARGS=(
     --screenshots-dir "$SCREENSHOTS_DIR"
     --baselines-dir "$BASELINES_DIR"
     --tmux-socket "$TMUX_SOCKET"
-    --mac-app-port "$MAC_APP_PORT"
     --e2e-runner-path "$DERIVED_DATA"
 )
 

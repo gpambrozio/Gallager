@@ -55,7 +55,10 @@ struct TmuxPaneMirrorApp: App {
                 $0[PreferencesService.self] = prefs
                 $0[SecretsService.self] = .inMemory()
                 $0[ClaudeProjectScanner.self] = .inMemory()
-                $0[LoginItemService.self] = LoginItemService()
+                $0[LoginItemService.self] = LoginItemService(
+                    isEnabled: { false },
+                    setEnabled: { _ in }
+                )
                 if let hookPortFile {
                     $0[HookServerService.self] = .live(portFilePath: hookPortFile)
                 }
