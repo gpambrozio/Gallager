@@ -38,10 +38,23 @@ struct TmuxPaneMirrorApp: App {
                 prefs.setString(CommandLine.arguments[idx + 1], AppSettings.Keys.tmuxSocket.rawValue)
             }
 
+            // E2E test support: override hook server port file for isolation
+            let hookPortFile: String?
+            if let idx = CommandLine.arguments.firstIndex(of: "--hook-port-file"),
+               idx + 1 < CommandLine.arguments.count
+            {
+                hookPortFile = CommandLine.arguments[idx + 1]
+            } else {
+                hookPortFile = nil
+            }
+
             prepareDependencies {
                 $0[PreferencesService.self] = prefs
                 $0[SecretsService.self] = .inMemory()
                 $0[ClaudeProjectScanner.self] = .inMemory()
+                if let hookPortFile {
+                    $0[HookServerService.self] = .live(portFilePath: hookPortFile)
+                }
             }
 
             // Force regular activation policy so the app has a menu bar

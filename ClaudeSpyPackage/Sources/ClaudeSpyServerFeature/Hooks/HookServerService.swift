@@ -23,8 +23,15 @@ public struct HookServerService: Sendable {
 // MARK: - DependencyKey
 
 extension HookServerService: DependencyKey {
-    public static var liveValue: HookServerService {
-        let server = LiveHookServer()
+    /// Default port file path (`~/.claudespy-port`).
+    public static let defaultPortFilePath: String = {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return "\(home)/.claudespy-port"
+    }()
+
+    /// Create a live `HookServerService` that writes its port to the given file path.
+    public static func live(portFilePath: String) -> HookServerService {
+        let server = LiveHookServer(portFilePath: portFilePath)
 
         return HookServerService(
             setEventHandler: { handler in
@@ -37,6 +44,10 @@ extension HookServerService: DependencyKey {
                 await server.stopServer()
             }
         )
+    }
+
+    public static var liveValue: HookServerService {
+        .live(portFilePath: defaultPortFilePath)
     }
 }
 
@@ -54,12 +65,11 @@ private actor LiveHookServer {
     private static let basePort = 6_111
     private static let maxPortAttempts = 10
 
-    private static let portFilePath: String = {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return "\(home)/.claudespy-port"
-    }()
+    private let portFilePath: String
 
-    init() { }
+    init(portFilePath: String) {
+        self.portFilePath = portFilePath
+    }
 
     func setEventHandler(_ handler: @escaping @Sendable (HookEvent) async -> Void) {
         onHookEvent = handler
@@ -143,7 +153,7 @@ private actor LiveHookServer {
     // MARK: - Port File Management
 
     private func writePortFile(port: Int) {
-        let path = Self.portFilePath
+        let path = portFilePath
         do {
             try String(port).write(toFile: path, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes(
@@ -157,7 +167,7 @@ private actor LiveHookServer {
     }
 
     private func removePortFile() {
-        let path = Self.portFilePath
+        let path = portFilePath
         do {
             try FileManager.default.removeItem(atPath: path)
             logger.info("Removed port file: \(path)")

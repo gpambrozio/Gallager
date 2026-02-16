@@ -22,6 +22,9 @@ public actor TestOrchestrator {
     private let serverPort = 8_765
     /// Port for the macOS app's test accessibility HTTP server
     private let macAppPort: UInt16
+    /// Path to the hook server port file. E2E tests use a separate file
+    /// (`~/.claudespy-port-test`) to avoid colliding with a production instance.
+    private let hookPortFile: String
     private let scenarioNames: [String]
     private let skipComparison: Bool
     private var screenshotCounter = 0
@@ -73,7 +76,8 @@ public actor TestOrchestrator {
         e2eRunnerPath: String? = nil,
         scenarioNames: [String] = [],
         skipComparison: Bool = false,
-        macAppPort: UInt16 = 18_081
+        macAppPort: UInt16 = 18_081,
+        hookPortFile: String? = nil
     ) {
         self.iosAppPath = iosAppPath
         self.macOSAppPath = macOSAppPath
@@ -85,6 +89,10 @@ public actor TestOrchestrator {
         self.scenarioNames = scenarioNames
         self.skipComparison = skipComparison
         self.macAppPort = macAppPort
+        self.hookPortFile = hookPortFile ?? {
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            return "\(home)/.claudespy-port-test"
+        }()
         self.macOSDriver = MacOSDriver(httpPort: macAppPort)
     }
 
@@ -343,6 +351,7 @@ public actor TestOrchestrator {
                     "--server-url", "ws://127.0.0.1:\(serverPort)",
                     "--tmux-socket", resolvedSocket,
                     "--e2e-port", "\(macAppPort)",
+                    "--hook-port-file", hookPortFile,
                 ]
             )
 
@@ -453,7 +462,8 @@ public actor TestOrchestrator {
             try await macOSDriver.sendHookEvent(
                 json: resolvedJson,
                 tmuxPane: resolvedPane,
-                projectPath: resolvedPath
+                projectPath: resolvedPath,
+                hookPortFile: hookPortFile
             )
 
         // Assertions

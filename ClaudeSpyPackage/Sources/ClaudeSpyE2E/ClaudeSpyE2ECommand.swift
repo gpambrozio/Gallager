@@ -45,6 +45,9 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     @Option(name: .long, help: "Port for the macOS app's test accessibility server (default: 18081)")
     var macAppPort: UInt16 = 18_081
 
+    @Option(name: .long, help: "Path to the hook server port file (default: ~/.claudespy-port-test)")
+    var hookPortFile: String?
+
     @Flag(name: .long, help: "List all available scenarios and exit")
     var listScenarios = false
 
@@ -85,6 +88,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         print("Tmux socket: \(tmuxSocket ?? "(default)")")
         print("E2E runner:  \(e2eRunnerPath ?? "(none)")")
         print("Mac app port: \(macAppPort)")
+        print("Hook port file: \(hookPortFile ?? "(default: ~/.claudespy-port-test)")")
         print()
 
         let orchestrator = TestOrchestrator(
@@ -97,7 +101,8 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             e2eRunnerPath: e2eRunnerPath,
             scenarioNames: Self.allScenarios.map(\.name),
             skipComparison: noCompare,
-            macAppPort: macAppPort
+            macAppPort: macAppPort,
+            hookPortFile: hookPortFile
         )
 
         if interactive {

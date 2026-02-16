@@ -32,6 +32,7 @@ public actor MacOSDriver {
 
         let url = URL(fileURLWithPath: path)
         let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
         configuration.arguments = arguments
         configuration.environment = ["LOG_LEVEL": "debug"]
 
@@ -226,13 +227,14 @@ public actor MacOSDriver {
     // MARK: - Hook Events
 
     /// Send a hook event to the macOS app's real hook server (`/api/hooks`).
-    /// The hook server port is read from `~/.claudespy-port`.
-    public func sendHookEvent(json: String, tmuxPane: String, projectPath: String?) async throws {
+    /// The hook server port is read from `hookPortFile` (defaults to `~/.claudespy-port`).
+    public func sendHookEvent(json: String, tmuxPane: String, projectPath: String?, hookPortFile: String? = nil) async throws {
         logger.info("Sending hook event via test server, pane: \(tmuxPane)")
         let success = try await MacAppHTTPClient.sendHook(
             json: json,
             tmuxPane: tmuxPane,
-            projectPath: projectPath
+            projectPath: projectPath,
+            hookPortFile: hookPortFile
         )
         if !success {
             throw MacOSDriverError.appleScriptFailed("Hook event POST failed")
