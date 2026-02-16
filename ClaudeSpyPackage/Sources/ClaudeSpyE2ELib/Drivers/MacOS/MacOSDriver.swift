@@ -65,6 +65,8 @@ public actor MacOSDriver {
                 app.forceTerminate()
                 try await Task.sleep(for: .milliseconds(500))
             }
+        } else {
+            logger.info("App PID \(pid) already terminated or no longer valid")
         }
         appPID = nil
     }
@@ -74,7 +76,7 @@ public actor MacOSDriver {
     /// Open the Settings window via the status item menu
     public func openSettings() async throws {
         logger.info("Opening Settings via status item menu")
-        let script = """
+        let script = try """
         tell application "System Events"
             tell (first process whose unix id is \(requirePID()))
                 click menu bar item 1 of menu bar 2
@@ -154,7 +156,7 @@ public actor MacOSDriver {
     /// Open the Panes window via the status item menu
     public func openPanesWindow() async throws {
         logger.info("Opening Panes window via status item menu")
-        let script = """
+        let script = try """
         tell application "System Events"
             tell (first process whose unix id is \(requirePID()))
                 click menu bar item 1 of menu bar 2
@@ -198,7 +200,7 @@ public actor MacOSDriver {
                 delay 0.1
                 keystroke return
         """ : ""
-        let script = """
+        let script = try """
         tell application "System Events"
             tell (first process whose unix id is \(requirePID()))
                 set frontmost to true
@@ -382,9 +384,9 @@ public actor MacOSDriver {
 
     // MARK: - Private: PID Helper
 
-    private func requirePID() -> pid_t {
+    private func requirePID() throws -> pid_t {
         guard let pid = appPID else {
-            fatalError("MacOSDriver: no app PID — call launchApp first")
+            throw MacOSDriverError.appNotRunning
         }
         return pid
     }

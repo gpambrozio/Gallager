@@ -21,10 +21,10 @@
                 guard CommandLine.arguments.contains("--e2e-test") else { return }
 
                 var port: UInt16 = 18_081
-                if let idx = CommandLine.arguments.firstIndex(of: "--e2e-port"),
-                   idx + 1 < CommandLine.arguments.count,
-                   let parsed = UInt16(CommandLine.arguments[idx + 1])
-                {
+                if
+                    let idx = CommandLine.arguments.firstIndex(of: "--e2e-port"),
+                    idx + 1 < CommandLine.arguments.count,
+                    let parsed = UInt16(CommandLine.arguments[idx + 1]) {
                     port = parsed
                 }
 
@@ -40,7 +40,11 @@
             private func start(port: UInt16) throws {
                 let params = NWParameters.tcp
                 params.allowLocalEndpointReuse = true
-                listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
+                guard let nwPort = NWEndpoint.Port(rawValue: port) else {
+                    print("[TestAccessibilityServer-Mac] Invalid port: \(port)")
+                    return
+                }
+                listener = try NWListener(using: params, on: nwPort)
                 listener?.stateUpdateHandler = { state in
                     if case let .failed(error) = state {
                         print("[TestAccessibilityServer-Mac] Listener failed: \(error)")
