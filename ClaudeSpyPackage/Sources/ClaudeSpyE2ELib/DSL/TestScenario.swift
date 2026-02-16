@@ -108,6 +108,9 @@ public enum TestStep: Sendable {
     case tmuxStorePaneDimensions(target: String, widthKey: String, heightKey: String)
     /// Query the tmux pane ID (e.g. "%0") for a target and store it in the execution context
     case tmuxStorePaneId(target: String, storeAs: String)
+    /// Replay a pre-recorded tmux session into a pane. The recording must exist
+    /// at `E2ETests/Recordings/<name>/` with `metadata.json` and `content.data`.
+    case tmuxReplayRecording(name: String, target: String)
 
     // MARK: - Hook Events
 

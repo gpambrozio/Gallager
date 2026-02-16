@@ -445,6 +445,61 @@ public actor TestOrchestrator {
             context.set(storeAs, value: paneId)
             logger.info("  Stored \(storeAs)=\(paneId)")
 
+        case let .tmuxReplayRecording(name, target):
+            let resolvedName = context.resolve(name)
+            let resolvedTarget = context.resolve(target)
+            let socket = context.resolve("${tmuxSocket}")
+            let runner = processRunner
+
+            let recordingDir = "\(baselinesDir)/Recordings/\(resolvedName)"
+            let metadataPath = "\(recordingDir)/metadata.json"
+            let contentPath = "\(recordingDir)/content.data"
+            let streamPath = "\(recordingDir)/stream.data"
+
+            // Validate recording exists
+            let fm = FileManager.default
+            guard fm.fileExists(atPath: metadataPath) else {
+                throw OrchestratorError.configurationError(
+                    "Recording metadata not found: \(metadataPath)"
+                )
+            }
+            guard fm.fileExists(atPath: contentPath) else {
+                throw OrchestratorError.configurationError(
+                    "Recording content not found: \(contentPath)"
+                )
+            }
+
+            // Parse metadata and warn on dimension mismatch
+            if let data = fm.contents(atPath: metadataPath) {
+                let metadata = try? JSONDecoder().decode(RecordingMetadata.self, from: data)
+                if let metadata {
+                    let dimsResult = try? await runner.runOrThrow(
+                        "tmux",
+                        arguments: ["-S", socket, "display-message", "-t", resolvedTarget, "-p", "#{pane_width} #{pane_height}"]
+                    )
+                    if let dims = dimsResult?.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines) {
+                        let parts = dims.split(separator: " ")
+                        if
+                            parts.count == 2,
+                            let paneWidth = Int(parts[0]),
+                            let paneHeight = Int(parts[1]),
+                            paneWidth != metadata.width || paneHeight != metadata.height {
+                            logger.warning(
+                                "Recording \(metadata.width)x\(metadata.height) doesn't match pane \(resolvedTarget) \(paneWidth)x\(paneHeight)"
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Build command: cat content, optionally cat stream, then sleep forever
+            let command = "cat '\(contentPath)'; cat '\(streamPath)' 2>/dev/null; sleep infinity"
+
+            _ = try await runner.runOrThrow(
+                "tmux",
+                arguments: ["-f", "/dev/null", "-S", socket, "respawn-pane", "-t", resolvedTarget, "-k", command]
+            )
+
         // Hook Events
         case let .macSendHookEvent(json, tmuxPane, projectPath):
             let resolvedJson = context.resolve(json)
@@ -495,6 +550,13 @@ public actor TestOrchestrator {
             logger.info("  LOG: \(context.resolve(message))")
         }
         return nil
+    }
+
+    // MARK: - Types
+
+    private struct RecordingMetadata: Codable {
+        let width: Int
+        let height: Int
     }
 
     // MARK: - Helpers
