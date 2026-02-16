@@ -258,6 +258,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
                 notifyStateChange()
 
             case .streamEnd:
+                clearTerminal()
                 updateState(.disconnected)
             }
         }
@@ -307,6 +308,12 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         }
 
         // MARK: - Private Helpers
+
+        private func clearTerminal() {
+            let clearSequence = Data("\u{1b}[2J\u{1b}[H".utf8)
+            let bytes = [UInt8](clearSequence)[...]
+            terminalView.feed(byteArray: bytes)
+        }
 
         private func updateTerminalFrameSize() {
             let optimalSize = terminalView.getOptimalFrameSize().size
