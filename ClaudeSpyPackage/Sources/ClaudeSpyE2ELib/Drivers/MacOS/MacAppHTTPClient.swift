@@ -241,7 +241,7 @@ enum MacAppHTTPError: Error, LocalizedError {
         case let .elementNotFound(title):
             "Element not found: \(title)"
         case .hookServerPortUnavailable:
-            "Hook server port unavailable (is ~/.claudespy-port present?)"
+            "Hook server port file not found or unreadable"
         }
     }
 }

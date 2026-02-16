@@ -9,9 +9,12 @@ struct TmuxPaneMirrorApp: App {
     @State private var coordinator: AppCoordinator
     @State private var showingPluginSetup = false
     @State private var showingLaunchAtLoginPrompt = false
-    @State private var updaterController = UpdaterController()
+    @State private var updaterController: UpdaterController
 
     init() {
+        let isE2E = CommandLine.arguments.contains("--e2e-test")
+        _updaterController = State(initialValue: UpdaterController(startUpdater: !isE2E))
+
         // Bootstrap logging FIRST, before any Logger instances are created
         // Log level is determined by LOG_LEVEL env var (default: warning)
         LoggingConfiguration.bootstrap()
@@ -52,6 +55,7 @@ struct TmuxPaneMirrorApp: App {
                 $0[PreferencesService.self] = prefs
                 $0[SecretsService.self] = .inMemory()
                 $0[ClaudeProjectScanner.self] = .inMemory()
+                $0[LoginItemService.self] = LoginItemService()
                 if let hookPortFile {
                     $0[HookServerService.self] = .live(portFilePath: hookPortFile)
                 }
