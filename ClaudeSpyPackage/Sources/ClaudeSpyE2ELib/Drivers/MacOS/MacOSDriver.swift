@@ -3,19 +3,29 @@ import CoreGraphics
 import Foundation
 import Logging
 
-/// Drives the macOS Gallager app via HTTP accessibility server, CGEvent, and AppleScript
+/// Drives the macOS Gallager app via HTTP accessibility server, CGEvent, and AppleScript.
+///
+/// Tracks the launched app instance by PID so E2E tests can run alongside a
+/// production copy of the same app without interfering with it.
 public actor MacOSDriver {
     private let processRunner = ProcessRunner()
     private let logger = Logger(label: "e2e.macos-driver")
 
     private var appPath: String?
     private let appName = "Gallager"
+    /// PID of the app instance launched by `launchApp`. Used to scope termination,
+    /// AppleScript interactions, and window lookup to the test instance only.
+    private var appPID: pid_t?
+    /// Port the test instance's TestAccessibilityServer listens on.
+    private let httpPort: UInt16
 
-    public init() { }
+    public init(httpPort: UInt16 = 18_081) {
+        self.httpPort = httpPort
+    }
 
     // MARK: - App Lifecycle
 
-    /// Launch the macOS app
+    /// Launch the macOS app and record its PID for targeted interaction
     public func launchApp(path: String, arguments: [String] = []) async throws {
         logger.info("Launching macOS app: \(path)")
         appPath = path
@@ -25,18 +35,38 @@ public actor MacOSDriver {
         configuration.arguments = arguments
         configuration.environment = ["LOG_LEVEL": "debug"]
 
-        try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+        let runningApp = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+        appPID = runningApp.processIdentifier
+        logger.info("macOS app launched with PID \(runningApp.processIdentifier)")
 
         // Wait for the app to launch
         try await Task.sleep(for: .seconds(2))
     }
 
-    /// Terminate the macOS app
+    /// Terminate the test macOS app instance by PID.
+    /// Only terminates the instance that was launched by `launchApp`, leaving
+    /// any production copy of the app running.
     public func terminateApp() async throws {
-        logger.info("Terminating macOS app")
-        let script = "tell application \"\(appName)\" to quit"
-        try await runAppleScript(script)
-        try await Task.sleep(for: .seconds(1))
+        guard let pid = appPID else {
+            logger.warning("No app PID recorded — skipping termination")
+            return
+        }
+        logger.info("Terminating macOS app (PID \(pid))")
+
+        if let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated {
+            app.terminate()
+            // Wait for the process to exit
+            let deadline = Date().addingTimeInterval(5)
+            while !app.isTerminated, Date() < deadline {
+                try await Task.sleep(for: .milliseconds(200))
+            }
+            if !app.isTerminated {
+                logger.warning("App did not terminate gracefully, force-killing PID \(pid)")
+                app.forceTerminate()
+                try await Task.sleep(for: .milliseconds(500))
+            }
+        }
+        appPID = nil
     }
 
     // MARK: - Settings Navigation
@@ -46,7 +76,7 @@ public actor MacOSDriver {
         logger.info("Opening Settings via status item menu")
         let script = """
         tell application "System Events"
-            tell process "\(appName)"
+            tell (first process whose unix id is \(requirePID()))
                 click menu bar item 1 of menu bar 2
                 delay 0.5
                 click menu item "Settings..." of menu 1 of menu bar item 1 of menu bar 2
@@ -66,7 +96,7 @@ public actor MacOSDriver {
             timeout: timeout,
             pollInterval: 0.5
         ) {
-            await MacAppHTTPClient.windowExists(titled: titled)
+            await MacAppHTTPClient.windowExists(titled: titled, port: self.httpPort)
         }
     }
 
@@ -76,7 +106,7 @@ public actor MacOSDriver {
         logger.info("Selecting settings tab: \(tabName)")
         // Wait for the element to appear, then click via HTTP
         _ = try await waitForHTTPElement(titled: tabName, timeout: 5)
-        let clicked = try await MacAppHTTPClient.click(titled: tabName)
+        let clicked = try await MacAppHTTPClient.click(titled: tabName, port: httpPort)
         if !clicked {
             throw MacOSDriverError.elementNotFound(tabName)
         }
@@ -87,7 +117,7 @@ public actor MacOSDriver {
     public func clickButton(titled: String) async throws {
         logger.info("Clicking button: \(titled)")
         _ = try await waitForHTTPElement(titled: titled, timeout: 5)
-        let clicked = try await MacAppHTTPClient.click(titled: titled)
+        let clicked = try await MacAppHTTPClient.click(titled: titled, port: httpPort)
         if !clicked {
             throw MacOSDriverError.elementNotFound(titled)
         }
@@ -101,7 +131,7 @@ public actor MacOSDriver {
 
         // Step 1: Click the menu trigger via HTTP (opens the popup)
         _ = try await waitForHTTPElement(titled: menuButtonTitle, timeout: 5)
-        let clicked = try await MacAppHTTPClient.click(titled: menuButtonTitle)
+        let clicked = try await MacAppHTTPClient.click(titled: menuButtonTitle, port: httpPort)
         if !clicked {
             throw MacOSDriverError.elementNotFound(menuButtonTitle)
         }
@@ -110,7 +140,7 @@ public actor MacOSDriver {
         let deadline = Date().addingTimeInterval(3)
         while Date() < deadline {
             try await Task.sleep(for: .milliseconds(300))
-            let itemClicked = try await MacAppHTTPClient.click(titled: itemTitle)
+            let itemClicked = try await MacAppHTTPClient.click(titled: itemTitle, port: httpPort)
             if itemClicked {
                 return
             }
@@ -126,7 +156,7 @@ public actor MacOSDriver {
         logger.info("Opening Panes window via status item menu")
         let script = """
         tell application "System Events"
-            tell process "\(appName)"
+            tell (first process whose unix id is \(requirePID()))
                 click menu bar item 1 of menu bar 2
                 delay 0.5
                 click menu item "Show Panes Window" of menu 1 of menu bar item 1 of menu bar 2
@@ -142,7 +172,7 @@ public actor MacOSDriver {
     /// don't expose windows through System Events.
     public func resizeWindow(width: Int, height: Int) async throws {
         logger.info("Resizing window to \(width)x\(height)")
-        let resized = try await MacAppHTTPClient.resizeWindow(width: width, height: height)
+        let resized = try await MacAppHTTPClient.resizeWindow(width: width, height: height, port: httpPort)
         if !resized {
             throw MacOSDriverError.appleScriptFailed(
                 "Failed to resize window to \(width)x\(height) — no visible window found"
@@ -153,7 +183,7 @@ public actor MacOSDriver {
     /// Set the sidebar width of the NavigationSplitView via the in-app HTTP server.
     public func setSidebarWidth(_ width: Int) async throws {
         logger.info("Setting sidebar width to \(width)")
-        let success = try await MacAppHTTPClient.setSidebarWidth(width)
+        let success = try await MacAppHTTPClient.setSidebarWidth(width, port: httpPort)
         if !success {
             throw MacOSDriverError.elementNotFound("NSSplitView for sidebar width")
         }
@@ -170,7 +200,7 @@ public actor MacOSDriver {
         """ : ""
         let script = """
         tell application "System Events"
-            tell process "\(appName)"
+            tell (first process whose unix id is \(requirePID()))
                 set frontmost to true
                 keystroke "\(escaped)"\(returnClause)
             end tell
@@ -185,7 +215,7 @@ public actor MacOSDriver {
     /// Bypasses the SwiftUI Menu (whose NSMenu popup isn't in the accessibility tree).
     public func unpair() async throws {
         logger.info("Triggering unpair via HTTP endpoint")
-        let success = try await MacAppHTTPClient.unpair()
+        let success = try await MacAppHTTPClient.unpair(port: httpPort)
         if !success {
             throw MacOSDriverError.elementNotFound("unpair endpoint returned failure")
         }
@@ -237,7 +267,7 @@ public actor MacOSDriver {
             timeout: timeout,
             pollInterval: 0.5
         ) {
-            try? await MacAppHTTPClient.findElement(titled: titled)
+            try? await MacAppHTTPClient.findElement(titled: titled, port: self.httpPort)
         }
     }
 
@@ -246,7 +276,7 @@ public actor MacOSDriver {
         logger.info("Clicking at screen coordinates: (\(point.x), \(point.y))")
 
         // Bring the app's windows to front via HTTP endpoint
-        try await MacAppHTTPClient.activate()
+        try await MacAppHTTPClient.activate(port: httpPort)
         try await Task.sleep(for: .milliseconds(300))
 
         let mouseDown = CGEvent(
@@ -312,8 +342,9 @@ public actor MacOSDriver {
 
     // MARK: - Private: CGWindowList
 
-    /// Finds the CGWindowID for the first on-screen window owned by our app.
+    /// Finds the CGWindowID for the first on-screen window owned by the test app instance (by PID).
     private func getWindowID() -> CGWindowID? {
+        guard let pid = appPID else { return nil }
         guard
             let windowList = CGWindowListCopyWindowInfo(
                 [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
@@ -323,13 +354,22 @@ public actor MacOSDriver {
 
         for window in windowList {
             guard
-                let ownerName = window[kCGWindowOwnerName as String] as? String,
-                ownerName == appName,
+                let ownerPID = window[kCGWindowOwnerPID as String] as? pid_t,
+                ownerPID == pid,
                 let windowNumber = window[kCGWindowNumber as String] as? CGWindowID
             else { continue }
             return windowNumber
         }
         return nil
+    }
+
+    // MARK: - Private: PID Helper
+
+    private func requirePID() -> pid_t {
+        guard let pid = appPID else {
+            fatalError("MacOSDriver: no app PID — call launchApp first")
+        }
+        return pid
     }
 
     // MARK: - Private: AppleScript Helpers

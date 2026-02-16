@@ -4,7 +4,7 @@ import Logging
 /// Coordinates all drivers and runs test scenarios
 public actor TestOrchestrator {
     private let simulatorDriver = SimulatorDriver()
-    private let macOSDriver = MacOSDriver()
+    private let macOSDriver: MacOSDriver
     private let serverDriver = ServerDriver()
     private let processRunner = ProcessRunner()
     private let context = ExecutionContext()
@@ -20,6 +20,8 @@ public actor TestOrchestrator {
     private let e2eHostBundleId = "br.eng.gustavo.claudespy.e2ehost"
     private let e2eRunnerBundleId = "br.eng.gustavo.claudespy.e2erunner.xctrunner"
     private let serverPort = 8_765
+    /// Port for the macOS app's test accessibility HTTP server
+    private let macAppPort: UInt16
     private let scenarioNames: [String]
     private let skipComparison: Bool
     private var screenshotCounter = 0
@@ -58,6 +60,9 @@ public actor TestOrchestrator {
     ///   for scenarios to reference.
     /// - Parameter scenarioNames: The full ordered list of scenario names (used to number
     ///   screenshot directories consistently regardless of which subset is actually run).
+    /// - Parameter macAppPort: Port for the macOS app's test accessibility HTTP server.
+    ///   Defaults to 18081. Use a different port to avoid conflicting with a production
+    ///   instance of the app that may already be running.
     public init(
         iosAppPath: String? = nil,
         macOSAppPath: String,
@@ -67,7 +72,8 @@ public actor TestOrchestrator {
         tmuxSocket: String? = nil,
         e2eRunnerPath: String? = nil,
         scenarioNames: [String] = [],
-        skipComparison: Bool = false
+        skipComparison: Bool = false,
+        macAppPort: UInt16 = 18_081
     ) {
         self.iosAppPath = iosAppPath
         self.macOSAppPath = macOSAppPath
@@ -78,6 +84,8 @@ public actor TestOrchestrator {
         self.e2eRunnerPath = e2eRunnerPath
         self.scenarioNames = scenarioNames
         self.skipComparison = skipComparison
+        self.macAppPort = macAppPort
+        self.macOSDriver = MacOSDriver(httpPort: macAppPort)
     }
 
     // MARK: - Run Scenarios
@@ -334,6 +342,7 @@ public actor TestOrchestrator {
                     "--e2e-test",
                     "--server-url", "ws://127.0.0.1:\(serverPort)",
                     "--tmux-socket", resolvedSocket,
+                    "--e2e-port", "\(macAppPort)",
                 ]
             )
 

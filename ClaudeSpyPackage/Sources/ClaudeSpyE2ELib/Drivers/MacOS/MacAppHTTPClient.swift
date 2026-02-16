@@ -8,7 +8,6 @@ import Logging
 /// this client queries the macOS app directly via HTTP for its accessibility tree.
 enum MacAppHTTPClient {
     private static let logger = Logger(label: "e2e.mac-http")
-    private static let port: UInt16 = 18_081
 
     struct WindowInfo: Sendable {
         let title: String
@@ -41,7 +40,7 @@ enum MacAppHTTPClient {
     }
 
     /// Fetch the macOS app's accessibility tree via HTTP
-    static func describeUI() async throws -> [WindowInfo] {
+    static func describeUI(port: UInt16) async throws -> [WindowInfo] {
         let url = URL(string: "http://127.0.0.1:\(port)/describe-ui")!
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
@@ -60,8 +59,8 @@ enum MacAppHTTPClient {
     }
 
     /// Find the first element matching a title/label/help across all windows
-    static func findElement(titled: String) async throws -> MacUIElement? {
-        let windows = try await describeUI()
+    static func findElement(titled: String, port: UInt16) async throws -> MacUIElement? {
+        let windows = try await describeUI(port: port)
         for window in windows {
             if let found = window.elements.first(where: { $0.matches(titled: titled) }) {
                 return found
@@ -71,7 +70,7 @@ enum MacAppHTTPClient {
     }
 
     /// Bring the app's windows to front
-    static func activate() async throws {
+    static func activate(port: UInt16) async throws {
         let url = URL(string: "http://127.0.0.1:\(port)/activate")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -82,7 +81,7 @@ enum MacAppHTTPClient {
     /// The click is performed by the app itself, bypassing window z-ordering issues.
     /// Returns true if the element was found and clicked.
     @discardableResult
-    static func click(titled: String) async throws -> Bool {
+    static func click(titled: String, port: UInt16) async throws -> Bool {
         let encoded = titled.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? titled
         let url = URL(string: "http://127.0.0.1:\(port)/click?title=\(encoded)")!
         var request = URLRequest(url: url)
@@ -97,7 +96,7 @@ enum MacAppHTTPClient {
     /// Used because SwiftUI Menu popups create native NSMenu objects
     /// that aren't visible to the accessibility tree.
     @discardableResult
-    static func unpair() async throws -> Bool {
+    static func unpair(port: UInt16) async throws -> Bool {
         let url = URL(string: "http://127.0.0.1:\(port)/unpair")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -109,7 +108,7 @@ enum MacAppHTTPClient {
 
     /// Set the sidebar width of the NavigationSplitView
     @discardableResult
-    static func setSidebarWidth(_ width: Int) async throws -> Bool {
+    static func setSidebarWidth(_ width: Int, port: UInt16) async throws -> Bool {
         let url = URL(string: "http://127.0.0.1:\(port)/set-sidebar-width?width=\(width)")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -121,7 +120,7 @@ enum MacAppHTTPClient {
 
     /// Resize the app's frontmost normal-level window
     @discardableResult
-    static func resizeWindow(width: Int, height: Int) async throws -> Bool {
+    static func resizeWindow(width: Int, height: Int, port: UInt16) async throws -> Bool {
         let url = URL(string: "http://127.0.0.1:\(port)/resize-window?width=\(width)&height=\(height)")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -132,8 +131,8 @@ enum MacAppHTTPClient {
     }
 
     /// Check if a window with the given title exists
-    static func windowExists(titled: String) async -> Bool {
-        guard let windows = try? await describeUI() else { return false }
+    static func windowExists(titled: String, port: UInt16) async -> Bool {
+        guard let windows = try? await describeUI(port: port) else { return false }
         return windows.contains { $0.title.contains(titled) }
     }
 

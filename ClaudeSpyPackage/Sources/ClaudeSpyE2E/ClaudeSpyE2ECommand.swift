@@ -42,6 +42,9 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     @Option(name: .long, help: "Write detailed JSON results to this file path")
     var jsonOutput: String?
 
+    @Option(name: .long, help: "Port for the macOS app's test accessibility server (default: 18081)")
+    var macAppPort: UInt16 = 18_081
+
     @Flag(name: .long, help: "List all available scenarios and exit")
     var listScenarios = false
 
@@ -81,6 +84,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         print("Compare:     \(noCompare ? "disabled" : "enabled")")
         print("Tmux socket: \(tmuxSocket ?? "(default)")")
         print("E2E runner:  \(e2eRunnerPath ?? "(none)")")
+        print("Mac app port: \(macAppPort)")
         print()
 
         let orchestrator = TestOrchestrator(
@@ -92,7 +96,8 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             tmuxSocket: tmuxSocket,
             e2eRunnerPath: e2eRunnerPath,
             scenarioNames: Self.allScenarios.map(\.name),
-            skipComparison: noCompare
+            skipComparison: noCompare,
+            macAppPort: macAppPort
         )
 
         if interactive {
