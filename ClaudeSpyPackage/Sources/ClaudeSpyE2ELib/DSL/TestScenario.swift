@@ -106,6 +106,16 @@ public enum TestStep: Sendable {
     case tmuxCreateSession(name: String, width: Int, height: Int)
     /// Query pane dimensions and store them in the execution context
     case tmuxStorePaneDimensions(target: String, widthKey: String, heightKey: String)
+    /// Query the tmux pane ID (e.g. "%0") for a target and store it in the execution context
+    case tmuxStorePaneId(target: String, storeAs: String)
+
+    // MARK: - Hook Events
+
+    /// Send a hook event to the macOS app's real hook server (`/api/hooks`) via HTTP POST.
+    /// The `json` parameter is the raw JSON body (supports `${var}` interpolation).
+    /// `tmuxPane` and `projectPath` are sent as query parameters.
+    /// The server port is read from `~/.claudespy-port`.
+    case macSendHookEvent(json: String, tmuxPane: String, projectPath: String? = nil)
 
     // MARK: - Assertions
 

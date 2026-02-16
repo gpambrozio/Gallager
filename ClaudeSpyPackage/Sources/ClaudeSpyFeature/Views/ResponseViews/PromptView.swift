@@ -16,21 +16,25 @@ struct PromptView: View {
     }
 
     var body: some View {
-        textField
-            .padding(.vertical, 8)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    if state.isSending {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Button("Send") {
-                            sendMessage()
+        if let response = state.response {
+            responseFeedback(response)
+        } else {
+            textField
+                .padding(.vertical, 8)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        if state.isSending {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Button("Send") {
+                                sendMessage()
+                            }
+                            .disabled(isInputEmpty || !isConnected)
                         }
-                        .disabled(isInputEmpty || !isConnected)
                     }
                 }
-            }
+        }
     }
 
     private var textField: some View {
@@ -42,6 +46,7 @@ struct PromptView: View {
             .overlay(textFieldBorder)
             .focused($isTextFieldFocused)
             .disabled(state.isSending || !isConnected)
+            .accessibilityLabel("Send a message to Claude")
     }
 
     private var textFieldBackground: some View {
@@ -54,6 +59,19 @@ struct PromptView: View {
             .stroke(Color.gray.opacity(0.3), lineWidth: 1)
     }
 
+    private func responseFeedback(_ response: ResponseType) -> some View {
+        HStack {
+            (response.feedbackColor == .green ? Symbols.checkmarkCircleFill.image :
+                response.feedbackColor == .red ? Symbols.xmarkCircleFill.image : Symbols.arrowUpCircleFill.image)
+                .foregroundStyle(response.feedbackColor)
+            Text(response.feedbackMessage)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .font(.subheadline)
+        .padding(.vertical, 4)
+    }
+
     private func sendMessage() {
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -64,6 +82,7 @@ struct PromptView: View {
             await sendCommand(.sendKeystroke([.text(trimmed), .enter]))
             inputText = ""
             state.isSending = false
+            state.response = .promptSubmitted
         }
     }
 }
