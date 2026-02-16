@@ -20,6 +20,9 @@ public actor TestOrchestrator {
     private let e2eHostBundleId = "br.eng.gustavo.claudespy.e2ehost"
     private let e2eRunnerBundleId = "br.eng.gustavo.claudespy.e2erunner.xctrunner"
     private let serverPort = 8_765
+    /// Path to the hook server port file. E2E tests use a separate file
+    /// (`~/.claudespy-port-test`) to avoid colliding with a production instance.
+    private let hookPortFile: String
     private let scenarioNames: [String]
     private let skipComparison: Bool
     private var screenshotCounter = 0
@@ -67,7 +70,8 @@ public actor TestOrchestrator {
         tmuxSocket: String? = nil,
         e2eRunnerPath: String? = nil,
         scenarioNames: [String] = [],
-        skipComparison: Bool = false
+        skipComparison: Bool = false,
+        hookPortFile: String? = nil
     ) {
         self.iosAppPath = iosAppPath
         self.macOSAppPath = macOSAppPath
@@ -78,6 +82,10 @@ public actor TestOrchestrator {
         self.e2eRunnerPath = e2eRunnerPath
         self.scenarioNames = scenarioNames
         self.skipComparison = skipComparison
+        self.hookPortFile = hookPortFile ?? {
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            return "\(home)/.claudespy-port-test"
+        }()
     }
 
     // MARK: - Run Scenarios
@@ -334,6 +342,7 @@ public actor TestOrchestrator {
                     "--e2e-test",
                     "--server-url", "ws://127.0.0.1:\(serverPort)",
                     "--tmux-socket", resolvedSocket,
+                    "--hook-port-file", hookPortFile,
                 ]
             )
 
@@ -444,7 +453,8 @@ public actor TestOrchestrator {
             try await macOSDriver.sendHookEvent(
                 json: resolvedJson,
                 tmuxPane: resolvedPane,
-                projectPath: resolvedPath
+                projectPath: resolvedPath,
+                hookPortFile: hookPortFile
             )
 
         // Assertions

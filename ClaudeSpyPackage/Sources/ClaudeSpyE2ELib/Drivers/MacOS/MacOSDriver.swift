@@ -3,40 +3,69 @@ import CoreGraphics
 import Foundation
 import Logging
 
-/// Drives the macOS Gallager app via HTTP accessibility server, CGEvent, and AppleScript
+/// Drives the macOS Gallager app via HTTP accessibility server, CGEvent, and AppleScript.
+///
+/// Tracks the launched app instance by PID so E2E tests can run alongside a
+/// production copy of the same app without interfering with it.
 public actor MacOSDriver {
     private let processRunner = ProcessRunner()
     private let logger = Logger(label: "e2e.macos-driver")
 
     private var appPath: String?
     private let appName = "Gallager"
+    /// PID of the app instance launched by `launchApp`. Used to scope termination,
+    /// AppleScript interactions, and window lookup to the test instance only.
+    private var appPID: pid_t?
 
     public init() { }
 
     // MARK: - App Lifecycle
 
-    /// Launch the macOS app
+    /// Launch the macOS app and record its PID for targeted interaction
     public func launchApp(path: String, arguments: [String] = []) async throws {
         logger.info("Launching macOS app: \(path)")
         appPath = path
 
         let url = URL(fileURLWithPath: path)
         let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
         configuration.arguments = arguments
         configuration.environment = ["LOG_LEVEL": "debug"]
 
-        try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+        let runningApp = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+        appPID = runningApp.processIdentifier
+        logger.info("macOS app launched with PID \(runningApp.processIdentifier)")
 
         // Wait for the app to launch
         try await Task.sleep(for: .seconds(2))
     }
 
-    /// Terminate the macOS app
+    /// Terminate the test macOS app instance by PID.
+    /// Only terminates the instance that was launched by `launchApp`, leaving
+    /// any production copy of the app running.
     public func terminateApp() async throws {
-        logger.info("Terminating macOS app")
-        let script = "tell application \"\(appName)\" to quit"
-        try await runAppleScript(script)
-        try await Task.sleep(for: .seconds(1))
+        guard let pid = appPID else {
+            logger.warning("No app PID recorded — skipping termination")
+            return
+        }
+        logger.info("Terminating macOS app (PID \(pid))")
+
+        if let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated {
+            app.terminate()
+            // Wait for the process to exit
+            let deadline = Date().addingTimeInterval(5)
+            while !app.isTerminated, Date() < deadline {
+                try await Task.sleep(for: .milliseconds(200))
+            }
+            if !app.isTerminated {
+                logger.warning("App did not terminate gracefully, force-killing PID \(pid)")
+                app.forceTerminate()
+                try await Task.sleep(for: .milliseconds(500))
+            }
+        } else {
+            logger.info("App PID \(pid) already terminated or no longer valid")
+        }
+        appPID = nil
     }
 
     // MARK: - Settings Navigation
@@ -44,9 +73,9 @@ public actor MacOSDriver {
     /// Open the Settings window via the status item menu
     public func openSettings() async throws {
         logger.info("Opening Settings via status item menu")
-        let script = """
+        let script = try """
         tell application "System Events"
-            tell process "\(appName)"
+            tell (first process whose unix id is \(requirePID()))
                 click menu bar item 1 of menu bar 2
                 delay 0.5
                 click menu item "Settings..." of menu 1 of menu bar item 1 of menu bar 2
@@ -124,9 +153,9 @@ public actor MacOSDriver {
     /// Open the Panes window via the status item menu
     public func openPanesWindow() async throws {
         logger.info("Opening Panes window via status item menu")
-        let script = """
+        let script = try """
         tell application "System Events"
-            tell process "\(appName)"
+            tell (first process whose unix id is \(requirePID()))
                 click menu bar item 1 of menu bar 2
                 delay 0.5
                 click menu item "Show Panes Window" of menu 1 of menu bar item 1 of menu bar 2
@@ -168,9 +197,9 @@ public actor MacOSDriver {
                 delay 0.1
                 keystroke return
         """ : ""
-        let script = """
+        let script = try """
         tell application "System Events"
-            tell process "\(appName)"
+            tell (first process whose unix id is \(requirePID()))
                 set frontmost to true
                 keystroke "\(escaped)"\(returnClause)
             end tell
@@ -194,16 +223,17 @@ public actor MacOSDriver {
     // MARK: - Hook Events
 
     /// Send a hook event to the macOS app's real hook server (`/api/hooks`).
-    /// The hook server port is read from `~/.claudespy-port`.
-    public func sendHookEvent(json: String, tmuxPane: String, projectPath: String?) async throws {
+    /// The hook server port is read from `hookPortFile` (defaults to `~/.claudespy-port`).
+    public func sendHookEvent(json: String, tmuxPane: String, projectPath: String?, hookPortFile: String? = nil) async throws {
         logger.info("Sending hook event via test server, pane: \(tmuxPane)")
         let success = try await MacAppHTTPClient.sendHook(
             json: json,
             tmuxPane: tmuxPane,
-            projectPath: projectPath
+            projectPath: projectPath,
+            hookPortFile: hookPortFile
         )
         if !success {
-            throw MacOSDriverError.appleScriptFailed("Hook event POST failed")
+            throw MacOSDriverError.hookEventFailed("Hook event POST failed")
         }
         logger.info("Hook event sent successfully")
     }
@@ -329,8 +359,9 @@ public actor MacOSDriver {
 
     // MARK: - Private: CGWindowList
 
-    /// Finds the CGWindowID for the first on-screen window owned by our app.
+    /// Finds the CGWindowID for the first on-screen window owned by the test app instance (by PID).
     private func getWindowID() -> CGWindowID? {
+        guard let pid = appPID else { return nil }
         guard
             let windowList = CGWindowListCopyWindowInfo(
                 [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
@@ -340,13 +371,22 @@ public actor MacOSDriver {
 
         for window in windowList {
             guard
-                let ownerName = window[kCGWindowOwnerName as String] as? String,
-                ownerName == appName,
+                let ownerPID = window[kCGWindowOwnerPID as String] as? pid_t,
+                ownerPID == pid,
                 let windowNumber = window[kCGWindowNumber as String] as? CGWindowID
             else { continue }
             return windowNumber
         }
         return nil
+    }
+
+    // MARK: - Private: PID Helper
+
+    private func requirePID() throws -> pid_t {
+        guard let pid = appPID else {
+            throw MacOSDriverError.appNotRunning
+        }
+        return pid
     }
 
     // MARK: - Private: AppleScript Helpers
@@ -380,6 +420,7 @@ public enum MacOSDriverError: Error, LocalizedError {
     case appleScriptFailed(String)
     case windowNotFound(String)
     case elementNotFound(String)
+    case hookEventFailed(String)
 
     public var errorDescription: String? {
         switch self {
@@ -391,6 +432,8 @@ public enum MacOSDriverError: Error, LocalizedError {
             "Window not found: \(title)"
         case let .elementNotFound(title):
             "Element not found for click: \(title)"
+        case let .hookEventFailed(message):
+            "Hook event failed: \(message)"
         }
     }
 }

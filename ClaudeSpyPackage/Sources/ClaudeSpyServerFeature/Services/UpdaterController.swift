@@ -19,12 +19,16 @@
             updaterController.updater.lastUpdateCheckDate
         }
 
-        public init() {
+        /// - Parameter startUpdater: Pass `false` to skip starting the Sparkle updater
+        ///   (e.g. during E2E tests where update dialogs would interfere).
+        public init(startUpdater: Bool = true) {
             self.updaterController = SPUStandardUpdaterController(
-                startingUpdater: true,
+                startingUpdater: startUpdater,
                 updaterDelegate: nil,
                 userDriverDelegate: nil
             )
+
+            guard startUpdater else { return }
 
             // Use Combine's sink to observe canCheckForUpdates changes
             // This is the pattern recommended by Sparkle's documentation for SwiftUI

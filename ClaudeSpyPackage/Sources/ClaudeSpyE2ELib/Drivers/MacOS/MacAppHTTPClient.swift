@@ -120,10 +120,10 @@ enum MacAppHTTPClient {
     }
 
     /// Send a hook event to the macOS app's real hook server (`/api/hooks`).
-    /// Reads the hook server port from `~/.claudespy-port` (written on startup).
+    /// Reads the hook server port from the given port file (defaults to `~/.claudespy-port`).
     @discardableResult
-    static func sendHook(json: String, tmuxPane: String, projectPath: String?) async throws -> Bool {
-        let hookPort = try readHookServerPort()
+    static func sendHook(json: String, tmuxPane: String, projectPath: String?, hookPortFile: String? = nil) async throws -> Bool {
+        let hookPort = try readHookServerPort(portFilePath: hookPortFile)
 
         var components = URLComponents(string: "http://localhost:\(hookPort)/api/hooks")!
         var queryItems = [URLQueryItem(name: "tmux_pane", value: tmuxPane)]
@@ -142,9 +142,9 @@ enum MacAppHTTPClient {
         return statusCode == 200
     }
 
-    /// Read the hook server port from `~/.claudespy-port`.
-    private static func readHookServerPort() throws -> Int {
-        let portFilePath = FileManager.default.homeDirectoryForCurrentUser
+    /// Read the hook server port from the given file path, falling back to `~/.claudespy-port`.
+    private static func readHookServerPort(portFilePath: String? = nil) throws -> Int {
+        let portFilePath = portFilePath ?? FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claudespy-port").path
         guard
             let contents = try? String(contentsOfFile: portFilePath, encoding: .utf8),
@@ -242,7 +242,7 @@ enum MacAppHTTPError: Error, LocalizedError {
         case let .elementNotFound(title):
             "Element not found: \(title)"
         case .hookServerPortUnavailable:
-            "Hook server port unavailable (is ~/.claudespy-port present?)"
+            "Hook server port file not found or unreadable"
         }
     }
 }
