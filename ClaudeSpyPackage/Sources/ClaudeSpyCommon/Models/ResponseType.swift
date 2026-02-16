@@ -8,6 +8,8 @@ public enum ResponseType: Equatable {
     case customInstructions(String)
     /// Used when all questions have been answered
     case allQuestionsAnswered
+    /// Used when a prompt message has been submitted
+    case promptSubmitted
 
     public var feedbackMessage: String {
         switch self {
@@ -21,6 +23,8 @@ public enum ResponseType: Equatable {
             "Sent: \(text)"
         case .allQuestionsAnswered:
             "All questions answered"
+        case .promptSubmitted:
+            "Prompt submitted"
         }
     }
 
@@ -28,7 +32,8 @@ public enum ResponseType: Equatable {
         switch self {
         case .accepted,
              .acceptedWithSuggestion,
-             .allQuestionsAnswered:
+             .allQuestionsAnswered,
+             .promptSubmitted:
             .green
         case .rejected:
             .red

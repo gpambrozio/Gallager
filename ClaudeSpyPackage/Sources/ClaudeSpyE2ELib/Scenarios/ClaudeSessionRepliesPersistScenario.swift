@@ -38,9 +38,10 @@ public enum ClaudeSessionRepliesPersistScenario {
         TestStep.iosScreenshot(label: "ios-prompt-filled")
         TestStep.iosTap(.labelContains("Send"))
         TestStep.wait(seconds: 2)
+        TestStep.iosScreenshot(label: "ios-prompt-submitted")
 
-        // Verify the prompt view (response UI) is still showing after submission
-        TestStep.iosWaitForElement(.labelContains("Send a message to Claude"), timeout: 5)
+        // Verify the prompt submitted feedback is showing after submission
+        TestStep.iosWaitForElement(.labelContains("Prompt submitted"), timeout: 5)
 
         // Navigate back to session list
         TestStep.iosTap(.labelContains("Sessions"))
@@ -50,8 +51,8 @@ public enum ClaudeSessionRepliesPersistScenario {
         TestStep.iosTap(.labelContains("MyProject"))
         TestStep.wait(seconds: 3)
 
-        // Verify the prompt view persists (response UI, not just bare terminal)
-        TestStep.iosWaitForElement(.labelContains("Send a message to Claude"), timeout: 10)
+        // Verify the prompt submitted feedback persists after navigating back
+        TestStep.iosWaitForElement(.labelContains("Prompt submitted"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-prompt-persists")
 
         // ──────────────────────────────────────────────────────────
