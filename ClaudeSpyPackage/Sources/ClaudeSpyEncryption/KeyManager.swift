@@ -318,16 +318,25 @@ import Foundation
         /// - Throws: `CryptoError.keychainError` on Keychain access failure
         public func storeSessionKey(_ keyData: Data, for pairId: String) throws {
             let account = sessionKeyAccount(for: pairId)
+            let query = baseKeychainAttributes(account: account)
 
-            // Delete existing session key first
-            let deleteQuery = baseKeychainAttributes(account: account)
-            SecItemDelete(deleteQuery as CFDictionary)
+            // Try to update existing item first (upsert pattern)
+            let updateAttrs: [String: Any] = [
+                kSecValueData as String: keyData,
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+            ]
 
-            // Store new session key
-            let attributes = storeAttributes(account: account, data: keyData)
-            let status = SecItemAdd(attributes as CFDictionary, nil)
-            guard status == errSecSuccess else {
-                throw CryptoError.keychainError(status: status)
+            let updateStatus = SecItemUpdate(query as CFDictionary, updateAttrs as CFDictionary)
+
+            if updateStatus == errSecItemNotFound {
+                // No existing item — add new one
+                let attributes = storeAttributes(account: account, data: keyData)
+                let addStatus = SecItemAdd(attributes as CFDictionary, nil)
+                guard addStatus == errSecSuccess else {
+                    throw CryptoError.keychainError(status: addStatus)
+                }
+            } else if updateStatus != errSecSuccess {
+                throw CryptoError.keychainError(status: updateStatus)
             }
         }
 
