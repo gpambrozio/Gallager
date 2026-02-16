@@ -109,8 +109,9 @@
                             if width > 0 {
                                 for window in NSApp.windows
                                     where window.isVisible && window.level == .normal {
-                                    if let contentView = window.contentView,
-                                       let splitView = self?.findSplitView(in: contentView) {
+                                    if
+                                        let contentView = window.contentView,
+                                        let splitView = self?.findSplitView(in: contentView) {
                                         splitView.setPosition(CGFloat(width), ofDividerAt: 0)
                                         found = true
                                         break

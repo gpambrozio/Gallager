@@ -419,6 +419,34 @@ public actor TestOrchestrator {
             context.set(heightKey, value: String(parts[1]))
             logger.info("  Stored \(widthKey)=\(parts[0]), \(heightKey)=\(parts[1])")
 
+        case let .tmuxStorePaneId(target, storeAs):
+            let socket = context.resolve("${tmuxSocket}")
+            let resolvedTarget = context.resolve(target)
+            let runner = processRunner
+            let result = try await runner.runOrThrow(
+                "tmux",
+                arguments: ["-S", socket, "display-message", "-t", resolvedTarget, "-p", "#{pane_id}"]
+            )
+            let paneId = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !paneId.isEmpty else {
+                throw OrchestratorError.assertionFailed(
+                    "Empty pane ID from tmux display-message for target '\(resolvedTarget)'"
+                )
+            }
+            context.set(storeAs, value: paneId)
+            logger.info("  Stored \(storeAs)=\(paneId)")
+
+        // Hook Events
+        case let .macSendHookEvent(json, tmuxPane, projectPath):
+            let resolvedJson = context.resolve(json)
+            let resolvedPane = context.resolve(tmuxPane)
+            let resolvedPath = projectPath.map { context.resolve($0) }
+            try await macOSDriver.sendHookEvent(
+                json: resolvedJson,
+                tmuxPane: resolvedPane,
+                projectPath: resolvedPath
+            )
+
         // Assertions
         case let .assertStoredEqual(key, otherKey):
             guard let value1 = context.get(key) else {
