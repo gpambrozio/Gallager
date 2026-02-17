@@ -4,11 +4,12 @@
 # Captures terminal content (with ANSI escape codes) from a running tmux pane.
 #
 # Usage:
-#   ./scripts/record-tmux-session.sh [--name <recording-name>] [--snapshot]
+#   ./scripts/record-tmux-session.sh [--name <recording-name>] [--snapshot] [--pipe-only]
 #
 # Modes:
 #   Default (streaming): Captures initial state + live output until you press Enter
 #   --snapshot:          Captures only the current scrollback + visible content
+#   --pipe-only:         Captures only live pipe-pane output (no initial capture-pane)
 #
 # Output: E2ETests/Recordings/<name>/
 #   metadata.json  — pane dimensions
@@ -22,6 +23,7 @@ RECORDINGS_DIR="$PROJECT_ROOT/E2ETests/Recordings"
 
 NAME=""
 SNAPSHOT=false
+PIPE_ONLY=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -34,12 +36,17 @@ while [[ $# -gt 0 ]]; do
             SNAPSHOT=true
             shift
             ;;
+        --pipe-only)
+            PIPE_ONLY=true
+            shift
+            ;;
         -h|--help)
-            echo "Usage: $0 [--name <recording-name>] [--snapshot]"
+            echo "Usage: $0 [--name <recording-name>] [--snapshot] [--pipe-only]"
             echo ""
             echo "Options:"
             echo "  --name       Name for the recording (prompted if omitted)"
             echo "  --snapshot   Capture only current state (no streaming)"
+            echo "  --pipe-only  Capture only live output (no initial capture-pane)"
             echo "  -h, --help   Show this help"
             exit 0
             ;;
@@ -104,19 +111,25 @@ echo "Dimensions: ${WIDTH}x${HEIGHT}"
 OUTPUT_DIR="$RECORDINGS_DIR/$NAME"
 mkdir -p "$OUTPUT_DIR"
 
-# Capture initial state (scrollback + visible, with ANSI escape codes)
-echo "Capturing pane content..."
-tmux capture-pane -t "$TARGET" -p -e -S - > "$OUTPUT_DIR/recording.data"
-
 if [[ "$SNAPSHOT" == true ]]; then
-    echo "Snapshot mode — skipping stream capture."
-else
-    # Start live capture, appending to the same file
+    # Snapshot: capture-pane only, no streaming
+    echo "Capturing pane content (snapshot)..."
+    tmux capture-pane -t "$TARGET" -p -e -S - > "$OUTPUT_DIR/recording.data"
+elif [[ "$PIPE_ONLY" == true ]]; then
+    # Pipe-only: raw bytes only, no initial capture-pane
+    echo "Recording raw pipe output only..."
+    : > "$OUTPUT_DIR/recording.data"
     tmux pipe-pane -t "$TARGET" -o "cat >> '$OUTPUT_DIR/recording.data'"
     echo "Recording live output... Press Enter to stop."
     read -r
-
-    # Stop piping
+    tmux pipe-pane -t "$TARGET"
+else
+    # Default: capture initial state + live output
+    echo "Capturing pane content..."
+    tmux capture-pane -t "$TARGET" -p -e -S - > "$OUTPUT_DIR/recording.data"
+    tmux pipe-pane -t "$TARGET" -o "cat >> '$OUTPUT_DIR/recording.data'"
+    echo "Recording live output... Press Enter to stop."
+    read -r
     tmux pipe-pane -t "$TARGET"
 fi
 

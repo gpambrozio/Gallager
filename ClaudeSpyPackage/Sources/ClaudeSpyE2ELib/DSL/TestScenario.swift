@@ -113,6 +113,15 @@ public enum TestStep: Sendable {
     /// Replay a pre-recorded tmux session into a pane. The recording must exist
     /// at `E2ETests/Recordings/<name>/` with `metadata.json` and `content.data`.
     case tmuxReplayRecording(name: String, target: String)
+    /// Replay a pre-recorded tmux session using throttled streaming so the mirror
+    /// can connect mid-stream. Uses `throttled-cat.sh` to output the recording
+    /// in chunks with delays between them.
+    case tmuxReplayRecordingStreaming(
+        name: String,
+        target: String,
+        chunkSize: Int = 256,
+        chunkDelayMs: Int = 50
+    )
 
     // MARK: - Hook Events
 

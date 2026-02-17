@@ -503,6 +503,68 @@ public actor TestOrchestrator {
                 arguments: ["-f", "/dev/null", "-S", socket, "respawn-pane", "-t", resolvedTarget, "-k", command]
             )
 
+        case let .tmuxReplayRecordingStreaming(name, target, chunkSize, chunkDelayMs):
+            let resolvedName = context.resolve(name)
+            let resolvedTarget = context.resolve(target)
+            let socket = context.resolve("${tmuxSocket}")
+            let runner = processRunner
+
+            let recordingDir = "\(baselinesDir)/Recordings/\(resolvedName)"
+            let metadataPath = "\(recordingDir)/metadata.json"
+            let recordingPath = "\(recordingDir)/recording.data"
+
+            // Validate recording exists
+            let fm = FileManager.default
+            guard fm.fileExists(atPath: metadataPath) else {
+                throw OrchestratorError.configurationError(
+                    "Recording metadata not found: \(metadataPath)"
+                )
+            }
+            guard fm.fileExists(atPath: recordingPath) else {
+                throw OrchestratorError.configurationError(
+                    "Recording data not found: \(recordingPath)"
+                )
+            }
+
+            // Parse metadata and warn on dimension mismatch
+            if let data = fm.contents(atPath: metadataPath) {
+                let metadata = try? JSONDecoder().decode(RecordingMetadata.self, from: data)
+                if let metadata {
+                    let dimsResult = try? await runner.runOrThrow(
+                        "tmux",
+                        arguments: ["-S", socket, "display-message", "-t", resolvedTarget, "-p", "#{pane_width} #{pane_height}"]
+                    )
+                    if let dims = dimsResult?.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines) {
+                        let parts = dims.split(separator: " ")
+                        if
+                            parts.count == 2,
+                            let paneWidth = Int(parts[0]),
+                            let paneHeight = Int(parts[1]),
+                            paneWidth != metadata.width || paneHeight != metadata.height {
+                            logger.warning(
+                                "Recording \(metadata.width)x\(metadata.height) doesn't match pane \(resolvedTarget) \(paneWidth)x\(paneHeight)"
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Resolve throttled-cat.sh relative to baselines dir
+            let scriptPath = "\((baselinesDir as NSString).deletingLastPathComponent)/scripts/throttled-cat.sh"
+            guard fm.fileExists(atPath: scriptPath) else {
+                throw OrchestratorError.configurationError(
+                    "throttled-cat.sh not found: \(scriptPath)"
+                )
+            }
+
+            // Stream the recording with throttling, then block to keep the pane alive
+            let command = "'\(scriptPath)' '\(recordingPath)' \(chunkSize) \(chunkDelayMs); tail -f /dev/null"
+
+            _ = try await runner.runOrThrow(
+                "tmux",
+                arguments: ["-f", "/dev/null", "-S", socket, "respawn-pane", "-t", resolvedTarget, "-k", command]
+            )
+
         // Hook Events
         case let .macSendHookEvent(json, tmuxPane, projectPath):
             let resolvedJson = context.resolve(json)
