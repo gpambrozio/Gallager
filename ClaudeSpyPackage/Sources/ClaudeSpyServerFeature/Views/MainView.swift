@@ -885,7 +885,7 @@ private struct NewSessionContent: View {
 
     private var filteredProjects: [ClaudeProjectInfo] {
         guard !searchText.isEmpty else { return projects }
-        return projects.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        return projects.filter { $0.name.fuzzyMatches(searchText) }
     }
 
     var body: some View {

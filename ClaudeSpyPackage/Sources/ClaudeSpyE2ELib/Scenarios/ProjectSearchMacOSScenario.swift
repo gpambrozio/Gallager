@@ -31,9 +31,9 @@ public enum ProjectSearchMacOSScenario {
         TestStep.macWaitForElement(titled: "DeltaApp", timeout: 5)
         TestStep.macScreenshot(label: "all-projects-visible", compare: false)
 
-        // ── Type search to filter projects ───────────────────────
-        TestStep.log("Typing 'alpha' to filter projects")
-        TestStep.macType(text: "alpha")
+        // ── Type fuzzy search to filter projects ────────────────
+        TestStep.log("Typing 'alpr' to test fuzzy/subsequence matching")
+        TestStep.macType(text: "alpr")
         TestStep.wait(seconds: 1)
 
         // AlphaProject should still be visible, others should be filtered out
@@ -41,7 +41,7 @@ public enum ProjectSearchMacOSScenario {
         TestStep.macWaitForElementToDisappear(titled: "BetaProject", timeout: 5)
         TestStep.macWaitForElementToDisappear(titled: "GammaService", timeout: 5)
         TestStep.macWaitForElementToDisappear(titled: "DeltaApp", timeout: 5)
-        TestStep.macScreenshot(label: "search-filtered-alpha", compare: false)
+        TestStep.macScreenshot(label: "fuzzy-search-filtered", compare: false)
 
         // ── Press return to select the single result ────────────
         TestStep.log("Pressing return to select AlphaProject")

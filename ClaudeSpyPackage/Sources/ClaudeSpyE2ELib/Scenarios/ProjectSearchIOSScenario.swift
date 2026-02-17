@@ -26,11 +26,11 @@ public enum ProjectSearchIOSScenario {
         TestStep.iosWaitForElement(.labelContains("DeltaApp"), timeout: 5)
         TestStep.iosScreenshot(label: "all-projects-visible", compare: false)
 
-        // ── Tap search field and type to filter ──────────────────
-        TestStep.log("Tapping search field and typing 'alpha' to filter projects")
+        // ── Tap search field and type fuzzy search ────────────────
+        TestStep.log("Tapping search field and typing 'alpr' to test fuzzy/subsequence matching")
         TestStep.iosTap(.identifier("Search projects"))
         TestStep.wait(seconds: 1)
-        TestStep.iosType(text: "alpha")
+        TestStep.iosType(text: "alpr")
         TestStep.wait(seconds: 1)
 
         // AlphaProject should still be visible, others should be filtered out
@@ -38,7 +38,7 @@ public enum ProjectSearchIOSScenario {
         TestStep.iosWaitForElementToDisappear(.labelContains("BetaProject"), timeout: 5)
         TestStep.iosWaitForElementToDisappear(.labelContains("GammaService"), timeout: 5)
         TestStep.iosWaitForElementToDisappear(.labelContains("DeltaApp"), timeout: 5)
-        TestStep.iosScreenshot(label: "search-filtered-alpha", compare: false)
+        TestStep.iosScreenshot(label: "fuzzy-search-filtered", compare: false)
 
         // ── Press return to select the single result ────────────
         TestStep.log("Pressing return to select AlphaProject")
