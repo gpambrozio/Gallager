@@ -446,6 +446,7 @@
 
         @Environment(\.dismiss) private var dismiss
         @Environment(SessionStore.self) private var sessionStore
+        @State private var searchText = ""
 
         private var isCreating: Bool {
             creatingSelection != nil
@@ -456,42 +457,49 @@
             sessionStore.projects(for: host.id)
         }
 
+        private var filteredProjects: [ClaudeProjectInfo] {
+            guard !searchText.isEmpty else { return projects }
+            return projects.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        }
+
         var body: some View {
             NavigationStack {
                 List {
                     // Default option (no specific project)
-                    Section {
-                        Button {
-                            onSelect(nil)
-                        } label: {
-                            HStack {
-                                Symbols.terminal.image
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 24)
-
-                                VStack(alignment: .leading) {
-                                    Text("New Terminal")
-                                        .foregroundStyle(.primary)
-                                    Text("Start in home directory")
-                                        .font(.caption)
+                    if searchText.isEmpty {
+                        Section {
+                            Button {
+                                onSelect(nil)
+                            } label: {
+                                HStack {
+                                    Symbols.terminal.image
                                         .foregroundStyle(.secondary)
-                                }
+                                        .frame(width: 24)
 
-                                Spacer()
+                                    VStack(alignment: .leading) {
+                                        Text("New Terminal")
+                                            .foregroundStyle(.primary)
+                                        Text("Start in home directory")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
 
-                                if creatingSelection == .newTerminal {
-                                    ProgressView()
-                                        .controlSize(.small)
+                                    Spacer()
+
+                                    if creatingSelection == .newTerminal {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                    }
                                 }
                             }
+                            .disabled(isCreating)
                         }
-                        .disabled(isCreating)
                     }
 
                     // Project list
-                    if !projects.isEmpty {
-                        Section("Claude Projects") {
-                            ForEach(projects) { project in
+                    if !filteredProjects.isEmpty {
+                        Section(searchText.isEmpty ? "Claude Projects" : "Results") {
+                            ForEach(filteredProjects) { project in
                                 Button {
                                     onSelect(project)
                                 } label: {
@@ -521,6 +529,11 @@
                                 .disabled(isCreating)
                             }
                         }
+                    } else if !searchText.isEmpty {
+                        Section {
+                            Text("No matching projects")
+                                .foregroundStyle(.secondary)
+                        }
                     } else if !sessionStore.hasReceivedState(for: host.id) {
                         Section("Claude Projects") {
                             HStack {
@@ -530,6 +543,12 @@
                                     .foregroundStyle(.secondary)
                             }
                         }
+                    }
+                }
+                .searchable(text: $searchText, prompt: "Search projects")
+                .onSubmit(of: .search) {
+                    if filteredProjects.count == 1 {
+                        onSelect(filteredProjects[0])
                     }
                 }
                 .navigationTitle("New Session on \(host.displayName)")

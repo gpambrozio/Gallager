@@ -876,9 +876,16 @@ private struct NewSessionContent: View {
     let onCreate: (ClaudeProjectInfo?) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @FocusState private var isSearchFocused: Bool
+    @State private var searchText = ""
 
     private var isCreating: Bool {
         creatingSelection != nil
+    }
+
+    private var filteredProjects: [ClaudeProjectInfo] {
+        guard !searchText.isEmpty else { return projects }
+        return projects.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
     }
 
     var body: some View {
@@ -888,19 +895,62 @@ private struct NewSessionContent: View {
                 .padding(.top, 12)
                 .padding(.bottom, 8)
 
+            if !isLoadingProjects && !projects.isEmpty {
+                HStack(spacing: 6) {
+                    Symbols.magnifyingglass.image
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+
+                    TextField("Search projects...", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(.body)
+                        .focused($isSearchFocused)
+                        .accessibilityLabel("Search projects")
+                        .onSubmit {
+                            if filteredProjects.count == 1 {
+                                let project = filteredProjects[0]
+                                dismiss()
+                                onCreate(project)
+                            }
+                        }
+
+                    if !searchText.isEmpty {
+                        Button {
+                            searchText = ""
+                        } label: {
+                            Symbols.xmarkCircleFill.image
+                                .foregroundStyle(.secondary)
+                                .font(.caption)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color.primary.opacity(0.05))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .padding(.horizontal, 12)
+                .padding(.bottom, 4)
+                .onAppear {
+                    isSearchFocused = true
+                }
+            }
+
             Divider()
 
             ScrollView {
                 VStack(spacing: 8) {
-                    NewSessionRow(
-                        title: "New Terminal",
-                        subtitle: "Start in home directory",
-                        symbol: .terminal,
-                        isCreating: creatingSelection == .newTerminal,
-                        isDisabled: isCreating
-                    ) {
-                        dismiss()
-                        onCreate(nil)
+                    if searchText.isEmpty {
+                        NewSessionRow(
+                            title: "New Terminal",
+                            subtitle: "Start in home directory",
+                            symbol: .terminal,
+                            isCreating: creatingSelection == .newTerminal,
+                            isDisabled: isCreating
+                        ) {
+                            dismiss()
+                            onCreate(nil)
+                        }
                     }
 
                     if isLoadingProjects {
@@ -911,16 +961,18 @@ private struct NewSessionContent: View {
                                 .foregroundStyle(.secondary)
                         }
                         .padding(.vertical, 8)
-                    } else if !projects.isEmpty {
-                        Divider()
-                            .padding(.vertical, 4)
+                    } else if !filteredProjects.isEmpty {
+                        if searchText.isEmpty {
+                            Divider()
+                                .padding(.vertical, 4)
 
-                        Text("Claude Projects")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            Text("Claude Projects")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
 
-                        ForEach(projects) { project in
+                        ForEach(filteredProjects) { project in
                             NewSessionRow(
                                 title: project.name,
                                 subtitle: project.path.abbreviatedPath,
@@ -932,6 +984,11 @@ private struct NewSessionContent: View {
                                 onCreate(project)
                             }
                         }
+                    } else if !searchText.isEmpty {
+                        Text("No matching projects")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                            .padding(.vertical, 8)
                     }
                 }
                 .padding(.horizontal, 12)
