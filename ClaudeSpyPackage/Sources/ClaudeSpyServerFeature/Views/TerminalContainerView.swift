@@ -89,6 +89,11 @@ struct TerminalContainerView: NSViewRepresentable {
         private var columns = 80
         private var rows = 24
         private var lastExternalWidth = 0
+        /// The tmux pane's row count. When set, terminal rows are locked to this
+        /// value instead of being derived from the container pixel height. This
+        /// ensures cursor positioning in the mirrored stream matches the source
+        /// pane, even when the mirror window is smaller.
+        private var paneRows: Int?
 
         private var fontName: String?
         private var fontSize: CGFloat?
@@ -98,6 +103,14 @@ struct TerminalContainerView: NSViewRepresentable {
 
         // Track initial scroll state
         private var hasScrolledInitial = false
+
+        // One-time resync: re-captures terminal state from tmux to correct any
+        // cursor/rendering divergence between the capture-pane snapshot and the
+        // live %output stream. Uses both a debounce (fires when data pauses for
+        // 200ms) and a max-delay cap (fires after 3s regardless).
+        private var resyncDebounceTask: Task<Void, Never>?
+        private var resyncMaxDelayTask: Task<Void, Never>?
+        private var hasResynced = false
 
         // Track consecutive key send failures for error reporting
         private var consecutiveKeyFailures = 0
@@ -179,6 +192,10 @@ struct TerminalContainerView: NSViewRepresentable {
         }
 
         func stop() {
+            resyncDebounceTask?.cancel()
+            resyncDebounceTask = nil
+            resyncMaxDelayTask?.cancel()
+            resyncMaxDelayTask = nil
             pendingKeyTask?.cancel()
             pendingKeyTask = nil
             guard let subId = subscriptionId else { return }
@@ -196,12 +213,13 @@ struct TerminalContainerView: NSViewRepresentable {
         private func connect(paneInfo: PaneInfo, tmuxService: TmuxService) async {
             updateState(.connecting)
 
-            // Get initial columns from tmux (rows are dynamic based on container)
+            // Get initial dimensions from tmux — both columns AND rows.
+            // The terminal grid must match the pane so cursor positioning works.
             do {
                 let dims = try await tmuxService.getPaneDimensions(paneInfo.target)
-                updateColumns(dims.width)
+                updatePaneDimensions(width: dims.width, height: dims.height)
             } catch {
-                updateColumns(paneInfo.width)
+                updatePaneDimensions(width: paneInfo.width, height: paneInfo.height)
             }
 
             clear()
@@ -221,7 +239,7 @@ struct TerminalContainerView: NSViewRepresentable {
                         self?.handleData(data)
                     },
                     onDimensionChange: { [weak self, weak windowManager] newWidth, newHeight in
-                        self?.updateColumns(newWidth)
+                        self?.updatePaneDimensions(width: newWidth, height: newHeight)
                         windowManager?.resizeWindow(target: target, columns: newWidth, rows: newHeight)
                     }
                 )
@@ -229,8 +247,8 @@ struct TerminalContainerView: NSViewRepresentable {
                 subscriptionId = result.subscriptionId
                 updateState(.connected)
 
-                // Update columns from result dimensions
-                updateColumns(result.width)
+                // Update dimensions from result (may be more current than initial query)
+                updatePaneDimensions(width: result.width, height: result.height)
 
                 // Feed initial content to terminal
                 if !result.initialContent.isEmpty {
@@ -256,6 +274,58 @@ struct TerminalContainerView: NSViewRepresentable {
                 // Subsequent data - preserve user's scroll position
                 terminalView.feedPreservingScroll(bytes)
             }
+
+            scheduleResyncIfNeeded()
+        }
+
+        // MARK: - Resync
+
+        /// Schedules the one-time resync using two strategies:
+        /// 1. Debounce: fires when data pauses for 200ms (handles burst-then-quiet)
+        /// 2. Max-delay cap: fires 3s after first data regardless (handles continuous flow)
+        private func scheduleResyncIfNeeded() {
+            guard !hasResynced else { return }
+
+            // Debounce: reset on each data chunk, fires after 200ms quiet
+            resyncDebounceTask?.cancel()
+            resyncDebounceTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(200))
+                guard !Task.isCancelled, let self else { return }
+                await self.performResync()
+            }
+
+            // Max-delay cap: only started once, fires after 1 second
+            if resyncMaxDelayTask == nil {
+                resyncMaxDelayTask = Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(1))
+                    guard !Task.isCancelled, let self else { return }
+                    await self.performResync()
+                }
+            }
+        }
+
+        /// Forces the pane's program to re-render by briefly resizing the pane.
+        /// The SIGWINCH causes TUI programs (Ink/Claude Code) to do a full
+        /// re-render with absolute cursor positioning, overwriting any garbled
+        /// content from the initial capture-pane snapshot.
+        private func performResync() async {
+            guard !hasResynced else { return }
+            hasResynced = true
+
+            // Cancel both timers
+            resyncDebounceTask?.cancel()
+            resyncMaxDelayTask?.cancel()
+
+            guard let tmuxService, let paneInfo else { return }
+
+            // Briefly resize the pane to trigger SIGWINCH → full re-render.
+            // No need to clear the screen — the program's re-render will
+            // overwrite everything with correct content via %output events.
+            do {
+                try await tmuxService.forceRedrawViaResize(paneInfo.target)
+            } catch {
+                // Non-fatal — program may still re-render on its own
+            }
         }
 
         // MARK: Terminal Operations
@@ -269,7 +339,21 @@ struct TerminalContainerView: NSViewRepresentable {
             feed(Data("\u{1b}[2J\u{1b}[H".utf8))
         }
 
-        /// Updates columns from tmux. Rows are calculated dynamically from container height.
+        /// Updates both columns and rows from the tmux pane dimensions.
+        /// Rows are locked to the pane height so cursor positioning in the
+        /// mirrored stream is accurate regardless of the mirror window size.
+        func updatePaneDimensions(width: Int, height: Int) {
+            paneRows = height
+            let changed = width != columns || height != rows
+            guard changed else { return }
+            columns = width
+            rows = height
+            terminalView.getTerminal().resize(cols: columns, rows: rows)
+            updateTerminalFrameSize()
+            notifyStateChange()
+        }
+
+        /// Updates columns only (legacy path for external column changes).
         func updateColumns(_ newColumns: Int) {
             guard newColumns != columns else { return }
             columns = newColumns
@@ -341,16 +425,24 @@ struct TerminalContainerView: NSViewRepresentable {
 
         // MARK: Private Helpers
 
-        /// Recalculates rows based on container height and resizes terminal
+        /// Recalculates rows based on container height and resizes terminal.
+        /// When mirroring a tmux pane, rows are locked to the pane height
+        /// so only the frame size is updated (to let SwiftTerm know the
+        /// visible portion changed).
         private func recalculateRowsAndResize() {
+            if paneRows != nil {
+                // Rows are locked to the tmux pane — just update the frame
+                updateTerminalFrameSize()
+                return
+            }
+
             guard rows > 0 else { return }
 
-            // Derive cell height from SwiftTerm's optimal frame size
+            // No pane: derive rows from container height
             let currentOptimalSize = terminalView.getOptimalFrameSize().size
             let cellHeight = currentOptimalSize.height / CGFloat(rows)
             guard cellHeight > 0 else { return }
 
-            // Calculate rows from container height
             let newRows = max(1, Int(containerSize.height / cellHeight))
 
             if newRows != rows {

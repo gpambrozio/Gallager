@@ -86,9 +86,6 @@ actor TmuxControlClient {
     // Byte buffer for incomplete lines (handles chunk splitting at line boundaries)
     private var byteBuffer = Data()
 
-    // Per-pane buffer for incomplete UTF-8 sequences (tmux splits UTF-8 across %output lines)
-    private var paneUtf8Buffer: [String: Data] = [:]
-
     // Per-pane buffer for incomplete tmux escape sequences (e.g., ESC k ... ESC \ split across chunks)
     private var paneTmuxEscapeBuffer: [String: Data] = [:]
 
@@ -208,7 +205,6 @@ actor TmuxControlClient {
         outputBuffer.removeAll()
         isBufferingOutput = false
         byteBuffer.removeAll()
-        paneUtf8Buffer.removeAll()
         paneTmuxEscapeBuffer.removeAll()
     }
 
@@ -225,7 +221,6 @@ actor TmuxControlClient {
     func unregisterPaneHandler(paneId: String) {
         paneHandlers.removeValue(forKey: paneId)
         cachedDimensions.removeValue(forKey: paneId)
-        paneUtf8Buffer.removeValue(forKey: paneId)
         paneTmuxEscapeBuffer.removeValue(forKey: paneId)
         logger.debug("Unregistered pane handler", metadata: ["paneId": "\(paneId)"])
     }
@@ -331,11 +326,16 @@ actor TmuxControlClient {
 
     // MARK: - %output Parsing (Byte Level)
 
-    /// Parses %output at byte level to handle split UTF-8 characters
+    /// Parses %output at byte level and delivers raw bytes to the terminal.
+    /// SwiftTerm is a byte-level terminal parser — it handles partial UTF-8
+    /// across chunk boundaries natively. We must NOT attempt to buffer
+    /// "incomplete" trailing bytes here because multi-byte UTF-8 sequences
+    /// (0x80-0xBF continuation bytes, 0xC0-0xF7 lead bytes) overlap with
+    /// ANSI CSI parameter bytes, and splitting on a UTF-8 boundary can
+    /// bisect a CSI escape sequence, causing cursor-positioning or
+    /// color-clearing codes to be silently dropped.
     private func parseOutputNotificationBytes(_ lineData: Data) {
         // Format: %output %<pane-id> <data>
-        // The pane ID is ASCII, but data may contain raw/split UTF-8
-
         let prefixLength = "%output %".count
 
         // Find the space after pane ID (pane ID is single digit or short number)
@@ -346,39 +346,17 @@ actor TmuxControlClient {
         guard let paneIdStr = String(data: Data(paneIdData), encoding: .utf8) else { return }
         let paneId = "%" + paneIdStr
 
-        // Extract data portion as raw bytes (may contain split UTF-8)
+        // Extract data portion as raw bytes
         let dataStart = lineData.index(after: spaceIndex)
         let rawData = Data(lineData[dataStart...])
 
-        // Unescape the data (convert \033 etc to bytes)
-        // Note: unescapeOutput works on String, so we need to handle this carefully
-        // The escaped format uses ASCII backslash + digits, which is always valid UTF-8
-        // But raw UTF-8 chars may also be present
-
-        // First, try to convert to string for unescaping
-        // If it fails, we have orphaned continuation bytes - prepend buffered data
-        var dataToProcess = rawData
-
-        // Prepend any buffered incomplete UTF-8 from previous %output
-        if let buffered = paneUtf8Buffer[paneId], !buffered.isEmpty {
-            dataToProcess = buffered + dataToProcess
-            paneUtf8Buffer[paneId] = nil
-        }
-
-        // Now try to convert to string for unescaping
-        // The data may still have incomplete UTF-8 at the END
-        let unescapedData = unescapeOutputBytes(dataToProcess)
-
-        // Check for incomplete UTF-8 at end and buffer it
-        let (completeData, incompleteTrailing) = splitIncompleteUtf8Trailing(unescapedData)
-        if !incompleteTrailing.isEmpty {
-            paneUtf8Buffer[paneId] = incompleteTrailing
-        }
+        // Unescape octal sequences (\033 etc) to raw bytes
+        let unescapedData = unescapeOutputBytes(rawData)
 
         if isBufferingOutput {
-            outputBuffer.append((paneId, completeData))
+            outputBuffer.append((paneId, unescapedData))
         } else {
-            deliverOutput(paneId: paneId, data: completeData)
+            deliverOutput(paneId: paneId, data: unescapedData)
         }
     }
 
@@ -667,7 +645,6 @@ actor TmuxControlClient {
                 logger.info("Pane exited (no longer in list)", metadata: ["paneId": "\(paneId)"])
                 cachedDimensions.removeValue(forKey: paneId)
                 paneHandlers.removeValue(forKey: paneId)
-                paneUtf8Buffer.removeValue(forKey: paneId)
                 paneTmuxEscapeBuffer.removeValue(forKey: paneId)
                 _onPaneExited?(paneId)
             }

@@ -467,6 +467,30 @@ final public class TmuxService {
         }
     }
 
+    /// Forces a pane's program to re-render by briefly resizing the window by 1
+    /// column and back. This triggers SIGWINCH to the pane's foreground process
+    /// group, causing TUI programs (like Ink/Claude Code) to do a full re-render.
+    /// The re-render comes through as %output events with correct terminal state.
+    public func forceRedrawViaResize(_ target: String) async throws {
+        let (width, height) = try await getPaneDimensions(target)
+        guard width > 2 else { return }
+
+        // Resize to width-1 to trigger SIGWINCH
+        _ = try? await runTmuxCommand([
+            "resize-window", "-t", target,
+            "-x", String(width - 1), "-y", String(height),
+        ])
+
+        // Brief pause so the process can detect the change
+        try? await Task.sleep(for: .milliseconds(50))
+
+        // Resize back to original to trigger a second SIGWINCH with correct size
+        _ = try? await runTmuxCommand([
+            "resize-window", "-t", target,
+            "-x", String(width), "-y", String(height),
+        ])
+    }
+
     /// Sends Ctrl+C to cancel the current operation in a pane
     public func sendInterrupt(_ target: String) async throws {
         _ = try await runTmuxCommand([
