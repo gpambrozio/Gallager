@@ -21,6 +21,8 @@
         static func inMemory(projects: [ClaudeProjectInfo] = [
             ClaudeProjectInfo(name: "AlphaProject", path: "/Users/test/AlphaProject"),
             ClaudeProjectInfo(name: "BetaProject", path: "/Users/test/BetaProject"),
+            ClaudeProjectInfo(name: "GammaService", path: "/Users/test/GammaService"),
+            ClaudeProjectInfo(name: "DeltaApp", path: "/Users/test/DeltaApp"),
         ]) -> ClaudeProjectScanner {
             ClaudeProjectScanner(scanProjects: { projects })
         }

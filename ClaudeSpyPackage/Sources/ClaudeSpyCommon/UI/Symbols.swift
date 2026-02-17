@@ -45,6 +45,7 @@ public enum Symbols: String {
     case lockTriangleBadgeExclamationmark = "lock.trianglebadge.exclamationmark"
     case macwindow
     case macwindowBadgePlus = "macwindow.badge.plus"
+    case magnifyingglass
     case pause
     case pauseCircleFill = "pause.circle.fill"
     case pencilLine = "pencil.line"

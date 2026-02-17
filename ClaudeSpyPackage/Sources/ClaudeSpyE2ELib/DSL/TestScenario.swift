@@ -87,6 +87,8 @@ public enum TestStep: Sendable {
     case macReadClipboard(storeAs: String)
     /// Wait for a text element to appear in the macOS app's accessibility tree
     case macWaitForElement(titled: String, timeout: TimeInterval = 10)
+    /// Wait for a text element to disappear from the macOS app's accessibility tree
+    case macWaitForElementToDisappear(titled: String, timeout: TimeInterval = 10)
     /// Open the Panes window via the status item menu
     case macOpenPanesWindow
     /// Resize the macOS app window

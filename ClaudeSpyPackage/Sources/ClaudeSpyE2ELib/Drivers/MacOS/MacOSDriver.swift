@@ -245,6 +245,18 @@ public actor MacOSDriver {
         _ = try await waitForHTTPElement(titled: titled, timeout: timeout)
     }
 
+    /// Wait for an element to disappear from the macOS app's accessibility tree
+    public func waitForElementToDisappear(titled: String, timeout: TimeInterval = 10) async throws {
+        try await Polling.waitUntil(
+            description: "macOS UI element '\(titled)' to disappear",
+            timeout: timeout,
+            pollInterval: 0.5
+        ) {
+            let found = try? await MacAppHTTPClient.findElement(titled: titled)
+            return found == nil
+        }
+    }
+
     // MARK: - Clipboard
 
     /// Read the system clipboard
