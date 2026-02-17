@@ -1,4 +1,7 @@
 {
+  "env": {
+    "ENABLE_LSP_TOOL": "1"
+  },
   "hooks": {
     "PostToolUse": [
       {
@@ -29,6 +32,7 @@
   "enabledPlugins": {
     "XcodeBuildTools@ClaudeCodePlugins": true,
     "iOSSimulator@ClaudeCodePlugins": true,
-    "SwiftDevelopment@ClaudePrivate": true
+    "SwiftDevelopment@ClaudePrivate": true,
+    "swift-lsp@claude-plugins-official": true
   }
 }
