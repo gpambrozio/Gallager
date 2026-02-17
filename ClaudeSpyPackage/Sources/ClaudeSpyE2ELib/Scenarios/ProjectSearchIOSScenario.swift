@@ -24,7 +24,7 @@ public enum ProjectSearchIOSScenario {
         TestStep.iosWaitForElement(.labelContains("BetaProject"), timeout: 5)
         TestStep.iosWaitForElement(.labelContains("GammaService"), timeout: 5)
         TestStep.iosWaitForElement(.labelContains("DeltaApp"), timeout: 5)
-        TestStep.iosScreenshot(label: "all-projects-visible", compare: false)
+        TestStep.iosScreenshot(label: "all-projects-visible")
 
         // ── Tap search field and type fuzzy search ────────────────
         TestStep.log("Tapping search field and typing 'alpr' to test fuzzy/subsequence matching")
@@ -38,14 +38,14 @@ public enum ProjectSearchIOSScenario {
         TestStep.iosWaitForElementToDisappear(.labelContains("BetaProject"), timeout: 5)
         TestStep.iosWaitForElementToDisappear(.labelContains("GammaService"), timeout: 5)
         TestStep.iosWaitForElementToDisappear(.labelContains("DeltaApp"), timeout: 5)
-        TestStep.iosScreenshot(label: "fuzzy-search-filtered", compare: false)
+        TestStep.iosScreenshot(label: "fuzzy-search-filtered")
 
         // ── Press return to select the single result ────────────
         TestStep.log("Pressing return to select AlphaProject")
         TestStep.iosType(text: "\n")
         TestStep.wait(seconds: 1)
         TestStep.iosWaitForElementToDisappear(.labelContains("AlphaProject"), timeout: 5)
-        TestStep.iosScreenshot(label: "project-selected", compare: false)
+        TestStep.iosScreenshot(label: "project-selected")
 
         // ── Teardown ─────────────────────────────────────────────
         TestStep.terminateMacApp
