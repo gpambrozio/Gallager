@@ -103,7 +103,7 @@ private actor LiveHookServer {
                 isRunning = true
                 lastError = nil
 
-                logger.warning("Hook server started on port \(actualPort)")
+                logger.info("Hook server started on port \(actualPort)")
                 return
             } catch {
                 try? await app?.asyncShutdown()
