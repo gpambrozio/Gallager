@@ -498,7 +498,7 @@
 
                     // Project list
                     if !filteredProjects.isEmpty {
-                        Section(searchText.isEmpty ? "Claude Projects" : "Results") {
+                        Section("Claude Projects") {
                             ForEach(filteredProjects) { project in
                                 Button {
                                     onSelect(project)

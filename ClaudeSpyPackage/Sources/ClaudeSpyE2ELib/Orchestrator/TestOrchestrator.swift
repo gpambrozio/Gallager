@@ -375,6 +375,9 @@ public actor TestOrchestrator {
         case let .macWaitForElement(titled, timeout):
             try await macOSDriver.waitForElement(titled: titled, timeout: timeout)
 
+        case let .macWaitForElementToDisappear(titled, timeout):
+            try await macOSDriver.waitForElementToDisappear(titled: titled, timeout: timeout)
+
         case .macOpenPanesWindow:
             try await macOSDriver.openPanesWindow()
 

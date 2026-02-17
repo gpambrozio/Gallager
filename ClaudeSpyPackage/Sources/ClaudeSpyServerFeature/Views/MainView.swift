@@ -923,6 +923,7 @@ private struct NewSessionContent: View {
                                 .font(.caption)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Clear search")
                     }
                 }
                 .padding(.horizontal, 12)

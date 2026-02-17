@@ -40,6 +40,13 @@ public enum ProjectSearchIOSScenario {
         TestStep.iosWaitForElementToDisappear(.labelContains("DeltaApp"), timeout: 5)
         TestStep.iosScreenshot(label: "search-filtered-alpha", compare: false)
 
+        // ── Press return to select the single result ────────────
+        TestStep.log("Pressing return to select AlphaProject")
+        TestStep.iosType(text: "\n")
+        TestStep.wait(seconds: 1)
+        TestStep.iosWaitForElementToDisappear(.labelContains("AlphaProject"), timeout: 5)
+        TestStep.iosScreenshot(label: "project-selected", compare: false)
+
         // ── Teardown ─────────────────────────────────────────────
         TestStep.terminateMacApp
         TestStep.terminateIOSApp

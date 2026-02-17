@@ -36,9 +36,19 @@ public enum ProjectSearchMacOSScenario {
         TestStep.macType(text: "alpha")
         TestStep.wait(seconds: 1)
 
-        // AlphaProject should still be visible after filtering
+        // AlphaProject should still be visible, others should be filtered out
         TestStep.macWaitForElement(titled: "AlphaProject", timeout: 5)
+        TestStep.macWaitForElementToDisappear(titled: "BetaProject", timeout: 5)
+        TestStep.macWaitForElementToDisappear(titled: "GammaService", timeout: 5)
+        TestStep.macWaitForElementToDisappear(titled: "DeltaApp", timeout: 5)
         TestStep.macScreenshot(label: "search-filtered-alpha", compare: false)
+
+        // ── Press return to select the single result ────────────
+        TestStep.log("Pressing return to select AlphaProject")
+        TestStep.macType(text: "", pressReturn: true)
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementToDisappear(titled: "AlphaProject", timeout: 5)
+        TestStep.macScreenshot(label: "project-selected", compare: false)
 
         // ── Teardown ─────────────────────────────────────────────
         TestStep.terminateMacApp
