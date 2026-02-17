@@ -28,7 +28,7 @@ public enum ProjectSearchIOSScenario {
 
         // ── Tap search field and type fuzzy search ────────────────
         TestStep.log("Tapping search field and typing 'alpr' to test fuzzy/subsequence matching")
-        TestStep.iosTap(.identifier("Search projects"))
+        TestStep.iosTap(.role("SearchField"))
         TestStep.wait(seconds: 1)
         TestStep.iosType(text: "alpr")
         TestStep.wait(seconds: 1)
