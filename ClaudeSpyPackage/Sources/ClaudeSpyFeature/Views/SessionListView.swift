@@ -546,7 +546,6 @@
                     }
                 }
                 .searchable(text: $searchText, prompt: "Search projects")
-                .submitLabel(filteredProjects.count == 1 ? .return : .search)
                 .onSubmit(of: .search) {
                     if filteredProjects.count == 1 {
                         onSelect(filteredProjects[0])
