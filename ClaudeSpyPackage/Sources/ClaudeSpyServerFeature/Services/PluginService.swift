@@ -6,7 +6,7 @@
 
     /// Manages the Claude Code plugin detection and installation.
     ///
-    /// Checks if the claude-spy plugin is installed, provides installation
+    /// Checks if the gallager plugin is installed, provides installation
     /// commands, and can execute installation programmatically.
     @Observable
     @MainActor
@@ -91,8 +91,8 @@
                         return State.notInstalled
                     }
 
-                    // Look for claude-spy plugin (key format: "claude-spy@ClaudeSpy")
-                    for key in plugins.keys where key.hasPrefix("claude-spy@") {
+                    // Look for gallager plugin (key format: "gallager@Gallager")
+                    for key in plugins.keys where key.hasPrefix("gallager@") {
                         guard
                             let installations = plugins[key] as? [[String: Any]],
                             let firstInstall = installations.first,
@@ -113,7 +113,7 @@
             // Log result on main actor
             switch result {
             case let .installed(version):
-                logger.info("Plugin found: claude-spy v\(version)")
+                logger.info("Plugin found: gallager v\(version)")
             case .notInstalled:
                 logger.info("Plugin not installed")
             default:
@@ -179,9 +179,9 @@
                 }
 
                 // Step 2: Install the plugin with user scope
-                appendOutput("Installing claude-spy plugin...")
+                appendOutput("Installing gallager plugin...")
                 try await runClaudeCommand(
-                    arguments: ["plugin", "install", "claude-spy", "--scope", "user"],
+                    arguments: ["plugin", "install", "gallager", "--scope", "user"],
                     description: "install plugin"
                 )
                 appendOutput("Plugin installed successfully.\n")
@@ -226,7 +226,7 @@
                claude plugin marketplace add "\(bundledPath.path)"
 
             2. Install the plugin:
-               claude plugin install claude-spy --scope user
+               claude plugin install gallager --scope user
             """
         }
 

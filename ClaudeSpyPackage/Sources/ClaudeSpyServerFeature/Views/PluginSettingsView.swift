@@ -21,7 +21,7 @@
                 } header: {
                     Text("Plugin Status")
                 } footer: {
-                    Text("The claude-spy plugin enables real-time monitoring of Claude Code sessions.")
+                    Text("The gallager plugin enables real-time monitoring of Claude Code sessions.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
