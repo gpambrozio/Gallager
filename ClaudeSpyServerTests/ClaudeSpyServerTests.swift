@@ -159,6 +159,15 @@ struct TmuxKeyParsingTests {
         #expect(keys != [.ctrl("i")])
     }
 
+    @Test func parsesBacktab() {
+        // Shift+Tab: ESC [ Z
+        let data = Data([0x1B, 0x5B, 0x5A])
+        let keys = TmuxKey.from(bytes: data)
+
+        #expect(keys == [.backtab])
+        #expect(TmuxKey.backtab.tmuxKeyName == "BTab")
+    }
+
     @Test func parsesAltMetaKeys() {
         // ESC + b = Meta-b (word backward, sent by Cmd+Left via SwiftTerm)
         let metaB = Data([0x1B, 0x62])
