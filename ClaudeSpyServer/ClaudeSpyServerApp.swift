@@ -148,8 +148,8 @@ struct TmuxPaneMirrorApp: App {
                 .keyboardShortcut("w", modifiers: [.command, .shift])
             }
 
-            // View menu
-            CommandMenu("View") {
+            // View menu - replace default toolbar items (removes Enter Full Screen)
+            CommandGroup(replacing: .toolbar) {
                 Button("Refresh Pane List") {
                     NotificationCenter.default.post(name: .refreshPaneList, object: nil)
                 }
