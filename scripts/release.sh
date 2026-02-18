@@ -553,19 +553,27 @@ main() {
 
     check_prerequisites
 
-    local version
-    version=$(get_version)
-    local build_number
-    build_number=$(get_build_number)
-    log_info "Current version: $version (build $build_number)"
+    local current_version
+    current_version=$(get_version)
+    local new_version
+    new_version=$(increment_version "$current_version")
+    log_info "Current version: $current_version — will release as $new_version"
 
     echo ""
-    read -p "Release version $version? (y/N) " -n 1 -r
+    read -p "Release version $new_version? (y/N) " -n 1 -r
     echo ""
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         log_info "Release cancelled"
         exit 0
     fi
+
+    bump_version "$current_version"
+
+    local version
+    version=$(get_version)
+    local build_number
+    build_number=$(get_build_number)
+    log_info "Building version $version (build $build_number)"
 
     build_archive
     export_archive
@@ -607,8 +615,6 @@ main() {
     log_info "Creating release tag v$version..."
     git -C "$PROJECT_ROOT" tag -a "v$version" -m "Release $version"
     log_success "Tagged release v$version"
-
-    bump_version "$version"
 
     git -C "$PROJECT_ROOT" push
     git -C "$PROJECT_ROOT" push origin "v$version"
