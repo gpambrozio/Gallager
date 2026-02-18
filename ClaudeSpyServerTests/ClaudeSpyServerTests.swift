@@ -168,6 +168,15 @@ struct TmuxKeyParsingTests {
         #expect(TmuxKey.backtab.tmuxKeyName == "BTab")
     }
 
+    @Test func parsesTextWithBacktab() {
+        // "hello" + Shift+Tab
+        var data = Data("hello".utf8)
+        data.append(contentsOf: [0x1B, 0x5B, 0x5A])
+        let keys = TmuxKey.from(bytes: data)
+
+        #expect(keys == [.text("hello"), .backtab])
+    }
+
     @Test func parsesAltMetaKeys() {
         // ESC + b = Meta-b (word backward, sent by Cmd+Left via SwiftTerm)
         let metaB = Data([0x1B, 0x62])
