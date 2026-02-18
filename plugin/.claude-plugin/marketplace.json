@@ -1,13 +1,13 @@
 {
-    "name": "ClaudeSpy",
+    "name": "Gallager",
     "owner": {
         "name": "Gustavo Ambrozio"
     },
     "plugins": [
         {
-            "name": "claude-spy",
-            "source": "./claude-spy",
-            "description": "Claude Spy plugin"
+            "name": "gallager",
+            "source": "./gallager",
+            "description": "Gallager plugin"
         }
     ]
 }

@@ -1,7 +1,7 @@
 {
-  "name": "claude-spy",
+  "name": "gallager",
   "version": "1.0.5",
-  "description": "Claude Spy allows you to spy and interact with local claude sessions.",
+  "description": "Gallager allows you to interact with local claude sessions.",
   "author": {
     "name": "Gustavo Ambrozio",
     "email": "gustavo@gustavo.eng.br",
