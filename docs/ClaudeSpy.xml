@@ -6,6 +6,49 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.6</title>
+         <sparkle:version>6</sparkle:version>
+         <sparkle:shortVersionString>1.6</sparkle:shortVersionString>
+         <pubDate>Wed, 18 Feb 2026 07:06:47 -1000</pubDate>
+         <description><![CDATA[
+
+
+# ClaudeSpy v1.6 Release Notes
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Project Search</strong> — Added a search field to project selection views, making it easier to find projects when you have many Claude Code sessions.</li>
+<li><strong>New Session Button</strong> — An empty sidebar now shows a "New Session" button, providing a clearer path to get started.</li>
+<li><strong>Resize Pane to Fit</strong> — New toolbar button to resize the tmux pane to match the mirror view dimensions, eliminating layout mismatches.</li>
+<li><strong>LSP Tools Support</strong> — Language Server Protocol tools now work correctly within monitored sessions.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>App Renamed to Gallager</strong> — The macOS app has been renamed from ClaudeSpy to Gallager.</li>
+<li><strong>Unlimited Reconnection</strong> — The Mac app now retries server connections indefinitely instead of giving up after 10 attempts, improving reliability for long-running sessions.</li>
+<li><strong>Terminal Cleared on Session End</strong> — The remote terminal view on iOS now clears when a session ends, preventing stale output from lingering.</li>
+<li><strong>Service Architecture</strong> — Migrated 8 internal services to a dependency injection pattern, improving testability and maintainability.</li>
+<li><strong>Unpairing Notifications</strong> — Other services are now properly notified when a device is unpaired.</li>
+<li><strong>E2E Testing Infrastructure</strong> — Added screenshot comparison, test report generation, Claude session hook scenarios, and improved test isolation from the production app.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Duplicate View Menu</strong> — Fixed an issue where the macOS menu bar displayed two "View" menus.</li>
+<li><strong>Keychain Updates</strong> — Resolved a bug where keychain values were not being updated correctly.</li>
+<li><strong>E2E Test Reliability</strong> — Fixed tmux socket permission errors and window detection issues in the end-to-end test suite.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.6.dmg"
+                    sparkle:edSignature="v0iu0RY/+MhHZCevUMj7lOYCr91QUSpLS0fVkWQr1TtrSU4qcgghIkG1YsetNKk/7gFCgIXZbo2RgqunFqzrDA=="
+                    length="19502340"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.5</title>
          <sparkle:version>5</sparkle:version>
          <sparkle:shortVersionString>1.5</sparkle:shortVersionString>
