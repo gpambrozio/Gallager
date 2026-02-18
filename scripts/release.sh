@@ -103,6 +103,43 @@ increment_version() {
 }
 
 # =====================================================
+# Rollback support
+# =====================================================
+REVERT_COMMITS=0
+RELEASE_TAG=""
+
+rollback_on_failure() {
+    local exit_code=$?
+    if [ $exit_code -eq 0 ] || [ "$REVERT_COMMITS" -eq 0 ]; then
+        return
+    fi
+
+    echo ""
+    log_warning "Release failed — rolling back changes..."
+
+    if [ -n "$RELEASE_TAG" ]; then
+        log_info "Removing tag $RELEASE_TAG..."
+        git -C "$PROJECT_ROOT" tag -d "$RELEASE_TAG" 2>/dev/null || true
+    fi
+
+    # Preserve any local changes the user had before running the release
+    local did_stash=false
+    if ! git -C "$PROJECT_ROOT" diff --quiet 2>/dev/null || ! git -C "$PROJECT_ROOT" diff --cached --quiet 2>/dev/null; then
+        git -C "$PROJECT_ROOT" stash push -m "release-rollback-save" && did_stash=true
+    fi
+
+    log_info "Reverting $REVERT_COMMITS commit(s)..."
+    git -C "$PROJECT_ROOT" reset --hard "HEAD~$REVERT_COMMITS"
+
+    if [ "$did_stash" = true ]; then
+        log_info "Restoring local changes..."
+        git -C "$PROJECT_ROOT" stash pop || log_warning "Could not auto-restore local changes — they are saved in git stash"
+    fi
+
+    log_info "Rolled back to pre-release state"
+}
+
+# =====================================================
 # Check prerequisites
 # =====================================================
 check_prerequisites() {
@@ -172,6 +209,8 @@ build_archive() {
 
     local build_args=(
         archive
+        -skipMacroValidation
+        -skipPackagePluginValidation
         -workspace "$WORKSPACE"
         -scheme "$SCHEME"
         -configuration Release
@@ -567,7 +606,9 @@ main() {
         exit 0
     fi
 
+    trap rollback_on_failure EXIT
     bump_version "$current_version"
+    REVERT_COMMITS=1
 
     local version
     version=$(get_version)
@@ -600,7 +641,17 @@ main() {
     read -p "Proceed with release? (y/N) " -n 1 -r
     echo ""
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        log_info "Release cancelled. DMG available at: $dmg_path"
+        log_warning "Release cancelled — reverting version bump..."
+        local did_stash=false
+        if ! git -C "$PROJECT_ROOT" diff --quiet 2>/dev/null || ! git -C "$PROJECT_ROOT" diff --cached --quiet 2>/dev/null; then
+            git -C "$PROJECT_ROOT" stash push -m "release-rollback-save" && did_stash=true
+        fi
+        git -C "$PROJECT_ROOT" reset --hard HEAD~1
+        if [ "$did_stash" = true ]; then
+            git -C "$PROJECT_ROOT" stash pop || log_warning "Could not auto-restore local changes — they are saved in git stash"
+        fi
+        REVERT_COMMITS=0
+        log_info "Release cancelled"
         exit 0
     fi
 
@@ -609,15 +660,22 @@ main() {
     log_info "Committing appcast..."
     git -C "$PROJECT_ROOT" add "$APPCAST_FILE"
     git -C "$PROJECT_ROOT" commit -m "Update appcast for version $version"
+    REVERT_COMMITS=2
 
     upload_to_ftp "$dmg_path"
 
     log_info "Creating release tag v$version..."
     git -C "$PROJECT_ROOT" tag -a "v$version" -m "Release $version"
+    RELEASE_TAG="v$version"
     log_success "Tagged release v$version"
 
     git -C "$PROJECT_ROOT" push
     git -C "$PROJECT_ROOT" push origin "v$version"
+
+    # Release succeeded — disable rollback
+    REVERT_COMMITS=0
+    RELEASE_TAG=""
+    trap - EXIT
 
     rm -rf "$BUILD_DIR"
 
