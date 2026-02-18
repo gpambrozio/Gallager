@@ -27,7 +27,6 @@ ClaudeSpy/
 │   │   └── ClaudeSpyExternalServer/ # Vapor relay server
 │   ├── Dockerfile                 # Server container build
 │   ├── docker-compose.yml         # Server orchestration
-│   ├── deploy.sh                  # Deployment script
 │   └── caddy/                     # Reverse proxy configs
 └── docs/                          # Architecture docs
 ```

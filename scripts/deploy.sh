@@ -66,10 +66,11 @@ pre_deploy_checks() {
     info "Running pre-deploy checks..."
 
     SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+    PACKAGE_DIR="$(cd "$SCRIPT_DIR/../ClaudeSpyPackage" && pwd)"
 
     # Build in release mode to catch cross-module optimization issues
     info "Building server in release mode..."
-    if ! swift build -c release --product ClaudeSpyExternalServer --package-path "$SCRIPT_DIR" 2>&1; then
+    if ! swift build -c release --product ClaudeSpyExternalServer --package-path "$PACKAGE_DIR" 2>&1; then
         error "Release build failed! Fix compilation errors before deploying."
         exit 1
     fi
@@ -77,12 +78,12 @@ pre_deploy_checks() {
 
     # Build and run server tests (build target separately to avoid compiling unrelated targets like SwiftTerm)
     info "Building server tests..."
-    if ! swift build --package-path "$SCRIPT_DIR" --target ClaudeSpyExternalServerTests 2>&1; then
+    if ! swift build --package-path "$PACKAGE_DIR" --target ClaudeSpyExternalServerTests 2>&1; then
         error "Server test build failed! Fix compilation errors before deploying."
         exit 1
     fi
     info "Running server tests..."
-    if ! swift test --package-path "$SCRIPT_DIR" --skip-build --filter ClaudeSpyExternalServerTests 2>&1; then
+    if ! swift test --package-path "$PACKAGE_DIR" --skip-build --filter ClaudeSpyExternalServerTests 2>&1; then
         error "Server tests failed! Fix test failures before deploying."
         exit 1
     fi
@@ -115,6 +116,9 @@ deploy() {
     ssh -o LogLevel=ERROR "$REMOTE_HOST" "mkdir -p $REMOTE_DIR"
 
     # Sync files to server (only the package directory)
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+    PACKAGE_DIR="$(cd "$SCRIPT_DIR/../ClaudeSpyPackage" && pwd)"
+
     info "Syncing files to server..."
     rsync -az --delete \
         --exclude='.build' \
@@ -124,13 +128,13 @@ deploy() {
         --exclude='Tests' \
         --exclude='data' \
         -e ssh \
-        "$(dirname "$0")/" \
+        "$PACKAGE_DIR/" \
         "$REMOTE_HOST:$REMOTE_DIR/"
 
     # Copy Caddy config if directory exists on server
     info "Checking for Caddy configuration..."
     if ssh -o LogLevel=ERROR "$REMOTE_HOST" "test -d $CADDY_CONF_D" 2>/dev/null; then
-        if [ -f "$(dirname "$0")/caddy/claudespy.caddy" ]; then
+        if [ -f "$PACKAGE_DIR/caddy/claudespy.caddy" ]; then
             info "Installing Caddy configuration..."
             ssh -o LogLevel=ERROR "$REMOTE_HOST" "cp $REMOTE_DIR/caddy/claudespy.caddy $CADDY_CONF_D/"
         fi
