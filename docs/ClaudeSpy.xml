@@ -6,6 +6,37 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.7</title>
+         <sparkle:version>7</sparkle:version>
+         <sparkle:shortVersionString>1.7</sparkle:shortVersionString>
+         <pubDate>Wed, 18 Feb 2026 10:22:27 -1000</pubDate>
+         <description><![CDATA[
+
+
+# ClaudeSpy 1.7 Release Notes
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Updated plugin naming</strong> — The Claude Code plugin has been renamed for consistency. If you previously installed the plugin, it will be recognized under its new name automatically.</li>
+</ul>
+
+<ul>
+<li><strong>Release rollback support</strong> — The release process now supports rollback, making it easier to revert to a previous version if an issue is discovered after publishing an update.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Fixed remaining references to old plugin name</strong> — Resolved an issue where some internal references still used the previous plugin name, which could cause the plugin to not be detected correctly.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.7.dmg"
+                    sparkle:edSignature="5LudpwEMXMRzk0pT8rJcgFUrj+apT4wwPfvjun/WZz/bF9O+DPANxFUOEhyaDV7axo10kGw3JIpCcYREivy6BQ=="
+                    length="19502131"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.6</title>
          <sparkle:version>6</sparkle:version>
          <sparkle:shortVersionString>1.6</sparkle:shortVersionString>
