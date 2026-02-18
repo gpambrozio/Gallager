@@ -33,6 +33,13 @@
         "identifier" : "815F9E722F09BFF9003791F7",
         "name" : "ClaudeSpyServerUITests"
       }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:ClaudeSpy.xcodeproj",
+        "identifier" : "E3BC9293B2B7447CB28061F1",
+        "name" : "ClaudeSpyE2ERunner"
+      }
     }
   ],
   "version" : 1

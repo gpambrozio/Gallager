@@ -9,7 +9,7 @@ import Foundation
 import Testing
 
 @testable import ClaudeSpyNetworking
-@testable import ClaudeSpyServer
+@testable import Gallager
 
 struct ClaudeSpyServerTests {
     @Test func example() async throws {
