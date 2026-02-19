@@ -151,6 +151,11 @@
             return manager
         }
 
+        /// Scans for Claude projects using the project scanner dependency.
+        public func scanProjects() async -> [ClaudeProjectInfo] {
+            await projectScanner.scanProjects()
+        }
+
         /// Sets up all services. Call this once when the app starts (e.g., from a .task modifier).
         public func setupAllServices() async {
             guard !isServiceSetupComplete else { return }

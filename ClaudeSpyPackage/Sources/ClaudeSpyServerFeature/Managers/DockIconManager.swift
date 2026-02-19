@@ -18,6 +18,13 @@ public struct DockIconService: Sendable {
 // MARK: - DependencyKey
 
 extension DockIconService: DependencyKey {
+    public static var previewValue: DockIconService {
+        DockIconService(
+            startObserving: { },
+            stopObserving: { }
+        )
+    }
+
     public static var liveValue: DockIconService {
         DockIconService(
             startObserving: {

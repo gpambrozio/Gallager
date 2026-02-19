@@ -2,7 +2,6 @@ import AppKit
 import ClaudeSpyCommon
 import ClaudeSpyEncryption
 import ClaudeSpyNetworking
-import Dependencies
 import SwiftUI
 
 /// The main application view showing available tmux panes in a sidebar layout
@@ -12,7 +11,6 @@ public struct MainView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(PairingManager.self) private var pairingManager
-    @Dependency(ClaudeProjectScanner.self) private var projectScanner
     @Environment(\.e2eeService) private var e2eeService: E2EEService?
 
     public init() { }
@@ -587,7 +585,7 @@ public struct MainView: View {
 
     private func loadProjects() async {
         isLoadingProjects = true
-        projects = await projectScanner.scanProjects()
+        projects = await coordinator.scanProjects()
         isLoadingProjects = false
     }
 

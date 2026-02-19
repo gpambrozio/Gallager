@@ -23,6 +23,14 @@ public struct HookServerService: Sendable {
 // MARK: - DependencyKey
 
 extension HookServerService: DependencyKey {
+    public static var previewValue: HookServerService {
+        HookServerService(
+            setEventHandler: { _ in },
+            startServer: { },
+            stopServer: { }
+        )
+    }
+
     /// Default port file path (`~/.claudespy-port`).
     public static let defaultPortFilePath: String = {
         let home = FileManager.default.homeDirectoryForCurrentUser.path

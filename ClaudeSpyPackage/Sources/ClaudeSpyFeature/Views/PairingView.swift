@@ -272,6 +272,6 @@
         NavigationStack {
             PairingView()
         }
-        .environment(IOSSettings.shared)
+        .environment(IOSSettings())
     }
 #endif

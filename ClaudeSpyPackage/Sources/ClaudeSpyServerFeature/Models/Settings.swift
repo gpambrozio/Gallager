@@ -94,6 +94,9 @@ final public class AppSettings {
     @ObservationIgnored
     @Dependency(ClaudePathDetector.self) private var claudePathDetector
 
+    @ObservationIgnored
+    @Dependency(LoginItemService.self) private var loginItemService
+
     // MARK: - UI State (transient, not persisted)
 
     /// Currently selected settings tab (for programmatic navigation)
@@ -450,6 +453,22 @@ final public class AppSettings {
             $0.hostName == host.hostName && $0.id != host.id
         }
         return !matchingNames.isEmpty
+    }
+
+    // MARK: - Login Item Management
+
+    /// Whether the app is currently registered as a login item.
+    ///
+    /// Queries the system on each access — not reactive via Observation.
+    /// Read this in `onAppear` rather than relying on it for reactive updates.
+    public var isLoginItemEnabled: Bool {
+        loginItemService.isEnabled()
+    }
+
+    /// Enables or disables the app as a login item.
+    public func setLoginItemEnabled(_ enabled: Bool) throws {
+        try loginItemService.setEnabled(enabled)
+        launchAtLogin = enabled
     }
 }
 

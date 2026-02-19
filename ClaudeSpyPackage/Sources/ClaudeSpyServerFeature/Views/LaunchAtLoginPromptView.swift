@@ -1,7 +1,6 @@
 #if os(macOS)
     import AppKit
     import ClaudeSpyCommon
-    import Dependencies
     import SwiftUI
 
     /// First-launch prompt asking if the user wants the app to start at login
@@ -9,7 +8,6 @@
         @Environment(AppSettings.self) private var settings
         @Environment(\.dismiss) private var dismiss
 
-        @Dependency(LoginItemService.self) private var loginItemService
         @State private var showingError = false
         @State private var errorMessage = ""
 
@@ -95,8 +93,7 @@
 
         private func enableLaunchAtLogin() {
             do {
-                try loginItemService.setEnabled(true)
-                settings.launchAtLogin = true
+                try settings.setLoginItemEnabled(true)
                 markAsAsked()
                 dismiss()
             } catch {

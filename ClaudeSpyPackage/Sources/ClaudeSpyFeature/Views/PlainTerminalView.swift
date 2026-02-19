@@ -67,7 +67,7 @@
             PlainTerminalView(
                 paneId: "%1",
                 relayClient: ViewerRelayClient(),
-                settings: .shared
+                settings: IOSSettings()
             )
         }
         .environment(ViewerRelayClient())

@@ -86,6 +86,14 @@ public extension ProcessRunner {
 // MARK: - DependencyKey
 
 extension ProcessRunner: DependencyKey {
+    public static var previewValue: ProcessRunner {
+        ProcessRunner(
+            run: { _, _, _, _ in
+                ProcessResult(exitCode: 0, stdout: Data(), stderr: Data())
+            }
+        )
+    }
+
     public static var liveValue: ProcessRunner {
         ProcessRunner(
             run: { executable, arguments, environment, timeout in

@@ -20,6 +20,13 @@ public struct SleepPreventionService: Sendable {
 // MARK: - DependencyKey
 
 extension SleepPreventionService: DependencyKey {
+    public static var previewValue: SleepPreventionService {
+        SleepPreventionService(
+            updateForSessionCount: { _, _ in },
+            releaseIfNeeded: { }
+        )
+    }
+
     public static var liveValue: SleepPreventionService {
         let manager = LiveSleepPreventionManager()
 
