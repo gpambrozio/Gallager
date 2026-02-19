@@ -208,13 +208,9 @@
                 }
             }
 
-            // Ensure PairingManager has the E2EEService.
-            // Use withDependencies(from:) to propagate this coordinator's
-            // dependency context to child models.
+            // Ensure PairingManager has the E2EEService
             if let service = e2eeService, pairingManager == nil {
-                let manager = withDependencies(from: self) {
-                    PairingManager(settings: settings, e2eeService: service)
-                }
+                let manager = PairingManager(settings: settings, e2eeService: service)
                 pairingManager = manager
 
                 // Set up callback for when new viewers are paired
@@ -240,11 +236,7 @@
                 keyPair = newKeyPair
             }
 
-            // Use withDependencies(from:) to propagate this coordinator's
-            // dependency context to the child model.
-            let manager = withDependencies(from: self) {
-                PairingManager(settings: settings, e2eeService: service)
-            }
+            let manager = PairingManager(settings: settings, e2eeService: service)
             pairingManager = manager
 
             // Set up callback for when new viewers are paired

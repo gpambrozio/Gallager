@@ -154,14 +154,15 @@
     }
 
     #Preview {
+        let settings = IOSSettings()
         NavigationStack {
             ClaudeSessionTerminalView(
                 paneId: "%1",
                 sessionStore: SessionStore(),
                 relayClient: ViewerRelayClient(),
-                settings: IOSSettings()
+                settings: settings
             )
         }
-        .environment(IOSSettings())
+        .environment(settings)
     }
 #endif

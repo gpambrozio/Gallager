@@ -457,7 +457,10 @@ final public class AppSettings {
 
     // MARK: - Login Item Management
 
-    /// Whether the app is currently registered as a login item
+    /// Whether the app is currently registered as a login item.
+    ///
+    /// Queries the system on each access — not reactive via Observation.
+    /// Read this in `onAppear` rather than relying on it for reactive updates.
     public var isLoginItemEnabled: Bool {
         loginItemService.isEnabled()
     }

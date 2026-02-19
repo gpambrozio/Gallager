@@ -532,16 +532,17 @@
     // MARK: - Preview
 
     #Preview("Live Terminal") {
+        let settings = IOSSettings()
         NavigationStack {
             LiveTerminalView(
                 paneId: "%1",
                 responseState: .init(get: { nil }, set: { _ in }),
                 isConnected: true,
-                settings: IOSSettings(),
+                settings: settings,
                 sendCommand: { _ in }
             )
         }
         .environment(ViewerRelayClient())
-        .environment(IOSSettings())
+        .environment(settings)
     }
 #endif
