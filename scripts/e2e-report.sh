@@ -348,6 +348,51 @@ git push origin HEAD 2>/dev/null || {
     }
 }
 
+# =====================================================
+# POST PR COMMENT (on failure only)
+# =====================================================
+if [ -n "$PR_NUMBER" ] && command -v gh &>/dev/null; then
+    step "Posting PR comment"
+
+    # Build scenario summary from results JSON
+    SCENARIO_SUMMARY=$(REPORT_DIR="$REPORT_DIR" python3 << 'PYEOF'
+import json, os
+
+report_dir = os.environ["REPORT_DIR"]
+try:
+    with open(os.path.join(report_dir, "report.json")) as f:
+        report = json.load(f)
+    lines = []
+    for s in report.get("scenarios", []):
+        icon = "\u2705" if s.get("success") else "\u274c"
+        name = s.get("scenarioName", "unknown")
+        lines.append(f"| {icon} | {name} |")
+    print("\n".join(lines))
+except Exception:
+    print("| \u26a0\ufe0f | Could not parse results |")
+PYEOF
+    )
+
+    if [ $E2E_EXIT -eq 0 ]; then
+        COMMENT_TITLE="## E2E Tests Passed"
+    else
+        COMMENT_TITLE="## E2E Test Failure"
+    fi
+
+    cd "$PROJECT_ROOT"
+    gh pr comment "$PR_NUMBER" --body "$(cat <<EOF
+${COMMENT_TITLE}
+
+| Status | Scenario |
+|--------|----------|
+${SCENARIO_SUMMARY}
+
+**Commit:** \`${COMMIT}\` ${COMMIT_MSG}
+**Branch:** ${BRANCH}
+EOF
+    )" && echo "PR comment posted to #${PR_NUMBER}" || echo "WARNING: Failed to post PR comment"
+fi
+
 echo ""
 echo "======================================"
 echo "  Report complete!"
