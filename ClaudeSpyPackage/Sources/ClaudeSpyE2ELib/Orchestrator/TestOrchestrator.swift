@@ -548,13 +548,32 @@ public actor TestOrchestrator {
             )
         }
 
-        let result = try ScreenshotComparator.compare(
-            actualPath: actualPath,
-            baselinePath: baselinePath,
-            diffPath: diffPath,
-            tolerance: tolerance,
-            perPixelThreshold: perPixelThreshold
-        )
+        let result: ComparisonResult
+        do {
+            result = try ScreenshotComparator.compare(
+                actualPath: actualPath,
+                baselinePath: baselinePath,
+                diffPath: diffPath,
+                tolerance: tolerance,
+                perPixelThreshold: perPixelThreshold
+            )
+        } catch {
+            // Wrap pre-comparison errors (e.g. size mismatch) so the screenshot
+            // result with actual/baseline paths is preserved in the report.
+            let screenshotResult = ScreenshotResult(
+                label: label,
+                actualPath: actualPath,
+                baselinePath: baselinePath,
+                diffPath: nil,
+                diffPercentage: nil,
+                passed: false,
+                baselineCreated: false
+            )
+            throw OrchestratorError.screenshotMismatch(
+                screenshotResult,
+                error.localizedDescription
+            )
+        }
 
         let screenshotResult = ScreenshotResult(
             label: label,
