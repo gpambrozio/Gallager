@@ -20,6 +20,8 @@ SCREENSHOTS_DIR="$E2E_TMPDIR/e2e-screenshots"
 BASELINES_DIR="$PROJECT_ROOT/E2ETests"
 TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
 DATE_DISPLAY=$(date +"%Y-%m-%d %H:%M:%S")
+SIM_NAME="iPhone 17 Pro"
+IOS_BUNDLE_ID="br.eng.gustavo.claudespy"
 E2E_ARGS=()
 
 # =====================================================
@@ -35,6 +37,11 @@ while [[ $# -gt 0 ]]; do
             RESULTS_DIR="$2"
             shift 2
             ;;
+        --sim-name)
+            SIM_NAME="$2"
+            E2E_ARGS+=("$1" "$2")
+            shift 2
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -45,9 +52,10 @@ while [[ $# -gt 0 ]]; do
             echo "                      (default: $RESULTS_REPO)"
             echo "  --results-dir DIR   Local path for the results repo clone"
             echo "                      (default: $RESULTS_DIR)"
+            echo "  --sim-name NAME     iOS Simulator name (default: $SIM_NAME)"
             echo "  -h, --help          Show this help"
             echo ""
-            echo "All e2e-test.sh options (--skip-build, --sim-name, --scenario, etc.)"
+            echo "All e2e-test.sh options (--skip-build, --scenario, etc.)"
             echo "are passed through."
             exit 0
             ;;
@@ -66,6 +74,22 @@ step() {
     echo "======================================"
     echo "  $1"
     echo "======================================"
+}
+
+# Find a booted or available simulator UDID by name
+find_simulator_udid() {
+    xcrun simctl list devices available -j \
+        | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for runtime, devices in data.get('devices', {}).items():
+    for d in devices:
+        if d['name'] == '$SIM_NAME':
+            print(d['udid'])
+            sys.exit(0)
+print('', end='')
+sys.exit(1)
+"
 }
 
 # =====================================================
@@ -122,6 +146,41 @@ else
         git -C "$RESULTS_DIR" remote add origin "$RESULTS_REPO" 2>/dev/null || true
     }
 fi
+
+# =====================================================
+# BOOT SIMULATOR & RESTART APP
+# =====================================================
+step "Preparing simulator"
+
+SIM_UDID=$(find_simulator_udid)
+if [ -z "$SIM_UDID" ]; then
+    echo "ERROR: No simulator found with name '$SIM_NAME'"
+    xcrun simctl list devices available | grep iPhone | head -10
+    exit 1
+fi
+echo "Using simulator: $SIM_NAME ($SIM_UDID)"
+
+# Boot the simulator if not already booted
+if ! xcrun simctl list devices booted -j | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for runtime, devices in data.get('devices', {}).items():
+    for d in devices:
+        if d['udid'] == '$SIM_UDID':
+            sys.exit(0)
+sys.exit(1)
+" 2>/dev/null; then
+    echo "Booting simulator..."
+    xcrun simctl boot "$SIM_UDID"
+    # Wait for the simulator to finish booting
+    xcrun simctl bootstatus "$SIM_UDID" -b
+else
+    echo "Simulator already booted."
+fi
+
+# Terminate the iOS app if it's running
+echo "Terminating $IOS_BUNDLE_ID if running..."
+xcrun simctl terminate "$SIM_UDID" "$IOS_BUNDLE_ID" 2>/dev/null || true
 
 # =====================================================
 # RUN E2E TESTS
