@@ -25,6 +25,14 @@ enum TmuxError: Error, LocalizedError {
     }
 }
 
+/// Whether a tmux stderr message indicates no server is running (or no sessions exist)
+private func isNoServerError(_ stderr: String) -> Bool {
+    let lower = stderr.lowercased()
+    return lower.contains("no server running")
+        || lower.contains("no sessions")
+        || lower.contains("no current target")
+}
+
 /// Service for interacting with tmux via CLI
 @Observable
 @MainActor
@@ -78,11 +86,10 @@ final public class TmuxService {
         // Check if server is running
         let result = try await runTmuxCommand(["list-sessions"])
         if !result.isSuccess {
-            let stderr = result.stderrString.lowercased()
-            if stderr.contains("no server running") || stderr.contains("no sessions") {
+            if isNoServerError(result.stderrString) {
                 throw TmuxError.noServerRunning
             }
-            if stderr.contains("permission denied") {
+            if result.stderrString.lowercased().contains("permission denied") {
                 throw TmuxError.permissionDenied
             }
         }
@@ -127,6 +134,10 @@ final public class TmuxService {
             ])
 
             guard result.isSuccess else {
+                if isNoServerError(result.stderrString) {
+                    panes = []
+                    return panes
+                }
                 lastError = result.stderrString
                 return panes
             }
@@ -158,8 +169,8 @@ final public class TmuxService {
                 return true
             }
         } catch TmuxError.noServerRunning {
-            // Tmux has no sessions - this is legitimate, clear panes
-            lastError = TmuxError.noServerRunning.localizedDescription
+            // Tmux has no sessions - this is legitimate, not an error
+            lastError = nil
             panes = []
         } catch {
             // Other errors (transient failures) - keep old panes to avoid falsely marking sessions as stale
