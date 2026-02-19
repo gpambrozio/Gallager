@@ -19,7 +19,7 @@ struct ScenarioBuilderTests {
     @Test("Scenario with server steps")
     func serverSteps() {
         let s = scenario("Server Test") {
-            TestStep.startServer(port: 9_999)
+            TestStep.startServer
             TestStep.verifyServerHealth
             TestStep.verifyServerHasPairings(count: 0)
             TestStep.stopServer

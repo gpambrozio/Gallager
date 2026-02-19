@@ -33,6 +33,7 @@ public enum TmuxKey: Codable, Sendable, Equatable {
     case enter
     case escape
     case tab
+    case backtab
     case space
     case backspace
     case delete
@@ -65,6 +66,7 @@ public enum TmuxKey: Codable, Sendable, Equatable {
         case .enter: "Enter"
         case .escape: "Escape"
         case .tab: "Tab"
+        case .backtab: "BTab"
         case .space: "Space"
         case .backspace: "BSpace"
         case .delete: "Delete"
@@ -155,6 +157,11 @@ public extension TmuxKey {
                     case 0x46: // F - End
                         flushText()
                         result.append(.end)
+                        index = data.index(index, offsetBy: 3)
+                        continue
+                    case 0x5A: // Z - Backtab (Shift+Tab)
+                        flushText()
+                        result.append(.backtab)
                         index = data.index(index, offsetBy: 3)
                         continue
                     default:
