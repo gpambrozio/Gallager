@@ -9,7 +9,7 @@ import Foundation
 import Testing
 
 @testable import ClaudeSpyNetworking
-@testable import ClaudeSpyServer
+@testable import Gallager
 
 struct ClaudeSpyServerTests {
     @Test func example() async throws {
@@ -157,6 +157,25 @@ struct TmuxKeyParsingTests {
 
         #expect(keys == [.tab])
         #expect(keys != [.ctrl("i")])
+    }
+
+    @Test func parsesBacktab() {
+        // Shift+Tab: ESC [ Z
+        let data = Data([0x1B, 0x5B, 0x5A])
+        let keys = TmuxKey.from(bytes: data)
+
+        #expect(keys == [.backtab])
+        #expect(TmuxKey.backtab.tmuxKeyName == "BTab")
+        #expect(TmuxKey.backtab.requiresLiteralMode == false)
+    }
+
+    @Test func parsesTextWithBacktab() {
+        // "hello" + Shift+Tab
+        var data = Data("hello".utf8)
+        data.append(contentsOf: [0x1B, 0x5B, 0x5A])
+        let keys = TmuxKey.from(bytes: data)
+
+        #expect(keys == [.text("hello"), .backtab])
     }
 
     @Test func parsesAltMetaKeys() {
