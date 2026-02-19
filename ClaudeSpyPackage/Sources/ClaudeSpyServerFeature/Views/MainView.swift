@@ -59,7 +59,7 @@ public struct MainView: View {
             // Initial load only - periodic refresh is handled by MirrorWindowManager
             await refreshPanes()
             await loadProjects()
-            trackedActiveSessionPaneIds = Set(windowManager.activeSessions.keys)
+            trackedActiveSessionPaneIds = windowManager.activeSessionPaneIds
         }
         .alert("Terminal Error", isPresented: .init(
             get: { attachError != nil },
@@ -75,7 +75,9 @@ public struct MainView: View {
             guard let selected = selectedPane else { return }
             if let updated = newPanes.first(where: { $0.id == selected.id }) {
                 // Keep selection in sync with refreshed pane data
-                selectedPane = updated
+                if updated != selected {
+                    selectedPane = updated
+                }
             } else {
                 // Selected pane was removed, clear selection
                 selectedPane = nil
@@ -158,9 +160,9 @@ public struct MainView: View {
                 withAnimation {
                     proxy.scrollTo(paneId, anchor: .center)
                 }
-                scrollToPaneId = nil
+                Task { @MainActor in scrollToPaneId = nil }
             }
-            .onChange(of: Set(windowManager.activeSessions.keys)) {
+            .onChange(of: windowManager.activeSessionPaneIds) {
                 handleActiveSessionsChanged()
             }
         }
@@ -562,7 +564,7 @@ public struct MainView: View {
     // MARK: - Session Tracking
 
     private func handleActiveSessionsChanged() {
-        let currentIds = Set(windowManager.activeSessions.keys)
+        let currentIds = windowManager.activeSessionPaneIds
         let previousIds = trackedActiveSessionPaneIds
 
         // Detect newly added Claude sessions

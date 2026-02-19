@@ -283,6 +283,11 @@ final public class MirrorWindowManager {
         Array(openWindows.keys).sorted()
     }
 
+    /// Set of pane IDs that have active Claude sessions
+    public var activeSessionPaneIds: Set<String> {
+        Set(activeSessions.keys)
+    }
+
     /// Number of sessions that need user attention
     public var pendingSessionCount: Int {
         activeSessions.values.filter(\.needsAttention).count
