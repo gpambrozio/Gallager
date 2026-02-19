@@ -40,6 +40,8 @@ public enum EmptyStateNewSessionScenario {
         // ── Verify the terminal was created ────────────────────────
         // The empty state should disappear once a pane exists
         TestStep.macWaitForElementToDisappear(titled: "No Panes Available", timeout: 10)
+        // Positive assertion: verify the new pane target appears in the list
+        TestStep.macWaitForElement(titled: "terminal:0.0", timeout: 5)
         TestStep.macScreenshot(label: "terminal-created", compare: false)
     }
 }
