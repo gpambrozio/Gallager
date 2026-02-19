@@ -8,7 +8,9 @@ public enum EmptyStateNewSessionScenario {
         tags: ["terminal", "macos-only"]
     ) {
         // ── Setup ──────────────────────────────────────────────────
-        // Do NOT create any tmux sessions — we want the empty state to show
+        // Do NOT create any tmux sessions — we want the empty state to show.
+        // The orchestrator kills the isolated tmux server between scenarios,
+        // so we're guaranteed a clean slate here.
 
         TestStep.launchMacApp
         TestStep.wait(seconds: 3)
