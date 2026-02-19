@@ -26,6 +26,11 @@ public struct MainView: View {
     @State private var creatingSelection: NewSessionCreatingState?
     @State private var detailPaneSize: CGSize = .zero
 
+    /// Tracks active session pane IDs for detecting section changes
+    @State private var trackedActiveSessionPaneIds: Set<String> = []
+    /// ID to scroll to in the sidebar when a pane moves between sections
+    @State private var scrollToPaneId: String?
+
     /// Per-session auto-resize state (keyed by pane target for local, "remote-hostId-paneId" for remote)
     @State private var autoResizeEnabled: Set<String> = []
     /// Last dimensions sent via auto-resize, used to skip redundant calls during window drag
@@ -54,6 +59,7 @@ public struct MainView: View {
             // Initial load only - periodic refresh is handled by MirrorWindowManager
             await refreshPanes()
             await loadProjects()
+            trackedActiveSessionPaneIds = Set(windowManager.activeSessions.keys)
         }
         .alert("Terminal Error", isPresented: .init(
             get: { attachError != nil },
@@ -66,10 +72,12 @@ public struct MainView: View {
             }
         }
         .onChange(of: tmuxService.panes) { _, newPanes in
-            // Keep selection valid - if selected pane was removed, clear selection
-            if
-                let selected = selectedPane,
-                !newPanes.contains(where: { $0.id == selected.id }) {
+            guard let selected = selectedPane else { return }
+            if let updated = newPanes.first(where: { $0.id == selected.id }) {
+                // Keep selection in sync with refreshed pane data
+                selectedPane = updated
+            } else {
+                // Selected pane was removed, clear selection
                 selectedPane = nil
             }
         }
@@ -133,93 +141,116 @@ public struct MainView: View {
         let panesWithClaude = tmuxService.panes.filter { windowManager.activeSessions[$0.paneId] != nil }
         let panesWithoutClaude = tmuxService.panes.filter { windowManager.activeSessions[$0.paneId] == nil }
 
-        return List {
-            // Local pane sections
-            if !panesWithClaude.isEmpty {
-                Section {
-                    ForEach(panesWithClaude) { pane in
-                        Button {
-                            selectedPane = pane
-                            selectedRemotePane = nil
-                        } label: {
-                            PaneSidebarRow(pane: pane)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(pane.target)
-                        .help("Claude Code session active")
-                        .listRowBackground(selectedPane == pane && selectedRemotePane == nil ? Color.accentColor.opacity(0.2) : nil)
-                    }
-                } header: {
-                    SectionHeader(title: "Claude Sessions", symbol: .sparkles) {
-                        localNewSessionPopover
-                    }
-                }
+        return ScrollViewReader { proxy in
+            List {
+                claudeSessionsSection(panes: panesWithClaude)
+                terminalsSection(panes: panesWithoutClaude, hasClaudeSessions: !panesWithClaude.isEmpty)
+                emptyLocalSection(hasAnyPanes: !panesWithClaude.isEmpty || !panesWithoutClaude.isEmpty)
+                remoteHostSections
             }
-
-            if !panesWithoutClaude.isEmpty {
-                Section {
-                    ForEach(panesWithoutClaude) { pane in
-                        Button {
-                            selectedPane = pane
-                            selectedRemotePane = nil
-                        } label: {
-                            PaneSidebarRow(pane: pane)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(pane.target)
-                        .listRowBackground(selectedPane == pane && selectedRemotePane == nil ? Color.accentColor.opacity(0.2) : nil)
-                    }
-                } header: {
-                    if panesWithClaude.isEmpty {
-                        SectionHeader(title: "Terminals", symbol: .terminal) {
-                            localNewSessionPopover
-                        }
-                    } else {
-                        SectionHeader(title: "Terminals", symbol: .terminal)
-                    }
-                }
+            .listStyle(.sidebar)
+            .refreshable {
+                await refreshPanes()
+                await coordinator.viewerConnectionManager?.requestAllSessionStates()
             }
-
-            // Empty local state - still show a section with + button
-            if panesWithClaude.isEmpty && panesWithoutClaude.isEmpty && settings.hasRemoteHosts {
-                Section {
-                    Text("No local sessions")
-                        .foregroundStyle(.secondary)
-                        .font(.caption)
-                } header: {
-                    SectionHeader(title: "Local", symbol: .terminal) {
-                        localNewSessionPopover
-                    }
+            .onChange(of: scrollToPaneId) { _, paneId in
+                guard let paneId else { return }
+                withAnimation {
+                    proxy.scrollTo(paneId, anchor: .center)
                 }
+                scrollToPaneId = nil
             }
+            .onChange(of: Set(windowManager.activeSessions.keys)) {
+                handleActiveSessionsChanged()
+            }
+        }
+    }
 
-            // Remote host sections
-            if settings.hasRemoteHosts, let sessionStore = coordinator.remoteSessionStore {
-                ForEach(settings.pairedHosts) { host in
-                    RemoteHostSidebarSection(
-                        host: host,
-                        connection: coordinator.viewerConnectionManager?.connection(for: host.id),
-                        sessionStore: sessionStore,
-                        creatingSelection: creatingSelection,
-                        selectedRemotePane: $selectedRemotePane,
-                        onSelect: { selection in
-                            selectedRemotePane = selection
-                            selectedPane = nil
-                        },
-                        onCreate: { project in
-                            Task {
-                                await createRemoteSession(on: host, inProject: project)
-                            }
-                        }
-                    )
+    @ViewBuilder
+    private func claudeSessionsSection(panes: [PaneInfo]) -> some View {
+        if !panes.isEmpty {
+            Section {
+                ForEach(panes) { pane in
+                    paneButton(pane: pane, help: "Claude Code session active")
+                }
+            } header: {
+                SectionHeader(title: "Claude Sessions", symbol: .sparkles) {
+                    localNewSessionPopover
                 }
             }
         }
-        .listStyle(.sidebar)
-        .refreshable {
-            await refreshPanes()
-            await coordinator.viewerConnectionManager?.requestAllSessionStates()
+    }
+
+    @ViewBuilder
+    private func terminalsSection(panes: [PaneInfo], hasClaudeSessions: Bool) -> some View {
+        if !panes.isEmpty {
+            Section {
+                ForEach(panes) { pane in
+                    paneButton(pane: pane)
+                }
+            } header: {
+                if !hasClaudeSessions {
+                    SectionHeader(title: "Terminals", symbol: .terminal) {
+                        localNewSessionPopover
+                    }
+                } else {
+                    SectionHeader(title: "Terminals", symbol: .terminal)
+                }
+            }
         }
+    }
+
+    @ViewBuilder
+    private func emptyLocalSection(hasAnyPanes: Bool) -> some View {
+        if !hasAnyPanes && settings.hasRemoteHosts {
+            Section {
+                Text("No local sessions")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+            } header: {
+                SectionHeader(title: "Local", symbol: .terminal) {
+                    localNewSessionPopover
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var remoteHostSections: some View {
+        if settings.hasRemoteHosts, let sessionStore = coordinator.remoteSessionStore {
+            ForEach(settings.pairedHosts) { host in
+                RemoteHostSidebarSection(
+                    host: host,
+                    connection: coordinator.viewerConnectionManager?.connection(for: host.id),
+                    sessionStore: sessionStore,
+                    creatingSelection: creatingSelection,
+                    selectedRemotePane: $selectedRemotePane,
+                    onSelect: { selection in
+                        selectedRemotePane = selection
+                        selectedPane = nil
+                    },
+                    onCreate: { project in
+                        Task {
+                            await createRemoteSession(on: host, inProject: project)
+                        }
+                    }
+                )
+            }
+        }
+    }
+
+    private func paneButton(pane: PaneInfo, help: String? = nil) -> some View {
+        Button {
+            selectedPane = pane
+            selectedRemotePane = nil
+        } label: {
+            PaneSidebarRow(pane: pane)
+        }
+        .id(pane.id)
+        .buttonStyle(.plain)
+        .accessibilityLabel(pane.target)
+        .help(help ?? "")
+        .listRowBackground(selectedPane?.id == pane.id && selectedRemotePane == nil ? Color.accentColor.opacity(0.2) : nil)
     }
 
     // MARK: - Detail View
@@ -526,6 +557,29 @@ public struct MainView: View {
                 attachError = "Failed to resize remote pane: \(error.localizedDescription)"
             }
         }
+    }
+
+    // MARK: - Session Tracking
+
+    private func handleActiveSessionsChanged() {
+        let currentIds = Set(windowManager.activeSessions.keys)
+        let previousIds = trackedActiveSessionPaneIds
+
+        // Detect newly added Claude sessions
+        let newSessionPaneIds = currentIds.subtracting(previousIds)
+
+        if let selected = selectedPane, newSessionPaneIds.contains(selected.paneId) {
+            // The currently selected pane just got a Claude session - scroll to it
+            scrollToPaneId = selected.id
+        } else if selectedPane == nil, selectedRemotePane == nil, newSessionPaneIds.count == 1,
+                  let newPaneId = newSessionPaneIds.first,
+                  let pane = tmuxService.panes.first(where: { $0.paneId == newPaneId }) {
+            // Nothing selected and a single new session appeared - auto-select it
+            selectedPane = pane
+            scrollToPaneId = pane.id
+        }
+
+        trackedActiveSessionPaneIds = currentIds
     }
 
     // MARK: - Actions
