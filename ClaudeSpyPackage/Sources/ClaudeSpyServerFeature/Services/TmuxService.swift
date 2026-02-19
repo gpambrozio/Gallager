@@ -79,7 +79,9 @@ final public class TmuxService {
         let result = try await runTmuxCommand(["list-sessions"])
         if !result.isSuccess {
             let stderr = result.stderrString.lowercased()
-            if stderr.contains("no server running") || stderr.contains("no sessions") {
+            if
+                stderr.contains("no server running") || stderr.contains("no sessions")
+                || stderr.contains("no current target") {
                 throw TmuxError.noServerRunning
             }
             if stderr.contains("permission denied") {
@@ -127,6 +129,13 @@ final public class TmuxService {
             ])
 
             guard result.isSuccess else {
+                let stderr = result.stderrString.lowercased()
+                if
+                    stderr.contains("no server running") || stderr.contains("no sessions")
+                    || stderr.contains("no current target") {
+                    panes = []
+                    return panes
+                }
                 lastError = result.stderrString
                 return panes
             }
@@ -158,8 +167,8 @@ final public class TmuxService {
                 return true
             }
         } catch TmuxError.noServerRunning {
-            // Tmux has no sessions - this is legitimate, clear panes
-            lastError = TmuxError.noServerRunning.localizedDescription
+            // Tmux has no sessions - this is legitimate, not an error
+            lastError = nil
             panes = []
         } catch {
             // Other errors (transient failures) - keep old panes to avoid falsely marking sessions as stale

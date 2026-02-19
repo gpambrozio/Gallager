@@ -127,18 +127,8 @@ public struct MainView: View {
     private var emptyView: some View {
         ContentUnavailableView(
             "No Panes Available",
-            symbol: .terminal,
-            description: "No tmux sessions found. Create a new session to get started."
-        ) {
-            NewSessionButton(
-                projects: projects,
-                isLoadingProjects: isLoadingProjects,
-                creatingSelection: creatingSelection,
-                onCreate: { project in
-                    createNewSession(project: project)
-                }
-            )
-        }
+            symbol: .terminal
+        )
     }
 
     private var paneList: some View {
@@ -254,6 +244,18 @@ public struct MainView: View {
         } else if let pane = selectedPane {
             MirrorWindowView(paneInfo: pane)
                 .id(pane.id)
+        } else if tmuxService.panes.isEmpty && !settings.hasRemoteHosts {
+            NewSessionContent(
+                title: "New Session",
+                projects: projects,
+                isLoadingProjects: isLoadingProjects,
+                creatingSelection: creatingSelection,
+                onCreate: { project in
+                    createNewSession(project: project)
+                },
+                popover: false
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             VStack {
                 Spacer()
@@ -867,13 +869,15 @@ private enum NewSessionCreatingState: Equatable {
     case project(String)
 }
 
-/// Unified popover content for creating a new session, used for both local and remote hosts
+/// Unified content for creating a new session, used in popovers and the empty-state detail area
 private struct NewSessionContent: View {
     let title: String
     let projects: [ClaudeProjectInfo]
     let isLoadingProjects: Bool
     let creatingSelection: NewSessionCreatingState?
     let onCreate: (ClaudeProjectInfo?) -> Void
+    /// When true, constrains size for popover use. When false, expands to fill available space.
+    var popover = true
 
     @Environment(\.dismiss) private var dismiss
     @FocusState private var isSearchFocused: Bool
@@ -995,9 +999,10 @@ private struct NewSessionContent: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
             }
-            .frame(maxHeight: 300)
+            .frame(maxHeight: popover ? 300 : .infinity)
         }
-        .frame(width: 280)
+        .frame(maxWidth: popover ? 280 : 400)
+        .frame(width: popover ? 280 : nil)
     }
 }
 
@@ -1155,33 +1160,6 @@ private struct RemotePaneSidebarRow: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
-    }
-}
-
-/// A button that shows the new session popover, suitable for use in ContentUnavailableView actions
-private struct NewSessionButton: View {
-    let projects: [ClaudeProjectInfo]
-    let isLoadingProjects: Bool
-    let creatingSelection: NewSessionCreatingState?
-    let onCreate: (ClaudeProjectInfo?) -> Void
-
-    @State private var showingPopover = false
-
-    var body: some View {
-        Button {
-            showingPopover = true
-        } label: {
-            Text("New Session")
-        }
-        .popover(isPresented: $showingPopover) {
-            NewSessionContent(
-                title: "New Session",
-                projects: projects,
-                isLoadingProjects: isLoadingProjects,
-                creatingSelection: creatingSelection,
-                onCreate: onCreate
-            )
-        }
     }
 }
 

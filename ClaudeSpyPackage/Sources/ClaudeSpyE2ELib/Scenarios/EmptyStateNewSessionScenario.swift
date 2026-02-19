@@ -1,7 +1,7 @@
 import Foundation
 
-/// E2E scenario: Verify the empty state shows a "New Session" button when no tmux sessions exist,
-/// and that clicking it opens the new session popover and allows creating a terminal.
+/// E2E scenario: Verify the empty state shows "No Panes Available" with inline new session
+/// options, and that clicking "New Terminal" creates a session and updates the sidebar.
 public enum EmptyStateNewSessionScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Empty State New Session",
@@ -15,33 +15,49 @@ public enum EmptyStateNewSessionScenario {
 
         TestStep.macOpenPanesWindow
         TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
+        TestStep.macResizeWindow(width: 1_200, height: 800)
         TestStep.wait(seconds: 1)
 
-        // ── Verify empty state ─────────────────────────────────────
-        TestStep.log("Verifying empty state is shown with New Session button")
+        // ── Verify empty state with new session options in detail ──
+        TestStep.log("Verifying empty state shows No Panes Available in sidebar")
         TestStep.macWaitForElement(titled: "No Panes Available", timeout: 5)
-        TestStep.macWaitForElement(titled: "New Session", timeout: 5)
-        TestStep.macScreenshot(label: "empty-state", compare: false)
 
-        // ── Click the New Session button ───────────────────────────
-        TestStep.log("Clicking New Session button to open popover")
-        TestStep.macClickButton(titled: "New Session")
-        TestStep.wait(seconds: 2)
-
-        // ── Verify popover content ─────────────────────────────────
+        TestStep.log("Verifying New Terminal option is shown in detail area")
         TestStep.macWaitForElement(titled: "New Terminal", timeout: 5)
-        TestStep.macScreenshot(label: "new-session-popover", compare: false)
 
-        // ── Create a new terminal session ──────────────────────────
+        TestStep.log("Verifying Claude Projects section is shown")
+        TestStep.macWaitForElement(titled: "Claude Projects", timeout: 5)
+
+        TestStep.macScreenshot(label: "empty-state")
+
+        // ── Click New Terminal and verify sidebar updates ────────
         TestStep.log("Clicking New Terminal to create a session")
         TestStep.macClickButton(titled: "New Terminal")
         TestStep.wait(seconds: 3)
 
-        // ── Verify the terminal was created ────────────────────────
-        // The empty state should disappear once a pane exists
+        TestStep.log("Verifying empty state disappeared")
         TestStep.macWaitForElementToDisappear(titled: "No Panes Available", timeout: 10)
-        // Positive assertion: verify the new pane target appears in the list
-        TestStep.macWaitForElement(titled: "terminal:0.0", timeout: 5)
-        TestStep.macScreenshot(label: "terminal-created", compare: false)
+
+        TestStep.log("Verifying Terminals section appeared in sidebar")
+        TestStep.macWaitForElement(titled: "Terminals", timeout: 10)
+
+        TestStep.macScreenshot(label: "terminal-created")
+
+        // ── Close session and verify empty state returns ─────
+        TestStep.log("Clicking Close session toolbar button")
+        TestStep.macClickButton(titled: "Close session")
+        TestStep.wait(seconds: 1)
+
+        TestStep.log("Confirming close session dialog")
+        TestStep.macClickButton(titled: "Close \"terminal\"")
+        TestStep.wait(seconds: 2)
+
+        TestStep.log("Verifying empty state returned")
+        TestStep.macWaitForElement(titled: "No Panes Available", timeout: 10)
+
+        TestStep.log("Verifying New Session options returned in detail area")
+        TestStep.macWaitForElement(titled: "New Terminal", timeout: 5)
+
+        TestStep.macScreenshot(label: "empty-state-after-close")
     }
 }
