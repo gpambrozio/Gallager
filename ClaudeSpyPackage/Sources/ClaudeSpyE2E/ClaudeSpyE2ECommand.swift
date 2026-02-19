@@ -164,11 +164,11 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         DisconnectMacOSUnpairIOSScenario.scenario,
         ResizePaneScenario.scenario,
         ProjectListScenario.scenario,
-        ProjectSearchMacOSScenario.scenario,
-        ProjectSearchIOSScenario.scenario,
         ClaudeSessionsShowScenario.scenario,
         ClaudeSessionUpdatesScenario.scenario,
         ClaudeSessionRepliesPersistScenario.scenario,
+        ProjectSearchMacOSScenario.scenario,
+        ProjectSearchIOSScenario.scenario,
         EmptyStateNewSessionScenario.scenario,
         SidebarSelectionScenario.scenario,
     ]
