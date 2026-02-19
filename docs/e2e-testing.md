@@ -229,15 +229,28 @@ Scenarios should **not** include cleanup steps (terminate apps, stop server) —
 
 ### Registering a scenario
 
-Add it to the `allScenarios` array in `ClaudeSpyE2ECommand.swift`:
+Add it to the **end** of the `allScenarios` array in `ClaudeSpyE2ECommand.swift`:
 
 ```swift
 private static let allScenarios: [TestScenario] = [
     FreshPairingScenario.scenario,
     NewTerminalScenario.scenario,
-    MyScenario.scenario,  // add here
+    // ... existing scenarios ...
+    MyScenario.scenario,  // always add new scenarios at the end
 ]
 ```
+
+**Important:** Always append new scenarios at the end of the list — never insert in the middle. The array index determines the numbered baseline directory prefix (e.g., `01-fresh-pairing/`, `02-new-terminal/`). Inserting in the middle would shift all subsequent numbers, breaking existing screenshot baselines.
+
+### Verifying a new scenario
+
+Always run the new scenario and confirm it passes before committing:
+
+```bash
+./scripts/e2e-test.sh --scenario "My Scenario"
+```
+
+If the scenario fails, fix the issue and re-run until it passes. Never commit a failing e2e test.
 
 ## Available test steps
 

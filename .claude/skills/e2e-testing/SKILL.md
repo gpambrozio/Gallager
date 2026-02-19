@@ -57,15 +57,17 @@ Key conventions:
 
 ### Step 2: Register the Scenario
 
-Add the scenario to the `allScenarios` array in `ClaudeSpyPackage/Sources/ClaudeSpyE2E/ClaudeSpyE2ECommand.swift`:
+Add the scenario to the **end** of the `allScenarios` array in `ClaudeSpyPackage/Sources/ClaudeSpyE2E/ClaudeSpyE2ECommand.swift`:
 
 ```swift
 private static let allScenarios: [TestScenario] = [
     FreshPairingScenario.scenario,
     // ... existing scenarios ...
-    MyScenario.scenario,  // Add here
+    MyScenario.scenario,  // Always add new scenarios at the end
 ]
 ```
+
+**Important:** Always append at the end — never insert in the middle. The array position determines the numbered baseline directory prefix (e.g., `01-fresh-pairing/`, `02-new-terminal/`). Inserting in the middle shifts all subsequent numbers, breaking existing screenshot baselines.
 
 ### Step 3: Add Accessibility Hooks (if needed)
 
@@ -86,6 +88,16 @@ Button { } label: { Label("Generate Code", symbol: .key) }
 ```
 
 **macOS (sidebar rows):** Use `Button` (not `onTapGesture`) with `.accessibilityLabel()` on the Button itself.
+
+### Step 4: Run the New Scenario and Verify It Passes
+
+Before committing, always run the new scenario and confirm it passes:
+
+```bash
+./scripts/e2e-test.sh --scenario "Human-Readable Name"
+```
+
+If the scenario fails, fix the issue and re-run until it passes. **Never commit a failing e2e test.**
 
 ## Scenario Structure Rules
 
