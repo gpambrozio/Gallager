@@ -537,11 +537,11 @@
                 paneId: "%1",
                 responseState: .init(get: { nil }, set: { _ in }),
                 isConnected: true,
-                settings: .shared,
+                settings: IOSSettings(),
                 sendCommand: { _ in }
             )
         }
         .environment(ViewerRelayClient())
-        .environment(IOSSettings.shared)
+        .environment(IOSSettings())
     }
 #endif

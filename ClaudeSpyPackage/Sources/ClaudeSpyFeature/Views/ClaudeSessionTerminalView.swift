@@ -159,9 +159,9 @@
                 paneId: "%1",
                 sessionStore: SessionStore(),
                 relayClient: ViewerRelayClient(),
-                settings: .shared
+                settings: IOSSettings()
             )
         }
-        .environment(IOSSettings.shared)
+        .environment(IOSSettings())
     }
 #endif

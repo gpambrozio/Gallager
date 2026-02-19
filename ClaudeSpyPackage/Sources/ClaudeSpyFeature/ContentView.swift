@@ -12,7 +12,7 @@
     /// - Handles WebSocket connections for all paired hosts
     /// - Manages background task to keep connections alive when backgrounded
     public struct ContentView: View {
-        @State private var settings = IOSSettings.shared
+        @State private var settings = IOSSettings()
         @State private var connectionManager: ViewerConnectionManager?
         @State private var sessionStore = SessionStore()
         @State private var initializationError: String?
@@ -128,8 +128,7 @@
                 }
             }
 
-            connectionManager.onPartnerKeyReceived = { hostId, publicKey, keyId in
-                let settings = IOSSettings.shared
+            connectionManager.onPartnerKeyReceived = { [settings] hostId, publicKey, keyId in
                 if let host = settings.getPairing(id: hostId) {
                     let updatedHost = PairedHost(
                         id: host.id,
@@ -144,8 +143,7 @@
                 }
             }
 
-            connectionManager.onUnpaired = { hostId in
-                let settings = IOSSettings.shared
+            connectionManager.onUnpaired = { [settings] hostId in
                 settings.removePairing(id: hostId)
             }
         }

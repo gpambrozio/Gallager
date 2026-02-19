@@ -97,6 +97,10 @@
     // MARK: - DependencyKey
 
     extension SecretsService: DependencyKey {
+        public static var previewValue: SecretsService {
+            .inMemory()
+        }
+
         public static var liveValue: SecretsService {
             #if os(iOS)
                 let keyManager = KeyManager(accessGroup: sharedKeychainAccessGroup)

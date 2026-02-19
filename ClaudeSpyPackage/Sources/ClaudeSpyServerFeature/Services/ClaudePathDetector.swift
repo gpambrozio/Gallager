@@ -24,6 +24,10 @@
     // MARK: - DependencyKey
 
     extension ClaudePathDetector: DependencyKey {
+        public static var previewValue: ClaudePathDetector {
+            ClaudePathDetector(detectPath: { "/usr/local/bin/claude" })
+        }
+
         public static var liveValue: ClaudePathDetector {
             ClaudePathDetector(
                 detectPath: {

@@ -1,6 +1,5 @@
 import AppKit
 import ClaudeSpyCommon
-import Dependencies
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -53,7 +52,6 @@ struct GeneralSettingsView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(UpdaterController.self) private var updaterController
 
-    @Dependency(LoginItemService.self) private var loginItemService
     @State private var launchAtLoginEnabled = false
     @State private var showingLoginItemError = false
     @State private var loginItemErrorMessage = ""
@@ -120,11 +118,10 @@ struct GeneralSettingsView: View {
                     .help("Start Gallager automatically when you log in")
                     .onChange(of: launchAtLoginEnabled) { _, newValue in
                         do {
-                            try loginItemService.setEnabled(newValue)
-                            settings.launchAtLogin = newValue
+                            try settings.setLoginItemEnabled(newValue)
                         } catch {
                             // Revert toggle state on failure
-                            launchAtLoginEnabled = loginItemService.isEnabled()
+                            launchAtLoginEnabled = settings.isLoginItemEnabled
                             loginItemErrorMessage = error.localizedDescription
                             showingLoginItemError = true
                         }
@@ -211,7 +208,7 @@ struct GeneralSettingsView: View {
         .formStyle(.grouped)
         .onAppear {
             // Sync with actual system state (in case user changed it in System Settings)
-            launchAtLoginEnabled = loginItemService.isEnabled()
+            launchAtLoginEnabled = settings.isLoginItemEnabled
         }
         .alert("Login Item Error", isPresented: $showingLoginItemError) {
             Button("OK") { }

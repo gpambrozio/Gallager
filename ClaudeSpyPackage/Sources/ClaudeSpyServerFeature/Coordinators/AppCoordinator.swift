@@ -151,6 +151,11 @@
             return manager
         }
 
+        /// Scans for Claude projects using the project scanner dependency.
+        public func scanProjects() async -> [ClaudeProjectInfo] {
+            await projectScanner.scanProjects()
+        }
+
         /// Sets up all services. Call this once when the app starts (e.g., from a .task modifier).
         public func setupAllServices() async {
             guard !isServiceSetupComplete else { return }
@@ -203,9 +208,13 @@
                 }
             }
 
-            // Ensure PairingManager has the E2EEService
+            // Ensure PairingManager has the E2EEService.
+            // Use withDependencies(from:) to propagate this coordinator's
+            // dependency context to child models.
             if let service = e2eeService, pairingManager == nil {
-                let manager = PairingManager(settings: settings, e2eeService: service)
+                let manager = withDependencies(from: self) {
+                    PairingManager(settings: settings, e2eeService: service)
+                }
                 pairingManager = manager
 
                 // Set up callback for when new viewers are paired
@@ -231,7 +240,11 @@
                 keyPair = newKeyPair
             }
 
-            let manager = PairingManager(settings: settings, e2eeService: service)
+            // Use withDependencies(from:) to propagate this coordinator's
+            // dependency context to the child model.
+            let manager = withDependencies(from: self) {
+                PairingManager(settings: settings, e2eeService: service)
+            }
             pairingManager = manager
 
             // Set up callback for when new viewers are paired

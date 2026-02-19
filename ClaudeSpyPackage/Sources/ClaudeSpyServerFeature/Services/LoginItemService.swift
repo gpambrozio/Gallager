@@ -35,6 +35,13 @@
     // MARK: - DependencyKey
 
     extension LoginItemService: DependencyKey {
+        public static var previewValue: LoginItemService {
+            LoginItemService(
+                isEnabled: { false },
+                setEnabled: { _ in }
+            )
+        }
+
         public static var liveValue: LoginItemService {
             LoginItemService(
                 isEnabled: {

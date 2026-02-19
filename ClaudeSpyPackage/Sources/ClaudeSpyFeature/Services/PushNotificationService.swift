@@ -34,6 +34,16 @@
     // MARK: - DependencyKey
 
     extension PushNotificationClient: DependencyKey {
+        public static var previewValue: PushNotificationClient {
+            PushNotificationClient(
+                requestAuthorization: { true },
+                registerForRemoteNotifications: { },
+                getAuthorizationStatus: { .authorized },
+                setBadgeCount: { _ in },
+                scheduleLocalNotification: { _, _, _ in }
+            )
+        }
+
         public static var liveValue: PushNotificationClient {
             PushNotificationClient(
                 requestAuthorization: {

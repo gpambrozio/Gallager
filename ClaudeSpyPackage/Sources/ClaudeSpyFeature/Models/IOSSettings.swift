@@ -44,10 +44,6 @@
         @ObservationIgnored
         @Dependency(PreferencesService.self) private var preferences
 
-        // MARK: - Singleton
-
-        public static let shared = IOSSettings()
-
         // MARK: - Properties
 
         /// Unique device identifier (generated once and persisted)
@@ -109,7 +105,7 @@
 
         // MARK: - Initialization
 
-        private init() {
+        public init() {
             // Load or generate device ID
             if let savedDeviceId = preferences.string(Keys.deviceId) {
                 self.deviceId = savedDeviceId

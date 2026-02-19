@@ -31,6 +31,10 @@
     // MARK: - DependencyKey
 
     extension ClaudeProjectScanner: DependencyKey {
+        public static var previewValue: ClaudeProjectScanner {
+            .inMemory()
+        }
+
         public static var liveValue: ClaudeProjectScanner {
             let scanner = LiveClaudeProjectScanner()
 

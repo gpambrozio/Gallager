@@ -111,6 +111,10 @@ final private class InMemoryStore: @unchecked Sendable {
 // MARK: - DependencyKey
 
 extension PreferencesService: DependencyKey {
+    public static var previewValue: PreferencesService {
+        .inMemory()
+    }
+
     public static var liveValue: PreferencesService {
         // Use nonisolated(unsafe) because UserDefaults.standard is thread-safe
         // but not marked Sendable
