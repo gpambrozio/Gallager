@@ -166,6 +166,7 @@ struct TmuxKeyParsingTests {
 
         #expect(keys == [.backtab])
         #expect(TmuxKey.backtab.tmuxKeyName == "BTab")
+        #expect(TmuxKey.backtab.requiresLiteralMode == false)
     }
 
     @Test func parsesTextWithBacktab() {
