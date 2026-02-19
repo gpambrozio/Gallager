@@ -21,7 +21,6 @@ BASELINES_DIR="$PROJECT_ROOT/E2ETests"
 TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
 DATE_DISPLAY=$(date +"%Y-%m-%d %H:%M:%S")
 SIM_NAME="iPhone 17 Pro"
-IOS_BUNDLE_ID="br.eng.gustavo.claudespy"
 E2E_ARGS=()
 
 # =====================================================
@@ -148,9 +147,23 @@ else
 fi
 
 # =====================================================
-# BOOT SIMULATOR & RESTART APP
+# RESTART SIMULATOR.APP & BOOT DEVICE
 # =====================================================
 step "Preparing simulator"
+
+# Quit Simulator.app if running, then relaunch for a clean state
+if pgrep -x "Simulator" > /dev/null 2>&1; then
+    echo "Quitting Simulator.app..."
+    osascript -e 'quit app "Simulator"'
+    # Wait for it to fully quit
+    while pgrep -x "Simulator" > /dev/null 2>&1; do
+        sleep 0.5
+    done
+    echo "Simulator.app quit."
+fi
+
+echo "Launching Simulator.app..."
+open -a Simulator
 
 SIM_UDID=$(find_simulator_udid)
 if [ -z "$SIM_UDID" ]; then
@@ -160,27 +173,10 @@ if [ -z "$SIM_UDID" ]; then
 fi
 echo "Using simulator: $SIM_NAME ($SIM_UDID)"
 
-# Boot the simulator if not already booted
-if ! xcrun simctl list devices booted -j | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-for runtime, devices in data.get('devices', {}).items():
-    for d in devices:
-        if d['udid'] == '$SIM_UDID':
-            sys.exit(0)
-sys.exit(1)
-" 2>/dev/null; then
-    echo "Booting simulator..."
-    xcrun simctl boot "$SIM_UDID"
-    # Wait for the simulator to finish booting
-    xcrun simctl bootstatus "$SIM_UDID" -b
-else
-    echo "Simulator already booted."
-fi
-
-# Terminate the iOS app if it's running
-echo "Terminating $IOS_BUNDLE_ID if running..."
-xcrun simctl terminate "$SIM_UDID" "$IOS_BUNDLE_ID" 2>/dev/null || true
+# Boot the selected device
+echo "Booting simulator device..."
+xcrun simctl boot "$SIM_UDID" 2>/dev/null || true
+xcrun simctl bootstatus "$SIM_UDID" -b
 
 # =====================================================
 # RUN E2E TESTS
