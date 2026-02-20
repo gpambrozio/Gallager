@@ -151,12 +151,13 @@ fi
 # =====================================================
 step "Preparing simulator"
 
-# Quit Simulator.app if running, then relaunch for a clean state
-if pgrep -x "Simulator" > /dev/null 2>&1; then
+# Quit Simulator.app if running for the current user, then relaunch for a clean state
+CURRENT_UID=$(id -u)
+if pgrep -x -u "$CURRENT_UID" "Simulator" > /dev/null 2>&1; then
     echo "Quitting Simulator.app..."
     osascript -e 'quit app "Simulator"'
-    # Wait for it to fully quit
-    while pgrep -x "Simulator" > /dev/null 2>&1; do
+    # Wait for the current user's Simulator to fully quit
+    while pgrep -x -u "$CURRENT_UID" "Simulator" > /dev/null 2>&1; do
         sleep 0.5
     done
     echo "Simulator.app quit."
