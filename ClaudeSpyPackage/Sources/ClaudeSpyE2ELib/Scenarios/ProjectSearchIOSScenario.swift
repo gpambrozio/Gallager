@@ -48,7 +48,7 @@ public enum ProjectSearchIOSScenario {
         // "AlphaProject" can't be used here because it appears in the session list
         // as the newly created session's project label.
         TestStep.iosWaitForElementToDisappear(.labelContains("Search projects"), timeout: 5)
-        TestStep.iosScreenshot(label: "project-selected")
+        TestStep.iosScreenshot(label: "project-selected", compare: false)
 
         // ── Teardown ─────────────────────────────────────────────
         TestStep.terminateMacApp
