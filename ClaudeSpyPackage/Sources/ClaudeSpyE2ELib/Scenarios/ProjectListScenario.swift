@@ -18,6 +18,7 @@ public enum ProjectListScenario {
 
         TestStep.macOpenPanesWindow
         TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
+        TestStep.macMoveWindow(x: 10, y: 10)
         TestStep.macResizeWindow(width: 1_000, height: 600)
         TestStep.macSetSidebarWidth(200)
         TestStep.wait(seconds: 1)

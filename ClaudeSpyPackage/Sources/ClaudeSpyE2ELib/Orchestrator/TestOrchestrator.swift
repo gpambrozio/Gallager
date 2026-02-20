@@ -381,6 +381,9 @@ public actor TestOrchestrator {
         case .macOpenPanesWindow:
             try await macOSDriver.openPanesWindow()
 
+        case let .macMoveWindow(x, y):
+            try await macOSDriver.moveWindow(x: x, y: y)
+
         case let .macResizeWindow(width, height):
             try await macOSDriver.resizeWindow(width: width, height: height)
 

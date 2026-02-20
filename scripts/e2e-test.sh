@@ -90,6 +90,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 # =====================================================
+# CLEAN STALE RESULTS
+# =====================================================
+# Remove previous JSON output to prevent stale data from being picked up
+# if this run fails before the coordinator writes new results.
+if [ -n "$JSON_OUTPUT" ]; then
+    rm -f "$JSON_OUTPUT"
+fi
+
+# =====================================================
 # HELPERS
 # =====================================================
 step() {
@@ -145,6 +154,26 @@ check_screen_recording() {
 # Simulator accessibility: needed for XCUITest runner (loadAccessibility hangs without these)
 ensure_simulator_accessibility() {
     local udid="$1"
+
+    # simctl spawn requires a booted device — boot if not already running
+    local state
+    state=$(xcrun simctl list devices -j | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for runtime, devices in data.get('devices', {}).items():
+    for d in devices:
+        if d['udid'] == '$udid':
+            print(d['state'])
+            sys.exit(0)
+print('Unknown')
+")
+    if [ "$state" != "Booted" ]; then
+        echo "  Booting simulator ($state)..."
+        xcrun simctl boot "$udid" 2>/dev/null || true
+        open -a Simulator
+        sleep 3
+    fi
+
     local needs_reboot=false
     for key in AccessibilityEnabled ApplicationAccessibilityEnabled AutomationEnabled; do
         local val

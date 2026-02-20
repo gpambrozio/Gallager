@@ -3,7 +3,7 @@ import CoreGraphics
 import Foundation
 import Logging
 
-/// Drives the macOS Gallager app via HTTP accessibility server, CGEvent, and AppleScript.
+/// Drives the macOS Gallager app via external Accessibility APIs, CGEvent, and AppleScript.
 ///
 /// Tracks the launched app instance by PID so E2E tests can run alongside a
 /// production copy of the same app without interfering with it.
@@ -86,52 +86,49 @@ public actor MacOSDriver {
         try await runAppleScript(script)
     }
 
-    /// Wait for a window to appear via the app's HTTP accessibility server.
-    /// Uses the in-app endpoint instead of CGWindowList because kCGWindowName
-    /// returns nil without Screen Recording permission on macOS 26+.
+    /// Wait for a window to appear via the external Accessibility API.
     public func waitForWindow(titled: String, timeout: TimeInterval = 5) async throws {
+        let pid = try requirePID()
         try await Polling.waitUntil(
             description: "window titled \"\(titled)\"",
             timeout: timeout,
             pollInterval: 0.5
         ) {
-            await MacAppHTTPClient.windowExists(titled: titled)
+            MacOSAccessibility.windowExists(appPID: pid, titled: titled)
         }
     }
 
-    /// Select a tab in the Settings window by clicking it via the app's HTTP server.
-    /// The click happens inside the app process, bypassing window z-ordering issues.
+    /// Select a tab in the Settings window by clicking it via AX.
     public func selectSettingsTab(_ tabName: String) async throws {
+        let pid = try requirePID()
         logger.info("Selecting settings tab: \(tabName)")
-        // Wait for the element to appear, then click via HTTP
-        _ = try await waitForHTTPElement(titled: tabName, timeout: 5)
-        let clicked = try await MacAppHTTPClient.click(titled: tabName)
-        if !clicked {
+        try await waitForAXElement(pid: pid, titled: tabName, timeout: 5)
+        if !MacOSAccessibility.press(appPID: pid, titled: tabName) {
             throw MacOSDriverError.elementNotFound(tabName)
         }
         try await Task.sleep(for: .milliseconds(500))
     }
 
-    /// Click a button by title or help text via the app's HTTP server.
+    /// Click a button by title or help text via AX.
+    /// Tries multiple AX matches and walks parent chain; falls back to CGEvent click.
     public func clickButton(titled: String) async throws {
+        let pid = try requirePID()
         logger.info("Clicking button: \(titled)")
-        _ = try await waitForHTTPElement(titled: titled, timeout: 5)
-        let clicked = try await MacAppHTTPClient.click(titled: titled)
-        if !clicked {
+        try await waitForAXElement(pid: pid, titled: titled, timeout: 5)
+        if !MacOSAccessibility.press(appPID: pid, titled: titled) {
             throw MacOSDriverError.elementNotFound(titled)
         }
     }
 
-    /// Click a menu trigger button then click a menu item.
-    /// Uses HTTP clicks: first to open the popup menu, then polls for the item.
-    /// SwiftUI Menu popups appear as separate windows that the HTTP server can search.
+    /// Click a menu trigger button then click a menu item via AX.
+    /// AX can see NSMenu popup items as AXMenu > AXMenuItem in the tree.
     public func clickMenuItem(menuButtonTitle: String, itemTitle: String) async throws {
+        let pid = try requirePID()
         logger.info("Clicking menu '\(menuButtonTitle)' → '\(itemTitle)'")
 
-        // Step 1: Click the menu trigger via HTTP (opens the popup)
-        _ = try await waitForHTTPElement(titled: menuButtonTitle, timeout: 5)
-        let clicked = try await MacAppHTTPClient.click(titled: menuButtonTitle)
-        if !clicked {
+        // Step 1: Click the menu trigger via AX (opens the popup)
+        try await waitForAXElement(pid: pid, titled: menuButtonTitle, timeout: 5)
+        if !MacOSAccessibility.press(appPID: pid, titled: menuButtonTitle) {
             throw MacOSDriverError.elementNotFound(menuButtonTitle)
         }
 
@@ -139,8 +136,7 @@ public actor MacOSDriver {
         let deadline = Date().addingTimeInterval(3)
         while Date() < deadline {
             try await Task.sleep(for: .milliseconds(300))
-            let itemClicked = try await MacAppHTTPClient.click(titled: itemTitle)
-            if itemClicked {
+            if MacOSAccessibility.press(appPID: pid, titled: itemTitle) {
                 return
             }
         }
@@ -166,13 +162,22 @@ public actor MacOSDriver {
         try await runAppleScript(script)
     }
 
-    /// Resize the macOS app window via the in-app HTTP server.
-    /// Uses NSWindow.setFrame instead of AppleScript because MenuBarExtra apps
-    /// don't expose windows through System Events.
+    /// Move the macOS app window to a screen position via AX.
+    public func moveWindow(x: Int, y: Int) async throws {
+        let pid = try requirePID()
+        logger.info("Moving window to (\(x), \(y))")
+        if !MacOSAccessibility.moveWindow(appPID: pid, x: x, y: y) {
+            throw MacOSDriverError.appleScriptFailed(
+                "Failed to move window to (\(x), \(y)) — no visible window found"
+            )
+        }
+    }
+
+    /// Resize the macOS app window via AX.
     public func resizeWindow(width: Int, height: Int) async throws {
+        let pid = try requirePID()
         logger.info("Resizing window to \(width)x\(height)")
-        let resized = try await MacAppHTTPClient.resizeWindow(width: width, height: height)
-        if !resized {
+        if !MacOSAccessibility.resizeWindow(appPID: pid, width: width, height: height) {
             throw MacOSDriverError.appleScriptFailed(
                 "Failed to resize window to \(width)x\(height) — no visible window found"
             )
@@ -180,6 +185,7 @@ public actor MacOSDriver {
     }
 
     /// Set the sidebar width of the NavigationSplitView via the in-app HTTP server.
+    /// NSSplitView.setPosition() requires in-process access, so this still uses HTTP.
     public func setSidebarWidth(_ width: Int) async throws {
         logger.info("Setting sidebar width to \(width)")
         let success = try await MacAppHTTPClient.setSidebarWidth(width)
@@ -210,8 +216,8 @@ public actor MacOSDriver {
 
     // MARK: - Unpair
 
-    /// Trigger unpair on the first paired viewer via the macOS app's test HTTP endpoint.
-    /// Bypasses the SwiftUI Menu (whose NSMenu popup isn't in the accessibility tree).
+    /// Trigger unpair via the macOS app's test HTTP endpoint.
+    /// Uses HTTP because it posts a NotificationCenter notification that the app observes.
     public func unpair() async throws {
         logger.info("Triggering unpair via HTTP endpoint")
         let success = try await MacAppHTTPClient.unpair()
@@ -242,18 +248,19 @@ public actor MacOSDriver {
 
     /// Wait for an element with the given title to appear in the macOS app
     public func waitForElement(titled: String, timeout: TimeInterval = 10) async throws {
-        _ = try await waitForHTTPElement(titled: titled, timeout: timeout)
+        let pid = try requirePID()
+        try await waitForAXElement(pid: pid, titled: titled, timeout: timeout)
     }
 
     /// Wait for an element to disappear from the macOS app's accessibility tree
     public func waitForElementToDisappear(titled: String, timeout: TimeInterval = 10) async throws {
+        let pid = try requirePID()
         try await Polling.waitUntil(
             description: "macOS UI element '\(titled)' to disappear",
             timeout: timeout,
             pollInterval: 0.5
         ) {
-            let found = try? await MacAppHTTPClient.findElement(titled: titled)
-            return found == nil
+            MacOSAccessibility.findElement(appPID: pid, titled: titled) == nil
         }
     }
 
@@ -284,46 +291,22 @@ public actor MacOSDriver {
         try await normalizeScreenshotDPI(path: output)
     }
 
-    // MARK: - Private: HTTP Element Interaction
+    // MARK: - Private: AX Element Polling
 
-    /// Wait for an element to appear in the HTTP accessibility tree
-    private func waitForHTTPElement(
+    /// Wait for an element to appear in the AX tree
+    @discardableResult
+    private func waitForAXElement(
+        pid: pid_t,
         titled: String,
         timeout: TimeInterval
-    ) async throws -> MacAppHTTPClient.MacUIElement {
+    ) async throws -> UIElement {
         try await Polling.waitFor(
             description: "macOS UI element '\(titled)'",
             timeout: timeout,
             pollInterval: 0.5
         ) {
-            try? await MacAppHTTPClient.findElement(titled: titled)
+            MacOSAccessibility.findElement(appPID: pid, titled: titled)
         }
-    }
-
-    /// Click at absolute screen coordinates using CGEvent
-    private func clickAtScreenPoint(_ point: CGPoint) async throws {
-        logger.info("Clicking at screen coordinates: (\(point.x), \(point.y))")
-
-        // Bring the app's windows to front via HTTP endpoint
-        try await MacAppHTTPClient.activate()
-        try await Task.sleep(for: .milliseconds(300))
-
-        let mouseDown = CGEvent(
-            mouseEventSource: nil,
-            mouseType: .leftMouseDown,
-            mouseCursorPosition: point,
-            mouseButton: .left
-        )
-        let mouseUp = CGEvent(
-            mouseEventSource: nil,
-            mouseType: .leftMouseUp,
-            mouseCursorPosition: point,
-            mouseButton: .left
-        )
-
-        mouseDown?.post(tap: .cghidEventTap)
-        try await Task.sleep(for: .milliseconds(50))
-        mouseUp?.post(tap: .cghidEventTap)
     }
 
     // MARK: - Private: Screenshot Normalization

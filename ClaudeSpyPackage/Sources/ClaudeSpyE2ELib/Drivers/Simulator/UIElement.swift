@@ -8,6 +8,7 @@ public struct UIElement: Sendable, CustomStringConvertible {
     public let value: String?
     public let title: String?
     public let identifier: String?
+    public let help: String?
     public let frame: CGRect
     public let children: [UIElement]
 
@@ -22,6 +23,7 @@ public struct UIElement: Sendable, CustomStringConvertible {
         if let value { parts.append("value=\"\(value)\"") }
         if let title { parts.append("title=\"\(title)\"") }
         if let identifier { parts.append("id=\"\(identifier)\"") }
+        if let help { parts.append("help=\"\(help)\"") }
         parts.append("frame=\(frame)")
         if !children.isEmpty { parts.append("children=\(children.count)") }
         return "UIElement(\(parts.joined(separator: ", ")))"

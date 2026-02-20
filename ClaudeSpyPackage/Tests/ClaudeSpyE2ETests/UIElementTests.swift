@@ -12,6 +12,7 @@ struct UIElementTests {
             value: nil,
             title: nil,
             identifier: nil,
+            help: nil,
             frame: .init(x: 100, y: 200, width: 50, height: 30),
             children: []
         )
@@ -24,15 +25,15 @@ struct UIElementTests {
     func flattenedTree() {
         let child1 = UIElement(
             role: "AXButton", subrole: nil, label: "A", value: nil,
-            title: nil, identifier: nil, frame: .zero, children: []
+            title: nil, identifier: nil, help: nil, frame: .zero, children: []
         )
         let child2 = UIElement(
             role: "AXButton", subrole: nil, label: "B", value: nil,
-            title: nil, identifier: nil, frame: .zero, children: []
+            title: nil, identifier: nil, help: nil, frame: .zero, children: []
         )
         let parent = UIElement(
             role: "AXGroup", subrole: nil, label: "Parent", value: nil,
-            title: nil, identifier: nil, frame: .zero, children: [child1, child2]
+            title: nil, identifier: nil, help: nil, frame: .zero, children: [child1, child2]
         )
 
         let flattened = parent.flattened()
@@ -51,6 +52,7 @@ struct UIElementTests {
             value: "clicked",
             title: "Submit Button",
             identifier: "submit-btn",
+            help: nil,
             frame: .init(x: 0, y: 0, width: 100, height: 44),
             children: []
         )

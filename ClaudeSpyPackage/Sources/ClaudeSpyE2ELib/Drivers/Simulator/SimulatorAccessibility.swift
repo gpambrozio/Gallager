@@ -19,6 +19,7 @@ enum SimulatorAccessibility {
         let value = getValueString(of: element)
         let title = getStringAttribute(of: element, attribute: kAXTitleAttribute as String)
         let identifier = getStringAttribute(of: element, attribute: kAXIdentifierAttribute as String)
+        let help = getStringAttribute(of: element, attribute: kAXHelpAttribute as String)
         let frame = getFrame(of: element) ?? .zero
 
         let children: [UIElement]
@@ -37,6 +38,7 @@ enum SimulatorAccessibility {
             value: value,
             title: title,
             identifier: identifier,
+            help: help,
             frame: frame,
             children: children
         )

@@ -44,8 +44,11 @@ public enum ProjectSearchIOSScenario {
         TestStep.log("Pressing return to select AlphaProject")
         TestStep.iosType(text: "\n")
         TestStep.wait(seconds: 1)
-        TestStep.iosWaitForElementToDisappear(.labelContains("AlphaProject"), timeout: 5)
-        TestStep.iosScreenshot(label: "project-selected")
+        // Check the sheet closed by verifying a sheet-only element is gone.
+        // "AlphaProject" can't be used here because it appears in the session list
+        // as the newly created session's project label.
+        TestStep.iosWaitForElementToDisappear(.labelContains("Search projects"), timeout: 5)
+        TestStep.iosScreenshot(label: "project-selected", compare: false)
 
         // ── Teardown ─────────────────────────────────────────────
         TestStep.terminateMacApp

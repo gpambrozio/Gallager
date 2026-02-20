@@ -126,10 +126,12 @@ fi
 # =====================================================
 # RUN E2E TESTS
 # =====================================================
-step "Running E2E tests"
 
-# Clean screenshots directory
+# Clean stale results from previous runs to prevent reporting old data
+rm -f "$JSON_OUTPUT"
 rm -rf "$SCREENSHOTS_DIR"
+
+step "Running E2E tests"
 
 E2E_EXIT=0
 "$SCRIPT_DIR/e2e-test.sh" \
@@ -138,8 +140,18 @@ E2E_EXIT=0
     "${E2E_ARGS[@]}" \
     || E2E_EXIT=$?
 
+# Detect build failure vs test failure:
+# If the exit code is non-zero and no JSON was produced, the build failed
+# before the test coordinator could run.
+BUILD_FAILED=false
+if [ $E2E_EXIT -ne 0 ] && [ ! -f "$JSON_OUTPUT" ]; then
+    BUILD_FAILED=true
+fi
+
 echo ""
-if [ $E2E_EXIT -eq 0 ]; then
+if [ "$BUILD_FAILED" = true ]; then
+    echo "Build failed (no test results produced, exit code: $E2E_EXIT)"
+elif [ $E2E_EXIT -eq 0 ]; then
     echo "All scenarios passed!"
 else
     echo "Some scenarios failed (exit code: $E2E_EXIT)"
@@ -176,6 +188,7 @@ TIMESTAMP="$TIMESTAMP" \
 DATE_DISPLAY="$DATE_DISPLAY" \
 RESULT_FOLDER="$RESULT_FOLDER" \
 ALL_PASSED="$ALL_PASSED" \
+BUILD_FAILED="$BUILD_FAILED" \
 REPORT_DIR="$REPORT_DIR" \
 IMAGES_DIR="$IMAGES_DIR" \
 SCREENSHOTS_DIR="$SCREENSHOTS_DIR" \
@@ -193,7 +206,8 @@ metadata = {
     "timestamp": os.environ["TIMESTAMP"],
     "date": os.environ["DATE_DISPLAY"],
     "folder": os.environ["RESULT_FOLDER"],
-    "allPassed": os.environ["ALL_PASSED"] == "true"
+    "allPassed": os.environ["ALL_PASSED"] == "true",
+    "buildFailed": os.environ["BUILD_FAILED"] == "true"
 }
 
 report_dir = os.environ["REPORT_DIR"]
@@ -313,6 +327,7 @@ for report_file in sorted(glob.glob(os.path.join(results_base, "*/report.json"))
             "date": meta.get("date", ""),
             "timestamp": meta.get("timestamp", ""),
             "allPassed": meta.get("allPassed", False),
+            "buildFailed": meta.get("buildFailed", False),
             "totalScenarios": total,
             "passedScenarios": passed,
             "failedScenarios": total - passed,
@@ -373,7 +388,10 @@ except Exception:
 PYEOF
     )
 
-    if [ $E2E_EXIT -eq 0 ]; then
+    if [ "$BUILD_FAILED" = true ]; then
+        COMMENT_TITLE="## E2E Build Failure"
+        SCENARIO_SUMMARY="| :no_entry: | Build failed — no tests ran |"
+    elif [ $E2E_EXIT -eq 0 ]; then
         COMMENT_TITLE="## E2E Tests Passed"
     else
         COMMENT_TITLE="## E2E Test Failure"

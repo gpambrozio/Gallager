@@ -341,17 +341,10 @@ public struct MainView: View {
                     Symbols.xmark.image
                 }
                 .help("Close session")
-                .confirmationDialog(
-                    "Close Session?",
-                    isPresented: $showingCloseConfirmation,
-                    titleVisibility: .visible
-                ) {
-                    Button("Close \"\(pane.sessionName)\"", role: .destructive) {
+                .popover(isPresented: $showingCloseConfirmation, arrowEdge: .bottom) {
+                    CloseSessionConfirmation(sessionName: pane.sessionName) {
                         closeSession(pane.sessionName)
                     }
-                    Button("Cancel", role: .cancel) { }
-                } message: {
-                    Text("This will end all processes in the session.")
                 }
             } else if let remote = selectedRemotePane {
                 resizeToolbarGroup(resizeKey: remote.resizeKey, remoteHostId: remote.hostId, remotePaneId: remote.paneId)
@@ -573,9 +566,10 @@ public struct MainView: View {
         if let selected = selectedPane, newSessionPaneIds.contains(selected.paneId) {
             // The currently selected pane just got a Claude session - scroll to it
             scrollToPaneId = selected.id
-        } else if selectedPane == nil, selectedRemotePane == nil, newSessionPaneIds.count == 1,
-                  let newPaneId = newSessionPaneIds.first,
-                  let pane = tmuxService.panes.first(where: { $0.paneId == newPaneId }) {
+        } else if
+            selectedPane == nil, selectedRemotePane == nil, newSessionPaneIds.count == 1,
+            let newPaneId = newSessionPaneIds.first,
+            let pane = tmuxService.panes.first(where: { $0.paneId == newPaneId }) {
             // Nothing selected and a single new session appeared - auto-select it
             selectedPane = pane
             scrollToPaneId = pane.id
@@ -1266,5 +1260,37 @@ private struct NewSessionRow: View {
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
+    }
+}
+
+// MARK: - Close Session Confirmation Popover
+
+private struct CloseSessionConfirmation: View {
+    let sessionName: String
+    let onConfirm: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text("Close Session?")
+                .font(.headline)
+            Text("This will end all processes in the session.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Button("Cancel") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+                Button("Close \"\(sessionName)\"", role: .destructive) {
+                    dismiss()
+                    onConfirm()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding()
+        .frame(minWidth: 250)
     }
 }
