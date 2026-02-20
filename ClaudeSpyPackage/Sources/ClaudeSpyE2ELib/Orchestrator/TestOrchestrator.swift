@@ -65,7 +65,7 @@ public actor TestOrchestrator {
         iosAppPath: String? = nil,
         macOSAppPath: String,
         simulatorName: String = "iPhone 16",
-        screenshotsDir: String = "/tmp/e2e-screenshots",
+        screenshotsDir: String = NSTemporaryDirectory() + "e2e-screenshots",
         baselinesDir: String = "E2ETests",
         tmuxSocket: String? = nil,
         e2eRunnerPath: String? = nil,
@@ -117,7 +117,7 @@ public actor TestOrchestrator {
         screenshotCounter = 0
 
         // Pre-populate context with orchestrator configuration
-        context.set("tmuxSocket", value: tmuxSocket ?? "/tmp/claudespy-e2e.sock")
+        context.set("tmuxSocket", value: tmuxSocket ?? NSTemporaryDirectory() + "claudespy-e2e.sock")
         context.set("scenarioName", value: scenarioDirName)
 
         var stepResults: [StepResult] = []

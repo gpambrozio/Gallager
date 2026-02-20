@@ -205,7 +205,7 @@ public actor SimulatorDriver {
             "-destination", "id=\(udid)",
         ]
         // Pipe xcodebuild output to a log file for debugging
-        let logPath = "/tmp/e2e-runner-xcodebuild.log"
+        let logPath = NSTemporaryDirectory() + "e2e-runner-xcodebuild.log"
         FileManager.default.createFile(atPath: logPath, contents: nil)
         let logHandle = FileHandle(forWritingAtPath: logPath)
         process.standardOutput = logHandle ?? FileHandle.nullDevice

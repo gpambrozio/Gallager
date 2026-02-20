@@ -22,7 +22,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     var scenario: String?
 
     @Option(name: .long, help: "Directory for screenshots")
-    var screenshotsDir = "/tmp/e2e-screenshots"
+    var screenshotsDir = NSTemporaryDirectory() + "e2e-screenshots"
 
     @Option(name: .long, help: "Directory for screenshot baselines (comparison reference images)")
     var baselinesDir = "E2ETests"
