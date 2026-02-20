@@ -22,7 +22,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     var scenario: String?
 
     @Option(name: .long, help: "Directory for screenshots")
-    var screenshotsDir = "/tmp/e2e-screenshots"
+    var screenshotsDir = NSTemporaryDirectory() + "e2e-screenshots"
 
     @Option(name: .long, help: "Directory for screenshot baselines (comparison reference images)")
     var baselinesDir = "E2ETests"
@@ -164,12 +164,13 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         DisconnectMacOSUnpairIOSScenario.scenario,
         ResizePaneScenario.scenario,
         ProjectListScenario.scenario,
-        ProjectSearchMacOSScenario.scenario,
-        ProjectSearchIOSScenario.scenario,
         ClaudeSessionsShowScenario.scenario,
         ClaudeSessionUpdatesScenario.scenario,
         ClaudeSessionRepliesPersistScenario.scenario,
+        ProjectSearchMacOSScenario.scenario,
+        ProjectSearchIOSScenario.scenario,
         EmptyStateNewSessionScenario.scenario,
+        SidebarSelectionScenario.scenario,
     ]
 
     private func runTests(orchestrator: TestOrchestrator) async throws {
