@@ -90,6 +90,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 # =====================================================
+# CLEAN STALE RESULTS
+# =====================================================
+# Remove previous JSON output to prevent stale data from being picked up
+# if this run fails before the coordinator writes new results.
+if [ -n "$JSON_OUTPUT" ]; then
+    rm -f "$JSON_OUTPUT"
+fi
+
+# =====================================================
 # HELPERS
 # =====================================================
 step() {
