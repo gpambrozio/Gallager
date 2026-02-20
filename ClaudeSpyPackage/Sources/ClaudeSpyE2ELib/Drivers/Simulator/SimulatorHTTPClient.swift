@@ -111,6 +111,7 @@ enum SimulatorHTTPClient {
             value: value,
             title: title,
             identifier: identifier,
+            help: nil,
             frame: frame,
             children: children
         )

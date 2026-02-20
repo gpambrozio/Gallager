@@ -11,6 +11,7 @@ struct ElementQueryTests {
             value: nil,
             title: "Submit",
             identifier: "submit-button",
+            help: nil,
             frame: .init(x: 10, y: 10, width: 100, height: 44),
             children: []
         ),
@@ -21,6 +22,7 @@ struct ElementQueryTests {
             value: nil,
             title: nil,
             identifier: nil,
+            help: nil,
             frame: .init(x: 10, y: 60, width: 200, height: 20),
             children: []
         ),
@@ -31,6 +33,7 @@ struct ElementQueryTests {
             value: nil,
             title: "Sessions",
             identifier: "sessions-tab",
+            help: nil,
             frame: .init(x: 0, y: 0, width: 320, height: 600),
             children: [
                 UIElement(
@@ -40,6 +43,7 @@ struct ElementQueryTests {
                     value: nil,
                     title: nil,
                     identifier: nil,
+                    help: nil,
                     frame: .init(x: 10, y: 10, width: 100, height: 20),
                     children: []
                 ),
@@ -50,6 +54,7 @@ struct ElementQueryTests {
                     value: "hello",
                     title: nil,
                     identifier: "search-field",
+                    help: nil,
                     frame: .init(x: 10, y: 40, width: 200, height: 30),
                     children: []
                 ),

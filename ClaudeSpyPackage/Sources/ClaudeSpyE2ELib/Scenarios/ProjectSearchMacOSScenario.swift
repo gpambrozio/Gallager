@@ -49,7 +49,10 @@ public enum ProjectSearchMacOSScenario {
         TestStep.log("Pressing return to select AlphaProject")
         TestStep.macType(text: "", pressReturn: true)
         TestStep.wait(seconds: 1)
-        TestStep.macWaitForElementToDisappear(titled: "AlphaProject", timeout: 5)
+        // Check the popover closed by verifying a popover-only element is gone.
+        // "AlphaProject" can't be used here because it appears in the sidebar
+        // as the newly created session's project label.
+        TestStep.macWaitForElementToDisappear(titled: "Search projects", timeout: 5)
         TestStep.macScreenshot(label: "project-selected", compare: false)
 
         // ── Teardown ─────────────────────────────────────────────

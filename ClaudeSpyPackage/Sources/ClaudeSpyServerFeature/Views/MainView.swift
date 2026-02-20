@@ -341,17 +341,12 @@ public struct MainView: View {
                     Symbols.xmark.image
                 }
                 .help("Close session")
-                .confirmationDialog(
-                    "Close Session?",
-                    isPresented: $showingCloseConfirmation,
-                    titleVisibility: .visible
-                ) {
-                    Button("Close \"\(pane.sessionName)\"", role: .destructive) {
+                .popover(isPresented: $showingCloseConfirmation, arrowEdge: .bottom) {
+                    CloseSessionConfirmation(sessionName: pane.sessionName) {
                         closeSession(pane.sessionName)
+                    } onCancel: {
+                        showingCloseConfirmation = false
                     }
-                    Button("Cancel", role: .cancel) { }
-                } message: {
-                    Text("This will end all processes in the session.")
                 }
             } else if let remote = selectedRemotePane {
                 resizeToolbarGroup(resizeKey: remote.resizeKey, remoteHostId: remote.hostId, remotePaneId: remote.paneId)
@@ -1266,5 +1261,35 @@ private struct NewSessionRow: View {
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
+    }
+}
+
+// MARK: - Close Session Confirmation Popover
+
+private struct CloseSessionConfirmation: View {
+    let sessionName: String
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text("Close Session?")
+                .font(.headline)
+            Text("This will end all processes in the session.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Button("Cancel") {
+                    onCancel()
+                }
+                .keyboardShortcut(.cancelAction)
+                Button("Close \"\(sessionName)\"", role: .destructive) {
+                    onConfirm()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding()
+        .frame(minWidth: 250)
     }
 }

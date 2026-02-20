@@ -14,6 +14,10 @@ public enum ElementQuery: Sendable, CustomStringConvertible {
     case roleAndLabelContains(role: String, label: String)
     /// Match by AXValue containing substring
     case valueContains(String)
+    /// Match by AXHelp exact match
+    case help(String)
+    /// Match when any text field (title, label, value) contains substring, or help exactly equals
+    case anyTextMatches(String)
     /// Match by combining multiple queries (all must match)
     case allOf([ElementQuery])
 
@@ -31,6 +35,10 @@ public enum ElementQuery: Sendable, CustomStringConvertible {
             "role(\"\(role)\") && labelContains(\"\(label)\")"
         case let .valueContains(text):
             "valueContains(\"\(text)\")"
+        case let .help(text):
+            "help(\"\(text)\")"
+        case let .anyTextMatches(text):
+            "anyTextMatches(\"\(text)\")"
         case let .allOf(queries):
             "allOf(\(queries.map(\.description).joined(separator: ", ")))"
         }
@@ -51,6 +59,13 @@ public enum ElementQuery: Sendable, CustomStringConvertible {
             element.role == role && (element.label?.localizedCaseInsensitiveContains(label) ?? false)
         case let .valueContains(text):
             element.value?.localizedCaseInsensitiveContains(text) ?? false
+        case let .help(text):
+            element.help == text
+        case let .anyTextMatches(text):
+            (element.title?.contains(text) ?? false)
+                || (element.label?.contains(text) ?? false)
+                || (element.value?.contains(text) ?? false)
+                || element.help == text
         case let .allOf(queries):
             queries.allSatisfy { $0.matches(element) }
         }
