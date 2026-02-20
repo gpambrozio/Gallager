@@ -91,6 +91,8 @@ public enum TestStep: Sendable {
     case macWaitForElementToDisappear(titled: String, timeout: TimeInterval = 10)
     /// Open the Panes window via the status item menu
     case macOpenPanesWindow
+    /// Move the macOS app window to a screen position
+    case macMoveWindow(x: Int, y: Int)
     /// Resize the macOS app window
     case macResizeWindow(width: Int, height: Int)
     /// Set the sidebar width of the NavigationSplitView

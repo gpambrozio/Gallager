@@ -162,6 +162,17 @@ public actor MacOSDriver {
         try await runAppleScript(script)
     }
 
+    /// Move the macOS app window to a screen position via AX.
+    public func moveWindow(x: Int, y: Int) async throws {
+        let pid = try requirePID()
+        logger.info("Moving window to (\(x), \(y))")
+        if !MacOSAccessibility.moveWindow(appPID: pid, x: x, y: y) {
+            throw MacOSDriverError.appleScriptFailed(
+                "Failed to move window to (\(x), \(y)) — no visible window found"
+            )
+        }
+    }
+
     /// Resize the macOS app window via AX.
     public func resizeWindow(width: Int, height: Int) async throws {
         let pid = try requirePID()

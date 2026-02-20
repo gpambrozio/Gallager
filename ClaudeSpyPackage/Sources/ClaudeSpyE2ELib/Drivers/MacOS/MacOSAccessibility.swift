@@ -129,6 +129,26 @@ enum MacOSAccessibility {
 
     // MARK: - Window Management
 
+    /// Move the first visible window to a screen position via AX attributes.
+    @discardableResult
+    static func moveWindow(appPID: pid_t, x: Int, y: Int) -> Bool {
+        let allWindows = windows(appPID: appPID)
+        guard let firstWindow = allWindows.first else {
+            logger.info("No windows found for move")
+            return false
+        }
+
+        var position = CGPoint(x: x, y: y)
+        guard let positionValue = AXValueCreate(.cgPoint, &position) else { return false }
+        let result = AXUIElementSetAttributeValue(firstWindow.element, kAXPositionAttribute as CFString, positionValue)
+        if result == .success {
+            logger.info("Moved window to (\(x), \(y))")
+            return true
+        }
+        logger.info("AX move failed (\(result.rawValue))")
+        return false
+    }
+
     /// Resize the first visible window via AX attributes.
     @discardableResult
     static func resizeWindow(appPID: pid_t, width: Int, height: Int) -> Bool {
