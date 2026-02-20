@@ -35,6 +35,11 @@ public enum TestStep: Sendable {
     case waitForViewerConnected(timeout: TimeInterval = 15)
     /// Disconnect a device type's WebSocket connections on the server
     case serverDisconnectDevice(E2EDeviceType)
+    /// Block a device type from connecting and disconnect existing connections.
+    /// New WebSocket connections from this device type will be rejected until unblocked.
+    case serverBlockDevice(E2EDeviceType)
+    /// Unblock a device type, allowing connections again
+    case serverUnblockDevice(E2EDeviceType)
     /// Wait until the server has no active pairings
     case waitForNoPairings(timeout: TimeInterval = 15)
     /// Stop the server

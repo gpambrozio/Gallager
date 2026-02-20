@@ -260,6 +260,12 @@ public actor TestOrchestrator {
         case let .serverDisconnectDevice(deviceType):
             await serverDriver.disconnectDevice(type: deviceType)
 
+        case let .serverBlockDevice(deviceType):
+            await serverDriver.blockDevice(type: deviceType)
+
+        case let .serverUnblockDevice(deviceType):
+            await serverDriver.unblockDevice(type: deviceType)
+
         case let .waitForNoPairings(timeout):
             try await serverDriver.waitForNoPairings(timeout: timeout)
 
