@@ -45,7 +45,7 @@ enum MacOSAccessibility {
         let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &value)
         guard result == .success, let windowElements = value as? [AXUIElement] else { return [] }
 
-        return windowElements.compactMap { window in
+        return windowElements.map { window in
             var titleValue: CFTypeRef?
             let titleResult = AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleValue)
             let title = (titleResult == .success) ? (titleValue as? String ?? "") : ""
@@ -59,13 +59,6 @@ enum MacOSAccessibility {
     }
 
     // MARK: - Actions
-
-    /// Find a raw AXUIElement matching a query (for performing AX actions).
-    /// Walks the AX tree directly without parsing into UIElement structs.
-    static func findRawElement(appPID: pid_t, matching query: ElementQuery) -> AXUIElement? {
-        let roots = allRootElements(appPID: appPID)
-        return findRawElementInChildren(roots, matching: query, depth: 0, maxDepth: 20)
-    }
 
     /// Find all raw AXUIElements matching a query.
     /// Used by `press` to try multiple matches when the first isn't pressable.
@@ -201,17 +194,6 @@ enum MacOSAccessibility {
         return false
     }
 
-    /// Get the center of the element, or walk up parents until one has a frame.
-    private static func centerOfElementOrParent(_ element: AXUIElement) -> CGPoint? {
-        var current: AXUIElement? = element
-        for _ in 0..<5 {
-            guard let el = current else { return nil }
-            if let center = centerOfElement(el) { return center }
-            current = parent(of: el)
-        }
-        return nil
-    }
-
     /// Get the parent AXUIElement via kAXParentAttribute.
     private static func parent(of element: AXUIElement) -> AXUIElement? {
         var value: CFTypeRef?
@@ -242,35 +224,6 @@ enum MacOSAccessibility {
     }
 
     // MARK: - Private: Raw Element Search
-
-    /// Recursively search for a raw AXUIElement matching the query.
-    /// Returns the first match without parsing into UIElement structs.
-    private static func findRawElementInChildren(
-        _ children: [AXUIElement],
-        matching query: ElementQuery,
-        depth: Int,
-        maxDepth: Int
-    ) -> AXUIElement? {
-        guard depth < maxDepth else { return nil }
-
-        for child in children {
-            // Parse just enough to check the query
-            if let parsed = SimulatorAccessibility.parseElement(child, depth: 0, maxDepth: 1) {
-                if query.matches(parsed) {
-                    return child
-                }
-            }
-
-            // Recurse into children
-            let grandchildren = SimulatorAccessibility.getChildren(of: child)
-            if !grandchildren.isEmpty {
-                if let found = findRawElementInChildren(grandchildren, matching: query, depth: depth + 1, maxDepth: maxDepth) {
-                    return found
-                }
-            }
-        }
-        return nil
-    }
 
     /// Recursively collect all raw AXUIElements matching the query.
     private static func collectRawElementsInChildren(

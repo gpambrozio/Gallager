@@ -344,8 +344,6 @@ public struct MainView: View {
                 .popover(isPresented: $showingCloseConfirmation, arrowEdge: .bottom) {
                     CloseSessionConfirmation(sessionName: pane.sessionName) {
                         closeSession(pane.sessionName)
-                    } onCancel: {
-                        showingCloseConfirmation = false
                     }
                 }
             } else if let remote = selectedRemotePane {
@@ -568,9 +566,10 @@ public struct MainView: View {
         if let selected = selectedPane, newSessionPaneIds.contains(selected.paneId) {
             // The currently selected pane just got a Claude session - scroll to it
             scrollToPaneId = selected.id
-        } else if selectedPane == nil, selectedRemotePane == nil, newSessionPaneIds.count == 1,
-                  let newPaneId = newSessionPaneIds.first,
-                  let pane = tmuxService.panes.first(where: { $0.paneId == newPaneId }) {
+        } else if
+            selectedPane == nil, selectedRemotePane == nil, newSessionPaneIds.count == 1,
+            let newPaneId = newSessionPaneIds.first,
+            let pane = tmuxService.panes.first(where: { $0.paneId == newPaneId }) {
             // Nothing selected and a single new session appeared - auto-select it
             selectedPane = pane
             scrollToPaneId = pane.id
@@ -1269,7 +1268,8 @@ private struct NewSessionRow: View {
 private struct CloseSessionConfirmation: View {
     let sessionName: String
     let onConfirm: () -> Void
-    let onCancel: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(spacing: 12) {
@@ -1280,10 +1280,11 @@ private struct CloseSessionConfirmation: View {
                 .foregroundStyle(.secondary)
             HStack(spacing: 8) {
                 Button("Cancel") {
-                    onCancel()
+                    dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
                 Button("Close \"\(sessionName)\"", role: .destructive) {
+                    dismiss()
                     onConfirm()
                 }
                 .keyboardShortcut(.defaultAction)

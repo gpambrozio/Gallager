@@ -62,9 +62,9 @@ public enum ElementQuery: Sendable, CustomStringConvertible {
         case let .help(text):
             element.help == text
         case let .anyTextMatches(text):
-            (element.title?.contains(text) ?? false)
-                || (element.label?.contains(text) ?? false)
-                || (element.value?.contains(text) ?? false)
+            (element.title?.localizedCaseInsensitiveContains(text) ?? false)
+                || (element.label?.localizedCaseInsensitiveContains(text) ?? false)
+                || (element.value?.localizedCaseInsensitiveContains(text) ?? false)
                 || element.help == text
         case let .allOf(queries):
             queries.allSatisfy { $0.matches(element) }
