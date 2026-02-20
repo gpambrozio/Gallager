@@ -418,7 +418,15 @@ public actor SimulatorDriver {
             arguments: ["simctl", "ui", udid, "appearance", "light"]
         )
 
-        logger.info("Simulator configured: fixed time 9:41, light mode")
+        // Ensure accessibility and UI automation are enabled (required by XCUITest runner)
+        for key in ["AccessibilityEnabled", "ApplicationAccessibilityEnabled", "AutomationEnabled"] {
+            _ = try await processRunner.run(
+                "/usr/bin/xcrun",
+                arguments: ["simctl", "spawn", udid, "defaults", "write", "com.apple.Accessibility", key, "-bool", "true"]
+            )
+        }
+
+        logger.info("Simulator configured: fixed time 9:41, light mode, accessibility enabled")
     }
 
     private func findSimulatorPID() async throws {

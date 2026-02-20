@@ -90,22 +90,6 @@ while [[ $# -gt 0 ]]; do
 done
 
 # =====================================================
-# DERIVED PATHS
-# =====================================================
-PRODUCTS_DEBUG="$DERIVED_DATA/Build/Products/Debug"
-PRODUCTS_SIM="$DERIVED_DATA/Build/Products/Debug-iphonesimulator"
-MACOS_APP="$PRODUCTS_DEBUG/Gallager.app"
-IOS_APP="$PRODUCTS_SIM/Gallager.app"
-E2E_BIN="$PRODUCTS_DEBUG/ClaudeSpyE2E"
-
-XCODEBUILD_FLAGS=(
-    -workspace "$WORKSPACE"
-    -derivedDataPath "$DERIVED_DATA"
-    -skipMacroValidation
-    -skipPackagePluginValidation
-)
-
-# =====================================================
 # HELPERS
 # =====================================================
 step() {
@@ -130,6 +114,129 @@ print('', end='')
 sys.exit(1)
 "
 }
+
+# =====================================================
+# PERMISSION CHECKS (macOS)
+# =====================================================
+
+# Accessibility: needed for AppleScript UI automation of the macOS app
+check_accessibility() {
+    if osascript -e 'tell application "System Events" to get name of first process' &>/dev/null; then
+        return 0
+    fi
+    return 1
+}
+
+# Screen Recording: needed for screencapture of macOS app windows
+check_screen_recording() {
+    local test_file
+    test_file="$(mktemp "${TMPDIR:-/tmp}/e2e-screen-test.XXXXXX").png"
+    # Capture a tiny region — if permission is denied the file will be missing or trivially small
+    screencapture -x -R0,0,1,1 "$test_file" 2>/dev/null
+    local size=0
+    if [ -f "$test_file" ]; then
+        size=$(stat -f%z "$test_file" 2>/dev/null || echo 0)
+        rm -f "$test_file"
+    fi
+    # A valid 1x1 PNG is >100 bytes; a blank/failed capture is much smaller or absent
+    [ "$size" -gt 100 ]
+}
+
+# Simulator accessibility: needed for XCUITest runner (loadAccessibility hangs without these)
+ensure_simulator_accessibility() {
+    local udid="$1"
+    local needs_reboot=false
+    for key in AccessibilityEnabled ApplicationAccessibilityEnabled AutomationEnabled; do
+        local val
+        val=$(xcrun simctl spawn "$udid" defaults read com.apple.Accessibility "$key" 2>/dev/null || echo "0")
+        if [ "$val" != "1" ]; then
+            xcrun simctl spawn "$udid" defaults write com.apple.Accessibility "$key" -bool true
+            needs_reboot=true
+        fi
+    done
+    if [ "$needs_reboot" = true ]; then
+        echo "  Enabled simulator accessibility settings — rebooting simulator..."
+        xcrun simctl shutdown "$udid" 2>/dev/null || true
+        sleep 1
+        xcrun simctl boot "$udid"
+        open -a Simulator
+        sleep 3
+        echo "  Simulator rebooted."
+    fi
+}
+
+if [ "$LIST_SCENARIOS" != true ]; then
+    step "Checking required permissions"
+
+    missing=false
+
+    if check_accessibility; then
+        echo "  [OK] Accessibility"
+    else
+        echo "  [MISSING] Accessibility"
+        missing=true
+    fi
+
+    if check_screen_recording; then
+        echo "  [OK] Screen Recording"
+    else
+        echo "  [MISSING] Screen Recording"
+        missing=true
+    fi
+
+    if [ "$missing" = true ]; then
+        echo ""
+        echo "The e2e tests require macOS permissions that haven't been granted yet."
+        echo "Your terminal app needs both Accessibility and Screen & System Audio Recording."
+        echo ""
+        echo "Opening System Settings — please grant the missing permissions."
+        open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        echo ""
+        read -r -p "Press Enter after granting permissions to re-check..."
+
+        # Re-check
+        still_missing=false
+
+        if check_accessibility; then
+            echo "  [OK] Accessibility"
+        else
+            echo "  [MISSING] Accessibility — still not granted"
+            still_missing=true
+        fi
+
+        if check_screen_recording; then
+            echo "  [OK] Screen Recording"
+        else
+            echo "  [MISSING] Screen Recording — still not granted"
+            echo "         (Grant in: System Settings > Privacy & Security > Screen & System Audio Recording)"
+            still_missing=true
+        fi
+
+        if [ "$still_missing" = true ]; then
+            echo ""
+            echo "ERROR: Required permissions not granted. Cannot run e2e tests."
+            exit 1
+        fi
+        echo ""
+        echo "All permissions granted."
+    fi
+fi
+
+# =====================================================
+# DERIVED PATHS
+# =====================================================
+PRODUCTS_DEBUG="$DERIVED_DATA/Build/Products/Debug"
+PRODUCTS_SIM="$DERIVED_DATA/Build/Products/Debug-iphonesimulator"
+MACOS_APP="$PRODUCTS_DEBUG/Gallager.app"
+IOS_APP="$PRODUCTS_SIM/Gallager.app"
+E2E_BIN="$PRODUCTS_DEBUG/ClaudeSpyE2E"
+
+XCODEBUILD_FLAGS=(
+    -workspace "$WORKSPACE"
+    -derivedDataPath "$DERIVED_DATA"
+    -skipMacroValidation
+    -skipPackagePluginValidation
+)
 
 # =====================================================
 # LIST SCENARIOS (no build needed)
@@ -163,6 +270,9 @@ if [ "$SKIP_BUILD" = true ]; then
         exit 1
     fi
     echo "All artifacts found."
+
+    # Find simulator UDID for accessibility check
+    SIM_UDID=$(find_simulator_udid)
 else
     # Find simulator for iOS build destination
     SIM_UDID=$(find_simulator_udid)
@@ -197,6 +307,17 @@ else
         -scheme ClaudeSpyE2E \
         -destination 'platform=macOS' \
         build 2>&1 | xcsift --format toon --warnings --executable
+fi
+
+# =====================================================
+# SIMULATOR ACCESSIBILITY
+# =====================================================
+# XCUITest runner hangs at loadAccessibility if these are disabled.
+# This can happen on fresh simulators or after a device reset.
+if [ -n "$SIM_UDID" ]; then
+    step "Checking simulator accessibility"
+    ensure_simulator_accessibility "$SIM_UDID"
+    echo "  [OK] Simulator accessibility enabled"
 fi
 
 # =====================================================
