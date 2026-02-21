@@ -98,16 +98,15 @@ public enum TerminalRenderingBugsScenario {
 
         TestStep.log("Phase 2: H3/H8 — Cursor position clamping on dimension mismatch")
 
-        // Reset colors for this phase
-        TestStep.macType(text: #"printf '\e[0m'"#, pressReturn: true)
-        TestStep.wait(seconds: 0.5)
-
-        // Fill the tmux pane with numbered content so the cursor sits at a high row
-        TestStep.macType(
-            text: #"for i in $(seq 1 35); do echo "FILL LINE $i"; done"#,
-            pressReturn: true
+        // Reset colors and fill via tmuxSendKeys (bypasses app input path to
+        // avoid AppleScript timing issues with multi-line shell commands).
+        TestStep.tmuxSendKeys(
+            target: "render-bugs:0.0",
+            keys: #"printf '\e[0m' && for i in $(seq 1 35); do echo "FILL LINE $i"; done"#,
+            literal: true
         )
-        TestStep.wait(seconds: 1)
+        TestStep.tmuxSendKeys(target: "render-bugs:0.0", keys: "Enter")
+        TestStep.wait(seconds: 2)
 
         // Resize the macOS window to be smaller — fewer visible rows than tmux's 40
         TestStep.macResizeWindow(width: 800, height: 400)
@@ -121,15 +120,27 @@ public enum TerminalRenderingBugsScenario {
         TestStep.macClickButton(titled: "render-bugs:0.0")
         TestStep.wait(seconds: 2)
 
-        // Type a printf that uses CursorUp to write a marker at a specific row.
-        // Due to clamping, the marker will appear at the wrong position.
-        TestStep.macType(
-            text: #"printf '\e[5A\r>>> CLAMPED MARKER <<<\e[5B\r'"#,
-            pressReturn: true
+        // Use tmuxSendKeys for the marker printf — the escape codes in the output
+        // arrive via the live PTY stream and are interpreted by SwiftTerm.
+        // CursorUp:5 should go 5 rows above the cursor, but since the cursor was
+        // clamped during re-capture, it lands at the wrong row.
+        TestStep.tmuxSendKeys(
+            target: "render-bugs:0.0",
+            keys: #"printf '\e[5A\r>>> CLAMPED MARKER <<<\e[5B\r'"#,
+            literal: true
         )
+        TestStep.tmuxSendKeys(target: "render-bugs:0.0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
         // Screenshot: marker may appear at wrong row due to cursor clamping
         TestStep.macScreenshot(label: "h3-h8-cursor-clamping", compare: false)
+
+        // De-select / re-select to see how the clamped marker looks after re-render
+        TestStep.macClickButton(titled: "render-helper:0.0")
+        TestStep.wait(seconds: 1)
+        TestStep.macClickButton(titled: "render-bugs:0.0")
+        TestStep.wait(seconds: 2)
+
+        TestStep.macScreenshot(label: "h3-h8-cursor-clamping-after-rerender", compare: false)
     }
 }
