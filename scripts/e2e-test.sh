@@ -11,7 +11,7 @@ set -eo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 WORKSPACE="$PROJECT_ROOT/ClaudeSpy.xcworkspace"
-DERIVED_DATA="$PROJECT_ROOT/build/e2e-derived-data"
+DERIVED_DATA="${SANDBOX_DERIVED_DATA:-$PROJECT_ROOT/build/e2e-derived-data}"
 SIM_NAME="iPhone 17 Pro"
 E2E_TMPDIR="${TMPDIR:-/tmp}/claudespy-e2e"
 mkdir -p "$E2E_TMPDIR"
@@ -262,10 +262,13 @@ E2E_BIN="$PRODUCTS_DEBUG/ClaudeSpyE2E"
 
 XCODEBUILD_FLAGS=(
     -workspace "$WORKSPACE"
-    -derivedDataPath "$DERIVED_DATA"
     -skipMacroValidation
     -skipPackagePluginValidation
 )
+
+if [ -z "$SANDBOX_DERIVED_DATA" ]; then
+    XCODEBUILD_FLAGS+=(-derivedDataPath "$DERIVED_DATA")
+fi
 
 # =====================================================
 # LIST SCENARIOS (no build needed)
