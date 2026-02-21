@@ -131,3 +131,4 @@ Use XcodeBuildTools skills. Scheme: `ClaudeSpyServer` (macOS), `ClaudeSpy` (iOS)
 - **Known issues:** `docs/known-issues.md`
 - **Terminal sizing (macOS):** `docs/swiftterm-sizing.md`
 - **Terminal scrolling (iOS):** `docs/swiftterm-ios-scrolling.md`
+- **Terminal rendering bugs:** `docs/terminal-rendering-investigation.md` - Hypotheses, test results, fix priorities
