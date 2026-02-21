@@ -192,15 +192,11 @@
                 // CursorUp:8 — in tmux goes to row 55, in mirror from clamped row 40
                 terminal.feed(text: "\r\u{1b}[8AMARKER")
 
-                var markerRow = -1
-                for row in 0..<mirrorRows {
-                    if getRowText(terminal, row: row).contains("MARKER") {
-                        markerRow = row
-                        break
-                    }
+                let markerRow = (0..<mirrorRows).first { row in
+                    getRowText(terminal, row: row).contains("MARKER")
                 }
 
-                #expect(markerRow >= 0, "MARKER should be visible")
+                #expect(markerRow != nil, "MARKER should be visible")
                 // In tmux (68 rows): cursor 63, up 8 = row 55 (0-indexed: 54)
                 // In mirror (40 rows): cursor clamped to 40, up 8 = row 32 (0-indexed: 31)
                 // These are different positions — this demonstrates the bug
@@ -336,22 +332,18 @@
                 // Claude Code's typical CursorUp:8 redraw
                 terminal.feed(text: "\r\u{1b}[8AMARKER")
 
-                var markerRow = -1
-                for row in 0..<mirrorRows {
-                    if getRowText(terminal, row: row).contains("MARKER") {
-                        markerRow = row
-                        break
-                    }
+                let markerRow = (0..<mirrorRows).first { row in
+                    getRowText(terminal, row: row).contains("MARKER")
                 }
 
                 // In tmux: row 63 - 8 = 55 (0-indexed: 54)
                 // In mirror: clamped to 40, then 40 - 8 = 32 (0-indexed: 31)
-                // MARKER ends up at wrong row
-                #expect(markerRow >= 0, "MARKER should be visible")
+                // The marker ends up at wrong row
+                #expect(markerRow != nil, "MARKER should be visible")
                 let expectedInTmux = 63 - 8 - 1 // 0-indexed: 54
                 #expect(
                     markerRow != expectedInTmux,
-                    "MARKER displaced: at row \(markerRow), tmux expects \(expectedInTmux)"
+                    "MARKER displaced: at row \(String(describing: markerRow)), tmux expects \(expectedInTmux)"
                 )
             }
 
