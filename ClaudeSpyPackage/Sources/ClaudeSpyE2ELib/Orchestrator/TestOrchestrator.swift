@@ -4,10 +4,8 @@ import Logging
 /// Coordinates all drivers and runs test scenarios
 public actor TestOrchestrator {
     private let simulatorDriver = SimulatorDriver()
-    private let macOSDriver = MacOSDriver()
-    /// Second macOS driver for Mac-to-Mac pairing scenarios.
-    /// Uses a different TestAccessibilityServer port to avoid conflicts.
-    private let mac2Driver = MacOSDriver(label: "e2e.macos-driver-2", testAccessibilityPort: 18_082)
+    /// macOS drivers keyed by instance number. Created lazily via `macDriver(for:)`.
+    private var macDrivers: [Int: MacOSDriver] = [:]
     private let serverDriver = ServerDriver()
     private let processRunner = ProcessRunner()
     private let context = ExecutionContext()
@@ -23,11 +21,10 @@ public actor TestOrchestrator {
     private let e2eHostBundleId = "br.eng.gustavo.claudespy.e2ehost"
     private let e2eRunnerBundleId = "br.eng.gustavo.claudespy.e2erunner.xctrunner"
     private let serverPort = 8_765
-    /// Path to the hook server port file. E2E tests use a separate file
+    /// Base path for the hook server port file. E2E tests use a separate file
     /// (`~/.claudespy-port-test`) to avoid colliding with a production instance.
+    /// Instance 0 uses this path directly; instance N uses `\(hookPortFile)-\(N)`.
     private let hookPortFile: String
-    /// Path to the hook server port file for the second macOS app instance.
-    private let hookPortFile2: String
     private let scenarioNames: [String]
     private let skipComparison: Bool
     private var screenshotCounter = 0
@@ -90,10 +87,6 @@ public actor TestOrchestrator {
         self.hookPortFile = hookPortFile ?? {
             let home = FileManager.default.homeDirectoryForCurrentUser.path
             return "\(home)/.claudespy-port-test"
-        }()
-        self.hookPortFile2 = {
-            let home = FileManager.default.homeDirectoryForCurrentUser.path
-            return "\(home)/.claudespy-port-test-2"
         }()
     }
 
@@ -215,8 +208,10 @@ public actor TestOrchestrator {
         await simulatorDriver.resetStatusBar()
         await simulatorDriver.stopE2ERunner()
         try? await simulatorDriver.terminateApp()
-        try? await macOSDriver.terminateApp()
-        try? await mac2Driver.terminateApp()
+        for driver in macDrivers.values {
+            try? await driver.terminateApp()
+        }
+        macDrivers.removeAll()
         try? await serverDriver.stop()
 
         // Kill the isolated tmux server and remove the socket file so the
@@ -352,134 +347,74 @@ public actor TestOrchestrator {
             logTree(elements)
             logger.info("=== End iOS UI Tree ===")
 
-        // macOS App
-        case .launchMacApp:
+        // macOS App (all cases use `instance` to select which app instance to target)
+        case let .launchMacApp(instance):
+            let driver = macDriver(for: instance)
             let resolvedSocket = context.resolve("${tmuxSocket}")
-            try await macOSDriver.launchApp(
-                path: macOSAppPath,
-                arguments: [
-                    "--e2e-test",
-                    "--server-url", "ws://127.0.0.1:\(serverPort)",
-                    "--tmux-socket", resolvedSocket,
-                    "--hook-port-file", hookPortFile,
-                ]
-            )
-
-        case .terminateMacApp:
-            try? await macOSDriver.terminateApp()
-
-        case .macOpenSettings:
-            try await macOSDriver.openSettings()
-
-        case let .macWaitForWindow(titled, timeout):
-            try await macOSDriver.waitForWindow(titled: titled, timeout: timeout)
-
-        case let .macSelectSettingsTab(tab):
-            try await macOSDriver.selectSettingsTab(tab)
-
-        case let .macClickButton(titled):
-            try await macOSDriver.clickButton(titled: titled)
-
-        case let .macClickMenuItem(menuButtonTitle, itemTitle):
-            try await macOSDriver.clickMenuItem(menuButtonTitle: menuButtonTitle, itemTitle: itemTitle)
-
-        case .macUnpair:
-            try await macOSDriver.unpair()
-
-        case let .macReadClipboard(storeAs):
-            let value = await macOSDriver.readClipboard()
-            logger.info("  Clipboard value: \(value) → stored as ${\(storeAs)}")
-            context.set(storeAs, value: value)
-
-        case let .macWaitForElement(titled, timeout):
-            try await macOSDriver.waitForElement(titled: titled, timeout: timeout)
-
-        case let .macWaitForElementToDisappear(titled, timeout):
-            try await macOSDriver.waitForElementToDisappear(titled: titled, timeout: timeout)
-
-        case .macOpenPanesWindow:
-            try await macOSDriver.openPanesWindow()
-
-        case let .macMoveWindow(x, y):
-            try await macOSDriver.moveWindow(x: x, y: y)
-
-        case let .macResizeWindow(width, height):
-            try await macOSDriver.resizeWindow(width: width, height: height)
-
-        case let .macSetSidebarWidth(width):
-            try await macOSDriver.setSidebarWidth(width)
-
-        case let .macType(text, pressReturn):
-            let resolvedText = context.resolve(text)
-            try await macOSDriver.type(text: resolvedText, pressReturn: pressReturn)
-
-        case let .macScreenshot(label, compare, tolerance, perPixelThreshold):
-            let numberedLabel = nextScreenshotLabel(label)
-            let actualPath = screenshotPath(for: numberedLabel)
-            try await macOSDriver.screenshot(output: actualPath)
-            if compare, !skipComparison {
-                return try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance, perPixelThreshold: perPixelThreshold)
-            } else {
-                return try captureWithoutComparison(actualPath: actualPath, label: numberedLabel)
+            var arguments = [
+                "--e2e-test",
+                "--server-url", "ws://127.0.0.1:\(serverPort)",
+                "--tmux-socket", resolvedSocket,
+                "--hook-port-file", hookPortFilePath(for: instance),
+            ]
+            if instance > 0 {
+                arguments += ["--test-accessibility-port", "\(driver.testAccessibilityPort)"]
             }
+            try await driver.launchApp(path: macOSAppPath, arguments: arguments)
 
-        // macOS App 2 (second instance for Mac-to-Mac pairing)
-        case .launchMac2App:
-            let resolvedSocket = context.resolve("${tmuxSocket}")
-            try await mac2Driver.launchApp(
-                path: macOSAppPath,
-                arguments: [
-                    "--e2e-test",
-                    "--server-url", "ws://127.0.0.1:\(serverPort)",
-                    "--tmux-socket", resolvedSocket,
-                    "--hook-port-file", hookPortFile2,
-                    "--test-accessibility-port", "\(mac2Driver.testAccessibilityPort)",
-                ]
-            )
+        case let .terminateMacApp(instance):
+            try? await macDriver(for: instance).terminateApp()
 
-        case .terminateMac2App:
-            try? await mac2Driver.terminateApp()
+        case let .macOpenSettings(instance):
+            try await macDriver(for: instance).openSettings()
 
-        case .mac2OpenSettings:
-            try await mac2Driver.openSettings()
+        case let .macWaitForWindow(titled, timeout, instance):
+            try await macDriver(for: instance).waitForWindow(titled: titled, timeout: timeout)
 
-        case let .mac2WaitForWindow(titled, timeout):
-            try await mac2Driver.waitForWindow(titled: titled, timeout: timeout)
+        case let .macSelectSettingsTab(tab, instance):
+            try await macDriver(for: instance).selectSettingsTab(tab)
 
-        case let .mac2SelectSettingsTab(tab):
-            try await mac2Driver.selectSettingsTab(tab)
+        case let .macClickButton(titled, instance):
+            try await macDriver(for: instance).clickButton(titled: titled)
 
-        case let .mac2ClickButton(titled):
-            try await mac2Driver.clickButton(titled: titled)
+        case let .macClickMenuItem(menuButtonTitle, itemTitle, instance):
+            try await macDriver(for: instance).clickMenuItem(menuButtonTitle: menuButtonTitle, itemTitle: itemTitle)
 
-        case let .mac2WaitForElement(titled, timeout):
-            try await mac2Driver.waitForElement(titled: titled, timeout: timeout)
+        case let .macUnpair(instance):
+            try await macDriver(for: instance).unpair()
 
-        case let .mac2WaitForElementToDisappear(titled, timeout):
-            try await mac2Driver.waitForElementToDisappear(titled: titled, timeout: timeout)
-
-        case .mac2OpenPanesWindow:
-            try await mac2Driver.openPanesWindow()
-
-        case let .mac2MoveWindow(x, y):
-            try await mac2Driver.moveWindow(x: x, y: y)
-
-        case let .mac2ResizeWindow(width, height):
-            try await mac2Driver.resizeWindow(width: width, height: height)
-
-        case let .mac2Type(text, pressReturn):
-            let resolvedText = context.resolve(text)
-            try await mac2Driver.type(text: resolvedText, pressReturn: pressReturn)
-
-        case let .mac2ReadClipboard(storeAs):
-            let value = await mac2Driver.readClipboard()
-            logger.info("  Clipboard value (mac2): \(value) → stored as ${\(storeAs)}")
+        case let .macReadClipboard(storeAs, instance):
+            let value = await macDriver(for: instance).readClipboard()
+            let suffix = instance > 0 ? " (mac\(instance + 1))" : ""
+            logger.info("  Clipboard value\(suffix): \(value) → stored as ${\(storeAs)}")
             context.set(storeAs, value: value)
 
-        case let .mac2Screenshot(label, compare, tolerance, perPixelThreshold):
+        case let .macWaitForElement(titled, timeout, instance):
+            try await macDriver(for: instance).waitForElement(titled: titled, timeout: timeout)
+
+        case let .macWaitForElementToDisappear(titled, timeout, instance):
+            try await macDriver(for: instance).waitForElementToDisappear(titled: titled, timeout: timeout)
+
+        case let .macOpenPanesWindow(instance):
+            try await macDriver(for: instance).openPanesWindow()
+
+        case let .macMoveWindow(x, y, instance):
+            try await macDriver(for: instance).moveWindow(x: x, y: y)
+
+        case let .macResizeWindow(width, height, instance):
+            try await macDriver(for: instance).resizeWindow(width: width, height: height)
+
+        case let .macSetSidebarWidth(width, instance):
+            try await macDriver(for: instance).setSidebarWidth(width)
+
+        case let .macType(text, pressReturn, instance):
+            let resolvedText = context.resolve(text)
+            try await macDriver(for: instance).type(text: resolvedText, pressReturn: pressReturn)
+
+        case let .macScreenshot(label, compare, tolerance, perPixelThreshold, instance):
             let numberedLabel = nextScreenshotLabel(label)
             let actualPath = screenshotPath(for: numberedLabel)
-            try await mac2Driver.screenshot(output: actualPath)
+            try await macDriver(for: instance).screenshot(output: actualPath)
             if compare, !skipComparison {
                 return try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance, perPixelThreshold: perPixelThreshold)
             } else {
@@ -546,15 +481,15 @@ public actor TestOrchestrator {
             logger.info("  Captured pane content (\(content.count) chars) → stored as ${\(storeAs)}")
 
         // Hook Events
-        case let .macSendHookEvent(json, tmuxPane, projectPath):
+        case let .macSendHookEvent(json, tmuxPane, projectPath, instance):
             let resolvedJson = context.resolve(json)
             let resolvedPane = context.resolve(tmuxPane)
             let resolvedPath = projectPath.map { context.resolve($0) }
-            try await macOSDriver.sendHookEvent(
+            try await macDriver(for: instance).sendHookEvent(
                 json: resolvedJson,
                 tmuxPane: resolvedPane,
                 projectPath: resolvedPath,
-                hookPortFile: hookPortFile
+                hookPortFile: hookPortFilePath(for: instance)
             )
 
         // Assertions
@@ -606,6 +541,28 @@ public actor TestOrchestrator {
             logger.info("  LOG: \(context.resolve(message))")
         }
         return nil
+    }
+
+    // MARK: - Mac Instance Helpers
+
+    /// Return (or create) the macOS driver for the given instance number.
+    /// Instance 0 is the primary app; instance 1+ are additional instances with
+    /// derived ports and labels.
+    private func macDriver(for instance: Int) -> MacOSDriver {
+        if let driver = macDrivers[instance] {
+            return driver
+        }
+        let port = MacOSDriver.defaultTestAccessibilityPort + UInt16(instance)
+        let label = instance == 0 ? "e2e.macos-driver" : "e2e.macos-driver-\(instance + 1)"
+        let driver = MacOSDriver(label: label, testAccessibilityPort: port)
+        macDrivers[instance] = driver
+        return driver
+    }
+
+    /// Return the hook port file path for the given instance number.
+    /// Instance 0 uses the base `hookPortFile`; instance N uses `hookPortFile-N`.
+    private func hookPortFilePath(for instance: Int) -> String {
+        instance == 0 ? hookPortFile : "\(hookPortFile)-\(instance)"
     }
 
     // MARK: - Helpers

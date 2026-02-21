@@ -16,10 +16,10 @@ public enum TwoMacPairingScenario {
         // ── Phase 2: Launch host (mac1) and generate pairing code ───
 
         TestStep.log("Launching host Mac app (mac1)")
-        TestStep.launchMacApp
+        TestStep.launchMacApp()
         TestStep.wait(seconds: 3)
 
-        TestStep.macOpenSettings
+        TestStep.macOpenSettings()
         TestStep.macWaitForWindow(titled: "General", timeout: 5)
         TestStep.macSelectSettingsTab("Remote Access")
         TestStep.wait(seconds: 1)
@@ -33,24 +33,24 @@ public enum TwoMacPairingScenario {
         // ── Phase 3: Launch viewer (mac2) and pair with host ────────
 
         TestStep.log("Launching viewer Mac app (mac2)")
-        TestStep.launchMac2App
+        TestStep.launchMacApp(instance: 1)
         TestStep.wait(seconds: 3)
 
-        TestStep.mac2OpenSettings
-        TestStep.mac2WaitForWindow(titled: "General", timeout: 5)
-        TestStep.mac2SelectSettingsTab("Remote Hosts")
+        TestStep.macOpenSettings(instance: 1)
+        TestStep.macWaitForWindow(titled: "General", timeout: 5, instance: 1)
+        TestStep.macSelectSettingsTab("Remote Hosts", instance: 1)
         TestStep.wait(seconds: 1)
 
         // Click "Add Host" to open the pairing sheet
-        TestStep.mac2ClickButton(titled: "Add Host")
+        TestStep.macClickButton(titled: "Add Host", instance: 1)
         TestStep.wait(seconds: 1)
 
         // Type the pairing code into the sheet's text field
-        TestStep.mac2Type(text: "${pairingCode}")
+        TestStep.macType(text: "${pairingCode}", instance: 1)
         TestStep.wait(seconds: 1)
 
         // Click "Connect" to complete pairing
-        TestStep.mac2ClickButton(titled: "Connect")
+        TestStep.macClickButton(titled: "Connect", instance: 1)
         TestStep.wait(seconds: 5)
 
         // ── Phase 4: Verify pairing succeeded ───────────────────────
@@ -65,8 +65,8 @@ public enum TwoMacPairingScenario {
         TestStep.macScreenshot(label: "host-connected", compare: false)
 
         // Verify viewer shows "Connected" on its Remote Hosts page
-        TestStep.mac2WaitForElement(titled: "Connected", timeout: 15)
-        TestStep.mac2Screenshot(label: "viewer-connected", compare: false)
+        TestStep.macWaitForElement(titled: "Connected", timeout: 15, instance: 1)
+        TestStep.macScreenshot(label: "viewer-connected", compare: false, instance: 1)
 
         // ── Phase 5: Create tmux session on host ────────────────────
 
@@ -77,27 +77,25 @@ public enum TwoMacPairingScenario {
         // ── Phase 6: Verify remote pane appears on viewer ───────────
 
         TestStep.log("Opening Panes window on viewer and verifying remote pane")
-        TestStep.mac2OpenPanesWindow
-        TestStep.mac2WaitForWindow(titled: "Panes", timeout: 5)
+        TestStep.macOpenPanesWindow(instance: 1)
+        TestStep.macWaitForWindow(titled: "Panes", timeout: 5, instance: 1)
         TestStep.wait(seconds: 3)
 
         // The remote pane should show in the sidebar with format "session:window.pane"
-        TestStep.mac2WaitForElement(titled: "e2e-mac-pair:0.0", timeout: 15)
-        TestStep.mac2Screenshot(label: "viewer-sees-remote-pane", compare: false)
+        TestStep.macWaitForElement(titled: "e2e-mac-pair:0.0", timeout: 15, instance: 1)
+        TestStep.macScreenshot(label: "viewer-sees-remote-pane", compare: false, instance: 1)
 
         // ── Phase 7: Select the pane on the viewer ──────────────────
 
         TestStep.log("Selecting remote pane on viewer")
-        TestStep.mac2ClickButton(titled: "e2e-mac-pair:0.0")
+        TestStep.macClickButton(titled: "e2e-mac-pair:0.0", instance: 1)
         TestStep.wait(seconds: 3)
-        TestStep.mac2Screenshot(label: "viewer-pane-selected", compare: false)
+        TestStep.macScreenshot(label: "viewer-pane-selected", compare: false, instance: 1)
 
         // ── Phase 8: Type a command from the viewer ─────────────────
 
         TestStep.log("Typing command from viewer into remote terminal")
-        TestStep.mac2Type(text: "echo e2e-test-hello")
-        TestStep.wait(seconds: 1)
-        TestStep.mac2Type(text: "", pressReturn: true)
+        TestStep.macType(text: "echo e2e-test-hello", pressReturn: true, instance: 1)
         TestStep.wait(seconds: 3)
 
         // ── Phase 9: Verify command shows on the host's tmux pane ───

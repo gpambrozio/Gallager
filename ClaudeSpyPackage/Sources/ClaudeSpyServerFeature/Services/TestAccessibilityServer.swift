@@ -42,7 +42,11 @@
             private func start(port: UInt16 = 18_081) throws {
                 let params = NWParameters.tcp
                 params.allowLocalEndpointReuse = true
-                listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
+                guard let nwPort = NWEndpoint.Port(rawValue: port) else {
+                print("[TestAccessibilityServer-Mac] Invalid port: \(port)")
+                return
+            }
+            listener = try NWListener(using: params, on: nwPort)
                 listener?.stateUpdateHandler = { state in
                     if case let .failed(error) = state {
                         print("[TestAccessibilityServer-Mac] Listener failed: \(error)")

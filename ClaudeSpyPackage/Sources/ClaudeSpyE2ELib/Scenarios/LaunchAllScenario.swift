@@ -8,7 +8,7 @@ public enum LaunchAllScenario {
     ) {
         // 1. Clean up any previous state
         TestStep.uninstallIOSApp
-        TestStep.terminateMacApp
+        TestStep.terminateMacApp()
 
         // 2. Start server on localhost
         TestStep.startServer
@@ -19,7 +19,7 @@ public enum LaunchAllScenario {
         TestStep.wait(seconds: 3)
 
         // 4. Launch macOS app
-        TestStep.launchMacApp
+        TestStep.launchMacApp()
         TestStep.wait(seconds: 3)
     }
 }

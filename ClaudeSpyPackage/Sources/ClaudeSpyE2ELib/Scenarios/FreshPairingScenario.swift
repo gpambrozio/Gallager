@@ -8,7 +8,7 @@ public enum FreshPairingScenario {
     ) {
         // 1. Clean up any previous state
         TestStep.uninstallIOSApp
-        TestStep.terminateMacApp
+        TestStep.terminateMacApp()
 
         // 2. Start server on localhost
         TestStep.startServer
@@ -20,11 +20,11 @@ public enum FreshPairingScenario {
         TestStep.iosScreenshot(label: "ios-pairing-view")
 
         // 4. Launch macOS app (must be fresh launch for --e2e-test args to take effect)
-        TestStep.launchMacApp
+        TestStep.launchMacApp()
         TestStep.wait(seconds: 3)
 
         // 5. Generate pairing code on macOS
-        TestStep.macOpenSettings
+        TestStep.macOpenSettings()
         TestStep.macWaitForWindow(titled: "General", timeout: 5)
         TestStep.macSelectSettingsTab("Remote Access")
         TestStep.wait(seconds: 1)

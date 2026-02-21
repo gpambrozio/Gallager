@@ -71,74 +71,48 @@ public enum TestStep: Sendable {
     case iosLogUI
 
     // MARK: - macOS App
+    //
+    // All macOS steps accept an `instance` parameter (default 0) to target
+    // different app instances. Instance 0 is the primary app; instance 1+
+    // are additional instances (e.g. for Mac-to-Mac pairing scenarios).
+    // Ports and file paths are derived automatically from the instance number.
 
     /// Launch the macOS app
-    case launchMacApp
+    case launchMacApp(instance: Int = 0)
     /// Terminate the macOS app
-    case terminateMacApp
+    case terminateMacApp(instance: Int = 0)
     /// Open Settings window
-    case macOpenSettings
+    case macOpenSettings(instance: Int = 0)
     /// Wait for a macOS window
-    case macWaitForWindow(titled: String, timeout: TimeInterval = 5)
+    case macWaitForWindow(titled: String, timeout: TimeInterval = 5, instance: Int = 0)
     /// Select a Settings tab
-    case macSelectSettingsTab(String)
+    case macSelectSettingsTab(String, instance: Int = 0)
     /// Click a button by title
-    case macClickButton(titled: String)
+    case macClickButton(titled: String, instance: Int = 0)
     /// Click a menu trigger button then click a menu item
-    case macClickMenuItem(menuButtonTitle: String, itemTitle: String)
+    case macClickMenuItem(menuButtonTitle: String, itemTitle: String, instance: Int = 0)
     /// Trigger unpair on the first paired viewer via test HTTP endpoint
-    case macUnpair
+    case macUnpair(instance: Int = 0)
     /// Read the clipboard and store in context
-    case macReadClipboard(storeAs: String)
+    case macReadClipboard(storeAs: String, instance: Int = 0)
     /// Wait for a text element to appear in the macOS app's accessibility tree
-    case macWaitForElement(titled: String, timeout: TimeInterval = 10)
+    case macWaitForElement(titled: String, timeout: TimeInterval = 10, instance: Int = 0)
     /// Wait for a text element to disappear from the macOS app's accessibility tree
-    case macWaitForElementToDisappear(titled: String, timeout: TimeInterval = 10)
+    case macWaitForElementToDisappear(titled: String, timeout: TimeInterval = 10, instance: Int = 0)
     /// Open the Panes window via the status item menu
-    case macOpenPanesWindow
+    case macOpenPanesWindow(instance: Int = 0)
     /// Move the macOS app window to a screen position
-    case macMoveWindow(x: Int, y: Int)
+    case macMoveWindow(x: Int, y: Int, instance: Int = 0)
     /// Resize the macOS app window
-    case macResizeWindow(width: Int, height: Int)
+    case macResizeWindow(width: Int, height: Int, instance: Int = 0)
     /// Set the sidebar width of the NavigationSplitView
-    case macSetSidebarWidth(_ width: Int)
+    case macSetSidebarWidth(_ width: Int, instance: Int = 0)
     /// Type text into the macOS app (via AppleScript keystroke)
-    case macType(text: String, pressReturn: Bool = false)
+    case macType(text: String, pressReturn: Bool = false, instance: Int = 0)
     /// Take a macOS screenshot, optionally comparing against a stored baseline
     /// Default tolerance of 2% because sometimes the image needs to be normalized
     /// and in this case some pixels will differ.
-    case macScreenshot(label: String, compare: Bool = true, tolerance: Double = 2, perPixelThreshold: Double = 0.02)
-
-    // MARK: - macOS App 2 (second instance for Mac-to-Mac pairing)
-
-    /// Launch a second macOS app instance (viewer)
-    case launchMac2App
-    /// Terminate the second macOS app
-    case terminateMac2App
-    /// Open Settings on the second macOS app
-    case mac2OpenSettings
-    /// Wait for a window on the second macOS app
-    case mac2WaitForWindow(titled: String, timeout: TimeInterval = 5)
-    /// Select a Settings tab on the second macOS app
-    case mac2SelectSettingsTab(String)
-    /// Click a button on the second macOS app
-    case mac2ClickButton(titled: String)
-    /// Wait for a text element on the second macOS app
-    case mac2WaitForElement(titled: String, timeout: TimeInterval = 10)
-    /// Wait for a text element to disappear on the second macOS app
-    case mac2WaitForElementToDisappear(titled: String, timeout: TimeInterval = 10)
-    /// Open the Panes window on the second macOS app
-    case mac2OpenPanesWindow
-    /// Move the second macOS app window
-    case mac2MoveWindow(x: Int, y: Int)
-    /// Resize the second macOS app window
-    case mac2ResizeWindow(width: Int, height: Int)
-    /// Type text into the second macOS app
-    case mac2Type(text: String, pressReturn: Bool = false)
-    /// Read the clipboard from the second macOS app (shared system clipboard)
-    case mac2ReadClipboard(storeAs: String)
-    /// Take a screenshot of the second macOS app
-    case mac2Screenshot(label: String, compare: Bool = true, tolerance: Double = 2, perPixelThreshold: Double = 0.02)
+    case macScreenshot(label: String, compare: Bool = true, tolerance: Double = 2, perPixelThreshold: Double = 0.02, instance: Int = 0)
 
     // MARK: - Tmux
 
@@ -157,7 +131,7 @@ public enum TestStep: Sendable {
     /// The `json` parameter is the raw JSON body (supports `${var}` interpolation).
     /// `tmuxPane` and `projectPath` are sent as query parameters.
     /// The server port is read from the orchestrator's `hookPortFile`.
-    case macSendHookEvent(json: String, tmuxPane: String, projectPath: String? = nil)
+    case macSendHookEvent(json: String, tmuxPane: String, projectPath: String? = nil, instance: Int = 0)
 
     // MARK: - Assertions
 
