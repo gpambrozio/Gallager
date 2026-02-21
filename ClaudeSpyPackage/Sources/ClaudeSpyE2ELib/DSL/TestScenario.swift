@@ -117,6 +117,8 @@ public enum TestStep: Sendable {
     case tmuxStorePaneDimensions(target: String, widthKey: String, heightKey: String)
     /// Query the tmux pane ID (e.g. "%0") for a target and store it in the execution context
     case tmuxStorePaneId(target: String, storeAs: String)
+    /// Send keys to a tmux pane on the test socket (bypasses macOS app input path)
+    case tmuxSendKeys(target: String, keys: String, literal: Bool = false)
 
     // MARK: - Hook Events
 

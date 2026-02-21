@@ -391,7 +391,8 @@ final public class TmuxService {
 
     /// Filters ANSI escape codes, keeping only SGR (color/style) codes.
     /// Removes cursor positioning, screen clearing, and other control sequences.
-    private func filterToColorCodesOnly(_ input: String) -> String {
+    /// Internal for testing
+    func filterToColorCodesOnly(_ input: String) -> String {
         var result = ""
         var i = input.startIndex
 
