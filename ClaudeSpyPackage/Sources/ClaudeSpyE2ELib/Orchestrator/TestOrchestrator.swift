@@ -419,7 +419,7 @@ public actor TestOrchestrator {
             // being set to non-zero values which would change pane targets)
             _ = try await runner.runOrThrow(
                 "tmux",
-                arguments: ["-f", "/dev/null", "-S", socket, "new-session", "-d", "-s", resolvedName, "-x", "\(width)", "-y", "\(height)"]
+                arguments: ["-f", "/dev/null", "-S", socket, "new-session", "-d", "-s", resolvedName, "-x", "\(width)", "-y", "\(height)", "-c", NSHomeDirectory()]
             )
 
         case let .tmuxStorePaneDimensions(target, widthKey, heightKey):
