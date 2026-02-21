@@ -25,31 +25,29 @@ public struct MenuBarExtraView: View {
         }
     }
 
-    private var hasAnySessions: Bool {
-        !localSessions.isEmpty || !remoteSessionsByHost.isEmpty
-    }
-
     public var body: some View {
+        let local = localSessions
+        let remote = remoteSessionsByHost
+        let hasAny = !local.isEmpty || !remote.isEmpty
+
         Group {
-            if !hasAnySessions {
+            if !hasAny {
                 Text("No active sessions")
                     .foregroundStyle(.secondary)
             } else {
-                if !localSessions.isEmpty {
-                    ForEach(localSessions, id: \.paneId) { session in
+                if !local.isEmpty {
+                    ForEach(local, id: \.paneId) { session in
                         localSessionButton(for: session)
                     }
                 }
 
-                ForEach(remoteSessionsByHost, id: \.host.id) { entry in
-                    if !localSessions.isEmpty || remoteSessionsByHost.count > 1 {
-                        Divider()
-                        Text(entry.host.displayName)
-                            .foregroundStyle(.secondary)
-                    }
+                ForEach(remote, id: \.host.id) { entry in
+                    Divider()
+                    Text(entry.host.displayName)
+                        .foregroundStyle(.secondary)
 
                     ForEach(entry.sessions, id: \.paneId) { session in
-                        remoteSessionButton(for: session, hostName: entry.host.displayName)
+                        remoteSessionButton(for: session)
                     }
                 }
             }
@@ -119,7 +117,7 @@ public struct MenuBarExtraView: View {
     }
 
     @ViewBuilder
-    private func remoteSessionButton(for session: ClaudeSession, hostName: String) -> some View {
+    private func remoteSessionButton(for session: ClaudeSession) -> some View {
         Button {
             NSApp.setActivationPolicy(.regular)
             openWindow(id: "panes")
