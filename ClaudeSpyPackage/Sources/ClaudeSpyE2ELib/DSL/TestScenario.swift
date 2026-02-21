@@ -109,6 +109,37 @@ public enum TestStep: Sendable {
     /// and in this case some pixels will differ.
     case macScreenshot(label: String, compare: Bool = true, tolerance: Double = 2, perPixelThreshold: Double = 0.02)
 
+    // MARK: - macOS App 2 (second instance for Mac-to-Mac pairing)
+
+    /// Launch a second macOS app instance (viewer)
+    case launchMac2App
+    /// Terminate the second macOS app
+    case terminateMac2App
+    /// Open Settings on the second macOS app
+    case mac2OpenSettings
+    /// Wait for a window on the second macOS app
+    case mac2WaitForWindow(titled: String, timeout: TimeInterval = 5)
+    /// Select a Settings tab on the second macOS app
+    case mac2SelectSettingsTab(String)
+    /// Click a button on the second macOS app
+    case mac2ClickButton(titled: String)
+    /// Wait for a text element on the second macOS app
+    case mac2WaitForElement(titled: String, timeout: TimeInterval = 10)
+    /// Wait for a text element to disappear on the second macOS app
+    case mac2WaitForElementToDisappear(titled: String, timeout: TimeInterval = 10)
+    /// Open the Panes window on the second macOS app
+    case mac2OpenPanesWindow
+    /// Move the second macOS app window
+    case mac2MoveWindow(x: Int, y: Int)
+    /// Resize the second macOS app window
+    case mac2ResizeWindow(width: Int, height: Int)
+    /// Type text into the second macOS app
+    case mac2Type(text: String, pressReturn: Bool = false)
+    /// Read the clipboard from the second macOS app (shared system clipboard)
+    case mac2ReadClipboard(storeAs: String)
+    /// Take a screenshot of the second macOS app
+    case mac2Screenshot(label: String, compare: Bool = true, tolerance: Double = 2, perPixelThreshold: Double = 0.02)
+
     // MARK: - Tmux
 
     /// Create a tmux session on the test socket
@@ -117,6 +148,8 @@ public enum TestStep: Sendable {
     case tmuxStorePaneDimensions(target: String, widthKey: String, heightKey: String)
     /// Query the tmux pane ID (e.g. "%0") for a target and store it in the execution context
     case tmuxStorePaneId(target: String, storeAs: String)
+    /// Capture the visible content of a tmux pane and store it in the execution context
+    case tmuxCapturePaneContent(target: String, storeAs: String)
 
     // MARK: - Hook Events
 
@@ -132,6 +165,8 @@ public enum TestStep: Sendable {
     case assertStoredEqual(key: String, otherKey: String)
     /// Assert two stored context values are NOT equal
     case assertStoredNotEqual(key: String, otherKey: String)
+    /// Assert a stored context value contains a substring
+    case assertStoredContains(key: String, substring: String)
 
     // MARK: - General
 

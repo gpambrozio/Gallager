@@ -9,7 +9,7 @@ import Logging
 /// production copy of the same app without interfering with it.
 public actor MacOSDriver {
     private let processRunner = ProcessRunner()
-    private let logger = Logger(label: "e2e.macos-driver")
+    private let logger: Logger
 
     private var appPath: String?
     private let appName = "Gallager"
@@ -17,7 +17,16 @@ public actor MacOSDriver {
     /// AppleScript interactions, and window lookup to the test instance only.
     private var appPID: pid_t?
 
-    public init() { }
+    /// Default port for the in-app TestAccessibilityServer HTTP endpoint.
+    public static let defaultTestAccessibilityPort: UInt16 = 18_081
+
+    /// Port for the in-app TestAccessibilityServer HTTP endpoint.
+    let testAccessibilityPort: UInt16
+
+    public init(label: String = "e2e.macos-driver", testAccessibilityPort: UInt16 = MacOSDriver.defaultTestAccessibilityPort) {
+        self.logger = Logger(label: label)
+        self.testAccessibilityPort = testAccessibilityPort
+    }
 
     // MARK: - App Lifecycle
 
@@ -188,7 +197,7 @@ public actor MacOSDriver {
     /// NSSplitView.setPosition() requires in-process access, so this still uses HTTP.
     public func setSidebarWidth(_ width: Int) async throws {
         logger.info("Setting sidebar width to \(width)")
-        let success = try await MacAppHTTPClient.setSidebarWidth(width)
+        let success = try await MacAppHTTPClient.setSidebarWidth(width, port: testAccessibilityPort)
         if !success {
             throw MacOSDriverError.elementNotFound("NSSplitView for sidebar width")
         }
@@ -220,7 +229,7 @@ public actor MacOSDriver {
     /// Uses HTTP because it posts a NotificationCenter notification that the app observes.
     public func unpair() async throws {
         logger.info("Triggering unpair via HTTP endpoint")
-        let success = try await MacAppHTTPClient.unpair()
+        let success = try await MacAppHTTPClient.unpair(port: testAccessibilityPort)
         if !success {
             throw MacOSDriverError.elementNotFound("unpair endpoint returned failure")
         }

@@ -5,6 +5,9 @@ import Logging
 public actor TestOrchestrator {
     private let simulatorDriver = SimulatorDriver()
     private let macOSDriver = MacOSDriver()
+    /// Second macOS driver for Mac-to-Mac pairing scenarios.
+    /// Uses a different TestAccessibilityServer port to avoid conflicts.
+    private let mac2Driver = MacOSDriver(label: "e2e.macos-driver-2", testAccessibilityPort: 18_082)
     private let serverDriver = ServerDriver()
     private let processRunner = ProcessRunner()
     private let context = ExecutionContext()
@@ -23,6 +26,8 @@ public actor TestOrchestrator {
     /// Path to the hook server port file. E2E tests use a separate file
     /// (`~/.claudespy-port-test`) to avoid colliding with a production instance.
     private let hookPortFile: String
+    /// Path to the hook server port file for the second macOS app instance.
+    private let hookPortFile2: String
     private let scenarioNames: [String]
     private let skipComparison: Bool
     private var screenshotCounter = 0
@@ -85,6 +90,10 @@ public actor TestOrchestrator {
         self.hookPortFile = hookPortFile ?? {
             let home = FileManager.default.homeDirectoryForCurrentUser.path
             return "\(home)/.claudespy-port-test"
+        }()
+        self.hookPortFile2 = {
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            return "\(home)/.claudespy-port-test-2"
         }()
     }
 
@@ -207,6 +216,7 @@ public actor TestOrchestrator {
         await simulatorDriver.stopE2ERunner()
         try? await simulatorDriver.terminateApp()
         try? await macOSDriver.terminateApp()
+        try? await mac2Driver.terminateApp()
         try? await serverDriver.stop()
 
         // Kill the isolated tmux server and remove the socket file so the
@@ -413,6 +423,69 @@ public actor TestOrchestrator {
                 return try captureWithoutComparison(actualPath: actualPath, label: numberedLabel)
             }
 
+        // macOS App 2 (second instance for Mac-to-Mac pairing)
+        case .launchMac2App:
+            let resolvedSocket = context.resolve("${tmuxSocket}")
+            try await mac2Driver.launchApp(
+                path: macOSAppPath,
+                arguments: [
+                    "--e2e-test",
+                    "--server-url", "ws://127.0.0.1:\(serverPort)",
+                    "--tmux-socket", resolvedSocket,
+                    "--hook-port-file", hookPortFile2,
+                    "--test-accessibility-port", "\(mac2Driver.testAccessibilityPort)",
+                ]
+            )
+
+        case .terminateMac2App:
+            try? await mac2Driver.terminateApp()
+
+        case .mac2OpenSettings:
+            try await mac2Driver.openSettings()
+
+        case let .mac2WaitForWindow(titled, timeout):
+            try await mac2Driver.waitForWindow(titled: titled, timeout: timeout)
+
+        case let .mac2SelectSettingsTab(tab):
+            try await mac2Driver.selectSettingsTab(tab)
+
+        case let .mac2ClickButton(titled):
+            try await mac2Driver.clickButton(titled: titled)
+
+        case let .mac2WaitForElement(titled, timeout):
+            try await mac2Driver.waitForElement(titled: titled, timeout: timeout)
+
+        case let .mac2WaitForElementToDisappear(titled, timeout):
+            try await mac2Driver.waitForElementToDisappear(titled: titled, timeout: timeout)
+
+        case .mac2OpenPanesWindow:
+            try await mac2Driver.openPanesWindow()
+
+        case let .mac2MoveWindow(x, y):
+            try await mac2Driver.moveWindow(x: x, y: y)
+
+        case let .mac2ResizeWindow(width, height):
+            try await mac2Driver.resizeWindow(width: width, height: height)
+
+        case let .mac2Type(text, pressReturn):
+            let resolvedText = context.resolve(text)
+            try await mac2Driver.type(text: resolvedText, pressReturn: pressReturn)
+
+        case let .mac2ReadClipboard(storeAs):
+            let value = await mac2Driver.readClipboard()
+            logger.info("  Clipboard value (mac2): \(value) → stored as ${\(storeAs)}")
+            context.set(storeAs, value: value)
+
+        case let .mac2Screenshot(label, compare, tolerance, perPixelThreshold):
+            let numberedLabel = nextScreenshotLabel(label)
+            let actualPath = screenshotPath(for: numberedLabel)
+            try await mac2Driver.screenshot(output: actualPath)
+            if compare, !skipComparison {
+                return try compareScreenshot(actualPath: actualPath, label: numberedLabel, tolerance: tolerance, perPixelThreshold: perPixelThreshold)
+            } else {
+                return try captureWithoutComparison(actualPath: actualPath, label: numberedLabel)
+            }
+
         // Tmux
         case let .tmuxCreateSession(name, width, height):
             let socket = context.resolve("${tmuxSocket}")
@@ -460,6 +533,18 @@ public actor TestOrchestrator {
             context.set(storeAs, value: paneId)
             logger.info("  Stored \(storeAs)=\(paneId)")
 
+        case let .tmuxCapturePaneContent(target, storeAs):
+            let socket = context.resolve("${tmuxSocket}")
+            let resolvedTarget = context.resolve(target)
+            let runner = processRunner
+            let result = try await runner.runOrThrow(
+                "tmux",
+                arguments: ["-S", socket, "capture-pane", "-t", resolvedTarget, "-p"]
+            )
+            let content = result.stdoutString
+            context.set(storeAs, value: content)
+            logger.info("  Captured pane content (\(content.count) chars) → stored as ${\(storeAs)}")
+
         // Hook Events
         case let .macSendHookEvent(json, tmuxPane, projectPath):
             let resolvedJson = context.resolve(json)
@@ -496,6 +581,17 @@ public actor TestOrchestrator {
             guard value1 != value2 else {
                 throw OrchestratorError.assertionFailed(
                     "\(key)='\(value1)' should differ from \(otherKey)='\(value2)'"
+                )
+            }
+
+        case let .assertStoredContains(key, substring):
+            guard let value = context.get(key) else {
+                throw OrchestratorError.assertionFailed("Key '\(key)' not found in context")
+            }
+            let resolvedSubstring = context.resolve(substring)
+            guard value.contains(resolvedSubstring) else {
+                throw OrchestratorError.assertionFailed(
+                    "\(key) does not contain '\(resolvedSubstring)'. Value: '\(value.prefix(200))'"
                 )
             }
 
