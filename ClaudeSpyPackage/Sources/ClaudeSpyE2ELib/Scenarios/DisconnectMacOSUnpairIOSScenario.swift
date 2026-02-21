@@ -13,6 +13,7 @@ public enum DisconnectMacOSUnpairIOSScenario {
         //    This prevents auto-reconnection so the unpair truly happens while macOS is offline.
         TestStep.serverBlockDevice(.host)
         TestStep.wait(seconds: 3)
+        TestStep.macWaitForElementToDisappear(titled: "Connected")
         TestStep.macScreenshot(label: "mac-after-disconnect")
 
         // 3. iOS: navigate to Manage Hosts and unpair
@@ -41,6 +42,7 @@ public enum DisconnectMacOSUnpairIOSScenario {
         //    since the pairing was removed. macOS should detect the error and clean up.
         TestStep.serverUnblockDevice(.host)
         TestStep.wait(seconds: 15)
+        TestStep.macWaitForElement(titled: "Generate Pairing Code")
 
         // 8. Verify macOS cleaned up
         TestStep.macScreenshot(label: "mac-invalid-pair-cleanup")
