@@ -172,7 +172,7 @@
             }
 
             @Test(
-                "Relative cursor movements produce wrong output when cursor position was clamped"
+                "Relative cursor movements should produce correct output regardless of dimension mismatch"
             )
             func relativeCursorAfterClamping() {
                 // tmux pane: 80x68, mirror: 80x40
@@ -197,13 +197,13 @@
                 }
 
                 #expect(markerRow != nil, "MARKER should be visible")
+                // Correct behavior: marker should be at the same row as in tmux
                 // In tmux (68 rows): cursor 63, up 8 = row 55 (0-indexed: 54)
-                // In mirror (40 rows): cursor clamped to 40, up 8 = row 32 (0-indexed: 31)
-                // These are different positions — this demonstrates the bug
+                // Fix: capture pipeline should not send cursor positions beyond mirror bounds
                 let expectedInTmux = 63 - 8 - 1 // 0-indexed: 54
                 #expect(
-                    markerRow != expectedInTmux,
-                    "MARKER at row \(markerRow) should differ from tmux row \(expectedInTmux) due to clamping"
+                    markerRow == expectedInTmux,
+                    "MARKER should be at tmux row \(expectedInTmux), but was at \(String(describing: markerRow))"
                 )
             }
         }
@@ -268,18 +268,16 @@
 
         @Suite("H9: OSC sequence handling in filter")
         struct OSCSequenceTests {
-            @Test("OSC sequences leak content as literal text")
+            @Test("OSC sequences should be stripped without leaking content")
             @MainActor
-            func oscLeaksContent() {
+            func oscDoesNotLeakContent() {
                 let service = TmuxService()
                 // OSC 0 (set title): ESC ] 0 ; Title BEL
                 let input = "Before\u{1b}]0;Title\u{07}After"
                 let result = service.filterToColorCodesOnly(input)
-                // The function doesn't handle OSC sequences
-                // ESC is followed by ']' (not '['), so it's treated as non-CSI
-                // ESC is skipped, ']0;Title\u{07}After' remains as literal text
+                // Correct behavior: OSC sequence is fully consumed, only text remains
                 let hasLeak = result.contains("]0;Title")
-                #expect(hasLeak, "OSC content leaked as literal text: \(result)")
+                #expect(hasLeak == false, "OSC content leaked as literal text: \(result)")
             }
         }
 
@@ -313,8 +311,8 @@
                 )
             }
 
-            @Test("Input area redraw FAILS with mismatched dimensions when cursor is deep")
-            func inputAreaRedrawFailsWithMismatch() {
+            @Test("Input area redraw should work with mismatched dimensions when cursor is deep")
+            func inputAreaRedrawWithMismatch() {
                 // Later in a session, content has grown and cursor is deep in the terminal
                 let mirrorRows = 40
                 let cursorRow = 63 // tmux cursor position
@@ -336,14 +334,14 @@
                     getRowText(terminal, row: row).contains("MARKER")
                 }
 
+                // Correct behavior: marker should be at the same row as in tmux
                 // In tmux: row 63 - 8 = 55 (0-indexed: 54)
-                // In mirror: clamped to 40, then 40 - 8 = 32 (0-indexed: 31)
-                // The marker ends up at wrong row
+                // Fix: capture pipeline should map cursor position correctly for mirror dimensions
                 #expect(markerRow != nil, "MARKER should be visible")
                 let expectedInTmux = 63 - 8 - 1 // 0-indexed: 54
                 #expect(
-                    markerRow != expectedInTmux,
-                    "MARKER displaced: at row \(String(describing: markerRow)), tmux expects \(expectedInTmux)"
+                    markerRow == expectedInTmux,
+                    "MARKER should be at tmux row \(expectedInTmux), but was at \(String(describing: markerRow))"
                 )
             }
 
@@ -403,8 +401,8 @@
 
         @Suite("H17: Initial state vs live stream format mismatch")
         struct CaptureVsPTYTests {
-            @Test("capture-pane resets SGR but raw stream doesn't — color mismatch")
-            func sgrStateDivergesAfterInitialCapture() {
+            @Test("capture-pane reconstruction should preserve SGR state for live stream")
+            func sgrStatePreservedAfterCapture() {
                 let (termCapture, _) = makeTerminal(cols: 80, rows: 10)
                 let (termRaw, _) = makeTerminal(cols: 80, rows: 10)
 
@@ -425,8 +423,8 @@
                 termCapture.feed(text: "X")
                 termRaw.feed(text: "X")
 
-                // In raw: "X" inherits magenta (SGR still active)
-                // In capture: "X" is default color (SGR was reset by \e[0m])
+                // Correct behavior: both should show "X" in magenta
+                // The capture pipeline should preserve/restore active SGR state
                 let rawColor = getFgColor(termRaw, col: 6, row: 0)
                 let captureColor = getFgColor(termCapture, col: 6, row: 0)
 
@@ -435,12 +433,8 @@
                     "Raw terminal 'X' should be magenta, got: \(rawColor)"
                 )
                 #expect(
-                    captureColor == .defaultColor,
-                    "Capture terminal 'X' should be default, got: \(captureColor)"
-                )
-                #expect(
-                    captureColor != rawColor,
-                    "SGR state diverges: capture=\(captureColor) raw=\(rawColor)"
+                    captureColor == rawColor,
+                    "Capture terminal should match raw SGR state: capture=\(captureColor) raw=\(rawColor)"
                 )
             }
         }
