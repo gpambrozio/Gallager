@@ -25,23 +25,16 @@ public enum TerminalRenderingBugsScenario {
         TestStep.tmuxCreateSession(name: "render-bugs", width: 120, height: 40)
         TestStep.tmuxCreateSession(name: "render-helper", width: 120, height: 40)
 
-        // Put colored content into the main pane BEFORE the app launches.
-        // This content will be captured by capturePaneWithScrollbackForStreaming
-        // on first connection.
+        // Set a plain prompt with no color codes so SGR inheritance is clearly visible.
+        // Without this, the shell's default PS1 (with its own colors) would mask
+        // the magenta carryover in the H17 phase.
         TestStep.tmuxSendKeys(
             target: "render-bugs:0.0",
-            keys: "clear",
+            keys: #"export PS1='$ '"#,
             literal: true
         )
         TestStep.tmuxSendKeys(target: "render-bugs:0.0", keys: "Enter")
-        TestStep.wait(seconds: 0.5)
-
-        // Output colored lines: green, red, blue, and magenta (no trailing reset)
-        TestStep.tmuxSendKeys(
-            target: "render-bugs:0.0",
-            keys: #"printf '\e[32mGreen line\e[0m\n\e[31mRed line\e[0m\n\e[34mBlue line\e[0m\n\e[35mMagenta no reset '"#,
-            literal: true
-        )
+        TestStep.tmuxSendKeys(target: "render-bugs:0.0", keys: "clear", literal: true)
         TestStep.tmuxSendKeys(target: "render-bugs:0.0", keys: "Enter")
         TestStep.wait(seconds: 0.5)
 
@@ -56,43 +49,73 @@ public enum TerminalRenderingBugsScenario {
         TestStep.macSetSidebarWidth(200)
         TestStep.wait(seconds: 1)
 
-        // Select the main pane — initial capture has already run
+        // Select the main pane
         TestStep.macClickButton(titled: "render-bugs:0.0")
         TestStep.wait(seconds: 2)
 
-        // Screenshot: baseline state from initial capture (live stream was active from launch)
-        TestStep.macScreenshot(label: "initial-capture-baseline", compare: false)
+        // ── Phase 1: H17 — SGR state divergence after re-capture ─────
 
-        // De-select / re-select to force a re-capture and screenshot the result
+        TestStep.log("Phase 1: H17 — SGR state divergence after re-capture")
+
+        // Set magenta with no reset, then echo text that inherits the color.
+        // In the live PTY stream, everything after \e[35m inherits magenta
+        // until an explicit reset.
+        TestStep.macType(
+            text: #"printf '\e[35m' && echo 'BEFORE_RECAP: SHOULD BE MAGENTA'"#,
+            pressReturn: true
+        )
+        TestStep.wait(seconds: 1)
+
+        // Screenshot: "BEFORE_RECAP: SHOULD BE MAGENTA" and the "$ " prompt
+        // below it should both appear in magenta (SGR state carries over).
+        TestStep.macScreenshot(label: "h17-before-recapture-magenta-active", compare: false)
+
+        // De-select / re-select to force re-capture.
+        // capturePaneWithScrollbackForStreaming adds ESC[0m resets at end of each
+        // captured line, killing the active magenta SGR state. After re-capture,
+        // the terminal's SGR state is reset to default.
         TestStep.macClickButton(titled: "render-helper:0.0")
         TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "render-bugs:0.0")
         TestStep.wait(seconds: 2)
 
-        // Screenshot: after re-capture — compare visually with baseline above.
-        // The re-capture reconstructs content via capturePaneWithScrollbackForStreaming
-        // which adds ESC[0m resets per line; any SGR state that was carrying over
-        // (e.g. the magenta-no-reset line) will be killed.
-        TestStep.macScreenshot(label: "after-recapture-baseline", compare: false)
+        // Now echo more text — this arrives via live stream with no color codes,
+        // so it inherits whatever SGR state the terminal has. If the re-capture
+        // reset it (the bug), this text appears in default color instead of magenta.
+        TestStep.macType(
+            text: "echo 'AFTER_RECAP: SHOULD ALSO BE MAGENTA (but is default color)'",
+            pressReturn: true
+        )
+        TestStep.wait(seconds: 1)
 
-        // ── Phase 1: H3/H8 — Cursor position clamping ───────────────
+        // Screenshot: compare with the previous one.
+        // "BEFORE_RECAP" text is still magenta (already rendered).
+        // "AFTER_RECAP" text is DEFAULT color — proving the re-capture killed
+        // the active SGR state. This is the H17 bug.
+        TestStep.macScreenshot(label: "h17-after-recapture-sgr-divergence", compare: false)
 
-        TestStep.log("Phase 1: H3/H8 — Cursor position clamping on dimension mismatch")
+        // ── Phase 2: H3/H8 — Cursor position clamping ───────────────
+
+        TestStep.log("Phase 2: H3/H8 — Cursor position clamping on dimension mismatch")
+
+        // Reset colors for this phase
+        TestStep.macType(text: #"printf '\e[0m'"#, pressReturn: true)
+        TestStep.wait(seconds: 0.5)
 
         // Fill the tmux pane with numbered content so the cursor sits at a high row
-        TestStep.tmuxSendKeys(
-            target: "render-bugs:0.0",
-            keys: #"for i in $(seq 1 35); do echo "FILL LINE $i"; done"#,
-            literal: true
+        TestStep.macType(
+            text: #"for i in $(seq 1 35); do echo "FILL LINE $i"; done"#,
+            pressReturn: true
         )
-        TestStep.tmuxSendKeys(target: "render-bugs:0.0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
         // Resize the macOS window to be smaller — fewer visible rows than tmux's 40
         TestStep.macResizeWindow(width: 800, height: 400)
         TestStep.wait(seconds: 1)
 
-        // De-select / re-select to force re-capture with cursor clamping
+        // De-select / re-select to force re-capture with cursor clamping.
+        // The tmux cursor is at a high row (e.g. 38), but the mirror has fewer
+        // rows, so the cursor position gets clamped to the mirror's max row.
         TestStep.macClickButton(titled: "render-helper:0.0")
         TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "render-bugs:0.0")
@@ -108,37 +131,5 @@ public enum TerminalRenderingBugsScenario {
 
         // Screenshot: marker may appear at wrong row due to cursor clamping
         TestStep.macScreenshot(label: "h3-h8-cursor-clamping", compare: false)
-
-        // ── Phase 2: H17 — SGR state divergence after re-capture ─────
-
-        TestStep.log("Phase 2: H17 — SGR state divergence after re-capture")
-
-        // Resize back to see more content
-        TestStep.macResizeWindow(width: 1_200, height: 700)
-        TestStep.wait(seconds: 1)
-
-        // Output magenta text WITHOUT a trailing reset.
-        // In the raw PTY stream, the SGR state (magenta) persists for subsequent output.
-        TestStep.macType(
-            text: #"printf '\e[35mMAGENTA-NO-RESET '"#,
-            pressReturn: true
-        )
-        TestStep.wait(seconds: 1)
-
-        // Screenshot before re-capture: shell prompt after the text should inherit magenta
-        TestStep.macScreenshot(label: "h17-before-recapture", compare: false)
-
-        // De-select / re-select to force re-capture.
-        // capturePaneWithScrollbackForStreaming adds ESC[0m resets at end of each line,
-        // killing the magenta state. After re-capture, the prompt that was magenta
-        // will render in the default color.
-        TestStep.macClickButton(titled: "render-helper:0.0")
-        TestStep.wait(seconds: 1)
-        TestStep.macClickButton(titled: "render-bugs:0.0")
-        TestStep.wait(seconds: 2)
-
-        // Screenshot after re-capture: the prompt text that was magenta should now
-        // be default color — demonstrating the SGR state divergence.
-        TestStep.macScreenshot(label: "h17-after-recapture-sgr-divergence", compare: false)
     }
 }
