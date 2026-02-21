@@ -381,10 +381,18 @@ final public class TmuxService {
         // (in case terminal has more rows than visible lines)
         output += "\u{1b}[J" // Clear from cursor to end of screen
 
-        // Position cursor at the tmux cursor location
-        // Note: if content scrolled due to terminal having fewer rows, this position
-        // may be clamped by the terminal, which is acceptable for a read-only mirror
-        output += "\u{1b}[\(cursorY + 1);\(cursorX + 1)H"
+        // Clamp cursor position to what was actually output to prevent
+        // sending positions beyond the mirror terminal's visible area
+        let effectiveCursorY = min(cursorY, linesToOutput - 1)
+        output += "\u{1b}[\(effectiveCursorY + 1);\(cursorX + 1)H"
+
+        // Restore active SGR state at the cursor position so that live stream
+        // data inherits the correct colors. capture-pane -e resets SGR per line,
+        // so without this, typed characters would render in default color.
+        let activeSGR = extractActiveSGR(from: visibleLines, cursorX: cursorX, cursorY: effectiveCursorY)
+        if !activeSGR.isEmpty {
+            output += activeSGR
+        }
 
         return Data(output.utf8)
     }
@@ -421,9 +429,41 @@ final public class TmuxService {
                         // Incomplete sequence, skip the escape
                         i = input.index(after: i)
                     }
+                } else if input[nextIndex] == "]" {
+                    // OSC sequence: ESC ] ... BEL or ESC ] ... ESC backslash (ST)
+                    // Consume everything until the terminator
+                    var oscIndex = input.index(after: nextIndex)
+                    while oscIndex < input.endIndex {
+                        if input[oscIndex] == "\u{07}" {
+                            // BEL terminator
+                            i = input.index(after: oscIndex)
+                            break
+                        } else if input[oscIndex] == "\u{1b}" {
+                            // Check for ST (ESC \)
+                            let afterEsc = input.index(after: oscIndex)
+                            if afterEsc < input.endIndex, input[afterEsc] == "\\" {
+                                i = input.index(after: afterEsc)
+                                break
+                            }
+                        }
+                        oscIndex = input.index(after: oscIndex)
+                    }
+                    if oscIndex >= input.endIndex {
+                        // Unterminated OSC, skip past it all
+                        i = input.endIndex
+                    }
+                } else if input[nextIndex] == "(" || input[nextIndex] == ")" || input[nextIndex] == "*" || input[nextIndex] == "+" {
+                    // Charset selection: ESC + designator + charset = 3 bytes total
+                    let charsetIndex = input.index(after: nextIndex)
+                    if charsetIndex < input.endIndex {
+                        i = input.index(after: charsetIndex)
+                    } else {
+                        // Incomplete sequence, skip what we have
+                        i = input.endIndex
+                    }
                 } else {
-                    // Non-CSI escape sequence, skip
-                    i = input.index(after: i)
+                    // Standard 2-byte non-CSI escape (ESC + type byte)
+                    i = input.index(after: nextIndex)
                 }
             } else {
                 result.append(input[i])
@@ -432,6 +472,61 @@ final public class TmuxService {
         }
 
         return result
+    }
+
+    /// Extracts the active SGR (color/style) escape sequence at the given cursor position
+    /// by walking through visible lines and tracking SGR state changes.
+    /// Returns the last non-reset SGR code, or empty string if the state is default.
+    /// Internal for testing
+    func extractActiveSGR(from lines: [String], cursorX: Int, cursorY: Int) -> String {
+        var lastSGR = ""
+
+        for lineIndex in 0...min(cursorY, lines.count - 1) {
+            let line = lines[lineIndex]
+            var i = line.startIndex
+            var col = 0
+
+            while i < line.endIndex {
+                // On the cursor line, stop before processing escapes at/beyond cursor column.
+                // Escape sequences after the cursor position (like tmux's trailing \e[0m)
+                // are not part of the active SGR state at the cursor.
+                if lineIndex == cursorY, col >= cursorX {
+                    return lastSGR
+                }
+
+                if line[i] == "\u{1b}", line.index(after: i) < line.endIndex, line[line.index(after: i)] == "[" {
+                    // Parse CSI sequence
+                    var endIdx = line.index(line.index(after: i), offsetBy: 1)
+                    while endIdx < line.endIndex {
+                        let ch = line[endIdx]
+                        if ch >= "@", ch <= "~" {
+                            if ch == "m" {
+                                let sgr = String(line[i...endIdx])
+                                if sgr == "\u{1b}[0m" || sgr == "\u{1b}[m" {
+                                    lastSGR = ""
+                                } else {
+                                    lastSGR = sgr
+                                }
+                            }
+                            i = line.index(after: endIdx)
+                            break
+                        }
+                        endIdx = line.index(after: endIdx)
+                    }
+                    if endIdx >= line.endIndex {
+                        i = line.endIndex
+                    }
+                } else {
+                    // Visible character — count toward column position
+                    if lineIndex == cursorY {
+                        col += 1
+                    }
+                    i = line.index(after: i)
+                }
+            }
+        }
+
+        return lastSGR
     }
 
     /// Forces a pane to redraw by sending Ctrl+L
