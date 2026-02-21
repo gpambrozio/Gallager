@@ -31,6 +31,9 @@ private func isNoServerError(_ stderr: String) -> Bool {
     return lower.contains("no server running")
         || lower.contains("no sessions")
         || lower.contains("no current target")
+        || lower.contains("server exited unexpectedly")
+        || lower.contains("error connecting to")
+        || lower.contains("no such file or directory")
 }
 
 /// Service for interacting with tmux via CLI

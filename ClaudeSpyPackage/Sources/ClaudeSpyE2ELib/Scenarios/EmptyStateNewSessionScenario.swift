@@ -21,6 +21,7 @@ public enum EmptyStateNewSessionScenario {
         TestStep.macResizeWindow(width: 1_200, height: 800)
         TestStep.macSetSidebarWidth(200)
         TestStep.wait(seconds: 1)
+        TestStep.macScreenshot(label: "empty-state-start")
 
         // ── Verify empty state with new session options in detail ──
         TestStep.log("Verifying empty state shows No Panes Available in sidebar")

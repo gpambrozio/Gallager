@@ -209,11 +209,14 @@ public actor TestOrchestrator {
         try? await macOSDriver.terminateApp()
         try? await serverDriver.stop()
 
-        // Kill the isolated tmux server so the socket file is cleaned up
+        // Kill the isolated tmux server and remove the socket file so the
+        // next scenario starts with a clean slate (a stale socket causes
+        // "server exited unexpectedly" errors).
         if let tmuxSocket {
             logger.info("Killing isolated tmux server at \(tmuxSocket)")
             let runner = processRunner
             _ = try? await runner.run("tmux", arguments: ["-S", tmuxSocket, "kill-server"])
+            try? FileManager.default.removeItem(atPath: tmuxSocket)
         }
 
         logger.info("=== Cleanup complete ===")
