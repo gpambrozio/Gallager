@@ -108,6 +108,7 @@ public extension Application {
     /// Reset all pairing state (for testing)
     func resetPairingState() async {
         await pairingService.resetState()
+        await connectionHub.clearBlockedDeviceTypes()
     }
 
     /// Check if a host is connected via WebSocket for any active pair
@@ -125,6 +126,18 @@ public extension Application {
     func disconnectDevice(deviceType: String) async {
         guard let type = DeviceType(rawValue: deviceType) else { return }
         await connectionHub.disconnectAll(deviceType: type)
+    }
+
+    /// Block a device type from connecting and disconnect existing connections (for E2E testing)
+    func blockDevice(deviceType: String) async {
+        guard let type = DeviceType(rawValue: deviceType) else { return }
+        await connectionHub.blockDeviceType(type)
+    }
+
+    /// Unblock a device type, allowing connections again (for E2E testing)
+    func unblockDevice(deviceType: String) async {
+        guard let type = DeviceType(rawValue: deviceType) else { return }
+        await connectionHub.unblockDeviceType(type)
     }
 
     /// Check if a viewer is connected via WebSocket for any active pair

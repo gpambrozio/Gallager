@@ -9,6 +9,11 @@ actor ConnectionHub {
     private var connections: [String: [DeviceType: Connection]] = [:]
     private let logger = Logger(label: "connection-hub")
 
+    /// Device types that are blocked from connecting (for E2E testing).
+    /// When a device type is blocked, new WebSocket connections for that type
+    /// are immediately rejected, preventing auto-reconnection.
+    private var blockedDeviceTypes: Set<DeviceType> = []
+
     // MARK: - Connection Management
 
     /// Register a new connection
@@ -40,6 +45,30 @@ actor ConnectionHub {
         }
 
         connections.removeValue(forKey: pairId)
+    }
+
+    /// Check if a device type is currently blocked from connecting (for E2E testing)
+    func isBlocked(deviceType: DeviceType) -> Bool {
+        blockedDeviceTypes.contains(deviceType)
+    }
+
+    /// Block a device type from connecting (for E2E testing).
+    /// Existing connections are disconnected and new connections are rejected.
+    func blockDeviceType(_ deviceType: DeviceType) async {
+        blockedDeviceTypes.insert(deviceType)
+        await disconnectAll(deviceType: deviceType)
+        logger.info("Blocked device type: \(deviceType)")
+    }
+
+    /// Unblock a device type, allowing connections again (for E2E testing)
+    func unblockDeviceType(_ deviceType: DeviceType) {
+        blockedDeviceTypes.remove(deviceType)
+        logger.info("Unblocked device type: \(deviceType)")
+    }
+
+    /// Clear all blocked device types (for E2E testing cleanup)
+    func clearBlockedDeviceTypes() {
+        blockedDeviceTypes.removeAll()
     }
 
     /// Disconnect all connections of a given device type across all pairs (for E2E testing)

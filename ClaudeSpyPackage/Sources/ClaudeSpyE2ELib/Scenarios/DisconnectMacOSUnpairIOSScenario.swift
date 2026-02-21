@@ -9,9 +9,11 @@ public enum DisconnectMacOSUnpairIOSScenario {
         // 1. Establish a fresh pairing
         FreshPairingScenario.scenario
 
-        // 2. Server: disconnect the host (macOS) WebSocket
-        TestStep.serverDisconnectDevice(.host)
+        // 2. Server: block the host (macOS) from reconnecting and disconnect it.
+        //    This prevents auto-reconnection so the unpair truly happens while macOS is offline.
+        TestStep.serverBlockDevice(.host)
         TestStep.wait(seconds: 3)
+        TestStep.macWaitForElementToDisappear(titled: "Connected")
         TestStep.macScreenshot(label: "mac-after-disconnect")
 
         // 3. iOS: navigate to Manage Hosts and unpair
@@ -32,14 +34,17 @@ public enum DisconnectMacOSUnpairIOSScenario {
         TestStep.iosTap(.roleAndLabelContains(role: "Button", label: "Remove"))
         TestStep.wait(seconds: 2)
 
-        // 6. Verify server has 0 pairings
+        // 6. Verify server has 0 pairings (while macOS is still blocked)
         TestStep.waitForNoPairings(timeout: 15)
         TestStep.verifyServerHasPairings(count: 0)
 
-        // 7. Wait for macOS to auto-reconnect and receive INVALID_PAIR → removes pairing
+        // 7. Unblock macOS so it can reconnect. The server will reject it with INVALID_PAIR
+        //    since the pairing was removed. macOS should detect the error and clean up.
+        TestStep.serverUnblockDevice(.host)
         TestStep.wait(seconds: 15)
+        TestStep.macWaitForElement(titled: "Generate Pairing Code")
 
-        // 8. Verify both sides cleaned up
+        // 8. Verify macOS cleaned up
         TestStep.macScreenshot(label: "mac-invalid-pair-cleanup")
     }
 }

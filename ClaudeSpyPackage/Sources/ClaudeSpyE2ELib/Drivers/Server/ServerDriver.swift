@@ -136,6 +136,20 @@ public actor ServerDriver {
         logger.info("Disconnected all \(type.rawValue) connections")
     }
 
+    /// Block a device type from connecting and disconnect existing connections
+    public func blockDevice(type: E2EDeviceType) async {
+        guard let app else { return }
+        await app.blockDevice(deviceType: type.rawValue)
+        logger.info("Blocked \(type.rawValue) connections")
+    }
+
+    /// Unblock a device type, allowing connections again
+    public func unblockDevice(type: E2EDeviceType) async {
+        guard let app else { return }
+        await app.unblockDevice(deviceType: type.rawValue)
+        logger.info("Unblocked \(type.rawValue) connections")
+    }
+
     /// Wait until the server has no active pairings
     public func waitForNoPairings(timeout: TimeInterval = 15) async throws {
         try await Polling.waitUntil(

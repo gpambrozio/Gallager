@@ -277,6 +277,15 @@ public actor MacOSDriver {
     public func screenshot(output: String) async throws {
         logger.info("Taking macOS screenshot: \(output)")
 
+        guard let pid = appPID else {
+            throw MacOSDriverError.windowNotFound(appName)
+        }
+
+        // Ensure the app is focused so the window chrome renders
+        // consistently (active title bar, focused controls, etc.)
+        MacOSAccessibility.focusApp(appPID: pid)
+        try await Task.sleep(for: .milliseconds(200))
+
         guard let windowID = getWindowID() else {
             throw MacOSDriverError.windowNotFound(appName)
         }

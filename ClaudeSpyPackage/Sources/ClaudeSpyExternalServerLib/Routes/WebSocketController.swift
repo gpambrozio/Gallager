@@ -28,6 +28,17 @@ struct WebSocketController: RouteCollection {
         let connectionHub = req.application.connectionHub
         let relayService = req.application.relayService
 
+        // Reject connections from blocked device types (for E2E testing).
+        // This prevents auto-reconnection while the test verifies server-side state.
+        // The `await` suspension point before message handler registration is acceptable
+        // here: blocked connections are closed immediately and never registered, so any
+        // messages arriving during the brief window are harmlessly dropped.
+        if await connectionHub.isBlocked(deviceType: deviceType) {
+            req.logger.info("WebSocket connection rejected: \(deviceType) is blocked")
+            try? await ws.close(code: .goingAway)
+            return
+        }
+
         // CRITICAL: Set up message handlers BEFORE any `await` suspension point.
         //
         // On localhost (E2E tests), the client sends its registration message almost
