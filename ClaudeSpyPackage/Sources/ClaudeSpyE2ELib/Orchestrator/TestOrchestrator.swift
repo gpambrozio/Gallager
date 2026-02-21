@@ -351,15 +351,13 @@ public actor TestOrchestrator {
         case let .launchMacApp(instance):
             let driver = macDriver(for: instance)
             let resolvedSocket = context.resolve("${tmuxSocket}")
-            var arguments = [
+            let arguments = [
                 "--e2e-test",
                 "--server-url", "ws://127.0.0.1:\(serverPort)",
                 "--tmux-socket", resolvedSocket,
                 "--hook-port-file", hookPortFilePath(for: instance),
+                "--test-accessibility-port", "\(driver.testAccessibilityPort)",
             ]
-            if instance > 0 {
-                arguments += ["--test-accessibility-port", "\(driver.testAccessibilityPort)"]
-            }
             try await driver.launchApp(path: macOSAppPath, arguments: arguments)
 
         case let .terminateMacApp(instance):
