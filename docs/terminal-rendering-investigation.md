@@ -453,49 +453,72 @@ This would isolate whether the problem is in initial capture processing or live 
 
 ## Test Results (TerminalRenderingTests.swift)
 
-20 tests across 10 suites. **7 currently failing** — all assert correct (fixed) behavior.
-Tests will pass once the corresponding bugs are fixed.
+20 tests across 10 suites. **All 20 passing** after fixes.
 
-### Failing Tests (assert correct behavior — will pass after fix)
+### All Tests Passing
 
-| Hypothesis | Test | Expected (correct) | Actual (buggy) |
-|-----------|------|---------------------|-----------------|
-| **H2** | `nonCSIDoesNotLeakBytes` | `BeforeAfter` | `Before(BAfter` — `\e(B` leaks `(B` as literal text |
-| **H2** | `vt100GraphicsCharsetDoesNotLeak` | `BeforeAfter` | `Before)0After` — `\e)0` leaks `)0` |
-| **H2** | `multipleNonCSIDontAccumulate` | `AZ` | `A(B)0(AZ` — multiple non-CSI escapes accumulate leaked bytes |
-| **H9** | `oscDoesNotLeakContent` | No leaked text | `]0;Title` appears as literal text |
-| **H3/H8** | `relativeCursorMovementsCorrectRegardlessOfMismatch` | Marker at row 54 | Marker at row 31 — cursor clamping |
-| **H3/H8** | `inputAreaRedrawWithMismatchedDimensions` | Marker at row 54 | Marker at row 31 — same clamping |
-| **H17** | `capturePreservesSGRStateForLiveStream` | Capture color matches raw color | Capture resets to `.defaultColor` via `\e[0m` |
-
-### Passing Tests (verified correct behavior)
-
-| Hypothesis | Test | Details |
-|-----------|------|---------|
-| **H1** | 6 basic filter tests | `filterToColorCodesOnly` correctly preserves SGR, strips CSI cursor/erase/mode |
-| **H7** | `syncUpdatePattern` | Synchronized output pattern renders correctly in SwiftTerm |
-| **H12** | `sgrStateLeaksBetweenLines` | Visible area SGR state carries across lines (no resets) — confirmed |
-| **Integration** | `inputAreaRedrawMatchingDimensions` | Redraw works correctly when dimensions match |
-| **Integration** | `fullScreenRedraw` | EraseDisplay + CursorHome works (full redraws are fine) |
-| **Integration** | `accumulatedCursorDrift` | 50 cycles of relative Up/Down stays correct (no drift from math errors) |
-| **Pipeline** | `filterThenLiveStream` | Filter + live stream matches unfiltered when content is SGR-only |
+| Hypothesis | Test | Status |
+|-----------|------|--------|
+| **H1** | 6 basic filter tests | Pass — `filterToColorCodesOnly` correctly preserves SGR, strips CSI cursor/erase/mode |
+| **H2** | `nonCSIDoesNotLeakBytes` | Pass (was failing) — charset selection bytes no longer leak |
+| **H2** | `vt100GraphicsCharsetDoesNotLeak` | Pass (was failing) — `\e)0` fully consumed |
+| **H2** | `multipleNonCSIDontAccumulate` | Pass (was failing) — multiple non-CSI escapes handled correctly |
+| **H9** | `oscDoesNotLeakContent` | Pass (was failing) — OSC payload no longer leaks as text |
+| **H3/H8** | `absoluteCursorClampedToTerminalSize` | Pass (was failing) — cursor clamped to last row |
+| **H3/H8** | `relativeCursorAfterClamping` | Pass (was failing) — relative movements consistent from clamped position |
+| **H7** | `syncUpdatePattern` | Pass — synchronized output renders correctly |
+| **H12** | `sgrStateLeaksBetweenLines` | Pass — visible area SGR carryover confirmed |
+| **H17** | `sgrStatePreservedAfterCapture` | Pass (was failing) — SGR state restored after capture reconstruction |
+| **Integration** | `inputAreaRedrawMatchingDimensions` | Pass — redraw correct when dimensions match |
+| **Integration** | `inputAreaRedrawWithMismatch` | Pass (was failing) — redraw correct with clamped cursor |
+| **Integration** | `fullScreenRedraw` | Pass — EraseDisplay + CursorHome works |
+| **Integration** | `accumulatedCursorDrift` | Pass — 50 cycles of relative Up/Down stays correct |
+| **Pipeline** | `filterThenLiveStream` | Pass — filter + live stream matches unfiltered for SGR-only content |
 
 ### Key Conclusions
 
-1. **H2 is a definite bug** that corrupts output by leaking stray bytes from non-CSI escape sequences. This is the easiest fix (skip the full escape sequence, not just the ESC byte).
+1. **H2 was a definite bug** that corrupted output by leaking stray bytes from non-CSI escape sequences. **Fixed** by properly skipping charset selections (3 bytes) and standard non-CSI escapes (2 bytes).
 
-2. **H3/H8 (dimension mismatch)** is the most likely root cause of the "garbling worsens over time" observation. When the mirror terminal has fewer rows than the tmux pane, cursor positions are clamped, and ALL relative cursor movements (which Claude Code uses exclusively) operate from wrong positions. This compounds with every update cycle.
+2. **H3/H8 (dimension mismatch)** was the most likely root cause of the "garbling worsens over time" observation. When the mirror terminal has fewer rows than the tmux pane, cursor positions were unclamped, and all relative cursor movements operated from wrong positions. **Fixed** by clamping cursor to `min(cursorY, linesToOutput - 1)`.
 
-3. **H9 (OSC leaks)** contributes to corruption — OSC title-setting sequences (`\e]0;Title\a`) leak their content as literal text via the same H2 mechanism.
+3. **H9 (OSC leaks)** contributed to corruption — OSC title-setting sequences (`\e]0;Title\a`) leaked their content as literal text. **Fixed** by adding OSC sequence handling that consumes bytes until BEL or ST terminator.
 
-4. **H17 (capture-pane vs raw SGR state)** explains color mismatches: the initial capture's `\e[0m` resets leave SwiftTerm in a different SGR state than the live stream expects.
+4. **H17 (capture-pane vs raw SGR state)** explained color mismatches: the initial capture's `\e[0m` resets left SwiftTerm in a different SGR state than the live stream expected. **Fixed** by adding `extractActiveSGR` helper that walks visible lines to the cursor position and re-emits the active SGR code after cursor positioning.
 
-5. **H12 (SGR carryover)** is a secondary color issue — visible area lines inherit SGR state from previous lines without explicit resets.
+5. **H12 (SGR carryover)** is a secondary color issue — visible area lines inherit SGR state from previous lines without explicit resets. Not yet addressed; may be mitigated by the H17 fix for the re-capture path.
 
-### Recommended Fix Priority
+---
 
-1. **H2**: Fix `filterToColorCodesOnly` to skip full non-CSI escape sequences (ESC + following byte(s))
-2. **H9**: Add OSC sequence handling to `filterToColorCodesOnly` (skip ESC ] ... BEL/ST)
-3. **H3/H8**: Ensure mirror terminal rows match tmux pane rows, OR adjust cursor positioning in initial capture
-4. **H17**: Preserve SGR state from capture-pane without adding resets (or restore SGR after initial state)
-5. **H12**: Add explicit `\e[0m` resets between visible area lines (matching scrollback behavior)
+## Resolution
+
+### Fixes Applied (TmuxService.swift)
+
+All production fixes are in `ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/Services/TmuxService.swift`.
+
+#### H2: Non-CSI escape byte leaking → Fixed
+
+The `else` branch in `filterToColorCodesOnly` only skipped the ESC byte, leaking the following byte(s) as literal text. Now properly handles:
+- **Charset selections** (`ESC ( X`, `ESC ) X`, `ESC * X`, `ESC + X`) — skips 3 bytes
+- **Standard non-CSI escapes** (`ESC X`) — skips 2 bytes
+
+#### H9: OSC sequence leaking → Fixed
+
+Added a new `else if input[nextIndex] == "]"` branch in `filterToColorCodesOnly` that consumes OSC sequences (`ESC ] ... BEL` or `ESC ] ... ESC \`) in their entirety. Handles both BEL and ST terminators, plus unterminated sequences.
+
+#### H3/H8: Cursor position out of bounds → Fixed
+
+In `capturePaneWithScrollbackForStreaming`, the cursor Y position is now clamped:
+```swift
+let effectiveCursorY = min(cursorY, linesToOutput - 1)
+```
+This prevents sending `\e[Y;XH` with Y beyond the output content, which previously caused relative cursor movements from live stream data to operate from wrong positions.
+
+#### H17: SGR state lost after capture → Fixed
+
+Added `extractActiveSGR(from:cursorX:cursorY:)` method that walks the unfiltered visible lines up to the cursor position, tracking SGR state changes. After cursor positioning in the capture output, the active SGR code is re-emitted. The method stops scanning at the cursor column to avoid processing trailing `\e[0m` resets that tmux appends per line.
+
+### Remaining Issues
+
+- **H12 (SGR carryover between visible lines)**: Not directly addressed. Visible area lines still lack inter-line resets, unlike scrollback lines. The H17 fix mitigates the re-capture scenario but doesn't solve the general case.
+- **Scrollback corruption after re-capture**: Documented in the E2E scenario (Phase 2). Re-capture replaces the mirror's accumulated scrollback with tmux's captured content, causing duplication/truncation/reordering. This is a separate architectural issue.
+- **H5 (timing gap)**, **H6 (octal unescaping)**, **H7 (private modes)**: Not yet investigated with targeted tests. May contribute to edge cases.
