@@ -43,7 +43,7 @@ public struct MenuBarExtraView: View {
 
                 ForEach(remote, id: \.host.id) { entry in
                     Divider()
-                    Text(entry.host.displayName)
+                    Text(entry.host.displayName(showUsername: settings.hasDuplicateHostName(for: entry.host)))
                         .foregroundStyle(.secondary)
 
                     ForEach(entry.sessions, id: \.paneId) { session in
