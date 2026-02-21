@@ -51,7 +51,7 @@ public enum ProjectSearchIOSScenario {
         TestStep.iosScreenshot(label: "project-selected", compare: false)
 
         // ── Teardown ─────────────────────────────────────────────
-        TestStep.terminateMacApp
+        TestStep.terminateMacApp()
         TestStep.terminateIOSApp
         TestStep.stopServer
     }

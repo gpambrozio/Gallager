@@ -14,7 +14,7 @@ public enum UnpairFromMacOSScenario {
 
         // 3. macOS: trigger unpair via test HTTP endpoint
         // (SwiftUI Menu creates native NSMenu popups invisible to the accessibility tree)
-        TestStep.macUnpair
+        TestStep.macUnpair()
         TestStep.wait(seconds: 2)
         TestStep.macScreenshot(label: "mac-after-unpair")
 

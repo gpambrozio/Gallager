@@ -19,10 +19,10 @@ public enum SidebarSelectionScenario {
         TestStep.tmuxCreateSession(name: "sidebar-1", width: 80, height: 24)
         TestStep.tmuxCreateSession(name: "sidebar-2", width: 80, height: 24)
 
-        TestStep.launchMacApp
+        TestStep.launchMacApp()
         TestStep.wait(seconds: 3)
 
-        TestStep.macOpenPanesWindow
+        TestStep.macOpenPanesWindow()
         TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
         TestStep.wait(seconds: 1)
         TestStep.macMoveWindow(x: 10, y: 10)
