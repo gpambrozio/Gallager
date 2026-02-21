@@ -403,6 +403,9 @@ public actor TestOrchestrator {
             let resolvedText = context.resolve(text)
             try await macOSDriver.type(text: resolvedText, pressReturn: pressReturn)
 
+        case let .macScrollUp(pages):
+            try await macOSDriver.scrollUp(pages: pages)
+
         case let .macScreenshot(label, compare, tolerance, perPixelThreshold):
             let numberedLabel = nextScreenshotLabel(label)
             let actualPath = screenshotPath(for: numberedLabel)
