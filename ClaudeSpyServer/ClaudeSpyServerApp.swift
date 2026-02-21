@@ -195,12 +195,22 @@ struct TmuxPaneMirrorApp: App {
         MenuBarExtra {
             MenuBarExtraView()
                 .environment(coordinator.windowManager)
+                .environment(coordinator.settings)
+                .environment(coordinator)
         } label: {
-            MenuBarLabel(pendingCount: coordinator.windowManager.pendingSessionCount)
+            MenuBarLabel(pendingCount: totalPendingSessionCount)
                 .task {
                     await coordinator.setupAllServices()
                 }
         }
+    }
+
+    /// Total number of sessions needing attention across local and remote sources
+    private var totalPendingSessionCount: Int {
+        let localCount = coordinator.windowManager.pendingSessionCount
+        let remoteCount = coordinator.remoteSessionStore?.sessions.values
+            .filter(\.needsAttention).count ?? 0
+        return localCount + remoteCount
     }
 
     /// Checks if we should show the launch at login prompt.

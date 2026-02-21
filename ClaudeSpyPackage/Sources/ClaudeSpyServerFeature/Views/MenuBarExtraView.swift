@@ -5,19 +5,52 @@ import SwiftUI
 /// The content view displayed in the menu bar dropdown
 public struct MenuBarExtraView: View {
     @Environment(MirrorWindowManager.self) private var windowManager
+    @Environment(AppSettings.self) private var settings
+    @Environment(AppCoordinator.self) private var coordinator
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
     public init() { }
 
+    private var localSessions: [ClaudeSession] {
+        windowManager.sortedSessions
+    }
+
+    private var remoteSessionsByHost: [(host: PairedHost, sessions: [ClaudeSession])] {
+        guard let sessionStore = coordinator.remoteSessionStore else { return [] }
+        return settings.pairedHosts.compactMap { host in
+            let sessions = sessionStore.sessions(for: host.id).map(\.session)
+            guard !sessions.isEmpty else { return nil }
+            return (host: host, sessions: sessions)
+        }
+    }
+
+    private var hasAnySessions: Bool {
+        !localSessions.isEmpty || !remoteSessionsByHost.isEmpty
+    }
+
     public var body: some View {
         Group {
-            if windowManager.sortedSessions.isEmpty {
+            if !hasAnySessions {
                 Text("No active sessions")
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(windowManager.sortedSessions, id: \.paneId) { session in
-                    sessionButton(for: session)
+                if !localSessions.isEmpty {
+                    ForEach(localSessions, id: \.paneId) { session in
+                        localSessionButton(for: session)
+                    }
+                }
+
+                ForEach(remoteSessionsByHost, id: \.host.id) { entry in
+                    if !localSessions.isEmpty || remoteSessionsByHost.count > 1 {
+                        Divider()
+                        Text(entry.host.displayName)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    ForEach(entry.sessions, id: \.paneId) { session in
+                        remoteSessionButton(for: session, hostName: entry.host.displayName)
+                    }
                 }
             }
         }
@@ -66,27 +99,48 @@ public struct MenuBarExtraView: View {
         }
     }
 
-    // MARK: - Session Button
+    // MARK: - Session Buttons
 
     @ViewBuilder
-    private func sessionButton(for session: ClaudeSession) -> some View {
+    private func localSessionButton(for session: ClaudeSession) -> some View {
         Button {
             NSApp.setActivationPolicy(.regular)
-            Task {
-                await windowManager.openMirrorForPane(session.paneId)
+            if settings.menuBarClickOpensPanesView {
+                openWindow(id: "panes")
+                Self.bringAppToFront()
+            } else {
+                Task {
+                    await windowManager.openMirrorForPane(session.paneId)
+                }
             }
         } label: {
-            let title = if let latestEvent = session.latestEvent {
-                "\(session.displayName) • \(latestEvent.action.title)"
-            } else {
-                session.displayName
-            }
+            sessionLabel(for: session)
+        }
+    }
 
-            if session.needsAttention {
-                Label(title, symbol: .exclamationmarkCircleFill)
-            } else {
-                Text(title)
-            }
+    @ViewBuilder
+    private func remoteSessionButton(for session: ClaudeSession, hostName: String) -> some View {
+        Button {
+            NSApp.setActivationPolicy(.regular)
+            openWindow(id: "panes")
+            Self.bringAppToFront()
+        } label: {
+            sessionLabel(for: session)
+        }
+    }
+
+    @ViewBuilder
+    private func sessionLabel(for session: ClaudeSession) -> some View {
+        let title = if let latestEvent = session.latestEvent {
+            "\(session.displayName) • \(latestEvent.action.title)"
+        } else {
+            session.displayName
+        }
+
+        if session.needsAttention {
+            Label(title, symbol: .exclamationmarkCircleFill)
+        } else {
+            Text(title)
         }
     }
 }
