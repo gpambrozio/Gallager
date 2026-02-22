@@ -412,20 +412,11 @@ final public class TmuxService {
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
 
-        // Find the last meaningful line to output
-        // This is the max of: cursor row + 1, or the last non-empty line
-        // This prevents trailing empty lines from pushing content into scrollback
-        // when the mirror has fewer rows than tmux
-        var lastMeaningfulLine = cursorY + 1 // cursorY is 0-indexed, so +1 for count
-        for (index, line) in visibleLines.enumerated().reversed() {
-            let filtered = filterToColorCodesOnly(line)
-            if !filtered.trimmingCharacters(in: .whitespaces).isEmpty {
-                lastMeaningfulLine = max(lastMeaningfulLine, index + 1)
-                break
-            }
-        }
-        // Clamp to actual line count
-        let linesToOutput = min(lastMeaningfulLine, visibleLines.count)
+        // Determine how many lines to output. We must output at least
+        // cursorY + 1 lines so the cursor can be positioned on the correct row.
+        // capture-pane trims trailing empty lines, so cursorY may exceed
+        // visibleLines.count — we'll pad with empty lines to reach it.
+        let linesToOutput = max(cursorY + 1, visibleLines.count)
 
         // Move to home to start drawing visible area
         output += "\u{1b}[H" // Cursor to home (row 1, col 1)
@@ -434,9 +425,10 @@ final public class TmuxService {
         // This overwrites any Part 1 content that scrolled into visible area
         // Filter each line to keep only color codes (remove cursor positioning that could interfere)
         for index in 0..<linesToOutput {
-            let line = visibleLines[index]
             output += "\u{1b}[2K" // Clear current line
-            output += filterToColorCodesOnly(line)
+            if index < visibleLines.count {
+                output += filterToColorCodesOnly(visibleLines[index])
+            }
             // Add newline after each line except the last
             if index < linesToOutput - 1 {
                 output += "\r\n"
@@ -447,10 +439,19 @@ final public class TmuxService {
         // (in case terminal has more rows than visible lines)
         output += "\u{1b}[J" // Clear from cursor to end of screen
 
-        // Clamp cursor position to what was actually output to prevent
-        // sending positions beyond the mirror terminal's visible area
+        // Position cursor using relative movement from the last drawn line.
+        // After drawing `linesToOutput` lines, the cursor is on the last line.
+        // We need to move UP by (linesToOutput - 1 - cursorY) lines, then to
+        // the correct column. Using relative movement instead of absolute
+        // positioning ensures correctness even when the mirror terminal has
+        // fewer rows than tmux — absolute \e[Y;XH would reference tmux row
+        // numbers that don't exist in a smaller mirror.
         let effectiveCursorY = min(cursorY, linesToOutput - 1)
-        output += "\u{1b}[\(effectiveCursorY + 1);\(cursorX + 1)H"
+        let linesUp = linesToOutput - 1 - effectiveCursorY
+        if linesUp > 0 {
+            output += "\u{1b}[\(linesUp)A" // Move cursor up
+        }
+        output += "\u{1b}[\(cursorX + 1)G" // Move to column (absolute column positioning)
 
         // Restore active SGR state at the cursor position so that live stream
         // data inherits the correct colors. capture-pane -e resets SGR per line,

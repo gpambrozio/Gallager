@@ -89,6 +89,9 @@ struct TerminalContainerView: NSViewRepresentable {
         private var columns = 80
         private var rows = 24
         private var lastExternalWidth = 0
+        /// When connected, rows are locked to the tmux pane height so that
+        /// absolute cursor positioning in live `%output` maps correctly.
+        private var rowsLockedToTmux = false
 
         private var fontName: String?
         private var fontSize: CGFloat?
@@ -181,6 +184,7 @@ struct TerminalContainerView: NSViewRepresentable {
         func stop() {
             pendingKeyTask?.cancel()
             pendingKeyTask = nil
+            rowsLockedToTmux = false
             guard let subId = subscriptionId else { return }
             let manager = paneStreamManager
             Task {
@@ -196,12 +200,13 @@ struct TerminalContainerView: NSViewRepresentable {
         private func connect(paneInfo: PaneInfo, tmuxService: TmuxService) async {
             updateState(.connecting)
 
-            // Get initial columns from tmux (rows are dynamic based on container)
+            // Get initial dimensions from tmux. Rows must match the tmux pane
+            // so that absolute cursor positioning in live %output events maps correctly.
             do {
                 let dims = try await tmuxService.getPaneDimensions(paneInfo.target)
-                updateColumns(dims.width)
+                updateTerminalDimensions(cols: dims.width, rows: dims.height)
             } catch {
-                updateColumns(paneInfo.width)
+                updateTerminalDimensions(cols: paneInfo.width, rows: paneInfo.height)
             }
 
             clear()
@@ -221,7 +226,7 @@ struct TerminalContainerView: NSViewRepresentable {
                         self?.handleData(data)
                     },
                     onDimensionChange: { [weak self, weak windowManager] newWidth, newHeight in
-                        self?.updateColumns(newWidth)
+                        self?.updateTerminalDimensions(cols: newWidth, rows: newHeight)
                         windowManager?.resizeWindow(target: target, columns: newWidth, rows: newHeight)
                     }
                 )
@@ -229,8 +234,8 @@ struct TerminalContainerView: NSViewRepresentable {
                 subscriptionId = result.subscriptionId
                 updateState(.connected)
 
-                // Update columns from result dimensions
-                updateColumns(result.width)
+                // Update dimensions from result
+                updateTerminalDimensions(cols: result.width, rows: result.height)
 
                 // Feed initial content to terminal
                 if !result.initialContent.isEmpty {
@@ -269,13 +274,19 @@ struct TerminalContainerView: NSViewRepresentable {
             feed(Data("\u{1b}[2J\u{1b}[H".utf8))
         }
 
-        /// Updates columns from tmux. Rows are calculated dynamically from container height.
-        func updateColumns(_ newColumns: Int) {
-            guard newColumns != columns else { return }
+        /// Updates terminal dimensions from tmux pane size.
+        /// Rows are locked to the tmux pane height so that absolute cursor
+        /// positioning in live `%output` events maps correctly to mirror rows.
+        func updateTerminalDimensions(cols newColumns: Int, rows newRows: Int) {
+            let changed = newColumns != columns || newRows != rows
             columns = newColumns
-            terminalView.getTerminal().resize(cols: columns, rows: rows)
-            updateTerminalFrameSize()
-            notifyStateChange()
+            rows = newRows
+            rowsLockedToTmux = true
+            if changed {
+                terminalView.getTerminal().resize(cols: columns, rows: rows)
+                updateTerminalFrameSize()
+                notifyStateChange()
+            }
         }
 
         func scrollToBottom() {
@@ -341,22 +352,25 @@ struct TerminalContainerView: NSViewRepresentable {
 
         // MARK: Private Helpers
 
-        /// Recalculates rows based on container height and resizes terminal
+        /// Recalculates rows based on container height and resizes terminal.
+        /// When rows are locked to tmux pane height, only updates frame sizing.
         private func recalculateRowsAndResize() {
             guard rows > 0 else { return }
 
-            // Derive cell height from SwiftTerm's optimal frame size
-            let currentOptimalSize = terminalView.getOptimalFrameSize().size
-            let cellHeight = currentOptimalSize.height / CGFloat(rows)
-            guard cellHeight > 0 else { return }
+            if !rowsLockedToTmux {
+                // Derive cell height from SwiftTerm's optimal frame size
+                let currentOptimalSize = terminalView.getOptimalFrameSize().size
+                let cellHeight = currentOptimalSize.height / CGFloat(rows)
+                guard cellHeight > 0 else { return }
 
-            // Calculate rows from container height
-            let newRows = max(1, Int(containerSize.height / cellHeight))
+                // Calculate rows from container height
+                let newRows = max(1, Int(containerSize.height / cellHeight))
 
-            if newRows != rows {
-                rows = newRows
-                terminalView.getTerminal().resize(cols: columns, rows: rows)
-                notifyStateChange()
+                if newRows != rows {
+                    rows = newRows
+                    terminalView.getTerminal().resize(cols: columns, rows: rows)
+                    notifyStateChange()
+                }
             }
 
             updateTerminalFrameSize()

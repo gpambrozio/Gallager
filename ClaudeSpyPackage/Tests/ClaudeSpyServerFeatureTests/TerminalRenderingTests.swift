@@ -573,8 +573,10 @@
                 height: 24
             )
             let str = String(data: result, encoding: .utf8)!
-            // Cursor at row 2, col 6 (1-indexed)
-            #expect(str.contains("\u{1b}[2;6H"))
+            // Cursor at row 1 (0-indexed), 3 lines output.
+            // After drawing 3 lines cursor is on line 3. Move up 3-1-1=1 line, col 6.
+            #expect(str.contains("\u{1b}[1A")) // move up 1
+            #expect(str.contains("\u{1b}[6G")) // column 6
         }
 
         @Test("Scrollback content is included with SGR resets")
@@ -593,10 +595,13 @@
             #expect(str.contains("\u{1b}[0m"))
         }
 
-        @Test("Cursor is clamped to output bounds")
-        func cursorClamped() async {
+        @Test("Cursor beyond visible lines pads output to reach cursor row")
+        func cursorBeyondVisibleLines() async {
             let service = TmuxService()
-            // Cursor at row 10 but only 2 lines of content
+            // Cursor at row 10 but only 2 lines of content.
+            // capture-pane trims trailing empty lines, so this is normal when
+            // the cursor is below the last non-empty line.
+            // We must pad output to row 10 so cursor positioning is correct.
             let result = service.processCapturePaneForStreaming(
                 scrollbackOutput: nil,
                 visibleOutput: "line1\nline2",
@@ -604,8 +609,251 @@
                 height: 24
             )
             let str = String(data: result, encoding: .utf8)!
-            // Cursor should be clamped to row 2 (last line), col 1
-            #expect(str.contains("\u{1b}[2;1H"))
+            // linesToOutput = max(11, 2) = 11. After drawing 11 lines (2 content + 9 blank),
+            // cursor is on line 11. effectiveCursorY = 10, linesUp = 11-1-10 = 0.
+            #expect(str.contains("\u{1b}[1G")) // column 1
+            #expect(!str.contains("\u{1b}[1A")) // no cursor-up needed (cursor is on last line)
+        }
+
+        @Test("Live typing after initial capture lands on correct row with cursor mid-screen")
+        @MainActor
+        func liveTypingAfterCaptureCorrectRow() {
+            let service = TmuxService()
+            let rows = 24
+            let cols = 80
+
+            // Build visible content: 24 lines, all with content
+            // Cursor at row 21 (0-indexed), like a Claude Code input area
+            var visibleLines: [String] = []
+            for i in 0..<rows {
+                if i < 20 {
+                    visibleLines.append("Content line \(i + 1)")
+                } else if i == 20 {
+                    visibleLines.append(String(repeating: "─", count: cols))
+                } else if i == 21 {
+                    visibleLines.append("> Input: BEFORE")
+                } else if i == 22 {
+                    visibleLines.append("[status]")
+                } else {
+                    visibleLines.append("[bottom]")
+                }
+            }
+            let visibleOutput = visibleLines.joined(separator: "\n")
+
+            // Some scrollback
+            var scrollbackLines: [String] = []
+            for i in 0..<30 {
+                scrollbackLines.append("History \(i + 1)")
+            }
+            let scrollbackOutput = scrollbackLines.joined(separator: "\n")
+
+            // Cursor at col 15, row 21 (0-indexed) — on the input line after "> Input: BEFORE"
+            // "> Input: BEFORE" = 15 chars (positions 0-14), cursor at col 15
+            let cursorOutput = "15,21"
+
+            // Generate initial capture data
+            let initialData = service.processCapturePaneForStreaming(
+                scrollbackOutput: scrollbackOutput,
+                visibleOutput: visibleOutput,
+                cursorOutput: cursorOutput,
+                height: rows
+            )
+
+            // Feed to SwiftTerm
+            let (terminal, _) = makeTerminal(cols: cols, rows: rows)
+            let bytes = Array(initialData)
+            terminal.feed(byteArray: bytes)
+
+            // Verify cursor is at the correct position
+            let cursorRow = terminal.buffer.y // 0-indexed in SwiftTerm
+            let cursorCol = terminal.buffer.x
+            #expect(
+                cursorRow == 21,
+                "Cursor should be at row 21 (0-indexed), got \(cursorRow)"
+            )
+            #expect(
+                cursorCol == 15,
+                "Cursor should be at col 15, got \(cursorCol)"
+            )
+
+            // Verify the input line content
+            let inputLineText = getRowText(terminal, row: 21)
+            #expect(
+                inputLineText.contains("> Input: BEFORE"),
+                "Row 21 should have input content, got '\(inputLineText)'"
+            )
+
+            // Now simulate live typing: a character arrives via %output
+            // This is what happens after attachment
+            terminal.feed(text: "X")
+
+            // The "X" should appear at the same row as BEFORE
+            let afterRow = terminal.buffer.y
+            #expect(
+                afterRow == 21,
+                "After typing, cursor should still be at row 21, got \(afterRow)"
+            )
+
+            // The input line should now contain "X" appended
+            let inputLineAfter = getRowText(terminal, row: 21)
+
+            // Debug: dump all rows to find where X went
+            var dump = "cursorBefore=\(cursorRow),\(cursorCol) cursorAfter=\(afterRow)\n"
+            for row in 0..<rows {
+                let text = getRowText(terminal, row: row)
+                if !text.isEmpty {
+                    dump += "row[\(row)]: \(text)\n"
+                }
+            }
+            try? dump.write(toFile: "/tmp/cursor-test-dump.txt", atomically: true, encoding: .utf8)
+
+            #expect(
+                inputLineAfter.contains("BEFOREX"),
+                "Row 21 should have BEFOREX - see /tmp/cursor-test-dump.txt"
+            )
+        }
+
+        @Test("Dimension mismatch: tmux has more rows than mirror")
+        @MainActor
+        func dimensionMismatchTyping() {
+            let service = TmuxService()
+            let tmuxRows = 37 // tmux pane dimensions
+            let mirrorRows = 24 // mirror terminal dimensions (smaller!)
+            let cols = 90
+
+            // Build visible content: 37 lines of tmux output (Claude Code-like)
+            var visibleLines: [String] = []
+            for i in 0..<tmuxRows {
+                if i < tmuxRows - 5 {
+                    visibleLines.append("Content line \(i + 1)")
+                } else if i == tmuxRows - 5 {
+                    visibleLines.append(String(repeating: "─", count: cols))
+                } else if i == tmuxRows - 4 {
+                    visibleLines.append("> hello world")
+                } else if i == tmuxRows - 3 {
+                    visibleLines.append(String(repeating: "─", count: cols))
+                } else if i == tmuxRows - 2 {
+                    visibleLines.append("[status bar]")
+                } else {
+                    visibleLines.append("[bottom]")
+                }
+            }
+            let visibleOutput = visibleLines.joined(separator: "\n")
+
+            // Cursor on the input line (tmux row 33, 0-indexed)
+            // "> hello world" = 13 chars, cursor at col 13
+            let inputRow = tmuxRows - 4
+            let cursorOutput = "13,\(inputRow)"
+
+            let initialData = service.processCapturePaneForStreaming(
+                scrollbackOutput: nil,
+                visibleOutput: visibleOutput,
+                cursorOutput: cursorOutput,
+                height: tmuxRows
+            )
+
+            // Create a SMALLER terminal (like the mirror)
+            let (terminal, _) = makeTerminal(cols: cols, rows: mirrorRows)
+            terminal.feed(byteArray: Array(initialData))
+
+            // Find which mirror row has "> hello world"
+            let inputMirrorRow = (0..<mirrorRows).first { getRowText(terminal, row: $0).contains("> hello world") } ?? -1
+            #expect(inputMirrorRow >= 0, "Should find input line in mirror")
+
+            // Verify cursor is on the same row as the input content
+            let cursorRow = terminal.buffer.y
+            #expect(
+                cursorRow == inputMirrorRow,
+                "Cursor (row \(cursorRow)) should be on the input line (row \(inputMirrorRow))"
+            )
+
+            // Now simulate live typing: type " test"
+            terminal.feed(text: " test")
+
+            // The typed text should appear on the same line as "hello world"
+            let afterRow = terminal.buffer.y
+            let inputLineAfter = getRowText(terminal, row: inputMirrorRow)
+
+            // Debug dump
+            var dump = "tmuxRows=\(tmuxRows) mirrorRows=\(mirrorRows)\n"
+            dump += "cursorBefore=\(cursorRow) cursorAfter=\(afterRow) inputMirrorRow=\(inputMirrorRow)\n"
+            for row in 0..<mirrorRows {
+                let text = getRowText(terminal, row: row)
+                if !text.isEmpty {
+                    dump += "row[\(row)]: \(text)\n"
+                }
+            }
+            try? dump.write(toFile: "/tmp/dimension-mismatch-dump.txt", atomically: true, encoding: .utf8)
+
+            #expect(
+                inputLineAfter.contains("hello world test"),
+                "Input line should have 'hello world test' but got '\(inputLineAfter)' - see /tmp/dimension-mismatch-dump.txt"
+            )
+        }
+
+        @Test("Live cursor-up movement after initial capture lands on correct row")
+        @MainActor
+        func liveCursorUpAfterCapture() {
+            let service = TmuxService()
+            let rows = 24
+            let cols = 80
+
+            // Build visible content similar to Claude Code
+            var visibleLines: [String] = []
+            for i in 0..<rows {
+                if i < 20 {
+                    visibleLines.append("Content line \(i + 1)")
+                } else if i == 20 {
+                    visibleLines.append(String(repeating: "─", count: cols))
+                } else if i == 21 {
+                    visibleLines.append("> Input area")
+                } else if i == 22 {
+                    visibleLines.append("[status]")
+                } else {
+                    visibleLines.append("[bottom]")
+                }
+            }
+            let visibleOutput = visibleLines.joined(separator: "\n")
+            let scrollbackOutput = (1...30).map { "History \($0)" }.joined(separator: "\n")
+
+            // Cursor on input line (row 21, col 13)
+            let cursorOutput = "13,21"
+
+            let initialData = service.processCapturePaneForStreaming(
+                scrollbackOutput: scrollbackOutput,
+                visibleOutput: visibleOutput,
+                cursorOutput: cursorOutput,
+                height: rows
+            )
+
+            let (terminal, _) = makeTerminal(cols: cols, rows: rows)
+            terminal.feed(byteArray: Array(initialData))
+
+            // Verify initial cursor position
+            #expect(terminal.buffer.y == 21, "Initial cursor row should be 21")
+
+            // Simulate Claude Code's input redraw: move cursor up 1, clear line, write, move back
+            // This is a common pattern: \e[A (up 1) \e[2K (clear) write \e[B (down 1) \e[2K write
+            let liveUpdate = "\u{1b}[A\u{1b}[2K> Updated input\u{1b}[B"
+            terminal.feed(text: liveUpdate)
+
+            // After: cursor moved up to row 20, cleared, wrote, moved down to row 21
+            // The cursor should now be at row 21 (moved down from 20)
+            // But wait — row 20 is the separator line.
+            // The "Updated input" should be on row 20 (the line above input)
+            // and cursor should be back at row 21
+
+            let row20text = getRowText(terminal, row: 20)
+            let finalCursorRow = terminal.buffer.y
+
+            #expect(
+                row20text.contains("> Updated input"),
+                "Row 20 should have updated content, got '\(row20text)'"
+            )
+            #expect(
+                finalCursorRow == 21,
+                "Cursor should be back at row 21 after down, got \(finalCursorRow)"
+            )
         }
     }
 #endif
