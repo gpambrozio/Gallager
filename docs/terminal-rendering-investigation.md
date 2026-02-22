@@ -451,9 +451,9 @@ This would isolate whether the problem is in initial capture processing or live 
 
 ---
 
-## Test Results (TerminalRenderingTests.swift)
+## Test Results (TerminalRenderingTests.swift + TmuxControlClientTests.swift)
 
-20 tests across 10 suites. **All 20 passing** after fixes.
+69 tests across 19 suites. **All 69 passing** after fixes.
 
 ### All Tests Passing
 
@@ -517,8 +517,37 @@ This prevents sending `\e[Y;XH` with Y beyond the output content, which previous
 
 Added `extractActiveSGR(from:cursorX:cursorY:)` method that walks the unfiltered visible lines up to the cursor position, tracking SGR state changes. After cursor positioning in the capture output, the active SGR code is re-emitted. The method stops scanning at the cursor column to avoid processing trailing `\e[0m` resets that tmux appends per line.
 
+#### H5: Timing gap between capture and stream → Fixed
+
+Rewrote `PaneStream.connect()` to route capture commands through the control client's `sendCommand()` instead of subprocesses. Since commands and `%output` events are serialized in the same control mode stream, the capture results are precisely ordered relative to live data — no gap, no overlap.
+
+Key changes across four files:
+- **TmuxControlClient.swift**: Added per-pane buffering (`startPaneBuffering`/`stopPaneBuffering`) that silently discards `%output` events during capture, plus FIFO command queue and initial attach response skipping
+- **TmuxControlClientManager.swift**: Pass-through methods for `sendCommand`, `startPaneBuffering`, `stopPaneBuffering`
+- **TmuxService.swift**: Extracted `processCapturePaneForStreaming` as a pure method, added `capturePaneViaControlMode` that sends capture commands through control mode
+- **PaneStream.swift**: New ordering: buffer → register → capture via control mode → unbuffer
+
+#### Cursor off-by-one on re-attach → Fixed
+
+Two bugs caused typed text to appear one row above the correct position after re-attaching to a Claude Code session:
+
+**Bug 1: `capture-pane` trims trailing empty lines.** When the cursor sits on an empty row (common in Claude Code where the cursor is at the very bottom of the pane), the capture returns fewer lines than the pane height. The old code used `min(lastMeaningfulLine, visibleLines.count)` for `linesToOutput`, which clamped the cursor to the last captured line instead of the actual cursor row. **Fixed** by using `max(cursorY + 1, visibleLines.count)` and padding with blank `\e[2K` lines beyond the captured content.
+
+**Bug 2: Mirror terminal rows derived from window height instead of tmux pane height.** The mirror's SwiftTerm terminal had rows calculated from the container's physical height (e.g., 24 rows in a small window), while the tmux pane had 37 rows. Absolute cursor positioning in live `%output` events (e.g., `\e[33;1H`) referenced row numbers that didn't exist in the smaller mirror, getting clamped to the wrong position. **Fixed** in `TerminalContainerView.swift` by locking mirror rows to the tmux pane height via `updateTerminalDimensions(cols:rows:)`. Also switched the initial capture to use relative cursor positioning (`\e[nA` + `\e[nG`) instead of absolute (`\e[Y;XH`).
+
+### Test Results Update
+
+69 tests across 19 suites. **All 69 passing** after fixes.
+
+New tests added:
+- Per-pane buffering state management (start/stop/cleanup)
+- `processCapturePaneForStreaming` with nil scrollback, trailing newlines, cursor position
+- Dimension mismatch: 37-row tmux output fed to 24-row SwiftTerm terminal
+- Live typing and cursor-up movement after initial capture with cursor mid-screen
+- Cursor beyond visible lines pads output to reach cursor row
+
 ### Remaining Issues
 
 - **H12 (SGR carryover between visible lines)**: Not directly addressed. Visible area lines still lack inter-line resets, unlike scrollback lines. The H17 fix mitigates the re-capture scenario but doesn't solve the general case.
 - **Scrollback corruption after re-capture**: Documented in the E2E scenario (Phase 2). Re-capture replaces the mirror's accumulated scrollback with tmux's captured content, causing duplication/truncation/reordering. This is a separate architectural issue.
-- **H5 (timing gap)**, **H6 (octal unescaping)**, **H7 (private modes)**: Not yet investigated with targeted tests. May contribute to edge cases.
+- **H6 (octal unescaping)**, **H7 (private modes)**: Not yet investigated with targeted tests. May contribute to edge cases.
