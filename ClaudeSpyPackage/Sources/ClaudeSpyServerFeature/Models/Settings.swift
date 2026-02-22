@@ -151,6 +151,11 @@ final public class AppSettings {
         didSet { preferences.setBool(preventSleepDuringSessions, Keys.preventSleepDuringSessions) }
     }
 
+    /// Whether clicking a session in the menu bar opens the panes view instead of a new mirror window
+    public var menuBarClickOpensPanesView: Bool = Defaults.menuBarClickOpensPanesView {
+        didSet { preferences.setBool(menuBarClickOpensPanesView, Keys.menuBarClickOpensPanesView) }
+    }
+
     /// Delay before attempting reconnection (in seconds)
     public var reconnectDelay: Int = Defaults.reconnectDelay {
         didSet { preferences.setInt(reconnectDelay, Keys.reconnectDelay) }
@@ -246,6 +251,7 @@ final public class AppSettings {
         self.autoReconnect = preferences.optionalBool(Keys.autoReconnect) ?? Defaults.autoReconnect
         self.autoOpenMirrorOnSession = preferences.optionalBool(Keys.autoOpenMirrorOnSession) ?? Defaults.autoOpenMirrorOnSession
         self.preventSleepDuringSessions = preferences.optionalBool(Keys.preventSleepDuringSessions) ?? Defaults.preventSleepDuringSessions
+        self.menuBarClickOpensPanesView = preferences.optionalBool(Keys.menuBarClickOpensPanesView) ?? Defaults.menuBarClickOpensPanesView
         self.reconnectDelay = preferences.optionalInt(Keys.reconnectDelay) ?? Defaults.reconnectDelay
         self.tmuxPath = preferences.string(Keys.tmuxPath) ?? Defaults.tmuxPath
         self.tmuxSocket = preferences.string(Keys.tmuxSocket) ?? Defaults.tmuxSocket
@@ -300,6 +306,7 @@ final public class AppSettings {
         case autoReconnect
         case autoOpenMirrorOnSession
         case preventSleepDuringSessions
+        case menuBarClickOpensPanesView
         case reconnectDelay
         case tmuxPath
         case tmuxSocket
@@ -333,6 +340,7 @@ final public class AppSettings {
         static let autoReconnect = false
         static let autoOpenMirrorOnSession = false
         static let preventSleepDuringSessions = true
+        static let menuBarClickOpensPanesView = false
         static let reconnectDelay = 5
         static let tmuxPath = "/opt/homebrew/bin/tmux"
         static let tmuxSocket = ""
