@@ -262,9 +262,10 @@ final public class TmuxService {
         return result.stdout
     }
 
-    /// Captures pane content with scrollback for streaming initialization.
-    /// Scrollback lines have problematic escape codes filtered (keeping only colors),
-    /// while the visible area uses full ANSI codes with explicit cursor positioning.
+    /// Captures pane content with scrollback for streaming initialization via subprocess.
+    /// Used for re-captures (existing stream path) and fallback scenarios.
+    /// For new stream initialization, prefer `capturePaneViaControlMode` which eliminates
+    /// the timing gap between capture and stream registration.
     /// - Parameters:
     ///   - target: The pane target
     ///   - scrollbackMultiplier: How many times the visible height to capture as scrollback (default: 3)
@@ -273,27 +274,93 @@ final public class TmuxService {
         _ target: String,
         scrollbackMultiplier: Int = 3
     ) async throws -> Data {
-        // Get pane height for scrollback calculation
         let (_, height) = try await getPaneDimensions(target)
         let scrollbackLines = height * scrollbackMultiplier
 
-        // Capture scrollback only (ending at line -1, just before visible area)
-        // Using -E -1 ensures we don't duplicate visible area content with Part 2
-        let scrollbackArgs = ["capture-pane", "-t", target, "-p", "-e", "-S", "-\(scrollbackLines)", "-E", "-1"]
-        let scrollbackResult = try await runTmuxCommand(scrollbackArgs)
-
-        // Capture visible area WITH escape codes for colors
-        let visibleArgs = ["capture-pane", "-t", target, "-p", "-e"]
-        let visibleResult = try await runTmuxCommand(visibleArgs)
-
+        let scrollbackResult = try await runTmuxCommand(
+            ["capture-pane", "-t", target, "-p", "-e", "-S", "-\(scrollbackLines)", "-E", "-1"]
+        )
+        let visibleResult = try await runTmuxCommand(
+            ["capture-pane", "-t", target, "-p", "-e"]
+        )
         guard visibleResult.isSuccess else {
             throw TmuxError.invalidPane(target: target)
         }
+        let cursorResult = try await runTmuxCommand(
+            ["display-message", "-t", target, "-p", "#{cursor_x},#{cursor_y}"]
+        )
 
-        // Get cursor position
-        let cursorArgs = ["display-message", "-t", target, "-p", "#{cursor_x},#{cursor_y}"]
-        let cursorResult = try await runTmuxCommand(cursorArgs)
-        let cursorPos = cursorResult.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+        return processCapturePaneForStreaming(
+            scrollbackOutput: scrollbackResult.isSuccess ? scrollbackResult.stdoutString : nil,
+            visibleOutput: visibleResult.stdoutString,
+            cursorOutput: cursorResult.stdoutString,
+            height: height
+        )
+    }
+
+    /// Captures pane content for streaming using control mode commands.
+    ///
+    /// Unlike `capturePaneWithScrollbackForStreaming` (which uses subprocesses), this sends
+    /// capture commands through the control client's `sendCommand()`. Since commands and
+    /// `%output` events are serialized in the same control mode stream, the capture results
+    /// are precisely ordered relative to live data — eliminating the H5 timing gap.
+    ///
+    /// - Parameters:
+    ///   - target: The pane target
+    ///   - height: Known pane height (from previous query)
+    ///   - controlClientManager: The manager to send commands through
+    ///   - sessionName: The session name for the control client
+    ///   - scrollbackMultiplier: How many times the visible height to capture as scrollback
+    /// - Returns: Terminal data for scrollback + visible area
+    public func capturePaneViaControlMode(
+        _ target: String,
+        height: Int,
+        controlClientManager: TmuxControlClientManager,
+        sessionName: String,
+        scrollbackMultiplier: Int = 3
+    ) async throws -> Data {
+        let scrollbackLines = height * scrollbackMultiplier
+
+        let scrollbackResponse = try await controlClientManager.sendCommand(
+            "capture-pane -t \(target) -p -e -S -\(scrollbackLines) -E -1",
+            sessionName: sessionName
+        )
+
+        let visibleResponse = try await controlClientManager.sendCommand(
+            "capture-pane -t \(target) -p -e",
+            sessionName: sessionName
+        )
+
+        guard !visibleResponse.isError else {
+            throw TmuxError.invalidPane(target: target)
+        }
+        let cursorResponse = try await controlClientManager.sendCommand(
+            "display-message -t \(target) -p '#{cursor_x},#{cursor_y}'",
+            sessionName: sessionName
+        )
+
+        return processCapturePaneForStreaming(
+            scrollbackOutput: scrollbackResponse.isError ? nil : scrollbackResponse.output,
+            visibleOutput: visibleResponse.output,
+            cursorOutput: cursorResponse.output,
+            height: height
+        )
+    }
+
+    /// Processes raw capture results into streaming terminal data.
+    ///
+    /// Shared processing logic used by both subprocess-based and control-mode-based
+    /// capture paths. Scrollback lines have escape codes filtered to SGR only,
+    /// while the visible area uses filtered ANSI codes with cursor positioning.
+    /// Internal for testing.
+    func processCapturePaneForStreaming(
+        scrollbackOutput: String?,
+        visibleOutput: String,
+        cursorOutput: String,
+        height: Int
+    ) -> Data {
+        // Parse cursor position
+        let cursorPos = cursorOutput.trimmingCharacters(in: .whitespacesAndNewlines)
         let cursorParts = cursorPos.split(separator: ",")
         let cursorX = Int(cursorParts.first ?? "0") ?? 0
         let cursorY = Int(cursorParts.last ?? "0") ?? 0
@@ -301,13 +368,12 @@ final public class TmuxService {
         var output = ""
 
         // Part 1: Output scrollback with filtered escape codes (keep only SGR/colors)
-        if scrollbackResult.isSuccess {
-            // Trim trailing newline before splitting to avoid extra empty line at end
-            var scrollbackContent = scrollbackResult.stdoutString
-            if scrollbackContent.hasSuffix("\n") {
-                scrollbackContent.removeLast()
+        if let scrollbackContent = scrollbackOutput {
+            var trimmed = scrollbackContent
+            if trimmed.hasSuffix("\n") {
+                trimmed.removeLast()
             }
-            let scrollbackLinesList = scrollbackContent.split(separator: "\n", omittingEmptySubsequences: false)
+            let scrollbackLinesList = trimmed.split(separator: "\n", omittingEmptySubsequences: false)
 
             for line in scrollbackLinesList {
                 // Strip any trailing CR (tmux may output \r\n line endings)
@@ -338,7 +404,7 @@ final public class TmuxService {
         // excess lines scroll into scrollback and the bottom (most recent) content is visible.
 
         // Trim trailing newline before splitting to avoid extra empty line at end
-        var visibleContent = visibleResult.stdoutString
+        var visibleContent = visibleOutput
         if visibleContent.hasSuffix("\n") {
             visibleContent.removeLast()
         }

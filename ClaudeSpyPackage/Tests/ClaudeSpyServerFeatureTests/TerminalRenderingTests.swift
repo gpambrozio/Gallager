@@ -521,4 +521,91 @@
             }
         }
     }
+
+    // MARK: - Capture Processing Tests
+
+    @Suite("Capture Processing (processCapturePaneForStreaming)")
+    @MainActor
+    struct CaptureProcessingTests {
+        @Test("Produces valid output with nil scrollback")
+        func nilScrollback() async {
+            let service = TmuxService()
+            let result = service.processCapturePaneForStreaming(
+                scrollbackOutput: nil,
+                visibleOutput: "line1\nline2",
+                cursorOutput: "0,0",
+                height: 24
+            )
+            let str = String(data: result, encoding: .utf8)!
+            #expect(str.contains("\u{1b}[H")) // Home position
+            #expect(str.contains("\u{1b}[2K")) // Line clear
+            #expect(str.contains("line1"))
+            #expect(str.contains("line2"))
+        }
+
+        @Test("Handles trailing newline in visible output")
+        func trailingNewline() async {
+            let service = TmuxService()
+            // Subprocess output has trailing newline, control mode may not
+            let withNewline = service.processCapturePaneForStreaming(
+                scrollbackOutput: nil,
+                visibleOutput: "line1\nline2\n",
+                cursorOutput: "0,0",
+                height: 24
+            )
+            let withoutNewline = service.processCapturePaneForStreaming(
+                scrollbackOutput: nil,
+                visibleOutput: "line1\nline2",
+                cursorOutput: "0,0",
+                height: 24
+            )
+            // Both should produce the same output
+            #expect(withNewline == withoutNewline)
+        }
+
+        @Test("Cursor position is included in output")
+        func cursorPosition() async {
+            let service = TmuxService()
+            let result = service.processCapturePaneForStreaming(
+                scrollbackOutput: nil,
+                visibleOutput: "line1\nline2\nline3",
+                cursorOutput: "5,1",
+                height: 24
+            )
+            let str = String(data: result, encoding: .utf8)!
+            // Cursor at row 2, col 6 (1-indexed)
+            #expect(str.contains("\u{1b}[2;6H"))
+        }
+
+        @Test("Scrollback content is included with SGR resets")
+        func scrollbackIncluded() async {
+            let service = TmuxService()
+            let result = service.processCapturePaneForStreaming(
+                scrollbackOutput: "scrollback line",
+                visibleOutput: "visible line",
+                cursorOutput: "0,0",
+                height: 5
+            )
+            let str = String(data: result, encoding: .utf8)!
+            #expect(str.contains("scrollback line"))
+            #expect(str.contains("visible line"))
+            // Scrollback should have SGR resets
+            #expect(str.contains("\u{1b}[0m"))
+        }
+
+        @Test("Cursor is clamped to output bounds")
+        func cursorClamped() async {
+            let service = TmuxService()
+            // Cursor at row 10 but only 2 lines of content
+            let result = service.processCapturePaneForStreaming(
+                scrollbackOutput: nil,
+                visibleOutput: "line1\nline2",
+                cursorOutput: "0,10",
+                height: 24
+            )
+            let str = String(data: result, encoding: .utf8)!
+            // Cursor should be clamped to row 2 (last line), col 1
+            #expect(str.contains("\u{1b}[2;1H"))
+        }
+    }
 #endif

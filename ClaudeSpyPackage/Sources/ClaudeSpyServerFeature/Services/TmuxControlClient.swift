@@ -70,8 +70,14 @@ actor TmuxControlClient {
     private var _onSessionChanged: (@Sendable (String, String) -> Void)?
     private var _onExit: (@Sendable (String?) -> Void)?
 
-    // Pending command responses
-    private var pendingCommands: [Int: CheckedContinuation<CommandResponse, any Error>] = [:]
+    // FIFO queue of pending command continuations, in the order commands were written to stdin.
+    // tmux processes commands in FIFO order, so the front of this queue always corresponds
+    // to the next %begin/%end response from tmux for a CLIENT command.
+    //
+    // NOTE: The only non-client %begin/%end is the initial `attach` response (skipped via
+    // receivedInitialResponse flag). All subsequent %begin/%end blocks correspond 1:1
+    // with commands we wrote to stdin, in order.
+    private var pendingCommandQueue: [(id: Int, continuation: CheckedContinuation<CommandResponse, any Error>)] = []
     private var commandCounter = 0
 
     // Current command being accumulated (for %begin/%end blocks)
@@ -79,9 +85,18 @@ actor TmuxControlClient {
     private var currentCommandOutput: [String] = []
     private var currentCommandIsError = false
 
+    // The first %begin/%end after connecting is tmux's response to the `attach` command
+    // itself (not a command we sent). We track this to skip the entire block.
+    private var skippingInitialBlock = false
+    private var receivedInitialResponse = false
+
     // Output buffering during resize
     private var isBufferingOutput = false
     private var outputBuffer: [(paneId: String, data: Data)] = []
+
+    // Per-pane buffering during initial capture: events are silently discarded
+    // because the capture commands (routed through control mode) already reflect them
+    private var perPaneBuffering: Set<String> = []
 
     // Byte buffer for incomplete lines (handles chunk splitting at line boundaries)
     private var byteBuffer = Data()
@@ -189,10 +204,12 @@ actor TmuxControlClient {
         stdoutPipe?.fileHandleForReading.readabilityHandler = nil
 
         // Cancel all pending commands
-        for (_, continuation) in pendingCommands {
-            continuation.resume(throwing: TmuxControlError.notConnected)
+        for entry in pendingCommandQueue {
+            entry.continuation.resume(throwing: TmuxControlError.notConnected)
         }
-        pendingCommands.removeAll()
+        pendingCommandQueue.removeAll()
+        receivedInitialResponse = false
+        skippingInitialBlock = false
 
         if let process, process.isRunning {
             process.terminate()
@@ -210,6 +227,7 @@ actor TmuxControlClient {
         byteBuffer.removeAll()
         paneUtf8Buffer.removeAll()
         paneTmuxEscapeBuffer.removeAll()
+        perPaneBuffering.removeAll()
     }
 
     // MARK: - Pane Tracking
@@ -227,7 +245,23 @@ actor TmuxControlClient {
         cachedDimensions.removeValue(forKey: paneId)
         paneUtf8Buffer.removeValue(forKey: paneId)
         paneTmuxEscapeBuffer.removeValue(forKey: paneId)
+        perPaneBuffering.remove(paneId)
         logger.debug("Unregistered pane handler", metadata: ["paneId": "\(paneId)"])
+    }
+
+    /// Enables per-pane output buffering (discard mode) for the given pane.
+    /// While enabled, %output events for this pane are silently discarded.
+    /// Used during initial capture to prevent duplicate data delivery.
+    func startPaneBuffering(paneId: String) {
+        perPaneBuffering.insert(paneId)
+        logger.debug("Started per-pane buffering", metadata: ["paneId": "\(paneId)"])
+    }
+
+    /// Disables per-pane output buffering for the given pane.
+    /// After this call, %output events are delivered normally to the pane handler.
+    func stopPaneBuffering(paneId: String) {
+        perPaneBuffering.remove(paneId)
+        logger.debug("Stopped per-pane buffering", metadata: ["paneId": "\(paneId)"])
     }
 
     // MARK: - Command Execution
@@ -241,11 +275,6 @@ actor TmuxControlClient {
         commandCounter += 1
         let commandNumber = commandCounter
 
-        logger.debug("Sending command", metadata: [
-            "command": "\(command)",
-            "number": "\(commandNumber)",
-        ])
-
         // Write command with newline
         let commandData = Data((command + "\n").utf8)
         try stdin.write(contentsOf: commandData)
@@ -253,15 +282,17 @@ actor TmuxControlClient {
         // Create timeout task that we can cancel on success
         let timeoutTask = Task {
             try? await Task.sleep(for: .seconds(timeout))
-            if let cont = self.pendingCommands.removeValue(forKey: commandNumber) {
-                cont.resume(throwing: TmuxControlError.timeout)
+            // Remove from queue on timeout
+            if let idx = self.pendingCommandQueue.firstIndex(where: { $0.id == commandNumber }) {
+                let entry = self.pendingCommandQueue.remove(at: idx)
+                entry.continuation.resume(throwing: TmuxControlError.timeout)
             }
         }
 
         // Wait for response
         do {
             let response = try await withCheckedThrowingContinuation { continuation in
-                pendingCommands[commandNumber] = continuation
+                pendingCommandQueue.append((id: commandNumber, continuation: continuation))
             }
             timeoutTask.cancel()
             return response
@@ -377,6 +408,9 @@ actor TmuxControlClient {
 
         if isBufferingOutput {
             outputBuffer.append((paneId, completeData))
+        } else if perPaneBuffering.contains(paneId) {
+            // Discard: pane is being captured via control mode,
+            // this data is already reflected in the capture results
         } else {
             deliverOutput(paneId: paneId, data: completeData)
         }
@@ -619,6 +653,10 @@ actor TmuxControlClient {
             isBufferingOutput = false
 
             for (paneId, data) in buffered {
+                if perPaneBuffering.contains(paneId) {
+                    // Still in capture window, discard
+                    continue
+                }
                 deliverOutput(paneId: paneId, data: data)
             }
         }
@@ -683,9 +721,21 @@ actor TmuxControlClient {
         let parts = line.split(separator: " ")
         guard
             parts.count >= 3,
-            let commandNumber = Int(parts[2]) else { return }
+            let tmuxCommandNumber = Int(parts[2]) else { return }
 
-        currentCommandNumber = commandNumber
+        // Skip the initial attach response (first %begin/%end after connecting).
+        // This is tmux's response to the `tmux -C attach` command itself,
+        // not a command we sent via sendCommand().
+        if !receivedInitialResponse {
+            receivedInitialResponse = true
+            skippingInitialBlock = true
+            currentCommandNumber = tmuxCommandNumber
+            currentCommandOutput = []
+            currentCommandIsError = false
+            return
+        }
+
+        currentCommandNumber = tmuxCommandNumber
         currentCommandOutput = []
         currentCommandIsError = false
     }
@@ -695,21 +745,29 @@ actor TmuxControlClient {
         let parts = line.split(separator: " ")
         guard
             parts.count >= 3,
-            let commandNumber = Int(parts[2]),
-            commandNumber == currentCommandNumber else { return }
+            let tmuxCommandNumber = Int(parts[2]),
+            tmuxCommandNumber == currentCommandNumber else { return }
 
         let response = CommandResponse(
-            commandNumber: commandNumber,
+            commandNumber: tmuxCommandNumber,
             output: currentCommandOutput.joined(separator: "\n"),
             isError: currentCommandIsError
         )
 
-        // Complete the pending command
-        // Note: We use the pendingCommands dict indexed by command order, not tmux's command number
-        // Find the oldest pending command and complete it
-        if let (key, continuation) = pendingCommands.first {
-            pendingCommands.removeValue(forKey: key)
-            continuation.resume(returning: response)
+        // Skip the initial attach response (flagged in parseBeginBlock)
+        if skippingInitialBlock {
+            skippingInitialBlock = false
+            currentCommandNumber = nil
+            currentCommandOutput = []
+            return
+        }
+
+        // Pop the front of the FIFO queue — tmux responds in the same order
+        // we wrote commands to stdin. Every %begin/%end after the initial attach
+        // corresponds 1:1 with a sendCommand() call.
+        if !pendingCommandQueue.isEmpty {
+            let entry = pendingCommandQueue.removeFirst()
+            entry.continuation.resume(returning: response)
         }
 
         currentCommandNumber = nil
@@ -756,10 +814,10 @@ actor TmuxControlClient {
         ])
 
         // Cancel all pending commands
-        for (_, continuation) in pendingCommands {
-            continuation.resume(throwing: TmuxControlError.processTerminated(reason: "Exit code: \(exitCode)"))
+        for entry in pendingCommandQueue {
+            entry.continuation.resume(throwing: TmuxControlError.processTerminated(reason: "Exit code: \(exitCode)"))
         }
-        pendingCommands.removeAll()
+        pendingCommandQueue.removeAll()
 
         _onExit?("Process terminated with code \(exitCode)")
 
