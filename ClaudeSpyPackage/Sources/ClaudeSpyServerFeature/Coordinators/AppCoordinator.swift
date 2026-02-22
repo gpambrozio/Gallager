@@ -7,6 +7,12 @@
     import Foundation
     import Logging
 
+    /// A pending selection set by the menu bar to be consumed by MainView.
+    public enum PendingMenuBarSelection: Equatable {
+        case local(paneId: String)
+        case remote(hostId: String, hostName: String, paneId: String)
+    }
+
     /// Coordinates app-level services and their interactions for the macOS app.
     ///
     /// This class centralizes all service initialization, event wiring, and state synchronization
@@ -16,6 +22,9 @@
     @MainActor
     final public class AppCoordinator {
         // MARK: - Public Services (for environment injection)
+
+        /// Set by menu bar clicks to tell MainView which session to select when the panes window opens.
+        public var pendingMenuBarSelection: PendingMenuBarSelection?
 
         /// App settings
         public let settings: AppSettings

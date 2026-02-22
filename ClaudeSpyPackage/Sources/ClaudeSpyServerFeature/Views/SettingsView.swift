@@ -133,6 +133,9 @@ struct GeneralSettingsView: View {
 
                 Toggle("Auto-open mirror on session start", isOn: $settings.autoOpenMirrorOnSession)
 
+                Toggle("Open sessions in panes view from menu bar", isOn: $settings.menuBarClickOpensPanesView)
+                    .help("When enabled, clicking a session in the menu bar selects it in the panes view instead of opening a new mirror window")
+
                 Toggle("Prevent sleep during active sessions", isOn: $settings.preventSleepDuringSessions)
                     .help("Keep host awake while Claude Code sessions are running")
 

@@ -60,6 +60,8 @@ public struct MainView: View {
             await refreshPanes()
             await loadProjects()
             trackedActiveSessionPaneIds = windowManager.activeSessionPaneIds
+            // Consume any pending menu bar selection that was set before this view appeared
+            applyPendingMenuBarSelection()
         }
         .alert("Terminal Error", isPresented: .init(
             get: { attachError != nil },
@@ -91,6 +93,9 @@ public struct MainView: View {
         .onChange(of: selectedRemotePane) {
             lastAutoResizeDimensions = nil
             handleAutoResize()
+        }
+        .onChange(of: coordinator.pendingMenuBarSelection) {
+            applyPendingMenuBarSelection()
         }
         .onDisappear {
             autoResizeTask?.cancel()
@@ -576,6 +581,29 @@ public struct MainView: View {
         }
 
         trackedActiveSessionPaneIds = currentIds
+    }
+
+    // MARK: - Pending Menu Bar Selection
+
+    /// Applies a pending menu bar selection, if any.
+    /// Called both from `.task` (when the view first appears) and `.onChange` (when already visible).
+    private func applyPendingMenuBarSelection() {
+        guard let selection = coordinator.pendingMenuBarSelection else { return }
+        coordinator.pendingMenuBarSelection = nil
+        switch selection {
+        case let .local(paneId):
+            if let pane = tmuxService.panes.first(where: { $0.paneId == paneId }) {
+                selectedPane = pane
+                selectedRemotePane = nil
+            }
+        case let .remote(hostId, hostName, paneId):
+            selectedRemotePane = RemotePaneSelection(
+                hostId: hostId,
+                hostName: hostName,
+                paneId: paneId
+            )
+            selectedPane = nil
+        }
     }
 
     // MARK: - Actions
