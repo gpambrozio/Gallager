@@ -178,17 +178,10 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
             applyTheme(settings.theme)
 
-            // Wire keystroke forwarding via relay — chained tasks ensure keys are sent in order
+            // Wire keystroke forwarding via relay
             terminalView.onInput = { [weak self] keys in
-                guard let self, let connection = self.connection, let paneId = self.paneId else { return }
-                let previous = self.pendingKeyTask
-                self.pendingKeyTask = Task {
-                    _ = await previous?.value
-                    _ = await connection.relayClient.sendCommand(
-                        SendKeystroke(keys),
-                        paneId: paneId
-                    )
-                }
+                guard let self, let connection = self.connection else { return }
+                self.enqueueKeySend(keys: keys, connection: connection)
             }
 
             // Subscribe to terminal stream for this specific pane
@@ -215,6 +208,9 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         }
 
         func stop() {
+            pendingKeyTask?.cancel()
+            pendingKeyTask = nil
+
             streamTask?.cancel()
             streamTask = nil
 
@@ -231,6 +227,21 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
                 Task {
                     _ = await relayClient.sendCommand(StopTerminalStream(), paneId: id)
                 }
+            }
+        }
+
+        // MARK: - Key Sends
+
+        /// Enqueue a keystroke send, chaining on any pending send to preserve ordering.
+        private func enqueueKeySend(keys: [TmuxKey], connection: ViewerConnection) {
+            guard let paneId else { return }
+            let previous = pendingKeyTask
+            pendingKeyTask = Task {
+                _ = await previous?.value
+                _ = await connection.relayClient.sendCommand(
+                    SendKeystroke(keys),
+                    paneId: paneId
+                )
             }
         }
 

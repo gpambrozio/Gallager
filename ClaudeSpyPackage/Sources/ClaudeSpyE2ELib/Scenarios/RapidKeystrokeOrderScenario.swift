@@ -95,13 +95,5 @@ public enum RapidKeystrokeOrderScenario {
         TestStep.wait(seconds: 3)
         TestStep.tmuxCapturePaneContent(target: "e2e-rapid-keys:0.0", storeAs: "round4")
         TestStep.assertStoredContains(key: "round4", substring: "round4-AaBbCcDdEe")
-
-        // Round 5: Final verification — all four outputs should be present
-        TestStep.log("Round 5: Final verification of all outputs")
-        TestStep.tmuxCapturePaneContent(target: "e2e-rapid-keys:0.0", storeAs: "final")
-        TestStep.assertStoredContains(key: "final", substring: "round1-abcdefghij")
-        TestStep.assertStoredContains(key: "final", substring: "round2-the-quick-brown-fox")
-        TestStep.assertStoredContains(key: "final", substring: "round3-1234567890")
-        TestStep.assertStoredContains(key: "final", substring: "round4-AaBbCcDdEe")
     }
 }

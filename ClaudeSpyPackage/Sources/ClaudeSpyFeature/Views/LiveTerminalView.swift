@@ -222,6 +222,9 @@
         }
 
         private func stopStreaming() async {
+            // Cancel any in-flight key sends before tearing down the session
+            coordinator.cancelPendingKeys()
+
             // Invalidate the current stream session first
             coordinator.streamSessionId = nil
             relayClient.onTerminalStream = nil
@@ -262,6 +265,12 @@
             self.paneId = paneId
             self.fontName = fontName
             self.fontSize = fontSize
+        }
+
+        /// Cancel any in-flight key-send chain.
+        func cancelPendingKeys() {
+            pendingKeyTask?.cancel()
+            pendingKeyTask = nil
         }
 
         /// Enqueue a keystroke send, chaining on any pending send to preserve ordering.
