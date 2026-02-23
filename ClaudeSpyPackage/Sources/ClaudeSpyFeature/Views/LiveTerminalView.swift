@@ -157,12 +157,7 @@
                         terminalState: state,
                         isInteractive: isInteractive,
                         onInput: { keys in
-                            Task {
-                                _ = await relayClient.sendCommand(
-                                    SendKeystroke(keys),
-                                    paneId: paneId
-                                )
-                            }
+                            coordinator.enqueueKeySend(keys: keys, relayClient: relayClient)
                         }
                     )
                 } else {
@@ -227,6 +222,9 @@
         }
 
         private func stopStreaming() async {
+            // Cancel any in-flight key sends before tearing down the session
+            coordinator.cancelPendingKeys()
+
             // Invalidate the current stream session first
             coordinator.streamSessionId = nil
             relayClient.onTerminalStream = nil
@@ -259,10 +257,32 @@
         /// Prevents race conditions where old callbacks process messages meant for new sessions.
         var streamSessionId: UUID?
 
+        // Serializes key sends so concurrent onInput callbacks don't race
+        @ObservationIgnored
+        private var pendingKeyTask: Task<Void, Never>?
+
         init(paneId: String, fontName: String, fontSize: CGFloat) {
             self.paneId = paneId
             self.fontName = fontName
             self.fontSize = fontSize
+        }
+
+        /// Cancel any in-flight key-send chain.
+        func cancelPendingKeys() {
+            pendingKeyTask?.cancel()
+            pendingKeyTask = nil
+        }
+
+        /// Enqueue a keystroke send, chaining on any pending send to preserve ordering.
+        func enqueueKeySend(keys: [TmuxKey], relayClient: ViewerRelayClient) {
+            let previous = pendingKeyTask
+            pendingKeyTask = Task {
+                _ = await previous?.value
+                _ = await relayClient.sendCommand(
+                    SendKeystroke(keys),
+                    paneId: paneId
+                )
+            }
         }
 
         func handleStreamMessage(_ message: TerminalStreamMessage) {

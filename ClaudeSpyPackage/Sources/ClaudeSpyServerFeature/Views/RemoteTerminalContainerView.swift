@@ -155,6 +155,9 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         private var streamTask: Task<Void, Never>?
         private var onStateChange: (@MainActor (RemoteStreamState, Int, Int) -> Void)?
 
+        // Serializes key sends so concurrent onInput callbacks don't race
+        private var pendingKeyTask: Task<Void, Never>?
+
         init() {
             self.terminalView = InteractiveTerminalView(
                 frame: NSRect(x: 0, y: 0, width: 800, height: 600)
@@ -177,13 +180,8 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
 
             // Wire keystroke forwarding via relay
             terminalView.onInput = { [weak self] keys in
-                guard let self, let connection = self.connection, let paneId = self.paneId else { return }
-                Task {
-                    _ = await connection.relayClient.sendCommand(
-                        SendKeystroke(keys),
-                        paneId: paneId
-                    )
-                }
+                guard let self, let connection = self.connection else { return }
+                self.enqueueKeySend(keys: keys, connection: connection)
             }
 
             // Subscribe to terminal stream for this specific pane
@@ -210,6 +208,9 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         }
 
         func stop() {
+            pendingKeyTask?.cancel()
+            pendingKeyTask = nil
+
             streamTask?.cancel()
             streamTask = nil
 
@@ -226,6 +227,21 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
                 Task {
                     _ = await relayClient.sendCommand(StopTerminalStream(), paneId: id)
                 }
+            }
+        }
+
+        // MARK: - Key Sends
+
+        /// Enqueue a keystroke send, chaining on any pending send to preserve ordering.
+        private func enqueueKeySend(keys: [TmuxKey], connection: ViewerConnection) {
+            guard let paneId else { return }
+            let previous = pendingKeyTask
+            pendingKeyTask = Task {
+                _ = await previous?.value
+                _ = await connection.relayClient.sendCommand(
+                    SendKeystroke(keys),
+                    paneId: paneId
+                )
             }
         }
 
