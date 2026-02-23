@@ -230,16 +230,14 @@
         /// Appends raw terminal data to the recording with a timestamp.
         ///
         /// Uses a serial task chain to guarantee writes are ordered (FIFO).
+        /// All callers are already on MainActor, so no isolation hop is needed.
         ///
         /// - Parameter data: Raw terminal bytes to record
-        nonisolated func appendData(_ data: Data) {
-            // Must access MainActor-isolated pendingWriteTask from MainActor
-            Task { @MainActor in
-                let previous = pendingWriteTask
-                pendingWriteTask = Task {
-                    _ = await previous?.value
-                    await writer.appendData(data)
-                }
+        func appendData(_ data: Data) {
+            let previous = pendingWriteTask
+            pendingWriteTask = Task {
+                _ = await previous?.value
+                await writer.appendData(data)
             }
         }
 
