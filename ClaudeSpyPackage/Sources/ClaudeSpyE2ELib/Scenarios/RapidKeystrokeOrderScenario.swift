@@ -98,7 +98,14 @@ public enum RapidKeystrokeOrderScenario {
 
         // ── Phase 8: Screenshot both panes for visual verification ────
         TestStep.log("Taking screenshots of both host and viewer panes")
-        TestStep.macScreenshot(label: "host-after-keystrokes", compare: false)
-        TestStep.macScreenshot(label: "viewer-after-keystrokes", compare: false, instance: 1)
+
+        // Open the host's Panes window and select its pane so the screenshot shows the terminal
+        TestStep.macOpenPanesWindow()
+        TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
+        TestStep.macWaitForElement(titled: "e2e-rapid-keys:0.0", timeout: 10)
+        TestStep.macClickButton(titled: "e2e-rapid-keys:0.0")
+        TestStep.wait(seconds: 2)
+        TestStep.macScreenshot(label: "host-after-keystrokes")
+        TestStep.macScreenshot(label: "viewer-after-keystrokes", instance: 1)
     }
 }
