@@ -63,11 +63,11 @@ public enum TwoMacPairingScenario {
 
         // Verify host shows "Connected" on its settings page
         TestStep.macWaitForElement(titled: "Connected", timeout: 15)
-        TestStep.macScreenshot(label: "host-connected", compare: false)
+        TestStep.macScreenshot(label: "host-connected")
 
         // Verify viewer shows "Connected" on its Remote Hosts page
         TestStep.macWaitForElement(titled: "Connected", timeout: 15, instance: 1)
-        TestStep.macScreenshot(label: "viewer-connected", compare: false, instance: 1)
+        TestStep.macScreenshot(label: "viewer-connected", instance: 1)
 
         // ── Phase 5: Create tmux session on host ────────────────────
 
@@ -91,7 +91,7 @@ public enum TwoMacPairingScenario {
         TestStep.log("Selecting remote pane on viewer")
         TestStep.macClickButton(titled: "e2e-mac-pair:0.0", instance: 1)
         TestStep.wait(seconds: 3)
-        TestStep.macScreenshot(label: "viewer-pane-selected", compare: false, instance: 1)
+        TestStep.macScreenshot(label: "viewer-pane-selected", instance: 1)
 
         // ── Phase 8: Type a command from the viewer ─────────────────
 
@@ -111,6 +111,6 @@ public enum TwoMacPairingScenario {
         TestStep.macWaitForElement(titled: "e2e-mac-pair:0.0", timeout: 10)
         TestStep.macClickButton(titled: "e2e-mac-pair:0.0")
         TestStep.wait(seconds: 2)
-        TestStep.macScreenshot(label: "host-shows-command", compare: false)
+        TestStep.macScreenshot(label: "host-shows-command")
     }
 }

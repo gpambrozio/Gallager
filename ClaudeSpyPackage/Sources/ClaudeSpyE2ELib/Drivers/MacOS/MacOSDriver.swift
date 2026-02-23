@@ -212,15 +212,6 @@ public actor MacOSDriver {
         }
     }
 
-    /// Set a text field value directly via AX, bypassing keyboard input.
-    public func setTextFieldValue(titled: String, value: String) async throws {
-        let pid = try requirePID()
-        logger.info("Setting text field '\(titled)' to '\(value.prefix(30))...'")
-        if !MacOSAccessibility.setTextFieldValue(appPID: pid, titled: titled, value: value) {
-            throw MacOSDriverError.elementNotFound(titled)
-        }
-    }
-
     /// Type text into the macOS app via AppleScript keystroke.
     /// - Parameters:
     ///   - charDelay: Seconds to wait between each character (0 = type all at once).

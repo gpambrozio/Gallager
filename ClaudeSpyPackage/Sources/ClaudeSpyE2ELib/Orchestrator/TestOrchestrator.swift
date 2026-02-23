@@ -208,6 +208,7 @@ public actor TestOrchestrator {
         await simulatorDriver.resetStatusBar()
         await simulatorDriver.stopE2ERunner()
         try? await simulatorDriver.terminateApp()
+        let instanceKeys = Array(macDrivers.keys)
         for driver in macDrivers.values {
             try? await driver.terminateApp()
         }
@@ -217,7 +218,7 @@ public actor TestOrchestrator {
         // Kill isolated tmux servers for all instances and remove socket files
         // so the next scenario starts with a clean slate (a stale socket causes
         // "server exited unexpectedly" errors).
-        let instanceIndices = Array(macDrivers.keys) + [0]
+        let instanceIndices = instanceKeys + [0]
         let uniqueIndices = Set(instanceIndices)
         for idx in uniqueIndices {
             let socket = tmuxSocketPath(for: idx)
@@ -410,10 +411,6 @@ public actor TestOrchestrator {
 
         case let .macFocusElement(titled, instance):
             try await macDriver(for: instance).focusElement(titled: titled)
-
-        case let .macSetTextFieldValue(titled, value, instance):
-            let resolvedValue = context.resolve(value)
-            try await macDriver(for: instance).setTextFieldValue(titled: titled, value: resolvedValue)
 
         case let .macType(text, pressReturn, charDelay, instance):
             let resolvedText = context.resolve(text)

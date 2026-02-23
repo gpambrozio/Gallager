@@ -142,35 +142,6 @@ enum MacOSAccessibility {
         focusElement(appPID: appPID, matching: .anyTextMatches(titled))
     }
 
-    /// Set the value of a text field via kAXValueAttribute.
-    /// Focuses the element first, sets the value, then confirms the value was written.
-    @discardableResult
-    static func setTextFieldValue(appPID: pid_t, matching query: ElementQuery, value: String) -> Bool {
-        let matches = findAllRawElements(appPID: appPID, matching: query)
-        guard let element = matches.first else {
-            logger.info("setTextFieldValue: element not found for \(query)")
-            return false
-        }
-
-        // Focus the element first
-        _ = AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
-
-        // Set the value
-        let result = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, value as CFString)
-        if result == .success {
-            logger.info("AXValue set to '\(value)' for \(query)")
-            return true
-        }
-
-        logger.info("setTextFieldValue failed (\(result.rawValue)) for \(query)")
-        return false
-    }
-
-    /// Set the value of a text field matching by "titled" text.
-    @discardableResult
-    static func setTextFieldValue(appPID: pid_t, titled: String, value: String) -> Bool {
-        setTextFieldValue(appPID: appPID, matching: .anyTextMatches(titled), value: value)
-    }
 
     /// Post a CGEvent mouse click at the given screen coordinates.
     static func clickAtPoint(_ point: CGPoint) {

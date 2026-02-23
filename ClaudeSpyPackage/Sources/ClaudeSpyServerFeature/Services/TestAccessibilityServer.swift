@@ -43,10 +43,10 @@
                 let params = NWParameters.tcp
                 params.allowLocalEndpointReuse = true
                 guard let nwPort = NWEndpoint.Port(rawValue: port) else {
-                print("[TestAccessibilityServer-Mac] Invalid port: \(port)")
-                return
-            }
-            listener = try NWListener(using: params, on: nwPort)
+                    print("[TestAccessibilityServer-Mac] Invalid port: \(port)")
+                    return
+                }
+                listener = try NWListener(using: params, on: nwPort)
                 listener?.stateUpdateHandler = { state in
                     if case let .failed(error) = state {
                         print("[TestAccessibilityServer-Mac] Listener failed: \(error)")
