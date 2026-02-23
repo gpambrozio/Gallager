@@ -104,6 +104,8 @@ public enum TestStep: Sendable {
     case macSetSidebarWidth(_ width: Int)
     /// Type text into the macOS app (via AppleScript keystroke)
     case macType(text: String, pressReturn: Bool = false)
+    /// Scroll the macOS terminal view up by the given number of pages (Page Up key)
+    case macScrollUp(pages: Int = 1)
     /// Take a macOS screenshot, optionally comparing against a stored baseline
     /// Default tolerance of 2% because sometimes the image needs to be normalized
     /// and in this case some pixels will differ.
@@ -117,6 +119,8 @@ public enum TestStep: Sendable {
     case tmuxStorePaneDimensions(target: String, widthKey: String, heightKey: String)
     /// Query the tmux pane ID (e.g. "%0") for a target and store it in the execution context
     case tmuxStorePaneId(target: String, storeAs: String)
+    /// Send keys to a tmux pane on the test socket (bypasses macOS app input path)
+    case tmuxSendKeys(target: String, keys: String, literal: Bool = false)
 
     // MARK: - Hook Events
 

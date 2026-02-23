@@ -54,9 +54,11 @@
 
         /// Connects to the pane and starts streaming data via control mode.
         ///
-        /// Returns the initial content (scrollback + visible area) captured before
-        /// registering for live updates. The caller should send this content as the
-        /// initial state, then live updates will flow via the `onData` callback.
+        /// Uses per-pane buffering to eliminate the timing gap (H5) between capture
+        /// and stream registration. The flow is:
+        /// 1. Register pane handler with buffering (events discarded during capture)
+        /// 2. Capture via control mode (commands ordered with `%output` events)
+        /// 3. Stop buffering (switch to live delivery)
         ///
         /// - Returns: Initial terminal content (scrollback + visible area)
         func connect() async throws -> Data {
@@ -65,7 +67,7 @@
             state = .connecting
 
             do {
-                // Validate pane exists
+                // Validate pane exists (subprocess — runs before registration)
                 guard try await tmuxService.validatePane(target) else {
                     throw TmuxError.invalidPane(target: target)
                 }
@@ -81,13 +83,15 @@
                 width = dims.width
                 height = dims.height
 
-                // Capture initial content with scrollback (3x terminal height)
-                // This must happen BEFORE registering with control client to ensure
-                // we capture the stable state before live updates start flowing
-                let initialContent = try await tmuxService.capturePaneWithScrollbackForStreaming(target)
+                // Step 1: Enable per-pane buffering BEFORE registering the handler.
+                // While buffering is active, %output events for this pane are silently
+                // discarded — they'll be reflected in the capture results.
+                try await controlClientManager.startPaneBuffering(
+                    paneId: paneId, sessionName: sessionName
+                )
 
-                // Register with control client for live updates
-                // The handler runs on a background thread, so we dispatch to MainActor
+                // Step 2: Register the pane handler for live updates.
+                // Events arriving now are discarded by per-pane buffering.
                 try await controlClientManager.registerPane(
                     paneId: paneId,
                     sessionName: sessionName,
@@ -100,9 +104,34 @@
                     }
                 }
 
+                // Step 3: Capture via control mode. These commands are ordered relative
+                // to %output events in the control mode stream, so the capture results
+                // include the effects of all discarded events.
+                let initialContent = try await tmuxService.capturePaneViaControlMode(
+                    target,
+                    height: height,
+                    controlClientManager: controlClientManager,
+                    sessionName: sessionName
+                )
+
+                // Step 4: Stop buffering — switch to live delivery.
+                // All events after the last capture command are new and will be delivered.
+                try await controlClientManager.stopPaneBuffering(
+                    paneId: paneId, sessionName: sessionName
+                )
+
                 state = .connected
                 return initialContent
             } catch {
+                // Clean up on failure: stop buffering and unregister if we got that far
+                if !paneId.isEmpty && !sessionName.isEmpty {
+                    try? await controlClientManager.stopPaneBuffering(
+                        paneId: paneId, sessionName: sessionName
+                    )
+                    await controlClientManager.unregisterPane(
+                        paneId: paneId, sessionName: sessionName
+                    )
+                }
                 state = .error(error.localizedDescription)
                 throw error
             }
@@ -110,9 +139,14 @@
 
         /// Disconnects from the pane
         func disconnect() async {
-            // Unregister from control client
             if !paneId.isEmpty && !sessionName.isEmpty {
-                await controlClientManager.unregisterPane(paneId: paneId, sessionName: sessionName)
+                // Stop any active per-pane buffering (safety cleanup)
+                try? await controlClientManager.stopPaneBuffering(
+                    paneId: paneId, sessionName: sessionName
+                )
+                await controlClientManager.unregisterPane(
+                    paneId: paneId, sessionName: sessionName
+                )
             }
 
             state = .disconnected

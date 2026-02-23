@@ -115,6 +115,32 @@
             ])
         }
 
+        /// Sends a tmux command through the control client for the given session.
+        /// Commands sent this way are ordered relative to `%output` events,
+        /// ensuring capture results are consistent with live stream state.
+        func sendCommand(
+            _ command: String,
+            sessionName: String,
+            timeout: TimeInterval = 5
+        ) async throws -> CommandResponse {
+            let client = try await getClient(for: sessionName)
+            return try await client.sendCommand(command, timeout: timeout)
+        }
+
+        /// Starts per-pane output buffering (discard mode) on the control client.
+        /// While enabled, `%output` events for this pane are silently discarded.
+        public func startPaneBuffering(paneId: String, sessionName: String) async throws {
+            let client = try await getClient(for: sessionName)
+            await client.startPaneBuffering(paneId: paneId)
+        }
+
+        /// Stops per-pane output buffering on the control client.
+        /// After this call, `%output` events are delivered normally to the pane handler.
+        public func stopPaneBuffering(paneId: String, sessionName: String) async throws {
+            let client = try await getClient(for: sessionName)
+            await client.stopPaneBuffering(paneId: paneId)
+        }
+
         /// Unregisters a pane from streaming.
         ///
         /// - Parameters:

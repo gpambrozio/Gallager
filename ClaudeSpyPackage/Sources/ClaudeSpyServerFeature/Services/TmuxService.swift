@@ -262,9 +262,10 @@ final public class TmuxService {
         return result.stdout
     }
 
-    /// Captures pane content with scrollback for streaming initialization.
-    /// Scrollback lines have problematic escape codes filtered (keeping only colors),
-    /// while the visible area uses full ANSI codes with explicit cursor positioning.
+    /// Captures pane content with scrollback for streaming initialization via subprocess.
+    /// Used for re-captures (existing stream path) and fallback scenarios.
+    /// For new stream initialization, prefer `capturePaneViaControlMode` which eliminates
+    /// the timing gap between capture and stream registration.
     /// - Parameters:
     ///   - target: The pane target
     ///   - scrollbackMultiplier: How many times the visible height to capture as scrollback (default: 3)
@@ -273,27 +274,93 @@ final public class TmuxService {
         _ target: String,
         scrollbackMultiplier: Int = 3
     ) async throws -> Data {
-        // Get pane height for scrollback calculation
         let (_, height) = try await getPaneDimensions(target)
         let scrollbackLines = height * scrollbackMultiplier
 
-        // Capture scrollback only (ending at line -1, just before visible area)
-        // Using -E -1 ensures we don't duplicate visible area content with Part 2
-        let scrollbackArgs = ["capture-pane", "-t", target, "-p", "-e", "-S", "-\(scrollbackLines)", "-E", "-1"]
-        let scrollbackResult = try await runTmuxCommand(scrollbackArgs)
-
-        // Capture visible area WITH escape codes for colors
-        let visibleArgs = ["capture-pane", "-t", target, "-p", "-e"]
-        let visibleResult = try await runTmuxCommand(visibleArgs)
-
+        let scrollbackResult = try await runTmuxCommand(
+            ["capture-pane", "-t", target, "-p", "-e", "-S", "-\(scrollbackLines)", "-E", "-1"]
+        )
+        let visibleResult = try await runTmuxCommand(
+            ["capture-pane", "-t", target, "-p", "-e"]
+        )
         guard visibleResult.isSuccess else {
             throw TmuxError.invalidPane(target: target)
         }
+        let cursorResult = try await runTmuxCommand(
+            ["display-message", "-t", target, "-p", "#{cursor_x},#{cursor_y}"]
+        )
 
-        // Get cursor position
-        let cursorArgs = ["display-message", "-t", target, "-p", "#{cursor_x},#{cursor_y}"]
-        let cursorResult = try await runTmuxCommand(cursorArgs)
-        let cursorPos = cursorResult.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+        return processCapturePaneForStreaming(
+            scrollbackOutput: scrollbackResult.isSuccess ? scrollbackResult.stdoutString : nil,
+            visibleOutput: visibleResult.stdoutString,
+            cursorOutput: cursorResult.stdoutString,
+            height: height
+        )
+    }
+
+    /// Captures pane content for streaming using control mode commands.
+    ///
+    /// Unlike `capturePaneWithScrollbackForStreaming` (which uses subprocesses), this sends
+    /// capture commands through the control client's `sendCommand()`. Since commands and
+    /// `%output` events are serialized in the same control mode stream, the capture results
+    /// are precisely ordered relative to live data — eliminating the H5 timing gap.
+    ///
+    /// - Parameters:
+    ///   - target: The pane target
+    ///   - height: Known pane height (from previous query)
+    ///   - controlClientManager: The manager to send commands through
+    ///   - sessionName: The session name for the control client
+    ///   - scrollbackMultiplier: How many times the visible height to capture as scrollback
+    /// - Returns: Terminal data for scrollback + visible area
+    public func capturePaneViaControlMode(
+        _ target: String,
+        height: Int,
+        controlClientManager: TmuxControlClientManager,
+        sessionName: String,
+        scrollbackMultiplier: Int = 3
+    ) async throws -> Data {
+        let scrollbackLines = height * scrollbackMultiplier
+
+        let scrollbackResponse = try await controlClientManager.sendCommand(
+            "capture-pane -t '\(target)' -p -e -S -\(scrollbackLines) -E -1",
+            sessionName: sessionName
+        )
+
+        let visibleResponse = try await controlClientManager.sendCommand(
+            "capture-pane -t '\(target)' -p -e",
+            sessionName: sessionName
+        )
+
+        guard !visibleResponse.isError else {
+            throw TmuxError.invalidPane(target: target)
+        }
+        let cursorResponse = try await controlClientManager.sendCommand(
+            "display-message -t '\(target)' -p '#{cursor_x},#{cursor_y}'",
+            sessionName: sessionName
+        )
+
+        return processCapturePaneForStreaming(
+            scrollbackOutput: scrollbackResponse.isError ? nil : scrollbackResponse.output,
+            visibleOutput: visibleResponse.output,
+            cursorOutput: cursorResponse.output,
+            height: height
+        )
+    }
+
+    /// Processes raw capture results into streaming terminal data.
+    ///
+    /// Shared processing logic used by both subprocess-based and control-mode-based
+    /// capture paths. Scrollback lines have escape codes filtered to SGR only,
+    /// while the visible area uses filtered ANSI codes with cursor positioning.
+    /// Internal for testing.
+    func processCapturePaneForStreaming(
+        scrollbackOutput: String?,
+        visibleOutput: String,
+        cursorOutput: String,
+        height: Int
+    ) -> Data {
+        // Parse cursor position
+        let cursorPos = cursorOutput.trimmingCharacters(in: .whitespacesAndNewlines)
         let cursorParts = cursorPos.split(separator: ",")
         let cursorX = Int(cursorParts.first ?? "0") ?? 0
         let cursorY = Int(cursorParts.last ?? "0") ?? 0
@@ -301,13 +368,12 @@ final public class TmuxService {
         var output = ""
 
         // Part 1: Output scrollback with filtered escape codes (keep only SGR/colors)
-        if scrollbackResult.isSuccess {
-            // Trim trailing newline before splitting to avoid extra empty line at end
-            var scrollbackContent = scrollbackResult.stdoutString
-            if scrollbackContent.hasSuffix("\n") {
-                scrollbackContent.removeLast()
+        if let scrollbackContent = scrollbackOutput {
+            var trimmed = scrollbackContent
+            if trimmed.hasSuffix("\n") {
+                trimmed.removeLast()
             }
-            let scrollbackLinesList = scrollbackContent.split(separator: "\n", omittingEmptySubsequences: false)
+            let scrollbackLinesList = trimmed.split(separator: "\n", omittingEmptySubsequences: false)
 
             for line in scrollbackLinesList {
                 // Strip any trailing CR (tmux may output \r\n line endings)
@@ -338,7 +404,7 @@ final public class TmuxService {
         // excess lines scroll into scrollback and the bottom (most recent) content is visible.
 
         // Trim trailing newline before splitting to avoid extra empty line at end
-        var visibleContent = visibleResult.stdoutString
+        var visibleContent = visibleOutput
         if visibleContent.hasSuffix("\n") {
             visibleContent.removeLast()
         }
@@ -346,20 +412,11 @@ final public class TmuxService {
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
 
-        // Find the last meaningful line to output
-        // This is the max of: cursor row + 1, or the last non-empty line
-        // This prevents trailing empty lines from pushing content into scrollback
-        // when the mirror has fewer rows than tmux
-        var lastMeaningfulLine = cursorY + 1 // cursorY is 0-indexed, so +1 for count
-        for (index, line) in visibleLines.enumerated().reversed() {
-            let filtered = filterToColorCodesOnly(line)
-            if !filtered.trimmingCharacters(in: .whitespaces).isEmpty {
-                lastMeaningfulLine = max(lastMeaningfulLine, index + 1)
-                break
-            }
-        }
-        // Clamp to actual line count
-        let linesToOutput = min(lastMeaningfulLine, visibleLines.count)
+        // Determine how many lines to output. We must output at least
+        // cursorY + 1 lines so the cursor can be positioned on the correct row.
+        // capture-pane trims trailing empty lines, so cursorY may exceed
+        // visibleLines.count — we'll pad with empty lines to reach it.
+        let linesToOutput = max(cursorY + 1, visibleLines.count)
 
         // Move to home to start drawing visible area
         output += "\u{1b}[H" // Cursor to home (row 1, col 1)
@@ -368,9 +425,10 @@ final public class TmuxService {
         // This overwrites any Part 1 content that scrolled into visible area
         // Filter each line to keep only color codes (remove cursor positioning that could interfere)
         for index in 0..<linesToOutput {
-            let line = visibleLines[index]
             output += "\u{1b}[2K" // Clear current line
-            output += filterToColorCodesOnly(line)
+            if index < visibleLines.count {
+                output += filterToColorCodesOnly(visibleLines[index])
+            }
             // Add newline after each line except the last
             if index < linesToOutput - 1 {
                 output += "\r\n"
@@ -381,17 +439,35 @@ final public class TmuxService {
         // (in case terminal has more rows than visible lines)
         output += "\u{1b}[J" // Clear from cursor to end of screen
 
-        // Position cursor at the tmux cursor location
-        // Note: if content scrolled due to terminal having fewer rows, this position
-        // may be clamped by the terminal, which is acceptable for a read-only mirror
-        output += "\u{1b}[\(cursorY + 1);\(cursorX + 1)H"
+        // Position cursor using relative movement from the last drawn line.
+        // After drawing `linesToOutput` lines, the cursor is on the last line.
+        // We need to move UP by (linesToOutput - 1 - cursorY) lines, then to
+        // the correct column. Using relative movement instead of absolute
+        // positioning ensures correctness even when the mirror terminal has
+        // fewer rows than tmux — absolute \e[Y;XH would reference tmux row
+        // numbers that don't exist in a smaller mirror.
+        let effectiveCursorY = min(cursorY, linesToOutput - 1)
+        let linesUp = linesToOutput - 1 - effectiveCursorY
+        if linesUp > 0 {
+            output += "\u{1b}[\(linesUp)A" // Move cursor up
+        }
+        output += "\u{1b}[\(cursorX + 1)G" // Move to column (absolute column positioning)
+
+        // Restore active SGR state at the cursor position so that live stream
+        // data inherits the correct colors. capture-pane -e resets SGR per line,
+        // so without this, typed characters would render in default color.
+        let activeSGR = extractActiveSGR(from: visibleLines, cursorX: cursorX, cursorY: effectiveCursorY)
+        if !activeSGR.isEmpty {
+            output += activeSGR
+        }
 
         return Data(output.utf8)
     }
 
     /// Filters ANSI escape codes, keeping only SGR (color/style) codes.
     /// Removes cursor positioning, screen clearing, and other control sequences.
-    private func filterToColorCodesOnly(_ input: String) -> String {
+    /// Internal for testing
+    func filterToColorCodesOnly(_ input: String) -> String {
         var result = ""
         var i = input.startIndex
 
@@ -420,9 +496,41 @@ final public class TmuxService {
                         // Incomplete sequence, skip the escape
                         i = input.index(after: i)
                     }
+                } else if input[nextIndex] == "]" {
+                    // OSC sequence: ESC ] ... BEL or ESC ] ... ESC backslash (ST)
+                    // Consume everything until the terminator
+                    var oscIndex = input.index(after: nextIndex)
+                    while oscIndex < input.endIndex {
+                        if input[oscIndex] == "\u{07}" {
+                            // BEL terminator
+                            i = input.index(after: oscIndex)
+                            break
+                        } else if input[oscIndex] == "\u{1b}" {
+                            // Check for ST (ESC \)
+                            let afterEsc = input.index(after: oscIndex)
+                            if afterEsc < input.endIndex, input[afterEsc] == "\\" {
+                                i = input.index(after: afterEsc)
+                                break
+                            }
+                        }
+                        oscIndex = input.index(after: oscIndex)
+                    }
+                    if oscIndex >= input.endIndex {
+                        // Unterminated OSC, skip past it all
+                        i = input.endIndex
+                    }
+                } else if input[nextIndex] == "(" || input[nextIndex] == ")" || input[nextIndex] == "*" || input[nextIndex] == "+" {
+                    // Charset selection: ESC + designator + charset = 3 bytes total
+                    let charsetIndex = input.index(after: nextIndex)
+                    if charsetIndex < input.endIndex {
+                        i = input.index(after: charsetIndex)
+                    } else {
+                        // Incomplete sequence, skip what we have
+                        i = input.endIndex
+                    }
                 } else {
-                    // Non-CSI escape sequence, skip
-                    i = input.index(after: i)
+                    // Standard 2-byte non-CSI escape (ESC + type byte)
+                    i = input.index(after: nextIndex)
                 }
             } else {
                 result.append(input[i])
@@ -431,6 +539,74 @@ final public class TmuxService {
         }
 
         return result
+    }
+
+    /// Extracts the active SGR (color/style) escape sequences at the given cursor position
+    /// by walking through visible lines and tracking SGR state changes.
+    /// Returns accumulated non-reset SGR codes, or empty string if the state is default.
+    ///
+    /// SGR attributes are cumulative in terminals — `\e[1m` (bold) followed by `\e[31m` (red)
+    /// means "bold red". This function accumulates all active SGR sequences so that the full
+    /// styling state is restored. A reset (`\e[0m` or `\e[m`) clears all accumulated state.
+    ///
+    /// Limitations:
+    /// - Only recognizes CSI (`ESC [`) sequences; 8-bit C1 codes and non-CSI escapes are not parsed.
+    /// - Column counting treats every character as single-width; CJK/emoji (2-column) characters
+    ///   may cause the cursor column check to be off, since tmux reports `cursor_x` in column units.
+    ///
+    /// Internal for testing
+    func extractActiveSGR(from lines: [String], cursorX: Int, cursorY: Int) -> String {
+        var activeSGRs: [String] = []
+
+        for lineIndex in 0...min(cursorY, lines.count - 1) {
+            let line = lines[lineIndex]
+            var i = line.startIndex
+            var col = 0
+
+            while i < line.endIndex {
+                // On the cursor line, stop before processing escapes at/beyond cursor column.
+                // Escape sequences after the cursor position (like tmux's trailing \e[0m)
+                // are not part of the active SGR state at the cursor.
+                if lineIndex == cursorY, col >= cursorX {
+                    return activeSGRs.joined()
+                }
+
+                if line[i] == "\u{1b}", line.index(after: i) < line.endIndex, line[line.index(after: i)] == "[" {
+                    // Parse CSI sequence
+                    var endIdx = line.index(line.index(after: i), offsetBy: 1)
+                    while endIdx < line.endIndex {
+                        let ch = line[endIdx]
+                        if ch >= "@", ch <= "~" {
+                            if ch == "m" {
+                                let sgr = String(line[i...endIdx])
+                                if sgr == "\u{1b}[0m" || sgr == "\u{1b}[m" {
+                                    activeSGRs.removeAll()
+                                } else {
+                                    activeSGRs.append(sgr)
+                                }
+                            }
+                            i = line.index(after: endIdx)
+                            break
+                        }
+                        endIdx = line.index(after: endIdx)
+                    }
+                    if endIdx >= line.endIndex {
+                        i = line.endIndex
+                    }
+                } else {
+                    // Visible character — count toward column position
+                    // NOTE: wide characters (CJK, some emoji) occupy 2 columns in terminals
+                    // but are counted as 1 here. This may cause incorrect SGR tracking
+                    // for content with wide characters.
+                    if lineIndex == cursorY {
+                        col += 1
+                    }
+                    i = line.index(after: i)
+                }
+            }
+        }
+
+        return activeSGRs.joined()
     }
 
     /// Forces a pane to redraw by sending Ctrl+L

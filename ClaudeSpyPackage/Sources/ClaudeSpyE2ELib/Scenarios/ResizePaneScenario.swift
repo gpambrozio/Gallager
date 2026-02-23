@@ -54,7 +54,7 @@ public enum ResizePaneScenario {
         TestStep.macClickButton(titled: "Resize tmux pane to fit mirror view")
         TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "resize-after-manual")
-        TestStep.macWaitForElement(titled: "157x24", timeout: 1)
+        TestStep.macWaitForElement(titled: "157x53", timeout: 1)
 
         // Record dimensions after manual resize
         TestStep.tmuxStorePaneDimensions(
@@ -81,7 +81,7 @@ public enum ResizePaneScenario {
         // Wait for 200ms debounce + margin
         TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "resize-window-smaller")
-        TestStep.macWaitForElement(titled: "90x24", timeout: 1)
+        TestStep.macWaitForElement(titled: "90x33", timeout: 1)
 
         // Record dimensions after auto-resize
         TestStep.tmuxStorePaneDimensions(
@@ -107,7 +107,7 @@ public enum ResizePaneScenario {
         TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "resize-second-pane")
 
-        // Record pane 2 dimensions (should still be 80x24)
+        // Record pane 2 dimensions (should still be 80x53)
         TestStep.tmuxStorePaneDimensions(
             target: "resize-test-2:0.0",
             widthKey: "pane2BeforeWidth",
@@ -141,7 +141,7 @@ public enum ResizePaneScenario {
         TestStep.macClickButton(titled: "resize-test-1:0.0")
         // Wait for debounce
         TestStep.wait(seconds: 1)
-        TestStep.macWaitForElement(titled: "130x24", timeout: 1)
+        TestStep.macWaitForElement(titled: "130x47", timeout: 1)
         TestStep.macType(text: "printf '|%9d' $(seq 10 10 190) | tr ' ' -", pressReturn: true)
 
         // Record pane 1 dimensions

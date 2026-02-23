@@ -350,5 +350,45 @@
                 #expect(error.errorDescription?.contains("timed out") == true)
             }
         }
+
+        // MARK: - Per-Pane Buffering Tests
+
+        @Suite("Per-Pane Buffering")
+        struct PerPaneBufferingTests {
+            @Test("Start and stop buffering without crash")
+            func startStopBuffering() async {
+                let client = TmuxControlClient()
+                await client.startPaneBuffering(paneId: "%0")
+                await client.stopPaneBuffering(paneId: "%0")
+            }
+
+            @Test("Stop buffering on non-buffered pane is a no-op")
+            func stopNonBufferedPane() async {
+                let client = TmuxControlClient()
+                await client.stopPaneBuffering(paneId: "%0")
+            }
+
+            @Test("Unregistering pane cleans up buffering state")
+            func unregisterCleansUpBuffering() async {
+                let client = TmuxControlClient()
+                await client.registerPaneHandler(
+                    paneId: "%0", initialDimensions: (80, 24)
+                ) { _ in }
+                await client.startPaneBuffering(paneId: "%0")
+                await client.unregisterPaneHandler(paneId: "%0")
+                // Should not crash or leave stale state
+                await client.stopPaneBuffering(paneId: "%0")
+            }
+
+            @Test("Disconnect cleans up all buffering state")
+            func disconnectCleansUpBuffering() async {
+                let client = TmuxControlClient()
+                await client.startPaneBuffering(paneId: "%0")
+                await client.startPaneBuffering(paneId: "%1")
+                await client.disconnect()
+                // Should not crash after disconnect
+                await client.stopPaneBuffering(paneId: "%0")
+            }
+        }
     }
 #endif
