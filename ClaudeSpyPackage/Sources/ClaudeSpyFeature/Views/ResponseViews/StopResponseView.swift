@@ -22,7 +22,6 @@ struct StopResponseView: View {
         }
     }
 
-    @ViewBuilder
     private func summarySection(message: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Button {
@@ -48,6 +47,7 @@ struct StopResponseView: View {
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(isExpanded ? "Collapse summary" : "Expand summary")
 
             Text(message)
                 .font(.caption)

@@ -12,7 +12,10 @@ public extension HookEventMessage {
             body = "\(projectName): Claude Code session started"
         case let .stop(stopBody):
             if let summary = stopBody.lastAssistantMessage {
-                body = "\(projectName): \(summary)"
+                let truncated = summary.count > 256
+                    ? String(summary.prefix(256)) + "..."
+                    : summary
+                body = "\(projectName): \(truncated)"
             } else {
                 body = "\(projectName): Claude Code is waiting for your input"
             }
