@@ -8,6 +8,7 @@ struct MirrorWindowView: View {
 
     @Environment(AppSettings.self) private var settings
     @Environment(MirrorWindowManager.self) private var windowManager
+    @Environment(PaneStreamManager.self) private var paneStreamManager
 
     @State private var streamState: StreamState = .disconnected
     @State private var streamWidth: Int?
@@ -22,7 +23,6 @@ struct MirrorWindowView: View {
         VStack(spacing: 0) {
             TerminalContainerView(
                 paneInfo: paneInfo,
-                recorder: recorder,
                 onStateChange: { state, width, height in
                     Task { @MainActor in
                         let wasActive = streamState.isActive
@@ -32,7 +32,7 @@ struct MirrorWindowView: View {
 
                         // Auto-start recording when stream connects
                         if !wasActive, state.isActive, !recorder.isRecording {
-                            startRecording(width: width, height: height)
+                            startRecording()
                         }
                     }
                 }
@@ -114,17 +114,13 @@ struct MirrorWindowView: View {
 
     // MARK: - Actions
 
-    private func startRecording(width: Int? = nil, height: Int? = nil) {
-        let w = width ?? streamWidth ?? paneInfo.width
-        let h = height ?? streamHeight ?? paneInfo.height
-
+    private func startRecording() {
         Task {
             do {
                 try await recorder.start(
                     paneId: paneInfo.paneId,
                     target: paneInfo.target,
-                    width: w,
-                    height: h
+                    paneStreamManager: paneStreamManager
                 )
             } catch {
                 logger.error("Failed to start recording: \(error)")

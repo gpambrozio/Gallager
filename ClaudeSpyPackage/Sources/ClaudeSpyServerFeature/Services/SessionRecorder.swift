@@ -149,11 +149,13 @@
     /// Each recording contains a JSON header line followed by `[elapsed_seconds, base64_data]` lines.
     ///
     /// File I/O is performed on a background actor to avoid blocking the main thread.
+    /// The recorder owns its own `PaneStreamManager` subscription so that data flows
+    /// continuously, even when the terminal view is dismantled during pane switching.
     ///
     /// Usage:
-    /// 1. Call `start(paneId:target:width:height:initialContent:)` to begin recording
-    /// 2. Call `appendData(_:)` for each chunk of terminal data
-    /// 3. Call `export(to:)` to save the recording, or `stop()` to discard it
+    /// 1. Call `start(paneId:target:paneStreamManager:)` to begin recording
+    /// 2. Data is received automatically via the stream subscription
+    /// 3. Call `export()` to save the recording, or `stop()` to discard it
     /// 4. Recording files are cleaned up automatically when the recorder is deallocated
     @Observable
     @MainActor
@@ -183,6 +185,16 @@
         @ObservationIgnored
         private let logger = Logger(label: "com.claudespy.sessionrecorder")
 
+        /// Stream subscription state — keeps recording alive independently of the terminal view.
+        @ObservationIgnored
+        private weak var paneStreamManager: PaneStreamManager?
+
+        @ObservationIgnored
+        private var subscriptionId: UUID?
+
+        @ObservationIgnored
+        private var paneId: String?
+
         deinit {
             durationUpdateTask?.cancel()
             pendingWriteTask?.cancel()
@@ -192,33 +204,42 @@
 
         /// Starts recording terminal data for a pane.
         ///
-        /// Creates a temp file and writes the NDJSON header. If initial content is provided,
-        /// it is written as the first data event at time 0.
+        /// Subscribes to `paneStreamManager` for the given pane, using the subscription's
+        /// `initialContent` as the time-zero frame and its dimensions for the recording header.
         ///
         /// - Parameters:
         ///   - paneId: The tmux pane ID (e.g., "%5")
         ///   - target: The pane target (e.g., "mysession:0.1")
-        ///   - width: Terminal width in columns
-        ///   - height: Terminal height in rows
-        ///   - initialContent: Optional initial screen content to include at time 0
+        ///   - paneStreamManager: The stream manager to subscribe to
         func start(
             paneId: String,
             target: String,
-            width: Int,
-            height: Int,
-            initialContent: Data? = nil
+            paneStreamManager: PaneStreamManager
         ) async throws {
             guard !isRecording else {
                 logger.warning("Recording already active for \(self.target ?? "unknown")")
                 return
             }
 
+            // Subscribe to the stream — the recorder gets its own independent subscription
+            let result = try await paneStreamManager.subscribe(
+                paneId: paneId,
+                target: target,
+                onData: { [weak self] data in
+                    self?.appendData(data)
+                }
+            )
+
+            self.paneStreamManager = paneStreamManager
+            subscriptionId = result.subscriptionId
+            self.paneId = paneId
+
             _ = try await writer.open(
                 paneId: paneId,
                 target: target,
-                width: width,
-                height: height,
-                initialContent: initialContent
+                width: result.width,
+                height: result.height,
+                initialContent: result.initialContent
             )
 
             self.target = target
@@ -233,10 +254,10 @@
         /// Appends raw terminal data to the recording with a timestamp.
         ///
         /// Uses a serial task chain to guarantee writes are ordered (FIFO).
-        /// All callers are already on MainActor, so no isolation hop is needed.
+        /// Called by the stream subscription callback.
         ///
         /// - Parameter data: Raw terminal bytes to record
-        func appendData(_ data: Data) {
+        private func appendData(_ data: Data) {
             guard isRecording else { return }
             let previous = pendingWriteTask
             pendingWriteTask = Task {
@@ -251,6 +272,7 @@
             guard isRecording else { return }
             let pending = pendingWriteTask
             finishRecording()
+            await unsubscribeFromStream()
             _ = await pending?.value
             await writer.closeAndDiscard()
         }
@@ -265,6 +287,7 @@
             let savedTarget = target
             let pending = pendingWriteTask
             finishRecording()
+            await unsubscribeFromStream()
             _ = await pending?.value
 
             guard let tempURL = await writer.close() else { return }
@@ -320,6 +343,15 @@
             target = nil
             duration = 0
             fileSize = 0
+        }
+
+        /// Removes the recorder's stream subscription.
+        private func unsubscribeFromStream() async {
+            guard let subId = subscriptionId else { return }
+            subscriptionId = nil
+            paneId = nil
+            await paneStreamManager?.unsubscribe(subId)
+            paneStreamManager = nil
         }
 
         private func startDurationUpdates() {

@@ -21,7 +21,6 @@ typealias TerminalStateChangeHandler = @MainActor (StreamState, Int, Int) -> Voi
 /// - Reports state back to parent via callback
 struct TerminalContainerView: NSViewRepresentable {
     let paneInfo: PaneInfo
-    var recorder: SessionRecorder?
     let onStateChange: TerminalStateChangeHandler?
 
     @Environment(AppSettings.self) private var settings
@@ -43,7 +42,6 @@ struct TerminalContainerView: NSViewRepresentable {
             paneStreamManager: paneStreamManager,
             windowManager: windowManager,
             settings: settings,
-            recorder: recorder,
             onStateChange: onStateChange
         )
 
@@ -99,7 +97,6 @@ struct TerminalContainerView: NSViewRepresentable {
         private var fontSize: CGFloat?
         private var containerSize: NSSize = .zero
 
-        private weak var recorder: SessionRecorder?
         private var onStateChange: TerminalStateChangeHandler?
 
         // Track initial scroll state
@@ -127,14 +124,12 @@ struct TerminalContainerView: NSViewRepresentable {
             paneStreamManager: PaneStreamManager,
             windowManager: MirrorWindowManager,
             settings: AppSettings,
-            recorder: SessionRecorder?,
             onStateChange: TerminalStateChangeHandler?
         ) {
             self.paneInfo = paneInfo
             self.paneStreamManager = paneStreamManager
             self.windowManager = windowManager
             self.tmuxService = tmuxService
-            self.recorder = recorder
             self.onStateChange = onStateChange
             lastExternalWidth = paneInfo.width
 
@@ -258,9 +253,6 @@ struct TerminalContainerView: NSViewRepresentable {
         // MARK: Data Handling
 
         private func handleData(_ data: Data) {
-            // Forward to recorder if active
-            recorder?.appendData(data)
-
             let bytes = [UInt8](data)[...]
 
             if !hasScrolledInitial {
