@@ -49,8 +49,8 @@ public enum StopHookSummaryScenario {
         TestStep.iosTap(.labelContains("Expand summary"))
         TestStep.wait(seconds: 1)
 
-        // 8. Verify expanded state
-        TestStep.iosWaitForElement(.labelContains("Collapse summary"), timeout: 5)
+        // 8. Verify expanded state shows the full summary text
+        TestStep.iosWaitForElement(.labelContains("adding refresh token support"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-stop-summary-expanded", compare: false)
 
         // 9. Verify the prompt input is also present below the summary
