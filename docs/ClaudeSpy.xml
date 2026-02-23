@@ -6,6 +6,41 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.8</title>
+         <sparkle:version>8</sparkle:version>
+         <sparkle:shortVersionString>1.8</sparkle:shortVersionString>
+         <pubDate>Sun, 22 Feb 2026 19:34:47 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.8 Release Notes
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Remote sessions in menu bar</strong> — Connected remote sessions now appear directly in the menu bar, making it easier to see active monitoring at a glance. A new panes view option provides an alternative way to browse terminal panes.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Terminal rendering improvements</strong> — Fixed several terminal rendering issues including incorrect escape sequence handling, cursor positioning errors, and capture timing. These fixes result in more accurate and reliable terminal mirroring.</li>
+<li><strong>Sidebar selection and scrolling</strong> — Fixed an issue where sidebar selection and scroll position could jump unexpectedly when panes moved between sections.</li>
+<li><strong>Shift-Tab key forwarding</strong> — Fixed Shift-Tab not being forwarded to tmux sessions, restoring proper keyboard navigation in monitored terminals.</li>
+</ul>
+
+<h2>Internal Improvements</h2>
+
+<ul>
+<li>Expanded end-to-end test coverage, including two-Mac pairing scenarios and empty state flows.</li>
+<li>Replaced the in-app test server with an external accessibility client for more reliable automated testing.</li>
+<li>Improved dependency injection patterns across the codebase.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.8.dmg"
+                    sparkle:edSignature="bpVj8QkUbKjChkF10LGqPV2iTL4U6HDLTiY5i6NP5gHEC8PAB0v6EjyCgmKOF9qGCRfTz1a9vUjP6K4jghsxBA=="
+                    length="20061560"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.7</title>
          <sparkle:version>7</sparkle:version>
          <sparkle:shortVersionString>1.7</sparkle:shortVersionString>
