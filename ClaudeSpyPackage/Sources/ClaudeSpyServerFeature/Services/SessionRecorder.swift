@@ -54,13 +54,13 @@
             // Write initial content as time-zero event if provided
             if let initialContent, !initialContent.isEmpty {
                 let encoded = initialContent.base64EncodedString()
-                let line = "[0.000000,\"\(encoded)\"]\n"
+                let line = "[0,\"\(encoded)\"]\n"
                 handle.write(Data(line.utf8))
             }
 
-            self.fileHandle = handle
-            self.tempFileURL = fileURL
-            self.startTime = ContinuousClock.now
+            fileHandle = handle
+            tempFileURL = fileURL
+            startTime = ContinuousClock.now
 
             logger.info("Recording started", metadata: [
                 "target": "\(target)",
@@ -75,7 +75,7 @@
             guard let handle = fileHandle, let startTime else { return }
 
             let elapsed = ContinuousClock.now - startTime
-            let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+            let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1E18
 
             let encoded = data.base64EncodedString()
 
@@ -95,7 +95,7 @@
         func currentDuration() -> TimeInterval {
             guard let startTime else { return 0 }
             let elapsed = ContinuousClock.now - startTime
-            return Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+            return Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1E18
         }
 
         /// Closes the file handle and returns the temp URL for export, or nil.
@@ -150,7 +150,7 @@
         private(set) var duration: TimeInterval = 0
 
         /// Size in bytes of the current recording file
-        private(set) var fileSize: Int = 0
+        private(set) var fileSize = 0
 
         /// The pane target being recorded
         private(set) var target: String?
@@ -202,9 +202,9 @@
             )
 
             self.target = target
-            self.isRecording = true
-            self.duration = 0
-            self.fileSize = 0
+            isRecording = true
+            duration = 0
+            fileSize = 0
 
             // Start periodic duration/size updates
             startDurationUpdates()
