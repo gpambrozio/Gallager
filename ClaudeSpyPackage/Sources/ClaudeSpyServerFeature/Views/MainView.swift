@@ -11,6 +11,7 @@ public struct MainView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(PairingManager.self) private var pairingManager
+    @Environment(SessionRecorder.self) private var sessionRecorder
     @Environment(\.e2eeService) private var e2eeService: E2EEService?
 
     public init() { }
@@ -351,6 +352,10 @@ public struct MainView: View {
                         closeSession(pane.sessionName)
                     }
                 }
+
+                Divider()
+
+                recordingToolbarGroup(pane: pane)
             } else if let remote = selectedRemotePane {
                 resizeToolbarGroup(resizeKey: remote.resizeKey, remoteHostId: remote.hostId, remotePaneId: remote.paneId)
             }
@@ -603,6 +608,60 @@ public struct MainView: View {
                 paneId: paneId
             )
             selectedPane = nil
+        }
+    }
+
+    // MARK: - Recording
+
+    @ViewBuilder
+    private func recordingToolbarGroup(pane: PaneInfo) -> some View {
+        let isRecordingThisPane = sessionRecorder.recordingPaneId == pane.paneId
+
+        Button {
+            Task {
+                if isRecordingThisPane {
+                    await sessionRecorder.stopRecording()
+                } else {
+                    do {
+                        try await sessionRecorder.startRecording(
+                            paneId: pane.paneId,
+                            target: pane.target
+                        )
+                    } catch {
+                        attachError = "Failed to start recording: \(error.localizedDescription)"
+                    }
+                }
+            }
+        } label: {
+            Symbols.recordCircle.image
+                .foregroundStyle(isRecordingThisPane ? .red : .primary)
+                .symbolEffect(.pulse, isActive: isRecordingThisPane)
+        }
+        .help(isRecordingThisPane ? "Stop recording session" : "Record session stream")
+
+        if sessionRecorder.hasRecording {
+            Button {
+                exportRecording()
+            } label: {
+                Symbols.squareAndArrowUp.image
+            }
+            .help("Export recording (.tmrec)")
+        }
+    }
+
+    private func exportRecording() {
+        guard let data = sessionRecorder.exportData() else { return }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.init(filenameExtension: "tmrec")].compactMap { $0 }
+        panel.nameFieldStringValue = "session-\(Date().formatted(.iso8601.year().month().day().dateSeparator(.dash))).tmrec"
+        panel.canCreateDirectories = true
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try data.write(to: url)
+        } catch {
+            attachError = "Failed to export recording: \(error.localizedDescription)"
         }
     }
 

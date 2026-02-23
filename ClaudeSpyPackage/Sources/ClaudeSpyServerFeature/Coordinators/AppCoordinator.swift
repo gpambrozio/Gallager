@@ -68,6 +68,9 @@
         /// Plugin service for Claude Code plugin management
         public let pluginService: PluginService
 
+        /// Session recorder for capturing raw terminal stream data
+        public let sessionRecorder: SessionRecorder
+
         // MARK: - Private Services
 
         private var commandExecutor: TmuxCommandExecutor?
@@ -133,6 +136,9 @@
 
             // Create plugin service
             self.pluginService = PluginService()
+
+            // Create session recorder
+            self.sessionRecorder = SessionRecorder(paneStreamManager: paneStreamManager)
 
             // CRITICAL: Load E2EEService synchronously from Keychain BEFORE any view rendering.
             // This prevents createPairingManager() from generating temporary keys.
@@ -286,12 +292,20 @@
             let winManager = windowManager
             let tmuxForCleanup = tmuxService
             let terminalStreaming = terminalStreamService
+            let recorder = sessionRecorder
             controlClientManager.setOnPanesChanged { [weak self] in
                 Task {
                     let panes = await tmuxForCleanup.refreshPanes()
                     winManager.cleanupStaleSessions(currentPanes: panes)
                     await terminalStreaming.stopStreamsForClosedPanes(currentPanes: panes)
                     self?.updateSleepPrevention()
+
+                    // Stop recording if the recorded pane was closed
+                    if let recordingPaneId = recorder.recordingPaneId,
+                       !panes.contains(where: { $0.paneId == recordingPaneId })
+                    {
+                        await recorder.stopRecording()
+                    }
                 }
             }
 

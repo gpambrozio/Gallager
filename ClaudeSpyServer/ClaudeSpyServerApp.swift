@@ -88,6 +88,7 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator.getOrCreatePairingManager())
                 .environment(coordinator)
                 .environment(coordinator.pluginService)
+                .environment(coordinator.sessionRecorder)
                 .environment(\.e2eeService, coordinator.e2eeService)
                 .task {
                     // Check if we should show the plugin setup on first launch
