@@ -11,7 +11,15 @@
         private var fileHandle: FileHandle?
         private var tempFileURL: URL?
         private var startTime: ContinuousClock.Instant?
+        private var accumulatedBytes = 0
         private let logger = Logger(label: "com.claudespy.sessionrecorder")
+
+        deinit {
+            try? fileHandle?.close()
+            if let url = tempFileURL {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
 
         struct RecordingHeader: Codable {
             let version: Int
@@ -61,6 +69,7 @@
             fileHandle = handle
             tempFileURL = fileURL
             startTime = ContinuousClock.now
+            accumulatedBytes = 0
 
             logger.info("Recording started", metadata: [
                 "target": "\(target)",
@@ -82,13 +91,14 @@
             // Write [elapsed, base64_data] as JSON array
             // Use manual string construction to avoid JSONSerialization overhead on hot path
             let line = "[\(String(format: "%.6f", seconds)),\"\(encoded)\"]\n"
-            handle.write(Data(line.utf8))
+            let lineData = Data(line.utf8)
+            handle.write(lineData)
+            accumulatedBytes += lineData.count
         }
 
-        /// Returns current file size, or 0 if unavailable.
+        /// Returns accumulated bytes written since recording started.
         func currentFileSize() -> Int {
-            guard let url = tempFileURL else { return 0 }
-            return (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+            accumulatedBytes
         }
 
         /// Returns current elapsed duration, or 0 if not recording.
@@ -100,9 +110,10 @@
 
         /// Closes the file handle and returns the temp URL for export, or nil.
         func close() -> URL? {
-            fileHandle?.closeFile()
+            try? fileHandle?.close()
             fileHandle = nil
             startTime = nil
+            accumulatedBytes = 0
             let url = tempFileURL
             tempFileURL = nil
             return url
@@ -110,9 +121,10 @@
 
         /// Closes the file handle and removes the temp file.
         func closeAndDiscard() {
-            fileHandle?.closeFile()
+            try? fileHandle?.close()
             fileHandle = nil
             startTime = nil
+            accumulatedBytes = 0
             if let url = tempFileURL {
                 try? FileManager.default.removeItem(at: url)
             }
@@ -161,11 +173,16 @@
         @ObservationIgnored
         private var durationUpdateTask: Task<Void, Never>?
 
+        /// Serializes appendData calls so writes are guaranteed FIFO order.
+        @ObservationIgnored
+        private var pendingWriteTask: Task<Void, Never>?
+
         @ObservationIgnored
         private let logger = Logger(label: "com.claudespy.sessionrecorder")
 
         deinit {
             durationUpdateTask?.cancel()
+            pendingWriteTask?.cancel()
         }
 
         // MARK: - Public API
@@ -212,10 +229,17 @@
 
         /// Appends raw terminal data to the recording with a timestamp.
         ///
+        /// Uses a serial task chain to guarantee writes are ordered (FIFO).
+        ///
         /// - Parameter data: Raw terminal bytes to record
         nonisolated func appendData(_ data: Data) {
-            Task {
-                await writer.appendData(data)
+            // Must access MainActor-isolated pendingWriteTask from MainActor
+            Task { @MainActor in
+                let previous = pendingWriteTask
+                pendingWriteTask = Task {
+                    _ = await previous?.value
+                    await writer.appendData(data)
+                }
             }
         }
 
@@ -283,6 +307,8 @@
         private func finishRecording() {
             durationUpdateTask?.cancel()
             durationUpdateTask = nil
+            pendingWriteTask?.cancel()
+            pendingWriteTask = nil
             isRecording = false
             target = nil
             duration = 0

@@ -56,7 +56,7 @@ struct MirrorWindowView: View {
                     await recorder.stop()
                 }
             }
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel) { }
         } message: {
             Text("The current recording will be permanently discarded.")
         }
@@ -155,8 +155,12 @@ struct MirrorWindowView: View {
 
     private var formattedDuration: String {
         let total = Int(recorder.duration)
-        let minutes = total / 60
+        let hours = total / 3_600
+        let minutes = (total % 3_600) / 60
         let seconds = total % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
         return String(format: "%d:%02d", minutes, seconds)
     }
 
