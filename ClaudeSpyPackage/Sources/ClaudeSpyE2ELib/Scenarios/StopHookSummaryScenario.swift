@@ -38,32 +38,31 @@ public enum StopHookSummaryScenario {
         TestStep.iosTap(.labelContains("MyProject"))
         TestStep.wait(seconds: 5)
 
-        // 5. Verify the StopResponseView shows the summary section
+        // 5. Verify the StopResponseView shows the collapsed summary header (text hidden)
         TestStep.iosWaitForElement(.labelContains("Expand summary"), timeout: 10)
-        TestStep.iosWaitForElement(.labelContains("refactoring of the authentication"), timeout: 5)
+        TestStep.iosScreenshot(label: "ios-stop-summary-collapsed")
 
-        // 6. Take iOS screenshot showing the summary
-        TestStep.iosScreenshot(label: "ios-stop-summary")
-
-        // 7. Tap the expand button to expand the summary
+        // 6. Tap the expand button to expand the summary
         TestStep.iosTap(.labelContains("Expand summary"))
         TestStep.wait(seconds: 1)
 
-        // 8. Verify expanded state shows the full summary text
+        // 7. Verify expanded state shows the full summary text
+        TestStep.iosWaitForElement(.labelContains("refactoring of the authentication"), timeout: 5)
         TestStep.iosWaitForElement(.labelContains("adding refresh token support"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-stop-summary-expanded")
 
-        // 9. Verify the prompt input is also present below the summary
+        // 8. Verify the prompt input is also present below the summary
         TestStep.iosWaitForElement(.labelContains("Send a message to Claude"), timeout: 5)
 
-        // 10. Navigate back to session list
+        // 9. Navigate back to session list
         TestStep.iosTap(.labelContains("Sessions"))
         TestStep.wait(seconds: 2)
 
-        // 11. Take macOS screenshot showing the Panes window with the session
+        // 10. Verify macOS Panes window shows the session with summary in sidebar
         TestStep.macOpenPanesWindow()
         TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
         TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "refactoring of the authentication", timeout: 5)
         TestStep.macScreenshot(label: "mac-stop-session")
     }
 }

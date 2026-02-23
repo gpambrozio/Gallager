@@ -49,11 +49,12 @@ struct StopResponseView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(isExpanded ? "Collapse summary" : "Expand summary")
 
-            Text(message)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(isExpanded ? nil : 3)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if isExpanded {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 }
