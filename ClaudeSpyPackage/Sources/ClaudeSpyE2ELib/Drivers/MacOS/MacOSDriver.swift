@@ -203,24 +203,67 @@ public actor MacOSDriver {
         }
     }
 
-    /// Type text into the macOS app via AppleScript keystroke
-    public func type(text: String, pressReturn: Bool) async throws {
-        logger.info("Typing text: \(text.prefix(30))... (pressReturn: \(pressReturn))")
-        let escaped = escapeForAppleScript(text)
+    /// Focus a text field by title so subsequent typing goes into it.
+    public func focusElement(titled: String) async throws {
+        let pid = try requirePID()
+        logger.info("Focusing element: \(titled)")
+        if !MacOSAccessibility.focusElement(appPID: pid, titled: titled) {
+            throw MacOSDriverError.elementNotFound(titled)
+        }
+    }
+
+    /// Set a text field value directly via AX, bypassing keyboard input.
+    public func setTextFieldValue(titled: String, value: String) async throws {
+        let pid = try requirePID()
+        logger.info("Setting text field '\(titled)' to '\(value.prefix(30))...'")
+        if !MacOSAccessibility.setTextFieldValue(appPID: pid, titled: titled, value: value) {
+            throw MacOSDriverError.elementNotFound(titled)
+        }
+    }
+
+    /// Type text into the macOS app via AppleScript keystroke.
+    /// - Parameters:
+    ///   - charDelay: Seconds to wait between each character (0 = type all at once).
+    ///     Useful for remote terminals where keystrokes travel through a relay.
+    public func type(text: String, pressReturn: Bool, charDelay: TimeInterval = 0) async throws {
+        logger.info("Typing text: \(text.prefix(30))... (pressReturn: \(pressReturn), charDelay: \(charDelay))")
+        let pid = try requirePID()
         let returnClause = pressReturn ? """
 
                 delay 0.1
                 keystroke return
         """ : ""
-        let script = try """
-        tell application "System Events"
-            tell (first process whose unix id is \(requirePID()))
-                set frontmost to true
-                keystroke "\(escaped)"\(returnClause)
+
+        if charDelay > 0 {
+            // Type character-by-character with delays for reliable remote input
+            var keystrokes = text.map { char -> String in
+                let escaped = escapeForAppleScript(String(char))
+                return "keystroke \"\(escaped)\"\n                delay \(charDelay)"
+            }.joined(separator: "\n                ")
+            if pressReturn {
+                keystrokes += "\n                delay 0.1\n                keystroke return"
+            }
+            let script = """
+            tell application "System Events"
+                tell (first process whose unix id is \(pid))
+                    set frontmost to true
+                    \(keystrokes)
+                end tell
             end tell
-        end tell
-        """
-        try await runAppleScript(script)
+            """
+            try await runAppleScript(script)
+        } else {
+            let escaped = escapeForAppleScript(text)
+            let script = """
+            tell application "System Events"
+                tell (first process whose unix id is \(pid))
+                    set frontmost to true
+                    keystroke "\(escaped)"\(returnClause)
+                end tell
+            end tell
+            """
+            try await runAppleScript(script)
+        }
     }
 
     // MARK: - Unpair

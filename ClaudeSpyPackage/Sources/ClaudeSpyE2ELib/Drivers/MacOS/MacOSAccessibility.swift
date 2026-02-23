@@ -106,6 +106,72 @@ enum MacOSAccessibility {
         press(appPID: appPID, matching: .anyTextMatches(titled))
     }
 
+    /// Focus a text field by setting kAXFocusedAttribute and falling back to CGEvent click.
+    /// Unlike `press`, this gives the element keyboard focus for subsequent typing.
+    @discardableResult
+    static func focusElement(appPID: pid_t, matching query: ElementQuery) -> Bool {
+        let matches = findAllRawElements(appPID: appPID, matching: query)
+        guard let element = matches.first else {
+            logger.info("focusElement: element not found for \(query)")
+            return false
+        }
+
+        // Try setting AXFocused attribute first
+        let focusResult = AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        if focusResult == .success {
+            logger.info("AXFocused set for \(query)")
+            return true
+        }
+
+        // Fall back to CGEvent click to give keyboard focus
+        if let center = centerOfElement(element) {
+            focusApp(appPID: appPID)
+            usleep(200_000)
+            clickAtPoint(center)
+            logger.info("CGEvent click-to-focus for \(query)")
+            return true
+        }
+
+        logger.info("focusElement failed for \(query)")
+        return false
+    }
+
+    /// Focus an element matching by "titled" text.
+    @discardableResult
+    static func focusElement(appPID: pid_t, titled: String) -> Bool {
+        focusElement(appPID: appPID, matching: .anyTextMatches(titled))
+    }
+
+    /// Set the value of a text field via kAXValueAttribute.
+    /// Focuses the element first, sets the value, then confirms the value was written.
+    @discardableResult
+    static func setTextFieldValue(appPID: pid_t, matching query: ElementQuery, value: String) -> Bool {
+        let matches = findAllRawElements(appPID: appPID, matching: query)
+        guard let element = matches.first else {
+            logger.info("setTextFieldValue: element not found for \(query)")
+            return false
+        }
+
+        // Focus the element first
+        _ = AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+
+        // Set the value
+        let result = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, value as CFString)
+        if result == .success {
+            logger.info("AXValue set to '\(value)' for \(query)")
+            return true
+        }
+
+        logger.info("setTextFieldValue failed (\(result.rawValue)) for \(query)")
+        return false
+    }
+
+    /// Set the value of a text field matching by "titled" text.
+    @discardableResult
+    static func setTextFieldValue(appPID: pid_t, titled: String, value: String) -> Bool {
+        setTextFieldValue(appPID: appPID, matching: .anyTextMatches(titled), value: value)
+    }
+
     /// Post a CGEvent mouse click at the given screen coordinates.
     static func clickAtPoint(_ point: CGPoint) {
         logger.info("CGEvent click at (\(point.x), \(point.y))")

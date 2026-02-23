@@ -45,17 +45,18 @@ public enum TwoMacPairingScenario {
         TestStep.macClickButton(titled: "Add Host", instance: 1)
         TestStep.wait(seconds: 1)
 
-        // Type the pairing code into the sheet's text field
-        TestStep.macType(text: "${pairingCode}", instance: 1)
-        TestStep.wait(seconds: 1)
-
-        // Click "Connect" to complete pairing
-        TestStep.macClickButton(titled: "Connect", instance: 1)
+        // Focus the text field, type the pairing code, then press Return to trigger Connect
+        TestStep.macFocusElement(titled: "Pairing Code", instance: 1)
+        TestStep.wait(seconds: 0.5)
+        TestStep.macType(text: "${pairingCode}", pressReturn: true, instance: 1)
         TestStep.wait(seconds: 5)
 
         // ── Phase 4: Verify pairing succeeded ───────────────────────
 
         TestStep.log("Verifying pairing and connections")
+        // Screenshot both apps before asserting so we can diagnose failures
+        TestStep.macScreenshot(label: "host-after-pairing", compare: false)
+        TestStep.macScreenshot(label: "viewer-after-pairing", compare: false, instance: 1)
         TestStep.verifyServerHasPairings(count: 1)
         TestStep.waitForHostConnected(timeout: 15)
         TestStep.waitForViewerConnected(timeout: 15)
@@ -95,7 +96,7 @@ public enum TwoMacPairingScenario {
         // ── Phase 8: Type a command from the viewer ─────────────────
 
         TestStep.log("Typing command from viewer into remote terminal")
-        TestStep.macType(text: "echo e2e-test-hello", pressReturn: true, instance: 1)
+        TestStep.macType(text: "echo e2e-test-hello", pressReturn: true, charDelay: 0.05, instance: 1)
         TestStep.wait(seconds: 3)
 
         // ── Phase 9: Verify command shows on the host's tmux pane ───
@@ -103,6 +104,13 @@ public enum TwoMacPairingScenario {
         TestStep.log("Verifying command appears in host's tmux pane")
         TestStep.tmuxCapturePaneContent(target: "e2e-mac-pair:0.0", storeAs: "paneContent")
         TestStep.assertStoredContains(key: "paneContent", substring: "e2e-test-hello")
+
+        // Open the host's Panes window and select its session to visually verify
+        TestStep.macOpenPanesWindow()
+        TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
+        TestStep.macWaitForElement(titled: "e2e-mac-pair:0.0", timeout: 10)
+        TestStep.macClickButton(titled: "e2e-mac-pair:0.0")
+        TestStep.wait(seconds: 2)
         TestStep.macScreenshot(label: "host-shows-command", compare: false)
     }
 }

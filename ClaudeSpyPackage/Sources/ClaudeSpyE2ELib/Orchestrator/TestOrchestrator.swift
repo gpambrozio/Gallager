@@ -214,14 +214,17 @@ public actor TestOrchestrator {
         macDrivers.removeAll()
         try? await serverDriver.stop()
 
-        // Kill the isolated tmux server and remove the socket file so the
-        // next scenario starts with a clean slate (a stale socket causes
+        // Kill isolated tmux servers for all instances and remove socket files
+        // so the next scenario starts with a clean slate (a stale socket causes
         // "server exited unexpectedly" errors).
-        if let tmuxSocket {
-            logger.info("Killing isolated tmux server at \(tmuxSocket)")
+        let instanceIndices = Array(macDrivers.keys) + [0]
+        let uniqueIndices = Set(instanceIndices)
+        for idx in uniqueIndices {
+            let socket = tmuxSocketPath(for: idx)
+            logger.info("Killing isolated tmux server at \(socket)")
             let runner = processRunner
-            _ = try? await runner.run("tmux", arguments: ["-S", tmuxSocket, "kill-server"])
-            try? FileManager.default.removeItem(atPath: tmuxSocket)
+            _ = try? await runner.run("tmux", arguments: ["-S", socket, "kill-server"])
+            try? FileManager.default.removeItem(atPath: socket)
         }
 
         logger.info("=== Cleanup complete ===")
@@ -350,11 +353,11 @@ public actor TestOrchestrator {
         // macOS App (all cases use `instance` to select which app instance to target)
         case let .launchMacApp(instance):
             let driver = macDriver(for: instance)
-            let resolvedSocket = context.resolve("${tmuxSocket}")
+            let instanceSocket = tmuxSocketPath(for: instance)
             let arguments = [
                 "--e2e-test",
                 "--server-url", "ws://127.0.0.1:\(serverPort)",
-                "--tmux-socket", resolvedSocket,
+                "--tmux-socket", instanceSocket,
                 "--hook-port-file", hookPortFilePath(for: instance),
                 "--test-accessibility-port", "\(driver.testAccessibilityPort)",
             ]
@@ -405,9 +408,16 @@ public actor TestOrchestrator {
         case let .macSetSidebarWidth(width, instance):
             try await macDriver(for: instance).setSidebarWidth(width)
 
-        case let .macType(text, pressReturn, instance):
+        case let .macFocusElement(titled, instance):
+            try await macDriver(for: instance).focusElement(titled: titled)
+
+        case let .macSetTextFieldValue(titled, value, instance):
+            let resolvedValue = context.resolve(value)
+            try await macDriver(for: instance).setTextFieldValue(titled: titled, value: resolvedValue)
+
+        case let .macType(text, pressReturn, charDelay, instance):
             let resolvedText = context.resolve(text)
-            try await macDriver(for: instance).type(text: resolvedText, pressReturn: pressReturn)
+            try await macDriver(for: instance).type(text: resolvedText, pressReturn: pressReturn, charDelay: charDelay)
 
         case let .macScreenshot(label, compare, tolerance, perPixelThreshold, instance):
             let numberedLabel = nextScreenshotLabel(label)
@@ -561,6 +571,15 @@ public actor TestOrchestrator {
     /// Instance 0 uses the base `hookPortFile`; instance N uses `hookPortFile-N`.
     private func hookPortFilePath(for instance: Int) -> String {
         instance == 0 ? hookPortFile : "\(hookPortFile)-\(instance)"
+    }
+
+    /// Return the tmux socket path for the given instance number.
+    /// Each instance gets its own tmux socket so it doesn't see the other's
+    /// local sessions (important for Mac-to-Mac pairing tests where the viewer
+    /// must only see the host's sessions via the relay, not locally).
+    private func tmuxSocketPath(for instance: Int) -> String {
+        let base = tmuxSocket ?? NSTemporaryDirectory() + "claudespy-e2e.sock"
+        return instance == 0 ? base : "\(base)-\(instance)"
     }
 
     // MARK: - Helpers
