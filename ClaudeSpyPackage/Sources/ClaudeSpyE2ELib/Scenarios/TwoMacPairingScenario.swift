@@ -93,10 +93,10 @@ public enum TwoMacPairingScenario {
         TestStep.wait(seconds: 3)
         TestStep.macScreenshot(label: "viewer-pane-selected", instance: 1)
 
-        // ── Phase 8: Type a command from the viewer ─────────────────
+        // ── Phase 8: Type a command from the viewer (rapid keystrokes) ─
 
-        TestStep.log("Typing command from viewer into remote terminal")
-        TestStep.macType(text: "echo e2e-test-hello", pressReturn: true, charDelay: 0.05, instance: 1)
+        TestStep.log("Typing command from viewer into remote terminal (no charDelay)")
+        TestStep.macType(text: "echo e2e-test-hello", pressReturn: true, instance: 1)
         TestStep.wait(seconds: 3)
 
         // ── Phase 9: Verify command shows on the host's tmux pane ───

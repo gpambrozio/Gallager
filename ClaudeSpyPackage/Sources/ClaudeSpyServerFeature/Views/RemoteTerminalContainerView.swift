@@ -155,6 +155,9 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         private var streamTask: Task<Void, Never>?
         private var onStateChange: (@MainActor (RemoteStreamState, Int, Int) -> Void)?
 
+        // Serializes key sends so concurrent onInput callbacks don't race
+        private var pendingKeyTask: Task<Void, Never>?
+
         init() {
             self.terminalView = InteractiveTerminalView(
                 frame: NSRect(x: 0, y: 0, width: 800, height: 600)
@@ -175,10 +178,12 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
             applyTheme(settings.theme)
 
-            // Wire keystroke forwarding via relay
+            // Wire keystroke forwarding via relay — chained tasks ensure keys are sent in order
             terminalView.onInput = { [weak self] keys in
                 guard let self, let connection = self.connection, let paneId = self.paneId else { return }
-                Task {
+                let previous = self.pendingKeyTask
+                self.pendingKeyTask = Task {
+                    _ = await previous?.value
                     _ = await connection.relayClient.sendCommand(
                         SendKeystroke(keys),
                         paneId: paneId
