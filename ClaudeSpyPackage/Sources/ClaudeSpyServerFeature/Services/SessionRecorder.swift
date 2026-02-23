@@ -30,7 +30,7 @@
             let env: [String: String]
         }
 
-        /// Opens a temp file and writes the NDJSON header. Returns the initial file size.
+        /// Opens a temp file and writes the NDJSON header. Returns the temp file URL.
         func open(
             paneId: String,
             target: String,
@@ -79,13 +79,18 @@
             return fileURL
         }
 
+        /// Seconds elapsed since recording started, or 0 if not recording.
+        private func elapsedSeconds() -> Double {
+            guard let startTime else { return 0 }
+            let elapsed = ContinuousClock.now - startTime
+            return Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1E18
+        }
+
         /// Appends raw terminal data with elapsed timestamp.
         func appendData(_ data: Data) {
-            guard let handle = fileHandle, let startTime else { return }
+            guard let handle = fileHandle else { return }
 
-            let elapsed = ContinuousClock.now - startTime
-            let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1E18
-
+            let seconds = elapsedSeconds()
             let encoded = data.base64EncodedString()
 
             // Write [elapsed, base64_data] as JSON array
@@ -103,9 +108,7 @@
 
         /// Returns current elapsed duration, or 0 if not recording.
         func currentDuration() -> TimeInterval {
-            guard let startTime else { return 0 }
-            let elapsed = ContinuousClock.now - startTime
-            return Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1E18
+            elapsedSeconds()
         }
 
         /// Closes the file handle and returns the temp URL for export, or nil.
@@ -234,6 +237,7 @@
         ///
         /// - Parameter data: Raw terminal bytes to record
         func appendData(_ data: Data) {
+            guard isRecording else { return }
             let previous = pendingWriteTask
             pendingWriteTask = Task {
                 _ = await previous?.value
@@ -242,9 +246,12 @@
         }
 
         /// Stops the current recording and discards the temp file.
+        /// Drains any pending writes before closing to avoid data races with the writer.
         func stop() async {
             guard isRecording else { return }
+            let pending = pendingWriteTask
             finishRecording()
+            _ = await pending?.value
             await writer.closeAndDiscard()
         }
 
@@ -256,7 +263,9 @@
             guard isRecording else { return }
 
             let savedTarget = target
+            let pending = pendingWriteTask
             finishRecording()
+            _ = await pending?.value
 
             guard let tempURL = await writer.close() else { return }
 
