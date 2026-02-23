@@ -232,6 +232,7 @@ let package = Package(
             name: "ClaudeSpyServerFeatureTests",
             dependencies: [
                 "ClaudeSpyServerFeature",
+                .swiftTerm,
                 .dependenciesTestSupport,
             ]
         ),

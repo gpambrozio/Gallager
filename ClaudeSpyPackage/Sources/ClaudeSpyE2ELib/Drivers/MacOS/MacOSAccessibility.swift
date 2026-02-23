@@ -142,7 +142,6 @@ enum MacOSAccessibility {
         focusElement(appPID: appPID, matching: .anyTextMatches(titled))
     }
 
-
     /// Post a CGEvent mouse click at the given screen coordinates.
     static func clickAtPoint(_ point: CGPoint) {
         logger.info("CGEvent click at (\(point.x), \(point.y))")

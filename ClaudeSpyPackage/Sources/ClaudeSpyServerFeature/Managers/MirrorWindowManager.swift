@@ -117,13 +117,7 @@ final public class MirrorWindowManager {
     /// - Returns: The created or existing window
     @discardableResult
     public func openMirror(for paneInfo: PaneInfo) -> NSWindow {
-        // If window already exists for this pane, bring it to front
-        if let existingWindow = openWindows[paneInfo.target] {
-            existingWindow.makeKeyAndOrderFront(nil)
-            existingWindow.orderFrontRegardless()
-            NSApp.activate()
-            return existingWindow
-        }
+        let windowKey = paneInfo.target
 
         // Create the mirror view with required environment
         let mirrorView = MirrorWindowView(paneInfo: paneInfo)
@@ -132,12 +126,81 @@ final public class MirrorWindowManager {
             .environment(self)
             .environment(paneStreamManager)
 
-        // Create hosting controller
-        let hostingController = NSHostingController(rootView: mirrorView)
+        let window = showMirrorWindow(
+            key: windowKey,
+            title: "Mirror: \(paneInfo.paneId) (\(paneInfo.target))",
+            terminalColumns: paneInfo.width,
+            terminalRows: paneInfo.height,
+            rootView: mirrorView
+        )
 
-        // Calculate window size based on pane dimensions using actual font metrics
-        // Cell size calculation matches SwiftTerm's computeFontDimensions()
-        // See: docs/swiftterm-sizing.md for details
+        // Store pane ID mapping for local mirrors
+        windowPaneIds[windowKey] = paneInfo.paneId
+
+        return window
+    }
+
+    /// Opens a standalone mirror window for a remote terminal session.
+    /// - Parameters:
+    ///   - paneId: The remote pane ID
+    ///   - hostId: The remote host's pairing ID
+    ///   - hostName: Display name of the remote host
+    ///   - terminalColumns: The remote pane width in columns
+    ///   - terminalRows: The remote pane height in rows
+    ///   - connection: The viewer connection to the remote host
+    @discardableResult
+    public func openRemoteMirror(
+        paneId: String,
+        hostId: String,
+        hostName: String,
+        terminalColumns: Int,
+        terminalRows: Int,
+        connection: ViewerConnection
+    ) -> NSWindow {
+        let windowKey = "remote-\(hostId)-\(paneId)"
+
+        let remoteView = RemoteTerminalContainerView(
+            paneId: paneId,
+            hostName: hostName,
+            connection: connection,
+            settings: settings,
+            onStreamEnd: { [weak self] in
+                self?.closeMirror(for: windowKey)
+            }
+        )
+
+        return showMirrorWindow(
+            key: windowKey,
+            title: "Remote: \(hostName) - \(paneId)",
+            terminalColumns: terminalColumns,
+            terminalRows: terminalRows,
+            rootView: remoteView
+        )
+    }
+
+    // MARK: - Window Helpers
+
+    /// Creates or brings to front a mirror window with the given content.
+    ///
+    /// Window size is calculated from terminal dimensions using actual font metrics.
+    /// Cell size calculation matches SwiftTerm's `computeFontDimensions()`.
+    /// See: `docs/swiftterm-sizing.md` for details.
+    @discardableResult
+    private func showMirrorWindow<Content: View>(
+        key: String,
+        title: String,
+        terminalColumns: Int,
+        terminalRows: Int,
+        rootView: Content
+    ) -> NSWindow {
+        // If window already exists, bring it to front
+        if let existingWindow = openWindows[key] {
+            existingWindow.makeKeyAndOrderFront(nil)
+            existingWindow.orderFrontRegardless()
+            NSApp.activate()
+            return existingWindow
+        }
+
         let cellSize = FontMetrics.calculateCellSize(
             fontName: settings.fontName,
             fontSize: CGFloat(settings.fontSize)
@@ -145,41 +208,37 @@ final public class MirrorWindowManager {
         // Vertical padding: title bar (~28) + toolbar (~38) + status bar (~28) + buffer
         let verticalPadding: CGFloat = 110
 
-        let contentWidth = CGFloat(paneInfo.width) * cellSize.width + FontMetrics.horizontalBuffer
-        let contentHeight = CGFloat(paneInfo.height) * cellSize.height + verticalPadding
+        let contentWidth = CGFloat(terminalColumns) * cellSize.width + FontMetrics.horizontalBuffer
+        let contentHeight = CGFloat(terminalRows) * cellSize.height + verticalPadding
 
         // Ensure reasonable minimum size
-        let width = max(700, contentWidth)
-        let height = max(500, contentHeight)
+        let size = NSSize(
+            width: max(700, contentWidth),
+            height: max(500, contentHeight)
+        )
 
-        // Create window
+        let hostingController = NSHostingController(rootView: rootView)
+
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+            contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
 
         window.contentViewController = hostingController
-        window.title = "Mirror: \(paneInfo.paneId) (\(paneInfo.target))"
+        window.title = title
         window.isReleasedWhenClosed = false
-
-        // Set minimum size
         window.minSize = NSSize(width: 400, height: 300)
-
-        // Always use calculated size based on pane dimensions (no frame autosave)
-        window.setContentSize(NSSize(width: width, height: height))
+        window.setContentSize(size)
 
         // Set up window delegate to handle closing (must store strong reference)
-        let delegate = MirrorWindowDelegate(manager: self, target: paneInfo.target)
+        let delegate = MirrorWindowDelegate(manager: self, target: key)
         window.delegate = delegate
-        windowDelegates[paneInfo.target] = delegate
+        windowDelegates[key] = delegate
 
-        // Store window and pane ID mapping
-        openWindows[paneInfo.target] = window
-        windowPaneIds[paneInfo.target] = paneInfo.paneId
+        openWindows[key] = window
 
-        // Center and show window
         window.center()
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()

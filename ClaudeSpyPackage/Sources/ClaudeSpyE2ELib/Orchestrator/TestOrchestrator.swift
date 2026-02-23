@@ -416,6 +416,9 @@ public actor TestOrchestrator {
             let resolvedText = context.resolve(text)
             try await macDriver(for: instance).type(text: resolvedText, pressReturn: pressReturn, charDelay: charDelay)
 
+        case let .macScrollUp(pages, instance):
+            try await macDriver(for: instance).scrollUp(pages: pages)
+
         case let .macScreenshot(label, compare, tolerance, perPixelThreshold, instance):
             let numberedLabel = nextScreenshotLabel(label)
             let actualPath = screenshotPath(for: numberedLabel)
@@ -484,6 +487,18 @@ public actor TestOrchestrator {
             let content = result.stdoutString
             context.set(storeAs, value: content)
             logger.info("  Captured pane content (\(content.count) chars) → stored as ${\(storeAs)}")
+
+        case let .tmuxSendKeys(target, keys, literal):
+            let socket = context.resolve("${tmuxSocket}")
+            let resolvedTarget = context.resolve(target)
+            let resolvedKeys = context.resolve(keys)
+            let runner = processRunner
+            var args = ["-S", socket, "send-keys", "-t", resolvedTarget]
+            if literal {
+                args.append("-l")
+            }
+            args.append(resolvedKeys)
+            _ = try await runner.runOrThrow("tmux", arguments: args)
 
         // Hook Events
         case let .macSendHookEvent(json, tmuxPane, projectPath, instance):

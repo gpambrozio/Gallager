@@ -257,6 +257,24 @@ public actor MacOSDriver {
         }
     }
 
+    // MARK: - Scroll
+
+    /// Scroll the terminal view up by sending Page Up key events.
+    public func scrollUp(pages: Int) async throws {
+        logger.info("Scrolling up \(pages) page(s)")
+        // Key code 116 = Page Up
+        let keyPresses = (0..<pages).map { _ in "key code 116" }.joined(separator: "\n                delay 0.1\n                ")
+        let script = try """
+        tell application "System Events"
+            tell (first process whose unix id is \(requirePID()))
+                set frontmost to true
+                \(keyPresses)
+            end tell
+        end tell
+        """
+        try await runAppleScript(script)
+    }
+
     // MARK: - Unpair
 
     /// Trigger unpair via the macOS app's test HTTP endpoint.

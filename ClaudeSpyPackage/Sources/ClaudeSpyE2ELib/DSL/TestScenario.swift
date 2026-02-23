@@ -112,6 +112,8 @@ public enum TestStep: Sendable {
     /// Type text into the macOS app (via AppleScript keystroke).
     /// Set `charDelay` > 0 to type character-by-character with delays (for remote terminals).
     case macType(text: String, pressReturn: Bool = false, charDelay: TimeInterval = 0, instance: Int = 0)
+    /// Scroll the macOS terminal view up by the given number of pages (Page Up key)
+    case macScrollUp(pages: Int = 1, instance: Int = 0)
     /// Take a macOS screenshot, optionally comparing against a stored baseline
     /// Default tolerance of 2% because sometimes the image needs to be normalized
     /// and in this case some pixels will differ.
@@ -127,6 +129,8 @@ public enum TestStep: Sendable {
     case tmuxStorePaneId(target: String, storeAs: String)
     /// Capture the visible content of a tmux pane and store it in the execution context
     case tmuxCapturePaneContent(target: String, storeAs: String)
+    /// Send keys to a tmux pane on the test socket (bypasses macOS app input path)
+    case tmuxSendKeys(target: String, keys: String, literal: Bool = false)
 
     // MARK: - Hook Events
 

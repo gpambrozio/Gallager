@@ -5,19 +5,50 @@ import SwiftUI
 /// The content view displayed in the menu bar dropdown
 public struct MenuBarExtraView: View {
     @Environment(MirrorWindowManager.self) private var windowManager
+    @Environment(AppSettings.self) private var settings
+    @Environment(AppCoordinator.self) private var coordinator
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
     public init() { }
 
+    private var localSessions: [ClaudeSession] {
+        windowManager.sortedSessions
+    }
+
+    private var remoteSessionsByHost: [(host: PairedHost, sessions: [ClaudeSession])] {
+        guard let sessionStore = coordinator.remoteSessionStore else { return [] }
+        return settings.pairedHosts.compactMap { host in
+            let sessions = sessionStore.sessions(for: host.id).map(\.session)
+            guard !sessions.isEmpty else { return nil }
+            return (host: host, sessions: sessions)
+        }
+    }
+
     public var body: some View {
+        let local = localSessions
+        let remote = remoteSessionsByHost
+        let hasAny = !local.isEmpty || !remote.isEmpty
+
         Group {
-            if windowManager.sortedSessions.isEmpty {
+            if !hasAny {
                 Text("No active sessions")
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(windowManager.sortedSessions, id: \.paneId) { session in
-                    sessionButton(for: session)
+                if !local.isEmpty {
+                    ForEach(local, id: \.paneId) { session in
+                        localSessionButton(for: session)
+                    }
+                }
+
+                ForEach(remote, id: \.host.id) { entry in
+                    Divider()
+                    Text(entry.host.displayName(showUsername: settings.hasDuplicateHostName(for: entry.host)))
+                        .foregroundStyle(.secondary)
+
+                    ForEach(entry.sessions, id: \.paneId) { session in
+                        remoteSessionButton(for: session, host: entry.host)
+                    }
                 }
             }
         }
@@ -66,27 +97,67 @@ public struct MenuBarExtraView: View {
         }
     }
 
-    // MARK: - Session Button
+    // MARK: - Session Buttons
 
     @ViewBuilder
-    private func sessionButton(for session: ClaudeSession) -> some View {
+    private func localSessionButton(for session: ClaudeSession) -> some View {
         Button {
-            NSApp.setActivationPolicy(.regular)
-            Task {
-                await windowManager.openMirrorForPane(session.paneId)
+            if settings.menuBarClickOpensPanesView {
+                coordinator.pendingMenuBarSelection = .local(paneId: session.paneId)
+                NSApp.setActivationPolicy(.regular)
+                openWindow(id: "panes")
+                Self.bringAppToFront()
+            } else {
+                Task {
+                    await windowManager.openMirrorForPane(session.paneId)
+                }
             }
         } label: {
-            let title = if let latestEvent = session.latestEvent {
-                "\(session.displayName) • \(latestEvent.action.title)"
-            } else {
-                session.displayName
-            }
+            sessionLabel(for: session)
+        }
+    }
 
-            if session.needsAttention {
-                Label(title, symbol: .exclamationmarkCircleFill)
-            } else {
-                Text(title)
+    @ViewBuilder
+    private func remoteSessionButton(for session: ClaudeSession, host: PairedHost) -> some View {
+        Button {
+            if settings.menuBarClickOpensPanesView {
+                coordinator.pendingMenuBarSelection = .remote(
+                    hostId: host.id,
+                    hostName: host.displayName,
+                    paneId: session.paneId
+                )
+                NSApp.setActivationPolicy(.regular)
+                openWindow(id: "panes")
+                Self.bringAppToFront()
+            } else if let connection = coordinator.viewerConnectionManager?.connection(for: host.id) {
+                let paneInfo = coordinator.remoteSessionStore?.panesByHost[host.id]?
+                    .first(where: { $0.id == session.paneId })
+                windowManager.openRemoteMirror(
+                    paneId: session.paneId,
+                    hostId: host.id,
+                    hostName: host.displayName,
+                    terminalColumns: paneInfo?.width ?? 120,
+                    terminalRows: paneInfo?.height ?? 40,
+                    connection: connection
+                )
             }
+        } label: {
+            sessionLabel(for: session)
+        }
+    }
+
+    @ViewBuilder
+    private func sessionLabel(for session: ClaudeSession) -> some View {
+        let title = if let latestEvent = session.latestEvent {
+            "\(session.displayName) • \(latestEvent.action.title)"
+        } else {
+            session.displayName
+        }
+
+        if session.needsAttention {
+            Label(title, symbol: .exclamationmarkCircleFill)
+        } else {
+            Text(title)
         }
     }
 }
