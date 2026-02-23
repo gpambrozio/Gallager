@@ -191,10 +191,8 @@ struct TerminalContainerView: NSViewRepresentable {
             pendingKeyTask = nil
             rowsLockedToTmux = false
 
-            // Stop recording if active (discards temp file - user should export before closing)
-            Task {
-                await recorder?.stop()
-            }
+            // Don't stop the recorder here — its lifecycle is managed by MirrorWindowManager,
+            // so it persists across view recreation (e.g. pane switching in sidebar).
 
             guard let subId = subscriptionId else { return }
             let manager = paneStreamManager

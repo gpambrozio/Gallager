@@ -7,14 +7,18 @@ struct MirrorWindowView: View {
     let paneInfo: PaneInfo
 
     @Environment(AppSettings.self) private var settings
+    @Environment(MirrorWindowManager.self) private var windowManager
 
     @State private var streamState: StreamState = .disconnected
     @State private var streamWidth: Int?
     @State private var streamHeight: Int?
-    @State private var recorder = SessionRecorder()
     @State private var showDiscardConfirmation = false
 
     private let logger = Logger(label: "com.claudespy.mirrorwindowview")
+
+    private var recorder: SessionRecorder {
+        windowManager.recorder(for: paneInfo.paneId)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
