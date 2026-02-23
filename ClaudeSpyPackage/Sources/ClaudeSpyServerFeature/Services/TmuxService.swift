@@ -322,12 +322,12 @@ final public class TmuxService {
         let scrollbackLines = height * scrollbackMultiplier
 
         let scrollbackResponse = try await controlClientManager.sendCommand(
-            "capture-pane -t \(target) -p -e -S -\(scrollbackLines) -E -1",
+            "capture-pane -t '\(target)' -p -e -S -\(scrollbackLines) -E -1",
             sessionName: sessionName
         )
 
         let visibleResponse = try await controlClientManager.sendCommand(
-            "capture-pane -t \(target) -p -e",
+            "capture-pane -t '\(target)' -p -e",
             sessionName: sessionName
         )
 
@@ -335,7 +335,7 @@ final public class TmuxService {
             throw TmuxError.invalidPane(target: target)
         }
         let cursorResponse = try await controlClientManager.sendCommand(
-            "display-message -t \(target) -p '#{cursor_x},#{cursor_y}'",
+            "display-message -t '\(target)' -p '#{cursor_x},#{cursor_y}'",
             sessionName: sessionName
         )
 
@@ -541,12 +541,22 @@ final public class TmuxService {
         return result
     }
 
-    /// Extracts the active SGR (color/style) escape sequence at the given cursor position
+    /// Extracts the active SGR (color/style) escape sequences at the given cursor position
     /// by walking through visible lines and tracking SGR state changes.
-    /// Returns the last non-reset SGR code, or empty string if the state is default.
+    /// Returns accumulated non-reset SGR codes, or empty string if the state is default.
+    ///
+    /// SGR attributes are cumulative in terminals — `\e[1m` (bold) followed by `\e[31m` (red)
+    /// means "bold red". This function accumulates all active SGR sequences so that the full
+    /// styling state is restored. A reset (`\e[0m` or `\e[m`) clears all accumulated state.
+    ///
+    /// Limitations:
+    /// - Only recognizes CSI (`ESC [`) sequences; 8-bit C1 codes and non-CSI escapes are not parsed.
+    /// - Column counting treats every character as single-width; CJK/emoji (2-column) characters
+    ///   may cause the cursor column check to be off, since tmux reports `cursor_x` in column units.
+    ///
     /// Internal for testing
     func extractActiveSGR(from lines: [String], cursorX: Int, cursorY: Int) -> String {
-        var lastSGR = ""
+        var activeSGRs: [String] = []
 
         for lineIndex in 0...min(cursorY, lines.count - 1) {
             let line = lines[lineIndex]
@@ -558,7 +568,7 @@ final public class TmuxService {
                 // Escape sequences after the cursor position (like tmux's trailing \e[0m)
                 // are not part of the active SGR state at the cursor.
                 if lineIndex == cursorY, col >= cursorX {
-                    return lastSGR
+                    return activeSGRs.joined()
                 }
 
                 if line[i] == "\u{1b}", line.index(after: i) < line.endIndex, line[line.index(after: i)] == "[" {
@@ -570,9 +580,9 @@ final public class TmuxService {
                             if ch == "m" {
                                 let sgr = String(line[i...endIdx])
                                 if sgr == "\u{1b}[0m" || sgr == "\u{1b}[m" {
-                                    lastSGR = ""
+                                    activeSGRs.removeAll()
                                 } else {
-                                    lastSGR = sgr
+                                    activeSGRs.append(sgr)
                                 }
                             }
                             i = line.index(after: endIdx)
@@ -585,6 +595,9 @@ final public class TmuxService {
                     }
                 } else {
                     // Visible character — count toward column position
+                    // NOTE: wide characters (CJK, some emoji) occupy 2 columns in terminals
+                    // but are counted as 1 here. This may cause incorrect SGR tracking
+                    // for content with wide characters.
                     if lineIndex == cursorY {
                         col += 1
                     }
@@ -593,7 +606,7 @@ final public class TmuxService {
             }
         }
 
-        return lastSGR
+        return activeSGRs.joined()
     }
 
     /// Forces a pane to redraw by sending Ctrl+L

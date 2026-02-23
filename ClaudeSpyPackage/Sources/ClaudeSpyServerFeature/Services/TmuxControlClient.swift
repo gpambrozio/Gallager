@@ -95,7 +95,10 @@ actor TmuxControlClient {
     private var outputBuffer: [(paneId: String, data: Data)] = []
 
     // Per-pane buffering during initial capture: events are silently discarded
-    // because the capture commands (routed through control mode) already reflect them
+    // because the capture commands (routed through control mode) already reflect them.
+    // Safety: unregisterPaneHandler() always clears this set for the pane, so even if
+    // stopPaneBuffering() fails in the error path, the subsequent unregisterPane()
+    // call prevents permanently stuck buffering.
     private var perPaneBuffering: Set<String> = []
 
     // Byte buffer for incomplete lines (handles chunk splitting at line boundaries)

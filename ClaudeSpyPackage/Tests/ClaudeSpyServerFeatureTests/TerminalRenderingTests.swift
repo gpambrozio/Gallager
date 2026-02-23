@@ -697,19 +697,9 @@
             // The input line should now contain "X" appended
             let inputLineAfter = getRowText(terminal, row: 21)
 
-            // Debug: dump all rows to find where X went
-            var dump = "cursorBefore=\(cursorRow),\(cursorCol) cursorAfter=\(afterRow)\n"
-            for row in 0..<rows {
-                let text = getRowText(terminal, row: row)
-                if !text.isEmpty {
-                    dump += "row[\(row)]: \(text)\n"
-                }
-            }
-            try? dump.write(toFile: "/tmp/cursor-test-dump.txt", atomically: true, encoding: .utf8)
-
             #expect(
                 inputLineAfter.contains("BEFOREX"),
-                "Row 21 should have BEFOREX - see /tmp/cursor-test-dump.txt"
+                "Row 21 should have BEFOREX"
             )
         }
 
@@ -771,23 +761,11 @@
             terminal.feed(text: " test")
 
             // The typed text should appear on the same line as "hello world"
-            let afterRow = terminal.buffer.y
             let inputLineAfter = getRowText(terminal, row: inputMirrorRow)
-
-            // Debug dump
-            var dump = "tmuxRows=\(tmuxRows) mirrorRows=\(mirrorRows)\n"
-            dump += "cursorBefore=\(cursorRow) cursorAfter=\(afterRow) inputMirrorRow=\(inputMirrorRow)\n"
-            for row in 0..<mirrorRows {
-                let text = getRowText(terminal, row: row)
-                if !text.isEmpty {
-                    dump += "row[\(row)]: \(text)\n"
-                }
-            }
-            try? dump.write(toFile: "/tmp/dimension-mismatch-dump.txt", atomically: true, encoding: .utf8)
 
             #expect(
                 inputLineAfter.contains("hello world test"),
-                "Input line should have 'hello world test' but got '\(inputLineAfter)' - see /tmp/dimension-mismatch-dump.txt"
+                "Input line should have 'hello world test' but got '\(inputLineAfter)'"
             )
         }
 
