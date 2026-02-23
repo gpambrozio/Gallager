@@ -12,8 +12,6 @@ struct MirrorWindowView: View {
     @State private var streamState: StreamState = .disconnected
     @State private var streamWidth: Int?
     @State private var streamHeight: Int?
-    @State private var showDiscardConfirmation = false
-
     private let logger = Logger(label: "com.claudespy.mirrorwindowview")
 
     private var recorder: SessionRecorder {
@@ -50,20 +48,6 @@ struct MirrorWindowView: View {
                 recordingToolbar
             }
         }
-        .confirmationDialog(
-            "Discard Recording?",
-            isPresented: $showDiscardConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Discard", role: .destructive) {
-                Task {
-                    await recorder.stop()
-                }
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("The current recording will be permanently discarded.")
-        }
         .navigationTitle("Mirror: \(paneInfo.paneId) (\(paneInfo.target))")
     }
 
@@ -88,13 +72,6 @@ struct MirrorWindowView: View {
                 Label("Export Recording", symbol: .squareAndArrowUp)
             }
             .help("Export recording to file")
-
-            Button {
-                showDiscardConfirmation = true
-            } label: {
-                Label("Stop Recording", symbol: .stopFill)
-            }
-            .help("Stop recording and discard")
         }
     }
 
