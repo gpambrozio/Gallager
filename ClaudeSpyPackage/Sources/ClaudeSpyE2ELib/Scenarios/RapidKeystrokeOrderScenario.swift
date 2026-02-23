@@ -95,5 +95,10 @@ public enum RapidKeystrokeOrderScenario {
         TestStep.wait(seconds: 3)
         TestStep.tmuxCapturePaneContent(target: "e2e-rapid-keys:0.0", storeAs: "round4")
         TestStep.assertStoredContains(key: "round4", substring: "round4-AaBbCcDdEe")
+
+        // ── Phase 8: Screenshot both panes for visual verification ────
+        TestStep.log("Taking screenshots of both host and viewer panes")
+        TestStep.macScreenshot(label: "host-after-keystrokes", compare: false)
+        TestStep.macScreenshot(label: "viewer-after-keystrokes", compare: false, instance: 1)
     }
 }
