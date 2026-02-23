@@ -32,7 +32,7 @@ public enum StopHookSummaryScenario {
 
         // 3. Verify iOS session list shows "Session Idle" for the stop event
         TestStep.iosWaitForElement(.labelContains("Session Idle"), timeout: 10)
-        TestStep.iosScreenshot(label: "ios-session-idle", compare: false)
+        TestStep.iosScreenshot(label: "ios-session-idle")
 
         // 4. Tap the session to open the terminal view
         TestStep.iosTap(.labelContains("MyProject"))
@@ -43,7 +43,7 @@ public enum StopHookSummaryScenario {
         TestStep.iosWaitForElement(.labelContains("refactoring of the authentication"), timeout: 5)
 
         // 6. Take iOS screenshot showing the summary
-        TestStep.iosScreenshot(label: "ios-stop-summary", compare: false)
+        TestStep.iosScreenshot(label: "ios-stop-summary")
 
         // 7. Tap the expand button to expand the summary
         TestStep.iosTap(.labelContains("Expand summary"))
@@ -51,7 +51,7 @@ public enum StopHookSummaryScenario {
 
         // 8. Verify expanded state shows the full summary text
         TestStep.iosWaitForElement(.labelContains("adding refresh token support"), timeout: 5)
-        TestStep.iosScreenshot(label: "ios-stop-summary-expanded", compare: false)
+        TestStep.iosScreenshot(label: "ios-stop-summary-expanded")
 
         // 9. Verify the prompt input is also present below the summary
         TestStep.iosWaitForElement(.labelContains("Send a message to Claude"), timeout: 5)
@@ -64,6 +64,6 @@ public enum StopHookSummaryScenario {
         TestStep.macOpenPanesWindow()
         TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
         TestStep.wait(seconds: 2)
-        TestStep.macScreenshot(label: "mac-stop-session", compare: false)
+        TestStep.macScreenshot(label: "mac-stop-session")
     }
 }
