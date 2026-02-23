@@ -1,4 +1,5 @@
 import ClaudeSpyCommon
+import Logging
 import SwiftUI
 
 /// View for a single pane mirror window
@@ -11,6 +12,9 @@ struct MirrorWindowView: View {
     @State private var streamWidth: Int?
     @State private var streamHeight: Int?
     @State private var recorder = SessionRecorder()
+    @State private var showDiscardConfirmation = false
+
+    private let logger = Logger(label: "com.claudespy.mirrorwindowview")
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,9 +23,15 @@ struct MirrorWindowView: View {
                 recorder: recorder,
                 onStateChange: { state, width, height in
                     Task { @MainActor in
+                        let wasActive = streamState.isActive
                         streamState = state
                         streamWidth = width
                         streamHeight = height
+
+                        // Auto-start recording when stream connects
+                        if !wasActive, state.isActive, !recorder.isRecording {
+                            startRecording(width: width, height: height)
+                        }
                     }
                 }
             )
@@ -35,6 +45,20 @@ struct MirrorWindowView: View {
             ToolbarItemGroup(placement: .primaryAction) {
                 recordingToolbar
             }
+        }
+        .confirmationDialog(
+            "Discard Recording?",
+            isPresented: $showDiscardConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Discard", role: .destructive) {
+                Task {
+                    await recorder.stop()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The current recording will be permanently discarded.")
         }
         .navigationTitle("Mirror: \(paneInfo.paneId) (\(paneInfo.target))")
     }
@@ -62,19 +86,11 @@ struct MirrorWindowView: View {
             .help("Export recording to file")
 
             Button {
-                recorder.stop()
+                showDiscardConfirmation = true
             } label: {
                 Label("Stop Recording", symbol: .stopFill)
             }
             .help("Stop recording and discard")
-        } else {
-            Button {
-                startRecording()
-            } label: {
-                Label("Record Session", symbol: .recordCircle)
-            }
-            .help("Start recording terminal stream")
-            .disabled(!streamState.isActive)
         }
     }
 
@@ -117,20 +133,21 @@ struct MirrorWindowView: View {
 
     // MARK: - Actions
 
-    private func startRecording() {
-        let width = streamWidth ?? paneInfo.width
-        let height = streamHeight ?? paneInfo.height
+    private func startRecording(width: Int? = nil, height: Int? = nil) {
+        let w = width ?? streamWidth ?? paneInfo.width
+        let h = height ?? streamHeight ?? paneInfo.height
 
-        do {
-            try recorder.start(
-                paneId: paneInfo.paneId,
-                target: paneInfo.target,
-                width: width,
-                height: height
-            )
-        } catch {
-            // Recording is optional - log and continue
-            print("Failed to start recording: \(error)")
+        Task {
+            do {
+                try await recorder.start(
+                    paneId: paneInfo.paneId,
+                    target: paneInfo.target,
+                    width: w,
+                    height: h
+                )
+            } catch {
+                logger.error("Failed to start recording: \(error)")
+            }
         }
     }
 

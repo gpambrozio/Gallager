@@ -4,10 +4,136 @@
     import Logging
     import UniformTypeIdentifiers
 
+    // MARK: - Recording I/O Actor
+
+    /// Handles all file I/O for session recording off the main actor.
+    private actor RecordingFileWriter {
+        private var fileHandle: FileHandle?
+        private var tempFileURL: URL?
+        private var startTime: ContinuousClock.Instant?
+        private let logger = Logger(label: "com.claudespy.sessionrecorder")
+
+        struct RecordingHeader: Codable {
+            let version: Int
+            let width: Int
+            let height: Int
+            let timestamp: Int
+            let target: String
+            let env: [String: String]
+        }
+
+        /// Opens a temp file and writes the NDJSON header. Returns the initial file size.
+        func open(
+            paneId: String,
+            target: String,
+            width: Int,
+            height: Int,
+            initialContent: Data?
+        ) throws -> URL {
+            let sanitizedId = paneId.trimmingCharacters(in: CharacterSet(charactersIn: "%"))
+            let tempDir = FileManager.default.temporaryDirectory
+            let filename = "claudespy-recording-\(sanitizedId)-\(Int(Date().timeIntervalSince1970)).tmrec"
+            let fileURL = tempDir.appendingPathComponent(filename)
+
+            FileManager.default.createFile(atPath: fileURL.path, contents: nil)
+            let handle = try FileHandle(forWritingTo: fileURL)
+
+            // Write header
+            let header = RecordingHeader(
+                version: 2,
+                width: width,
+                height: height,
+                timestamp: Int(Date().timeIntervalSince1970),
+                target: target,
+                env: ["TERM": "xterm-256color"]
+            )
+            let headerData = try JSONEncoder().encode(header)
+            handle.write(headerData)
+            handle.write(Data("\n".utf8))
+
+            // Write initial content as time-zero event if provided
+            if let initialContent, !initialContent.isEmpty {
+                let encoded = initialContent.base64EncodedString()
+                let line = "[0.000000,\"\(encoded)\"]\n"
+                handle.write(Data(line.utf8))
+            }
+
+            self.fileHandle = handle
+            self.tempFileURL = fileURL
+            self.startTime = ContinuousClock.now
+
+            logger.info("Recording started", metadata: [
+                "target": "\(target)",
+                "file": "\(fileURL.lastPathComponent)",
+            ])
+
+            return fileURL
+        }
+
+        /// Appends raw terminal data with elapsed timestamp.
+        func appendData(_ data: Data) {
+            guard let handle = fileHandle, let startTime else { return }
+
+            let elapsed = ContinuousClock.now - startTime
+            let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+
+            let encoded = data.base64EncodedString()
+
+            // Write [elapsed, base64_data] as JSON array
+            // Use manual string construction to avoid JSONSerialization overhead on hot path
+            let line = "[\(String(format: "%.6f", seconds)),\"\(encoded)\"]\n"
+            handle.write(Data(line.utf8))
+        }
+
+        /// Returns current file size, or 0 if unavailable.
+        func currentFileSize() -> Int {
+            guard let url = tempFileURL else { return 0 }
+            return (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+        }
+
+        /// Returns current elapsed duration, or 0 if not recording.
+        func currentDuration() -> TimeInterval {
+            guard let startTime else { return 0 }
+            let elapsed = ContinuousClock.now - startTime
+            return Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+        }
+
+        /// Closes the file handle and returns the temp URL for export, or nil.
+        func close() -> URL? {
+            fileHandle?.closeFile()
+            fileHandle = nil
+            startTime = nil
+            let url = tempFileURL
+            tempFileURL = nil
+            return url
+        }
+
+        /// Closes the file handle and removes the temp file.
+        func closeAndDiscard() {
+            fileHandle?.closeFile()
+            fileHandle = nil
+            startTime = nil
+            if let url = tempFileURL {
+                try? FileManager.default.removeItem(at: url)
+            }
+            tempFileURL = nil
+            logger.info("Recording stopped and discarded")
+        }
+
+        /// Removes the temp file if it still exists.
+        func cleanupTempFile(at url: URL) {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    // MARK: - Session Recorder
+
     /// Records raw terminal bytes with timing to a temp file in .tmrec NDJSON format.
     ///
     /// The format is compatible with the `tmux-rec.py` script in the `terminal-debug/` directory.
     /// Each recording contains a JSON header line followed by `[elapsed_seconds, base64_data]` lines.
+    ///
+    /// File I/O is performed on a background actor to avoid blocking the main thread.
     ///
     /// Usage:
     /// 1. Call `start(paneId:target:width:height:initialContent:)` to begin recording
@@ -30,13 +156,7 @@
         private(set) var target: String?
 
         @ObservationIgnored
-        private var startTime: ContinuousClock.Instant?
-
-        @ObservationIgnored
-        private var fileHandle: FileHandle?
-
-        @ObservationIgnored
-        private var tempFileURL: URL?
+        private let writer = RecordingFileWriter()
 
         @ObservationIgnored
         private var durationUpdateTask: Task<Void, Never>?
@@ -46,10 +166,6 @@
 
         deinit {
             durationUpdateTask?.cancel()
-            fileHandle?.closeFile()
-            if let url = tempFileURL {
-                try? FileManager.default.removeItem(at: url)
-            }
         }
 
         // MARK: - Public API
@@ -71,83 +187,43 @@
             width: Int,
             height: Int,
             initialContent: Data? = nil
-        ) throws {
+        ) async throws {
             guard !isRecording else {
                 logger.warning("Recording already active for \(self.target ?? "unknown")")
                 return
             }
 
-            // Create temp file
-            let tempDir = FileManager.default.temporaryDirectory
-            let filename = "claudespy-recording-\(paneId)-\(Int(Date().timeIntervalSince1970)).tmrec"
-            let fileURL = tempDir.appendingPathComponent(filename)
+            _ = try await writer.open(
+                paneId: paneId,
+                target: target,
+                width: width,
+                height: height,
+                initialContent: initialContent
+            )
 
-            FileManager.default.createFile(atPath: fileURL.path, contents: nil)
-            let handle = try FileHandle(forWritingTo: fileURL)
-
-            // Write header
-            let header: [String: Any] = [
-                "version": 2,
-                "width": width,
-                "height": height,
-                "timestamp": Int(Date().timeIntervalSince1970),
-                "target": target,
-                "env": [
-                    "TERM": "xterm-256color",
-                ],
-            ]
-            let headerData = try JSONSerialization.data(withJSONObject: header)
-            handle.write(headerData)
-            handle.write(Data("\n".utf8))
-
-            // Write initial content as time-zero event if provided
-            if let initialContent, !initialContent.isEmpty {
-                let encoded = initialContent.base64EncodedString()
-                let event = try JSONSerialization.data(withJSONObject: [0.0, encoded])
-                handle.write(event)
-                handle.write(Data("\n".utf8))
-            }
-
-            self.fileHandle = handle
-            self.tempFileURL = fileURL
             self.target = target
-            self.startTime = ContinuousClock.now
             self.isRecording = true
             self.duration = 0
-            self.fileSize = Int((try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? 0)
+            self.fileSize = 0
 
             // Start periodic duration/size updates
             startDurationUpdates()
-
-            logger.info("Recording started", metadata: [
-                "target": "\(target)",
-                "file": "\(fileURL.lastPathComponent)",
-            ])
         }
 
         /// Appends raw terminal data to the recording with a timestamp.
         ///
         /// - Parameter data: Raw terminal bytes to record
-        func appendData(_ data: Data) {
-            guard isRecording, let handle = fileHandle, let startTime else { return }
-
-            let elapsed = ContinuousClock.now - startTime
-            let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
-
-            let encoded = data.base64EncodedString()
-
-            // Write [elapsed, base64_data] as JSON array
-            // Use manual string construction to avoid JSONSerialization overhead on hot path
-            let line = "[\(String(format: "%.6f", seconds)),\"\(encoded)\"]\n"
-            handle.write(Data(line.utf8))
+        nonisolated func appendData(_ data: Data) {
+            Task {
+                await writer.appendData(data)
+            }
         }
 
         /// Stops the current recording and discards the temp file.
-        func stop() {
+        func stop() async {
             guard isRecording else { return }
             finishRecording()
-            cleanupTempFile()
-            logger.info("Recording stopped and discarded")
+            await writer.closeAndDiscard()
         }
 
         /// Exports the current recording to a user-chosen location.
@@ -155,10 +231,12 @@
         /// Stops the recording and presents an NSSavePanel for the user to choose a destination.
         /// The temp file is moved to the chosen location, or cleaned up if the user cancels.
         func export() async {
-            guard isRecording, let tempURL = tempFileURL else { return }
+            guard isRecording else { return }
 
             let savedTarget = target
             finishRecording()
+
+            guard let tempURL = await writer.close() else { return }
 
             // Present save panel
             let panel = NSSavePanel()
@@ -183,7 +261,6 @@
                         try FileManager.default.removeItem(at: destinationURL)
                     }
                     try FileManager.default.moveItem(at: tempURL, to: destinationURL)
-                    tempFileURL = nil
 
                     logger.info("Recording exported", metadata: [
                         "target": "\(savedTarget ?? "unknown")",
@@ -191,51 +268,38 @@
                     ])
                 } catch {
                     logger.error("Failed to export recording: \(error)")
-                    cleanupTempFile()
+                    await writer.cleanupTempFile(at: tempURL)
                 }
             } else {
                 // User cancelled - clean up temp file
-                cleanupTempFile()
+                await writer.cleanupTempFile(at: tempURL)
                 logger.info("Recording export cancelled, temp file cleaned up")
             }
         }
 
         // MARK: - Private
 
-        /// Shared cleanup between stop() and export()
+        /// Resets UI state (called before async writer cleanup)
         private func finishRecording() {
             durationUpdateTask?.cancel()
             durationUpdateTask = nil
-            fileHandle?.closeFile()
-            fileHandle = nil
             isRecording = false
-            startTime = nil
             target = nil
             duration = 0
             fileSize = 0
         }
 
         private func startDurationUpdates() {
-            durationUpdateTask = Task { [weak self] in
+            durationUpdateTask = Task { [weak self, writer] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(1))
                     guard !Task.isCancelled else { break }
-                    guard let self, let startTime = self.startTime else { break }
+                    guard let self, self.isRecording else { break }
 
-                    let elapsed = ContinuousClock.now - startTime
-                    self.duration = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
-
-                    if let url = self.tempFileURL {
-                        self.fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
-                    }
+                    self.duration = await writer.currentDuration()
+                    self.fileSize = await writer.currentFileSize()
                 }
             }
-        }
-
-        private func cleanupTempFile() {
-            guard let url = tempFileURL else { return }
-            try? FileManager.default.removeItem(at: url)
-            tempFileURL = nil
         }
     }
 #endif

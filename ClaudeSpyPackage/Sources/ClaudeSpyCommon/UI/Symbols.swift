@@ -55,7 +55,6 @@ public enum Symbols: String {
     case puzzlepiece
     case qrcode
     case questionmark
-    case recordCircle = "record.circle"
     case sparkles
     case square
     case squareAndArrowUp = "square.and.arrow.up"

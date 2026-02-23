@@ -192,7 +192,9 @@ struct TerminalContainerView: NSViewRepresentable {
             rowsLockedToTmux = false
 
             // Stop recording if active (discards temp file - user should export before closing)
-            recorder?.stop()
+            Task {
+                await recorder?.stop()
+            }
 
             guard let subId = subscriptionId else { return }
             let manager = paneStreamManager
