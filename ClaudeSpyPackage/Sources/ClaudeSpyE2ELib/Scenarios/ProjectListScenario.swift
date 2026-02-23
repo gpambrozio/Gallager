@@ -13,10 +13,10 @@ public enum ProjectListScenario {
         TestStep.log("Creating tmux session so sidebar has a section header with + button")
         TestStep.tmuxCreateSession(name: "project-test", width: 80, height: 24)
 
-        TestStep.launchMacApp
+        TestStep.launchMacApp()
         TestStep.wait(seconds: 3)
 
-        TestStep.macOpenPanesWindow
+        TestStep.macOpenPanesWindow()
         TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
         TestStep.macMoveWindow(x: 10, y: 10)
         TestStep.macResizeWindow(width: 1_000, height: 600)
@@ -40,6 +40,6 @@ public enum ProjectListScenario {
 
         // ── Teardown ─────────────────────────────────────────────
 
-        TestStep.terminateMacApp
+        TestStep.terminateMacApp()
     }
 }

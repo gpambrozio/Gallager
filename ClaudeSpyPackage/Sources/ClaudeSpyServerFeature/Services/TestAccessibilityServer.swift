@@ -17,22 +17,36 @@
             private var listener: NWListener?
             private static var instance: TestAccessibilityServer?
 
-            /// Start the server if running in E2E test mode
+            /// Start the server if running in E2E test mode.
+            /// Reads `--test-accessibility-port <port>` from launch arguments (default: 18081).
             public static func startIfNeeded() {
                 guard CommandLine.arguments.contains("--e2e-test") else { return }
+
+                var port: UInt16 = 18_081
+                if let idx = CommandLine.arguments.firstIndex(of: "--test-accessibility-port"),
+                   idx + 1 < CommandLine.arguments.count,
+                   let parsed = UInt16(CommandLine.arguments[idx + 1])
+                {
+                    port = parsed
+                }
+
                 let server = TestAccessibilityServer()
                 do {
-                    try server.start()
+                    try server.start(port: port)
                     instance = server
                 } catch {
                     print("[TestAccessibilityServer-Mac] Failed to start: \(error)")
                 }
             }
 
-            private func start() throws {
+            private func start(port: UInt16 = 18_081) throws {
                 let params = NWParameters.tcp
                 params.allowLocalEndpointReuse = true
-                listener = try NWListener(using: params, on: 18_081)
+                guard let nwPort = NWEndpoint.Port(rawValue: port) else {
+                    print("[TestAccessibilityServer-Mac] Invalid port: \(port)")
+                    return
+                }
+                listener = try NWListener(using: params, on: nwPort)
                 listener?.stateUpdateHandler = { state in
                     if case let .failed(error) = state {
                         print("[TestAccessibilityServer-Mac] Listener failed: \(error)")
@@ -42,7 +56,7 @@
                     self?.handleConnection(connection)
                 }
                 listener?.start(queue: .main)
-                print("[TestAccessibilityServer-Mac] Listening on port 18081")
+                print("[TestAccessibilityServer-Mac] Listening on port \(port)")
             }
 
             private nonisolated func handleConnection(_ connection: NWConnection) {

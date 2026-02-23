@@ -171,6 +171,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         ProjectSearchIOSScenario.scenario,
         EmptyStateNewSessionScenario.scenario,
         SidebarSelectionScenario.scenario,
+        TwoMacPairingScenario.scenario,
         TerminalRenderingBugsScenario.scenario,
     ]
 

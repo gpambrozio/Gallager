@@ -71,45 +71,53 @@ public enum TestStep: Sendable {
     case iosLogUI
 
     // MARK: - macOS App
+    //
+    // All macOS steps accept an `instance` parameter (default 0) to target
+    // different app instances. Instance 0 is the primary app; instance 1+
+    // are additional instances (e.g. for Mac-to-Mac pairing scenarios).
+    // Ports and file paths are derived automatically from the instance number.
 
     /// Launch the macOS app
-    case launchMacApp
+    case launchMacApp(instance: Int = 0)
     /// Terminate the macOS app
-    case terminateMacApp
+    case terminateMacApp(instance: Int = 0)
     /// Open Settings window
-    case macOpenSettings
+    case macOpenSettings(instance: Int = 0)
     /// Wait for a macOS window
-    case macWaitForWindow(titled: String, timeout: TimeInterval = 5)
+    case macWaitForWindow(titled: String, timeout: TimeInterval = 5, instance: Int = 0)
     /// Select a Settings tab
-    case macSelectSettingsTab(String)
+    case macSelectSettingsTab(String, instance: Int = 0)
     /// Click a button by title
-    case macClickButton(titled: String)
+    case macClickButton(titled: String, instance: Int = 0)
     /// Click a menu trigger button then click a menu item
-    case macClickMenuItem(menuButtonTitle: String, itemTitle: String)
+    case macClickMenuItem(menuButtonTitle: String, itemTitle: String, instance: Int = 0)
     /// Trigger unpair on the first paired viewer via test HTTP endpoint
-    case macUnpair
+    case macUnpair(instance: Int = 0)
     /// Read the clipboard and store in context
-    case macReadClipboard(storeAs: String)
+    case macReadClipboard(storeAs: String, instance: Int = 0)
     /// Wait for a text element to appear in the macOS app's accessibility tree
-    case macWaitForElement(titled: String, timeout: TimeInterval = 10)
+    case macWaitForElement(titled: String, timeout: TimeInterval = 10, instance: Int = 0)
     /// Wait for a text element to disappear from the macOS app's accessibility tree
-    case macWaitForElementToDisappear(titled: String, timeout: TimeInterval = 10)
+    case macWaitForElementToDisappear(titled: String, timeout: TimeInterval = 10, instance: Int = 0)
     /// Open the Panes window via the status item menu
-    case macOpenPanesWindow
+    case macOpenPanesWindow(instance: Int = 0)
     /// Move the macOS app window to a screen position
-    case macMoveWindow(x: Int, y: Int)
+    case macMoveWindow(x: Int, y: Int, instance: Int = 0)
     /// Resize the macOS app window
-    case macResizeWindow(width: Int, height: Int)
+    case macResizeWindow(width: Int, height: Int, instance: Int = 0)
     /// Set the sidebar width of the NavigationSplitView
-    case macSetSidebarWidth(_ width: Int)
-    /// Type text into the macOS app (via AppleScript keystroke)
-    case macType(text: String, pressReturn: Bool = false)
+    case macSetSidebarWidth(_ width: Int, instance: Int = 0)
+    /// Focus a text field by title so subsequent typing goes into it
+    case macFocusElement(titled: String, instance: Int = 0)
+    /// Type text into the macOS app (via AppleScript keystroke).
+    /// Set `charDelay` > 0 to type character-by-character with delays (for remote terminals).
+    case macType(text: String, pressReturn: Bool = false, charDelay: TimeInterval = 0, instance: Int = 0)
     /// Scroll the macOS terminal view up by the given number of pages (Page Up key)
-    case macScrollUp(pages: Int = 1)
+    case macScrollUp(pages: Int = 1, instance: Int = 0)
     /// Take a macOS screenshot, optionally comparing against a stored baseline
     /// Default tolerance of 2% because sometimes the image needs to be normalized
     /// and in this case some pixels will differ.
-    case macScreenshot(label: String, compare: Bool = true, tolerance: Double = 2, perPixelThreshold: Double = 0.02)
+    case macScreenshot(label: String, compare: Bool = true, tolerance: Double = 2, perPixelThreshold: Double = 0.02, instance: Int = 0)
 
     // MARK: - Tmux
 
@@ -119,6 +127,8 @@ public enum TestStep: Sendable {
     case tmuxStorePaneDimensions(target: String, widthKey: String, heightKey: String)
     /// Query the tmux pane ID (e.g. "%0") for a target and store it in the execution context
     case tmuxStorePaneId(target: String, storeAs: String)
+    /// Capture the visible content of a tmux pane and store it in the execution context
+    case tmuxCapturePaneContent(target: String, storeAs: String)
     /// Send keys to a tmux pane on the test socket (bypasses macOS app input path)
     case tmuxSendKeys(target: String, keys: String, literal: Bool = false)
 
@@ -128,7 +138,7 @@ public enum TestStep: Sendable {
     /// The `json` parameter is the raw JSON body (supports `${var}` interpolation).
     /// `tmuxPane` and `projectPath` are sent as query parameters.
     /// The server port is read from the orchestrator's `hookPortFile`.
-    case macSendHookEvent(json: String, tmuxPane: String, projectPath: String? = nil)
+    case macSendHookEvent(json: String, tmuxPane: String, projectPath: String? = nil, instance: Int = 0)
 
     // MARK: - Assertions
 
@@ -136,6 +146,8 @@ public enum TestStep: Sendable {
     case assertStoredEqual(key: String, otherKey: String)
     /// Assert two stored context values are NOT equal
     case assertStoredNotEqual(key: String, otherKey: String)
+    /// Assert a stored context value contains a substring
+    case assertStoredContains(key: String, substring: String)
 
     // MARK: - General
 

@@ -10,12 +10,12 @@ import Logging
 /// - Hook server communication (separate port)
 enum MacAppHTTPClient {
     private static let logger = Logger(label: "e2e.mac-http")
-    private static let port: UInt16 = 18_081
+    static let defaultPort: UInt16 = 18_081
 
     /// Trigger unpair on the first paired viewer via the test endpoint.
     /// Posts a NotificationCenter notification inside the app process.
     @discardableResult
-    static func unpair() async throws -> Bool {
+    static func unpair(port: UInt16 = defaultPort) async throws -> Bool {
         let url = URL(string: "http://127.0.0.1:\(port)/unpair")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -28,7 +28,7 @@ enum MacAppHTTPClient {
     /// Set the sidebar width of the NavigationSplitView.
     /// Requires in-process access to NSSplitView.setPosition().
     @discardableResult
-    static func setSidebarWidth(_ width: Int) async throws -> Bool {
+    static func setSidebarWidth(_ width: Int, port: UInt16 = defaultPort) async throws -> Bool {
         let url = URL(string: "http://127.0.0.1:\(port)/set-sidebar-width?width=\(width)")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"

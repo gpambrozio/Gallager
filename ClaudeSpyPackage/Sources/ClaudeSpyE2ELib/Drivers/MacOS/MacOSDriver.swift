@@ -9,7 +9,7 @@ import Logging
 /// production copy of the same app without interfering with it.
 public actor MacOSDriver {
     private let processRunner = ProcessRunner()
-    private let logger = Logger(label: "e2e.macos-driver")
+    private let logger: Logger
 
     private var appPath: String?
     private let appName = "Gallager"
@@ -17,7 +17,16 @@ public actor MacOSDriver {
     /// AppleScript interactions, and window lookup to the test instance only.
     private var appPID: pid_t?
 
-    public init() { }
+    /// Default port for the in-app TestAccessibilityServer HTTP endpoint.
+    public static let defaultTestAccessibilityPort: UInt16 = 18_081
+
+    /// Port for the in-app TestAccessibilityServer HTTP endpoint.
+    let testAccessibilityPort: UInt16
+
+    public init(label: String = "e2e.macos-driver", testAccessibilityPort: UInt16 = MacOSDriver.defaultTestAccessibilityPort) {
+        self.logger = Logger(label: label)
+        self.testAccessibilityPort = testAccessibilityPort
+    }
 
     // MARK: - App Lifecycle
 
@@ -188,30 +197,64 @@ public actor MacOSDriver {
     /// NSSplitView.setPosition() requires in-process access, so this still uses HTTP.
     public func setSidebarWidth(_ width: Int) async throws {
         logger.info("Setting sidebar width to \(width)")
-        let success = try await MacAppHTTPClient.setSidebarWidth(width)
+        let success = try await MacAppHTTPClient.setSidebarWidth(width, port: testAccessibilityPort)
         if !success {
             throw MacOSDriverError.elementNotFound("NSSplitView for sidebar width")
         }
     }
 
-    /// Type text into the macOS app via AppleScript keystroke
-    public func type(text: String, pressReturn: Bool) async throws {
-        logger.info("Typing text: \(text.prefix(30))... (pressReturn: \(pressReturn))")
-        let escaped = escapeForAppleScript(text)
+    /// Focus a text field by title so subsequent typing goes into it.
+    public func focusElement(titled: String) async throws {
+        let pid = try requirePID()
+        logger.info("Focusing element: \(titled)")
+        if !MacOSAccessibility.focusElement(appPID: pid, titled: titled) {
+            throw MacOSDriverError.elementNotFound(titled)
+        }
+    }
+
+    /// Type text into the macOS app via AppleScript keystroke.
+    /// - Parameters:
+    ///   - charDelay: Seconds to wait between each character (0 = type all at once).
+    ///     Useful for remote terminals where keystrokes travel through a relay.
+    public func type(text: String, pressReturn: Bool, charDelay: TimeInterval = 0) async throws {
+        logger.info("Typing text: \(text.prefix(30))... (pressReturn: \(pressReturn), charDelay: \(charDelay))")
+        let pid = try requirePID()
         let returnClause = pressReturn ? """
 
                 delay 0.1
                 keystroke return
         """ : ""
-        let script = try """
-        tell application "System Events"
-            tell (first process whose unix id is \(requirePID()))
-                set frontmost to true
-                keystroke "\(escaped)"\(returnClause)
+
+        if charDelay > 0 {
+            // Type character-by-character with delays for reliable remote input
+            var keystrokes = text.map { char -> String in
+                let escaped = escapeForAppleScript(String(char))
+                return "keystroke \"\(escaped)\"\n                delay \(charDelay)"
+            }.joined(separator: "\n                ")
+            if pressReturn {
+                keystrokes += "\n                delay 0.1\n                keystroke return"
+            }
+            let script = """
+            tell application "System Events"
+                tell (first process whose unix id is \(pid))
+                    set frontmost to true
+                    \(keystrokes)
+                end tell
             end tell
-        end tell
-        """
-        try await runAppleScript(script)
+            """
+            try await runAppleScript(script)
+        } else {
+            let escaped = escapeForAppleScript(text)
+            let script = """
+            tell application "System Events"
+                tell (first process whose unix id is \(pid))
+                    set frontmost to true
+                    keystroke "\(escaped)"\(returnClause)
+                end tell
+            end tell
+            """
+            try await runAppleScript(script)
+        }
     }
 
     // MARK: - Scroll
@@ -238,7 +281,7 @@ public actor MacOSDriver {
     /// Uses HTTP because it posts a NotificationCenter notification that the app observes.
     public func unpair() async throws {
         logger.info("Triggering unpair via HTTP endpoint")
-        let success = try await MacAppHTTPClient.unpair()
+        let success = try await MacAppHTTPClient.unpair(port: testAccessibilityPort)
         if !success {
             throw MacOSDriverError.elementNotFound("unpair endpoint returned failure")
         }

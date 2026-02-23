@@ -12,10 +12,10 @@ public enum EmptyStateNewSessionScenario {
         // The orchestrator kills the isolated tmux server between scenarios,
         // so we're guaranteed a clean slate here.
 
-        TestStep.launchMacApp
+        TestStep.launchMacApp()
         TestStep.wait(seconds: 3)
 
-        TestStep.macOpenPanesWindow
+        TestStep.macOpenPanesWindow()
         TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
         TestStep.macMoveWindow(x: 10, y: 10)
         TestStep.macResizeWindow(width: 1_200, height: 800)

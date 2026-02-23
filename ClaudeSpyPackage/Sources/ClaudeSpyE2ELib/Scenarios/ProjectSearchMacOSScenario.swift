@@ -11,10 +11,10 @@ public enum ProjectSearchMacOSScenario {
         TestStep.log("Creating tmux session so sidebar has a section header with + button")
         TestStep.tmuxCreateSession(name: "search-test", width: 80, height: 24)
 
-        TestStep.launchMacApp
+        TestStep.launchMacApp()
         TestStep.wait(seconds: 3)
 
-        TestStep.macOpenPanesWindow
+        TestStep.macOpenPanesWindow()
         TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
         TestStep.macMoveWindow(x: 10, y: 10)
         TestStep.macResizeWindow(width: 1_000, height: 600)
@@ -57,6 +57,6 @@ public enum ProjectSearchMacOSScenario {
         TestStep.macScreenshot(label: "project-selected", compare: false)
 
         // ── Teardown ─────────────────────────────────────────────
-        TestStep.terminateMacApp
+        TestStep.terminateMacApp()
     }
 }

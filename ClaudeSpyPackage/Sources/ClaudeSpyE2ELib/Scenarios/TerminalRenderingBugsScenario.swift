@@ -49,10 +49,10 @@ public enum TerminalRenderingBugsScenario {
         TestStep.tmuxSendKeys(target: "render-bugs:0.0", keys: "Enter")
         TestStep.wait(seconds: 0.5)
 
-        TestStep.launchMacApp
+        TestStep.launchMacApp()
         TestStep.wait(seconds: 3)
 
-        TestStep.macOpenPanesWindow
+        TestStep.macOpenPanesWindow()
         TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
         TestStep.wait(seconds: 1)
         TestStep.macMoveWindow(x: 10, y: 10)
