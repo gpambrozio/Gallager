@@ -905,6 +905,11 @@ private struct PaneSidebarRow: View {
         windowManager.activeSessions[pane.paneId] != nil
     }
 
+    /// The latest event subtitle (e.g., last assistant message from a Stop hook)
+    private var sessionSubtitle: String? {
+        windowManager.activeSessions[pane.paneId]?.latestEvent?.action.subtitle
+    }
+
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
@@ -928,6 +933,13 @@ private struct PaneSidebarRow: View {
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
+
+                if let sessionSubtitle {
+                    Text(sessionSubtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(2)
+                }
             }
 
             Spacer()

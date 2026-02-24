@@ -424,6 +424,7 @@ public struct StopBody: HookBodyProtocol {
     public let hookEventName: String
     public let timestamp: String?
     public let stopHookActive: Bool?
+    public let lastAssistantMessage: String?
     public var shouldSendToServer: Bool { true }
 
     enum CodingKeys: String, CodingKey {
@@ -433,6 +434,25 @@ public struct StopBody: HookBodyProtocol {
         case hookEventName = "hook_event_name"
         case timestamp
         case stopHookActive = "stop_hook_active"
+        case lastAssistantMessage = "last_assistant_message"
+    }
+
+    public init(
+        sessionId: String,
+        transcriptPath: String? = nil,
+        cwd: String? = nil,
+        hookEventName: String,
+        timestamp: String? = nil,
+        stopHookActive: Bool? = nil,
+        lastAssistantMessage: String? = nil
+    ) {
+        self.sessionId = sessionId
+        self.transcriptPath = transcriptPath
+        self.cwd = cwd
+        self.hookEventName = hookEventName
+        self.timestamp = timestamp
+        self.stopHookActive = stopHookActive
+        self.lastAssistantMessage = lastAssistantMessage
     }
 }
 
@@ -984,8 +1004,9 @@ public enum HookAction: Codable, Sendable {
             body.message
         case let .userPromptSubmit(body):
             body.prompt
-        case .stop,
-             .subagentStart,
+        case let .stop(body):
+            body.lastAssistantMessage
+        case .subagentStart,
              .subagentStop:
             nil
         case let .teammateIdle(body):

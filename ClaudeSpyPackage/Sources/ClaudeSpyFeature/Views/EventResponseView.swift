@@ -17,9 +17,15 @@ extension HookEvent {
         state: ResponseState
     ) -> AnyView? {
         switch action {
-        case .sessionStart,
-             .stop:
+        case .sessionStart:
             return AnyView(PromptView(isConnected: isConnected, sendCommand: sendCommand, state: state))
+        case let .stop(body):
+            return AnyView(StopResponseView(
+                lastAssistantMessage: body.lastAssistantMessage,
+                isConnected: isConnected,
+                sendCommand: sendCommand,
+                state: state
+            ))
         case let .permissionRequest(body):
             // Check for special tool types that need dedicated UIs
             if let toolInput = body.toolInput {
