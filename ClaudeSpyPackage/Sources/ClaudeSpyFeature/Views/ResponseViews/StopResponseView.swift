@@ -10,8 +10,6 @@ struct StopResponseView: View {
     let sendCommand: CommandSender
     let state: ResponseState
 
-    @State private var isExpanded = false
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let message = lastAssistantMessage {
@@ -24,36 +22,40 @@ struct StopResponseView: View {
 
     private func summarySection(message: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Button {
+            HStack(spacing: 6) {
+                Symbols.sparkles.image
+                    .font(.caption)
+                    .foregroundStyle(.purple)
+
+                Text("Summary")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                (state.isSummaryExpanded ? Symbols.chevronUp.image : Symbols.chevronDown.image)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+            // Note: Using onTapGesture instead of Button because .buttonStyle(.plain)
+            // doesn't respond to XCUITest runner's synthetic touch events in E2E tests.
+            .onTapGesture {
                 withAnimation(.easeInOut(duration: 0.2)) {
-                    isExpanded.toggle()
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Symbols.sparkles.image
-                        .font(.caption)
-                        .foregroundStyle(.purple)
-
-                    Text("Summary")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.secondary)
-
-                    Spacer()
-
-                    (isExpanded ? Symbols.chevronUp.image : Symbols.chevronDown.image)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                    state.isSummaryExpanded.toggle()
                 }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(isExpanded ? "Collapse summary" : "Expand summary")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(state.isSummaryExpanded ? "Collapse summary" : "Expand summary")
 
-            if isExpanded {
+            if state.isSummaryExpanded {
                 Text(message)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("summary-text")
             }
         }
     }
