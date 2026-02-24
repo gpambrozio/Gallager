@@ -21,8 +21,10 @@ final public class MirrorWindowManager {
     /// Strong references to window delegates (NSWindow.delegate is weak)
     private var windowDelegates: [String: MirrorWindowDelegate] = [:]
 
-    /// Session recorders keyed by pane ID, persisted across view recreation
-    private var sessionRecorders: [String: SessionRecorder] = [:]
+    #if DEBUG
+        /// Session recorders keyed by pane ID, persisted across view recreation
+        private var sessionRecorders: [String: SessionRecorder] = [:]
+    #endif
 
     /// Task for periodic session validation
     private var sessionValidationTask: Task<Void, Never>?
@@ -46,18 +48,20 @@ final public class MirrorWindowManager {
         self.paneStreamManager = paneStreamManager
     }
 
-    // MARK: - Session Recording
+    #if DEBUG
+        // MARK: - Session Recording
 
-    /// Returns an existing recorder for the pane, or creates a new one.
-    /// Recorders persist across view recreation so recordings survive pane switching.
-    func recorder(for paneId: String) -> SessionRecorder {
-        if let existing = sessionRecorders[paneId] {
-            return existing
+        /// Returns an existing recorder for the pane, or creates a new one.
+        /// Recorders persist across view recreation so recordings survive pane switching.
+        func recorder(for paneId: String) -> SessionRecorder {
+            if let existing = sessionRecorders[paneId] {
+                return existing
+            }
+            let recorder = SessionRecorder()
+            sessionRecorders[paneId] = recorder
+            return recorder
         }
-        let recorder = SessionRecorder()
-        sessionRecorders[paneId] = recorder
-        return recorder
-    }
+    #endif
 
     // MARK: - Periodic Session Validation
 
@@ -297,10 +301,12 @@ final public class MirrorWindowManager {
     /// Closes the mirror window for the specified pane target (programmatic close, not user-initiated)
     public func closeMirror(for target: String) {
         guard let window = openWindows[target] else { return }
-        // Stop recorder for this pane
-        if let paneId = windowPaneIds[target] {
-            stopAndRemoveRecorder(for: paneId)
-        }
+        #if DEBUG
+            // Stop recorder for this pane
+            if let paneId = windowPaneIds[target] {
+                stopAndRemoveRecorder(for: paneId)
+            }
+        #endif
         // Clear mappings BEFORE closing so windowWillClose delegate doesn't mark as user-closed
         openWindows.removeValue(forKey: target)
         windowPaneIds.removeValue(forKey: target)
@@ -327,10 +333,12 @@ final public class MirrorWindowManager {
         openWindows.removeAll()
         windowPaneIds.removeAll()
         windowDelegates.removeAll()
-        for recorder in sessionRecorders.values {
-            Task { await recorder.stop() }
-        }
-        sessionRecorders.removeAll()
+        #if DEBUG
+            for recorder in sessionRecorders.values {
+                Task { await recorder.stop() }
+            }
+            sessionRecorders.removeAll()
+        #endif
         for (_, window) in windows {
             window.close()
         }
@@ -341,7 +349,9 @@ final public class MirrorWindowManager {
         // Mark this pane as user-closed so we don't auto-reopen it
         if let paneId = windowPaneIds[target] {
             userClosedPanes.insert(paneId)
-            stopAndRemoveRecorder(for: paneId)
+            #if DEBUG
+                stopAndRemoveRecorder(for: paneId)
+            #endif
         }
         openWindows.removeValue(forKey: target)
         windowPaneIds.removeValue(forKey: target)
@@ -407,12 +417,14 @@ final public class MirrorWindowManager {
 
     // MARK: - Session Cleanup
 
-    /// Stops and removes the recorder for a pane.
-    private func stopAndRemoveRecorder(for paneId: String) {
-        if let recorder = sessionRecorders.removeValue(forKey: paneId) {
-            Task { await recorder.stop() }
+    #if DEBUG
+        /// Stops and removes the recorder for a pane.
+        private func stopAndRemoveRecorder(for paneId: String) {
+            if let recorder = sessionRecorders.removeValue(forKey: paneId) {
+                Task { await recorder.stop() }
+            }
         }
-    }
+    #endif
 
     /// Removes a stale session for a pane that no longer exists.
     ///
@@ -421,7 +433,9 @@ final public class MirrorWindowManager {
     private func removeStaleSession(paneId: String) {
         activeSessions.removeValue(forKey: paneId)
         userClosedPanes.remove(paneId)
-        stopAndRemoveRecorder(for: paneId)
+        #if DEBUG
+            stopAndRemoveRecorder(for: paneId)
+        #endif
 
         // Close the mirror window if open
         for (target, mappedPaneId) in windowPaneIds where mappedPaneId == paneId {

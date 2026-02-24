@@ -1,5 +1,7 @@
 import ClaudeSpyCommon
-import Logging
+#if DEBUG
+    import Logging
+#endif
 import SwiftUI
 
 /// View for a single pane mirror window
@@ -7,17 +9,20 @@ struct MirrorWindowView: View {
     let paneInfo: PaneInfo
 
     @Environment(AppSettings.self) private var settings
-    @Environment(MirrorWindowManager.self) private var windowManager
-    @Environment(PaneStreamManager.self) private var paneStreamManager
 
     @State private var streamState: StreamState = .disconnected
     @State private var streamWidth: Int?
     @State private var streamHeight: Int?
-    private let logger = Logger(label: "com.claudespy.mirrorwindowview")
 
-    private var recorder: SessionRecorder {
-        windowManager.recorder(for: paneInfo.paneId)
-    }
+    #if DEBUG
+        @Environment(MirrorWindowManager.self) private var windowManager
+        @Environment(PaneStreamManager.self) private var paneStreamManager
+        private let logger = Logger(label: "com.claudespy.mirrorwindowview")
+
+        private var recorder: SessionRecorder {
+            windowManager.recorder(for: paneInfo.paneId)
+        }
+    #endif
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,15 +30,19 @@ struct MirrorWindowView: View {
                 paneInfo: paneInfo,
                 onStateChange: { state, width, height in
                     Task { @MainActor in
-                        let wasActive = streamState.isActive
+                        #if DEBUG
+                            let wasActive = streamState.isActive
+                        #endif
                         streamState = state
                         streamWidth = width
                         streamHeight = height
 
-                        // Auto-start recording when stream connects
-                        if !wasActive, state.isActive, !recorder.isRecording {
-                            startRecording()
-                        }
+                        #if DEBUG
+                            // Auto-start recording when stream connects
+                            if !wasActive, state.isActive, !recorder.isRecording {
+                                startRecording()
+                            }
+                        #endif
                     }
                 }
             )
@@ -43,37 +52,41 @@ struct MirrorWindowView: View {
                 statusBar
             }
         }
+        #if DEBUG
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                recordingToolbar
-            }
-        }
-        .navigationTitle("Mirror: \(paneInfo.paneId) (\(paneInfo.target))")
-    }
-
-    // MARK: - Toolbar
-
-    @ViewBuilder
-    private var recordingToolbar: some View {
-        if recorder.isRecording {
-            Text(formattedDuration)
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-
-            Text(formattedFileSize)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Button {
-                Task {
-                    await recorder.export()
+                ToolbarItemGroup(placement: .primaryAction) {
+                    recordingToolbar
                 }
-            } label: {
-                Label("Export Recording", symbol: .squareAndArrowUp)
             }
-            .help("Export recording to file")
-        }
+        #endif
+            .navigationTitle("Mirror: \(paneInfo.paneId) (\(paneInfo.target))")
     }
+
+    #if DEBUG
+        // MARK: - Toolbar
+
+        @ViewBuilder
+        private var recordingToolbar: some View {
+            if recorder.isRecording {
+                Text(formattedDuration)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+
+                Text(formattedFileSize)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    Task {
+                        await recorder.export()
+                    }
+                } label: {
+                    Label("Export Recording", symbol: .squareAndArrowUp)
+                }
+                .help("Export recording to file")
+            }
+        }
+    #endif
 
     // MARK: - Subviews
 
@@ -91,17 +104,19 @@ struct MirrorWindowView: View {
 
             Text("\(streamWidth ?? paneInfo.width)x\(streamHeight ?? paneInfo.height)")
 
-            if recorder.isRecording {
-                Divider()
-                    .frame(height: 12)
+            #if DEBUG
+                if recorder.isRecording {
+                    Divider()
+                        .frame(height: 12)
 
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(.red)
-                        .frame(width: 6, height: 6)
-                    Text("REC \(formattedDuration)")
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(.red)
+                            .frame(width: 6, height: 6)
+                        Text("REC \(formattedDuration)")
+                    }
                 }
-            }
+            #endif
 
             Spacer()
         }
@@ -112,38 +127,40 @@ struct MirrorWindowView: View {
         .background(.bar)
     }
 
-    // MARK: - Actions
+    #if DEBUG
+        // MARK: - Actions
 
-    private func startRecording() {
-        Task {
-            do {
-                try await recorder.start(
-                    paneId: paneInfo.paneId,
-                    target: paneInfo.target,
-                    paneStreamManager: paneStreamManager
-                )
-            } catch {
-                logger.error("Failed to start recording: \(error)")
+        private func startRecording() {
+            Task {
+                do {
+                    try await recorder.start(
+                        paneId: paneInfo.paneId,
+                        target: paneInfo.target,
+                        paneStreamManager: paneStreamManager
+                    )
+                } catch {
+                    logger.error("Failed to start recording: \(error)")
+                }
             }
         }
-    }
 
-    // MARK: - Computed Properties
+        // MARK: - Computed Properties
 
-    private var formattedDuration: String {
-        let total = Int(recorder.duration)
-        let hours = total / 3_600
-        let minutes = (total % 3_600) / 60
-        let seconds = total % 60
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        private var formattedDuration: String {
+            let total = Int(recorder.duration)
+            let hours = total / 3_600
+            let minutes = (total % 3_600) / 60
+            let seconds = total % 60
+            if hours > 0 {
+                return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+            }
+            return String(format: "%d:%02d", minutes, seconds)
         }
-        return String(format: "%d:%02d", minutes, seconds)
-    }
 
-    private var formattedFileSize: String {
-        ByteCountFormatter.string(fromByteCount: Int64(recorder.fileSize), countStyle: .file)
-    }
+        private var formattedFileSize: String {
+            ByteCountFormatter.string(fromByteCount: Int64(recorder.fileSize), countStyle: .file)
+        }
+    #endif
 
     private var statusColor: Color {
         switch streamState {

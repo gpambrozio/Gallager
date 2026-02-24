@@ -1,4 +1,4 @@
-#if os(macOS)
+#if DEBUG && os(macOS)
     import AppKit
     import Foundation
     import Logging
