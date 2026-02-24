@@ -22,7 +22,7 @@ public enum StopHookSummaryScenario {
                 "hook_event_name": "Stop",
                 "session_id": "e2e-test-session-1",
                 "timestamp": "2026-02-14T10:01:00.000000Z",
-                "last_assistant_message": "I've completed the refactoring of the authentication module. The changes include updating the JWT validation logic and adding refresh token support."
+                "last_assistant_message": "I've completed the refactoring of the authentication module. The changes include updating the JWT validation logic, adding refresh token support, and migrating the session store to use async/await patterns. All existing tests have been updated to reflect the new architecture and are passing successfully."
             }
             """,
             tmuxPane: "${pane1Id}",
@@ -38,17 +38,17 @@ public enum StopHookSummaryScenario {
         TestStep.iosTap(.labelContains("MyProject"))
         TestStep.wait(seconds: 5)
 
-        // 5. Verify the StopResponseView shows the collapsed summary header (text hidden)
+        // 5. Verify the StopResponseView shows the collapsed summary with 2-line preview
         TestStep.iosWaitForElement(.labelContains("Expand summary"), timeout: 10)
+        TestStep.iosWaitForElement(.identifier("summary-text"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-stop-summary-collapsed")
 
         // 6. Tap the expand button to expand the summary
         TestStep.iosTap(.labelContains("Expand summary"))
         TestStep.wait(seconds: 1)
 
-        // 7. Verify expanded state shows the full summary text
-        TestStep.iosWaitForElement(.labelContains("refactoring of the authentication"), timeout: 5)
-        TestStep.iosWaitForElement(.labelContains("adding refresh token support"), timeout: 5)
+        // 7. Verify expanded state shows the full summary text (including tail end)
+        TestStep.iosWaitForElement(.labelContains("passing successfully"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-stop-summary-expanded")
 
         // 8. Verify the prompt input is also present below the summary

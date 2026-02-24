@@ -50,13 +50,12 @@ struct StopResponseView: View {
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel(state.isSummaryExpanded ? "Collapse summary" : "Expand summary")
 
-            if state.isSummaryExpanded {
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier("summary-text")
-            }
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(state.isSummaryExpanded ? nil : 2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("summary-text")
         }
     }
 }
@@ -68,7 +67,7 @@ struct StopResponseView: View {
         action: .stop(StopBody(
             sessionId: "test",
             hookEventName: "Stop",
-            lastAssistantMessage: "I've completed the refactoring of the authentication module. The changes include: updating the JWT validation logic, adding refresh token support, and migrating the session store to use async/await patterns."
+            lastAssistantMessage: "I've completed the refactoring of the authentication module. The changes include updating the JWT validation logic, adding refresh token support, and migrating the session store to use async/await patterns. All existing tests have been updated to reflect the new architecture and are passing successfully."
         )),
         projectPath: nil,
         tmuxPane: nil
@@ -79,7 +78,7 @@ struct StopResponseView: View {
         List {
             Section("Response") {
                 StopResponseView(
-                    lastAssistantMessage: "I've completed the refactoring of the authentication module. The changes include: updating the JWT validation logic, adding refresh token support, and migrating the session store to use async/await patterns.",
+                    lastAssistantMessage: "I've completed the refactoring of the authentication module. The changes include updating the JWT validation logic, adding refresh token support, and migrating the session store to use async/await patterns. All existing tests have been updated to reflect the new architecture and are passing successfully.",
                     isConnected: true,
                     sendCommand: { _ in },
                     state: state
