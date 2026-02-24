@@ -14,6 +14,9 @@ final public class ResponseState {
     /// Whether a command is currently being sent
     public var isSending = false
 
+    /// Whether the stop hook summary section is expanded (used by StopResponseView)
+    public var isSummaryExpanded = false
+
     /// Reference to the session store for persistence
     private weak var sessionStore: SessionStore?
 

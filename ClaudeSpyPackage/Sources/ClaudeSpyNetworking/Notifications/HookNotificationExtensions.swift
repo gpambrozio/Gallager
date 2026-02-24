@@ -10,8 +10,15 @@ public extension HookEventMessage {
             body = "\(projectName): Claude needs your approval"
         case .sessionStart:
             body = "\(projectName): Claude Code session started"
-        case .stop:
-            body = "\(projectName): Claude Code is waiting for your input"
+        case let .stop(stopBody):
+            if let summary = stopBody.lastAssistantMessage {
+                let truncated = summary.count > 256
+                    ? String(summary.prefix(256)) + "..."
+                    : summary
+                body = "\(projectName): \(truncated)"
+            } else {
+                body = "\(projectName): Claude Code is waiting for your input"
+            }
         case let .notification(notifBody):
             if let message = notifBody.message {
                 body = "\(projectName): \(message)"
