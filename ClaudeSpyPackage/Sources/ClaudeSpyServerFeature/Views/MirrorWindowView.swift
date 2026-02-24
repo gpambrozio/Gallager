@@ -17,6 +17,7 @@ struct MirrorWindowView: View {
     #if DEBUG
         @Environment(MirrorWindowManager.self) private var windowManager
         @Environment(PaneStreamManager.self) private var paneStreamManager
+        @Environment(TmuxService.self) private var tmuxService
         private let logger = Logger(label: "com.claudespy.mirrorwindowview")
 
         private var recorder: SessionRecorder {
@@ -136,7 +137,8 @@ struct MirrorWindowView: View {
                     try await recorder.start(
                         paneId: paneInfo.paneId,
                         target: paneInfo.target,
-                        paneStreamManager: paneStreamManager
+                        paneStreamManager: paneStreamManager,
+                        tmuxService: tmuxService
                     )
                 } catch {
                     logger.error("Failed to start recording: \(error)")

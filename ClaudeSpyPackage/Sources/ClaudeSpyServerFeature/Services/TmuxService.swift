@@ -609,6 +609,21 @@ final public class TmuxService {
         return activeSGRs.joined()
     }
 
+    /// Captures raw pane content for recording purposes.
+    ///
+    /// Returns unprocessed `capture-pane -e -p` output — text with ANSI codes,
+    /// newline-separated lines. Unlike `capturePaneWithScrollbackForStreaming`, this
+    /// does NOT filter escape codes or reconstruct cursor/SGR state.
+    public func captureRawPaneContent(_ target: String) async throws -> Data {
+        let result = try await runTmuxCommand(
+            ["capture-pane", "-t", target, "-p", "-e"]
+        )
+        guard result.isSuccess else {
+            throw TmuxError.invalidPane(target: target)
+        }
+        return result.stdout
+    }
+
     /// Forces a pane to redraw by sending Ctrl+L
     public func forceRedraw(_ target: String) async throws {
         _ = try await runTmuxCommand([

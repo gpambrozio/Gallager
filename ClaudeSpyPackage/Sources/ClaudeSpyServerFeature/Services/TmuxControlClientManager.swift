@@ -96,17 +96,20 @@
         ///   - sessionName: The session this pane belongs to
         ///   - dimensions: Initial pane dimensions
         ///   - handler: Callback for incoming output data
+        ///   - rawHandler: Optional callback for raw data before tmux escape filtering (for recording)
         public func registerPane(
             paneId: String,
             sessionName: String,
             dimensions: (width: Int, height: Int),
-            handler: @escaping @Sendable (Data) -> Void
+            handler: @escaping @Sendable (Data) -> Void,
+            rawHandler: (@Sendable (Data) -> Void)? = nil
         ) async throws {
             let client = try await getClient(for: sessionName)
             await client.registerPaneHandler(
                 paneId: paneId,
                 initialDimensions: dimensions,
-                handler: handler
+                handler: handler,
+                rawHandler: rawHandler
             )
 
             logger.info("Registered pane for streaming", metadata: [

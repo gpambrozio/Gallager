@@ -23,6 +23,7 @@
             let id: UUID
             let paneId: String
             let onData: @MainActor (Data) -> Void
+            let onRawData: (@MainActor (Data) -> Void)?
             let onDimensionChange: (@MainActor (Int, Int) -> Void)?
         }
 
@@ -99,6 +100,7 @@
         ///   - paneId: The pane ID (e.g., "%1")
         ///   - target: The pane target (e.g., "mysession:0.1")
         ///   - onData: Callback for incoming terminal data (live updates only, not initial content)
+        ///   - rawOnData: Optional callback for raw data before tmux escape filtering (for recording)
         ///   - onDimensionChange: Optional callback for dimension changes
         /// - Returns: Subscription result containing ID, initial content, and dimensions
         /// - Throws: If the stream fails to connect
@@ -106,6 +108,7 @@
             paneId: String,
             target: String,
             onData: @escaping @MainActor (Data) -> Void,
+            rawOnData: (@MainActor (Data) -> Void)? = nil,
             onDimensionChange: (@MainActor (Int, Int) -> Void)? = nil
         ) async throws -> SubscriptionResult {
             let subscriptionId = UUID()
@@ -113,6 +116,7 @@
                 id: subscriptionId,
                 paneId: paneId,
                 onData: onData,
+                onRawData: rawOnData,
                 onDimensionChange: onDimensionChange
             )
             subscriptions[subscriptionId] = subscription
@@ -158,6 +162,9 @@
                 // Set up callbacks to forward to all subscribers
                 stream.onData = { [weak self] data in
                     self?.forwardData(paneId: paneId, data: data)
+                }
+                stream.onRawData = { [weak self] data in
+                    self?.forwardRawData(paneId: paneId, data: data)
                 }
                 stream.onDimensionChange = { [weak self] width, height in
                     self?.forwardDimensionChange(paneId: paneId, width: width, height: height)
@@ -284,6 +291,16 @@
             for subscriberId in context.subscriberIds {
                 if let subscription = subscriptions[subscriberId] {
                     subscription.onData(data)
+                }
+            }
+        }
+
+        private func forwardRawData(paneId: String, data: Data) {
+            guard let context = streams[paneId] else { return }
+
+            for subscriberId in context.subscriberIds {
+                if let subscription = subscriptions[subscriberId] {
+                    subscription.onRawData?(data)
                 }
             }
         }

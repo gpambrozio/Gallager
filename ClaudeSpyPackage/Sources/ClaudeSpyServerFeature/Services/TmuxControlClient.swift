@@ -64,6 +64,9 @@ actor TmuxControlClient {
     // Pane handlers - keyed by pane ID (e.g., "%0")
     private var paneHandlers: [String: @Sendable (Data) -> Void] = [:]
 
+    // Raw pane handlers - receive data before filterTmuxEscapeSequences (for recording)
+    private var rawPaneHandlers: [String: @Sendable (Data) -> Void] = [:]
+
     // Callbacks for notifications
     private var _onDimensionChange: (@Sendable (String, Int, Int) -> Void)?
     private var _onPaneExited: (@Sendable (String) -> Void)?
@@ -224,6 +227,7 @@ actor TmuxControlClient {
 
         // Clear state
         paneHandlers.removeAll()
+        rawPaneHandlers.removeAll()
         cachedDimensions.removeAll()
         outputBuffer.removeAll()
         isBufferingOutput = false
@@ -236,8 +240,16 @@ actor TmuxControlClient {
     // MARK: - Pane Tracking
 
     /// Registers a handler to receive output for a specific pane
-    func registerPaneHandler(paneId: String, initialDimensions: (width: Int, height: Int), handler: @escaping @Sendable (Data) -> Void) {
+    func registerPaneHandler(
+        paneId: String,
+        initialDimensions: (width: Int, height: Int),
+        handler: @escaping @Sendable (Data) -> Void,
+        rawHandler: (@Sendable (Data) -> Void)? = nil
+    ) {
         paneHandlers[paneId] = handler
+        if let rawHandler {
+            rawPaneHandlers[paneId] = rawHandler
+        }
         cachedDimensions[paneId] = initialDimensions
         logger.debug("Registered pane handler", metadata: ["paneId": "\(paneId)"])
     }
@@ -245,6 +257,7 @@ actor TmuxControlClient {
     /// Unregisters a pane handler
     func unregisterPaneHandler(paneId: String) {
         paneHandlers.removeValue(forKey: paneId)
+        rawPaneHandlers.removeValue(forKey: paneId)
         cachedDimensions.removeValue(forKey: paneId)
         paneUtf8Buffer.removeValue(forKey: paneId)
         paneTmuxEscapeBuffer.removeValue(forKey: paneId)
@@ -523,6 +536,9 @@ actor TmuxControlClient {
     }
 
     private func deliverOutput(paneId: String, data: Data) {
+        // Deliver raw (unfiltered) data for recording before any filtering
+        rawPaneHandlers[paneId]?(data)
+
         guard let handler = paneHandlers[paneId] else { return }
         // Filter out tmux-specific escape sequences that terminals don't understand
         let filtered = filterTmuxEscapeSequences(data, paneId: paneId)
@@ -708,6 +724,7 @@ actor TmuxControlClient {
                 logger.info("Pane exited (no longer in list)", metadata: ["paneId": "\(paneId)"])
                 cachedDimensions.removeValue(forKey: paneId)
                 paneHandlers.removeValue(forKey: paneId)
+                rawPaneHandlers.removeValue(forKey: paneId)
                 paneUtf8Buffer.removeValue(forKey: paneId)
                 paneTmuxEscapeBuffer.removeValue(forKey: paneId)
                 _onPaneExited?(paneId)

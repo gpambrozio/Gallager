@@ -33,8 +33,11 @@
         private(set) var width = 80
         private(set) var height = 24
 
-        /// Callback for incoming data
+        /// Callback for incoming data (after tmux escape filtering)
         var onData: (@MainActor (Data) -> Void)?
+
+        /// Callback for raw incoming data (before tmux escape filtering, for recording)
+        var onRawData: (@MainActor (Data) -> Void)?
 
         /// Callback for dimension changes (newWidth, newHeight)
         var onDimensionChange: (@MainActor (Int, Int) -> Void)?
@@ -95,14 +98,20 @@
                 try await controlClientManager.registerPane(
                     paneId: paneId,
                     sessionName: sessionName,
-                    dimensions: (width: width, height: height)
-                ) { [weak self] (data: Data) in
-                    Task { @MainActor [weak self] in
-                        guard let self else { return }
-                        self.scrollbackLines += data.split(separator: UInt8(ascii: "\n")).count
-                        self.onData?(data)
+                    dimensions: (width: width, height: height),
+                    handler: { [weak self] (data: Data) in
+                        Task { @MainActor [weak self] in
+                            guard let self else { return }
+                            self.scrollbackLines += data.split(separator: UInt8(ascii: "\n")).count
+                            self.onData?(data)
+                        }
+                    },
+                    rawHandler: { [weak self] (data: Data) in
+                        Task { @MainActor [weak self] in
+                            self?.onRawData?(data)
+                        }
                     }
-                }
+                )
 
                 // Step 3: Capture via control mode. These commands are ordered relative
                 // to %output events in the control mode stream, so the capture results

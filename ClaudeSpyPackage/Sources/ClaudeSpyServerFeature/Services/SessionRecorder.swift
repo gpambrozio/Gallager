@@ -204,28 +204,33 @@
 
         /// Starts recording terminal data for a pane.
         ///
-        /// Subscribes to `paneStreamManager` for the given pane, using the subscription's
-        /// `initialContent` as the time-zero frame and its dimensions for the recording header.
+        /// Subscribes to `paneStreamManager` for the given pane using the raw data callback
+        /// to capture terminal bytes before tmux escape filtering. Initial content is captured
+        /// separately via `capture-pane -e -p` to avoid the processing in
+        /// `processCapturePaneForStreaming`.
         ///
         /// - Parameters:
         ///   - paneId: The tmux pane ID (e.g., "%5")
         ///   - target: The pane target (e.g., "mysession:0.1")
         ///   - paneStreamManager: The stream manager to subscribe to
+        ///   - tmuxService: The tmux service for raw capture
         func start(
             paneId: String,
             target: String,
-            paneStreamManager: PaneStreamManager
+            paneStreamManager: PaneStreamManager,
+            tmuxService: TmuxService
         ) async throws {
             guard !isRecording else {
                 logger.warning("Recording already active for \(self.target ?? "unknown")")
                 return
             }
 
-            // Subscribe to the stream — the recorder gets its own independent subscription
+            // Subscribe to the stream — use rawOnData to get bytes before filtering
             let result = try await paneStreamManager.subscribe(
                 paneId: paneId,
                 target: target,
-                onData: { [weak self] data in
+                onData: { _ in }, // no-op: we only need raw data for recording
+                rawOnData: { [weak self] data in
                     self?.appendData(data)
                 }
             )
@@ -234,12 +239,15 @@
             subscriptionId = result.subscriptionId
             self.paneId = paneId
 
+            // Capture raw initial content (unprocessed capture-pane output)
+            let rawInitialContent = try await tmuxService.captureRawPaneContent(target)
+
             _ = try await writer.open(
                 paneId: paneId,
                 target: target,
                 width: result.width,
                 height: result.height,
-                initialContent: result.initialContent
+                initialContent: rawInitialContent
             )
 
             self.target = target
