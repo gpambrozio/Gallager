@@ -58,7 +58,7 @@ Wait for an element matching the query, then perform a left swipe gesture on it.
 Wait for a UI element to no longer be present in the accessibility tree. Useful for waiting for loading spinners or transitional text to disappear.
 
 ### `iosScreenshot(label: String, compare: Bool = true, tolerance: Double = 0.0, perPixelThreshold: Double = 0.02)`
-Take a screenshot of the iOS simulator. The label is auto-prefixed with a zero-padded counter (`01-`, `02-`, etc.) that resets per scenario — do not add manual number prefixes. By default, the screenshot is compared against a stored baseline (see `docs/e2e-testing.md` for screenshot comparison details). Pass `compare: false` for capture-only screenshots.
+Take a screenshot of the iOS simulator. The label is auto-prefixed with a zero-padded counter (`01-`, `02-`, etc.) that resets per scenario — do not add manual number prefixes. By default, the screenshot is compared against a stored baseline (see `docs/e2e-testing.md` for screenshot comparison details). Pass `compare: false` for capture-only screenshots but default to comparing unless the screen would change between runs.
 
 ### `iosLogUI`
 Dump the full iOS accessibility tree to the console log. For debugging only - helps discover element labels, roles, and identifiers when writing queries.
@@ -108,7 +108,7 @@ Resize the macOS app's frontmost window to the specified pixel dimensions.
 Type text into the macOS app via AppleScript `keystroke`. Supports `${variable}` interpolation. Set `pressReturn: true` to press Return after typing (useful for terminal commands).
 
 ### `macScreenshot(label: String, compare: Bool = true, tolerance: Double = 0.0, perPixelThreshold: Double = 0.02)`
-Take a screenshot of the macOS app window. The label is auto-prefixed with a zero-padded counter (`01-`, `02-`, etc.) that resets per scenario — do not add manual number prefixes. By default, the screenshot is compared against a stored baseline (see `docs/e2e-testing.md` for screenshot comparison details). Pass `compare: false` for capture-only screenshots. When `compare: false`, screenshot errors are non-fatal (logged as warnings).
+Take a screenshot of the macOS app window. The label is auto-prefixed with a zero-padded counter (`01-`, `02-`, etc.) that resets per scenario — do not add manual number prefixes. By default, the screenshot is compared against a stored baseline (see `docs/e2e-testing.md` for screenshot comparison details). Pass `compare: false` for capture-only screenshots. When `compare: false`, screenshot errors are non-fatal (logged as warnings). Default should be to compare unless the screen is expected to change between runs.
 
 ## Tmux Steps
 

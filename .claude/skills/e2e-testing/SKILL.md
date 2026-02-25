@@ -105,7 +105,7 @@ If the scenario fails, fix the issue and re-run until it passes. **Never commit 
 2. **Start with clean state** - Begin scenarios with `uninstallIOSApp` + `terminateMacApp` if needed
 3. **Always start server before apps** - Apps need the server URL for `--e2e-test` args
 4. **Use composition** - Reuse existing scenarios by embedding them (steps get flattened inline)
-5. **Add screenshots at key checkpoints** - Labels are auto-numbered (`01-`, `02-`, etc.) per scenario run; do not add manual number prefixes. Screenshots compare against baselines by default; pass `compare: false` for capture-only.
+5. **Add screenshots at key checkpoints** - Labels are auto-numbered (`01-`, `02-`, etc.) per scenario run; do not add manual number prefixes. Screenshots compare against baselines by default; pass `compare: false` only for screens that should not have consistent output. Default should be to not add `compare: false` so it gets compared against the baseline.
 6. **Use `wait(seconds:)` after actions** - UI transitions need time; typical waits are 0.5-3 seconds
 7. **Use numbered comments** - Group steps into logical phases with `// 1. Description` comments
 
