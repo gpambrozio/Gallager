@@ -7,7 +7,8 @@ import Foundation
 /// 1. Moves the pane to the "Claude Sessions" section
 /// 2. Preserves the selection highlight on the moved pane
 /// 3. When the session ends, moves the pane back to "Terminals"
-/// 4. Auto-selects a new Claude session when nothing is selected
+/// 4. All sidebar elements remain visible after session end (no hidden elements)
+/// 5. Auto-selects a new Claude session when nothing is selected
 public enum SidebarSelectionScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Sidebar Selection",
@@ -109,9 +110,58 @@ public enum SidebarSelectionScenario {
         TestStep.macWaitForElement(titled: "sidebar-2:0.0", timeout: 5)
         TestStep.macScreenshot(label: "pane1-back-in-terminals")
 
-        // ── Phase 5: Auto-select when no selection ──────────────
+        // ── Phase 5: Session end keeps all elements visible ───
+        // Regression test for issue #174: when a Claude session exits,
+        // the pane moves from "Claude Sessions" to "Terminals" and the
+        // sidebar scroll position could hide elements.
 
-        TestStep.log("Phase 5: Auto-select a new Claude session when nothing is selected")
+        TestStep.log("Phase 5: Verify all sidebar elements visible after session end")
+
+        // Start a session on pane 1 (currently selected) so it moves to Claude Sessions
+        TestStep.macSendHookEvent(
+            json: """
+            {
+                "hook_event_name": "SessionStart",
+                "session_id": "sidebar-test-session-1b",
+                "timestamp": "2026-02-14T10:02:30.000000Z"
+            }
+            """,
+            tmuxPane: "${pane1Id}",
+            projectPath: "/Users/test/ProjectAlpha"
+        )
+        TestStep.wait(seconds: 3)
+
+        // Pane 1 should be in Claude Sessions, pane 2 in Terminals
+        TestStep.macWaitForElement(titled: "Claude Sessions", timeout: 10)
+        TestStep.macWaitForElement(titled: "sidebar-1:0.0", timeout: 5)
+        TestStep.macWaitForElement(titled: "sidebar-2:0.0", timeout: 5)
+
+        // Now end the session — pane 1 moves back to Terminals
+        TestStep.macSendHookEvent(
+            json: """
+            {
+                "hook_event_name": "SessionEnd",
+                "session_id": "sidebar-test-session-1b",
+                "timestamp": "2026-02-14T10:02:45.000000Z",
+                "reason": "user_quit"
+            }
+            """,
+            tmuxPane: "${pane1Id}",
+            projectPath: "/Users/test/ProjectAlpha"
+        )
+        TestStep.wait(seconds: 3)
+
+        // Claude Sessions section should disappear
+        TestStep.macWaitForElementToDisappear(titled: "Claude Sessions", timeout: 10)
+        // CRITICAL: Both panes must be visible without scrolling (issue #174)
+        TestStep.macWaitForElement(titled: "Terminals", timeout: 5)
+        TestStep.macWaitForElement(titled: "sidebar-1:0.0", timeout: 5)
+        TestStep.macWaitForElement(titled: "sidebar-2:0.0", timeout: 5)
+        TestStep.macScreenshot(label: "all-visible-after-session-end")
+
+        // ── Phase 6: Auto-select when no selection ──────────────
+
+        TestStep.log("Phase 6: Auto-select a new Claude session when nothing is selected")
 
         // Create a third session to test auto-selection
         TestStep.tmuxCreateSession(name: "sidebar-3", width: 80, height: 24)
