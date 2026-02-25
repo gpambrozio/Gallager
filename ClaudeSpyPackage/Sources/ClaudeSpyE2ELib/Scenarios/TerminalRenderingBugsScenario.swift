@@ -79,7 +79,7 @@ public enum TerminalRenderingBugsScenario {
 
         // Screenshot: "BEFORE_RECAP: SHOULD BE MAGENTA" and the "$ " prompt
         // below it should both appear in magenta (SGR state carries over).
-        TestStep.macScreenshot(label: "h17-before-recapture-magenta-active", compare: false)
+        TestStep.macScreenshot(label: "h17-before-recapture-magenta-active")
 
         // De-select / re-select to force re-capture.
         // capturePaneWithScrollbackForStreaming adds ESC[0m resets at end of each
@@ -103,7 +103,7 @@ public enum TerminalRenderingBugsScenario {
         // "BEFORE_RECAP" text is still magenta (already rendered).
         // "AFTER_RECAP" text is DEFAULT color — proving the re-capture killed
         // the active SGR state. This is the H17 bug.
-        TestStep.macScreenshot(label: "h17-after-recapture-sgr-divergence", compare: false)
+        TestStep.macScreenshot(label: "h17-after-recapture-sgr-divergence")
 
         // ── Phase 2: Scrollback corruption after re-capture ────────────
 
@@ -150,7 +150,7 @@ public enum TerminalRenderingBugsScenario {
         TestStep.wait(seconds: 0.5)
 
         // Screenshot: scrollback as accumulated by live PTY stream
-        TestStep.macScreenshot(label: "scrollback-before-recapture", compare: false)
+        TestStep.macScreenshot(label: "scrollback-before-recapture")
 
         // De-select / re-select to force re-capture, which replaces the mirror's
         // scrollback with tmux's captured content — this corrupts the scrollback.
@@ -165,6 +165,6 @@ public enum TerminalRenderingBugsScenario {
 
         // Screenshot: scrollback after re-capture — compare with previous screenshot
         // to see content duplication, truncation, or reordering.
-        TestStep.macScreenshot(label: "scrollback-after-recapture", compare: false)
+        TestStep.macScreenshot(label: "scrollback-after-recapture")
     }
 }

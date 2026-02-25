@@ -84,7 +84,7 @@ public enum TwoMacPairingScenario {
 
         // The remote pane should show in the sidebar with format "session:window.pane"
         TestStep.macWaitForElement(titled: "e2e-mac-pair:0.0", timeout: 15, instance: 1)
-        TestStep.macScreenshot(label: "viewer-sees-remote-pane", compare: false, instance: 1)
+        TestStep.macScreenshot(label: "viewer-sees-remote-pane", instance: 1)
 
         // ── Phase 7: Select the pane on the viewer ──────────────────
 
