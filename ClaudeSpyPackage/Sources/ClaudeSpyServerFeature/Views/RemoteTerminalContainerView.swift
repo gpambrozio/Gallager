@@ -20,6 +20,14 @@ struct RemoteTerminalContainerView: View {
     @State private var streamState: RemoteStreamState = .connecting
     @State private var streamWidth = 80
     @State private var streamHeight = 24
+    @State private var terminalTitle: String?
+
+    private var windowTitle: String {
+        if let terminalTitle, !terminalTitle.isEmpty {
+            return terminalTitle
+        }
+        return "Remote: \(hostName) - \(paneId)"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,6 +39,9 @@ struct RemoteTerminalContainerView: View {
                     streamState = state
                     streamWidth = width
                     streamHeight = height
+                },
+                onTitleChange: { title in
+                    terminalTitle = title
                 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -39,7 +50,13 @@ struct RemoteTerminalContainerView: View {
                 statusBar
             }
         }
-        .navigationTitle("Remote: \(hostName) - \(paneId)")
+        .navigationTitle(windowTitle)
+        .onChange(of: terminalTitle) { _, newTitle in
+            // Update the NSWindow title to match (SwiftUI navigationTitle doesn't sync to NSWindow)
+            if let newTitle, !newTitle.isEmpty {
+                NSApp.windows.first { $0.title.contains(paneId) && $0.title.contains(hostName) }?.title = newTitle
+            }
+        }
         .onChange(of: streamState) { _, newState in
             if newState == .disconnected {
                 onStreamEnd?()
@@ -109,6 +126,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
     let connection: ViewerConnection
     let settings: AppSettings
     let onStateChange: @MainActor (RemoteStreamState, Int, Int) -> Void
+    let onTitleChange: @MainActor (String) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -121,7 +139,8 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             paneId: paneId,
             connection: connection,
             settings: settings,
-            onStateChange: onStateChange
+            onStateChange: onStateChange,
+            onTitleChange: onTitleChange
         )
 
         return coordinator.terminalView
@@ -154,6 +173,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         private var hasReceivedInitialState = false
         private var streamTask: Task<Void, Never>?
         private var onStateChange: (@MainActor (RemoteStreamState, Int, Int) -> Void)?
+        private var onTitleChange: (@MainActor (String) -> Void)?
 
         // Serializes key sends so concurrent onInput callbacks don't race
         private var pendingKeyTask: Task<Void, Never>?
@@ -169,11 +189,13 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             paneId: String,
             connection: ViewerConnection,
             settings: AppSettings,
-            onStateChange: @MainActor @escaping (RemoteStreamState, Int, Int) -> Void
+            onStateChange: @MainActor @escaping (RemoteStreamState, Int, Int) -> Void,
+            onTitleChange: @MainActor @escaping (String) -> Void
         ) {
             self.paneId = paneId
             self.connection = connection
             self.onStateChange = onStateChange
+            self.onTitleChange = onTitleChange
 
             updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
             applyTheme(settings.theme)
@@ -278,6 +300,9 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
                 terminalView.getTerminal().resize(cols: columns, rows: rows)
                 updateTerminalFrameSize()
                 notifyStateChange()
+
+            case let .titleChange(change):
+                onTitleChange?(change.title)
 
             case .streamEnd:
                 updateState(.disconnected)

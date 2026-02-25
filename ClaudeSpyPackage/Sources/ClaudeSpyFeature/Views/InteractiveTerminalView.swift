@@ -27,6 +27,9 @@
         /// Marked @MainActor for Swift 6 strict concurrency safety.
         var onInput: (@MainActor ([TmuxKey]) -> Void)?
 
+        /// Callback invoked when the terminal title changes (via OSC 0 or OSC 2 escape sequences).
+        var onTitleChange: (@MainActor (String) -> Void)?
+
         /// Set to true after initial content has been loaded to enable scroll preservation
         var preserveUserScroll = false
 
@@ -338,7 +341,7 @@
         }
 
         func setTerminalTitle(source: TerminalView, title: String) {
-            // No-op - we don't track titles in this context
+            onTitleChange?(title)
         }
 
         func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {

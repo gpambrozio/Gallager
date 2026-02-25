@@ -13,6 +13,7 @@
 
         @State private var service: SessionDetailService
         @State private var showSessionInfo = false
+        @State private var terminalTitle: String?
 
         /// Hide navigation bar on iPhone in landscape to maximize terminal space
         private var hideNavigationBar: Bool {
@@ -36,7 +37,7 @@
 
         var body: some View {
             terminalContent
-                .navigationTitle(service.session?.displayName ?? "Session")
+                .navigationTitle(terminalTitle ?? service.session?.displayName ?? "Session")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar(hideNavigationBar ? .hidden : .visible, for: .navigationBar)
                 .toolbar {
@@ -60,6 +61,7 @@
                 LiveTerminalView(
                     paneId: paneId,
                     responseState: $service.responseState,
+                    terminalTitle: $terminalTitle,
                     isConnected: service.isHostConnected,
                     hideNavigationBar: hideNavigationBar,
                     settings: settings,

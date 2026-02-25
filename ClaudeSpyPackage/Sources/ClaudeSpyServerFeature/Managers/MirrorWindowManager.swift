@@ -323,6 +323,18 @@ final public class MirrorWindowManager {
         windowDelegates.removeValue(forKey: target)
     }
 
+    /// Terminal titles keyed by pane target, detected via OSC escape sequences
+    public private(set) var terminalTitles: [String: String] = [:]
+
+    /// Updates the terminal title for a pane and the associated window title.
+    /// - Parameters:
+    ///   - target: The pane target (e.g., "mysession:0.1")
+    ///   - title: The new terminal title
+    public func updateTerminalTitle(target: String, title: String) {
+        terminalTitles[target] = title
+        openWindows[target]?.title = title
+    }
+
     /// Brings a mirror window to front if it exists
     public func bringToFront(target: String) {
         if let window = openWindows[target] {

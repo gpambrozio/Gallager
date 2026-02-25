@@ -136,6 +136,9 @@
         /// Callback invoked when the user types. The keys are ready for relay transmission.
         var onInput: (@MainActor ([TmuxKey]) -> Void)?
 
+        /// Callback invoked when the terminal title changes (via OSC 0 or OSC 2 escape sequences).
+        var onTitleChange: (@MainActor (String) -> Void)?
+
         var preserveUserScroll = false
         var onResize: ((NSSize) -> Void)?
 
@@ -677,7 +680,7 @@
         }
 
         func setTerminalTitle(source: TerminalView, title: String) {
-            // No-op - we don't track titles in this context
+            onTitleChange?(title)
         }
 
         func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {

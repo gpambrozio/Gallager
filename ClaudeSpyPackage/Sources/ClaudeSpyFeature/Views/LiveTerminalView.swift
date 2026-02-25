@@ -18,6 +18,9 @@
         /// Binding to the response state for displaying response options above the terminal
         @Binding var responseState: ResponseState?
 
+        /// Binding to the terminal title detected via OSC escape sequences
+        @Binding var terminalTitle: String?
+
         /// Whether the host is connected
         let isConnected: Bool
 
@@ -40,6 +43,7 @@
         init(
             paneId: String,
             responseState: Binding<ResponseState?>,
+            terminalTitle: Binding<String?>,
             isConnected: Bool,
             hideNavigationBar: Bool = false,
             settings: IOSSettings,
@@ -47,6 +51,7 @@
         ) {
             self.paneId = paneId
             self._responseState = responseState
+            self._terminalTitle = terminalTitle
             self.isConnected = isConnected
             self.hideNavigationBar = hideNavigationBar
             self.sendCommand = sendCommand
@@ -122,6 +127,9 @@
                 if newState == .ended {
                     dismiss()
                 }
+            }
+            .onChange(of: coordinator.terminalTitle) { _, newTitle in
+                terminalTitle = newTitle
             }
         }
 
@@ -250,6 +258,7 @@
 
         var streamState: StreamState = .idle
         var terminalState: TerminalState?
+        var terminalTitle: String?
         var error: String?
 
         /// Unique identifier for the current streaming session.
@@ -314,6 +323,9 @@
             case let .dimensionChange(dims):
                 // Resize terminal
                 terminalState?.resize(width: dims.width, height: dims.height)
+
+            case let .titleChange(change):
+                terminalTitle = change.title
 
             case .streamEnd:
                 // Only process streamEnd if we're actually streaming.
@@ -557,6 +569,7 @@
             LiveTerminalView(
                 paneId: "%1",
                 responseState: .init(get: { nil }, set: { _ in }),
+                terminalTitle: .init(get: { nil }, set: { _ in }),
                 isConnected: true,
                 settings: settings,
                 sendCommand: { _ in }

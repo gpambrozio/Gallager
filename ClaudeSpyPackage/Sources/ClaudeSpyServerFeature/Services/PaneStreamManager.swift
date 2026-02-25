@@ -24,6 +24,7 @@
             let paneId: String
             let onData: @MainActor (Data) -> Void
             let onDimensionChange: (@MainActor (Int, Int) -> Void)?
+            let onTitleChange: (@MainActor (String) -> Void)?
         }
 
         /// Context for a managed stream
@@ -31,6 +32,8 @@
             let stream: PaneStream
             let target: String
             var subscriberIds: Set<UUID>
+            /// Current terminal title detected via OSC escape sequences
+            var terminalTitle: String?
         }
 
         // MARK: - Properties
@@ -61,6 +64,11 @@
         public func dimensions(for paneId: String) -> (width: Int, height: Int)? {
             guard let context = streams[paneId] else { return nil }
             return (context.stream.width, context.stream.height)
+        }
+
+        /// Get current terminal title for a pane (if streaming and title has been set)
+        public func terminalTitle(for paneId: String) -> String? {
+            streams[paneId]?.terminalTitle
         }
 
         // MARK: - Initialization
@@ -100,20 +108,23 @@
         ///   - target: The pane target (e.g., "mysession:0.1")
         ///   - onData: Callback for incoming terminal data (live updates only, not initial content)
         ///   - onDimensionChange: Optional callback for dimension changes
+        ///   - onTitleChange: Optional callback for terminal title changes
         /// - Returns: Subscription result containing ID, initial content, and dimensions
         /// - Throws: If the stream fails to connect
         public func subscribe(
             paneId: String,
             target: String,
             onData: @escaping @MainActor (Data) -> Void,
-            onDimensionChange: (@MainActor (Int, Int) -> Void)? = nil
+            onDimensionChange: (@MainActor (Int, Int) -> Void)? = nil,
+            onTitleChange: (@MainActor (String) -> Void)? = nil
         ) async throws -> SubscriptionResult {
             let subscriptionId = UUID()
             let subscription = Subscription(
                 id: subscriptionId,
                 paneId: paneId,
                 onData: onData,
-                onDimensionChange: onDimensionChange
+                onDimensionChange: onDimensionChange,
+                onTitleChange: onTitleChange
             )
             subscriptions[subscriptionId] = subscription
 
@@ -248,6 +259,24 @@
             context.stream.updateDimensions(width: width, height: height)
         }
 
+        /// Report a terminal title change detected by a subscriber's SwiftTerm instance.
+        ///
+        /// SwiftTerm parses OSC 0/2 sequences from the data stream and calls its delegate.
+        /// The subscriber (e.g., TerminalContainerView) reports the title back here so it can
+        /// be forwarded to other subscribers (e.g., TerminalStreamService for iOS relay).
+        ///
+        /// - Parameters:
+        ///   - paneId: The pane ID whose title changed
+        ///   - title: The new terminal title
+        ///   - fromSubscription: The subscription ID reporting the change (excluded from forwarding)
+        public func reportTitleChange(paneId: String, title: String, fromSubscription: UUID) {
+            guard var context = streams[paneId] else { return }
+            guard context.terminalTitle != title else { return }
+            context.terminalTitle = title
+            streams[paneId] = context
+            forwardTitleChange(paneId: paneId, title: title, excludingSubscription: fromSubscription)
+        }
+
         /// Capture current content for a pane that is already streaming.
         ///
         /// This is used when a second viewer wants to view an already-streaming pane.
@@ -296,6 +325,18 @@
                     let subscription = subscriptions[subscriberId],
                     let callback = subscription.onDimensionChange {
                     callback(width, height)
+                }
+            }
+        }
+
+        private func forwardTitleChange(paneId: String, title: String, excludingSubscription: UUID) {
+            guard let context = streams[paneId] else { return }
+
+            for subscriberId in context.subscriberIds where subscriberId != excludingSubscription {
+                if
+                    let subscription = subscriptions[subscriberId],
+                    let callback = subscription.onTitleChange {
+                    callback(title)
                 }
             }
         }
