@@ -148,6 +148,12 @@
         private var cachedCellSize: CGSize?
         private var lastMouseGridPosition: (col: Int, row: Int)?
 
+        /// Cached OSC 8 payloads extracted from SwiftTerm cells before clearing.
+        /// Structure: [viewportRow: [col: payloadString]]
+        /// We clear SwiftTerm's cell payloads to prevent its own dashed underline rendering,
+        /// but cache them here so our URL detection still works.
+        private var cachedPayloads: [Int: [Int: String]] = [:]
+
         private var isFocused = false {
             didSet {
                 focusBorderView?.isFocused = isFocused
@@ -337,14 +343,48 @@
         // MARK: - URL Detection
 
         /// Bridges SwiftTerm's `Terminal` to the closures expected by `TerminalURLDetector`.
-        private static func urlClosures(for terminal: Terminal) -> (
+        /// Uses cached payloads (extracted before clearing) instead of live cell payloads.
+        private func urlClosures(for terminal: Terminal) -> (
             lineText: (Int) -> String?,
             cellPayload: (Int, Int) -> String?
         ) {
-            (
+            let payloads = cachedPayloads
+            return (
                 lineText: { terminal.getLine(row: $0)?.translateToString(trimRight: true) },
-                cellPayload: { col, row in terminal.getLine(row: row)?[col].getPayload() as? String }
+                cellPayload: { col, row in payloads[row]?[col] }
             )
+        }
+
+        /// Scans terminal cells for OSC 8 payloads, caches them, then clears them.
+        /// We cache payloads so our URL detection works, but clear them from SwiftTerm's cells
+        /// to prevent SwiftTerm from rendering its own dashed underlines.
+        private func extractAndClearPayloads() {
+            let terminal = terminalView.getTerminal()
+            var newPayloads: [Int: [Int: String]] = [:]
+            // TinyAtom.empty is internal, but TinyAtom is a single UInt16 struct —
+            // empty has code 0 which makes CharData.hasPayload return false.
+            let emptyAtom = unsafeBitCast(UInt16(0), to: TinyAtom.self)
+
+            for row in 0..<terminal.rows {
+                guard let line = terminal.getLine(row: row) else { continue }
+                var rowPayloads: [Int: String]?
+                for col in 0..<terminal.cols {
+                    var cd = line[col]
+                    if cd.hasPayload {
+                        if let payload = cd.getPayload() as? String, !payload.isEmpty {
+                            if rowPayloads == nil { rowPayloads = [:] }
+                            rowPayloads?[col] = payload
+                        }
+                        cd.setPayload(atom: emptyAtom)
+                        line[col] = cd
+                    }
+                }
+                if let rowPayloads {
+                    newPayloads[row] = rowPayloads
+                }
+            }
+
+            cachedPayloads = newPayloads
         }
 
         /// Converts a point in this view's coordinate space to a viewport grid position (col, row).
@@ -398,7 +438,7 @@
             lastMouseGridPosition = pos
 
             let terminal = terminalView.getTerminal()
-            let closures = Self.urlClosures(for: terminal)
+            let closures = urlClosures(for: terminal)
             let urls = TerminalURLDetector.detectURLs(
                 row: pos.row,
                 cols: terminal.cols,
@@ -496,7 +536,7 @@
         fileprivate func handleURLClick(at point: NSPoint) -> Bool {
             guard let pos = gridPosition(for: point) else { return false }
             let terminal = terminalView.getTerminal()
-            let closures = Self.urlClosures(for: terminal)
+            let closures = urlClosures(for: terminal)
             if
                 let url = TerminalURLDetector.urlAt(
                     col: pos.col,
@@ -528,7 +568,7 @@
             CATransaction.begin()
             CATransaction.setDisableActions(true)
 
-            let closures = Self.urlClosures(for: terminal)
+            let closures = urlClosures(for: terminal)
             for row in 0..<terminal.rows {
                 let urls = TerminalURLDetector.detectURLs(
                     row: row,
@@ -657,6 +697,7 @@
 
         func feed(byteArray: ArraySlice<UInt8>) {
             terminalView.feed(byteArray: byteArray)
+            extractAndClearPayloads()
             needsLayout = true
         }
 
@@ -667,6 +708,7 @@
             // - Position <= 0.001 (no scrollback yet, or at very top)
             let wasAtExtreme = savedPosition >= 0.999 || savedPosition <= 0.001
             terminalView.feed(byteArray: bytes)
+            extractAndClearPayloads()
             if preserveUserScroll, !wasAtExtreme {
                 terminalView.scroll(toPosition: savedPosition)
             }

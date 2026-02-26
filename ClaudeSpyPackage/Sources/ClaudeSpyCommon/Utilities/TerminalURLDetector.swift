@@ -58,7 +58,7 @@ public enum TerminalURLDetector {
         lineText: (Int) -> String?,
         cellPayload: (Int, Int) -> String?
     ) -> [DetectedURL] {
-        let oscURLs = detectOSC8URLs(row: row, cols: cols, cellPayload: cellPayload)
+        let oscURLs = detectOSC8URLs(row: row, cols: cols, lineText: lineText, cellPayload: cellPayload)
         let regexURLs = detectRegexURLs(row: row, lineText: lineText)
 
         guard !oscURLs.isEmpty else { return regexURLs }
@@ -117,13 +117,19 @@ public enum TerminalURLDetector {
     // MARK: - Private
 
     /// Scans a terminal row for consecutive runs of cells with the same OSC 8 hyperlink payload.
+    ///
+    /// tmux's `capture-pane -e` may extend OSC 8 sequences across trailing spaces to the end
+    /// of the line. We trim trailing whitespace from each detected range using the line text.
     private static func detectOSC8URLs(
         row: Int,
         cols: Int,
+        lineText: (Int) -> String?,
         cellPayload: (Int, Int) -> String?
     ) -> [DetectedURL] {
         var results: [DetectedURL] = []
         var col = 0
+        let text = lineText(row) ?? ""
+        let utf16 = text.utf16
 
         while col < cols {
             guard
@@ -140,7 +146,19 @@ public enum TerminalURLDetector {
                 col += 1
             }
 
-            results.append(DetectedURL(url: url, startCol: startCol, endCol: col, source: .escapeSequence))
+            // Trim trailing whitespace from the detected range using the line text.
+            // tmux capture-pane may extend OSC 8 payloads across trailing spaces.
+            // First clamp to text length — anything beyond the trimmed text is whitespace.
+            var endCol = min(col, utf16.count)
+            while endCol > startCol {
+                let idx = utf16.index(utf16.startIndex, offsetBy: endCol - 1)
+                let char = Character(UnicodeScalar(utf16[idx])!)
+                if !char.isWhitespace { break }
+                endCol -= 1
+            }
+            guard endCol > startCol else { continue }
+
+            results.append(DetectedURL(url: url, startCol: startCol, endCol: endCol, source: .escapeSequence))
         }
 
         return results
