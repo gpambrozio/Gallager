@@ -6,8 +6,8 @@ import Foundation
 /// sequence detection. Verifies that links are visible (underlined) in mirrored
 /// terminal sessions on both macOS and iOS.
 ///
-/// **Setup:** Creates a tmux session, emits plain-text URLs and OSC 8 hyperlinks,
-/// then verifies they render on both macOS (Panes window) and iOS (via pairing).
+/// **Setup:** Pairs devices first, then creates a tmux session, emits plain-text
+/// URLs and OSC 8 hyperlinks, and verifies they render on both macOS and iOS.
 ///
 /// **OSC 8 format:** `\e]8;;URL\e\\LINK_TEXT\e]8;;\e\\`
 /// The escape sequence attaches a hyperlink URL to the visible LINK_TEXT.
@@ -16,7 +16,14 @@ public enum TerminalLinksScenario {
         "Terminal Links",
         tags: ["terminal", "links"]
     ) {
-        // ── Setup ─────────────────────────────────────────────────────
+        // ── Pair devices first ──────────────────────────────────────
+        // Pairing launches both apps and establishes the relay connection.
+        // Do this before creating tmux sessions so the session survives
+        // app restarts during the pairing flow.
+
+        FreshPairingScenario.scenario
+
+        // ── Setup tmux session ──────────────────────────────────────
 
         TestStep.log("Creating tmux session for link testing")
         TestStep.tmuxCreateSession(name: "links-test", width: 120, height: 40)
@@ -32,7 +39,7 @@ public enum TerminalLinksScenario {
         TestStep.tmuxSendKeys(target: "links-test:0.0", keys: "Enter")
         TestStep.wait(seconds: 0.5)
 
-        // ── Emit URLs ─────────────────────────────────────────────────
+        // ── Emit URLs ───────────────────────────────────────────────
 
         // 1. Plain-text URL (detected by regex)
         TestStep.tmuxSendKeys(
@@ -63,12 +70,9 @@ public enum TerminalLinksScenario {
         TestStep.tmuxSendKeys(target: "links-test:0.0", keys: "Enter")
         TestStep.wait(seconds: 0.5)
 
-        // ── Verify on macOS ───────────────────────────────────────────
+        // ── Verify on macOS ─────────────────────────────────────────
 
         TestStep.log("Verifying links on macOS")
-        TestStep.launchMacApp()
-        TestStep.wait(seconds: 3)
-
         TestStep.macOpenPanesWindow()
         TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
         TestStep.wait(seconds: 1)
@@ -84,14 +88,9 @@ public enum TerminalLinksScenario {
         // Screenshot showing links rendered with underlines on macOS
         TestStep.macScreenshot(label: "mac-terminal-links", compare: false)
 
-        // ── Verify on iOS ─────────────────────────────────────────────
+        // ── Verify on iOS ───────────────────────────────────────────
 
-        TestStep.log("Verifying links on iOS via pairing")
-        TestStep.terminateMacApp()
-        TestStep.wait(seconds: 1)
-
-        // Use full pairing flow to connect iOS
-        FreshPairingScenario.scenario
+        TestStep.log("Verifying links on iOS")
 
         // Create a new terminal session on iOS (which connects to tmux)
         TestStep.iosTap(.label("New Session"))
@@ -103,7 +102,8 @@ public enum TerminalLinksScenario {
         TestStep.iosWaitForElementToDisappear(.labelContains("Connecting to terminal"), timeout: 15)
         TestStep.wait(seconds: 1)
 
-        // Emit the same URLs in the active terminal via macOS (now paired)
+        // Re-emit URLs in the active terminal (iOS connects to an existing tmux session
+        // but may need fresh output to see links)
         TestStep.tmuxSendKeys(target: "links-test:0.0", keys: "clear", literal: true)
         TestStep.tmuxSendKeys(target: "links-test:0.0", keys: "Enter")
         TestStep.wait(seconds: 0.5)

@@ -103,6 +103,17 @@
 
         // MARK: - URL Detection
 
+        /// Bridges SwiftTerm's `Terminal` to the closures expected by `TerminalURLDetector`.
+        private static func urlClosures(for terminal: Terminal) -> (
+            lineText: (Int) -> String?,
+            cellPayload: (Int, Int) -> String?
+        ) {
+            (
+                lineText: { terminal.getLine(row: $0)?.translateToString(trimRight: true) },
+                cellPayload: { col, row in terminal.getLine(row: row)?[col].getPayload() as? String }
+            )
+        }
+
         private func setupURLLongPress() {
             let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleURLLongPress))
             longPress.minimumPressDuration = 0.5
@@ -146,13 +157,14 @@
             guard let pos = gridPosition(for: point) else { return }
 
             let terminal = getTerminal()
+            let closures = Self.urlClosures(for: terminal)
             if
                 let url = TerminalURLDetector.urlAt(
                     col: pos.col,
                     row: pos.row,
                     cols: terminal.cols,
-                    lineText: { terminal.getLine(row: $0)?.translateToString(trimRight: true) },
-                    cellPayload: { col, row in terminal.getLine(row: row)?[col].getPayload() as? String }
+                    lineText: closures.lineText,
+                    cellPayload: closures.cellPayload
                 ),
                 let nsURL = URL(string: url) {
                 UIApplication.shared.open(nsURL)
@@ -167,11 +179,12 @@
                 guard let pos = gridPosition(for: point) else { return }
 
                 let terminal = getTerminal()
+                let closures = Self.urlClosures(for: terminal)
                 let urls = TerminalURLDetector.detectURLs(
                     row: pos.row,
                     cols: terminal.cols,
-                    lineText: { terminal.getLine(row: $0)?.translateToString(trimRight: true) },
-                    cellPayload: { col, row in terminal.getLine(row: row)?[col].getPayload() as? String }
+                    lineText: closures.lineText,
+                    cellPayload: closures.cellPayload
                 )
                 guard let detected = urls.first(where: { pos.col >= $0.startCol && pos.col < $0.endCol }) else {
                     return
@@ -286,12 +299,13 @@
             CATransaction.begin()
             CATransaction.setDisableActions(true)
 
+            let closures = Self.urlClosures(for: terminal)
             for row in 0..<terminal.rows {
                 let urls = TerminalURLDetector.detectURLs(
                     row: row,
                     cols: terminal.cols,
-                    lineText: { terminal.getLine(row: $0)?.translateToString(trimRight: true) },
-                    cellPayload: { col, row in terminal.getLine(row: row)?[col].getPayload() as? String }
+                    lineText: closures.lineText,
+                    cellPayload: closures.cellPayload
                 )
                 for url in urls {
                     let x = CGFloat(url.startCol) * cellSize.width

@@ -27,7 +27,7 @@ public enum TerminalURLDetector {
     }
 
     /// The source that detected a URL.
-    public enum Source: Sendable {
+    public enum Source: Sendable, Hashable {
         /// Detected via OSC 8 terminal escape sequence (higher priority).
         case escapeSequence
         /// Detected via plain-text regex matching.
@@ -35,7 +35,7 @@ public enum TerminalURLDetector {
     }
 
     /// Represents a detected URL with its column range within a terminal line.
-    public struct DetectedURL: Sendable {
+    public struct DetectedURL: Sendable, Hashable {
         public let url: String
         public let startCol: Int
         public let endCol: Int
@@ -126,7 +126,7 @@ public enum TerminalURLDetector {
         var col = 0
 
         while col < cols {
-            guard let url = cellPayload(col, row) else {
+            guard let url = cellPayload(col, row), !url.isEmpty else {
                 col += 1
                 continue
             }
