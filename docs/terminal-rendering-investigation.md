@@ -551,3 +551,151 @@ New tests added:
 - **H12 (SGR carryover between visible lines)**: Not directly addressed. Visible area lines still lack inter-line resets, unlike scrollback lines. The H17 fix mitigates the re-capture scenario but doesn't solve the general case.
 - **Scrollback corruption after re-capture**: Documented in the E2E scenario (Phase 2). Re-capture replaces the mirror's accumulated scrollback with tmux's captured content, causing duplication/truncation/reordering. This is a separate architectural issue.
 - **H6 (octal unescaping)**, **H7 (private modes)**: Not yet investigated with targeted tests. May contribute to edge cases.
+- **Truecolor animation rendering artifacts (Test 16)**: See new section below.
+
+---
+
+## Investigation: Truecolor Animation Rendering Artifacts (Test 16)
+
+### Problem Statement
+
+Test 16 of `terminal-debug/term-stress.py` (Synchronized Output / Mode 2026) produces rendering artifacts in the ClaudeSpy mirror window:
+- Gradient extends beyond the intended 50-column bounds
+- Literal escape sequence parameters (e.g., `m`, `2;5H`) appear as visible text
+- Colored blocks appear beyond the gradient area
+- Artifacts appear in **both** "Without synchronized output" and "With synchronized output" sections
+- Artifacts are intermittent — frequency varies, sometimes appearing on the first frame, sometimes after several
+
+### Investigation Timeline
+
+Three debugging sessions systematically eliminated suspects. Key finding: **the data pipeline is clean and SwiftTerm's buffer contains correct data, but rendering output is wrong.**
+
+### Proven Facts
+
+1. **Data pipeline delivers complete, well-formed frames.** Feed logging at the SwiftTerm boundary showed 158/160 feeds with complete truecolor frames (250 background sequences per animation frame), zero split escape sequences.
+
+2. **SwiftTerm's terminal buffer is correct after feeding.** Buffer dumps performed immediately after `feed()` calls show the exact expected content — correct characters at correct positions with correct attributes.
+
+3. **The issue is in SwiftTerm's draw/display pipeline or AppKit compositing.** Since buffer contents are correct but rendered output shows artifacts, the bug is between the terminal buffer and what appears on screen.
+
+### What Was Tried and Eliminated
+
+All fixes below were tested experimentally but **none resolved the artifacts**. They are documented here as eliminated causes — the code changes were not merged.
+
+#### 1. TCP Read Splitting → Escape Sequence Fragmentation (IDENTIFIED, FIX DID NOT RESOLVE ARTIFACTS)
+
+**Discovery:** The pipe's `readabilityHandler` delivers data in ~1024-byte chunks, each creating a separate `Task` on the `TmuxControlClient` actor. Animation frames are ~4,500 bytes (3-5 TCP reads), so a single frame's data arrives across multiple Tasks. Without coalescing, escape sequences get split at arbitrary 1024-byte boundaries.
+
+**Evidence:** Feed logging showed ~70 out of 500 feeds with `STARTS_DIGIT!` flag — feeds beginning with digits like `4;50;41m` (middle of a CSI sequence). Many feeds were exactly 1024 bytes — the TCP read buffer size.
+
+**Attempted fix:** Per-pane output accumulator in `TmuxControlClient` with generation counter + 2ms delay coalescing. Each `processIncomingData` increments a counter; a scheduled flush only fires if the counter hasn't changed after sleeping, ensuring all TCP reads from the same burst are coalesced into a single delivery.
+
+**Result:** Effectively eliminated frame splitting (158/160 complete frames, zero `STARTS_DIGIT` entries). But **artifacts persisted**, proving TCP read splitting is not the sole cause. The coalescing approach is sound and worth implementing, but does not fix the rendering issue.
+
+**Key insight on actor Task scheduling:** Swift actor task scheduling does NOT guarantee strict FIFO ordering between independently-created Tasks. A "flush" Task created by `processIncomingData` can execute BEFORE the next `processIncomingData` Task, even though the next TCP read was already queued by `readabilityHandler`. `Task.cancel()` based coalescing is unreliable because the flush Task may already be executing. The generation counter + delay approach is the only reliable method found.
+
+#### 2. `needsLayout = true` After Every Feed (IDENTIFIED, FIX DID NOT RESOLVE ARTIFACTS)
+
+**Discovery:** `InteractiveTerminalView` was calling `needsLayout = true` after every `feed()` call and in the `rangeChanged` delegate callback. This triggered `layout()` → `terminalView.frame.size.height = bounds.height` → unnecessary AppKit display invalidation, creating a layout cascade that interfered with SwiftTerm's incremental display updates.
+
+**Attempted fix:**
+- Changed `feed()` and `feedPreservingScroll()` to use `terminalView.needsDisplay = true` instead of `needsLayout = true`
+- Changed `rangeChanged` delegate to no-op (was triggering layout cascade on every data update)
+- Added guard in `layout()`: only assign `terminalView.frame.size.height` when it differs from `bounds.height`
+
+**Result:** Cleaner display cycle, but **artifacts persisted**.
+
+#### 3. Full-View `needsDisplay = true` (TESTED, DID NOT HELP)
+
+Setting `terminalView.needsDisplay = true` after every feed should force a full-view redraw rather than SwiftTerm's partial dirty rect approach. **Artifacts persisted.**
+
+#### 4. Synchronous `displayIfNeeded()` (TESTED, DID NOT HELP)
+
+Calling `terminalView.displayIfNeeded()` immediately after `needsDisplay = true` forces an immediate synchronous draw, eliminating any timing issues between feed and display. **Artifacts persisted.** This proves the issue is NOT about AppKit display cycle timing or deferred rendering.
+
+#### 5. Flush Per TCP Read (TESTED, MADE THINGS WORSE)
+
+Removing the timer-based coalescing and flushing at the end of each `processIncomingData` call delivered each ~1024-byte TCP read as a separate feed to SwiftTerm. **Artifacts were worse** — more frequent and more severe.
+
+#### 6. `feedPreservingScroll()` Scroll Position Restoration (TESTED, NOT THE CAUSE)
+
+`feedPreservingScroll()` captures scroll position before feed and restores it after via `scroll(toPosition:)`. Hypothesis: this shifts `yDisp`, causing row position miscalculations in `drawTerminalContents`. Tested by bypassing to simple `feed()` path. **Artifacts appeared on first try.** Scroll preservation is NOT the cause.
+
+### SwiftTerm Rendering Pipeline Analysis (macOS)
+
+Deep analysis of SwiftTerm's macOS rendering path revealed several architectural details:
+
+```
+feed() → feedPrepare() → terminal.feed(buffer:) → feedFinish()
+  → queuePendingDisplay()
+    → DispatchQueue.main.asyncAfter(.now() + 1/60) [16.67ms]
+      → updateDisplay()
+        → terminal.getUpdateRange() → clearUpdateRange()
+        → setNeedsDisplay(partialRegion)  ← PARTIAL dirty rect (macOS only)
+          → drawTerminalContents()
+            → firstRow = displayBuffer.yDisp + Int((boundsMaxY - dirtyRect.maxY) / cellHeight)
+            → loop over dirty rows, build attributed strings, draw backgrounds, draw text
+```
+
+**Key differences between macOS and iOS:**
+- **macOS:** `updateDisplay()` calculates a partial `CGRect` covering only changed rows → `setNeedsDisplay(region)`
+- **iOS:** `updateDisplay()` uses `setNeedsDisplay(bounds)` — always full redraw
+- **macOS:** `startDisplayUpdates()` / `suspendDisplayUpdates()` are no-ops
+- **iOS:** These control CADisplayLink
+
+**`drawTerminalContents` row calculation:**
+```swift
+firstRow = displayBuffer.yDisp + Int((boundsMaxY - dirtyRect.maxY) / cellHeight)
+```
+This derives which terminal buffer rows to draw from the dirty rect's pixel coordinates. If `cellHeight` has fractional components or the dirty rect doesn't align perfectly with cell boundaries, row selection could be off.
+
+**`Terminal.resize()` interaction:**
+- Calls `refresh(0, rows-1)` to mark all rows dirty
+- Does NOT call `clearUpdateRange()` — so a resize during animation could accumulate update ranges from different dimension states
+
+### Remaining Suspects (Not Yet Tested)
+
+These are the areas NOT yet eliminated that could explain why artifacts persist despite clean data:
+
+#### A. SwiftTerm's `drawTerminalContents()` rendering bug
+
+The drawing function converts dirty rects to buffer row ranges using floating-point division. With truecolor animation producing rapid full-screen updates:
+- Fractional `cellHeight` could cause row misalignment in `firstRow` calculation
+- The `yDisp` offset (scroll position in buffer) combined with partial dirty rects could select wrong rows
+- Background color fill pass and text drawing pass might use slightly different row calculations
+
+#### B. AppKit layer compositing with `wantsLayer = true` / `masksToBounds = true`
+
+`InteractiveTerminalView` sets `wantsLayer = true` and `layer?.masksToBounds = true`. The terminal view is wider than its container (e.g., 227 columns at full tmux width) and relies on clipping:
+- Layer-backed views use different compositing paths than non-layer views
+- `masksToBounds` clips the rendered content but doesn't prevent the terminal from drawing beyond bounds
+- Rapid partial redraws of a view wider than its layer could cause compositing artifacts
+
+#### C. Terminal view wider than container
+
+The SwiftTerm TerminalView is sized to fit all columns (e.g., 227 columns), which is wider than the visible window. `InteractiveTerminalView` provides horizontal scrolling. The dirty rect calculations in `drawTerminalContents` may not account for the view being partially off-screen, causing incorrect row/column mapping when the view extends beyond the visible area.
+
+#### D. External resize events during animation
+
+`Terminal.resize()` calls `refresh(0, rows-1)` without clearing the update range. If a resize event arrives during animation (e.g., from `updateContainerSize`), it could accumulate dirty ranges from different dimension states, confusing the partial dirty rect calculation in `updateDisplay()`.
+
+### Suggested Next Steps
+
+1. **Test without InteractiveTerminalView wrapper**: Use SwiftTerm's `TerminalView` directly (no horizontal scrolling, no layer masking) to see if artifacts disappear. This isolates the wrapper/layer setup.
+
+2. **Test with a smaller terminal size**: If the terminal is 80 columns (fits in window without scrolling), the wider-than-container scenario is eliminated.
+
+3. **Test without `wantsLayer`/`masksToBounds`**: Remove layer backing on InteractiveTerminalView to test if AppKit compositing is the issue.
+
+4. **Test with iOS-style full-bounds redraw**: Override SwiftTerm's macOS `updateDisplay` to use `setNeedsDisplay(bounds)` instead of partial regions, matching iOS behavior.
+
+5. **Instrument `drawTerminalContents`**: Add logging to capture the `firstRow`/`lastRow` calculation from dirty rects and compare against expected rows for each frame.
+
+### Diagnostic Techniques Used
+
+These approaches were used during the investigation and can be re-created if needed:
+
+- **Feed logging**: Logging every `feed()` call to `/tmp/claudespy-feeds.txt` with size, first/last bytes, truecolor BG count, bare CSI parameter detection, and starts-with-digit detection. Add to `TerminalContainerView.Coordinator.handleData`.
+- **Frame capture**: Binary capture of all frames fed to SwiftTerm to `/tmp/claudespy-frames.bin` with 4-byte little-endian length prefix per frame. Enables offline replay and analysis.
+- **Frame replay**: `terminal-debug/replay-frames.py` replays captured binary frames in a real terminal for visual comparison against the mirror window.
+- **Buffer dump**: Direct SwiftTerm buffer content extraction immediately after `feed()` calls, comparing buffer state against expected content. Confirms whether data reaches the terminal buffer correctly.
