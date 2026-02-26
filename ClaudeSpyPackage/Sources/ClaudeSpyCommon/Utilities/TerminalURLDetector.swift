@@ -101,8 +101,8 @@ public enum TerminalURLDetector {
         cellPayload: (Int, Int) -> String?
     ) -> String? {
         // Check OSC 8 first (higher priority)
-        if let payload = cellPayload(col, row) {
-            return payload
+        if let payload = cellPayload(col, row), let url = urlFromOSC8Payload(payload) {
+            return url
         }
         // Fall back to regex
         return urlAt(col: col, row: row, lineText: lineText)
@@ -126,15 +126,17 @@ public enum TerminalURLDetector {
         var col = 0
 
         while col < cols {
-            guard let url = cellPayload(col, row), !url.isEmpty else {
+            guard
+                let payload = cellPayload(col, row), !payload.isEmpty,
+                let url = urlFromOSC8Payload(payload) else {
                 col += 1
                 continue
             }
 
-            // Found start of an OSC 8 link — scan forward for contiguous cells with the same URL
+            // Found start of an OSC 8 link — scan forward for contiguous cells with the same payload
             let startCol = col
             col += 1
-            while col < cols, cellPayload(col, row) == url {
+            while col < cols, cellPayload(col, row) == payload {
                 col += 1
             }
 
@@ -160,6 +162,17 @@ public enum TerminalURLDetector {
             let endCol = startCol + cleaned.utf16.count
             return DetectedURL(url: cleaned, startCol: startCol, endCol: endCol, source: .regex)
         }
+    }
+
+    /// Extracts the URL from a SwiftTerm OSC 8 payload string.
+    ///
+    /// SwiftTerm stores OSC 8 payloads in the format `;params;URL` (the content after `8` in
+    /// `ESC ] 8 ; params ; URL ST`). This splits on `;` and returns the last component as the URL.
+    private static func urlFromOSC8Payload(_ payload: String) -> String? {
+        // Payload format: ";params;URL" — split and take the URL part
+        let parts = payload.split(separator: ";", maxSplits: .max, omittingEmptySubsequences: false)
+        guard parts.count > 1, let url = parts.last, !url.isEmpty else { return nil }
+        return String(url)
     }
 
     /// Removes trailing punctuation that commonly follows URLs in text but isn't part of the URL.
