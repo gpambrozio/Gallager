@@ -25,17 +25,13 @@ struct MirrorWindowView: View {
             TerminalContainerView(
                 paneInfo: paneInfo,
                 onStateChange: { state, width, height in
-                    Task { @MainActor in
-                        streamState = state
-                        streamWidth = width
-                        streamHeight = height
-                    }
+                    streamState = state
+                    streamWidth = width
+                    streamHeight = height
                 },
                 onTitleChange: { title in
-                    Task { @MainActor in
-                        terminalTitle = title
-                        windowManager.updateTerminalTitle(target: paneInfo.target, title: title)
-                    }
+                    terminalTitle = title
+                    windowManager.updateTerminalTitle(target: paneInfo.target, title: title)
                 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)

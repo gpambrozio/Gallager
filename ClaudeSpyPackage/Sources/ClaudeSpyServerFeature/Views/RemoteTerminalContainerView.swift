@@ -15,6 +15,8 @@ struct RemoteTerminalContainerView: View {
     let hostName: String
     let connection: ViewerConnection
     let settings: AppSettings
+    /// The stable window key used by MirrorWindowManager to track this window
+    var windowKey: String?
     var onStreamEnd: (() -> Void)?
 
     @State private var streamState: RemoteStreamState = .connecting
@@ -53,9 +55,10 @@ struct RemoteTerminalContainerView: View {
         .navigationTitle(windowTitle)
         .onChange(of: terminalTitle) { _, newTitle in
             // Update the NSWindow title to match (SwiftUI navigationTitle doesn't sync to NSWindow)
-            if let newTitle, !newTitle.isEmpty {
-                NSApp.windows.first { $0.title.contains(paneId) && $0.title.contains(hostName) }?.title = newTitle
-            }
+            guard let newTitle, !newTitle.isEmpty, let windowKey else { return }
+            // Use the stable window key for lookup instead of searching by title contents,
+            // which would break after the first title update changes the window title.
+            NSApp.windows.first { $0.identifier?.rawValue == windowKey }?.title = newTitle
         }
         .onChange(of: streamState) { _, newState in
             if newState == .disconnected {

@@ -153,6 +153,11 @@
                 context.subscriberIds.insert(subscriptionId)
                 streams[paneId] = context
 
+                // Send current terminal title to late-joining subscriber
+                if let currentTitle = context.terminalTitle, let callback = onTitleChange {
+                    callback(currentTitle)
+                }
+
                 logger.info("Added subscriber to existing stream", metadata: [
                     "paneId": "\(paneId)",
                     "subscriptionId": "\(subscriptionId)",
@@ -271,7 +276,7 @@
         ///   - fromSubscription: The subscription ID reporting the change (excluded from forwarding)
         public func reportTitleChange(paneId: String, title: String, fromSubscription: UUID) {
             guard var context = streams[paneId] else { return }
-            guard context.terminalTitle != title else { return }
+            guard !title.isEmpty, context.terminalTitle != title else { return }
             context.terminalTitle = title
             streams[paneId] = context
             forwardTitleChange(paneId: paneId, title: title, excludingSubscription: fromSubscription)

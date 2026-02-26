@@ -232,6 +232,10 @@ struct TerminalContainerView: NSViewRepresentable {
 
             do {
                 let target = paneInfo.target
+                // Note: onTitleChange is intentionally omitted here. Title changes are detected
+                // locally by SwiftTerm's delegate (terminalView.onTitleChange) and then reported
+                // back to PaneStreamManager via reportTitleChange(), which forwards to other
+                // subscribers. This avoids a circular callback loop.
                 let result = try await paneStreamManager.subscribe(
                     paneId: paneInfo.paneId,
                     target: target,
