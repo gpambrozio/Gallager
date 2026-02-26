@@ -44,6 +44,9 @@
 
         /// Cached OSC 8 payloads extracted from SwiftTerm cells before clearing.
         /// Structure: [viewportRow: [col: payloadString]]
+        /// Cached OSC 8 payloads extracted from SwiftTerm cells before clearing.
+        /// Structure: [absoluteBufferRow: [col: payloadString]]
+        /// Keyed by absolute buffer row so lookups remain correct after scrolling.
         /// We clear SwiftTerm's cell payloads to prevent its own dashed underline rendering,
         /// but cache them here so our URL detection still works.
         private var cachedPayloads: [Int: [Int: String]] = [:]
@@ -112,47 +115,59 @@
 
         /// Bridges SwiftTerm's `Terminal` to the closures expected by `TerminalURLDetector`.
         /// Uses cached payloads (extracted before clearing) instead of live cell payloads.
+        /// Converts viewport rows to absolute buffer rows for cache lookup.
         private func urlClosures(for terminal: Terminal) -> (
             lineText: (Int) -> String?,
             cellPayload: (Int, Int) -> String?
         ) {
             let payloads = cachedPayloads
+            let yDisp = terminal.buffer.yDisp
             return (
                 lineText: { terminal.getLine(row: $0)?.translateToString(trimRight: true) },
-                cellPayload: { col, row in payloads[row]?[col] }
+                cellPayload: { col, row in payloads[row + yDisp]?[col] }
             )
         }
 
-        /// Scans terminal cells for OSC 8 payloads, caches them, then clears them.
+        /// Scans ALL terminal buffer lines for OSC 8 payloads, merges them into the cache, then clears them.
         /// We cache payloads so our URL detection works, but clear them from SwiftTerm's cells
         /// to prevent SwiftTerm from rendering its own dashed underlines.
+        /// Merges rather than replaces so payloads from earlier feeds (already cleared) are preserved.
         private func extractAndClearPayloads() {
             let terminal = getTerminal()
-            var newPayloads: [Int: [Int: String]] = [:]
             // TinyAtom.empty is internal, but TinyAtom is a single UInt16 struct —
             // empty has code 0 which makes CharData.hasPayload return false.
             let emptyAtom = unsafeBitCast(UInt16(0), to: TinyAtom.self)
+            let cols = terminal.cols
+            let totalLines = terminal.buffer.yDisp + terminal.rows
 
-            for row in 0..<terminal.rows {
-                guard let line = terminal.getLine(row: row) else { continue }
-                var rowPayloads: [Int: String]?
-                for col in 0..<terminal.cols {
+            for absoluteRow in 0..<totalLines {
+                guard let line = terminal.getScrollInvariantLine(row: absoluteRow) else { continue }
+                for col in 0..<cols {
                     var cd = line[col]
                     if cd.hasPayload {
                         if let payload = cd.getPayload() as? String, !payload.isEmpty {
-                            if rowPayloads == nil { rowPayloads = [:] }
-                            rowPayloads?[col] = payload
+                            if cachedPayloads[absoluteRow] == nil {
+                                cachedPayloads[absoluteRow] = [:]
+                            }
+                            cachedPayloads[absoluteRow]?[col] = payload
                         }
                         cd.setPayload(atom: emptyAtom)
                         line[col] = cd
                     }
                 }
-                if let rowPayloads {
-                    newPayloads[row] = rowPayloads
-                }
             }
 
-            cachedPayloads = newPayloads
+            // Prune entries for lines that have been trimmed from the circular buffer
+            let minRow = cachedPayloads.keys.min() ?? 0
+            if minRow < totalLines {
+                for row in minRow..<totalLines where cachedPayloads[row] != nil {
+                    if terminal.getScrollInvariantLine(row: row) == nil {
+                        cachedPayloads.removeValue(forKey: row)
+                    } else {
+                        break // Lines are contiguous; once we find a valid one, the rest are valid
+                    }
+                }
+            }
         }
 
         private func setupURLLongPress() {
