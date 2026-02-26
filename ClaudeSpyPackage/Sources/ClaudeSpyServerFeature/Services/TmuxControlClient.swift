@@ -113,6 +113,15 @@ actor TmuxControlClient {
     // Per-pane buffer for incomplete tmux escape sequences (e.g., ESC k ... ESC \ split across chunks)
     private var paneTmuxEscapeBuffer: [String: Data] = [:]
 
+    // Per-pane output accumulator: batches %output data across multiple TCP reads before
+    // delivering to handlers. The pipe's readabilityHandler fires per ~1024-byte TCP read,
+    // each creating a Task on this actor. Without batching, escape sequences split at TCP
+    // boundaries would reach SwiftTerm as separate feed() calls, causing rendering artifacts
+    // (literal escape parameters appearing as text). We accumulate per-pane data across all
+    // processIncomingData calls and flush via a trailing Task that runs after all pending
+    // reads drain from the actor queue.
+    private var paneOutputAccumulator: [String: (raw: Data, filtered: Data)] = [:]
+
     var isConnected: Bool {
         process?.isRunning == true
     }
@@ -235,6 +244,7 @@ actor TmuxControlClient {
         paneUtf8Buffer.removeAll()
         paneTmuxEscapeBuffer.removeAll()
         perPaneBuffering.removeAll()
+        paneOutputAccumulator.removeAll()
     }
 
     // MARK: - Pane Tracking
@@ -256,6 +266,15 @@ actor TmuxControlClient {
 
     /// Unregisters a pane handler
     func unregisterPaneHandler(paneId: String) {
+        // Flush any accumulated output for this pane before unregistering
+        if let accumulated = paneOutputAccumulator.removeValue(forKey: paneId) {
+            if !accumulated.raw.isEmpty {
+                rawPaneHandlers[paneId]?(accumulated.raw)
+            }
+            if !accumulated.filtered.isEmpty {
+                paneHandlers[paneId]?(accumulated.filtered)
+            }
+        }
         paneHandlers.removeValue(forKey: paneId)
         rawPaneHandlers.removeValue(forKey: paneId)
         cachedDimensions.removeValue(forKey: paneId)
@@ -321,6 +340,9 @@ actor TmuxControlClient {
     // MARK: - Read Loop
 
     private func processIncomingData(_ data: Data) async {
+        // Bump generation so any pending flush task knows new data arrived
+        dataGeneration &+= 1
+
         // Append raw bytes to buffer first (handles chunk splitting)
         byteBuffer.append(data)
 
@@ -334,6 +356,15 @@ actor TmuxControlClient {
             // Parse at byte level - %output lines may contain invalid UTF-8
             await parseLineBytes(lineData)
         }
+
+        // Schedule a flush that runs after all pending actor tasks complete.
+        // The readabilityHandler fires for each TCP read (~1024 bytes), creating
+        // separate Task { processIncomingData } calls. These tasks queue on the
+        // actor and execute serially. By scheduling the flush as a NEW task, it
+        // runs after all already-queued processIncomingData calls finish, coalescing
+        // multiple TCP reads into a single handler delivery. This prevents split
+        // escape sequences that occur at 1024-byte TCP read boundaries.
+        scheduleFlush()
     }
 
     /// Parses a line at the byte level to handle %output with split UTF-8
@@ -344,6 +375,10 @@ actor TmuxControlClient {
             parseOutputNotificationBytes(lineData)
             return
         }
+
+        // Non-%output control message: flush any accumulated output first to preserve
+        // ordering (output should arrive before responses to subsequent commands).
+        flushAccumulatedOutput()
 
         // For all other control messages, convert to string (they should be ASCII)
         guard let line = String(data: lineData, encoding: .utf8) else {
@@ -536,14 +571,56 @@ actor TmuxControlClient {
     }
 
     private func deliverOutput(paneId: String, data: Data) {
-        // Deliver raw (unfiltered) data for recording before any filtering
-        rawPaneHandlers[paneId]?(data)
-
-        guard let handler = paneHandlers[paneId] else { return }
-        // Filter out tmux-specific escape sequences that terminals don't understand
+        // Filter out tmux-specific escape sequences that terminals don't understand.
+        // Must be called per-chunk because filterTmuxEscapeSequences has per-pane
+        // buffering state for incomplete title sequences across %output lines.
         let filtered = filterTmuxEscapeSequences(data, paneId: paneId)
-        guard !filtered.isEmpty else { return }
-        handler(filtered)
+
+        // Accumulate raw + filtered data for this pane. The accumulated batch will be
+        // delivered in flushAccumulatedOutput() after all %output lines in the current
+        // processIncomingData call have been processed.
+        var entry = paneOutputAccumulator[paneId] ?? (raw: Data(), filtered: Data())
+        entry.raw.append(data)
+        entry.filtered.append(filtered)
+        paneOutputAccumulator[paneId] = entry
+    }
+
+    /// Schedules a delayed flush of accumulated output. The pipe's readabilityHandler
+    /// fires per ~1024-byte TCP read. Animation frames are ~4500 bytes (3-5 reads).
+    /// A generation counter ensures the flush only fires after the last read in a
+    /// burst: each processIncomingData bumps the counter, and the flush checks that
+    /// it hasn't changed after a short sleep. The 2ms delay is long enough for the
+    /// next readabilityHandler to fire (they arrive microseconds apart for data from
+    /// the same write) but short enough to stay well under SwiftTerm's 16ms refresh.
+    private var dataGeneration: UInt64 = 0
+
+    private func scheduleFlush() {
+        guard !paneOutputAccumulator.isEmpty else { return }
+        let snapshot = dataGeneration
+        Task {
+            try? await Task.sleep(for: .milliseconds(2))
+            // If dataGeneration changed, more data arrived — that call will
+            // schedule its own flush. Only flush if we're truly idle.
+            guard self.dataGeneration == snapshot else { return }
+            self.flushAccumulatedOutput()
+        }
+    }
+
+    /// Delivers all accumulated per-pane output to handlers in a single batch per pane.
+    private func flushAccumulatedOutput() {
+        guard !paneOutputAccumulator.isEmpty else { return }
+
+        let accumulated = paneOutputAccumulator
+        paneOutputAccumulator.removeAll()
+
+        for (paneId, entry) in accumulated {
+            if !entry.raw.isEmpty {
+                rawPaneHandlers[paneId]?(entry.raw)
+            }
+            if !entry.filtered.isEmpty {
+                paneHandlers[paneId]?(entry.filtered)
+            }
+        }
     }
 
     /// Filters out tmux/screen-specific escape sequences that standard terminals don't handle.
@@ -678,6 +755,8 @@ actor TmuxControlClient {
                 }
                 deliverOutput(paneId: paneId, data: data)
             }
+            // Flush the accumulated output from the deliverOutput calls above
+            flushAccumulatedOutput()
         }
 
         await refreshStreamingPaneDimensions()

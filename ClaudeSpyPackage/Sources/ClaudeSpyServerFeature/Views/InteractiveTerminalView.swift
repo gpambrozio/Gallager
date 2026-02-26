@@ -597,7 +597,11 @@
                 let h = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay)
                 scroller.frame = NSRect(x: 0, y: 0, width: bounds.width, height: h)
             }
-            terminalView.frame.size.height = bounds.height
+            // Only update terminal view height when it actually changes to avoid
+            // triggering unnecessary AppKit display invalidation.
+            if terminalView.frame.size.height != bounds.height {
+                terminalView.frame.size.height = bounds.height
+            }
             updateHorizontalScroller()
             updateURLUnderlines()
             onResize?(frame.size)
@@ -632,7 +636,7 @@
 
         func feed(byteArray: ArraySlice<UInt8>) {
             terminalView.feed(byteArray: byteArray)
-            needsLayout = true
+            terminalView.needsDisplay = true
         }
 
         func feedPreservingScroll(_ bytes: ArraySlice<UInt8>) {
@@ -645,7 +649,7 @@
             if preserveUserScroll, !wasAtExtreme {
                 terminalView.scroll(toPosition: savedPosition)
             }
-            needsLayout = true
+            terminalView.needsDisplay = true
         }
 
         func scroll(toPosition position: Double) {
@@ -706,7 +710,10 @@
         }
 
         func rangeChanged(source: TerminalView, startY: Int, endY: Int) {
-            needsLayout = true
+            // No-op: URL underlines update on layout passes triggered by scroll
+            // or resize. Triggering needsLayout here on every data update causes
+            // layout → frame assignment → draw cycle interference with SwiftTerm's
+            // incremental display updates.
         }
 
         func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {

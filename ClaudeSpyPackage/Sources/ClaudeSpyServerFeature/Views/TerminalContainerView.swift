@@ -252,19 +252,99 @@ struct TerminalContainerView: NSViewRepresentable {
 
         // MARK: Data Handling
 
+        // Feed diagnostic: log every feed to detect split frames
+        private static var feedLog: FileHandle?
+        private static var feedCount = 0
+        private static let feedLogLimit = 500
+
         private func handleData(_ data: Data) {
             let bytes = [UInt8](data)[...]
 
+            // Log feed sizes and detect partial escape sequences
+            Self.logFeed(data)
+
+            // DEBUG: bypass scroll preservation to test if it causes artifacts
+            terminalView.feed(byteArray: bytes)
             if !hasScrolledInitial {
-                // First data - feed, scroll to bottom, enable preservation
-                terminalView.feed(byteArray: bytes)
                 scrollToBottom()
-                terminalView.preserveUserScroll = true
                 hasScrolledInitial = true
-            } else {
-                // Subsequent data - preserve user's scroll position
-                terminalView.feedPreservingScroll(bytes)
             }
+        }
+
+        private static func logFeed(_ data: Data) {
+            guard feedCount < feedLogLimit else { return }
+            feedCount += 1
+
+            if feedLog == nil {
+                let path = "/tmp/claudespy-feeds.txt"
+                FileManager.default.createFile(atPath: path, contents: nil)
+                feedLog = FileHandle(forWritingAtPath: path)
+            }
+
+            // Check for truecolor BG markers to identify animation data
+            let bgMarker = Data([0x1B, 0x5B, 0x34, 0x38, 0x3B, 0x32, 0x3B]) // ESC[48;2;
+            var bgCount = 0
+            var range = data.startIndex..<data.endIndex
+            while let found = data.range(of: bgMarker, in: range) {
+                bgCount += 1
+                range = found.upperBound..<data.endIndex
+            }
+
+            // Check for bare CSI parameters (digits;digits followed by H or m
+            // without preceding ESC[) - this indicates split escape sequences
+            let hasBareParams = Self.detectBareCSIParams(data)
+
+            // Check first/last bytes
+            let first8 = data.prefix(8).map { String(format: "%02x", $0) }.joined(separator: " ")
+            let last8 = data.suffix(8).map { String(format: "%02x", $0) }.joined(separator: " ")
+
+            // Check if data starts with ESC[
+            let startsWithCSI = data.count >= 2 && data[data.startIndex] == 0x1B && data[data.startIndex + 1] == 0x5B
+            // Check if data starts with a digit (bare parameter)
+            let startsWithDigit = !data.isEmpty && data[data.startIndex] >= 0x30 && data[data.startIndex] <= 0x39
+
+            var flags = ""
+            if bgCount > 0 { flags += " ANIM(\(bgCount)bg)" }
+            if hasBareParams { flags += " BARE_PARAMS!" }
+            if startsWithDigit { flags += " STARTS_DIGIT!" }
+
+            let line = "feed#\(feedCount) \(data.count)B first=[\(first8)] last=[\(last8)] csi=\(startsWithCSI)\(flags)\n"
+            feedLog?.write(Data(line.utf8))
+            feedLog?.synchronizeFile()
+        }
+
+        /// Detects potential bare CSI parameters in data — sequences like "2;5H"
+        /// that appear without a preceding ESC[ within a reasonable window.
+        private static func detectBareCSIParams(_ data: Data) -> Bool {
+            // Look for pattern: digit(s) ; digit(s) H (or m) without ESC[ before it
+            let bytes = [UInt8](data)
+            for i in 0..<bytes.count {
+                let b = bytes[i]
+                // Look for 'H' or 'm' that could be CSI final bytes
+                if b == 0x48 || b == 0x6D { // 'H' or 'm'
+                    // Check if preceded by digits and semicolons (CSI parameters)
+                    var j = i - 1
+                    var hasDigit = false
+                    var hasSemicolon = false
+                    while j >= 0 {
+                        let p = bytes[j]
+                        if p >= 0x30 && p <= 0x39 { // digit
+                            hasDigit = true
+                            j -= 1
+                        } else if p == 0x3B { // semicolon
+                            hasSemicolon = true
+                            j -= 1
+                        } else {
+                            break
+                        }
+                    }
+                    // If we found digits;digits pattern and the byte before it is NOT '['
+                    if hasDigit && hasSemicolon && j >= 0 && bytes[j] != 0x5B {
+                        return true
+                    }
+                }
+            }
+            return false
         }
 
         // MARK: Terminal Operations
