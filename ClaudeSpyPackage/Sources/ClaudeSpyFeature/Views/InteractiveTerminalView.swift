@@ -115,16 +115,16 @@
 
         /// Bridges SwiftTerm's `Terminal` to the closures expected by `TerminalURLDetector`.
         /// Uses cached payloads (extracted before clearing) instead of live cell payloads.
-        /// Converts viewport rows to absolute buffer rows for cache lookup.
+        /// Accepts absolute buffer rows (from `gridPosition`) and uses `getScrollInvariantLine`
+        /// so both viewport and scrollback rows work.
         private func urlClosures(for terminal: Terminal) -> (
             lineText: (Int) -> String?,
             cellPayload: (Int, Int) -> String?
         ) {
             let payloads = cachedPayloads
-            let yDisp = terminal.buffer.yDisp
             return (
-                lineText: { terminal.getLine(row: $0)?.translateToString(trimRight: true) },
-                cellPayload: { col, row in payloads[row + yDisp]?[col] }
+                lineText: { terminal.getScrollInvariantLine(row: $0)?.translateToString(trimRight: true) },
+                cellPayload: { col, row in payloads[row]?[col] }
             )
         }
 
@@ -184,11 +184,10 @@
             addGestureRecognizer(tap)
         }
 
-        /// Converts a content-space point to a grid position (col, row) suitable for `Terminal.getLine(row:)`.
+        /// Converts a content-space point to a grid position (col, absoluteRow).
         ///
-        /// Computes the absolute buffer row from content-space coordinates, then derives
-        /// the viewport row via `buffer.yDisp`. This avoids drift between `contentOffset`
-        /// and `yDisp` that occurs when the user scrolls the UIScrollView.
+        /// Returns absolute buffer row indices suitable for `getScrollInvariantLine(row:)`,
+        /// so both viewport and scrollback rows work for URL detection.
         private func gridPosition(for point: CGPoint) -> (col: Int, row: Int)? {
             let cellSize = FontMetrics.calculateCellSize(font: font as CTFont)
             guard cellSize.width > 0, cellSize.height > 0 else { return nil }
@@ -196,15 +195,13 @@
             let terminal = getTerminal()
 
             let col = Int(point.x / cellSize.width)
-            // Absolute buffer row from content-space y, then convert to viewport row.
-            // getLine(row:) adds yDisp back, so: lines[row + yDisp] = lines[absoluteRow] ✓
             let absoluteRow = Int(point.y / cellSize.height)
-            let row = absoluteRow - terminal.buffer.yDisp
 
-            guard row >= 0, row < terminal.rows else { return nil }
+            // Verify the row is within the buffer
+            guard terminal.getScrollInvariantLine(row: absoluteRow) != nil else { return nil }
             let clampedCol = min(max(0, col), terminal.cols - 1)
 
-            return (clampedCol, row)
+            return (clampedCol, absoluteRow)
         }
 
         @objc
@@ -263,10 +260,9 @@
         private func showURLHighlight(row: Int, startCol: Int, endCol: Int) {
             let cellSize = FontMetrics.calculateCellSize(font: font as CTFont)
 
-            // row is a viewport row. Use yDisp for absolute content-space positioning.
+            // row is an absolute buffer row — use directly for content-space positioning.
             let x = CGFloat(startCol) * cellSize.width
-            let absoluteRow = row + getTerminal().buffer.yDisp
-            let y = CGFloat(absoluteRow) * cellSize.height
+            let y = CGFloat(row) * cellSize.height
             let width = CGFloat(endCol - startCol) * cellSize.width
 
             let highlightRect = CGRect(x: x, y: y, width: width, height: cellSize.height)
@@ -356,17 +352,16 @@
             CATransaction.setDisableActions(true)
 
             let closures = urlClosures(for: terminal)
-            for row in 0..<terminal.rows {
+            for viewportRow in 0..<terminal.rows {
+                let absoluteRow = viewportRow + yDisp
                 let urls = TerminalURLDetector.detectURLs(
-                    row: row,
+                    row: absoluteRow,
                     cols: terminal.cols,
                     lineText: closures.lineText,
                     cellPayload: closures.cellPayload
                 )
                 for url in urls {
                     let x = CGFloat(url.startCol) * cellSize.width
-                    // Absolute content-space y using buffer offset, so underlines scroll with text
-                    let absoluteRow = row + yDisp
                     let y = CGFloat(absoluteRow) * cellSize.height + cellSize.height - 2
                     let width = CGFloat(url.endCol - url.startCol) * cellSize.width
 
