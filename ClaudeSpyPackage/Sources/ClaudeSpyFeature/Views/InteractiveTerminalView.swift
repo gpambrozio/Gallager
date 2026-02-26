@@ -146,9 +146,14 @@
             guard let pos = gridPosition(for: point) else { return }
 
             let terminal = getTerminal()
-            let lineText: (Int) -> String? = { terminal.getLine(row: $0)?.translateToString(trimRight: true) }
             if
-                let url = TerminalURLDetector.urlAt(col: pos.col, row: pos.row, lineText: lineText),
+                let url = TerminalURLDetector.urlAt(
+                    col: pos.col,
+                    row: pos.row,
+                    cols: terminal.cols,
+                    lineText: { terminal.getLine(row: $0)?.translateToString(trimRight: true) },
+                    cellPayload: { col, row in terminal.getLine(row: row)?[col].getPayload() as? String }
+                ),
                 let nsURL = URL(string: url) {
                 UIApplication.shared.open(nsURL)
             }
@@ -162,9 +167,12 @@
                 guard let pos = gridPosition(for: point) else { return }
 
                 let terminal = getTerminal()
-                let urls = TerminalURLDetector.detectURLs(row: pos.row) {
-                    terminal.getLine(row: $0)?.translateToString(trimRight: true)
-                }
+                let urls = TerminalURLDetector.detectURLs(
+                    row: pos.row,
+                    cols: terminal.cols,
+                    lineText: { terminal.getLine(row: $0)?.translateToString(trimRight: true) },
+                    cellPayload: { col, row in terminal.getLine(row: row)?[col].getPayload() as? String }
+                )
                 guard let detected = urls.first(where: { pos.col >= $0.startCol && pos.col < $0.endCol }) else {
                     return
                 }
@@ -279,9 +287,12 @@
             CATransaction.setDisableActions(true)
 
             for row in 0..<terminal.rows {
-                let urls = TerminalURLDetector.detectURLs(row: row) {
-                    terminal.getLine(row: $0)?.translateToString(trimRight: true)
-                }
+                let urls = TerminalURLDetector.detectURLs(
+                    row: row,
+                    cols: terminal.cols,
+                    lineText: { terminal.getLine(row: $0)?.translateToString(trimRight: true) },
+                    cellPayload: { col, row in terminal.getLine(row: row)?[col].getPayload() as? String }
+                )
                 for url in urls {
                     let x = CGFloat(url.startCol) * cellSize.width
                     // Absolute content-space y using buffer offset, so underlines scroll with text

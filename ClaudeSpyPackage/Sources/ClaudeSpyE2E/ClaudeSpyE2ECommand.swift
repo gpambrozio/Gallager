@@ -175,6 +175,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         TerminalRenderingBugsScenario.scenario,
         RapidKeystrokeOrderScenario.scenario,
         StopHookSummaryScenario.scenario,
+        TerminalLinksScenario.scenario,
     ]
 
     private func runTests(orchestrator: TestOrchestrator) async throws {
