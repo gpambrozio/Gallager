@@ -152,7 +152,8 @@ public enum TerminalURLDetector {
             var endCol = min(col, utf16.count)
             while endCol > startCol {
                 let idx = utf16.index(utf16.startIndex, offsetBy: endCol - 1)
-                let char = Character(UnicodeScalar(utf16[idx])!)
+                guard let scalar = UnicodeScalar(utf16[idx]) else { break }
+                let char = Character(scalar)
                 if !char.isWhitespace { break }
                 endCol -= 1
             }
@@ -182,14 +183,32 @@ public enum TerminalURLDetector {
         }
     }
 
+    /// Allowed URL schemes for OSC 8 hyperlinks.
+    /// Matches the regex detector's policy — file:// is excluded to prevent opening local files
+    /// from remote terminal sessions.
+    private static let allowedSchemes: Set<String> = ["http", "https", "ftp"]
+
     /// Extracts the URL from a SwiftTerm OSC 8 payload string.
     ///
     /// SwiftTerm stores OSC 8 payloads in the format `;params;URL` (the content after `8` in
-    /// `ESC ] 8 ; params ; URL ST`). This splits on `;` and returns the last component as the URL.
+    /// `ESC ] 8 ; params ; URL ST`). We split on at most 2 semicolons (the format starts with
+    /// `;params;`) so URLs containing semicolons are preserved intact.
+    ///
+    /// Only URLs with allowed schemes (http, https, ftp) are returned — matching the regex
+    /// detector's security policy.
     private static func urlFromOSC8Payload(_ payload: String) -> String? {
-        // Payload format: ";params;URL" — split and take the URL part
-        let parts = payload.split(separator: ";", maxSplits: .max, omittingEmptySubsequences: false)
-        guard parts.count > 1, let url = parts.last, !url.isEmpty else { return nil }
+        // Payload format: ";params;URL" — split with maxSplits: 2 to preserve semicolons in the URL
+        let parts = payload.split(separator: ";", maxSplits: 2, omittingEmptySubsequences: false)
+        // parts[0] is empty (before first ;), parts[1] is params, parts[2] is URL
+        guard parts.count >= 3 else { return nil }
+        let url = parts[2]
+        guard !url.isEmpty else { return nil }
+        // Validate scheme matches allowed list
+        guard
+            let parsed = URL(string: String(url)),
+            let scheme = parsed.scheme?.lowercased(),
+            allowedSchemes.contains(scheme)
+        else { return nil }
         return String(url)
     }
 

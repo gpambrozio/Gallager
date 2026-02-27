@@ -366,6 +366,7 @@
             let terminal = terminalView.getTerminal()
             // TinyAtom.empty is internal, but TinyAtom is a single UInt16 struct —
             // empty has code 0 which makes CharData.hasPayload return false.
+            assert(MemoryLayout<TinyAtom>.size == MemoryLayout<UInt16>.size, "TinyAtom layout changed — unsafeBitCast assumption is invalid")
             let emptyAtom = unsafeBitCast(UInt16(0), to: TinyAtom.self)
             let cols = terminal.cols
             let totalLines = terminal.buffer.yDisp + terminal.rows

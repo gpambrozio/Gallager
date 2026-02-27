@@ -92,45 +92,11 @@ public enum TerminalLinksScenario {
 
         TestStep.log("Verifying links on iOS")
 
-        // Create a new terminal session on iOS (which connects to tmux)
-        TestStep.iosTap(.label("New Session"))
-        TestStep.wait(seconds: 2)
-        TestStep.iosWaitForElementToDisappear(.labelContains("Loading projects"), timeout: 15)
-        TestStep.iosTap(.labelContains("New Terminal"))
-        TestStep.wait(seconds: 2)
-        TestStep.iosWaitForElement(.labelContains("Terminal"), timeout: 15)
-        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting to terminal"), timeout: 15)
-        TestStep.wait(seconds: 1)
-
-        // Re-emit URLs in the active terminal (iOS connects to an existing tmux session
-        // but may need fresh output to see links)
-        TestStep.tmuxSendKeys(target: "links-test:0.0", keys: "clear", literal: true)
-        TestStep.tmuxSendKeys(target: "links-test:0.0", keys: "Enter")
-        TestStep.wait(seconds: 0.5)
-
-        TestStep.tmuxSendKeys(
-            target: "links-test:0.0",
-            keys: #"echo 'Plain URL: https://example.com/plain-link'"#,
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "links-test:0.0", keys: "Enter")
-        TestStep.wait(seconds: 0.3)
-
-        TestStep.tmuxSendKeys(
-            target: "links-test:0.0",
-            keys: #"printf 'OSC8 link: \e]8;;https://example.com/osc8-link\aClick Here\e]8;;\a\n'"#,
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "links-test:0.0", keys: "Enter")
-        TestStep.wait(seconds: 0.3)
-
-        TestStep.tmuxSendKeys(
-            target: "links-test:0.0",
-            keys: #"printf 'Dual link: \e]8;;https://example.com/real-target\ahttps://example.com/visible-url\e]8;;\a\n'"#,
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "links-test:0.0", keys: "Enter")
-        TestStep.wait(seconds: 1)
+        // After pairing, the existing links-test session is already visible in the iOS session list.
+        // Tap on it to open the terminal view — no need to create a new terminal.
+        TestStep.iosWaitForElement(.labelContains("links-test"), timeout: 15)
+        TestStep.iosTap(.labelContains("links-test"))
+        TestStep.wait(seconds: 3)
 
         // Screenshot showing links rendered with underlines on iOS
         TestStep.iosScreenshot(label: "ios-terminal-links", compare: false)
