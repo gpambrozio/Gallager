@@ -567,9 +567,15 @@ public struct MainView: View {
 
         // Detect newly added Claude sessions
         let newSessionPaneIds = currentIds.subtracting(previousIds)
+        // Detect removed Claude sessions (panes moving from Claude Sessions → Terminals)
+        let removedSessionPaneIds = previousIds.subtracting(currentIds)
 
         if let selected = selectedPane, newSessionPaneIds.contains(selected.paneId) {
             // The currently selected pane just got a Claude session - scroll to it
+            scrollToPaneId = selected.id
+        } else if !removedSessionPaneIds.isEmpty, let selected = selectedPane {
+            // A session ended, causing panes to move between sections - scroll to keep the
+            // selected pane visible so sidebar elements don't get hidden off-screen
             scrollToPaneId = selected.id
         } else if
             selectedPane == nil, selectedRemotePane == nil, newSessionPaneIds.count == 1,

@@ -498,24 +498,32 @@ final public class TmuxService {
                     }
                 } else if input[nextIndex] == "]" {
                     // OSC sequence: ESC ] ... BEL or ESC ] ... ESC backslash (ST)
-                    // Consume everything until the terminator
+                    // Find the terminator first, then decide whether to keep the sequence
                     var oscIndex = input.index(after: nextIndex)
+                    var terminatorEnd: String.Index?
                     while oscIndex < input.endIndex {
                         if input[oscIndex] == "\u{07}" {
                             // BEL terminator
-                            i = input.index(after: oscIndex)
+                            terminatorEnd = input.index(after: oscIndex)
                             break
                         } else if input[oscIndex] == "\u{1b}" {
                             // Check for ST (ESC \)
                             let afterEsc = input.index(after: oscIndex)
                             if afterEsc < input.endIndex, input[afterEsc] == "\\" {
-                                i = input.index(after: afterEsc)
+                                terminatorEnd = input.index(after: afterEsc)
                                 break
                             }
                         }
                         oscIndex = input.index(after: oscIndex)
                     }
-                    if oscIndex >= input.endIndex {
+                    if let terminatorEnd {
+                        // Check if this is OSC 8 (hyperlink) — preserve it
+                        let oscContent = input[input.index(after: nextIndex)..<oscIndex]
+                        if oscContent.hasPrefix("8;") {
+                            result += String(input[i..<terminatorEnd])
+                        }
+                        i = terminatorEnd
+                    } else {
                         // Unterminated OSC, skip past it all
                         i = input.endIndex
                     }

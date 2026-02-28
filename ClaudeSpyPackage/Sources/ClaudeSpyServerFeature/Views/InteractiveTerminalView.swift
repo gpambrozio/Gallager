@@ -151,6 +151,13 @@
         private var cachedCellSize: CGSize?
         private var lastMouseGridPosition: (col: Int, row: Int)?
 
+        /// Cached OSC 8 payloads extracted from SwiftTerm cells before clearing.
+        /// Structure: [absoluteBufferRow: [col: payloadString]]
+        /// Keyed by absolute buffer row so lookups remain correct after scrolling.
+        /// We clear SwiftTerm's cell payloads to prevent its own dashed underline rendering,
+        /// but cache them here so our URL detection still works.
+        private var cachedPayloads: [Int: [Int: String]] = [:]
+
         private var isFocused = false {
             didSet {
                 focusBorderView?.isFocused = isFocused
@@ -339,6 +346,64 @@
 
         // MARK: - URL Detection
 
+        /// Bridges SwiftTerm's `Terminal` to the closures expected by `TerminalURLDetector`.
+        /// Uses cached payloads (extracted before clearing) instead of live cell payloads.
+        /// Converts viewport rows to absolute buffer rows for cache lookup.
+        private func urlClosures(for terminal: Terminal) -> (
+            lineText: (Int) -> String?,
+            cellPayload: (Int, Int) -> String?
+        ) {
+            let payloads = cachedPayloads
+            let yDisp = terminal.buffer.yDisp
+            return (
+                lineText: { terminal.getLine(row: $0)?.translateToString(trimRight: true) },
+                cellPayload: { col, row in payloads[row + yDisp]?[col] }
+            )
+        }
+
+        /// Scans ALL terminal buffer lines for OSC 8 payloads, merges them into the cache, then clears them.
+        /// We cache payloads so our URL detection works, but clear them from SwiftTerm's cells
+        /// to prevent SwiftTerm from rendering its own dashed underlines.
+        /// Merges rather than replaces so payloads from earlier feeds (already cleared) are preserved.
+        private func extractAndClearPayloads() {
+            let terminal = terminalView.getTerminal()
+            // TinyAtom.empty is internal, but TinyAtom is a single UInt16 struct —
+            // empty has code 0 which makes CharData.hasPayload return false.
+            assert(MemoryLayout<TinyAtom>.size == MemoryLayout<UInt16>.size, "TinyAtom layout changed — unsafeBitCast assumption is invalid")
+            let emptyAtom = unsafeBitCast(UInt16(0), to: TinyAtom.self)
+            let cols = terminal.cols
+            let totalLines = terminal.buffer.yDisp + terminal.rows
+
+            for absoluteRow in 0..<totalLines {
+                guard let line = terminal.getScrollInvariantLine(row: absoluteRow) else { continue }
+                for col in 0..<cols {
+                    var cd = line[col]
+                    if cd.hasPayload {
+                        if let payload = cd.getPayload() as? String, !payload.isEmpty {
+                            if cachedPayloads[absoluteRow] == nil {
+                                cachedPayloads[absoluteRow] = [:]
+                            }
+                            cachedPayloads[absoluteRow]?[col] = payload
+                        }
+                        cd.setPayload(atom: emptyAtom)
+                        line[col] = cd
+                    }
+                }
+            }
+
+            // Prune entries for lines that have been trimmed from the circular buffer
+            let minRow = cachedPayloads.keys.min() ?? 0
+            if minRow < totalLines {
+                for row in minRow..<totalLines where cachedPayloads[row] != nil {
+                    if terminal.getScrollInvariantLine(row: row) == nil {
+                        cachedPayloads.removeValue(forKey: row)
+                    } else {
+                        break // Lines are contiguous; once we find a valid one, the rest are valid
+                    }
+                }
+            }
+        }
+
         /// Converts a point in this view's coordinate space to a viewport grid position (col, row).
         /// The returned row is a viewport row suitable for `Terminal.getLine(row:)`.
         private func gridPosition(for point: NSPoint) -> (col: Int, row: Int)? {
@@ -390,9 +455,13 @@
             lastMouseGridPosition = pos
 
             let terminal = terminalView.getTerminal()
-            let urls = TerminalURLDetector.detectURLs(row: pos.row) {
-                terminal.getLine(row: $0)?.translateToString(trimRight: true)
-            }
+            let closures = urlClosures(for: terminal)
+            let urls = TerminalURLDetector.detectURLs(
+                row: pos.row,
+                cols: terminal.cols,
+                lineText: closures.lineText,
+                cellPayload: closures.cellPayload
+            )
             if let detected = urls.first(where: { pos.col >= $0.startCol && pos.col < $0.endCol }) {
                 let newRange = (row: pos.row, startCol: detected.startCol, endCol: detected.endCol)
                 if
@@ -484,9 +553,15 @@
         fileprivate func handleURLClick(at point: NSPoint) -> Bool {
             guard let pos = gridPosition(for: point) else { return false }
             let terminal = terminalView.getTerminal()
-            let lineText: (Int) -> String? = { terminal.getLine(row: $0)?.translateToString(trimRight: true) }
+            let closures = urlClosures(for: terminal)
             if
-                let url = TerminalURLDetector.urlAt(col: pos.col, row: pos.row, lineText: lineText),
+                let url = TerminalURLDetector.urlAt(
+                    col: pos.col,
+                    row: pos.row,
+                    cols: terminal.cols,
+                    lineText: closures.lineText,
+                    cellPayload: closures.cellPayload
+                ),
                 let nsURL = URL(string: url) {
                 NSWorkspace.shared.open(nsURL)
                 return true
@@ -510,10 +585,14 @@
             CATransaction.begin()
             CATransaction.setDisableActions(true)
 
+            let closures = urlClosures(for: terminal)
             for row in 0..<terminal.rows {
-                let urls = TerminalURLDetector.detectURLs(row: row) {
-                    terminal.getLine(row: $0)?.translateToString(trimRight: true)
-                }
+                let urls = TerminalURLDetector.detectURLs(
+                    row: row,
+                    cols: terminal.cols,
+                    lineText: closures.lineText,
+                    cellPayload: closures.cellPayload
+                )
                 for url in urls {
                     let x = CGFloat(url.startCol) * cellSize.width - horizontalOffset
                     // Position underline near cell bottom (NSView: origin at bottom-left)
@@ -635,6 +714,7 @@
 
         func feed(byteArray: ArraySlice<UInt8>) {
             terminalView.feed(byteArray: byteArray)
+            extractAndClearPayloads()
             needsLayout = true
         }
 
@@ -645,6 +725,7 @@
             // - Position <= 0.001 (no scrollback yet, or at very top)
             let wasAtExtreme = savedPosition >= 0.999 || savedPosition <= 0.001
             terminalView.feed(byteArray: bytes)
+            extractAndClearPayloads()
             if preserveUserScroll, !wasAtExtreme {
                 terminalView.scroll(toPosition: savedPosition)
             }
