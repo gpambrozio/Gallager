@@ -6,21 +6,32 @@ struct MirrorWindowView: View {
     let paneInfo: PaneInfo
 
     @Environment(AppSettings.self) private var settings
+    @Environment(MirrorWindowManager.self) private var windowManager
 
     @State private var streamState: StreamState = .disconnected
     @State private var streamWidth: Int?
     @State private var streamHeight: Int?
+    @State private var terminalTitle: String?
+
+    private var windowTitle: String {
+        if let terminalTitle, !terminalTitle.isEmpty {
+            return terminalTitle
+        }
+        return "Mirror: \(paneInfo.paneId) (\(paneInfo.target))"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             TerminalContainerView(
                 paneInfo: paneInfo,
                 onStateChange: { state, width, height in
-                    Task { @MainActor in
-                        streamState = state
-                        streamWidth = width
-                        streamHeight = height
-                    }
+                    streamState = state
+                    streamWidth = width
+                    streamHeight = height
+                },
+                onTitleChange: { title in
+                    terminalTitle = title
+                    windowManager.updateTerminalTitle(target: paneInfo.target, title: title)
                 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -29,7 +40,7 @@ struct MirrorWindowView: View {
                 statusBar
             }
         }
-        .navigationTitle("Mirror: \(paneInfo.paneId) (\(paneInfo.target))")
+        .navigationTitle(windowTitle)
     }
 
     // MARK: - Subviews

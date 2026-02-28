@@ -156,6 +156,12 @@ final public class TerminalStreamService {
                     Task {
                         await self.handleDimensionChange(paneId: paneId, width: newWidth, height: newHeight)
                     }
+                },
+                onTitleChange: { [weak self] (title: String) in
+                    guard let self else { return }
+                    Task {
+                        await self.handleTitleChange(paneId: paneId, title: title)
+                    }
                 }
             )
         } catch {
@@ -315,6 +321,20 @@ final public class TerminalStreamService {
         ])
 
         let message = TerminalStreamMessage.dimensionChange(paneId: paneId, width: width, height: height)
+        await connectionManager.sendTerminalStreamToAll(message)
+    }
+
+    /// Handle title change reported by a subscriber's SwiftTerm instance
+    private func handleTitleChange(paneId: String, title: String) async {
+        guard activeStreams[paneId] != nil else { return }
+        guard let connectionManager else { return }
+
+        logger.info("Sending title change", metadata: [
+            "paneId": "\(paneId)",
+            "title": "\(title)",
+        ])
+
+        let message = TerminalStreamMessage.titleChange(paneId: paneId, title: title)
         await connectionManager.sendTerminalStreamToAll(message)
     }
 }

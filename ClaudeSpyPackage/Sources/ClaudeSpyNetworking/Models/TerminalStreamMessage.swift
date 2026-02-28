@@ -39,6 +39,9 @@ public struct TerminalStreamMessage: Codable, Sendable, Identifiable {
         /// Terminal dimensions have changed (pane resized).
         case dimensionChange(DimensionChange)
 
+        /// Terminal title has changed (via OSC 0 or OSC 2 escape sequences).
+        case titleChange(TitleChange)
+
         /// Stream has ended (pane closed, disconnected, etc.).
         case streamEnd
     }
@@ -96,6 +99,16 @@ public struct TerminalStreamMessage: Codable, Sendable, Identifiable {
             self.height = height
         }
     }
+
+    /// Terminal title change notification.
+    public struct TitleChange: Codable, Sendable, Equatable {
+        /// The new terminal title
+        public let title: String
+
+        public init(title: String) {
+            self.title = title
+        }
+    }
 }
 
 // MARK: - Convenience Initializers
@@ -127,6 +140,14 @@ public extension TerminalStreamMessage {
         TerminalStreamMessage(
             paneId: paneId,
             updateType: .dimensionChange(DimensionChange(width: width, height: height))
+        )
+    }
+
+    /// Create a title change message.
+    static func titleChange(paneId: String, title: String) -> TerminalStreamMessage {
+        TerminalStreamMessage(
+            paneId: paneId,
+            updateType: .titleChange(TitleChange(title: title))
         )
     }
 

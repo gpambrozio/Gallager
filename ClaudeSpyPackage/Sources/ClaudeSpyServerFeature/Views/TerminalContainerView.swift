@@ -9,6 +9,9 @@ import SwiftUI
 /// Callback type for reporting terminal state changes to parent view
 typealias TerminalStateChangeHandler = @MainActor (StreamState, Int, Int) -> Void
 
+/// Callback type for reporting terminal title changes to parent view
+typealias TerminalTitleChangeHandler = @MainActor (String) -> Void
+
 // MARK: - Terminal Container View
 
 /// A self-contained SwiftUI view that mirrors a tmux pane.
@@ -22,6 +25,7 @@ typealias TerminalStateChangeHandler = @MainActor (StreamState, Int, Int) -> Voi
 struct TerminalContainerView: NSViewRepresentable {
     let paneInfo: PaneInfo
     let onStateChange: TerminalStateChangeHandler?
+    let onTitleChange: TerminalTitleChangeHandler?
 
     @Environment(AppSettings.self) private var settings
     @Environment(TmuxService.self) private var tmuxService
@@ -42,7 +46,8 @@ struct TerminalContainerView: NSViewRepresentable {
             paneStreamManager: paneStreamManager,
             windowManager: windowManager,
             settings: settings,
-            onStateChange: onStateChange
+            onStateChange: onStateChange,
+            onTitleChange: onTitleChange
         )
 
         return coordinator.terminalView
@@ -98,6 +103,7 @@ struct TerminalContainerView: NSViewRepresentable {
         private var containerSize: NSSize = .zero
 
         private var onStateChange: TerminalStateChangeHandler?
+        private var onTitleChange: TerminalTitleChangeHandler?
 
         // Track initial scroll state
         private var hasScrolledInitial = false
@@ -124,13 +130,15 @@ struct TerminalContainerView: NSViewRepresentable {
             paneStreamManager: PaneStreamManager,
             windowManager: MirrorWindowManager,
             settings: AppSettings,
-            onStateChange: TerminalStateChangeHandler?
+            onStateChange: TerminalStateChangeHandler?,
+            onTitleChange: TerminalTitleChangeHandler?
         ) {
             self.paneInfo = paneInfo
             self.paneStreamManager = paneStreamManager
             self.windowManager = windowManager
             self.tmuxService = tmuxService
             self.onStateChange = onStateChange
+            self.onTitleChange = onTitleChange
             lastExternalWidth = paneInfo.width
 
             // Apply initial settings
@@ -145,6 +153,11 @@ struct TerminalContainerView: NSViewRepresentable {
                     _ = await previous?.value
                     await self.sendKeysToTmux(keys, target: paneInfo.target)
                 }
+            }
+
+            // Wire up title change handling
+            terminalView.onTitleChange = { [weak self] title in
+                self?.handleTitleChange(title)
             }
 
             // Start connection
@@ -219,6 +232,10 @@ struct TerminalContainerView: NSViewRepresentable {
 
             do {
                 let target = paneInfo.target
+                // Note: onTitleChange is intentionally omitted here. Title changes are detected
+                // locally by SwiftTerm's delegate (terminalView.onTitleChange) and then reported
+                // back to PaneStreamManager via reportTitleChange(), which forwards to other
+                // subscribers. This avoids a circular callback loop.
                 let result = try await paneStreamManager.subscribe(
                     paneId: paneInfo.paneId,
                     target: target,
@@ -243,6 +260,22 @@ struct TerminalContainerView: NSViewRepresentable {
                 }
             } catch {
                 updateState(.error(error.localizedDescription))
+            }
+        }
+
+        // MARK: Title Handling
+
+        private func handleTitleChange(_ title: String) {
+            // Notify the parent view
+            onTitleChange?(title)
+
+            // Report to PaneStreamManager so other subscribers (e.g., TerminalStreamService) are notified
+            if let paneInfo, let subscriptionId {
+                paneStreamManager?.reportTitleChange(
+                    paneId: paneInfo.paneId,
+                    title: title,
+                    fromSubscription: subscriptionId
+                )
             }
         }
 

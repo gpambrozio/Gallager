@@ -916,6 +916,11 @@ private struct PaneSidebarRow: View {
         windowManager.activeSessions[pane.paneId]?.latestEvent?.action.subtitle
     }
 
+    /// Terminal title detected via OSC escape sequences
+    private var terminalTitle: String? {
+        windowManager.terminalTitles[pane.target]
+    }
+
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
@@ -928,6 +933,13 @@ private struct PaneSidebarRow: View {
                             .foregroundStyle(.purple)
                             .font(.caption)
                     }
+                }
+
+                if let terminalTitle, !terminalTitle.isEmpty {
+                    Text(terminalTitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
 
                 Text(pane.command)

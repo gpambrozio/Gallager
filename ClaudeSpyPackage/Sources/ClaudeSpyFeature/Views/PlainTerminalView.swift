@@ -17,6 +17,9 @@
         /// Always nil for plain terminals - no response state
         @State private var responseState: ResponseState?
 
+        /// Terminal title detected via OSC escape sequences
+        @State private var terminalTitle: String?
+
         /// Whether the host is connected
         private var isConnected: Bool {
             relayClient.isHostConnected
@@ -31,13 +34,14 @@
             LiveTerminalView(
                 paneId: paneId,
                 responseState: $responseState,
+                terminalTitle: $terminalTitle,
                 isConnected: isConnected,
                 hideNavigationBar: hideNavigationBar,
                 settings: settings,
                 sendCommand: sendCommand
             )
             .environment(relayClient)
-            .navigationTitle("Terminal")
+            .navigationTitle(terminalTitle ?? "Terminal")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(hideNavigationBar ? .hidden : .visible, for: .navigationBar)
         }

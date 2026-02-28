@@ -164,6 +164,7 @@ final public class MirrorWindowManager {
             hostName: hostName,
             connection: connection,
             settings: settings,
+            windowKey: windowKey,
             onStreamEnd: { [weak self] in
                 self?.closeMirror(for: windowKey)
             }
@@ -227,6 +228,7 @@ final public class MirrorWindowManager {
         )
 
         window.contentViewController = hostingController
+        window.identifier = NSUserInterfaceItemIdentifier(key)
         window.title = title
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 400, height: 300)
@@ -285,6 +287,7 @@ final public class MirrorWindowManager {
         openWindows.removeValue(forKey: target)
         windowPaneIds.removeValue(forKey: target)
         windowDelegates.removeValue(forKey: target)
+        terminalTitles.removeValue(forKey: target)
         window.close()
     }
 
@@ -307,6 +310,7 @@ final public class MirrorWindowManager {
         openWindows.removeAll()
         windowPaneIds.removeAll()
         windowDelegates.removeAll()
+        terminalTitles.removeAll()
         for (_, window) in windows {
             window.close()
         }
@@ -321,6 +325,19 @@ final public class MirrorWindowManager {
         openWindows.removeValue(forKey: target)
         windowPaneIds.removeValue(forKey: target)
         windowDelegates.removeValue(forKey: target)
+        terminalTitles.removeValue(forKey: target)
+    }
+
+    /// Terminal titles keyed by pane target, detected via OSC escape sequences
+    public private(set) var terminalTitles: [String: String] = [:]
+
+    /// Updates the terminal title for a pane and the associated window title.
+    /// - Parameters:
+    ///   - target: The pane target (e.g., "mysession:0.1")
+    ///   - title: The new terminal title
+    public func updateTerminalTitle(target: String, title: String) {
+        terminalTitles[target] = title
+        openWindows[target]?.title = title
     }
 
     /// Brings a mirror window to front if it exists
