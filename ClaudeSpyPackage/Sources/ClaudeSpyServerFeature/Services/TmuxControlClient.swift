@@ -42,12 +42,15 @@ enum TmuxControlError: Error, LocalizedError {
     }
 }
 
-/// Manages a tmux control mode connection for real-time pane streaming
+/// Manages a tmux control mode connection for commands and event notifications.
 ///
-/// Control mode provides structured event notifications:
-/// - `%output %<pane-id> <data>` for terminal data
-/// - `%layout-change` when panes resize
-/// - `%session-changed` when sessions change
+/// With `-f no-output` the control client only handles:
+/// - Command execution via `sendCommand()` (capture-pane, list-panes, pipe-pane, etc.)
+/// - `%layout-change` for dimension tracking
+/// - `%session-changed` for session monitoring
+/// - `%exit` for connection lifecycle
+///
+/// Live terminal data is delivered separately via `PipePaneReader` (pipe-pane raw bytes).
 actor TmuxControlClient {
     private let tmuxPath: String
     private let socketPath: String?
@@ -60,9 +63,6 @@ actor TmuxControlClient {
 
     // Cached dimensions for change detection
     private var cachedDimensions: [String: (width: Int, height: Int)] = [:]
-
-    // Pane handlers - keyed by pane ID (e.g., "%0")
-    private var paneHandlers: [String: @Sendable (Data) -> Void] = [:]
 
     // Callbacks for notifications
     private var _onDimensionChange: (@Sendable (String, Int, Int) -> Void)?
@@ -90,25 +90,8 @@ actor TmuxControlClient {
     private var skippingInitialBlock = false
     private var receivedInitialResponse = false
 
-    // Output buffering during resize
-    private var isBufferingOutput = false
-    private var outputBuffer: [(paneId: String, data: Data)] = []
-
-    // Per-pane buffering during initial capture: events are silently discarded
-    // because the capture commands (routed through control mode) already reflect them.
-    // Safety: unregisterPaneHandler() always clears this set for the pane, so even if
-    // stopPaneBuffering() fails in the error path, the subsequent unregisterPane()
-    // call prevents permanently stuck buffering.
-    private var perPaneBuffering: Set<String> = []
-
     // Byte buffer for incomplete lines (handles chunk splitting at line boundaries)
     private var byteBuffer = Data()
-
-    // Per-pane buffer for incomplete UTF-8 sequences (tmux splits UTF-8 across %output lines)
-    private var paneUtf8Buffer: [String: Data] = [:]
-
-    // Per-pane buffer for incomplete tmux escape sequences (e.g., ESC k ... ESC \ split across chunks)
-    private var paneTmuxEscapeBuffer: [String: Data] = [:]
 
     var isConnected: Bool {
         process?.isRunning == true
@@ -139,7 +122,11 @@ actor TmuxControlClient {
 
     // MARK: - Connection Management
 
-    /// Connects to a tmux session in control mode
+    /// Connects to a tmux session in control mode with `-f no-output,ignore-size`.
+    ///
+    /// The `no-output` flag suppresses `%output` events — live data is delivered
+    /// via `PipePaneReader` instead. The `ignore-size` flag prevents the control
+    /// client from affecting pane sizing.
     func connect(sessionTarget: String) async throws {
         guard process == nil else {
             throw TmuxControlError.alreadyConnected
@@ -152,7 +139,7 @@ actor TmuxControlClient {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tmuxPath)
 
-        var arguments = ["-C", "attach", "-t", sessionTarget]
+        var arguments = ["-C", "-f", "no-output,ignore-size", "attach", "-t", sessionTarget]
         if let socketPath, !socketPath.isEmpty {
             arguments = ["-S", socketPath] + arguments
         }
@@ -197,7 +184,7 @@ actor TmuxControlClient {
             }
         }
 
-        logger.info("Connected to tmux control mode")
+        logger.info("Connected to tmux control mode (no-output mode)")
     }
 
     /// Disconnects from tmux control mode
@@ -223,48 +210,22 @@ actor TmuxControlClient {
         process = nil
 
         // Clear state
-        paneHandlers.removeAll()
         cachedDimensions.removeAll()
-        outputBuffer.removeAll()
-        isBufferingOutput = false
         byteBuffer.removeAll()
-        paneUtf8Buffer.removeAll()
-        paneTmuxEscapeBuffer.removeAll()
-        perPaneBuffering.removeAll()
     }
 
-    // MARK: - Pane Tracking
+    // MARK: - Dimension Tracking
 
-    /// Registers a handler to receive output for a specific pane
-    func registerPaneHandler(paneId: String, initialDimensions: (width: Int, height: Int), handler: @escaping @Sendable (Data) -> Void) {
-        paneHandlers[paneId] = handler
-        cachedDimensions[paneId] = initialDimensions
-        logger.debug("Registered pane handler", metadata: ["paneId": "\(paneId)"])
+    /// Registers initial dimensions for a pane so layout-change events can detect changes.
+    func registerPaneDimensions(paneId: String, width: Int, height: Int) {
+        cachedDimensions[paneId] = (width, height)
+        logger.debug("Registered pane dimensions", metadata: ["paneId": "\(paneId)"])
     }
 
-    /// Unregisters a pane handler
-    func unregisterPaneHandler(paneId: String) {
-        paneHandlers.removeValue(forKey: paneId)
+    /// Unregisters a pane from dimension tracking.
+    func unregisterPane(paneId: String) {
         cachedDimensions.removeValue(forKey: paneId)
-        paneUtf8Buffer.removeValue(forKey: paneId)
-        paneTmuxEscapeBuffer.removeValue(forKey: paneId)
-        perPaneBuffering.remove(paneId)
-        logger.debug("Unregistered pane handler", metadata: ["paneId": "\(paneId)"])
-    }
-
-    /// Enables per-pane output buffering (discard mode) for the given pane.
-    /// While enabled, %output events for this pane are silently discarded.
-    /// Used during initial capture to prevent duplicate data delivery.
-    func startPaneBuffering(paneId: String) {
-        perPaneBuffering.insert(paneId)
-        logger.debug("Started per-pane buffering", metadata: ["paneId": "\(paneId)"])
-    }
-
-    /// Disables per-pane output buffering for the given pane.
-    /// After this call, %output events are delivered normally to the pane handler.
-    func stopPaneBuffering(paneId: String) {
-        perPaneBuffering.remove(paneId)
-        logger.debug("Stopped per-pane buffering", metadata: ["paneId": "\(paneId)"])
+        logger.debug("Unregistered pane", metadata: ["paneId": "\(paneId)"])
     }
 
     // MARK: - Command Execution
@@ -318,33 +279,15 @@ actor TmuxControlClient {
             let lineData = Data(byteBuffer[..<newlineIndex])
             byteBuffer = Data(byteBuffer[(newlineIndex + 1)...])
 
-            // Parse at byte level - %output lines may contain invalid UTF-8
-            await parseLineBytes(lineData)
+            // All lines are control messages (no %output with no-output flag)
+            guard let line = String(data: lineData, encoding: .utf8) else { continue }
+            await parseLine(line)
         }
-    }
-
-    /// Parses a line at the byte level to handle %output with split UTF-8
-    private func parseLineBytes(_ lineData: Data) async {
-        // Check for %output prefix (which may contain raw UTF-8 that's been split)
-        let outputPrefix = Data("%output %".utf8)
-        if lineData.starts(with: outputPrefix) {
-            parseOutputNotificationBytes(lineData)
-            return
-        }
-
-        // For all other control messages, convert to string (they should be ASCII)
-        guard let line = String(data: lineData, encoding: .utf8) else {
-            // Non-%output line with invalid UTF-8 - skip
-            return
-        }
-
-        await parseLine(line)
     }
 
     // MARK: - Line Parsing
 
     private func parseLine(_ line: String) async {
-        // Note: %output lines are handled at byte level in parseLineBytes
         if line.hasPrefix("%layout-change ") {
             await handleLayoutChange()
         } else if line.hasPrefix("%begin ") {
@@ -363,307 +306,10 @@ actor TmuxControlClient {
         }
     }
 
-    // MARK: - %output Parsing (Byte Level)
-
-    /// Parses %output at byte level to handle split UTF-8 characters
-    private func parseOutputNotificationBytes(_ lineData: Data) {
-        // Format: %output %<pane-id> <data>
-        // The pane ID is ASCII, but data may contain raw/split UTF-8
-
-        let prefixLength = "%output %".count
-
-        // Find the space after pane ID (pane ID is single digit or short number)
-        guard let spaceIndex = lineData.dropFirst(prefixLength).firstIndex(of: 0x20) else { return }
-
-        // Extract pane ID (ASCII)
-        let paneIdData = lineData[prefixLength..<spaceIndex]
-        guard let paneIdStr = String(data: Data(paneIdData), encoding: .utf8) else { return }
-        let paneId = "%" + paneIdStr
-
-        // Extract data portion as raw bytes (may contain split UTF-8)
-        let dataStart = lineData.index(after: spaceIndex)
-        let rawData = Data(lineData[dataStart...])
-
-        // Unescape the data (convert \033 etc to bytes)
-        // Note: unescapeOutput works on String, so we need to handle this carefully
-        // The escaped format uses ASCII backslash + digits, which is always valid UTF-8
-        // But raw UTF-8 chars may also be present
-
-        // First, try to convert to string for unescaping
-        // If it fails, we have orphaned continuation bytes - prepend buffered data
-        var dataToProcess = rawData
-
-        // Prepend any buffered incomplete UTF-8 from previous %output
-        if let buffered = paneUtf8Buffer[paneId], !buffered.isEmpty {
-            dataToProcess = buffered + dataToProcess
-            paneUtf8Buffer[paneId] = nil
-        }
-
-        // Now try to convert to string for unescaping
-        // The data may still have incomplete UTF-8 at the END
-        let unescapedData = unescapeOutputBytes(dataToProcess)
-
-        // Check for incomplete UTF-8 at end and buffer it
-        let (completeData, incompleteTrailing) = splitIncompleteUtf8Trailing(unescapedData)
-        if !incompleteTrailing.isEmpty {
-            paneUtf8Buffer[paneId] = incompleteTrailing
-        }
-
-        if isBufferingOutput {
-            outputBuffer.append((paneId, completeData))
-        } else if perPaneBuffering.contains(paneId) {
-            // Discard: pane is being captured via control mode,
-            // this data is already reflected in the capture results
-        } else {
-            deliverOutput(paneId: paneId, data: completeData)
-        }
-    }
-
-    /// Unescapes tmux output working at byte level
-    /// Handles both octal escapes (\033) and raw UTF-8 bytes
-    func unescapeOutputBytes(_ data: Data) -> Data {
-        var result = Data()
-        var i = data.startIndex
-
-        while i < data.endIndex {
-            let byte = data[i]
-
-            if byte == 0x5C { // backslash
-                let next = data.index(after: i)
-                if next < data.endIndex {
-                    let nextByte = data[next]
-                    if nextByte == 0x5C {
-                        // Escaped backslash
-                        result.append(0x5C)
-                        i = data.index(after: next)
-                    } else if nextByte >= 0x30 && nextByte <= 0x37 { // '0'-'7' octal digit
-                        // Octal escape \xxx
-                        var octalEnd = next
-                        var digitCount = 0
-                        while octalEnd < data.endIndex && digitCount < 3 {
-                            let d = data[octalEnd]
-                            if d >= 0x30 && d <= 0x37 { // '0'-'7'
-                                octalEnd = data.index(after: octalEnd)
-                                digitCount += 1
-                            } else {
-                                break
-                            }
-                        }
-                        let octalBytes = Data(data[next..<octalEnd])
-                        if
-                            let octalStr = String(data: octalBytes, encoding: .ascii),
-                            let value = UInt8(octalStr, radix: 8) {
-                            result.append(value)
-                        }
-                        i = octalEnd
-                    } else {
-                        // Unknown escape - keep backslash
-                        result.append(0x5C)
-                        i = next
-                    }
-                } else {
-                    // Backslash at end
-                    result.append(0x5C)
-                    i = data.index(after: i)
-                }
-            } else {
-                // Regular byte (including raw UTF-8)
-                result.append(byte)
-                i = data.index(after: i)
-            }
-        }
-        return result
-    }
-
-    /// Splits data into complete UTF-8 and any trailing incomplete sequence
-    /// Returns (complete, incomplete) where incomplete may be empty
-    /// Splits data into complete UTF-8 and any trailing incomplete sequence
-    /// Returns (complete, incomplete) where incomplete may be empty
-    /// Internal for testing
-    func splitIncompleteUtf8Trailing(_ data: Data) -> (Data, Data) {
-        guard !data.isEmpty else { return (data, Data()) }
-
-        // Check last 1-3 bytes for incomplete UTF-8 sequence
-        // UTF-8 lead bytes: 0xC0-0xDF (2-byte), 0xE0-0xEF (3-byte), 0xF0-0xF7 (4-byte)
-        // Continuation bytes: 0x80-0xBF
-
-        let count = data.count
-
-        // Check if last byte is a lead byte (incomplete sequence of 1 byte)
-        let last = data[count - 1]
-        if last >= 0xC0 && last <= 0xF7 {
-            // Lead byte at end - incomplete
-            return (data.dropLast(1), Data([last]))
-        }
-
-        // Check last 2 bytes for 3 or 4 byte sequence with only 2 bytes
-        if count >= 2 {
-            let secondLast = data[count - 2]
-            // 3-byte lead (0xE0-0xEF) or 4-byte lead (0xF0-0xF7) followed by 1 continuation
-            if (secondLast >= 0xE0 && secondLast <= 0xF7) && (last >= 0x80 && last <= 0xBF) {
-                return (data.dropLast(2), Data(data.suffix(2)))
-            }
-        }
-
-        // Check last 3 bytes for 4 byte sequence with only 3 bytes
-        if count >= 3 {
-            let thirdLast = data[count - 3]
-            let secondLast = data[count - 2]
-            // 4-byte lead followed by 2 continuations
-            if
-                (thirdLast >= 0xF0 && thirdLast <= 0xF7) &&
-                (secondLast >= 0x80 && secondLast <= 0xBF) &&
-                (last >= 0x80 && last <= 0xBF) {
-                return (data.dropLast(3), Data(data.suffix(3)))
-            }
-        }
-
-        // No incomplete sequence at end
-        return (data, Data())
-    }
-
-    private func deliverOutput(paneId: String, data: Data) {
-        guard let handler = paneHandlers[paneId] else { return }
-        // Filter out tmux-specific escape sequences that terminals don't understand
-        let filtered = filterTmuxEscapeSequences(data, paneId: paneId)
-        guard !filtered.isEmpty else { return }
-        handler(filtered)
-    }
-
-    /// Filters out tmux/screen-specific escape sequences that standard terminals don't handle.
-    /// - ESC k ... ESC \ : tmux title sequence (sets pane title)
-    /// Without filtering, terminals output the sequence content as literal text.
-    /// Buffers incomplete sequences across chunks to handle split data.
-    private func filterTmuxEscapeSequences(_ data: Data, paneId: String) -> Data {
-        var result = Data()
-
-        // Prepend any buffered incomplete sequence from previous chunk
-        var dataToProcess = data
-        if let buffered = paneTmuxEscapeBuffer[paneId], !buffered.isEmpty {
-            dataToProcess = buffered + data
-            paneTmuxEscapeBuffer[paneId] = nil
-        }
-
-        var i = dataToProcess.startIndex
-
-        while i < dataToProcess.endIndex {
-            // Check for ESC (0x1B)
-            if dataToProcess[i] == 0x1B {
-                // Check if we have at least one more byte to determine sequence type
-                if i + 1 >= dataToProcess.endIndex {
-                    // Incomplete: just ESC at end, buffer it
-                    paneTmuxEscapeBuffer[paneId] = Data(dataToProcess[i...])
-                    break
-                }
-
-                if dataToProcess[i + 1] == 0x6B {
-                    // ESC k - start of tmux title sequence
-                    // Skip until we find ESC \ (0x1B 0x5C) or end of data
-                    var j = dataToProcess.index(i, offsetBy: 2) // Skip ESC k
-                    var foundEnd = false
-
-                    while j < dataToProcess.endIndex {
-                        if dataToProcess[j] == 0x1B {
-                            if j + 1 >= dataToProcess.endIndex {
-                                // ESC at end while inside sequence - buffer from start of sequence
-                                paneTmuxEscapeBuffer[paneId] = Data(dataToProcess[i...])
-                                return result
-                            }
-                            if dataToProcess[j + 1] == 0x5C {
-                                // Found ESC \ - skip it and mark sequence complete
-                                j = dataToProcess.index(j, offsetBy: 2)
-                                foundEnd = true
-                                break
-                            }
-                        }
-                        j = dataToProcess.index(after: j)
-                    }
-
-                    if foundEnd {
-                        i = j
-                    } else {
-                        // Reached end without finding ESC \ - buffer the incomplete sequence
-                        paneTmuxEscapeBuffer[paneId] = Data(dataToProcess[i...])
-                        break
-                    }
-                } else {
-                    // ESC followed by something other than 'k' - pass through
-                    result.append(dataToProcess[i])
-                    i = dataToProcess.index(after: i)
-                }
-            } else {
-                result.append(dataToProcess[i])
-                i = dataToProcess.index(after: i)
-            }
-        }
-
-        return result
-    }
-
-    /// Unescapes tmux control mode output
-    /// Control mode escapes non-printable characters as octal \xxx
-    func unescapeOutput(_ escaped: String) -> Data {
-        var result = Data()
-        var i = escaped.startIndex
-
-        while i < escaped.endIndex {
-            if escaped[i] == "\\" && escaped.index(after: i) < escaped.endIndex {
-                let next = escaped.index(after: i)
-                if escaped[next] == "\\" {
-                    // Escaped backslash
-                    result.append(UInt8(ascii: "\\"))
-                    i = escaped.index(after: next)
-                } else if escaped[next].isOctalDigit {
-                    // Octal escape \xxx
-                    let octalStart = next
-                    var octalEnd = next
-                    var digitCount = 0
-                    while octalEnd < escaped.endIndex && escaped[octalEnd].isOctalDigit && digitCount < 3 {
-                        octalEnd = escaped.index(after: octalEnd)
-                        digitCount += 1
-                    }
-                    let octalStr = String(escaped[octalStart..<octalEnd])
-                    if let value = UInt8(octalStr, radix: 8) {
-                        result.append(value)
-                    }
-                    i = octalEnd
-                } else {
-                    // Unknown escape - keep backslash
-                    result.append(UInt8(ascii: "\\"))
-                    i = next
-                }
-            } else {
-                // Regular character
-                result.append(contentsOf: String(escaped[i]).utf8)
-                i = escaped.index(after: i)
-            }
-        }
-        return result
-    }
-
     // MARK: - Layout Change Handling
 
     private func handleLayoutChange() async {
-        logger.debug("Layout change detected, buffering output")
-
-        // Start buffering output until we've notified clients of new dimensions
-        isBufferingOutput = true
-
-        // Ensure buffering is always cleared, even on error
-        defer {
-            let buffered = outputBuffer
-            outputBuffer = []
-            isBufferingOutput = false
-
-            for (paneId, data) in buffered {
-                if perPaneBuffering.contains(paneId) {
-                    // Still in capture window, discard
-                    continue
-                }
-                deliverOutput(paneId: paneId, data: data)
-            }
-        }
-
+        logger.debug("Layout change detected")
         await refreshStreamingPaneDimensions()
     }
 
@@ -686,7 +332,7 @@ actor TmuxControlClient {
                 let paneId = String(parts[0])
                 existingPaneIds.insert(paneId)
 
-                // Only notify for panes we're streaming
+                // Only notify for panes we're tracking
                 if
                     let cached = cachedDimensions[paneId],
                     cached.width != width || cached.height != height {
@@ -707,9 +353,6 @@ actor TmuxControlClient {
             for paneId in exitedPaneIds {
                 logger.info("Pane exited (no longer in list)", metadata: ["paneId": "\(paneId)"])
                 cachedDimensions.removeValue(forKey: paneId)
-                paneHandlers.removeValue(forKey: paneId)
-                paneUtf8Buffer.removeValue(forKey: paneId)
-                paneTmuxEscapeBuffer.removeValue(forKey: paneId)
                 _onPaneExited?(paneId)
             }
         } catch {
@@ -828,13 +471,5 @@ actor TmuxControlClient {
         process = nil
         stdin = nil
         stdoutPipe = nil
-    }
-}
-
-// MARK: - Character Extensions
-
-private extension Character {
-    var isOctalDigit: Bool {
-        self >= "0" && self <= "7"
     }
 }

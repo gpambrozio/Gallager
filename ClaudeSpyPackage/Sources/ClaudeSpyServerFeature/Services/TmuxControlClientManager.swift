@@ -7,6 +7,9 @@
     /// When multiple panes from the same session are being streamed, they share
     /// a single control mode connection. This reduces resource usage and ensures
     /// consistent event handling across all panes in a session.
+    ///
+    /// The control client operates in `no-output` mode — it only handles commands
+    /// and event notifications. Live data is delivered via `PipePaneReader`.
     @Observable
     @MainActor
     final public class TmuxControlClientManager {
@@ -89,35 +92,27 @@
             return client
         }
 
-        /// Registers a pane for streaming via the control client.
+        /// Registers a pane for dimension tracking via the control client.
         ///
         /// - Parameters:
         ///   - paneId: The pane ID (e.g., "%0")
         ///   - sessionName: The session this pane belongs to
         ///   - dimensions: Initial pane dimensions
-        ///   - handler: Callback for incoming output data
-        public func registerPane(
+        public func registerPaneDimensions(
             paneId: String,
             sessionName: String,
-            dimensions: (width: Int, height: Int),
-            handler: @escaping @Sendable (Data) -> Void
+            dimensions: (width: Int, height: Int)
         ) async throws {
             let client = try await getClient(for: sessionName)
-            await client.registerPaneHandler(
-                paneId: paneId,
-                initialDimensions: dimensions,
-                handler: handler
-            )
+            await client.registerPaneDimensions(paneId: paneId, width: dimensions.width, height: dimensions.height)
 
-            logger.info("Registered pane for streaming", metadata: [
+            logger.info("Registered pane for dimension tracking", metadata: [
                 "paneId": "\(paneId)",
                 "session": "\(sessionName)",
             ])
         }
 
         /// Sends a tmux command through the control client for the given session.
-        /// Commands sent this way are ordered relative to `%output` events,
-        /// ensuring capture results are consistent with live stream state.
         func sendCommand(
             _ command: String,
             sessionName: String,
@@ -127,30 +122,16 @@
             return try await client.sendCommand(command, timeout: timeout)
         }
 
-        /// Starts per-pane output buffering (discard mode) on the control client.
-        /// While enabled, `%output` events for this pane are silently discarded.
-        public func startPaneBuffering(paneId: String, sessionName: String) async throws {
-            let client = try await getClient(for: sessionName)
-            await client.startPaneBuffering(paneId: paneId)
-        }
-
-        /// Stops per-pane output buffering on the control client.
-        /// After this call, `%output` events are delivered normally to the pane handler.
-        public func stopPaneBuffering(paneId: String, sessionName: String) async throws {
-            let client = try await getClient(for: sessionName)
-            await client.stopPaneBuffering(paneId: paneId)
-        }
-
-        /// Unregisters a pane from streaming.
+        /// Unregisters a pane from dimension tracking.
         ///
         /// - Parameters:
         ///   - paneId: The pane ID
         ///   - sessionName: The session this pane belongs to
         public func unregisterPane(paneId: String, sessionName: String) async {
             guard let client = clients[sessionName] else { return }
-            await client.unregisterPaneHandler(paneId: paneId)
+            await client.unregisterPane(paneId: paneId)
 
-            logger.info("Unregistered pane from streaming", metadata: [
+            logger.info("Unregistered pane", metadata: [
                 "paneId": "\(paneId)",
                 "session": "\(sessionName)",
             ])

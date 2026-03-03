@@ -13,10 +13,11 @@
         }
     }
 
-    /// Manages the streaming connection to a single tmux pane
+    /// Manages the streaming connection to a single tmux pane.
     ///
-    /// Uses tmux control mode via TmuxControlClientManager for real-time streaming.
-    /// Control mode provides immediate resize notifications and structured output.
+    /// Uses `PipePaneReader` for raw byte delivery (via pipe-pane) and
+    /// `TmuxControlClientManager` for commands (capture-pane) and events
+    /// (layout-change, session-changed).
     @Observable
     @MainActor
     final class PaneStream {
@@ -45,6 +46,7 @@
         private let tmuxService: TmuxService
         private let controlClientManager: TmuxControlClientManager
         private var sessionName = ""
+        private var pipePaneReader: PipePaneReader?
 
         init(target: String, tmuxService: TmuxService, controlClientManager: TmuxControlClientManager) {
             self.target = target
@@ -52,13 +54,12 @@
             self.controlClientManager = controlClientManager
         }
 
-        /// Connects to the pane and starts streaming data via control mode.
+        /// Connects to the pane and starts streaming data via pipe-pane.
         ///
-        /// Uses per-pane buffering to eliminate the timing gap (H5) between capture
-        /// and stream registration. The flow is:
-        /// 1. Register pane handler with buffering (events discarded during capture)
-        /// 2. Capture via control mode (commands ordered with `%output` events)
-        /// 3. Stop buffering (switch to live delivery)
+        /// The flow is:
+        /// 1. Start pipe-pane with buffering (raw bytes collected but not delivered)
+        /// 2. Capture initial state via control mode (scrollback + visible area)
+        /// 3. Flush buffered pipe-pane data (switch to live delivery)
         ///
         /// - Returns: Initial terminal content (scrollback + visible area)
         func connect() async throws -> Data {
@@ -83,20 +84,19 @@
                 width = dims.width
                 height = dims.height
 
-                // Step 1: Enable per-pane buffering BEFORE registering the handler.
-                // While buffering is active, %output events for this pane are silently
-                // discarded — they'll be reflected in the capture results.
-                try await controlClientManager.startPaneBuffering(
-                    paneId: paneId, sessionName: sessionName
-                )
-
-                // Step 2: Register the pane handler for live updates.
-                // Events arriving now are discarded by per-pane buffering.
-                try await controlClientManager.registerPane(
+                // Register pane for dimension tracking via control client
+                try await controlClientManager.registerPaneDimensions(
                     paneId: paneId,
                     sessionName: sessionName,
                     dimensions: (width: width, height: height)
-                ) { [weak self] (data: Data) in
+                )
+
+                // Create and start pipe-pane reader with buffering
+                let reader = PipePaneReader(paneId: paneId)
+                pipePaneReader = reader
+
+                // Set up data handler to forward to our callback
+                await reader.setDataHandler { [weak self] (data: Data) in
                     Task { @MainActor [weak self] in
                         guard let self else { return }
                         self.scrollbackLines += data.split(separator: UInt8(ascii: "\n")).count
@@ -104,9 +104,14 @@
                     }
                 }
 
-                // Step 3: Capture via control mode. These commands are ordered relative
-                // to %output events in the control mode stream, so the capture results
-                // include the effects of all discarded events.
+                // Step 1: Start pipe-pane with buffering
+                try await reader.startPipePane(
+                    controlClientManager: controlClientManager,
+                    sessionName: sessionName,
+                    buffering: true
+                )
+
+                // Step 2: Capture initial state via control mode
                 let initialContent = try await tmuxService.capturePaneViaControlMode(
                     target,
                     height: height,
@@ -114,20 +119,21 @@
                     sessionName: sessionName
                 )
 
-                // Step 4: Stop buffering — switch to live delivery.
-                // All events after the last capture command are new and will be delivered.
-                try await controlClientManager.stopPaneBuffering(
-                    paneId: paneId, sessionName: sessionName
-                )
+                // Step 3: Flush buffered data and switch to live delivery
+                await reader.stopBufferingAndFlush()
 
                 state = .connected
                 return initialContent
             } catch {
-                // Clean up on failure: stop buffering and unregister if we got that far
-                if !paneId.isEmpty && !sessionName.isEmpty {
-                    try? await controlClientManager.stopPaneBuffering(
-                        paneId: paneId, sessionName: sessionName
+                // Clean up on failure
+                if let reader = pipePaneReader {
+                    await reader.stopPipePane(
+                        controlClientManager: controlClientManager,
+                        sessionName: sessionName
                     )
+                    pipePaneReader = nil
+                }
+                if !paneId.isEmpty && !sessionName.isEmpty {
                     await controlClientManager.unregisterPane(
                         paneId: paneId, sessionName: sessionName
                     )
@@ -139,11 +145,15 @@
 
         /// Disconnects from the pane
         func disconnect() async {
-            if !paneId.isEmpty && !sessionName.isEmpty {
-                // Stop any active per-pane buffering (safety cleanup)
-                try? await controlClientManager.stopPaneBuffering(
-                    paneId: paneId, sessionName: sessionName
+            if let reader = pipePaneReader {
+                await reader.stopPipePane(
+                    controlClientManager: controlClientManager,
+                    sessionName: sessionName
                 )
+                pipePaneReader = nil
+            }
+
+            if !paneId.isEmpty && !sessionName.isEmpty {
                 await controlClientManager.unregisterPane(
                     paneId: paneId, sessionName: sessionName
                 )

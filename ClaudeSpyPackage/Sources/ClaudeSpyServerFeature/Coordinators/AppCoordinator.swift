@@ -170,6 +170,9 @@
             guard !isServiceSetupComplete else { return }
             isServiceSetupComplete = true
 
+            // Clean up any stale pipe-pane FIFOs from previous crashes
+            PipePaneReader.cleanupStaleFifos()
+
             // Start dock icon management (hides dock icon initially, shows when windows open)
             await dockIconService.startObserving()
 
