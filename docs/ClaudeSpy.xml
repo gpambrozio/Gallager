@@ -6,6 +6,43 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.9</title>
+         <sparkle:version>9</sparkle:version>
+         <sparkle:shortVersionString>1.9</sparkle:shortVersionString>
+         <pubDate>Tue, 03 Mar 2026 12:46:30 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.9 Release Notes
+
+<h2>Features</h2>
+
+<h3>Terminal Title Display</h3>
+Terminal titles set by programs via standard escape sequences (OSC 0/2) are now detected and displayed throughout the app. Titles appear in the macOS sidebar, mirror windows, the remote macOS viewer, and the iOS viewer, making it easier to identify what each terminal session is running.
+
+<h3>Clickable Hyperlinks in Terminals</h3>
+Terminals now detect and render clickable hyperlinks emitted via OSC 8 escape sequences, in addition to the existing plain-text URL detection. On macOS, links are underlined on hover and open on click. On iOS, links respond to tap and long-press gestures. When both an OSC 8 link and a plain-text URL overlap the same range, the escape sequence link takes priority.
+
+<h3>Session Summaries</h3>
+When a Claude Code session ends, the app now captures and displays Claude's final message as a session summary. On iOS, the summary appears as a collapsible section above the prompt input. On macOS, it shows as a subtitle in the sidebar. Session summaries are also included in push notifications, giving a quick overview of what was accomplished without needing to open the app.
+
+<h2>Improvements</h2>
+
+<h3>Rewritten Terminal Streaming Architecture</h3>
+Live terminal data delivery has been completely rewritten. The previous approach parsed tmux control mode `%output` events, which required octal unescaping, UTF-8 reconstruction, and line-boundary splitting — all of which could introduce rendering artifacts, especially with truecolor animations. The new architecture uses `pipe-pane` to deliver raw PTY bytes through per-pane FIFOs, eliminating these processing layers and producing faithful terminal output.
+
+<h2>Bug Fixes</h2>
+
+<h3>Sidebar Scroll Position After Session Exit</h3>
+Fixed an issue where sidebar elements could become hidden off-screen when a Claude session ended. The pane would move from "Claude Sessions" to "Terminals" without adjusting the scroll position, causing items to disappear from view.
+
+<h3>Keystroke Ordering in Remote Viewers</h3>
+Fixed a race condition where rapid keystrokes sent from a remote viewer (iOS or macOS) could arrive out of order at the host terminal. Each keystroke previously spawned an independent task that could overtake earlier sends; keystrokes are now serialized to guarantee correct ordering.
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.9.dmg"
+                    sparkle:edSignature="T7mFON9O0xa6amKqjmRCJNo8nW0xEJAMTjmG78n2zrrH5suqO1vveN86+avOsokzm7ttPcLCRtVqWGTEASHgBw=="
+                    length="20124613"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.8</title>
          <sparkle:version>8</sparkle:version>
          <sparkle:shortVersionString>1.8</sparkle:shortVersionString>
