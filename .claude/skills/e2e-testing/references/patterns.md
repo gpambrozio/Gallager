@@ -165,7 +165,7 @@ TestStep.assertStoredNotEqual(key: "newWidth", otherKey: "initialWidth")
 
 ## Pattern: Screenshots
 
-Screenshots are auto-numbered with a zero-padded counter (`01-`, `02-`, etc.) that resets per scenario run. Labels should be descriptive kebab-case without manual number prefixes. By default, screenshots compare against stored baselines; pass `compare: false` for capture-only but default to not adding the parameter unless there's very good reason to not compare.
+Screenshots are auto-numbered with a zero-padded counter (`01-`, `02-`, etc.) that resets per scenario run. Labels should be descriptive kebab-case without manual number prefixes. By default, screenshots compare against stored baselines; only use `compare: false` if there's very good reason to not compare. Comparing should be the default.
 
 ```swift
 // Compared against baseline (default)
@@ -174,9 +174,6 @@ TestStep.macScreenshot(label: "mac-code-generated")
 
 // With tolerance for anti-aliasing
 TestStep.macScreenshot(label: "settings-window", tolerance: 1.0)
-
-// Capture-only, no comparison (comparing should be default)
-TestStep.iosScreenshot(label: "debug-state", compare: false)
 ```
 
 See `docs/e2e-testing.md` for baseline storage, diff images, and CLI options.

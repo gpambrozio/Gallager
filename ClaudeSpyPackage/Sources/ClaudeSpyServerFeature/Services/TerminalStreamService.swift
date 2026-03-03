@@ -30,6 +30,12 @@ final public class TerminalStreamService {
     /// Active streams keyed by pane ID
     private var activeStreams: [String: StreamContext] = [:]
 
+    /// Ordered data stream for each pane — ensures strictly sequential processing
+    /// of incoming terminal data, preventing interleaved flushes from reordering
+    /// WebSocket messages.
+    private var dataStreams: [String: AsyncStream<Data>.Continuation] = [:]
+    private var dataConsumerTasks: [String: Task<Void, Never>] = [:]
+
     // MARK: - Batching Configuration
 
     /// Minimum interval between stream messages (throttling)
@@ -136,6 +142,20 @@ final public class TerminalStreamService {
         // Store context BEFORE subscribing so callbacks work immediately
         activeStreams[paneId] = context
 
+        // Create ordered data stream for this pane.
+        // The onData callback yields into the stream (synchronous, no Task needed),
+        // and a single consumer task processes items strictly in order.
+        // This prevents the out-of-order execution that occurs when spawning
+        // a new Task {} per callback under high throughput.
+        let (dataStream, dataContinuation) = AsyncStream.makeStream(of: Data.self)
+        dataStreams[paneId] = dataContinuation
+        dataConsumerTasks[paneId] = Task { [weak self] in
+            for await data in dataStream {
+                guard let self, self.activeStreams[paneId] != nil else { break }
+                await self.handleIncomingData(context: context, paneId: paneId, data: data)
+            }
+        }
+
         // Subscribe to PaneStreamManager for data
         // This returns initial content captured atomically with the subscription
         let result: PaneStreamManager.SubscriptionResult
@@ -145,11 +165,8 @@ final public class TerminalStreamService {
                 target: target,
                 onData: { [weak self] (data: Data) in
                     guard let self else { return }
-                    // Look up context from activeStreams to ensure we're still active
-                    guard let context = self.activeStreams[paneId] else { return }
-                    Task {
-                        await self.handleIncomingData(context: context, paneId: paneId, data: data)
-                    }
+                    guard self.activeStreams[paneId] != nil else { return }
+                    self.dataStreams[paneId]?.yield(data)
                 },
                 onDimensionChange: { [weak self] (newWidth: Int, newHeight: Int) in
                     guard let self else { return }
@@ -166,6 +183,10 @@ final public class TerminalStreamService {
             )
         } catch {
             // Clean up on failure
+            dataConsumerTasks[paneId]?.cancel()
+            dataConsumerTasks.removeValue(forKey: paneId)
+            dataContinuation.finish()
+            dataStreams.removeValue(forKey: paneId)
             activeStreams.removeValue(forKey: paneId)
             throw error
         }
@@ -231,6 +252,12 @@ final public class TerminalStreamService {
         activeStreams.removeValue(forKey: paneId)
 
         logger.info("Stopping terminal stream", metadata: ["paneId": "\(paneId)"])
+
+        // Stop the ordered data consumer and stream
+        dataConsumerTasks[paneId]?.cancel()
+        dataConsumerTasks.removeValue(forKey: paneId)
+        dataStreams[paneId]?.finish()
+        dataStreams.removeValue(forKey: paneId)
 
         // Cancel any pending batch send
         context.batchTask?.cancel()

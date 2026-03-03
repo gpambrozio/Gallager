@@ -2,12 +2,7 @@
 name: e2e-testing
 allowed-tools:
   - Bash(./scripts/e2e-test.sh *)
-description: >
-  This skill should be used when the user asks to "create an e2e test", "add an e2e scenario",
-  "write an e2e test scenario", "update an e2e scenario", "modify an e2e test",
-  "add a test step", "debug a failing e2e test", "add accessibility hooks for e2e",
-  or mentions creating or editing end-to-end test scenarios for ClaudeSpy.
-  It provides the scenario DSL, available test steps, element queries, and registration process.
+description: Use this skill for any e2e testing task: running or creating scenarios, adding test steps, managing element queries, debugging failures, adding accessibility hooks, or updating existing scenarios. It provides the scenario DSL, available test steps, element queries, and registration process.
 ---
 
 # E2E Test Scenario Development
@@ -21,6 +16,10 @@ The E2E test framework lives in `ClaudeSpyPackage/Sources/`:
 - **ClaudeSpyE2E/** - CLI entry point (`ClaudeSpyE2ECommand.swift` - scenario registration)
 
 Scenarios are defined declaratively using a `@resultBuilder` DSL and executed sequentially by the `TestOrchestrator`.
+
+## Running E2E scenarios
+
+Always use `./scripts/e2e-test.sh` to run scenarios. It builds the apps, launches the orchestrator, and runs the scenario in a clean environment.
 
 ## Creating a New Scenario
 

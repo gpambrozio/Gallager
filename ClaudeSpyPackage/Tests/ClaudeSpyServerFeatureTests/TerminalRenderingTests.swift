@@ -833,5 +833,78 @@
                 "Cursor should be back at row 21 after down, got \(finalCursorRow)"
             )
         }
+
+        @Test("No blank gap in scrollback when mirror is smaller than tmux pane")
+        @MainActor
+        func scrollbackGapWithSmallerMirror() {
+            let service = TmuxService()
+            let tmuxRows = 50
+            let cols = 80
+
+            // Build 200 lines of scrollback (numbered for easy identification)
+            let scrollbackLines = (1...200).map { "Line \($0)" }
+            let scrollbackOutput = scrollbackLines.joined(separator: "\n")
+
+            // Build visible content (bottom 50 lines of a terminal after `seq 1 200`)
+            var visibleLines: [String] = []
+            for i in 0..<tmuxRows {
+                if i < tmuxRows - 1 {
+                    visibleLines.append("Visible \(i + 1)")
+                } else {
+                    visibleLines.append("$ ") // shell prompt on last line
+                }
+            }
+            let visibleOutput = visibleLines.joined(separator: "\n")
+
+            // Cursor at end of prompt
+            let cursorOutput = "2,\(tmuxRows - 1)"
+
+            let initialData = service.processCapturePaneForStreaming(
+                scrollbackOutput: scrollbackOutput,
+                visibleOutput: visibleOutput,
+                cursorOutput: cursorOutput,
+                height: tmuxRows
+            )
+
+            // Feed into an OVERSIZED terminal so all content (scrollback + visible)
+            // fits on screen without any terminal scrollback. This lets us check
+            // every line via getLine(row:) (which is public) without needing
+            // internal SwiftTerm buffer APIs.
+            let bigRows = 500
+            let (terminal, _) = makeTerminal(cols: cols, rows: bigRows)
+            terminal.feed(byteArray: Array(initialData))
+
+            // Collect all line texts from the oversized terminal
+            var allLines: [String] = []
+            for row in 0..<bigRows {
+                allLines.append(getRowText(terminal, row: row))
+            }
+
+            // Find the first and last non-empty lines
+            let firstNonEmpty = allLines.firstIndex { !$0.isEmpty } ?? 0
+            let lastNonEmpty = allLines.lastIndex { !$0.isEmpty } ?? 0
+
+            // Between the first and last non-empty lines, there should be
+            // no blank lines (that would be the "gap")
+            var blankGapLines: [Int] = []
+            for i in firstNonEmpty...lastNonEmpty where allLines[i].isEmpty {
+                blankGapLines.append(i)
+            }
+
+            #expect(
+                blankGapLines.isEmpty,
+                """
+                Found \(blankGapLines.count) blank gap line(s) between \
+                content at rows \(firstNonEmpty) and \(lastNonEmpty). \
+                Blank rows: \(blankGapLines.prefix(10))
+                """
+            )
+
+            // Verify we have meaningful content — scrollback + visible should both appear
+            let hasScrollbackContent = allLines.contains { $0.hasPrefix("Line ") }
+            let hasVisibleContent = allLines.contains { $0.hasPrefix("Visible ") || $0.hasPrefix("$") }
+            #expect(hasScrollbackContent, "Should contain scrollback lines")
+            #expect(hasVisibleContent, "Should contain visible lines")
+        }
     }
 #endif
