@@ -222,7 +222,8 @@
             func paneIdSanitized() async {
                 let reader = PipePaneReader(paneId: "%5")
                 let path = await reader.testFifoPath
-                #expect(path == "/tmp/claudespy-pipe-5.fifo")
+                let expectedDir = FileManager.default.temporaryDirectory.path
+                #expect(path == "\(expectedDir)/claudespy-pipe-5.fifo")
             }
         }
 

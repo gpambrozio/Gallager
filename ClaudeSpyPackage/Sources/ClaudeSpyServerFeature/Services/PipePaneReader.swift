@@ -50,7 +50,8 @@
                 !sanitized.isEmpty && sanitized.allSatisfy(\.isNumber),
                 "Pane ID must contain only digits after stripping '%', got: \(paneId)"
             )
-            self.fifoPath = "/tmp/claudespy-pipe-\(sanitized).fifo"
+            let tmpDir = FileManager.default.temporaryDirectory.path
+            self.fifoPath = "\(tmpDir)/claudespy-pipe-\(sanitized).fifo"
         }
 
         // MARK: - Public API
@@ -81,8 +82,13 @@
             // Clean up any stale FIFO from a previous crash
             cleanupFifo()
 
-            // Step 1: Create FIFO
-            let result = mkfifo(fifoPath, 0o600)
+            // Step 1: Create FIFO (retry once if stale file persists after cleanup)
+            var result = mkfifo(fifoPath, 0o600)
+            if result != 0, errno == EEXIST {
+                logger.warning("FIFO still exists after cleanup, force-removing: \(fifoPath)")
+                try? FileManager.default.removeItem(atPath: fifoPath)
+                result = mkfifo(fifoPath, 0o600)
+            }
             guard result == 0 else {
                 let errorMessage = String(cString: strerror(errno))
                 throw PipePaneError.fifoCreationFailed(path: fifoPath, message: errorMessage)
@@ -333,9 +339,10 @@
         /// Call once at startup.
         static func cleanupStaleFifos() {
             let fm = FileManager.default
-            guard let contents = try? fm.contentsOfDirectory(atPath: "/tmp") else { return }
+            let tmpDir = fm.temporaryDirectory.path
+            guard let contents = try? fm.contentsOfDirectory(atPath: tmpDir) else { return }
             for file in contents where file.hasPrefix("claudespy-pipe-") && file.hasSuffix(".fifo") {
-                let path = "/tmp/\(file)"
+                let path = "\(tmpDir)/\(file)"
                 try? fm.removeItem(atPath: path)
                 Logger(label: "com.claudespy.pipepane").debug("Cleaned up stale FIFO: \(path)")
             }
