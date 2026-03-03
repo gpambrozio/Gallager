@@ -41,6 +41,9 @@ final public class ViewerConnection: Identifiable {
         relayClient.state.isConnected
     }
 
+    /// Whether yolo mode is enabled on the host for this connection
+    public var isYoloModeEnabled = false
+
     // MARK: - Initialization
 
     /// Creates a new connection to a paired host.
@@ -117,6 +120,13 @@ final public class ViewerConnection: Identifiable {
         await relayClient.requestSessionState()
     }
 
+    /// Send a yolo mode toggle request to the host.
+    ///
+    /// - Parameter enabled: Whether to enable or disable yolo mode
+    public func sendSetYoloMode(_ enabled: Bool) async {
+        await relayClient.sendSetYoloMode(enabled)
+    }
+
     /// Send push notification token to the relay server.
     ///
     /// - Parameter token: The APNs device token as a hex string
@@ -150,6 +160,10 @@ final public class ViewerConnection: Identifiable {
         }
         relayClient.onPartnerKeyReceived = onPartnerKeyReceived
         relayClient.onUnpaired = onUnpaired
+
+        relayClient.onYoloModeChanged = { [weak self] enabled in
+            self?.isYoloModeEnabled = enabled
+        }
     }
 
     // MARK: - Terminal Stream Subscriptions

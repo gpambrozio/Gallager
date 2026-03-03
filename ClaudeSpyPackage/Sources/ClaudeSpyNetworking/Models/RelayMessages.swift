@@ -134,6 +134,29 @@ public struct ClaudeProjectInfo: Codable, Sendable, Identifiable, Hashable {
     }
 }
 
+// MARK: - Yolo Mode
+
+/// Message from viewer to host requesting yolo mode toggle.
+/// The host is responsible for actually enabling/disabling yolo mode.
+public struct SetYoloModeMessage: Codable, Sendable {
+    /// Whether to enable or disable yolo mode
+    public let enabled: Bool
+
+    public init(enabled: Bool) {
+        self.enabled = enabled
+    }
+}
+
+/// Message from host to viewers broadcasting the current yolo mode state.
+public struct YoloModeChangedMessage: Codable, Sendable {
+    /// Whether yolo mode is currently enabled
+    public let enabled: Bool
+
+    public init(enabled: Bool) {
+        self.enabled = enabled
+    }
+}
+
 // MARK: - Viewer Connection Notifications
 
 /// Message sent when a paired viewer connects, includes public key for E2EE session establishment

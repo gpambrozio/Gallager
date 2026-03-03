@@ -149,6 +149,9 @@ final public class ViewerRelayClient {
     /// Called when the server notifies that this pairing was removed by the other side
     public var onUnpaired: (@MainActor @Sendable () async -> Void)?
 
+    /// Called when the host broadcasts a yolo mode state change
+    public var onYoloModeChanged: (@MainActor @Sendable (Bool) -> Void)?
+
     // MARK: - Initialization
 
     public init() { }
@@ -311,6 +314,20 @@ final public class ViewerRelayClient {
         }
 
         await send(.requestSessionState)
+    }
+
+    /// Send a yolo mode toggle request to the host.
+    ///
+    /// - Parameter enabled: Whether to enable or disable yolo mode
+    public func sendSetYoloMode(_ enabled: Bool) async {
+        guard state.isConnected else {
+            logger.debug("Not connected, cannot send setYoloMode")
+            return
+        }
+
+        logger.info("Sending setYoloMode(\(enabled)) to host")
+        let message = WebSocketMessage.setYoloMode(SetYoloModeMessage(enabled: enabled))
+        await sendEncrypted(message)
     }
 
     /// Send push notification token to the relay server (iOS only).
@@ -571,6 +588,10 @@ final public class ViewerRelayClient {
             }
 
             await requestSessionState()
+
+        case let .yoloModeChanged(yoloMessage):
+            logger.info("Host yolo mode changed: \(yoloMessage.enabled)")
+            onYoloModeChanged?(yoloMessage.enabled)
 
         case .hostDisconnected:
             logger.info("Host device disconnected")

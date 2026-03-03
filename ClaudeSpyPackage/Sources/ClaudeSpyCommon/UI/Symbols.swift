@@ -17,6 +17,7 @@ public enum Symbols: String {
     case arrowUpCircleFill = "arrow.up.circle.fill"
     case bellFill = "bell.fill"
     case boltFill = "bolt.fill"
+    case boltSlashFill = "bolt.slash.fill"
     case checkmark
     case checkmarkCircle = "checkmark.circle"
     case checkmarkCircleFill = "checkmark.circle.fill"

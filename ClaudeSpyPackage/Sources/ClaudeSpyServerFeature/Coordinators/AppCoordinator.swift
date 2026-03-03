@@ -185,6 +185,9 @@
                 // Update sleep prevention based on new session count
                 await updateSleepPrevention()
 
+                // Yolo mode: auto-approve permission requests (except AskUserQuestion/ExitPlanMode)
+                await handleYoloModeAutoReply(for: event)
+
                 guard event.action.body.shouldSendToServer else { return }
                 // Forward to all connected viewers
                 await connectedViewerManager?.sendHookEventToAll(event)
@@ -371,6 +374,12 @@
                 self.settings.removePairing(id: pairId)
             }
 
+            // Handle yolo mode toggle requests from viewers
+            connectionManager.onSetYoloMode = { [weak self] enabled in
+                guard let self else { return }
+                await self.setYoloMode(enabled)
+            }
+
             // Push session state to all viewers whenever panes change
             tmuxService.setPanesChangedHandler { [weak connectionManager] in
                 await connectionManager?.pushSessionStateToAll()
@@ -403,6 +412,49 @@
                     await self?.viewerConnectionManager?.reconnectAllImmediately()
                 }
             }
+        }
+
+        // MARK: - Yolo Mode
+
+        /// Auto-reply to permission requests when yolo mode is enabled.
+        /// Sends keystroke "1" (accept) to the tmux pane, except for AskUserQuestion and ExitPlanMode
+        /// which require user input.
+        private func handleYoloModeAutoReply(for event: HookEvent) async {
+            guard settings.yoloMode else { return }
+
+            guard case let .permissionRequest(body) = event.action else { return }
+            guard let paneTarget = event.tmuxPane else { return }
+
+            // Don't auto-reply to tools that need user input
+            if let toolInput = body.toolInput {
+                switch toolInput {
+                case .askUserQuestion:
+                    logger.info("Yolo mode: skipping AskUserQuestion (requires user input)")
+                    return
+                case .exitPlanMode:
+                    logger.info("Yolo mode: skipping ExitPlanMode (requires user input)")
+                    return
+                default:
+                    break
+                }
+            }
+
+            logger.info("Yolo mode: auto-approving permission request", metadata: [
+                "tool": "\(body.toolName ?? "unknown")",
+                "pane": "\(paneTarget)",
+            ])
+
+            do {
+                try await tmuxService.sendKeys(paneTarget, keys: "1", literal: true)
+            } catch {
+                logger.error("Yolo mode: failed to send auto-approve keystroke: \(error)")
+            }
+        }
+
+        /// Broadcasts yolo mode state to all connected viewers and persists the setting.
+        public func setYoloMode(_ enabled: Bool) async {
+            settings.yoloMode = enabled
+            await connectedViewerManager?.sendYoloModeChangedToAll(enabled)
         }
 
         deinit {

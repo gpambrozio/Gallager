@@ -51,6 +51,9 @@ public enum WebSocketMessage: Codable, Sendable {
     /// Viewer requests current session state from host
     case requestSessionState
 
+    /// Viewer requests host to enable/disable yolo mode (auto-approve permissions)
+    case setYoloMode(SetYoloModeMessage)
+
     /// Viewer sends push notification token to server (iOS only)
     case registerPushToken(RegisterPushTokenMessage)
 
@@ -67,6 +70,9 @@ public enum WebSocketMessage: Codable, Sendable {
 
     /// Server notifies viewer that host has disconnected
     case hostDisconnected
+
+    /// Host broadcasts current yolo mode state to viewers
+    case yoloModeChanged(YoloModeChangedMessage)
 
     // (hookEvent, sessionState, commandResponse are shared with Host → Server)
 
@@ -163,6 +169,8 @@ public extension WebSocketMessage {
         case pushTokenRegistered
         case hostConnected
         case hostDisconnected
+        case setYoloMode
+        case yoloModeChanged
         case unpaired
         case ping
         case pong
@@ -207,6 +215,9 @@ public extension WebSocketMessage {
             self = .registerViewer(payload)
         case .requestSessionState:
             self = .requestSessionState
+        case .setYoloMode:
+            let payload = try container.decode(SetYoloModeMessage.self, forKey: .payload)
+            self = .setYoloMode(payload)
         case .registerPushToken:
             let payload = try container.decode(RegisterPushTokenMessage.self, forKey: .payload)
             self = .registerPushToken(payload)
@@ -221,6 +232,9 @@ public extension WebSocketMessage {
             self = .hostConnected(payload)
         case .hostDisconnected:
             self = .hostDisconnected
+        case .yoloModeChanged:
+            let payload = try container.decode(YoloModeChangedMessage.self, forKey: .payload)
+            self = .yoloModeChanged(payload)
         case .unpaired:
             self = .unpaired
         case .ping:
@@ -274,6 +288,9 @@ public extension WebSocketMessage {
             try container.encode(payload, forKey: .payload)
         case .requestSessionState:
             try container.encode(MessageType.requestSessionState, forKey: .type)
+        case let .setYoloMode(payload):
+            try container.encode(MessageType.setYoloMode, forKey: .type)
+            try container.encode(payload, forKey: .payload)
         case let .registerPushToken(payload):
             try container.encode(MessageType.registerPushToken, forKey: .type)
             try container.encode(payload, forKey: .payload)
@@ -288,6 +305,9 @@ public extension WebSocketMessage {
             try container.encode(payload, forKey: .payload)
         case .hostDisconnected:
             try container.encode(MessageType.hostDisconnected, forKey: .type)
+        case let .yoloModeChanged(payload):
+            try container.encode(MessageType.yoloModeChanged, forKey: .type)
+            try container.encode(payload, forKey: .payload)
         case .unpaired:
             try container.encode(MessageType.unpaired, forKey: .type)
         case .ping:
@@ -320,11 +340,13 @@ public extension WebSocketMessage {
         case .viewerDisconnected: MessageType.viewerDisconnected.rawValue
         case .registerViewer: MessageType.registerViewer.rawValue
         case .requestSessionState: MessageType.requestSessionState.rawValue
+        case .setYoloMode: MessageType.setYoloMode.rawValue
         case .registerPushToken: MessageType.registerPushToken.rawValue
         case .viewerRegistered: MessageType.viewerRegistered.rawValue
         case .pushTokenRegistered: MessageType.pushTokenRegistered.rawValue
         case .hostConnected: MessageType.hostConnected.rawValue
         case .hostDisconnected: MessageType.hostDisconnected.rawValue
+        case .yoloModeChanged: MessageType.yoloModeChanged.rawValue
         case .unpaired: MessageType.unpaired.rawValue
         case .ping: MessageType.ping.rawValue
         case .pong: MessageType.pong.rawValue
@@ -345,7 +367,9 @@ public extension WebSocketMessage {
              .sessionState,
              .command,
              .commandResponse,
-             .terminalStream:
+             .terminalStream,
+             .setYoloMode,
+             .yoloModeChanged:
             true
         default:
             false

@@ -317,6 +317,10 @@ public struct MainView: View {
             connectionStatusView
         }
 
+        ToolbarItem(placement: .automatic) {
+            yoloModeToggle
+        }
+
         // Actions for selected pane
         ToolbarItemGroup(placement: .primaryAction) {
             if let pane = selectedPane, selectedRemotePane == nil {
@@ -455,6 +459,26 @@ public struct MainView: View {
             .controlSize(.small)
             .help("Connect to relay server for iOS monitoring")
         }
+    }
+
+    // MARK: - Yolo Mode Toggle
+
+    private var yoloModeToggle: some View {
+        Toggle(isOn: Binding(
+            get: { settings.yoloMode },
+            set: { enabled in
+                Task {
+                    await coordinator.setYoloMode(enabled)
+                }
+            }
+        )) {
+            (settings.yoloMode ? Symbols.boltFill.image : Symbols.boltSlashFill.image)
+        }
+        .toggleStyle(.button)
+        .help(settings.yoloMode
+            ? "Yolo mode ON: auto-approving permission requests"
+            : "Yolo mode OFF: permission requests require manual approval")
+        .tint(settings.yoloMode ? .orange : nil)
     }
 
     // MARK: - Resize

@@ -286,6 +286,22 @@
 
                 Spacer()
 
+                // Yolo mode toggle
+                if let connection {
+                    Button {
+                        Task {
+                            await connection.sendSetYoloMode(!connection.isYoloModeEnabled)
+                        }
+                    } label: {
+                        (connection.isYoloModeEnabled ? Symbols.boltFill.image : Symbols.boltSlashFill.image)
+                            .font(.caption)
+                            .foregroundStyle(connection.isYoloModeEnabled ? .orange : .secondary)
+                    }
+                    .disabled(!connection.isHostConnected)
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel(connection.isYoloModeEnabled ? "Disable Yolo Mode" : "Enable Yolo Mode")
+                }
+
                 // New session button
                 Button {
                     onNewSession()

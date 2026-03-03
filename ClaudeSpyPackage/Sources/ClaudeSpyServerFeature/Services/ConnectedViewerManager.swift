@@ -43,6 +43,9 @@ final public class ConnectedViewerManager {
     /// Parameter is the pairId that was unpaired.
     public var onUnpaired: (@MainActor @Sendable (String) async -> Void)?
 
+    /// Called when any viewer requests yolo mode to be enabled/disabled
+    public var onSetYoloMode: (@MainActor @Sendable (Bool) async -> Void)?
+
     // MARK: - Computed Properties
 
     /// All active connections
@@ -227,6 +230,15 @@ final public class ConnectedViewerManager {
         }
     }
 
+    /// Broadcast yolo mode state change to all connected viewers.
+    public func sendYoloModeChangedToAll(_ enabled: Bool) async {
+        await withTaskGroup(of: Void.self) { group in
+            for connection in connections.values where connection.state.isConnected {
+                group.addTask { await connection.sendYoloModeChanged(enabled) }
+            }
+        }
+    }
+
     /// Push session state to all connected viewers.
     public func pushSessionStateToAll() async {
         await withTaskGroup(of: Void.self) { group in
@@ -286,6 +298,10 @@ final public class ConnectedViewerManager {
             guard let self else { return }
             self.connections.removeValue(forKey: viewerId)
             await self.onUnpaired?(viewerId)
+        }
+
+        connection.onSetYoloMode = { [weak self] enabled in
+            await self?.onSetYoloMode?(enabled)
         }
     }
 }

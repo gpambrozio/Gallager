@@ -134,6 +134,9 @@ final public class ConnectedViewer: Identifiable {
     /// Called when the server notifies that this pairing was removed by the other side
     public var onUnpaired: (@MainActor @Sendable () async -> Void)?
 
+    /// Called when a viewer requests yolo mode to be enabled/disabled
+    public var onSetYoloMode: (@MainActor @Sendable (Bool) async -> Void)?
+
     // MARK: - Initialization
 
     /// Creates a new viewer connection.
@@ -240,6 +243,17 @@ final public class ConnectedViewer: Identifiable {
         }
 
         let message = WebSocketMessage.terminalStream(streamMessage)
+        await sendEncrypted(message)
+    }
+
+    /// Send yolo mode state change notification to viewer
+    public func sendYoloModeChanged(_ enabled: Bool) async {
+        guard state.isConnected else {
+            logger.debug("Not connected to \(viewerName), cannot send yolo mode change")
+            return
+        }
+
+        let message = WebSocketMessage.yoloModeChanged(YoloModeChangedMessage(enabled: enabled))
         await sendEncrypted(message)
     }
 
@@ -462,6 +476,10 @@ final public class ConnectedViewer: Identifiable {
         case .requestSessionState:
             logger.info("Viewer requested session state")
             await pushSessionState()
+
+        case let .setYoloMode(yoloMessage):
+            logger.info("Viewer requested yolo mode: \(yoloMessage.enabled)")
+            await onSetYoloMode?(yoloMessage.enabled)
 
         case .ping:
             await send(.pong)
