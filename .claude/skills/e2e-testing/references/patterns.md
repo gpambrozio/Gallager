@@ -174,9 +174,6 @@ TestStep.macScreenshot(label: "mac-code-generated")
 
 // With tolerance for anti-aliasing
 TestStep.macScreenshot(label: "settings-window", tolerance: 1.0)
-
-// Capture-only, no comparison (comparing should be default)
-TestStep.iosScreenshot(label: "debug-state", compare: false)
 ```
 
 See `docs/e2e-testing.md` for baseline storage, diff images, and CLI options.
