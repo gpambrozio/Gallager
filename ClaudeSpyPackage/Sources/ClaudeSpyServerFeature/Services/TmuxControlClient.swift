@@ -297,15 +297,15 @@ actor TmuxControlClient {
 
             // All lines are control messages (no %output with no-output flag)
             guard let line = String(data: lineData, encoding: .utf8) else { continue }
-            await parseLine(line)
+            parseLine(line)
         }
     }
 
     // MARK: - Line Parsing
 
-    private func parseLine(_ line: String) async {
+    private func parseLine(_ line: String) {
         if line.hasPrefix("%layout-change ") {
-            await handleLayoutChange()
+            handleLayoutChange()
         } else if line.hasPrefix("%begin ") {
             parseBeginBlock(line)
         } else if line.hasPrefix("%end ") {
@@ -324,9 +324,15 @@ actor TmuxControlClient {
 
     // MARK: - Layout Change Handling
 
-    private func handleLayoutChange() async {
+    private func handleLayoutChange() {
         logger.debug("Layout change detected")
-        await refreshStreamingPaneDimensions()
+        // Must not await sendCommand() on the consumer task — the consumer is the sole
+        // reader of the AsyncStream, and sendCommand() suspends until it reads the
+        // %begin/%end response from that same stream. Spawning a separate task lets the
+        // consumer continue draining the stream so the response can be processed.
+        Task { [weak self] in
+            await self?.refreshStreamingPaneDimensions()
+        }
     }
 
     private func refreshStreamingPaneDimensions() async {
