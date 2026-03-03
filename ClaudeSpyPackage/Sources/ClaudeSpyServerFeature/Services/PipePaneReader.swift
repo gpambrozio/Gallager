@@ -26,6 +26,13 @@
         // Data delivery
         private var dataHandler: (@Sendable (Data) -> Void)?
 
+        // AsyncStream for FIFO-ordered data processing.
+        // readabilityHandler yields into this stream; a single consumer task
+        // processes chunks in order, preventing the reordering that occurs
+        // with unstructured Task {} per callback.
+        private var dataContinuation: AsyncStream<Data>.Continuation?
+        private var consumerTask: Task<Void, Never>?
+
         // Buffering during initial capture
         private var isBuffering = false
         private var buffer: [Data] = []
@@ -111,18 +118,29 @@
             fileHandle = handle
             isRunning = true
 
-            // Step 4: Set up readability handler for continuous data delivery
+            // Step 4: Set up AsyncStream for FIFO-ordered data delivery.
+            // readabilityHandler fires on a dispatch queue — yielding into the stream
+            // is synchronous and non-blocking. A single consumer task drains the stream
+            // in order, guaranteeing no data reordering.
+            let (stream, continuation) = AsyncStream<Data>.makeStream()
+            dataContinuation = continuation
+
             handle.readabilityHandler = { [weak self] handle in
                 let data = handle.availableData
                 guard !data.isEmpty else {
                     // EOF - cat process died or pipe-pane stopped
+                    continuation.finish()
                     Task { [weak self] in
                         await self?.handleEOF()
                     }
                     return
                 }
+                continuation.yield(data)
+            }
 
-                Task { [weak self] in
+            // Single consumer task — processes data in strict FIFO order
+            consumerTask = Task { [weak self] in
+                for await data in stream {
                     await self?.processIncomingData(data)
                 }
             }
@@ -157,8 +175,12 @@
 
             logger.debug("Stopping pipe-pane for \(paneId)")
 
-            // Stop the readability handler first
+            // Stop the readability handler and stream first
             fileHandle?.readabilityHandler = nil
+            dataContinuation?.finish()
+            dataContinuation = nil
+            consumerTask?.cancel()
+            consumerTask = nil
             try? fileHandle?.close()
             fileHandle = nil
 
