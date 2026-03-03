@@ -15,7 +15,9 @@ import Foundation
 ///   5. **Dense Rainbow** — 12 tiny boxes (20x4, 4x3 grid), rapid animation
 ///
 /// Each variant animates 40 frames using mode 2026 synchronized output,
-/// then draws a final static frame. A screenshot is taken after each run.
+/// then draws a final static frame. Screenshots are taken on both macOS
+/// and iOS mirrors after each run to verify artifact-free rendering on
+/// both platforms.
 ///
 /// The Python script is created as a temp file via heredoc, run 5 times
 /// with different `V=` env vars, then cleaned up — fully self-contained.
@@ -24,14 +26,19 @@ import Foundation
 public enum TruecolorRenderingScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Truecolor Rendering Stress",
-        tags: ["rendering", "macos-only"]
+        tags: ["rendering"]
     ) {
+        // ── Pair devices ────────────────────────────────────────────
+        // Pairing launches both apps and establishes the relay connection.
+        // Do this before creating tmux sessions so the session survives
+        // app restarts during the pairing flow.
+
+        FreshPairingScenario.scenario
+
         // ── Setup ─────────────────────────────────────────────────────
 
         TestStep.log("Creating tmux session for truecolor stress test")
         TestStep.tmuxCreateSession(name: "truecolor-test", width: 120, height: 40)
-
-        TestStep.launchMacApp()
         TestStep.wait(seconds: 3)
 
         TestStep.macOpenPanesWindow()
@@ -44,6 +51,15 @@ public enum TruecolorRenderingScenario {
 
         TestStep.macClickButton(titled: "truecolor-test:0.0")
         TestStep.wait(seconds: 2)
+
+        // ── Navigate to pane on iOS ─────────────────────────────────
+
+        TestStep.log("Opening terminal pane on iOS mirror")
+        TestStep.iosWaitForElement(.labelContains("truecolor-test"), timeout: 15)
+        TestStep.iosTap(.labelContains("truecolor-test"))
+        TestStep.wait(seconds: 3)
+        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting"), timeout: 15)
+        TestStep.wait(seconds: 3)
 
         // ── Create the parameterized Python script ───────────────────
         //
@@ -113,6 +129,8 @@ public enum TruecolorRenderingScenario {
         TestStep.tmuxSendKeys(target: "truecolor-test:0.0", keys: "Enter")
         TestStep.wait(seconds: 6)
         TestStep.macScreenshot(label: "v1-standard-gradients")
+        TestStep.wait(seconds: 1)
+        TestStep.iosScreenshot(label: "v1-standard-gradients-ios")
 
         // ── Variant 2: Wide warm boxes (4 boxes, 55x7) ──────────────
 
@@ -125,6 +143,8 @@ public enum TruecolorRenderingScenario {
         TestStep.tmuxSendKeys(target: "truecolor-test:0.0", keys: "Enter")
         TestStep.wait(seconds: 6)
         TestStep.macScreenshot(label: "v2-wide-warm-boxes")
+        TestStep.wait(seconds: 1)
+        TestStep.iosScreenshot(label: "v2-wide-warm-boxes-ios")
 
         // ── Variant 3: Small cool grid (9 boxes, 25x3) ──────────────
 
@@ -137,6 +157,8 @@ public enum TruecolorRenderingScenario {
         TestStep.tmuxSendKeys(target: "truecolor-test:0.0", keys: "Enter")
         TestStep.wait(seconds: 6)
         TestStep.macScreenshot(label: "v3-small-cool-grid")
+        TestStep.wait(seconds: 1)
+        TestStep.iosScreenshot(label: "v3-small-cool-grid-ios")
 
         // ── Variant 4: Full-width bars (6 bars, 100x3) ──────────────
 
@@ -149,6 +171,8 @@ public enum TruecolorRenderingScenario {
         TestStep.tmuxSendKeys(target: "truecolor-test:0.0", keys: "Enter")
         TestStep.wait(seconds: 6)
         TestStep.macScreenshot(label: "v4-full-width-bars")
+        TestStep.wait(seconds: 1)
+        TestStep.iosScreenshot(label: "v4-full-width-bars-ios")
 
         // ── Variant 5: Dense rainbow grid (12 boxes, 20x4) ──────────
 
@@ -161,6 +185,8 @@ public enum TruecolorRenderingScenario {
         TestStep.tmuxSendKeys(target: "truecolor-test:0.0", keys: "Enter")
         TestStep.wait(seconds: 6)
         TestStep.macScreenshot(label: "v5-dense-rainbow-grid")
+        TestStep.wait(seconds: 1)
+        TestStep.iosScreenshot(label: "v5-dense-rainbow-grid-ios")
 
         // ── Cleanup ──────────────────────────────────────────────────
 
