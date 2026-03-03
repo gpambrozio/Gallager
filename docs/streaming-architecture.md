@@ -9,6 +9,7 @@ graph TB
     subgraph Mac["Mac (ClaudeSpyServer)"]
         TMUX[tmux session]
         TCC[TmuxControlClient]
+        PPR[PipePaneReader]
         PS[PaneStream]
         PSM[PaneStreamManager]
         TSS[TerminalStreamService]
@@ -28,8 +29,10 @@ graph TB
         IV[iOS Terminal View<br/>SwiftTerm]
     end
 
-    TMUX -->|control mode| TCC
-    TCC -->|%output events| PS
+    TMUX -->|"control mode (-f no-output)"| TCC
+    TCC -->|commands, events| PS
+    TMUX -->|"pipe-pane raw bytes"| PPR
+    PPR -->|onData| PS
     PS -->|onData callback| PSM
     PSM -->|subscriber| MV
     PSM -->|subscriber| TSS
@@ -44,24 +47,28 @@ graph TB
 
 ## Component Details
 
-### 1. Tmux Capture (Mac)
+### 1. Tmux Data Capture (Mac)
 
-The Mac app uses **tmux control mode** for real-time event capture instead of polling.
+The Mac app uses a **hybrid approach**: tmux control mode for commands and event notifications, and `pipe-pane` for raw PTY byte delivery.
 
 ```mermaid
 sequenceDiagram
     participant T as tmux
     participant TCC as TmuxControlClient
+    participant PPR as PipePaneReader
     participant PS as PaneStream
 
-    TCC->>T: tmux -C attach -t session
+    TCC->>T: tmux -C attach -t session -f no-output,ignore-size
     T-->>TCC: (control mode ready)
 
-    loop Output Events
-        T->>TCC: %output %0 <escaped data>
-        TCC->>TCC: Unescape octal sequences
-        TCC->>TCC: Handle UTF-8 buffering
-        TCC->>PS: handler(data)
+    PS->>PPR: startPipePane()
+    PPR->>T: pipe-pane -O "cat > /tmp/fifo"
+    PPR->>PPR: Open FIFO for reading
+
+    loop Raw PTY Bytes
+        T->>PPR: raw bytes via FIFO
+        PPR->>PPR: Filter tmux ESC k title sequences
+        PPR->>PS: dataHandler(data)
     end
 
     T->>TCC: %layout-change
@@ -70,14 +77,22 @@ sequenceDiagram
 ```
 
 **Key Files:**
+- `ClaudeSpyServerFeature/Services/PipePaneReader.swift`
 - `ClaudeSpyServerFeature/Services/TmuxControlClient.swift`
 - `ClaudeSpyServerFeature/Services/TmuxService.swift`
 
+**PipePaneReader** is an actor that:
+- Manages a per-pane FIFO (`/tmp/claudespy-pipe-<id>.fifo`) for raw byte delivery
+- Reads raw PTY bytes via `pipe-pane -O` piped through the FIFO
+- Filters only tmux's `ESC k ... ESC \` title sequences
+- Uses AsyncStream + single consumer task for strict FIFO ordering of data chunks
+- Supports buffering during initial capture (collects data without delivering, then flushes)
+
 **TmuxControlClient** is an actor that:
-- Maintains a long-lived `tmux -C attach` process
-- Parses structured events (`%output`, `%layout-change`, `%session-changed`, `%exit`)
-- Handles UTF-8 sequences split across multiple `%output` lines via per-pane buffering
-- Unescapes octal sequences (`\033` → ESC byte)
+- Maintains a long-lived `tmux -C attach -f no-output,ignore-size` process
+- Handles commands via `sendCommand()` (capture-pane, list-panes, pipe-pane, etc.)
+- Parses event notifications (`%layout-change`, `%session-changed`, `%exit`)
+- Does **not** handle `%output` events (suppressed by `-f no-output`)
 
 ### 2. Local Stream Management (Mac)
 
@@ -111,8 +126,9 @@ graph LR
 **Key Files:**
 - `ClaudeSpyServerFeature/Services/PaneStream.swift`
 - `ClaudeSpyServerFeature/Services/PaneStreamManager.swift`
+- `ClaudeSpyServerFeature/Services/PipePaneReader.swift`
 
-Subscribers share a single stream—when the last subscriber unsubscribes, the stream disconnects.
+Subscribers share a single stream—when the last subscriber unsubscribes, the stream disconnects. PaneStream owns a `PipePaneReader` for live data and uses `TmuxControlClientManager` for commands and dimension tracking.
 
 ### 3. Mac Mirror View
 
@@ -285,6 +301,7 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     participant TMUX as tmux
+    participant PPR as PipePaneReader
     participant TCC as TmuxControlClient
     participant PS as PaneStream
     participant PSM as PaneStreamManager
@@ -303,9 +320,15 @@ sequenceDiagram
     DCM->>TSS: Start stream for pane
     TSS->>PSM: subscribe(paneId)
     PSM->>PS: connect()
-    PS->>TCC: registerPaneHandler()
-    TCC->>TMUX: (already in control mode)
-    PS->>PS: capturePaneWithScrollbackForStreaming()
+    PS->>PPR: startPipePane(buffering: true)
+    PPR->>TCC: sendCommand("pipe-pane -O ...")
+    TCC->>TMUX: pipe-pane command
+    PS->>TCC: sendCommand("capture-pane ...")
+    TCC->>TMUX: capture-pane command
+    TMUX-->>TCC: capture result
+    TCC-->>PS: initial content
+    PS->>PPR: stopBufferingAndFlush()
+    PPR-->>PS: buffered data delivered
     PS-->>PSM: onData(initial content)
     PSM-->>TSS: subscriber callback
     TSS->>DCM: sendTerminalStreamToAll(initialState)
@@ -327,8 +350,8 @@ sequenceDiagram
     Note over TMUX,IV: Live Updates (to all devices)
 
     loop Terminal Output
-        TMUX->>TCC: %output %0 <data>
-        TCC->>PS: handler(data)
+        TMUX->>PPR: raw PTY bytes via FIFO
+        PPR->>PS: dataHandler(data)
         PS-->>PSM: onData(data)
         PSM-->>MV: subscriber callback (immediate)
         PSM-->>TSS: subscriber callback
@@ -345,8 +368,10 @@ sequenceDiagram
 
 | Decision | Rationale |
 |----------|-----------|
-| **Control mode over polling** | Real-time events with sub-frame latency vs periodic `capture-pane` |
-| **Per-pane UTF-8 buffering** | Handles UTF-8 sequences split across `%output` lines |
+| **Hybrid: control mode + pipe-pane** | Control mode for commands/events, pipe-pane for raw PTY bytes. Eliminates octal unescaping, UTF-8 reconstruction, and line-boundary splitting that caused rendering artifacts |
+| **FIFO-based pipe-pane delivery** | Per-pane FIFO (`/tmp/claudespy-pipe-<id>.fifo`) avoids spawning a persistent subprocess; tmux's `cat > fifo` blocks until reader connects |
+| **AsyncStream ordering** | Single consumer task per data source (PipePaneReader, TmuxControlClient, TerminalStreamService) prevents reordering that occurs with unstructured `Task {}` per callback |
+| **Buffering during initial capture** | PipePaneReader collects raw bytes without delivering while capture-pane runs, then flushes — eliminates gap between capture and live stream |
 | **Stream manager decoupling** | Streaming works without mirror window open, only needs iOS connection |
 | **Data batching (8KB/50ms)** | Prevents network saturation from high-frequency output |
 | **Subscription model** | Multiple consumers (UI + remote) share one stream efficiently |
@@ -359,8 +384,9 @@ sequenceDiagram
 
 | Type | Location | Purpose |
 |------|----------|---------|
-| `TmuxControlClient` | ServerFeature | Long-lived tmux control mode, parses `%output` |
-| `PaneStream` | ServerFeature | Single pane stream with lifecycle |
+| `PipePaneReader` | ServerFeature | Per-pane FIFO reader for raw PTY bytes via pipe-pane |
+| `TmuxControlClient` | ServerFeature | Control mode connection for commands and event notifications |
+| `PaneStream` | ServerFeature | Single pane stream lifecycle (owns PipePaneReader + control client registration) |
 | `PaneStreamManager` | ServerFeature | Multiplexes streams to subscribers |
 | `TerminalStreamService` | ServerFeature | Batches and sends to remote, ref-counted per device |
 | `DeviceConnectionManager` | ServerFeature | Multi-device WebSocket coordinator |

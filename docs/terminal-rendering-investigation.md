@@ -1,5 +1,7 @@
 # Terminal Rendering Investigation: Garbled Output in ClaudeSpy Mirror
 
+> **Status (PR #179):** The core streaming architecture was rewritten to use `pipe-pane` for raw PTY byte delivery instead of control mode `%output` events. This resolved the truecolor animation rendering artifacts and eliminated the need for octal unescaping, UTF-8 reconstruction, and line-boundary splitting. Hypotheses H6 (octal unescaping) and H14 (readabilityHandler race) are no longer applicable. The architecture diagram below reflects the **old** architecture — see `streaming-architecture.md` for the current data flow.
+
 ## Problem Statement
 
 When mirroring complex terminal applications (like Claude Code) that use extensive cursor positioning, the ClaudeSpy mirror window shows:
@@ -550,12 +552,15 @@ New tests added:
 
 - **H12 (SGR carryover between visible lines)**: Not directly addressed. Visible area lines still lack inter-line resets, unlike scrollback lines. The H17 fix mitigates the re-capture scenario but doesn't solve the general case.
 - **Scrollback corruption after re-capture**: Documented in the E2E scenario (Phase 2). Re-capture replaces the mirror's accumulated scrollback with tmux's captured content, causing duplication/truncation/reordering. This is a separate architectural issue.
-- **H6 (octal unescaping)**, **H7 (private modes)**: Not yet investigated with targeted tests. May contribute to edge cases.
-- **Truecolor animation rendering artifacts (Test 16)**: See new section below.
+- **~~H6 (octal unescaping)~~**: No longer applicable — pipe-pane delivers raw bytes, no octal unescaping needed.
+- **H7 (private modes)**: Not yet investigated with targeted tests. May contribute to edge cases.
+- **~~Truecolor animation rendering artifacts (Test 16)~~**: Resolved by pipe-pane rewrite (PR #179). See section below for historical investigation.
 
 ---
 
 ## Investigation: Truecolor Animation Rendering Artifacts (Test 16)
+
+> **RESOLVED (PR #179):** The pipe-pane rewrite eliminated these artifacts entirely. The root cause was the `%output` processing pipeline (octal unescaping, line-boundary splitting, per-callback `Task {}` reordering). By delivering raw PTY bytes via FIFO with AsyncStream ordering guarantees, all truecolor rendering artifacts were eliminated. A regression E2E test (`TruecolorRenderingScenario`) runs 5 gradient animation variants with 0.00% diff baselines.
 
 ### Problem Statement
 

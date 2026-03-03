@@ -32,19 +32,19 @@ Detailed documentation for ClaudeSpy services. Reference when modifying specific
 
 ### TmuxControlClient (`ClaudeSpyServerFeature/Services/TmuxControlClient.swift`)
 
-Actor managing a `tmux -C attach` control mode connection.
+Actor managing a `tmux -C attach -f no-output,ignore-size` control mode connection for commands and event notifications. Live terminal data is delivered separately via `PipePaneReader`.
 
 **Features:**
-- Connects to tmux session in control mode for structured event notifications
-- Parses control protocol: `%output`, `%layout-change`, `%begin/%end/%error`, `%exit`
-- Unescapes octal-encoded output (`\033` → ESC character)
-- Buffers output during resize to ensure clients get dimensions before new content
-- Per-pane UTF-8 buffering for sequences split across `%output` lines
-- Sends commands and receives responses via `%begin/%end` blocks
+- Connects to tmux session in control mode with `-f no-output,ignore-size` (suppresses `%output` events)
+- Sends commands and receives responses via `%begin/%end` blocks (FIFO command queue)
+- Parses event notifications: `%layout-change`, `%session-changed`, `%exit`
+- Tracks per-pane cached dimensions for change detection
+- Uses AsyncStream + single consumer for strict ordering of control mode messages
 
 **Callbacks:**
-- `onOutput(paneId, data)` - terminal output for a pane
-- `onDimensionChange(paneId, width, height)` - pane resized
+- `onDimensionChange(paneId, width, height)` - pane resized (from `%layout-change`)
+- `onPaneExited(paneId)` - pane closed
+- `onSessionChanged(sessionId, name)` - session switched
 - `onExit(reason)` - control mode connection closed
 
 ### TmuxControlClientManager (`ClaudeSpyServerFeature/Services/TmuxControlClientManager.swift`)
@@ -53,12 +53,29 @@ Actor managing a `tmux -C attach` control mode connection.
 
 **Methods:**
 - `getClient(for:)` - returns existing or creates new client for session
-- `registerPane()` / `unregisterPane()` - subscribe/unsubscribe to pane output
+- `registerPaneDimensions()` / `unregisterPane()` - register/unregister pane for dimension tracking
+- `sendCommand(_:sessionName:)` - send tmux command through the control client
 - `setOnDimensionChange()` - forward dimension changes to PaneStreamManager
 - `setOnPanesChanged()` - callback when panes exit (for cleanup)
 - `extractSessionName(from:)` - parses session from pane target
 
-Multiple panes in the same session share one control client connection.
+Multiple panes in the same session share one control client connection. The control client operates in `no-output` mode — it only handles commands and event notifications.
+
+### PipePaneReader (`ClaudeSpyServerFeature/Services/PipePaneReader.swift`)
+
+`actor` managing FIFO-based raw byte delivery from tmux `pipe-pane` for a single pane.
+
+**Features:**
+- Creates per-pane FIFO (`/tmp/claudespy-pipe-<id>.fifo`)
+- Starts `pipe-pane -O "cat > fifo"` via control mode command
+- Reads raw PTY bytes, filtering only tmux `ESC k ... ESC \` title sequences
+- AsyncStream + single consumer task for strict FIFO ordering
+- Supports buffering during initial capture (collects without delivering, then flushes)
+
+**Lifecycle:**
+- `startPipePane(buffering:)` - create FIFO, send pipe-pane command, open for reading
+- `stopBufferingAndFlush()` - deliver buffered data and switch to live delivery
+- `stopPipePane()` - clean up FIFO, close file handle (must be called for cleanup)
 
 ### PaneStream (`ClaudeSpyServerFeature/Services/PaneStream.swift`)
 
@@ -68,22 +85,19 @@ Multiple panes in the same session share one control client connection.
 
 **Data Flow:**
 ```
-TmuxControlClient ──%output──→ TmuxControlClientManager
-                                        ↓
-                              PaneStream.onData callback
-                                        ↓
-                               subscriber callbacks
+tmux PTY ──pipe-pane──→ FIFO ──→ PipePaneReader ──→ PaneStream.onData
+                                                            ↓
+                                                   subscriber callbacks
 
-TmuxControlClient ──%layout-change──→ buffers output
-                                        ↓
-                              queries list-panes for dimensions
-                                        ↓
-                              sends onDimensionChange
-                                        ↓
-                              flushes buffered output
+TmuxControlClient ──%layout-change──→ dimension change callback
 ```
 
-**Features:** Initial content capture, real-time dimension updates via control mode
+**Connection Flow:**
+1. Start PipePaneReader with buffering (raw bytes collected but not delivered)
+2. Capture initial state via control mode (`capture-pane` through `TmuxControlClientManager`)
+3. Flush buffered pipe-pane data (switch to live delivery)
+
+**Features:** Initial content capture via control mode, live data via pipe-pane, dimension tracking via control mode events
 
 ### PaneStreamManager (`ClaudeSpyServerFeature/Services/PaneStreamManager.swift`)
 

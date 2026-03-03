@@ -15,9 +15,10 @@ ClaudeSpy is a native macOS application that mirrors tmux panes in dedicated win
 | Component | Type | Responsibility |
 |-----------|------|----------------|
 | **TmuxService** | `@Observable @MainActor` | Abstracts all tmux CLI interactions — pane discovery, content capture, session creation |
-| **TmuxControlClient** | `actor` | Maintains long-lived `tmux -C attach` process, parses control mode events |
+| **TmuxControlClient** | `actor` | Control mode connection (`-f no-output`) for commands and event notifications |
 | **TmuxControlClientManager** | `@Observable @MainActor` | Manages TmuxControlClient instances per tmux session (one client per session) |
-| **PaneStream** | `@Observable @MainActor` | Manages streaming connection lifecycle for a single pane |
+| **PipePaneReader** | `actor` | Per-pane FIFO reader for raw PTY bytes via pipe-pane |
+| **PaneStream** | `@Observable @MainActor` | Manages streaming connection lifecycle for a single pane (owns PipePaneReader) |
 | **PaneStreamManager** | `@Observable @MainActor` | Multiplexes streams to subscribers (mirror windows, iOS streaming) |
 
 ### Window Management
@@ -117,15 +118,13 @@ System wake → DeviceConnectionManager.reconnectAllImmediately()
 ```
 tmux session
     │
-    ├── tmux -C attach (control mode)
+    ├── tmux -C attach -f no-output,ignore-size (control mode: commands + events only)
+    │
+    ├── pipe-pane -O "cat > /tmp/claudespy-pipe-<id>.fifo" (raw PTY bytes)
     │
     ▼
-TmuxControlClient (actor)
-    │ Parses %output events, unescapes octal, buffers split UTF-8
-    │
-    ▼
-TmuxControlClientManager
-    │ Routes to registered pane handlers
+PipePaneReader (actor)
+    │ Reads raw bytes from FIFO, filters tmux title sequences
     │
     ▼
 PaneStream (per-pane lifecycle)
@@ -192,9 +191,10 @@ See `docs/streaming-architecture.md` for the full streaming data flow.
 ─────────────────────                    ─────────────────────────────
 TmuxService                              ProcessRunner
 PaneStream                               TmuxControlClient
-PaneStreamManager                        TmuxCommandExecutor
-MirrorWindowManager                      HookServerService
-TerminalStreamService                    ClaudeProjectScanner
+PaneStreamManager                        PipePaneReader
+MirrorWindowManager                      TmuxCommandExecutor
+TerminalStreamService                    HookServerService
+                                         ClaudeProjectScanner
 DeviceConnectionManager
 DeviceConnection
 PairingManager
@@ -237,6 +237,7 @@ ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/
 │   ├── PairingManager.swift           # Device pairing flow
 │   ├── PaneStream.swift               # Single pane stream lifecycle
 │   ├── PaneStreamManager.swift        # Multi-subscriber stream multiplexer
+│   ├── PipePaneReader.swift           # Per-pane FIFO reader for raw PTY bytes
 │   ├── PluginService.swift            # Claude Code plugin management
 │   ├── TerminalLauncher.swift         # External terminal app integration
 │   ├── TerminalStreamService.swift    # iOS streaming with batching
