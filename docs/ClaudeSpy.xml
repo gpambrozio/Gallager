@@ -6,6 +6,29 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.10</title>
+         <sparkle:version>10</sparkle:version>
+         <sparkle:shortVersionString>1.10</sparkle:shortVersionString>
+         <pubDate>Tue, 03 Mar 2026 13:34:06 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.10
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Fixed "File exists" error when starting terminal mirroring.</strong> Resolved an issue where stale FIFO files left behind from a previous crash or unclean shutdown could prevent pipe-pane streaming from starting. The app now correctly detects and removes leftover files before retrying, eliminating the need to manually clean up temporary files.</li>
+</ul>
+
+<ul>
+<li><strong>Improved temporary file handling across user accounts.</strong> FIFO pipes are now created in the system's per-user temporary directory instead of a shared location, preventing potential permission conflicts when multiple user accounts run ClaudeSpy on the same machine.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.10.dmg"
+                    sparkle:edSignature="9FWPf++Q0egI7onXnqhVKpS2aOwW05hXPEv8GZav304b9XpL1Q1CM3nHsZJKyO9C8gIn2SbN/7jgo7Wa6J9oAQ=="
+                    length="20125255"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.9</title>
          <sparkle:version>9</sparkle:version>
          <sparkle:shortVersionString>1.9</sparkle:shortVersionString>
