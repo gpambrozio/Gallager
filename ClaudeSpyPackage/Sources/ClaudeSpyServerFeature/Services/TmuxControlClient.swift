@@ -90,6 +90,11 @@ actor TmuxControlClient {
     private var skippingInitialBlock = false
     private var receivedInitialResponse = false
 
+    // AsyncStream for ordered data processing from readabilityHandler.
+    // Same pattern as PipePaneReader: yield from dispatch queue, consume in single task.
+    private var dataContinuation: AsyncStream<Data>.Continuation?
+    private var consumerTask: Task<Void, Never>?
+
     // Byte buffer for incomplete lines (handles chunk splitting at line boundaries)
     private var byteBuffer = Data()
 
@@ -171,15 +176,22 @@ actor TmuxControlClient {
         stdin = stdinPipe.fileHandleForWriting
         self.stdoutPipe = stdoutPipe
 
-        // Start reading output
+        // Start reading output via AsyncStream for ordered processing.
+        // readabilityHandler fires on a dispatch queue — yielding into the stream
+        // is synchronous and non-blocking. A single consumer task drains the stream
+        // in order, preventing reordering of control messages.
         let handle = stdoutPipe.fileHandleForReading
+        let (stream, continuation) = AsyncStream<Data>.makeStream()
+        dataContinuation = continuation
 
-        // Set up readability handler
-        handle.readabilityHandler = { [weak self] handle in
+        handle.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty else { return }
+            continuation.yield(data)
+        }
 
-            Task { [weak self] in
+        consumerTask = Task { [weak self] in
+            for await data in stream {
                 await self?.processIncomingData(data)
             }
         }
@@ -192,6 +204,10 @@ actor TmuxControlClient {
         logger.info("Disconnecting from tmux control mode")
 
         stdoutPipe?.fileHandleForReading.readabilityHandler = nil
+        dataContinuation?.finish()
+        dataContinuation = nil
+        consumerTask?.cancel()
+        consumerTask = nil
 
         // Cancel all pending commands
         for entry in pendingCommandQueue {

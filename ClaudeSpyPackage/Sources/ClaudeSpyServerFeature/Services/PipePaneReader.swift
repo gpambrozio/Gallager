@@ -46,6 +46,10 @@
 
             // Sanitize pane ID for filesystem: "%5" -> "5"
             let sanitized = paneId.replacingOccurrences(of: "%", with: "")
+            precondition(
+                !sanitized.isEmpty && sanitized.allSatisfy(\.isNumber),
+                "Pane ID must contain only digits after stripping '%', got: \(paneId)"
+            )
             self.fifoPath = "/tmp/claudespy-pipe-\(sanitized).fifo"
         }
 
@@ -92,7 +96,7 @@
                 sessionName: sessionName
             )
             _ = try await controlClientManager.sendCommand(
-                "pipe-pane -O -t '\(paneId)' 'exec cat > \(fifoPath)'",
+                "pipe-pane -O -t '\(paneId)' 'exec cat > \"\(fifoPath)\"'",
                 sessionName: sessionName
             )
 
@@ -125,6 +129,9 @@
             let (stream, continuation) = AsyncStream<Data>.makeStream()
             dataContinuation = continuation
 
+            // Note: readabilityHandler captures `continuation` strongly, so the handler
+            // keeps yielding if PipePaneReader is deallocated without stopPipePane().
+            // Callers MUST call stopPipePane() to clean up — see PaneStream.disconnect().
             handle.readabilityHandler = { [weak self] handle in
                 let data = handle.availableData
                 guard !data.isEmpty else {
