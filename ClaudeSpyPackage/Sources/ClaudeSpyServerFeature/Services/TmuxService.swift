@@ -287,7 +287,7 @@ final public class TmuxService {
             throw TmuxError.invalidPane(target: target)
         }
         let cursorResult = try await runTmuxCommand(
-            ["display-message", "-t", target, "-p", "#{cursor_x},#{cursor_y}"]
+            ["display-message", "-t", target, "-p", "#{cursor_x},#{cursor_y},#{cursor_flag}"]
         )
 
         return processCapturePaneForStreaming(
@@ -335,7 +335,7 @@ final public class TmuxService {
             throw TmuxError.invalidPane(target: target)
         }
         let cursorResponse = try await controlClientManager.sendCommand(
-            "display-message -t '\(target)' -p '#{cursor_x},#{cursor_y}'",
+            "display-message -t '\(target)' -p '#{cursor_x},#{cursor_y},#{cursor_flag}'",
             sessionName: sessionName
         )
 
@@ -359,11 +359,13 @@ final public class TmuxService {
         cursorOutput: String,
         height: Int
     ) -> Data {
-        // Parse cursor position
+        // Parse cursor position and visibility flag
+        // Format: "x,y,flag" where flag is 1 (visible) or 0 (hidden via DECTCEM)
         let cursorPos = cursorOutput.trimmingCharacters(in: .whitespacesAndNewlines)
         let cursorParts = cursorPos.split(separator: ",")
         let cursorX = Int(cursorParts.first ?? "0") ?? 0
-        let cursorY = Int(cursorParts.last ?? "0") ?? 0
+        let cursorY = cursorParts.count >= 2 ? (Int(cursorParts[1]) ?? 0) : 0
+        let cursorVisible = cursorParts.count >= 3 ? (Int(cursorParts[2]) ?? 1) != 0 : true
 
         var output = ""
 
@@ -455,6 +457,12 @@ final public class TmuxService {
         let activeSGR = extractActiveSGR(from: visibleLines, cursorX: cursorX, cursorY: effectiveCursorY)
         if !activeSGR.isEmpty {
             output += activeSGR
+        }
+
+        // Apply cursor visibility state (DECTCEM). When the remote pane has hidden
+        // the cursor (e.g., Claude Code, vim), emit ?25l so the mirror hides it too.
+        if !cursorVisible {
+            output += "\u{1b}[?25l"
         }
 
         return Data(output.utf8)
