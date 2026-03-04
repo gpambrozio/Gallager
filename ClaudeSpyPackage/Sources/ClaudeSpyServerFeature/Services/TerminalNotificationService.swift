@@ -145,14 +145,33 @@
 
     /// Allows notifications to display as banners even when the app is in the foreground.
     /// Without this, macOS silently suppresses notifications for the active app.
-    final private class ForegroundNotificationDelegate: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
+    final class ForegroundNotificationDelegate: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
         static let shared = ForegroundNotificationDelegate()
+
+        /// Handler called on the main actor when a notification is tapped.
+        @MainActor var onTapped: ((_ paneId: String) -> Void)?
 
         func userNotificationCenter(
             _: UNUserNotificationCenter,
             willPresent _: UNNotification
         ) async -> UNNotificationPresentationOptions {
             [.banner, .sound]
+        }
+
+        func userNotificationCenter(
+            _: UNUserNotificationCenter,
+            didReceive response: UNNotificationResponse
+        ) async {
+            guard let paneId = response.notification.request.content.userInfo["paneId"] as? String else { return }
+            // Schedule after didReceive returns — the system may reclaim focus
+            // while this async method is still running.
+            await MainActor.run {
+                let handler = onTapped
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(300))
+                    handler?(paneId)
+                }
+            }
         }
     }
 #endif

@@ -207,6 +207,9 @@
 
             // Start observing system wake notifications for reconnection
             startWakeObserver()
+
+            // Wire terminal notification tap handling
+            setupNotificationTapHandler()
         }
 
         // MARK: - Private Setup Methods
@@ -410,6 +413,44 @@
                     guard !Task.isCancelled else { break }
                     await self?.connectedViewerManager?.reconnectAllImmediately()
                     await self?.viewerConnectionManager?.reconnectAllImmediately()
+                }
+            }
+        }
+
+        /// Wires the notification tap handler on the delegate directly.
+        /// Respects the `menuBarClickOpensPanesView` setting.
+        private func setupNotificationTapHandler() {
+            ForegroundNotificationDelegate.shared.onTapped = { [weak self] paneId in
+                guard let self else { return }
+
+                NSApp.setActivationPolicy(.regular)
+
+                if self.settings.menuBarClickOpensPanesView {
+                    self.pendingMenuBarSelection = .local(paneId: paneId)
+                    NotificationCenter.default.post(
+                        name: .openPanesWindow,
+                        object: nil
+                    )
+                } else {
+                    Task {
+                        await self.windowManager.openMirrorForPane(paneId)
+                    }
+                }
+
+                Self.forceActivate()
+            }
+        }
+
+        /// Force-activates the app from a non-interactive context (e.g., notification tap).
+        /// Retries activation multiple times to overcome macOS focus-stealing prevention.
+        private static func forceActivate() {
+            Task { @MainActor in
+                for delay in [100, 300, 500] {
+                    try? await Task.sleep(for: .milliseconds(delay))
+                    NSApp.activate(ignoringOtherApps: true)
+                    for window in NSApp.windows where window.isVisible && window.level == .normal {
+                        window.orderFrontRegardless()
+                    }
                 }
             }
         }
