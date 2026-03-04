@@ -320,6 +320,20 @@ public struct MainView: View {
         // Actions for selected pane
         ToolbarItemGroup(placement: .primaryAction) {
             if let pane = selectedPane, selectedRemotePane == nil {
+                // Yolo mode toggle (only for panes with active Claude sessions)
+                if windowManager.activeSessions[pane.paneId] != nil {
+                    Toggle(isOn: Binding(
+                        get: { windowManager.isYoloModeEnabled(for: pane.paneId) },
+                        set: { windowManager.setYoloMode(enabled: $0, for: pane.paneId) }
+                    )) {
+                        Symbols.bolt.image
+                    }
+                    .toggleStyle(.button)
+                    .help(windowManager.isYoloModeEnabled(for: pane.paneId)
+                        ? "Yolo mode: auto-approving permissions (click to disable)"
+                        : "Enable yolo mode to auto-approve permissions")
+                }
+
                 Button {
                     attachToTerminal(pane)
                 } label: {

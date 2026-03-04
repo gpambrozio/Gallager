@@ -614,6 +614,25 @@ public struct PreCompactBody: HookBodyProtocol {
     }
 }
 
+// MARK: - Yolo Mode Support
+
+public extension PermissionRequestBody {
+    /// Whether this permission request can be auto-approved in yolo mode.
+    ///
+    /// In yolo mode, all permission requests are auto-approved except:
+    /// - `AskUserQuestion` (requires actual user input)
+    /// - `ExitPlanMode` (requires explicit plan approval)
+    var isYoloAutoApprovable: Bool {
+        guard let toolInput else { return true }
+        switch toolInput {
+        case .askUserQuestion, .exitPlanMode:
+            return false
+        default:
+            return true
+        }
+    }
+}
+
 // MARK: - Permission Suggestion Types
 
 /// The type of permission suggestion

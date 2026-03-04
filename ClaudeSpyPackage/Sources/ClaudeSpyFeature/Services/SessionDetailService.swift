@@ -133,6 +133,8 @@ final public class SessionDetailService {
             _ = await relayClient.sendCommand(spec, paneId: "")
         case let .resizeTmuxPane(spec):
             _ = await relayClient.sendCommand(spec, paneId: paneId)
+        case let .setYoloMode(spec):
+            _ = await relayClient.sendCommand(spec, paneId: paneId)
         }
     }
 }
