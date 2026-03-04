@@ -28,7 +28,7 @@ public enum YoloModeStateSyncScenario {
 
         // 5. Verify iOS now shows on state (reflected back from host)
         TestStep.iosWaitForElement(.labelContains("Disable Yolo Mode"), timeout: 10)
-        TestStep.iosScreenshot(label: "ios-yolo-enabled", compare: false)
+        TestStep.iosScreenshot(label: "ios-yolo-enabled")
 
         // 6. Open the macOS Panes window and select the session pane
         TestStep.macOpenPanesWindow()
@@ -49,7 +49,7 @@ public enum YoloModeStateSyncScenario {
 
         // 9. Verify iOS sees yolo mode disabled
         TestStep.iosWaitForElement(.labelContains("Enable Yolo Mode"), timeout: 10)
-        TestStep.iosScreenshot(label: "ios-yolo-disabled-from-mac", compare: false)
+        TestStep.iosScreenshot(label: "ios-yolo-disabled-from-mac")
 
         // 10. Verify macOS help text also shows disabled state
         TestStep.macWaitForElement(
@@ -63,7 +63,7 @@ public enum YoloModeStateSyncScenario {
 
         // 12. Verify iOS sees yolo mode enabled again
         TestStep.iosWaitForElement(.labelContains("Disable Yolo Mode"), timeout: 10)
-        TestStep.iosScreenshot(label: "ios-yolo-re-enabled-from-mac", compare: false)
+        TestStep.iosScreenshot(label: "ios-yolo-re-enabled-from-mac")
 
         // 13. Tap the yolo mode button on iOS to disable it
         TestStep.iosTap(.labelContains("Disable Yolo Mode"))
@@ -71,7 +71,7 @@ public enum YoloModeStateSyncScenario {
 
         // 14. Verify iOS sees yolo mode disabled
         TestStep.iosWaitForElement(.labelContains("Enable Yolo Mode"), timeout: 10)
-        TestStep.iosScreenshot(label: "ios-yolo-disabled-from-ios", compare: false)
+        TestStep.iosScreenshot(label: "ios-yolo-disabled-from-ios")
 
         // 15. Verify macOS also shows yolo mode disabled
         TestStep.macWaitForElement(

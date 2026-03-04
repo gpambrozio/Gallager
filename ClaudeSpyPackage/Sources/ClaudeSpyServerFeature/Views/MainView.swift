@@ -371,6 +371,31 @@ public struct MainView: View {
                     }
                 }
             } else if let remote = selectedRemotePane {
+                // Yolo mode toggle for remote panes with active Claude sessions
+                if
+                    let sessionStore = coordinator.remoteSessionStore,
+                    sessionStore.sessions[remote.paneId] != nil {
+                    Toggle(isOn: Binding(
+                        get: { sessionStore.isYoloModeEnabled(for: remote.paneId) },
+                        set: { newValue in
+                            Task {
+                                guard let manager = coordinator.viewerConnectionManager else { return }
+                                _ = await manager.sendCommand(
+                                    SetYoloMode(enabled: newValue),
+                                    paneId: remote.paneId,
+                                    hostId: remote.hostId
+                                )
+                            }
+                        }
+                    )) {
+                        Symbols.bolt.image
+                    }
+                    .toggleStyle(.button)
+                    .help(coordinator.remoteSessionStore?.isYoloModeEnabled(for: remote.paneId) == true
+                        ? "Yolo mode: auto-approving permissions (click to disable)"
+                        : "Enable yolo mode to auto-approve permissions")
+                }
+
                 resizeToolbarGroup(resizeKey: remote.resizeKey, remoteHostId: remote.hostId, remotePaneId: remote.paneId)
             }
 
