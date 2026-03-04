@@ -324,7 +324,12 @@ public struct MainView: View {
                 if windowManager.activeSessions[pane.paneId] != nil {
                     Toggle(isOn: Binding(
                         get: { windowManager.isYoloModeEnabled(for: pane.paneId) },
-                        set: { windowManager.setYoloMode(enabled: $0, for: pane.paneId) }
+                        set: { newValue in
+                            windowManager.setYoloMode(enabled: newValue, for: pane.paneId)
+                            Task {
+                                await coordinator.connectedViewerManager?.pushSessionStateToAll()
+                            }
+                        }
                     )) {
                         Symbols.bolt.image
                     }

@@ -306,7 +306,7 @@
             let streamService = terminalStreamService
             let tmux = tmuxService
             let appSettings = settings
-            connectionManager.onCommand = { [executor, streamService, tmux, appSettings, winManager] command in
+            connectionManager.onCommand = { [executor, streamService, tmux, appSettings, winManager, weak connectionManager] command in
                 // Handle stream commands
                 if case .startTerminalStream = command.command {
                     return await Self.handleStartStream(
@@ -332,6 +332,7 @@
                 // Handle yolo mode toggle
                 if case let .setYoloMode(spec) = command.command {
                     winManager.setYoloMode(enabled: spec.enabled, for: command.paneId)
+                    await connectionManager?.pushSessionStateToAll()
                     return .success(for: command.id)
                 }
 

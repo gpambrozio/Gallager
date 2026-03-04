@@ -53,7 +53,7 @@
                                 symbol: .bolt
                             )
                         }
-                        .tint(service.isYoloModeEnabled ? .yellow : nil)
+                        .tint(service.isYoloModeEnabled ? .red : nil)
                     }
 
                     ToolbarItem(placement: .topBarTrailing) {
