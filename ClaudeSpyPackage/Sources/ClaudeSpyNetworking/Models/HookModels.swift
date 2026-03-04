@@ -623,6 +623,9 @@ public extension PermissionRequestBody {
     /// - `AskUserQuestion` (requires actual user input)
     /// - `ExitPlanMode` (requires explicit plan approval)
     var isYoloAutoApprovable: Bool {
+        // When toolInput is nil (e.g., tool_input missing or unparseable), default to
+        // auto-approve. A nil toolInput means we can't identify the tool as one that
+        // requires explicit user input, so treat it as approvable.
         guard let toolInput else { return true }
         switch toolInput {
         case .askUserQuestion, .exitPlanMode:

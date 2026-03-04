@@ -50,6 +50,11 @@ final public class SessionDetailService {
         relayClient.isHostConnected
     }
 
+    /// Whether yolo mode is enabled for this pane (as reported by the host)
+    public var isYoloModeEnabled: Bool {
+        sessionStore.isYoloModeEnabled(for: paneId)
+    }
+
     /// The relay client for this session (needed for environment injection)
     public var client: ViewerRelayClient {
         relayClient

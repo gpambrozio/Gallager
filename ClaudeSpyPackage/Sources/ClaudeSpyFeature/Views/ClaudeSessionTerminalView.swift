@@ -14,7 +14,6 @@
         @State private var service: SessionDetailService
         @State private var showSessionInfo = false
         @State private var terminalTitle: String?
-        @State private var isYoloModeEnabled = false
 
         /// Hide navigation bar on iPhone in landscape to maximize terminal space
         private var hideNavigationBar: Bool {
@@ -44,17 +43,17 @@
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
-                            isYoloModeEnabled.toggle()
+                            let newValue = !service.isYoloModeEnabled
                             Task {
-                                await service.sendCommand(.setYoloMode(enabled: isYoloModeEnabled))
+                                await service.sendCommand(.setYoloMode(enabled: newValue))
                             }
                         } label: {
                             Label(
-                                isYoloModeEnabled ? "Disable Yolo Mode" : "Enable Yolo Mode",
+                                service.isYoloModeEnabled ? "Disable Yolo Mode" : "Enable Yolo Mode",
                                 symbol: .bolt
                             )
                         }
-                        .tint(isYoloModeEnabled ? .yellow : nil)
+                        .tint(service.isYoloModeEnabled ? .yellow : nil)
                     }
 
                     ToolbarItem(placement: .topBarTrailing) {

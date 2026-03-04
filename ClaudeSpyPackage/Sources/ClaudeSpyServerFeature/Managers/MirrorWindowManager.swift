@@ -109,13 +109,11 @@ final public class MirrorWindowManager {
             await closeMirrorForPane(paneId)
 
         case .sessionStart:
-            // Reset yolo mode when a new Claude session starts in this pane
+            // Reset yolo mode and allow auto-open again for new sessions
             yoloModePanes.remove(paneId)
+            userClosedPanes.remove(paneId)
             updateSession(paneId: paneId) { $0.addEvent(event) }
-
-            if settings.autoOpenMirrorOnSession && !userClosedPanes.contains(paneId) {
-                await openMirrorForPane(paneId)
-            }
+            await autoOpenIfEnabled(paneId: paneId)
 
         case let .permissionRequest(body) where yoloModePanes.contains(paneId) && body.isYoloAutoApprovable:
             // Yolo mode: auto-approve by sending "1" keystroke
@@ -127,13 +125,8 @@ final public class MirrorWindowManager {
             }
 
         default:
-            // Get or create session and add the event
             updateSession(paneId: paneId) { $0.addEvent(event) }
-
-            // Only auto-open if setting is enabled and user hasn't manually closed this pane's window
-            if settings.autoOpenMirrorOnSession && !userClosedPanes.contains(paneId) {
-                await openMirrorForPane(paneId)
-            }
+            await autoOpenIfEnabled(paneId: paneId)
         }
     }
 
@@ -405,6 +398,13 @@ final public class MirrorWindowManager {
         }
     }
 
+    /// Auto-opens a mirror for the pane if the setting is enabled and the user hasn't manually closed it.
+    private func autoOpenIfEnabled(paneId: String) async {
+        if settings.autoOpenMirrorOnSession && !userClosedPanes.contains(paneId) {
+            await openMirrorForPane(paneId)
+        }
+    }
+
     /// Opens a mirror for the specified tmux pane by ID.
     /// If the pane no longer exists, the session is removed as stale.
     /// - Parameter paneId: The tmux pane ID (e.g., "%0", "%1")
@@ -422,12 +422,6 @@ final public class MirrorWindowManager {
         openMirror(for: pane)
     }
 
-    // MARK: - Session Cleanup
-
-    /// Removes a stale session for a pane that no longer exists.
-    ///
-    /// This also closes any associated mirror window.
-    /// - Parameter paneId: The tmux pane ID to remove
     // MARK: - Yolo Mode
 
     /// Sets yolo mode for a pane's Claude session.
@@ -450,6 +444,10 @@ final public class MirrorWindowManager {
 
     // MARK: - Session Cleanup
 
+    /// Removes a stale session for a pane that no longer exists.
+    ///
+    /// This also closes any associated mirror window.
+    /// - Parameter paneId: The tmux pane ID to remove
     private func removeStaleSession(paneId: String) {
         activeSessions.removeValue(forKey: paneId)
         userClosedPanes.remove(paneId)

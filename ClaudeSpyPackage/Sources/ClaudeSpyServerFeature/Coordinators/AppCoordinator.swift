@@ -350,6 +350,7 @@
                 let allPanes = await tmuxService.refreshPanes()
                 let paneMessages = allPanes.map { $0.asPaneInfoMessage }
                 let claudeProjects = await scanner.scanProjects()
+                let yoloModePanes = await Array(windowManager.yoloModePanes)
 
                 // Note: pairId in SessionStateMessage is per-connection, will be set by individual connections
                 return SessionStateMessage(
@@ -357,7 +358,8 @@
                     sessions: sessions,
                     activePanes: activePaneIds,
                     panes: paneMessages,
-                    claudeProjects: claudeProjects
+                    claudeProjects: claudeProjects,
+                    yoloModePanes: yoloModePanes
                 )
             }
 

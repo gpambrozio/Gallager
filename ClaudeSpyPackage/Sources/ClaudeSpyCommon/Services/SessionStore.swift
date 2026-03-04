@@ -27,6 +27,9 @@ final public class SessionStore {
     /// Claude projects grouped by source host's pairId
     public private(set) var claudeProjectsByHost: [String: [ClaudeProjectInfo]] = [:]
 
+    /// Pane IDs with yolo mode enabled, as reported by the host
+    public private(set) var yoloModePanes: Set<String> = []
+
     /// Hosts that have sent at least one full state update
     private var hostsWithReceivedState: Set<String> = []
 
@@ -190,10 +193,19 @@ final public class SessionStore {
             newPaneToHostMap[paneId] = hostId
         }
 
+        // Update yolo mode panes: remove old ones for this host, add new ones
+        var newYoloModePanes = yoloModePanes.subtracting(
+            paneToHostMap.filter { $0.value == hostId }.keys
+        )
+        if let hostYoloPanes = state.yoloModePanes {
+            newYoloModePanes.formUnion(hostYoloPanes)
+        }
+
         // Atomically swap all state
         sessions = newSessions
         paneToHostMap = newPaneToHostMap
         activePanes = newActivePanes
+        yoloModePanes = newYoloModePanes
         panesByHost[hostId] = state.panes ?? []
         claudeProjectsByHost[hostId] = state.claudeProjects ?? []
         hostsWithReceivedState.insert(hostId)
@@ -211,6 +223,9 @@ final public class SessionStore {
             activePanes.removeAll { $0 == paneId }
         }
 
+        // Clear yolo mode for this host's panes
+        yoloModePanes.subtract(panesToRemove)
+
         // Clear stored panes and projects
         panesByHost.removeValue(forKey: hostId)
         claudeProjectsByHost.removeValue(forKey: hostId)
@@ -227,6 +242,11 @@ final public class SessionStore {
     /// Check if a pane is currently active
     public func isPaneActive(_ paneId: String) -> Bool {
         activePanes.contains(paneId)
+    }
+
+    /// Check if yolo mode is enabled for a pane (as reported by the host)
+    public func isYoloModeEnabled(for paneId: String) -> Bool {
+        yoloModePanes.contains(paneId)
     }
 
     // MARK: - Event Response Storage (iOS only)
