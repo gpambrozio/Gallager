@@ -1,4 +1,5 @@
 #if os(macOS)
+    import ClaudeSpyNetworking
     import Foundation
 
     /// The connection state of a pane stream
@@ -39,6 +40,9 @@
 
         /// Callback for dimension changes (newWidth, newHeight)
         var onDimensionChange: (@MainActor (Int, Int) -> Void)?
+
+        /// Callback for terminal notifications (OSC 9/777)
+        var onNotification: (@MainActor (TerminalStreamMessage.TerminalNotification) -> Void)?
 
         /// Number of lines in scrollback
         private(set) var scrollbackLines = 0
@@ -101,6 +105,13 @@
                         guard let self else { return }
                         self.scrollbackLines += data.split(separator: UInt8(ascii: "\n")).count
                         self.onData?(data)
+                    }
+                }
+
+                // Set up notification handler
+                await reader.setNotificationHandler { [weak self] notification in
+                    Task { @MainActor [weak self] in
+                        self?.onNotification?(notification)
                     }
                 }
 

@@ -120,6 +120,7 @@ public actor TestOrchestrator {
 
         // Pre-populate context with orchestrator configuration
         context.set("tmuxSocket", value: tmuxSocket ?? NSTemporaryDirectory() + "claudespy-e2e.sock")
+        context.set("notificationLogPath", value: notificationLogPath(for: 0))
         context.set("scenarioName", value: scenarioDirName)
 
         var stepResults: [StepResult] = []
@@ -361,6 +362,7 @@ public actor TestOrchestrator {
                 "--tmux-socket", instanceSocket,
                 "--hook-port-file", hookPortFilePath(for: instance),
                 "--test-accessibility-port", "\(driver.testAccessibilityPort)",
+                "--notification-log", notificationLogPath(for: instance),
             ]
             try await driver.launchApp(path: macOSAppPath, arguments: arguments)
 
@@ -557,6 +559,12 @@ public actor TestOrchestrator {
         case let .storeValue(key, value):
             context.set(key, value: value)
 
+        case let .readFile(path, storeAs):
+            let resolvedPath = context.resolve(path)
+            let content = (try? String(contentsOfFile: resolvedPath, encoding: .utf8)) ?? ""
+            context.set(storeAs, value: content)
+            logger.info("  Read file (\(content.count) chars) → stored as ${\(storeAs)}")
+
         case let .log(message):
             logger.info("  LOG: \(context.resolve(message))")
         }
@@ -591,6 +599,14 @@ public actor TestOrchestrator {
     /// must only see the host's sessions via the relay, not locally).
     private func tmuxSocketPath(for instance: Int) -> String {
         let base = tmuxSocket ?? NSTemporaryDirectory() + "claudespy-e2e.sock"
+        return instance == 0 ? base : "\(base)-\(instance)"
+    }
+
+    /// Return the notification log file path for the given instance number.
+    /// The macOS app writes terminal notifications here during E2E tests
+    /// so scenarios can verify notification delivery via `readFile`.
+    private func notificationLogPath(for instance: Int) -> String {
+        let base = NSTemporaryDirectory() + "claudespy-e2e-notifications.log"
         return instance == 0 ? base : "\(base)-\(instance)"
     }
 

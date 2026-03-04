@@ -169,6 +169,7 @@ public struct MenuBarExtraView: View {
 /// don't respect color modifiers directly.
 public struct MenuBarLabel: View {
     let pendingCount: Int
+    @Environment(\.openWindow) private var openWindow
 
     public init(pendingCount: Int) {
         self.pendingCount = pendingCount
@@ -201,10 +202,15 @@ public struct MenuBarLabel: View {
     }
 
     public var body: some View {
-        if pendingCount > 0, let image = renderedImage {
-            Image(nsImage: image)
-        } else {
-            Symbols.sparkles.image
+        Group {
+            if pendingCount > 0, let image = renderedImage {
+                Image(nsImage: image)
+            } else {
+                Symbols.sparkles.image
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openPanesWindow)) { _ in
+            openWindow(id: "panes")
         }
     }
 }
