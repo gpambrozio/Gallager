@@ -1,17 +1,16 @@
 import Foundation
 
-/// E2E scenario: Verify cursor style changes (DECSCUSR) render correctly
+/// E2E scenario: Verify cursor style (DECSCUSR) and visibility (DECTCEM) render correctly
 ///
 /// Sends DECSCUSR escape sequences (CSI Ps SP q) through the tmux pipe-pane
 /// pipeline and verifies that the macOS mirror displays different cursor shapes:
 /// steady block, steady underline, and steady bar.
 ///
+/// Also tests DECTCEM cursor visibility (CSI ?25l / ?25h) to verify that
+/// hiding/showing the cursor in the remote pane is reflected in the mirror.
+///
 /// Only tests "steady" (non-blinking) styles to avoid screenshot flakiness
 /// from cursor blink animation timing.
-///
-/// This test verifies the fix for issue #184 where cursor style changes were
-/// ignored because the CaretView always rendered as a hollow rectangle when
-/// the TerminalView didn't have focus.
 public enum CursorStyleScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Cursor Style Changes",
@@ -80,7 +79,7 @@ public enum CursorStyleScenario {
 
         TestStep.macScreenshot(label: "cursor-steady-bar")
 
-        // ── Reset to default ──────────────────────────────────────────
+        // ── Reset to default style ───────────────────────────────────
 
         TestStep.tmuxSendKeys(
             target: "cursor-test:0.0",
@@ -88,5 +87,32 @@ public enum CursorStyleScenario {
             literal: true
         )
         TestStep.tmuxSendKeys(target: "cursor-test:0.0", keys: "Enter")
+        TestStep.wait(seconds: 0.5)
+
+        // ── Cursor Hidden (DECTCEM ?25l) ─────────────────────────────
+
+        TestStep.log("Hiding cursor (DECTCEM ?25l)")
+        TestStep.tmuxSendKeys(
+            target: "cursor-test:0.0",
+            keys: #"printf '\e[?25l' && echo 'Cursor: Hidden'"#,
+            literal: true
+        )
+        TestStep.tmuxSendKeys(target: "cursor-test:0.0", keys: "Enter")
+        TestStep.wait(seconds: 1)
+
+        TestStep.macScreenshot(label: "cursor-hidden")
+
+        // ── Cursor Shown (DECTCEM ?25h) ──────────────────────────────
+
+        TestStep.log("Showing cursor (DECTCEM ?25h)")
+        TestStep.tmuxSendKeys(
+            target: "cursor-test:0.0",
+            keys: #"printf '\e[?25h' && echo 'Cursor: Visible'"#,
+            literal: true
+        )
+        TestStep.tmuxSendKeys(target: "cursor-test:0.0", keys: "Enter")
+        TestStep.wait(seconds: 1)
+
+        TestStep.macScreenshot(label: "cursor-visible")
     }
 }
