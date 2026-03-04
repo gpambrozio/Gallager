@@ -294,6 +294,11 @@
                 notificationService.showNotification(paneId, notification)
             }
 
+            // Start notification-only readers for all discovered panes
+            let initialPanes = await tmuxService.refreshPanes()
+            await paneStreamManager.startNotificationMonitoring(panes: initialPanes)
+            paneStreamManager.startPeriodicPaneRefresh(tmuxService: tmuxService)
+
             // Connect pane stream manager to window manager for view injection
             windowManager.paneStreamManager = paneStreamManager
 
@@ -301,11 +306,13 @@
             let winManager = windowManager
             let tmuxForCleanup = tmuxService
             let terminalStreaming = terminalStreamService
+            let paneStreaming = paneStreamManager
             controlClientManager.setOnPanesChanged { [weak self] in
                 Task {
                     let panes = await tmuxForCleanup.refreshPanes()
                     winManager.cleanupStaleSessions(currentPanes: panes)
                     await terminalStreaming.stopStreamsForClosedPanes(currentPanes: panes)
+                    await paneStreaming.updateNotificationMonitoring(panes: panes)
                     self?.updateSleepPrevention()
                 }
             }
