@@ -383,6 +383,22 @@ public struct CreateTmuxSession: CommandSpec, Equatable {
     }
 }
 
+/// Set yolo mode for a pane's Claude session. Returns success/failure.
+public struct SetYoloMode: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// Whether to enable or disable yolo mode
+    public let enabled: Bool
+
+    public init(enabled: Bool) {
+        self.enabled = enabled
+    }
+
+    public var commandType: CommandType {
+        .setYoloMode(self)
+    }
+}
+
 // MARK: - Command Types
 
 /// Commands that can be sent from viewer to host, with their associated data.
@@ -401,6 +417,8 @@ public enum CommandType: Codable, Sendable, Equatable {
     case createTmuxSession(CreateTmuxSession)
     /// Resize a tmux pane
     case resizeTmuxPane(ResizeTmuxPane)
+    /// Set yolo mode (auto-approve permissions) for a pane
+    case setYoloMode(SetYoloMode)
 
     // MARK: - Convenience Factory Methods
 
@@ -442,6 +460,11 @@ public enum CommandType: Codable, Sendable, Equatable {
             height: height,
             workingDirectory: workingDirectory
         ))
+    }
+
+    /// Create a setYoloMode command
+    public static func setYoloMode(enabled: Bool) -> CommandType {
+        .setYoloMode(SetYoloMode(enabled: enabled))
     }
 }
 

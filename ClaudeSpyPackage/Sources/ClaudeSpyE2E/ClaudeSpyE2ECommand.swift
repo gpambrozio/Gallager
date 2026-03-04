@@ -180,6 +180,8 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         TerminalTitleMacToIOSScenario.scenario,
         TruecolorRenderingScenario.scenario,
         ScrollbackGapScenario.scenario,
+        YoloModeStateSyncScenario.scenario,
+        YoloModeMacToMacScenario.scenario,
         TerminalNotificationScenario.scenario,
     ]
 

@@ -43,6 +43,21 @@
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
+                            let newValue = !service.isYoloModeEnabled
+                            Task {
+                                await service.sendCommand(.setYoloMode(enabled: newValue))
+                            }
+                        } label: {
+                            Label(
+                                service.isYoloModeEnabled ? "Disable Yolo Mode" : "Enable Yolo Mode",
+                                symbol: .bolt
+                            )
+                        }
+                        .tint(service.isYoloModeEnabled ? .red : nil)
+                    }
+
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
                             showSessionInfo = true
                         } label: {
                             Label("Session Info", symbol: .infoCircle)
