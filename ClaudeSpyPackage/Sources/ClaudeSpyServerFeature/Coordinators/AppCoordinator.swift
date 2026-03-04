@@ -306,7 +306,7 @@
             let streamService = terminalStreamService
             let tmux = tmuxService
             let appSettings = settings
-            connectionManager.onCommand = { [executor, streamService, tmux, appSettings] command in
+            connectionManager.onCommand = { [executor, streamService, tmux, appSettings, winManager, weak connectionManager] command in
                 // Handle stream commands
                 if case .startTerminalStream = command.command {
                     return await Self.handleStartStream(
@@ -329,6 +329,13 @@
                     )
                 }
 
+                // Handle yolo mode toggle
+                if case let .setYoloMode(spec) = command.command {
+                    winManager.setYoloMode(enabled: spec.enabled, for: command.paneId)
+                    await connectionManager?.pushSessionStateToAll()
+                    return .success(for: command.id)
+                }
+
                 // Regular commands execute on the actor executor
                 return await executor.execute(command)
             }
@@ -344,6 +351,7 @@
                 let allPanes = await tmuxService.refreshPanes()
                 let paneMessages = allPanes.map { $0.asPaneInfoMessage }
                 let claudeProjects = await scanner.scanProjects()
+                let yoloModePanes = await Array(windowManager.yoloModePanes)
 
                 // Note: pairId in SessionStateMessage is per-connection, will be set by individual connections
                 return SessionStateMessage(
@@ -351,7 +359,8 @@
                     sessions: sessions,
                     activePanes: activePaneIds,
                     panes: paneMessages,
-                    claudeProjects: claudeProjects
+                    claudeProjects: claudeProjects,
+                    yoloModePanes: yoloModePanes
                 )
             }
 

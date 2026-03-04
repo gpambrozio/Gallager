@@ -32,19 +32,23 @@ public struct SessionStateMessage: Codable, Sendable {
     public let panes: [PaneInfoMessage]?
     /// Discovered Claude projects on the host
     public let claudeProjects: [ClaudeProjectInfo]?
+    /// Pane IDs with yolo mode enabled on the host
+    public let yoloModePanes: [String]?
 
     public init(
         pairId: String,
         sessions: [String: ClaudeSession],
         activePanes: [String],
         panes: [PaneInfoMessage]? = nil,
-        claudeProjects: [ClaudeProjectInfo]? = nil
+        claudeProjects: [ClaudeProjectInfo]? = nil,
+        yoloModePanes: [String]? = nil
     ) {
         self.pairId = pairId
         self.sessions = sessions
         self.activePanes = activePanes
         self.panes = panes
         self.claudeProjects = claudeProjects
+        self.yoloModePanes = yoloModePanes
     }
 }
 

@@ -1,5 +1,6 @@
 import AppKit
 import ClaudeSpyCommon
+import ClaudeSpyNetworking
 import SwiftUI
 
 /// Manages multiple mirror windows and handles hook events
@@ -14,6 +15,10 @@ final public class MirrorWindowManager {
 
     /// Pane IDs that the user has manually closed (don't auto-reopen until session ends)
     private var userClosedPanes: Set<String> = []
+
+    /// Pane IDs with yolo mode enabled (auto-approve permissions).
+    /// This is per-session, not persisted, and resets on session end.
+    public private(set) var yoloModePanes: Set<String> = []
 
     /// Maps window target to pane ID for reverse lookup when window closes
     private var windowPaneIds: [String: String] = [:]
@@ -100,15 +105,28 @@ final public class MirrorWindowManager {
             // Add the final event before removing the session
             updateSession(paneId: paneId) { $0.addEvent(event) }
             activeSessions.removeValue(forKey: paneId)
+            yoloModePanes.remove(paneId)
             await closeMirrorForPane(paneId)
-        default:
-            // Get or create session and add the event
-            updateSession(paneId: paneId) { $0.addEvent(event) }
 
-            // Only auto-open if setting is enabled and user hasn't manually closed this pane's window
-            if settings.autoOpenMirrorOnSession && !userClosedPanes.contains(paneId) {
-                await openMirrorForPane(paneId)
+        case .sessionStart:
+            // Reset yolo mode and allow auto-open again for new sessions
+            yoloModePanes.remove(paneId)
+            userClosedPanes.remove(paneId)
+            updateSession(paneId: paneId) { $0.addEvent(event) }
+            await autoOpenIfEnabled(paneId: paneId)
+
+        case let .permissionRequest(body) where yoloModePanes.contains(paneId) && body.isYoloAutoApprovable:
+            // Yolo mode: auto-approve by sending "1" keystroke
+            updateSession(paneId: paneId) { $0.addEvent(event) }
+            do {
+                try await tmuxService.sendKeys(paneId, keys: "1", literal: true)
+            } catch {
+                // If auto-approve fails, fall through to normal flow
             }
+
+        default:
+            updateSession(paneId: paneId) { $0.addEvent(event) }
+            await autoOpenIfEnabled(paneId: paneId)
         }
     }
 
@@ -380,6 +398,13 @@ final public class MirrorWindowManager {
         }
     }
 
+    /// Auto-opens a mirror for the pane if the setting is enabled and the user hasn't manually closed it.
+    private func autoOpenIfEnabled(paneId: String) async {
+        if settings.autoOpenMirrorOnSession && !userClosedPanes.contains(paneId) {
+            await openMirrorForPane(paneId)
+        }
+    }
+
     /// Opens a mirror for the specified tmux pane by ID.
     /// If the pane no longer exists, the session is removed as stale.
     /// - Parameter paneId: The tmux pane ID (e.g., "%0", "%1")
@@ -397,6 +422,26 @@ final public class MirrorWindowManager {
         openMirror(for: pane)
     }
 
+    // MARK: - Yolo Mode
+
+    /// Sets yolo mode for a pane's Claude session.
+    /// When enabled, permission requests are auto-approved by sending "1" keystroke.
+    /// - Parameters:
+    ///   - enabled: Whether to enable or disable yolo mode
+    ///   - paneId: The pane ID to set yolo mode for
+    public func setYoloMode(enabled: Bool, for paneId: String) {
+        if enabled {
+            yoloModePanes.insert(paneId)
+        } else {
+            yoloModePanes.remove(paneId)
+        }
+    }
+
+    /// Whether yolo mode is enabled for the given pane
+    public func isYoloModeEnabled(for paneId: String) -> Bool {
+        yoloModePanes.contains(paneId)
+    }
+
     // MARK: - Session Cleanup
 
     /// Removes a stale session for a pane that no longer exists.
@@ -406,6 +451,7 @@ final public class MirrorWindowManager {
     private func removeStaleSession(paneId: String) {
         activeSessions.removeValue(forKey: paneId)
         userClosedPanes.remove(paneId)
+        yoloModePanes.remove(paneId)
 
         // Close the mirror window if open
         for (target, mappedPaneId) in windowPaneIds where mappedPaneId == paneId {

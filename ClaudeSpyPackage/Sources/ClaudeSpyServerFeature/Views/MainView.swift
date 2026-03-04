@@ -320,6 +320,25 @@ public struct MainView: View {
         // Actions for selected pane
         ToolbarItemGroup(placement: .primaryAction) {
             if let pane = selectedPane, selectedRemotePane == nil {
+                // Yolo mode toggle (only for panes with active Claude sessions)
+                if windowManager.activeSessions[pane.paneId] != nil {
+                    Toggle(isOn: Binding(
+                        get: { windowManager.isYoloModeEnabled(for: pane.paneId) },
+                        set: { newValue in
+                            windowManager.setYoloMode(enabled: newValue, for: pane.paneId)
+                            Task {
+                                await coordinator.connectedViewerManager?.pushSessionStateToAll()
+                            }
+                        }
+                    )) {
+                        Symbols.bolt.image
+                    }
+                    .toggleStyle(.button)
+                    .help(windowManager.isYoloModeEnabled(for: pane.paneId)
+                        ? "Yolo mode: auto-approving permissions (click to disable)"
+                        : "Enable yolo mode to auto-approve permissions")
+                }
+
                 Button {
                     attachToTerminal(pane)
                 } label: {
@@ -352,6 +371,31 @@ public struct MainView: View {
                     }
                 }
             } else if let remote = selectedRemotePane {
+                // Yolo mode toggle for remote panes with active Claude sessions
+                if
+                    let sessionStore = coordinator.remoteSessionStore,
+                    sessionStore.sessions[remote.paneId] != nil {
+                    Toggle(isOn: Binding(
+                        get: { sessionStore.isYoloModeEnabled(for: remote.paneId) },
+                        set: { newValue in
+                            Task {
+                                guard let manager = coordinator.viewerConnectionManager else { return }
+                                _ = await manager.sendCommand(
+                                    SetYoloMode(enabled: newValue),
+                                    paneId: remote.paneId,
+                                    hostId: remote.hostId
+                                )
+                            }
+                        }
+                    )) {
+                        Symbols.bolt.image
+                    }
+                    .toggleStyle(.button)
+                    .help(coordinator.remoteSessionStore?.isYoloModeEnabled(for: remote.paneId) == true
+                        ? "Yolo mode: auto-approving permissions (click to disable)"
+                        : "Enable yolo mode to auto-approve permissions")
+                }
+
                 resizeToolbarGroup(resizeKey: remote.resizeKey, remoteHostId: remote.hostId, remotePaneId: remote.paneId)
             }
 

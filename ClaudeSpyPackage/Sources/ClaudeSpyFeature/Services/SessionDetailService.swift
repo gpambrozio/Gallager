@@ -50,6 +50,11 @@ final public class SessionDetailService {
         relayClient.isHostConnected
     }
 
+    /// Whether yolo mode is enabled for this pane (as reported by the host)
+    public var isYoloModeEnabled: Bool {
+        sessionStore.isYoloModeEnabled(for: paneId)
+    }
+
     /// The relay client for this session (needed for environment injection)
     public var client: ViewerRelayClient {
         relayClient
@@ -132,6 +137,8 @@ final public class SessionDetailService {
             // Session creation doesn't target an existing pane, but handle for exhaustiveness
             _ = await relayClient.sendCommand(spec, paneId: "")
         case let .resizeTmuxPane(spec):
+            _ = await relayClient.sendCommand(spec, paneId: paneId)
+        case let .setYoloMode(spec):
             _ = await relayClient.sendCommand(spec, paneId: paneId)
         }
     }
