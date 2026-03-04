@@ -27,7 +27,7 @@
                 showNotification: { paneId, notification in
                     let title = notification.title ?? ""
                     let entry = "\(paneId)|\(title)|\(notification.body)\n"
-                    guard let data = entry.data(using: .utf8) else { return }
+                    let data = Data(entry.utf8)
 
                     if let handle = FileHandle(forWritingAtPath: logPath) {
                         defer { handle.closeFile() }
@@ -67,6 +67,7 @@
         private let logger = Logger(label: "com.claudespy.terminalnotification")
         private var isAuthorized = false
         private var hasRequestedPermission = false
+        private var hasInstalledDelegate = false
 
         func show(
             paneId: String,
@@ -103,10 +104,22 @@
             guard !isAuthorized else { return }
 
             let center = UNUserNotificationCenter.current()
+
+            // Install delegate so notifications display even when the app is in the foreground.
+            // UNUserNotificationCenter holds its delegate weakly, so ForegroundNotificationDelegate
+            // retains itself via a static property.
+            if !hasInstalledDelegate {
+                hasInstalledDelegate = true
+                await MainActor.run {
+                    UNUserNotificationCenter.current().delegate = ForegroundNotificationDelegate.shared
+                }
+            }
+
             let settings = await center.notificationSettings()
 
             switch settings.authorizationStatus {
-            case .authorized, .provisional:
+            case .authorized,
+                 .provisional:
                 isAuthorized = true
             case .notDetermined:
                 guard !hasRequestedPermission else { return }
@@ -125,6 +138,21 @@
             @unknown default:
                 break
             }
+        }
+    }
+
+    // MARK: - Foreground Notification Delegate
+
+    /// Allows notifications to display as banners even when the app is in the foreground.
+    /// Without this, macOS silently suppresses notifications for the active app.
+    final private class ForegroundNotificationDelegate: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
+        static let shared = ForegroundNotificationDelegate()
+
+        func userNotificationCenter(
+            _: UNUserNotificationCenter,
+            willPresent _: UNNotification
+        ) async -> UNNotificationPresentationOptions {
+            [.banner, .sound]
         }
     }
 #endif
