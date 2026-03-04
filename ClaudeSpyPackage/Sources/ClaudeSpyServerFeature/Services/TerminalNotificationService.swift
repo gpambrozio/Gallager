@@ -1,55 +1,103 @@
 #if os(macOS)
     import ClaudeSpyNetworking
+    import Dependencies
+    import DependenciesMacros
     import Foundation
     import Logging
     import UserNotifications
 
-    /// Manages displaying macOS desktop notifications for terminal notification
+    /// Displays macOS desktop notifications for terminal notification
     /// escape sequences (OSC 9/777) detected in monitored tmux panes.
-    @MainActor
-    final class TerminalNotificationService {
+    @DependencyClient
+    public struct TerminalNotificationService: Sendable {
+        /// Show a notification for a terminal escape sequence.
+        public var showNotification: @Sendable (
+            _ paneId: String,
+            _ notification: TerminalStreamMessage.TerminalNotification
+        ) -> Void
+    }
+
+    // MARK: - E2E Test Support
+
+    public extension TerminalNotificationService {
+        /// Factory for E2E tests — appends notifications to a log file instead of
+        /// displaying desktop notifications, allowing test assertions on the file.
+        static func e2eTest(logPath: String) -> TerminalNotificationService {
+            TerminalNotificationService(
+                showNotification: { paneId, notification in
+                    let title = notification.title ?? ""
+                    let entry = "\(paneId)|\(title)|\(notification.body)\n"
+                    guard let data = entry.data(using: .utf8) else { return }
+
+                    if let handle = FileHandle(forWritingAtPath: logPath) {
+                        defer { handle.closeFile() }
+                        handle.seekToEndOfFile()
+                        handle.write(data)
+                    } else {
+                        FileManager.default.createFile(atPath: logPath, contents: data)
+                    }
+                }
+            )
+        }
+    }
+
+    // MARK: - DependencyKey
+
+    extension TerminalNotificationService: DependencyKey {
+        public static var previewValue: TerminalNotificationService {
+            TerminalNotificationService(showNotification: { _, _ in })
+        }
+
+        public static var liveValue: TerminalNotificationService {
+            let handler = LiveNotificationHandler()
+            return TerminalNotificationService(
+                showNotification: { paneId, notification in
+                    Task {
+                        await handler.show(paneId: paneId, notification: notification)
+                    }
+                }
+            )
+        }
+    }
+
+    // MARK: - Live Implementation
+
+    /// Actor that manages UNUserNotificationCenter permission and delivery.
+    private actor LiveNotificationHandler {
         private let logger = Logger(label: "com.claudespy.terminalnotification")
         private var isAuthorized = false
         private var hasRequestedPermission = false
 
-        /// Show a macOS desktop notification for a terminal notification.
-        ///
-        /// Requests notification permission on first call. Notifications are
-        /// delivered via `UNUserNotificationCenter`.
-        func showNotification(
+        func show(
             paneId: String,
             notification: TerminalStreamMessage.TerminalNotification
-        ) {
-            Task {
-                await ensurePermission()
-                guard isAuthorized else { return }
+        ) async {
+            await ensurePermission()
+            guard isAuthorized else { return }
 
-                let content = UNMutableNotificationContent()
-                content.title = notification.title ?? "Terminal"
-                content.body = notification.body
-                content.sound = .default
-                content.categoryIdentifier = "terminalNotification"
-                content.userInfo = ["paneId": paneId]
+            let content = UNMutableNotificationContent()
+            content.title = notification.title ?? "Terminal"
+            content.body = notification.body
+            content.sound = .default
+            content.categoryIdentifier = "terminalNotification"
+            content.userInfo = ["paneId": paneId]
 
-                let request = UNNotificationRequest(
-                    identifier: UUID().uuidString,
-                    content: content,
-                    trigger: nil // Deliver immediately
-                )
+            let request = UNNotificationRequest(
+                identifier: UUID().uuidString,
+                content: content,
+                trigger: nil
+            )
 
-                do {
-                    try await UNUserNotificationCenter.current().add(request)
-                    logger.debug("Delivered terminal notification", metadata: [
-                        "paneId": "\(paneId)",
-                        "title": "\(notification.title ?? "(none)")",
-                    ])
-                } catch {
-                    logger.warning("Failed to deliver notification: \(error)")
-                }
+            do {
+                try await UNUserNotificationCenter.current().add(request)
+                logger.debug("Delivered terminal notification", metadata: [
+                    "paneId": "\(paneId)",
+                    "title": "\(notification.title ?? "(none)")",
+                ])
+            } catch {
+                logger.warning("Failed to deliver notification: \(error)")
             }
         }
-
-        // MARK: - Permission
 
         private func ensurePermission() async {
             guard !isAuthorized else { return }

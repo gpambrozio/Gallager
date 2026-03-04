@@ -72,7 +72,9 @@
 
         private var commandExecutor: TmuxCommandExecutor?
         private var isServiceSetupComplete = false
-        private let terminalNotificationService = TerminalNotificationService()
+
+        @ObservationIgnored
+        @Dependency(TerminalNotificationService.self) private var terminalNotificationService
 
         /// Task for observing system wake notifications.
         @ObservationIgnored
@@ -286,7 +288,7 @@
             // Wire terminal notification display (fires for any monitored pane, regardless of streaming)
             let notificationService = terminalNotificationService
             paneStreamManager.onNotification = { paneId, notification in
-                notificationService.showNotification(paneId: paneId, notification: notification)
+                notificationService.showNotification(paneId, notification)
             }
 
             // Connect pane stream manager to window manager for view injection

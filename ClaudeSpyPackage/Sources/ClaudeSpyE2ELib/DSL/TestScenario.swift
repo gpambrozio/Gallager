@@ -155,6 +155,8 @@ public enum TestStep: Sendable {
     case wait(seconds: TimeInterval)
     /// Store a literal value in the execution context
     case storeValue(key: String, value: String)
+    /// Read a file's contents and store in the execution context (supports `${var}` interpolation in path)
+    case readFile(path: String, storeAs: String)
     /// Log a message
     case log(String)
 }

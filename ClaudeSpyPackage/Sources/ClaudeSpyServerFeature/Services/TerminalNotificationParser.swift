@@ -21,6 +21,10 @@
             let notifications: [TerminalStreamMessage.TerminalNotification]
         }
 
+        /// Maximum OSC buffer size (8 KB) before discarding as pass-through data.
+        /// Prevents unbounded growth from malformed sequences that never terminate.
+        private static let maxBufferSize = 8192
+
         /// Buffer for incomplete OSC sequences split across reads
         private var oscBuffer = Data()
 
@@ -124,6 +128,12 @@
                 i = terminatorEnd
             }
 
+            // Flush oversized buffer as pass-through to prevent unbounded growth
+            if oscBuffer.count > Self.maxBufferSize {
+                result.append(contentsOf: oscBuffer)
+                oscBuffer = Data()
+            }
+
             return ParseResult(filteredData: result, notifications: notifications)
         }
 
@@ -138,7 +148,7 @@
         private func parseNotificationContent(
             _ content: Data
         ) -> (isNotificationSequence: Bool, notification: TerminalStreamMessage.TerminalNotification?) {
-            guard let string = String(data: Data(content), encoding: .utf8) else {
+            guard let string = String(bytes: content, encoding: .utf8) else {
                 return (false, nil)
             }
 
