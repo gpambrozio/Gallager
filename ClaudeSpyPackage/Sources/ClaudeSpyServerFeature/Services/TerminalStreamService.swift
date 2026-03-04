@@ -179,6 +179,12 @@ final public class TerminalStreamService {
                     Task {
                         await self.handleTitleChange(paneId: paneId, title: title)
                     }
+                },
+                onNotification: { [weak self] notification in
+                    guard let self else { return }
+                    Task {
+                        await self.handleNotification(paneId: paneId, notification: notification)
+                    }
                 }
             )
         } catch {
@@ -362,6 +368,22 @@ final public class TerminalStreamService {
         ])
 
         let message = TerminalStreamMessage.titleChange(paneId: paneId, title: title)
+        await connectionManager.sendTerminalStreamToAll(message)
+    }
+
+    /// Handle terminal notification (OSC 9/777) — forward to connected iOS viewers
+    private func handleNotification(
+        paneId: String,
+        notification: TerminalStreamMessage.TerminalNotification
+    ) async {
+        guard activeStreams[paneId] != nil else { return }
+        guard let connectionManager else { return }
+
+        let message = TerminalStreamMessage.notification(
+            paneId: paneId,
+            title: notification.title,
+            body: notification.body
+        )
         await connectionManager.sendTerminalStreamToAll(message)
     }
 }

@@ -1,4 +1,5 @@
 #if os(macOS)
+    import ClaudeSpyNetworking
     import Foundation
     import Logging
 
@@ -25,6 +26,7 @@
 
         // Data delivery
         private var dataHandler: (@Sendable (Data) -> Void)?
+        private var notificationHandler: (@Sendable (TerminalStreamMessage.TerminalNotification) -> Void)?
 
         // AsyncStream for FIFO-ordered data processing.
         // readabilityHandler yields into this stream; a single consumer task
@@ -39,6 +41,9 @@
 
         // Incomplete tmux escape sequence buffer (ESC k ... ESC \ split across reads)
         private var tmuxEscapeBuffer = Data()
+
+        // Parser for OSC 9/777 notification sequences
+        private var notificationParser = TerminalNotificationParser()
 
         init(paneId: String) {
             self.paneId = paneId
@@ -59,6 +64,11 @@
         /// Sets the handler for incoming raw data.
         func setDataHandler(_ handler: @escaping @Sendable (Data) -> Void) {
             dataHandler = handler
+        }
+
+        /// Sets the handler for terminal notifications (OSC 9/777).
+        func setNotificationHandler(_ handler: @escaping @Sendable (TerminalStreamMessage.TerminalNotification) -> Void) {
+            notificationHandler = handler
         }
 
         /// Starts pipe-pane for this pane, creating the FIFO and opening it for reading.
@@ -210,7 +220,9 @@
             isBuffering = false
             buffer = []
             tmuxEscapeBuffer = Data()
+            notificationParser.reset()
             dataHandler = nil
+            notificationHandler = nil
 
             logger.info("pipe-pane stopped for \(paneId)")
         }
@@ -219,7 +231,18 @@
 
         private func processIncomingData(_ data: Data) {
             // Filter tmux-specific escape sequences (ESC k ... ESC \)
-            let filtered = filterTmuxEscapeSequences(data)
+            let tmuxFiltered = filterTmuxEscapeSequences(data)
+            guard !tmuxFiltered.isEmpty else { return }
+
+            // Parse and strip OSC 9/777 notification sequences
+            let parseResult = notificationParser.parse(tmuxFiltered)
+
+            // Report any detected notifications
+            for notification in parseResult.notifications {
+                notificationHandler?(notification)
+            }
+
+            let filtered = parseResult.filteredData
             guard !filtered.isEmpty else { return }
 
             if isBuffering {

@@ -327,6 +327,10 @@
             case let .titleChange(change):
                 terminalTitle = change.title
 
+            case .notification:
+                // Terminal notifications are not displayed on iOS yet
+                break
+
             case .streamEnd:
                 // Only process streamEnd if we're actually streaming.
                 // Ignore if we're still connecting - this can happen when the host restarts

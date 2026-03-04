@@ -1,4 +1,5 @@
 #if os(macOS)
+    import ClaudeSpyNetworking
     import Foundation
     import Logging
 
@@ -25,6 +26,7 @@
             let onData: @MainActor (Data) -> Void
             let onDimensionChange: (@MainActor (Int, Int) -> Void)?
             let onTitleChange: (@MainActor (String) -> Void)?
+            let onNotification: (@MainActor (TerminalStreamMessage.TerminalNotification) -> Void)?
         }
 
         /// Context for a managed stream
@@ -47,6 +49,10 @@
 
         /// All subscriptions keyed by subscription ID
         private var subscriptions: [UUID: Subscription] = [:]
+
+        /// Global notification handler — called for any notification on any pane,
+        /// regardless of which subscribers are active. Used by macOS to show desktop notifications.
+        public var onNotification: (@MainActor (String, TerminalStreamMessage.TerminalNotification) -> Void)?
 
         // MARK: - Public State
 
@@ -109,6 +115,7 @@
         ///   - onData: Callback for incoming terminal data (live updates only, not initial content)
         ///   - onDimensionChange: Optional callback for dimension changes
         ///   - onTitleChange: Optional callback for terminal title changes
+        ///   - onNotification: Optional callback for terminal notifications (OSC 9/777)
         /// - Returns: Subscription result containing ID, initial content, and dimensions
         /// - Throws: If the stream fails to connect
         public func subscribe(
@@ -116,7 +123,8 @@
             target: String,
             onData: @escaping @MainActor (Data) -> Void,
             onDimensionChange: (@MainActor (Int, Int) -> Void)? = nil,
-            onTitleChange: (@MainActor (String) -> Void)? = nil
+            onTitleChange: (@MainActor (String) -> Void)? = nil,
+            onNotification: (@MainActor (TerminalStreamMessage.TerminalNotification) -> Void)? = nil
         ) async throws -> SubscriptionResult {
             let subscriptionId = UUID()
             let subscription = Subscription(
@@ -124,7 +132,8 @@
                 paneId: paneId,
                 onData: onData,
                 onDimensionChange: onDimensionChange,
-                onTitleChange: onTitleChange
+                onTitleChange: onTitleChange,
+                onNotification: onNotification
             )
             subscriptions[subscriptionId] = subscription
 
@@ -177,6 +186,9 @@
                 }
                 stream.onDimensionChange = { [weak self] width, height in
                     self?.forwardDimensionChange(paneId: paneId, width: width, height: height)
+                }
+                stream.onNotification = { [weak self] notification in
+                    self?.forwardNotification(paneId: paneId, notification: notification)
                 }
 
                 // Store context BEFORE connect() so callbacks work if triggered during connect
@@ -342,6 +354,25 @@
                     let subscription = subscriptions[subscriberId],
                     let callback = subscription.onTitleChange {
                     callback(title)
+                }
+            }
+        }
+
+        private func forwardNotification(
+            paneId: String,
+            notification: TerminalStreamMessage.TerminalNotification
+        ) {
+            guard let context = streams[paneId] else { return }
+
+            // Call global handler (macOS desktop notification)
+            onNotification?(paneId, notification)
+
+            // Forward to per-subscriber handlers
+            for subscriberId in context.subscriberIds {
+                if
+                    let subscription = subscriptions[subscriberId],
+                    let callback = subscription.onNotification {
+                    callback(notification)
                 }
             }
         }

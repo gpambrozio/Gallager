@@ -42,6 +42,9 @@ public struct TerminalStreamMessage: Codable, Sendable, Identifiable {
         /// Terminal title has changed (via OSC 0 or OSC 2 escape sequences).
         case titleChange(TitleChange)
 
+        /// Terminal notification received (via OSC 9 or OSC 777 escape sequences).
+        case notification(TerminalNotification)
+
         /// Stream has ended (pane closed, disconnected, etc.).
         case streamEnd
     }
@@ -109,6 +112,20 @@ public struct TerminalStreamMessage: Codable, Sendable, Identifiable {
             self.title = title
         }
     }
+
+    /// Terminal notification from OSC 9 or OSC 777 escape sequences.
+    public struct TerminalNotification: Codable, Sendable, Equatable {
+        /// Optional notification title (OSC 777 provides this, OSC 9 does not)
+        public let title: String?
+
+        /// Notification body/message
+        public let body: String
+
+        public init(title: String? = nil, body: String) {
+            self.title = title
+            self.body = body
+        }
+    }
 }
 
 // MARK: - Convenience Initializers
@@ -148,6 +165,18 @@ public extension TerminalStreamMessage {
         TerminalStreamMessage(
             paneId: paneId,
             updateType: .titleChange(TitleChange(title: title))
+        )
+    }
+
+    /// Create a notification message.
+    static func notification(
+        paneId: String,
+        title: String? = nil,
+        body: String
+    ) -> TerminalStreamMessage {
+        TerminalStreamMessage(
+            paneId: paneId,
+            updateType: .notification(TerminalNotification(title: title, body: body))
         )
     }
 
