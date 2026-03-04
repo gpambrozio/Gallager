@@ -165,7 +165,7 @@
         }
 
         // Using nonisolated(unsafe) for notification observer cleanup in deinit
-        private nonisolated(unsafe) var windowObserver: (any NSObjectProtocol)?
+        private nonisolated(unsafe) var windowObservers: [any NSObjectProtocol] = []
 
         override init(frame: NSRect) {
             self.terminalView = TerminalView(frame: NSRect(origin: .zero, size: frame.size))
@@ -175,10 +175,6 @@
             layer?.masksToBounds = true
             terminalView.autoresizingMask = []
             terminalView.terminalDelegate = self
-            // Disable focus tracking so cursor style (block/bar/underline) renders correctly
-            // even when the TerminalView is not the first responder. Without this, the caret
-            // always draws as a hollow rectangle outline, ignoring DECSCUSR style changes.
-            terminalView.caretViewTracksFocus = false
             addSubview(terminalView)
             setupScrollOverlay()
             setupHorizontalScroller()
@@ -191,7 +187,7 @@
         }
 
         deinit {
-            if let observer = windowObserver {
+            for observer in windowObservers {
                 NotificationCenter.default.removeObserver(observer)
             }
         }
@@ -265,22 +261,28 @@
 
         override func becomeFirstResponder() -> Bool {
             isFocused = true
+            // Drive TerminalView's hasFocus so CaretView renders as filled cursor
+            // with the correct DECSCUSR style (block/bar/underline). Without this,
+            // the caret draws as a hollow rectangle since TerminalView itself never
+            // becomes first responder.
+            terminalView.hasFocus = true
             return super.becomeFirstResponder()
         }
 
         override func resignFirstResponder() -> Bool {
             isFocused = false
+            terminalView.hasFocus = false
             return super.resignFirstResponder()
         }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
 
-            // Clean up old observer
-            if let observer = windowObserver {
+            // Clean up old observers
+            for observer in windowObservers {
                 NotificationCenter.default.removeObserver(observer)
-                windowObserver = nil
             }
+            windowObservers.removeAll()
 
             guard let window else { return }
 
@@ -291,7 +293,7 @@
             }
 
             // Re-focus when window becomes key (e.g., after switching apps)
-            windowObserver = NotificationCenter.default.addObserver(
+            windowObservers.append(NotificationCenter.default.addObserver(
                 forName: NSWindow.didBecomeKeyNotification,
                 object: window,
                 queue: .main
@@ -299,8 +301,22 @@
                 Task { @MainActor in
                     guard let self, let window = self.window else { return }
                     window.makeFirstResponder(self)
+                    // makeFirstResponder is a no-op if already first responder,
+                    // so explicitly set hasFocus to restore cursor appearance.
+                    self.terminalView.hasFocus = true
                 }
-            }
+            })
+
+            // Show hollow cursor when window loses key status
+            windowObservers.append(NotificationCenter.default.addObserver(
+                forName: NSWindow.didResignKeyNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.terminalView.hasFocus = false
+                }
+            })
         }
 
         // MARK: - Keyboard Events
