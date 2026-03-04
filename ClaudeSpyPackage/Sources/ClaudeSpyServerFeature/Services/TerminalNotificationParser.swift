@@ -12,10 +12,18 @@
     /// The parser handles sequences split across multiple data chunks by buffering
     /// incomplete sequences. Detected notification sequences are stripped from the
     /// output data to prevent terminal emulators from displaying them as artifacts.
+    ///
+    /// Two modes are available:
+    /// - **Full mode** (default): Builds filtered output data with notifications stripped.
+    ///   Use when the data stream is being forwarded to a terminal emulator.
+    /// - **Scan-only mode** (`scanOnly: true`): Only extracts notifications without
+    ///   building the filtered output, returning empty `filteredData`. Use for
+    ///   notification-only readers where the data stream is discarded anyway,
+    ///   avoiding unnecessary `Data` allocations.
     struct TerminalNotificationParser: Sendable {
         /// Result of parsing a data chunk
         struct ParseResult: Sendable {
-            /// Data with notification sequences stripped
+            /// Data with notification sequences stripped (empty in scan-only mode)
             let filteredData: Data
             /// Notifications found in the data
             let notifications: [TerminalStreamMessage.TerminalNotification]
@@ -23,18 +31,26 @@
 
         /// Maximum OSC buffer size (8 KB) before discarding as pass-through data.
         /// Prevents unbounded growth from malformed sequences that never terminate.
-        private static let maxBufferSize = 8192
+        private static let maxBufferSize = 8_192
+
+        /// When true, skips building filtered output data — only extracts notifications.
+        let scanOnly: Bool
 
         /// Buffer for incomplete OSC sequences split across reads
         private var oscBuffer = Data()
 
+        init(scanOnly: Bool = false) {
+            self.scanOnly = scanOnly
+        }
+
         /// Parse raw terminal data for OSC 9/777 notification sequences.
         ///
         /// Returns filtered data (with notifications stripped) and any notifications found.
+        /// In scan-only mode, `filteredData` is always empty.
         /// Call this on each incoming data chunk — incomplete sequences are buffered
         /// automatically across calls.
         mutating func parse(_ data: Data) -> ParseResult {
-            var result = Data()
+            var result = scanOnly ? Data() : Data()
             var notifications: [TerminalStreamMessage.TerminalNotification] = []
 
             // Prepend any buffered incomplete sequence from previous read
@@ -48,7 +64,9 @@
 
             while i < dataToProcess.endIndex {
                 guard dataToProcess[i] == 0x1B else { // ESC
-                    result.append(dataToProcess[i])
+                    if !scanOnly {
+                        result.append(dataToProcess[i])
+                    }
                     i = dataToProcess.index(after: i)
                     continue
                 }
@@ -62,7 +80,9 @@
 
                 guard dataToProcess[i + 1] == 0x5D else { // ']'
                     // ESC followed by something other than ] — pass through
-                    result.append(dataToProcess[i])
+                    if !scanOnly {
+                        result.append(dataToProcess[i])
+                    }
                     i = dataToProcess.index(after: i)
                     continue
                 }
@@ -111,7 +131,7 @@
                 }
 
                 // Extract content between ESC ] and terminator
-                let content = dataToProcess[contentStart ..< j]
+                let content = dataToProcess[contentStart..<j]
 
                 // Check if this is a notification OSC sequence
                 let (isNotificationSequence, notification) = parseNotificationContent(content)
@@ -120,9 +140,9 @@
                     if let notification {
                         notifications.append(notification)
                     }
-                } else {
+                } else if !scanOnly {
                     // Not a notification — pass through the entire OSC sequence unchanged
-                    result.append(contentsOf: dataToProcess[oscStart ..< terminatorEnd])
+                    result.append(contentsOf: dataToProcess[oscStart..<terminatorEnd])
                 }
 
                 i = terminatorEnd
@@ -130,7 +150,9 @@
 
             // Flush oversized buffer as pass-through to prevent unbounded growth
             if oscBuffer.count > Self.maxBufferSize {
-                result.append(contentsOf: oscBuffer)
+                if !scanOnly {
+                    result.append(contentsOf: oscBuffer)
+                }
                 oscBuffer = Data()
             }
 

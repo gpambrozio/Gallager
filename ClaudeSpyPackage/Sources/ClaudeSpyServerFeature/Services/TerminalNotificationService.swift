@@ -145,6 +145,11 @@
 
     /// Allows notifications to display as banners even when the app is in the foreground.
     /// Without this, macOS silently suppresses notifications for the active app.
+    ///
+    /// `@unchecked Sendable` is safe here because:
+    /// - `onTapped` is `@MainActor`-isolated and only accessed from MainActor contexts
+    /// - `willPresent` accesses no mutable state
+    /// - `didReceive` hops to MainActor via `await MainActor.run` before touching `onTapped`
     final class ForegroundNotificationDelegate: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
         static let shared = ForegroundNotificationDelegate()
 

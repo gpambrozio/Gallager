@@ -43,9 +43,10 @@
         private var tmuxEscapeBuffer = Data()
 
         // Parser for OSC 9/777 notification sequences
-        private var notificationParser = TerminalNotificationParser()
+        private var notificationParser: TerminalNotificationParser
 
-        init(paneId: String) {
+        init(paneId: String, scanOnly: Bool = false) {
+            self.notificationParser = TerminalNotificationParser(scanOnly: scanOnly)
             self.paneId = paneId
             self.logger = Logger(label: "com.claudespy.pipepane.\(paneId)")
 

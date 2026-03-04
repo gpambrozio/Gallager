@@ -77,6 +77,50 @@
             #expect(result.notifications[0].body == "Body with;semicolons;inside")
         }
 
+        @Test("Parses OSC 777 with title only (no body) as fallback")
+        func osc777TitleOnlyFallback() {
+            var parser = TerminalNotificationParser()
+            let data = Data("\u{1b}]777;notify;TitleOnly\u{07}".utf8)
+            let result = parser.parse(data)
+
+            #expect(result.notifications.count == 1)
+            // When there's no semicolon after the title, the entire payload
+            // becomes the body (title-only is treated as body-only fallback)
+            #expect(result.notifications[0].title == nil)
+            #expect(result.notifications[0].body == "TitleOnly")
+            #expect(result.filteredData.isEmpty)
+        }
+
+        // MARK: - Scan-only mode
+
+        @Test("Scan-only mode extracts notifications without building filtered data")
+        func scanOnlyMode() {
+            var parser = TerminalNotificationParser(scanOnly: true)
+            let data = Data("before\u{1b}]9;Hello\u{07}after\u{1b}]0;Title\u{07}more".utf8)
+            let result = parser.parse(data)
+
+            #expect(result.notifications.count == 1)
+            #expect(result.notifications[0].body == "Hello")
+            // In scan-only mode, filteredData is always empty
+            #expect(result.filteredData.isEmpty)
+        }
+
+        @Test("Scan-only mode handles cross-chunk sequences")
+        func scanOnlyCrossChunk() {
+            var parser = TerminalNotificationParser(scanOnly: true)
+
+            let chunk1 = Data("data\u{1b}]9;Split".utf8)
+            let result1 = parser.parse(chunk1)
+            #expect(result1.notifications.isEmpty)
+            #expect(result1.filteredData.isEmpty)
+
+            let chunk2 = Data(" notification\u{07}more".utf8)
+            let result2 = parser.parse(chunk2)
+            #expect(result2.notifications.count == 1)
+            #expect(result2.notifications[0].body == "Split notification")
+            #expect(result2.filteredData.isEmpty)
+        }
+
         // MARK: - Non-notification OSC sequences
 
         @Test("Passes through non-notification OSC sequences unchanged")

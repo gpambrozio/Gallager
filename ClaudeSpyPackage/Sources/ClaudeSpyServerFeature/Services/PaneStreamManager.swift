@@ -400,7 +400,9 @@
         // MARK: - Notification Reader Helpers
 
         private func startNotificationReader(paneId: String, sessionName: String) async {
-            let reader = PipePaneReader(paneId: paneId)
+            // scanOnly: true avoids building filtered output Data — only extracts notifications,
+            // reducing CPU/memory overhead for panes that may produce high-throughput output.
+            let reader = PipePaneReader(paneId: paneId, scanOnly: true)
 
             // Only set notification handler — no data handler means data is discarded
             await reader.setNotificationHandler { [weak self] notification in
