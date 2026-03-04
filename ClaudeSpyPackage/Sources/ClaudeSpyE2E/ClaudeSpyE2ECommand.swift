@@ -183,6 +183,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         YoloModeStateSyncScenario.scenario,
         YoloModeMacToMacScenario.scenario,
         TerminalNotificationScenario.scenario,
+        TableRenderingScenario.scenario,
     ]
 
     private func runTests(orchestrator: TestOrchestrator) async throws {
