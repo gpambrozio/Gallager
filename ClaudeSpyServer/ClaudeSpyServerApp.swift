@@ -51,6 +51,16 @@ struct TmuxPaneMirrorApp: App {
                 hookPortFile = nil
             }
 
+            // E2E test support: override notification log path for verification
+            let notificationLogPath: String?
+            if let idx = CommandLine.arguments.firstIndex(of: "--notification-log"),
+               idx + 1 < CommandLine.arguments.count
+            {
+                notificationLogPath = CommandLine.arguments[idx + 1]
+            } else {
+                notificationLogPath = nil
+            }
+
             prepareDependencies {
                 $0[PreferencesService.self] = prefs
                 $0[SecretsService.self] = .inMemory()
@@ -61,6 +71,11 @@ struct TmuxPaneMirrorApp: App {
                 )
                 if let hookPortFile {
                     $0[HookServerService.self] = .live(portFilePath: hookPortFile)
+                }
+                if let notificationLogPath {
+                    // Clean up any previous log from earlier runs
+                    try? FileManager.default.removeItem(atPath: notificationLogPath)
+                    $0[TerminalNotificationService.self] = .e2eTest(logPath: notificationLogPath)
                 }
             }
 

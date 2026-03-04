@@ -254,3 +254,64 @@ struct WebSocketMessageTests {
         #expect(message.messageType == "encryptedPush")
     }
 }
+
+@Suite("TerminalStreamMessage Tests")
+struct TerminalStreamMessageTests {
+    @Test("Notification message round-trip encoding")
+    func notificationRoundTrip() throws {
+        let original = TerminalStreamMessage.notification(
+            paneId: "%1",
+            title: "Claude Code",
+            body: "Task completed"
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let jsonData = try encoder.encode(original)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(TerminalStreamMessage.self, from: jsonData)
+
+        #expect(decoded.paneId == "%1")
+        if case let .notification(notification) = decoded.updateType {
+            #expect(notification.title == "Claude Code")
+            #expect(notification.body == "Task completed")
+        } else {
+            Issue.record("Expected notification update type")
+        }
+    }
+
+    @Test("Notification message without title round-trip encoding")
+    func notificationWithoutTitleRoundTrip() throws {
+        let original = TerminalStreamMessage.notification(
+            paneId: "%2",
+            body: "Simple notification"
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let jsonData = try encoder.encode(original)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(TerminalStreamMessage.self, from: jsonData)
+
+        if case let .notification(notification) = decoded.updateType {
+            #expect(notification.title == nil)
+            #expect(notification.body == "Simple notification")
+        } else {
+            Issue.record("Expected notification update type")
+        }
+    }
+
+    @Test("TerminalNotification equality")
+    func terminalNotificationEquality() {
+        let n1 = TerminalStreamMessage.TerminalNotification(title: "A", body: "B")
+        let n2 = TerminalStreamMessage.TerminalNotification(title: "A", body: "B")
+        let n3 = TerminalStreamMessage.TerminalNotification(title: "X", body: "B")
+
+        #expect(n1 == n2)
+        #expect(n1 != n3)
+    }
+}

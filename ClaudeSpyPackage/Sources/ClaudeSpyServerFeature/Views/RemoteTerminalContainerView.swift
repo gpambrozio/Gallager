@@ -307,6 +307,10 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             case let .titleChange(change):
                 onTitleChange?(change.title)
 
+            case .notification:
+                // Terminal notifications are handled globally by PaneStreamManager
+                break
+
             case .streamEnd:
                 updateState(.disconnected)
             }

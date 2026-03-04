@@ -73,6 +73,9 @@
         private var commandExecutor: TmuxCommandExecutor?
         private var isServiceSetupComplete = false
 
+        @ObservationIgnored
+        @Dependency(TerminalNotificationService.self) private var terminalNotificationService
+
         /// Task for observing system wake notifications.
         @ObservationIgnored
         private var wakeObserverTask: Task<Void, Never>?
@@ -204,6 +207,9 @@
 
             // Start observing system wake notifications for reconnection
             startWakeObserver()
+
+            // Wire terminal notification tap handling
+            setupNotificationTapHandler()
         }
 
         // MARK: - Private Setup Methods
@@ -282,6 +288,17 @@
                 paneStreamManager: paneStreamManager
             )
 
+            // Wire terminal notification display (fires for any monitored pane, regardless of streaming)
+            let notificationService = terminalNotificationService
+            paneStreamManager.onNotification = { paneId, notification in
+                notificationService.showNotification(paneId, notification)
+            }
+
+            // Start notification-only readers for all discovered panes
+            let initialPanes = await tmuxService.refreshPanes()
+            await paneStreamManager.startNotificationMonitoring(panes: initialPanes)
+            paneStreamManager.startPeriodicPaneRefresh(tmuxService: tmuxService)
+
             // Connect pane stream manager to window manager for view injection
             windowManager.paneStreamManager = paneStreamManager
 
@@ -289,11 +306,13 @@
             let winManager = windowManager
             let tmuxForCleanup = tmuxService
             let terminalStreaming = terminalStreamService
+            let paneStreaming = paneStreamManager
             controlClientManager.setOnPanesChanged { [weak self] in
                 Task {
                     let panes = await tmuxForCleanup.refreshPanes()
                     winManager.cleanupStaleSessions(currentPanes: panes)
                     await terminalStreaming.stopStreamsForClosedPanes(currentPanes: panes)
+                    await paneStreaming.updateNotificationMonitoring(panes: panes)
                     self?.updateSleepPrevention()
                 }
             }
@@ -410,6 +429,44 @@
                     guard !Task.isCancelled else { break }
                     await self?.connectedViewerManager?.reconnectAllImmediately()
                     await self?.viewerConnectionManager?.reconnectAllImmediately()
+                }
+            }
+        }
+
+        /// Wires the notification tap handler on the delegate directly.
+        /// Respects the `menuBarClickOpensPanesView` setting.
+        private func setupNotificationTapHandler() {
+            ForegroundNotificationDelegate.shared.onTapped = { [weak self] paneId in
+                guard let self else { return }
+
+                NSApp.setActivationPolicy(.regular)
+
+                if self.settings.menuBarClickOpensPanesView {
+                    self.pendingMenuBarSelection = .local(paneId: paneId)
+                    NotificationCenter.default.post(
+                        name: .openPanesWindow,
+                        object: nil
+                    )
+                } else {
+                    Task {
+                        await self.windowManager.openMirrorForPane(paneId)
+                    }
+                }
+
+                Self.forceActivate()
+            }
+        }
+
+        /// Force-activates the app from a non-interactive context (e.g., notification tap).
+        /// Retries activation multiple times to overcome macOS focus-stealing prevention.
+        private static func forceActivate() {
+            Task { @MainActor in
+                for delay in [100, 300, 500] {
+                    try? await Task.sleep(for: .milliseconds(delay))
+                    NSApp.activate(ignoringOtherApps: true)
+                    for window in NSApp.windows where window.isVisible && window.level == .normal {
+                        window.orderFrontRegardless()
+                    }
                 }
             }
         }

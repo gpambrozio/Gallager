@@ -1,4 +1,5 @@
 #if os(macOS)
+    import ClaudeSpyNetworking
     import Foundation
     import Logging
 
@@ -25,6 +26,7 @@
             let onData: @MainActor (Data) -> Void
             let onDimensionChange: (@MainActor (Int, Int) -> Void)?
             let onTitleChange: (@MainActor (String) -> Void)?
+            let onNotification: (@MainActor (TerminalStreamMessage.TerminalNotification) -> Void)?
         }
 
         /// Context for a managed stream
@@ -47,6 +49,22 @@
 
         /// All subscriptions keyed by subscription ID
         private var subscriptions: [UUID: Subscription] = [:]
+
+        /// Context for a lightweight notification-only reader
+        private struct NotificationReaderContext {
+            let reader: PipePaneReader
+            let sessionName: String
+        }
+
+        /// Lightweight notification-only readers for panes that aren't fully mirrored
+        private var notificationReaders: [String: NotificationReaderContext] = [:]
+
+        /// Task for periodic pane discovery (needed to detect new tmux sessions)
+        private var paneRefreshTask: Task<Void, Never>?
+
+        /// Global notification handler — called for any notification on any pane,
+        /// regardless of which subscribers are active. Used by macOS to show desktop notifications.
+        public var onNotification: (@MainActor (String, TerminalStreamMessage.TerminalNotification) -> Void)?
 
         // MARK: - Public State
 
@@ -109,6 +127,7 @@
         ///   - onData: Callback for incoming terminal data (live updates only, not initial content)
         ///   - onDimensionChange: Optional callback for dimension changes
         ///   - onTitleChange: Optional callback for terminal title changes
+        ///   - onNotification: Optional callback for terminal notifications (OSC 9/777)
         /// - Returns: Subscription result containing ID, initial content, and dimensions
         /// - Throws: If the stream fails to connect
         public func subscribe(
@@ -116,7 +135,8 @@
             target: String,
             onData: @escaping @MainActor (Data) -> Void,
             onDimensionChange: (@MainActor (Int, Int) -> Void)? = nil,
-            onTitleChange: (@MainActor (String) -> Void)? = nil
+            onTitleChange: (@MainActor (String) -> Void)? = nil,
+            onNotification: (@MainActor (TerminalStreamMessage.TerminalNotification) -> Void)? = nil
         ) async throws -> SubscriptionResult {
             let subscriptionId = UUID()
             let subscription = Subscription(
@@ -124,7 +144,8 @@
                 paneId: paneId,
                 onData: onData,
                 onDimensionChange: onDimensionChange,
-                onTitleChange: onTitleChange
+                onTitleChange: onTitleChange,
+                onNotification: onNotification
             )
             subscriptions[subscriptionId] = subscription
 
@@ -164,6 +185,9 @@
                     "totalSubscribers": "\(context.subscriberIds.count)",
                 ])
             } else {
+                // Stop notification-only reader first — both use the same FIFO path
+                await stopNotificationReader(paneId: paneId)
+
                 // Create new stream with control client manager for real-time updates
                 let stream = PaneStream(
                     target: target,
@@ -177,6 +201,9 @@
                 }
                 stream.onDimensionChange = { [weak self] width, height in
                     self?.forwardDimensionChange(paneId: paneId, width: width, height: height)
+                }
+                stream.onNotification = { [weak self] notification in
+                    self?.forwardNotification(paneId: paneId, notification: notification)
                 }
 
                 // Store context BEFORE connect() so callbacks work if triggered during connect
@@ -238,10 +265,14 @@
 
             if context.subscriberIds.isEmpty {
                 // Last subscriber - disconnect stream
+                let sessionName = TmuxControlClientManager.extractSessionName(from: context.target)
                 await context.stream.disconnect()
                 streams.removeValue(forKey: paneId)
 
-                logger.info("Disconnected stream (no subscribers)", metadata: [
+                // Restart notification-only reader so we still detect OSC 9/777
+                await startNotificationReader(paneId: paneId, sessionName: sessionName)
+
+                logger.info("Disconnected stream (no subscribers), restarted notification reader", metadata: [
                     "paneId": "\(paneId)",
                 ])
             } else {
@@ -307,7 +338,105 @@
                 }
             }
             subscriptions.removeAll()
-            logger.info("Disconnected all streams")
+            await stopAllNotificationReaders()
+            logger.info("Disconnected all streams and notification readers")
+        }
+
+        // MARK: - Notification Monitoring
+
+        /// Start notification-only readers for all panes not already fully mirrored.
+        ///
+        /// Called once on startup after initial pane discovery.
+        public func startNotificationMonitoring(panes: [PaneInfo]) async {
+            for pane in panes where streams[pane.paneId] == nil && notificationReaders[pane.paneId] == nil {
+                await startNotificationReader(paneId: pane.paneId, sessionName: pane.sessionName)
+            }
+        }
+
+        /// Update notification readers based on current pane list.
+        ///
+        /// Stops readers for dead panes, starts readers for new panes.
+        public func updateNotificationMonitoring(panes: [PaneInfo]) async {
+            let currentPaneIds = Set(panes.map(\.paneId))
+
+            // Stop readers for panes that no longer exist
+            let staleIds = notificationReaders.keys.filter { !currentPaneIds.contains($0) }
+            for paneId in staleIds {
+                await stopNotificationReader(paneId: paneId)
+            }
+
+            // Start readers for new panes not already covered
+            for pane in panes where streams[pane.paneId] == nil && notificationReaders[pane.paneId] == nil {
+                await startNotificationReader(paneId: pane.paneId, sessionName: pane.sessionName)
+            }
+        }
+
+        /// Start periodic pane discovery to detect new tmux sessions.
+        ///
+        /// Control clients only detect changes within their own session;
+        /// new tmux sessions need periodic discovery.
+        public func startPeriodicPaneRefresh(tmuxService: TmuxService) {
+            paneRefreshTask?.cancel()
+            paneRefreshTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(10))
+                    guard !Task.isCancelled else { break }
+                    let panes = await tmuxService.refreshPanes()
+                    await self?.updateNotificationMonitoring(panes: panes)
+                }
+            }
+        }
+
+        /// Stop all notification readers (for shutdown).
+        public func stopAllNotificationReaders() async {
+            let paneIds = Array(notificationReaders.keys)
+            for paneId in paneIds {
+                await stopNotificationReader(paneId: paneId)
+            }
+            paneRefreshTask?.cancel()
+            paneRefreshTask = nil
+        }
+
+        // MARK: - Notification Reader Helpers
+
+        private func startNotificationReader(paneId: String, sessionName: String) async {
+            // scanOnly: true avoids building filtered output Data — only extracts notifications,
+            // reducing CPU/memory overhead for panes that may produce high-throughput output.
+            let reader = PipePaneReader(paneId: paneId, scanOnly: true)
+
+            // Only set notification handler — no data handler means data is discarded
+            await reader.setNotificationHandler { [weak self] notification in
+                Task { @MainActor in
+                    self?.forwardNotification(paneId: paneId, notification: notification)
+                }
+            }
+
+            do {
+                try await reader.startPipePane(
+                    controlClientManager: controlClientManager,
+                    sessionName: sessionName,
+                    buffering: false
+                )
+                notificationReaders[paneId] = NotificationReaderContext(
+                    reader: reader,
+                    sessionName: sessionName
+                )
+                logger.debug("Started notification reader", metadata: ["paneId": "\(paneId)"])
+            } catch {
+                logger.debug("Failed to start notification reader", metadata: [
+                    "paneId": "\(paneId)",
+                    "error": "\(error)",
+                ])
+            }
+        }
+
+        private func stopNotificationReader(paneId: String) async {
+            guard let context = notificationReaders.removeValue(forKey: paneId) else { return }
+            await context.reader.stopPipePane(
+                controlClientManager: controlClientManager,
+                sessionName: context.sessionName
+            )
+            logger.debug("Stopped notification reader", metadata: ["paneId": "\(paneId)"])
         }
 
         // MARK: - Private Methods
@@ -342,6 +471,25 @@
                     let subscription = subscriptions[subscriberId],
                     let callback = subscription.onTitleChange {
                     callback(title)
+                }
+            }
+        }
+
+        private func forwardNotification(
+            paneId: String,
+            notification: TerminalStreamMessage.TerminalNotification
+        ) {
+            // Call global handler unconditionally — notification-only readers
+            // don't have a stream context but still need desktop notifications
+            onNotification?(paneId, notification)
+
+            // Forward to per-subscriber handlers (only if a full stream exists)
+            guard let context = streams[paneId] else { return }
+            for subscriberId in context.subscriberIds {
+                if
+                    let subscription = subscriptions[subscriberId],
+                    let callback = subscription.onNotification {
+                    callback(notification)
                 }
             }
         }

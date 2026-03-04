@@ -139,7 +139,7 @@
             /// Helper to run filterTmuxEscapeSequences by feeding data through the reader
             private func filterData(_ data: Data) async -> Data {
                 let reader = PipePaneReader(paneId: "%0")
-                var received = [Data]()
+                nonisolated(unsafe) var received = [Data]()
                 await reader.setDataHandler { received.append($0) }
 
                 // Feed data through the reader's processing by simulating pipe-pane delivery
@@ -232,7 +232,7 @@
             @Test("Data is buffered when buffering is enabled")
             func dataBuffered() async {
                 let reader = PipePaneReader(paneId: "%0")
-                var received = [Data]()
+                nonisolated(unsafe) var received = [Data]()
                 await reader.setDataHandler { received.append($0) }
 
                 // Enable buffering and process data
@@ -249,7 +249,7 @@
             @Test("Data is delivered immediately when not buffering")
             func dataImmediate() async {
                 let reader = PipePaneReader(paneId: "%0")
-                var received = [Data]()
+                nonisolated(unsafe) var received = [Data]()
                 await reader.setDataHandler { received.append($0) }
 
                 await reader.testSetBuffering(false)
