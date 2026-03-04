@@ -55,6 +55,10 @@
         override init(frame: CGRect, font: UIFont?) {
             super.init(frame: frame, font: font)
             terminalDelegate = self
+            // Disable focus tracking so cursor style (block/bar/underline) renders correctly
+            // even when the view is not first responder. Without this, the caret always draws
+            // as a hollow rectangle outline, ignoring DECSCUSR style changes.
+            caretViewTracksFocus = false
             setupURLLongPress()
         }
 
