@@ -533,7 +533,7 @@
             let result = service.processCapturePaneForStreaming(
                 scrollbackOutput: nil,
                 visibleOutput: "line1\nline2",
-                cursorOutput: "0,0",
+                cursorOutput: "0,0,1",
                 height: 24
             )
             let str = String(data: result, encoding: .utf8)!
@@ -550,13 +550,13 @@
             let withNewline = service.processCapturePaneForStreaming(
                 scrollbackOutput: nil,
                 visibleOutput: "line1\nline2\n",
-                cursorOutput: "0,0",
+                cursorOutput: "0,0,1",
                 height: 24
             )
             let withoutNewline = service.processCapturePaneForStreaming(
                 scrollbackOutput: nil,
                 visibleOutput: "line1\nline2",
-                cursorOutput: "0,0",
+                cursorOutput: "0,0,1",
                 height: 24
             )
             // Both should produce the same output
@@ -569,7 +569,7 @@
             let result = service.processCapturePaneForStreaming(
                 scrollbackOutput: nil,
                 visibleOutput: "line1\nline2\nline3",
-                cursorOutput: "5,1",
+                cursorOutput: "5,1,1",
                 height: 24
             )
             let str = String(data: result, encoding: .utf8)!
@@ -585,7 +585,7 @@
             let result = service.processCapturePaneForStreaming(
                 scrollbackOutput: "scrollback line",
                 visibleOutput: "visible line",
-                cursorOutput: "0,0",
+                cursorOutput: "0,0,1",
                 height: 5
             )
             let str = String(data: result, encoding: .utf8)!
@@ -605,7 +605,7 @@
             let result = service.processCapturePaneForStreaming(
                 scrollbackOutput: nil,
                 visibleOutput: "line1\nline2",
-                cursorOutput: "0,10",
+                cursorOutput: "0,10,1",
                 height: 24
             )
             let str = String(data: result, encoding: .utf8)!
@@ -613,6 +613,46 @@
             // cursor is on line 11. effectiveCursorY = 10, linesUp = 11-1-10 = 0.
             #expect(str.contains("\u{1b}[1G")) // column 1
             #expect(!str.contains("\u{1b}[1A")) // no cursor-up needed (cursor is on last line)
+        }
+
+        @Test("Hidden cursor flag emits DECTCEM hide sequence")
+        func hiddenCursorFlag() async {
+            let service = TmuxService()
+            let result = service.processCapturePaneForStreaming(
+                scrollbackOutput: nil,
+                visibleOutput: "line1\nline2",
+                cursorOutput: "0,0,0",
+                height: 24
+            )
+            let str = String(data: result, encoding: .utf8)!
+            #expect(str.hasSuffix("\u{1b}[?25l"))
+        }
+
+        @Test("Visible cursor flag does not emit hide sequence")
+        func visibleCursorFlag() async {
+            let service = TmuxService()
+            let result = service.processCapturePaneForStreaming(
+                scrollbackOutput: nil,
+                visibleOutput: "line1\nline2",
+                cursorOutput: "0,0,1",
+                height: 24
+            )
+            let str = String(data: result, encoding: .utf8)!
+            #expect(!str.contains("\u{1b}[?25l"))
+        }
+
+        @Test("Missing cursor flag defaults to visible (no hide sequence)")
+        func missingCursorFlag() async {
+            let service = TmuxService()
+            // Legacy format without cursor_flag — should default to visible
+            let result = service.processCapturePaneForStreaming(
+                scrollbackOutput: nil,
+                visibleOutput: "line1\nline2",
+                cursorOutput: "0,0",
+                height: 24
+            )
+            let str = String(data: result, encoding: .utf8)!
+            #expect(!str.contains("\u{1b}[?25l"))
         }
 
         @Test("Live typing after initial capture lands on correct row with cursor mid-screen")
@@ -649,7 +689,7 @@
 
             // Cursor at col 15, row 21 (0-indexed) — on the input line after "> Input: BEFORE"
             // "> Input: BEFORE" = 15 chars (positions 0-14), cursor at col 15
-            let cursorOutput = "15,21"
+            let cursorOutput = "15,21,1"
 
             // Generate initial capture data
             let initialData = service.processCapturePaneForStreaming(
@@ -733,7 +773,7 @@
             // Cursor on the input line (tmux row 33, 0-indexed)
             // "> hello world" = 13 chars, cursor at col 13
             let inputRow = tmuxRows - 4
-            let cursorOutput = "13,\(inputRow)"
+            let cursorOutput = "13,\(inputRow),1"
 
             let initialData = service.processCapturePaneForStreaming(
                 scrollbackOutput: nil,
@@ -795,7 +835,7 @@
             let scrollbackOutput = (1...30).map { "History \($0)" }.joined(separator: "\n")
 
             // Cursor on input line (row 21, col 13)
-            let cursorOutput = "13,21"
+            let cursorOutput = "13,21,1"
 
             let initialData = service.processCapturePaneForStreaming(
                 scrollbackOutput: scrollbackOutput,
@@ -857,7 +897,7 @@
             let visibleOutput = visibleLines.joined(separator: "\n")
 
             // Cursor at end of prompt
-            let cursorOutput = "2,\(tmuxRows - 1)"
+            let cursorOutput = "2,\(tmuxRows - 1),1"
 
             let initialData = service.processCapturePaneForStreaming(
                 scrollbackOutput: scrollbackOutput,

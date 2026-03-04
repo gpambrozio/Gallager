@@ -55,6 +55,10 @@
         override init(frame: CGRect, font: UIFont?) {
             super.init(frame: frame, font: font)
             terminalDelegate = self
+            // Always render cursor as filled on iOS since the user is typically viewing
+            // the remote terminal, not typing. The hollow/filled distinction is less useful
+            // here — cursor visibility (DECTCEM ?25l/?25h) handles show/hide instead.
+            caretViewTracksFocus = false
             setupURLLongPress()
         }
 
