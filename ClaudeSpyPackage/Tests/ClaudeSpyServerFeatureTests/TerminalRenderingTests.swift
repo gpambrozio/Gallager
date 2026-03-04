@@ -173,6 +173,15 @@
                 #expect(result == " 123", "Unmapped chars in DEC mode: got '\(result)'")
             }
 
+            @Test("Handles unterminated SO (no closing SI)")
+            @MainActor
+            func unterminatedSO() {
+                let service = TmuxService()
+                let input = "\u{0e}lqqqqk"
+                let result = service.filterToColorCodesOnly(input)
+                #expect(result == "┌────┐", "Unterminated SO: got '\(result)'")
+            }
+
             @Test("Renders correctly when fed to SwiftTerm")
             @MainActor
             func rendersCorrectlyInSwiftTerm() {

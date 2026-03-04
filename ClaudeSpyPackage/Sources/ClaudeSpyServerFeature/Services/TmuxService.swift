@@ -474,6 +474,7 @@ final public class TmuxService {
     func filterToColorCodesOnly(_ input: String) -> String {
         var result = ""
         var i = input.startIndex
+        // Resets per call — callers must invoke per-line (as processCapturePaneForStreaming does)
         var inACS = false // Tracking SO/SI (Alternate Character Set) state
 
         while i < input.endIndex {
