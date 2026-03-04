@@ -38,11 +38,6 @@ public enum YoloModeMacToMacScenario {
         // Host should show the session
         TestStep.macWaitForElement(titled: "Enable yolo mode to auto-approve permissions", timeout: 10)
 
-        // Viewer: select the remote Claude session (displayed with project name after SessionStart)
-        TestStep.macWaitForElement(titled: "MacPairProject", timeout: 10, instance: 1)
-        TestStep.macClickButton(titled: "MacPairProject", instance: 1)
-        TestStep.wait(seconds: 3)
-
         // Viewer should see the yolo toggle for the remote Claude session
         TestStep.macWaitForElement(titled: "Enable yolo mode to auto-approve permissions", timeout: 10, instance: 1)
 
