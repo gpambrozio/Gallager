@@ -107,6 +107,112 @@
             }
         }
 
+        // MARK: - DEC line drawing (SO/SI) handling
+
+        @Suite("DEC line drawing: SO/SI character translation")
+        struct DECLineDrawingTests {
+            @Test("Translates DEC box-drawing characters between SO/SI to UTF-8")
+            @MainActor
+            func translatesDECBoxDrawing() {
+                let service = TmuxService()
+                // SO (0x0E) + 'lqqqqk' + SI (0x0F) = ┌────┐
+                let input = "\u{0e}lqqqqk\u{0f}"
+                let result = service.filterToColorCodesOnly(input)
+                #expect(result == "┌────┐", "DEC box chars should translate to UTF-8: got '\(result)'")
+            }
+
+            @Test("Translates full DEC table with mixed normal text")
+            @MainActor
+            func translatesFullTable() {
+                let service = TmuxService()
+                // Top: SO + lqqqqwqqqqk + SI
+                let top = "\u{0e}lqqqqwqqqqk\u{0f}"
+                // Row: SO + x + SI + " AB " + SO + x + SI + " CD " + SO + x + SI
+                let row = "\u{0e}x\u{0f} AB \u{0e}x\u{0f} CD \u{0e}x\u{0f}"
+                // Bottom: SO + mqqqqvqqqqj + SI
+                let bottom = "\u{0e}mqqqqvqqqqj\u{0f}"
+
+                let topResult = service.filterToColorCodesOnly(top)
+                let rowResult = service.filterToColorCodesOnly(row)
+                let bottomResult = service.filterToColorCodesOnly(bottom)
+
+                #expect(topResult == "┌────┬────┐", "Top: got '\(topResult)'")
+                #expect(rowResult == "│ AB │ CD │", "Row: got '\(rowResult)'")
+                #expect(bottomResult == "└────┴────┘", "Bottom: got '\(bottomResult)'")
+            }
+
+            @Test("Preserves SGR codes within DEC mode")
+            @MainActor
+            func preservesSGRInDECMode() {
+                let service = TmuxService()
+                // SGR color code between SO/SI should be preserved
+                let input = "\u{0e}\u{1b}[31mqqqq\u{1b}[0m\u{0f}"
+                let result = service.filterToColorCodesOnly(input)
+                #expect(result == "\u{1b}[31m────\u{1b}[0m", "SGR in DEC mode: got '\(result)'")
+            }
+
+            @Test("SO/SI bytes are stripped from output")
+            @MainActor
+            func soSiBytesAreStripped() {
+                let service = TmuxService()
+                let input = "Before\u{0e}qq\u{0f}After"
+                let result = service.filterToColorCodesOnly(input)
+                // SO/SI should not appear in output, only translated chars
+                #expect(!result.contains("\u{0e}"), "SO byte should be stripped")
+                #expect(!result.contains("\u{0f}"), "SI byte should be stripped")
+                #expect(result == "Before──After", "Mixed content: got '\(result)'")
+            }
+
+            @Test("Characters without DEC mapping pass through unchanged")
+            @MainActor
+            func unmappedCharsPassThrough() {
+                let service = TmuxService()
+                // Space and digits don't have DEC line drawing mappings
+                let input = "\u{0e} 123\u{0f}"
+                let result = service.filterToColorCodesOnly(input)
+                #expect(result == " 123", "Unmapped chars in DEC mode: got '\(result)'")
+            }
+
+            @Test("Handles unterminated SO (no closing SI)")
+            @MainActor
+            func unterminatedSO() {
+                let service = TmuxService()
+                let input = "\u{0e}lqqqqk"
+                let result = service.filterToColorCodesOnly(input)
+                #expect(result == "┌────┐", "Unterminated SO: got '\(result)'")
+            }
+
+            @Test("Renders correctly when fed to SwiftTerm")
+            @MainActor
+            func rendersCorrectlyInSwiftTerm() {
+                let service = TmuxService()
+                let (terminal, _) = makeTerminal(cols: 40, rows: 10)
+
+                // Simulate capture-pane output with DEC box-drawing table
+                let top = "\u{0e}lqqqqwqqqqk\u{0f}"
+                let row = "\u{0e}x\u{0f} AB \u{0e}x\u{0f} CD \u{0e}x\u{0f}"
+                let bottom = "\u{0e}mqqqqvqqqqj\u{0f}"
+
+                var output = "\u{1b}[H" // Home
+                output += "\u{1b}[2K" + service.filterToColorCodesOnly(top) + "\r\n"
+                output += "\u{1b}[2K" + service.filterToColorCodesOnly(row) + "\r\n"
+                output += "\u{1b}[2K" + service.filterToColorCodesOnly(bottom)
+
+                terminal.feed(text: output)
+
+                let row0 = getRowText(terminal, row: 0)
+                let row1 = getRowText(terminal, row: 1)
+                let row2 = getRowText(terminal, row: 2)
+
+                #expect(row0.contains("┌"), "Row 0 should have ┌: got '\(row0)'")
+                #expect(row0.contains("┐"), "Row 0 should have ┐: got '\(row0)'")
+                #expect(row1.contains("│"), "Row 1 should have │: got '\(row1)'")
+                #expect(row1.contains("AB"), "Row 1 should have AB: got '\(row1)'")
+                #expect(row2.contains("└"), "Row 2 should have └: got '\(row2)'")
+                #expect(row2.contains("┘"), "Row 2 should have ┘: got '\(row2)'")
+            }
+        }
+
         // MARK: - H2: Non-CSI escape handling leaks bytes
 
         @Suite("H2: Non-CSI escape sequence handling")

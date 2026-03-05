@@ -470,24 +470,44 @@ final public class TmuxService {
 
     /// Filters ANSI escape codes, keeping only SGR (color/style) codes.
     /// Removes cursor positioning, screen clearing, and other control sequences.
+    ///
+    /// Also translates DEC Special Graphics characters to their UTF-8 equivalents.
+    /// `tmux capture-pane -e` uses SO (0x0E) / SI (0x0F) to wrap characters that
+    /// were originally drawn using the DEC line drawing charset. Since the charset
+    /// designation sequences (e.g. `ESC ) 0`) are stripped by this filter, we must
+    /// convert those characters here — otherwise SwiftTerm would render them as
+    /// plain ASCII (e.g. 'q' instead of '─').
+    ///
     /// Internal for testing
     func filterToColorCodesOnly(_ input: String) -> String {
         var result = ""
         var i = input.startIndex
+        // Resets per call — callers must invoke per-line (as processCapturePaneForStreaming does)
+        var inACS = false // Tracking SO/SI (Alternate Character Set) state
 
         while i < input.endIndex {
-            if input[i] == "\u{1b}", input.index(after: i) < input.endIndex {
+            let char = input[i]
+
+            if char == "\u{0e}" {
+                // SO (Shift Out): activate G1 charset (DEC Special Graphics in capture-pane output)
+                inACS = true
+                i = input.index(after: i)
+            } else if char == "\u{0f}" {
+                // SI (Shift In): activate G0 charset (standard ASCII)
+                inACS = false
+                i = input.index(after: i)
+            } else if char == "\u{1b}", input.index(after: i) < input.endIndex {
                 let nextIndex = input.index(after: i)
                 if input[nextIndex] == "[" {
                     // CSI sequence - find the end
                     var endIndex = input.index(after: nextIndex)
                     while endIndex < input.endIndex {
-                        let char = input[endIndex]
-                        if char >= "@" && char <= "~" {
+                        let csiChar = input[endIndex]
+                        if csiChar >= "@" && csiChar <= "~" {
                             // Found terminating character
                             let sequence = String(input[i...endIndex])
                             // Keep only SGR sequences (ending with 'm')
-                            if char == "m" {
+                            if csiChar == "m" {
                                 result += sequence
                             }
                             // Skip other sequences (cursor positioning, etc.)
@@ -544,13 +564,58 @@ final public class TmuxService {
                     // Standard 2-byte non-CSI escape (ESC + type byte)
                     i = input.index(after: nextIndex)
                 }
+            } else if inACS {
+                // Translate DEC Special Graphics character to UTF-8 equivalent
+                result.append(Self.translateDECGraphics(char))
+                i = input.index(after: i)
             } else {
-                result.append(input[i])
+                result.append(char)
                 i = input.index(after: i)
             }
         }
 
         return result
+    }
+
+    /// DEC Special Graphics character mapping.
+    /// Maps ASCII characters to their UTF-8 box-drawing equivalents when the terminal
+    /// is in the DEC Special Graphics charset (activated via SO after `ESC ) 0`).
+    /// Reference: VT100 User Guide, Table 5-13
+    private static func translateDECGraphics(_ char: Character) -> Character {
+        switch char {
+        case "`": return "\u{25c6}" // ◆
+        case "a": return "\u{2592}" // ▒
+        case "b": return "\u{2409}" // ␉ (HT symbol)
+        case "c": return "\u{240c}" // ␌ (FF symbol)
+        case "d": return "\u{240d}" // ␍ (CR symbol)
+        case "e": return "\u{240a}" // ␊ (LF symbol)
+        case "f": return "\u{00b0}" // °
+        case "g": return "\u{00b1}" // ±
+        case "h": return "\u{2424}" // ␤ (NL symbol)
+        case "i": return "\u{240b}" // ␋ (VT symbol)
+        case "j": return "\u{2518}" // ┘
+        case "k": return "\u{2510}" // ┐
+        case "l": return "\u{250c}" // ┌
+        case "m": return "\u{2514}" // └
+        case "n": return "\u{253c}" // ┼
+        case "o": return "\u{23ba}" // ⎺
+        case "p": return "\u{23bb}" // ⎻
+        case "q": return "\u{2500}" // ─
+        case "r": return "\u{23bc}" // ⎼
+        case "s": return "\u{23bd}" // ⎽
+        case "t": return "\u{251c}" // ├
+        case "u": return "\u{2524}" // ┤
+        case "v": return "\u{2534}" // ┴
+        case "w": return "\u{252c}" // ┬
+        case "x": return "\u{2502}" // │
+        case "y": return "\u{2264}" // ≤
+        case "z": return "\u{2265}" // ≥
+        case "{": return "\u{03c0}" // π
+        case "|": return "\u{2260}" // ≠
+        case "}": return "\u{00a3}" // £
+        case "~": return "\u{00b7}" // ·
+        default: return char
+        }
     }
 
     /// Extracts the active SGR (color/style) escape sequences at the given cursor position
