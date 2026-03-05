@@ -240,7 +240,7 @@ private static let allScenarios: [TestScenario] = [
 ]
 ```
 
-**Important:** Always append new scenarios at the end of the list — never insert in the middle. The array index determines the numbered baseline directory prefix (e.g., `01-fresh-pairing/`, `02-new-terminal/`). Inserting in the middle would shift all subsequent numbers, breaking existing screenshot baselines.
+New scenarios can be added anywhere in the list. Baseline directories are named after the scenario description (sanitized to lowercase with hyphens), not by position.
 
 ### Verifying a new scenario
 
@@ -419,11 +419,11 @@ Baselines are stored under the `--baselines-dir` directory (default: `E2ETests`,
 
 ```
 E2ETests/
-├── 01-fresh-pairing/
+├── fresh-pairing/
 │   ├── 01-ios-pairing-view.png       # baseline
 │   ├── 01-ios-pairing-view_diff.png  # generated on failure
 │   └── 02-mac-code-generated.png
-└── 02-new-terminal/
+└── new-terminal/
     └── 01-new-session.png
 ```
 
@@ -463,10 +463,10 @@ To update baselines after intentional UI changes, delete the relevant baseline f
 
 ```bash
 # Delete all baselines for a scenario
-rm -rf E2ETests/01-fresh-pairing/
+rm -rf E2ETests/fresh-pairing/
 
 # Delete a specific baseline
-rm E2ETests/01-fresh-pairing/01-ios-pairing-view.png
+rm E2ETests/fresh-pairing/01-ios-pairing-view.png
 
 # Delete all baselines
 rm -rf E2ETests/

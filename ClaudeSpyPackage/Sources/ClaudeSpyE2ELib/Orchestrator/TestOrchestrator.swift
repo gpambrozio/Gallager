@@ -25,7 +25,6 @@ public actor TestOrchestrator {
     /// (`~/.claudespy-port-test`) to avoid colliding with a production instance.
     /// Instance 0 uses this path directly; instance N uses `\(hookPortFile)-\(N)`.
     private let hookPortFile: String
-    private let scenarioNames: [String]
     private let skipComparison: Bool
     private var screenshotCounter = 0
 
@@ -61,8 +60,6 @@ public actor TestOrchestrator {
 
     /// - Note: The tmux socket path is injected into the execution context as `${tmuxSocket}`
     ///   for scenarios to reference.
-    /// - Parameter scenarioNames: The full ordered list of scenario names (used to number
-    ///   screenshot directories consistently regardless of which subset is actually run).
     public init(
         iosAppPath: String? = nil,
         macOSAppPath: String,
@@ -71,7 +68,6 @@ public actor TestOrchestrator {
         baselinesDir: String = "E2ETests",
         tmuxSocket: String? = nil,
         e2eRunnerPath: String? = nil,
-        scenarioNames: [String] = [],
         skipComparison: Bool = false,
         hookPortFile: String? = nil
     ) {
@@ -82,7 +78,6 @@ public actor TestOrchestrator {
         self.baselinesDir = baselinesDir
         self.tmuxSocket = tmuxSocket
         self.e2eRunnerPath = e2eRunnerPath
-        self.scenarioNames = scenarioNames
         self.skipComparison = skipComparison
         self.hookPortFile = hookPortFile ?? {
             let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -97,16 +92,7 @@ public actor TestOrchestrator {
         logger.info("=== Starting scenario: \(scenario.name) ===")
         let startTime = ContinuousClock.now
 
-        // Build the numbered scenario directory name (e.g. "03-fresh-pairing").
-        // The number comes from the scenario's position in the full registry so it
-        // stays stable even when running a single scenario.
-        let sanitizedName = sanitizeForPath(scenario.name)
-        let scenarioDirName: String
-        if let index = scenarioNames.firstIndex(of: scenario.name) {
-            scenarioDirName = String(format: "%02d-%@", index + 1, sanitizedName)
-        } else {
-            scenarioDirName = sanitizedName
-        }
+        let scenarioDirName = sanitizeForPath(scenario.name)
 
         // Ensure per-scenario screenshots directory exists
         let scenarioScreenshotsDir = "\(screenshotsDir)/\(scenarioDirName)"
