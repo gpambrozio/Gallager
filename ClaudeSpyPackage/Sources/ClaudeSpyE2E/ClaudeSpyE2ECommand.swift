@@ -95,7 +95,6 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             baselinesDir: baselinesDir,
             tmuxSocket: tmuxSocket,
             e2eRunnerPath: e2eRunnerPath,
-            scenarioNames: Self.allScenarios.map(\.name),
             skipComparison: noCompare,
             hookPortFile: hookPortFile
         )
@@ -110,10 +109,9 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     private func printScenarioList() {
         print("Available scenarios:")
         print()
-        for (index, scenario) in Self.allScenarios.enumerated() {
-            let num = String(format: "%02d", index + 1)
+        for scenario in Self.allScenarios {
             let tags = scenario.tags.map { "[\($0)]" }.joined(separator: " ")
-            print("  \(num). \(scenario.name) (\(scenario.steps.count) steps) \(tags)")
+            print("  - \(scenario.name) (\(scenario.steps.count) steps) \(tags)")
         }
     }
 
