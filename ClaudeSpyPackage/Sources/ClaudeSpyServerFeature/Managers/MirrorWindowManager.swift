@@ -116,10 +116,11 @@ final public class MirrorWindowManager {
             await autoOpenIfEnabled(paneId: paneId)
 
         case let .permissionRequest(body) where yoloModePanes.contains(paneId) && body.isYoloAutoApprovable:
-            // Yolo mode: auto-approve by sending "1" keystroke
+            // Yolo mode: auto-approve by sending Enter after a short delay
             updateSession(paneId: paneId) { $0.addEvent(event) }
             do {
-                try await tmuxService.sendKeys(paneId, keys: "1", literal: true)
+                try await Task.sleep(for: .milliseconds(500))
+                try await tmuxService.sendKeys(paneId, keys: "Enter")
             } catch {
                 // If auto-approve fails, fall through to normal flow
             }
@@ -425,7 +426,7 @@ final public class MirrorWindowManager {
     // MARK: - Yolo Mode
 
     /// Sets yolo mode for a pane's Claude session.
-    /// When enabled, permission requests are auto-approved by sending "1" keystroke.
+    /// When enabled, permission requests are auto-approved by sending Enter keystroke.
     /// - Parameters:
     ///   - enabled: Whether to enable or disable yolo mode
     ///   - paneId: The pane ID to set yolo mode for
