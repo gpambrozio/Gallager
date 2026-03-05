@@ -10,21 +10,28 @@ import Foundation
 /// to UTF-8 equivalents.
 ///
 /// The scenario:
-/// 1. Creates a tmux session and draws a table using DEC line-drawing
+/// 1. Pairs macOS and iOS devices via the relay
+/// 2. Creates a tmux session and draws a table using DEC line-drawing
 ///    mode via a Python script
-/// 2. Launches the macOS app and selects the pane (triggering initial
+/// 3. Launches the macOS app and selects the pane (triggering initial
 ///    capture-pane which exercises the SO/SI translation)
-/// 3. Takes a screenshot of the rendered table
-/// 4. De-selects and re-selects the pane to force a re-capture, then
-///    takes another screenshot to verify the table survives re-capture
+/// 4. Takes a screenshot of the rendered table on macOS
+/// 5. Opens the terminal pane on iOS and takes a screenshot there too
+/// 6. De-selects and re-selects the pane to force a re-capture, then
+///    takes screenshots on both platforms to verify the table survives
 ///
 /// Box-drawing characters should render as: ┌─┬─┐ │ ├─┼─┤ └─┴─┘
 /// NOT as ASCII: lqwqk x tqnqu mqvqj
 public enum TableRenderingScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Table Rendering",
-        tags: ["rendering", "macos-only"]
+        tags: ["rendering"]
     ) {
+        // ── Pair devices ────────────────────────────────────────────
+        // Pairing launches both apps and establishes the relay connection.
+
+        FreshPairingScenario.scenario
+
         // ── Setup ─────────────────────────────────────────────────────
 
         TestStep.log("Creating tmux sessions for table rendering test")
@@ -79,10 +86,7 @@ public enum TableRenderingScenario {
         TestStep.tmuxSendKeys(target: "table-test:0.0", keys: "Enter")
         TestStep.wait(seconds: 2)
 
-        // ── Launch app and select the pane ────────────────────────────
-
-        TestStep.launchMacApp()
-        TestStep.wait(seconds: 3)
+        // ── Select the pane on macOS ─────────────────────────────────
 
         TestStep.macOpenPanesWindow()
         TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
@@ -101,6 +105,18 @@ public enum TableRenderingScenario {
         // (┌─┬─┐ etc.) NOT ASCII (lqwqk etc.)
         TestStep.macScreenshot(label: "table-initial-capture")
 
+        // ── Navigate to pane on iOS ─────────────────────────────────
+
+        TestStep.log("Opening terminal pane on iOS mirror")
+        TestStep.iosWaitForElement(.labelContains("table-test"), timeout: 15)
+        TestStep.iosTap(.labelContains("table-test"))
+        TestStep.wait(seconds: 3)
+        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting"), timeout: 15)
+        TestStep.wait(seconds: 3)
+
+        // Screenshot: table should render correctly on iOS too
+        TestStep.iosScreenshot(label: "table-initial-capture-ios")
+
         // ── Re-capture: de-select and re-select ───────────────────────
 
         TestStep.log("Forcing re-capture via pane re-selection")
@@ -111,5 +127,7 @@ public enum TableRenderingScenario {
 
         // Screenshot: table should still render correctly after re-capture
         TestStep.macScreenshot(label: "table-after-recapture")
+        TestStep.wait(seconds: 1)
+        TestStep.iosScreenshot(label: "table-after-recapture-ios")
     }
 }
