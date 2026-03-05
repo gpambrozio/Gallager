@@ -6,6 +6,49 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.11</title>
+         <sparkle:version>11</sparkle:version>
+         <sparkle:shortVersionString>1.11</sparkle:shortVersionString>
+         <pubDate>Thu, 05 Mar 2026 10:20:16 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.11 Release Notes
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Terminal Notifications (OSC 9/777)</strong> — ClaudeSpy now captures and displays terminal notification sequences, so you can see alerts and status updates from your Claude Code sessions remotely on iOS.</li>
+</ul>
+
+<ul>
+<li><strong>Yolo Mode</strong> — A new per-session option to auto-approve permission prompts, letting Claude Code run uninterrupted. Approvals are sent as an Enter keypress with a 500ms delay for reliability.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Table and box-drawing characters</strong> — Fixed an issue where box-drawing characters (used in tables, borders, and TUI layouts) rendered as plain ASCII in the mirrored terminal view. These now display correctly.</li>
+</ul>
+
+<ul>
+<li><strong>Cursor style changes</strong> — The mirrored terminal now properly reflects cursor style updates (block, underline, bar) sent via the DECSCUSR escape sequence.</li>
+</ul>
+
+<ul>
+<li><strong>Semicolon keystrokes</strong> — Fixed semicolons not being delivered to the tmux pane when typing commands remotely.</li>
+</ul>
+
+<h2>Internal Improvements</h2>
+
+<ul>
+<li><strong>E2E test baseline cleanup</strong> — Removed numeric prefixes from end-to-end test baseline folders for cleaner organization.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.11.dmg"
+                    sparkle:edSignature="Si7UCjxYcRsgnvdX5wUPV+zIIWSGGU2z7u5r4DTTKbQQHnTZ8Vr4WZrCtveOJ9UqERJA5GG+6FB8kTLJD1MCAw=="
+                    length="20215879"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.10</title>
          <sparkle:version>10</sparkle:version>
          <sparkle:shortVersionString>1.10</sparkle:shortVersionString>
