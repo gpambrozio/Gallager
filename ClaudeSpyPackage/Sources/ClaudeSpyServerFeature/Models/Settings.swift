@@ -156,6 +156,11 @@ final public class AppSettings {
         didSet { preferences.setBool(menuBarClickOpensPanesView, Keys.menuBarClickOpensPanesView) }
     }
 
+    /// Whether to automatically copy selected text to the clipboard when the mouse is released
+    public var autoCopyOnSelect: Bool = Defaults.autoCopyOnSelect {
+        didSet { preferences.setBool(autoCopyOnSelect, Keys.autoCopyOnSelect) }
+    }
+
     /// Delay before attempting reconnection (in seconds)
     public var reconnectDelay: Int = Defaults.reconnectDelay {
         didSet { preferences.setInt(reconnectDelay, Keys.reconnectDelay) }
@@ -252,6 +257,7 @@ final public class AppSettings {
         self.autoOpenMirrorOnSession = preferences.optionalBool(Keys.autoOpenMirrorOnSession) ?? Defaults.autoOpenMirrorOnSession
         self.preventSleepDuringSessions = preferences.optionalBool(Keys.preventSleepDuringSessions) ?? Defaults.preventSleepDuringSessions
         self.menuBarClickOpensPanesView = preferences.optionalBool(Keys.menuBarClickOpensPanesView) ?? Defaults.menuBarClickOpensPanesView
+        self.autoCopyOnSelect = preferences.optionalBool(Keys.autoCopyOnSelect) ?? Defaults.autoCopyOnSelect
         self.reconnectDelay = preferences.optionalInt(Keys.reconnectDelay) ?? Defaults.reconnectDelay
         self.tmuxPath = preferences.string(Keys.tmuxPath) ?? Defaults.tmuxPath
         self.tmuxSocket = preferences.string(Keys.tmuxSocket) ?? Defaults.tmuxSocket
@@ -307,6 +313,7 @@ final public class AppSettings {
         case autoOpenMirrorOnSession
         case preventSleepDuringSessions
         case menuBarClickOpensPanesView
+        case autoCopyOnSelect
         case reconnectDelay
         case tmuxPath
         case tmuxSocket
@@ -341,6 +348,7 @@ final public class AppSettings {
         static let autoOpenMirrorOnSession = false
         static let preventSleepDuringSessions = true
         static let menuBarClickOpensPanesView = false
+        static let autoCopyOnSelect = false
         static let reconnectDelay = 5
         static let tmuxPath = "/opt/homebrew/bin/tmux"
         static let tmuxSocket = ""

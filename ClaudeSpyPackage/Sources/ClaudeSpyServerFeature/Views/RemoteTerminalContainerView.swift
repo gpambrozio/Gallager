@@ -321,6 +321,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         func updateSettings(_ settings: AppSettings) {
             updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
             applyTheme(settings.theme)
+            terminalView.autoCopyOnSelect = settings.autoCopyOnSelect
         }
 
         func updateContainerSize(_ size: NSSize) {

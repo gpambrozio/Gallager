@@ -163,6 +163,16 @@ struct TmuxPaneMirrorApp: App {
                 .keyboardShortcut("w", modifiers: [.command, .shift])
             }
 
+            // Edit menu - Copy as Rich Text
+            CommandGroup(after: .pasteboard) {
+                Divider()
+
+                Button("Copy as Rich Text") {
+                    NSApp.sendAction(#selector(TerminalActions.copyAsRichText), to: nil, from: nil)
+                }
+                .keyboardShortcut("c", modifiers: [.command, .option])
+            }
+
             // View menu - replace default toolbar items (removes Enter Full Screen)
             CommandGroup(replacing: .toolbar) {
                 Button("Refresh Pane List") {

@@ -110,7 +110,23 @@
                 }
             }
             terminalView?.mouseUp(with: event)
+
+            // Auto-copy selection to clipboard when mouse is released
+            if let interactive = interactiveView,
+               interactive.autoCopyOnSelect,
+               interactive.getSelectedTextTrimmed() != nil
+            {
+                interactive.copySelectionToClipboard()
+            }
         }
+    }
+
+    // MARK: - Terminal Actions
+
+    /// Selectors for terminal actions that can be dispatched via the responder chain.
+    @objc
+    public protocol TerminalActions {
+        func copyAsRichText(_ sender: Any?)
     }
 
     // MARK: - Interactive Terminal View
@@ -319,6 +335,58 @@
             })
         }
 
+        // MARK: - Copy Support
+
+        /// Whether to automatically copy selected text to the clipboard when the mouse is released.
+        var autoCopyOnSelect = false
+
+        /// Returns the selected text with trailing whitespace trimmed from each line.
+        func getSelectedTextTrimmed() -> String? {
+            guard let text = terminalView.getSelection() else { return nil }
+            return Self.trimTrailingWhitespacePerLine(text)
+        }
+
+        /// Copies the current selection to the clipboard as plain text (trimmed).
+        func copySelectionToClipboard() {
+            guard let text = getSelectedTextTrimmed() else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        }
+
+        /// Copies the current selection as rich text (RTF with terminal font and colors).
+        @objc
+        func copyAsRichText(_ sender: Any?) {
+            guard let text = getSelectedTextTrimmed(), !text.isEmpty else { return }
+            let font = terminalView.font as NSFont
+            let fgColor = terminalView.nativeForegroundColor
+            let bgColor = terminalView.nativeBackgroundColor
+            let attributed = NSAttributedString(
+                string: text,
+                attributes: [
+                    .font: font,
+                    .foregroundColor: fgColor,
+                    .backgroundColor: bgColor,
+                ]
+            )
+            guard let rtfData = attributed.rtf(from: NSRange(location: 0, length: attributed.length)) else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setData(rtfData, forType: .rtf)
+            NSPasteboard.general.setString(text, forType: .string)
+        }
+
+        /// Trims trailing whitespace from each line while preserving line structure.
+        private static func trimTrailingWhitespacePerLine(_ text: String) -> String {
+            text.split(separator: "\n", omittingEmptySubsequences: false)
+                .map { line in
+                    var s = line
+                    while s.last?.isWhitespace == true {
+                        s = s.dropLast()
+                    }
+                    return String(s)
+                }
+                .joined(separator: "\n")
+        }
+
         // MARK: - Keyboard Events
 
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -347,9 +415,8 @@
 
             case "c":
                 // Copy selected text to clipboard
-                if let selectedText = terminalView.getSelection() {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(selectedText, forType: .string)
+                if terminalView.getSelection() != nil {
+                    copySelectionToClipboard()
                     return true
                 }
                 return false
@@ -804,8 +871,9 @@
 
         func clipboardCopy(source: TerminalView, content: Data) {
             if let string = String(data: content, encoding: .utf8) {
+                let trimmed = InteractiveTerminalView.trimTrailingWhitespacePerLine(string)
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(string, forType: .string)
+                NSPasteboard.general.setString(trimmed, forType: .string)
             }
         }
 
