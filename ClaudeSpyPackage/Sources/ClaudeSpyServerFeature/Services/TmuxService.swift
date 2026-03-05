@@ -705,7 +705,11 @@ final public class TmuxService {
         if literal {
             args.append("-l") // Disable key name lookup
         }
-        args.append(keys)
+        // Tmux strips a trailing ";" from the last argv entry, treating it
+        // as a command separator. Escaping it as "\;" prevents this.
+        // This affects standalone ";" and any string ending in ";" (e.g. ";;;;;").
+        let escapedKeys = keys.hasSuffix(";") ? String(keys.dropLast()) + "\\;" : keys
+        args.append(escapedKeys)
 
         let result = try await runTmuxCommand(args)
         guard result.isSuccess else {
