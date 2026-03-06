@@ -348,7 +348,7 @@
 
         /// Copies the current selection to the clipboard as plain text (trimmed).
         func copySelectionToClipboard() {
-            guard let text = getSelectedTextTrimmed() else { return }
+            guard let text = getSelectedTextTrimmed(), !text.isEmpty else { return }
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
         }
@@ -832,6 +832,10 @@
             terminalView.getOptimalFrameSize()
         }
     }
+
+    // MARK: - TerminalActions
+
+    extension InteractiveTerminalView: @preconcurrency TerminalActions {}
 
     // MARK: - TerminalViewDelegate
 
