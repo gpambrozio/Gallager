@@ -163,7 +163,7 @@ struct TmuxPaneMirrorApp: App {
                 .keyboardShortcut("w", modifiers: [.command, .shift])
             }
 
-            // Edit menu - Copy as Rich Text
+            // Edit menu - Copy as Rich Text / Copy with Control Sequences
             CommandGroup(after: .pasteboard) {
                 Divider()
 
@@ -171,6 +171,11 @@ struct TmuxPaneMirrorApp: App {
                     NSApp.sendAction(#selector(TerminalActions.copyAsRichText), to: nil, from: nil)
                 }
                 .keyboardShortcut("c", modifiers: [.command, .option])
+
+                Button("Copy with Control Sequences") {
+                    NSApp.sendAction(#selector(TerminalActions.copyWithControlSequences), to: nil, from: nil)
+                }
+                .keyboardShortcut("c", modifiers: [.command, .control])
             }
 
             // View menu - replace default toolbar items (removes Enter Full Screen)

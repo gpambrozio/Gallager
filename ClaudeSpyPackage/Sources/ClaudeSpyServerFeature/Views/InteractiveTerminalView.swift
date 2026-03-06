@@ -127,6 +127,7 @@
     @objc
     public protocol TerminalActions {
         func copyAsRichText(_ sender: Any?)
+        func copyWithControlSequences(_ sender: Any?)
     }
 
     // MARK: - Interactive Terminal View
@@ -439,6 +440,167 @@
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setData(rtfData, forType: .rtf)
             NSPasteboard.general.setString(plainText, forType: .string)
+        }
+
+        /// Copies the current selection with ANSI control sequences preserved.
+        @objc
+        func copyWithControlSequences(_ sender: Any?) {
+            guard let selectionText = terminalView.getSelection(), !selectionText.isEmpty else { return }
+
+            let terminal = terminalView.getTerminal()
+
+            // Build per-row data with trimmed text matching getSelection() output
+            var rowTexts: [String] = []
+            var rowCells: [[(Character, Attribute)]] = []
+
+            for row in 0..<terminal.rows {
+                guard let line = terminal.getLine(row: row) else { continue }
+
+                let lineText = line.translateToString(trimRight: true)
+                var cells: [(Character, Attribute)] = []
+                var charIndex = lineText.startIndex
+                var col = 0
+
+                while col < terminal.cols, charIndex < lineText.endIndex {
+                    let cd = line[col]
+                    let charWidth = Int(max(cd.width, 1))
+                    let char = lineText[charIndex]
+                    cells.append((char, cd.attribute))
+                    col += charWidth
+                    charIndex = lineText.index(after: charIndex)
+                }
+
+                rowTexts.append(lineText)
+                rowCells.append(cells)
+            }
+
+            let fullPlain = rowTexts.joined(separator: "\n")
+
+            // Find the selection range within the full text
+            guard let matchRange = fullPlain.range(of: selectionText) else {
+                // Fallback: copy plain text without sequences
+                let trimmed = Self.trimTrailingWhitespacePerLine(selectionText)
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(trimmed, forType: .string)
+                return
+            }
+
+            // Map the matched character range back to row/col positions
+            let startOffset = fullPlain.distance(from: fullPlain.startIndex, to: matchRange.lowerBound)
+            let endOffset = fullPlain.distance(from: fullPlain.startIndex, to: matchRange.upperBound)
+
+            // Build ANSI-escaped text
+            var result = ""
+            var prevAttr: Attribute?
+            var globalOffset = 0
+
+            for (rowIndex, rowText) in rowTexts.enumerated() {
+                let rowStart = globalOffset
+                let rowEnd = globalOffset + rowText.count
+
+                if rowIndex > 0 {
+                    globalOffset += 1 // account for \n separator
+                }
+
+                // Check overlap with selection
+                let selStart = max(startOffset, rowStart)
+                let selEnd = min(endOffset, rowEnd)
+
+                if selStart < selEnd {
+                    // This row has selected content
+                    let localStart = selStart - rowStart
+                    let localEnd = selEnd - rowStart
+                    let cells = rowCells[rowIndex]
+
+                    if !result.isEmpty {
+                        result += "\n"
+                    }
+
+                    for i in localStart..<min(localEnd, cells.count) {
+                        let (char, attr) = cells[i]
+
+                        // Only emit SGR when attributes change
+                        if attr != prevAttr {
+                            result += Self.sgrSequence(for: attr)
+                            prevAttr = attr
+                        }
+                        result.append(char)
+                    }
+                }
+
+                globalOffset = rowEnd
+                if rowIndex < rowTexts.count - 1 {
+                    globalOffset += 1 // \n
+                }
+            }
+
+            // Reset at end
+            if prevAttr != nil {
+                result += "\u{1B}[0m"
+            }
+
+            // Trim trailing whitespace per line
+            let trimmed = Self.trimTrailingWhitespacePerLine(result)
+
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(trimmed, forType: .string)
+        }
+
+        /// Builds an SGR escape sequence for the given terminal attribute.
+        private static func sgrSequence(for attr: Attribute) -> String {
+            var params = ["0"] // reset first
+            let style = attr.style
+
+            if style.contains(.bold) { params.append("1") }
+            if style.contains(.dim) { params.append("2") }
+            if style.contains(.italic) { params.append("3") }
+            if style.contains(.underline) { params.append("4") }
+            if style.contains(.blink) { params.append("5") }
+            if style.contains(.inverse) { params.append("7") }
+            if style.contains(.invisible) { params.append("8") }
+            if style.contains(.crossedOut) { params.append("9") }
+
+            // Foreground color
+            params.append(contentsOf: sgrColorParams(attr.fg, isFg: true))
+
+            // Background color
+            params.append(contentsOf: sgrColorParams(attr.bg, isFg: false))
+
+            // Underline color (SGR 58)
+            if let ulColor = attr.underlineColor {
+                switch ulColor {
+                case let .ansi256(code):
+                    params.append(contentsOf: ["58", "5", "\(code)"])
+                case let .trueColor(r, g, b):
+                    params.append(contentsOf: ["58", "2", "\(r)", "\(g)", "\(b)"])
+                default:
+                    break
+                }
+            }
+
+            return "\u{1B}[\(params.joined(separator: ";"))m"
+        }
+
+        /// Returns SGR parameters for a foreground or background color.
+        private static func sgrColorParams(_ color: Attribute.Color, isFg: Bool) -> [String] {
+            switch color {
+            case .defaultColor,
+                 .defaultInvertedColor:
+                return [] // default color, no params needed (handled by reset)
+            case let .ansi256(code):
+                if code < 8 {
+                    // Standard colors: 30-37 fg, 40-47 bg
+                    return ["\(isFg ? 30 : 40 + Int(code))"]
+                } else if code < 16 {
+                    // Bright colors: 90-97 fg, 100-107 bg
+                    return ["\(isFg ? 90 : 100 + Int(code) - 8)"]
+                } else {
+                    // Extended 256-color: 38;5;N or 48;5;N
+                    return [isFg ? "38" : "48", "5", "\(code)"]
+                }
+            case let .trueColor(r, g, b):
+                return [isFg ? "38" : "48", "2", "\(r)", "\(g)", "\(b)"]
+            }
         }
 
         private func buildAttributes(
