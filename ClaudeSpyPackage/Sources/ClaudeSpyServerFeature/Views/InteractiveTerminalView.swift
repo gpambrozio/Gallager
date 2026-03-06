@@ -405,12 +405,18 @@
                 rowAttrs.append(rowAttr)
             }
 
-            // Join rows with newlines to match getSelection() output
+            // Join rows with newlines to match getSelection() output.
+            // Newlines carry the base font so RTF renderers use consistent line spacing.
+            let newlineAttrs: [NSAttributedString.Key: Any] = [
+                .font: baseFont,
+                .foregroundColor: defaultFg,
+                .backgroundColor: defaultBg,
+            ]
             let fullPlain = rowTexts.joined(separator: "\n")
             let fullAttributed = NSMutableAttributedString()
             for (index, rowAttr) in rowAttrs.enumerated() {
                 if index > 0 {
-                    fullAttributed.append(NSAttributedString(string: "\n"))
+                    fullAttributed.append(NSAttributedString(string: "\n", attributes: newlineAttrs))
                 }
                 fullAttributed.append(rowAttr)
             }
@@ -680,7 +686,8 @@
                 }
 
                 if newlineRange.location != NSNotFound {
-                    result.append(NSAttributedString(string: "\n"))
+                    // Preserve the original newline's attributes (font, colors)
+                    result.append(attributedString.attributedSubstring(from: newlineRange))
                     offset = newlineRange.location + newlineRange.length
                 } else {
                     break
