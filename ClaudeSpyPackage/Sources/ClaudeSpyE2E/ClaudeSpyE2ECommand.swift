@@ -183,6 +183,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         TerminalNotificationScenario.scenario,
         CursorStyleScenario.scenario,
         TableRenderingScenario.scenario,
+        EmojiTableRenderingScenario.scenario,
     ]
 
     private func runTests(orchestrator: TestOrchestrator) async throws {
