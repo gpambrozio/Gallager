@@ -17,7 +17,8 @@ final public class MirrorWindowManager {
     private var userClosedPanes: Set<String> = []
 
     /// Pane IDs with yolo mode enabled (auto-approve permissions).
-    /// This is per-session, not persisted, and resets on session end.
+    /// Persists across session restarts (e.g. context compaction) but
+    /// resets on explicit session end or when the pane is removed.
     public private(set) var yoloModePanes: Set<String> = []
 
     /// Maps window target to pane ID for reverse lookup when window closes
@@ -109,8 +110,11 @@ final public class MirrorWindowManager {
             await closeMirrorForPane(paneId)
 
         case .sessionStart:
-            // Reset yolo mode and allow auto-open again for new sessions
-            yoloModePanes.remove(paneId)
+            // Allow auto-open again for new sessions.
+            // Yolo mode is NOT reset here — context compaction restarts
+            // send sessionStart without a preceding sessionEnd, so yolo
+            // must carry over. Normal session endings already clear yolo
+            // via the sessionEnd handler above.
             userClosedPanes.remove(paneId)
             updateSession(paneId: paneId) { $0.addEvent(event) }
             await autoOpenIfEnabled(paneId: paneId)

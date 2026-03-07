@@ -180,6 +180,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         ScrollbackGapScenario.scenario,
         YoloModeStateSyncScenario.scenario,
         YoloModeMacToMacScenario.scenario,
+        YoloModeContextCompactionScenario.scenario,
         TerminalNotificationScenario.scenario,
         CursorStyleScenario.scenario,
         TableRenderingScenario.scenario,
