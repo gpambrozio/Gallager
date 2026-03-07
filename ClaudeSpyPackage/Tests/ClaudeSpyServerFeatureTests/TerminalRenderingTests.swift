@@ -1247,6 +1247,19 @@
             #expect(TmuxService.displayWidth(of: "🎉") == 2)
         }
 
+        @Test("Emoji below U+1F000 are 2 columns wide")
+        func subU1F000EmojiWidth() {
+            #expect(TmuxService.displayWidth(of: "\u{2744}") == 2) // Snowflake
+            #expect(TmuxService.displayWidth(of: "\u{26BD}") == 2) // Soccer ball
+            #expect(TmuxService.displayWidth(of: "\u{2708}") == 2) // Airplane
+            #expect(TmuxService.displayWidth(of: "\u{231A}") == 2) // Watch
+            #expect(TmuxService.displayWidth(of: "\u{2614}") == 2) // Umbrella with rain
+            #expect(TmuxService.displayWidth(of: "\u{2764}") == 2) // Red heart
+            #expect(TmuxService.displayWidth(of: "\u{2B50}") == 2) // Star
+            #expect(TmuxService.displayWidth(of: "\u{2B05}") == 2) // Left arrow
+            #expect(TmuxService.displayWidth(of: "\u{25B6}") == 2) // Play button
+        }
+
         @Test("CJK characters are 2 columns wide")
         func cjkWidth() {
             #expect(TmuxService.displayWidth(of: "中") == 2)

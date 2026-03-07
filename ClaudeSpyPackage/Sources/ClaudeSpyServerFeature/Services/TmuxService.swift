@@ -686,12 +686,32 @@ final public class TmuxService {
 
     /// Returns the terminal display width of a character (1 or 2 columns).
     /// Wide characters (CJK, emoji) occupy 2 columns in terminals.
+    /// For multi-scalar characters (ZWJ sequences, flags), only the first
+    /// scalar is inspected — this is intentional since terminals render them
+    /// as 2 columns regardless of the number of scalars.
     nonisolated static func displayWidth(of char: Character) -> Int {
         guard let scalar = char.unicodeScalars.first else { return 1 }
         let value = scalar.value
 
         // Common emoji ranges (U+1F000+) are 2-wide
         if value >= 0x1F000 {
+            return 2
+        }
+
+        // Emoji and symbols below U+1F000 that terminals render as 2-wide
+        if
+            value == 0x231A || value == 0x231B || // Watch, Hourglass
+            value == 0x23E9 || value == 0x23EA || // Fast-forward, Rewind
+            value == 0x23EB || value == 0x23EC || // Fast up/down
+            value == 0x23F0 || // Alarm clock
+            value == 0x23F3 || // Hourglass flowing
+            (value >= 0x2600 && value <= 0x27BF) || // Misc Symbols + Dingbats
+            (value >= 0x2B05 && value <= 0x2B55) || // Arrows + geometric shapes
+            value == 0x2934 || value == 0x2935 || // Curved arrows
+            value == 0x25AA || value == 0x25AB || // Small squares
+            value == 0x25B6 || value == 0x25C0 || // Play/reverse buttons
+            value == 0x25FB || value == 0x25FC || // Medium squares
+            value == 0x25FD || value == 0x25FE { // Medium-small squares
             return 2
         }
 

@@ -316,12 +316,10 @@ struct TerminalContainerView: NSViewRepresentable {
             rows = newRows
             rowsLockedToTmux = true
             if changed {
-                terminalView.getTerminal().resize(cols: columns, rows: rows)
+                // Update frame first so SwiftTerm's processSizeChange runs,
+                // then apply the authoritative dimensions once at the end.
                 updateTerminalFrameSize()
-                // Re-apply dimensions after frame change — SwiftTerm's processSizeChange
-                // may have overridden them when the frame height doesn't exactly match
-                // cellHeight * rows.
-                reapplyDimensionsIfNeeded()
+                terminalView.getTerminal().resize(cols: columns, rows: rows)
                 notifyStateChange()
             }
         }
