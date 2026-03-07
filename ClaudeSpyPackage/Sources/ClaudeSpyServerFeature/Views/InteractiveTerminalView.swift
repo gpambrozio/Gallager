@@ -557,7 +557,7 @@
         }
 
         /// Builds an SGR escape sequence for the given terminal attribute.
-        private static func sgrSequence(for attr: Attribute) -> String {
+        static func sgrSequence(for attr: Attribute) -> String {
             var params = ["0"] // reset first
             let style = attr.style
 
@@ -592,7 +592,7 @@
         }
 
         /// Returns SGR parameters for a foreground or background color.
-        private static func sgrColorParams(_ color: Attribute.Color, isFg: Bool) -> [String] {
+        static func sgrColorParams(_ color: Attribute.Color, isFg: Bool) -> [String] {
             switch color {
             case .defaultColor,
                  .defaultInvertedColor:
@@ -613,7 +613,7 @@
             }
         }
 
-        private func buildAttributes(
+        func buildAttributes(
             for attr: Attribute,
             fontMapper: TerminalFontMapper,
             colorMapper: TerminalColorMapper,
@@ -658,7 +658,7 @@
         }
 
         /// Trims trailing whitespace from each line of an attributed string.
-        private static func trimTrailingWhitespaceFromAttributedString(
+        static func trimTrailingWhitespaceFromAttributedString(
             _ attributedString: NSAttributedString
         ) -> NSAttributedString {
             let nsString = attributedString.string as NSString
@@ -702,7 +702,7 @@
         }
 
         /// Trims trailing whitespace from each line while preserving line structure.
-        private static func trimTrailingWhitespacePerLine(_ text: String) -> String {
+        static func trimTrailingWhitespacePerLine(_ text: String) -> String {
             text.split(separator: "\n", omittingEmptySubsequences: false)
                 .map { line in
                     var s = line
@@ -1223,7 +1223,7 @@
     ///
     /// Builds an in-memory ANSI 256-color palette matching SwiftTerm's default
     /// `terminalAppColors` base with the standard 6×6×6 cube and greyscale ramp.
-    private struct TerminalColorMapper {
+    struct TerminalColorMapper {
         let defaultFg: NSColor
         let defaultBg: NSColor
         private let palette: [NSColor]
@@ -1290,7 +1290,7 @@
     }
 
     /// Resolves terminal `CharacterStyle` flags to the appropriate `NSFont` variant.
-    private struct TerminalFontMapper {
+    struct TerminalFontMapper {
         let normal: NSFont
         let bold: NSFont
         let italic: NSFont
