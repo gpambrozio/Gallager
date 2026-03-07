@@ -77,3 +77,26 @@ DEC Line Drawing character mappings (when `ESC(0` is active):
 - `x` → `│` (vertical line)
 
 The raw bytes from `capture-pane` show these ASCII characters, but the terminal state needed to interpret them as graphics is not included.
+
+## Emoji Characters May Slightly Overlap Adjacent Table Borders
+
+### Description
+
+When a terminal table contains emoji characters (e.g., 🔴, 🟢, 🟡), the emoji glyphs may visually overflow into adjacent cells, partially covering box-drawing border characters (`│`, `─`, etc.). The terminal buffer and character positions are correct — this is purely a visual rendering issue.
+
+### Root Cause
+
+Apple Color Emoji glyphs have a fixed advance width (~17pt at 13pt font) that exceeds the allocated terminal cell width (2 × ~7.83pt = ~15.65pt). SwiftTerm positions each glyph at the correct column but does not clip glyph rendering to cell boundaries. Since box-drawing characters are rendered before text glyphs, the emoji overwrites part of the adjacent border.
+
+### Impact
+
+- Table column borders may appear slightly shifted or partially hidden next to emoji
+- The effect is ~1pt of overflow (about 13% of a cell width)
+- The terminal buffer data is correct — only the visual rendering is affected
+- Text-only content (no emoji) renders correctly
+
+### Potential Future Solutions
+
+1. **Upstream SwiftTerm fix**: Request cell-level clipping in `drawTerminalContents` or change render order (box-drawings after text)
+2. **Upgrade SwiftTerm**: v1.11.2 adds regional indicator combining for flag emoji, though it doesn't fix the visual overflow
+3. **Fork SwiftTerm**: Add per-cell clipping for wide characters in the rendering pipeline

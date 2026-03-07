@@ -1082,10 +1082,10 @@
             let (terminal, _) = makeTerminal(cols: 80, rows: 10)
 
             let emoji: [(String, Character)] = [
-                ("\u{1f534}", "🔴"), // Red circle (U+1F534, Unicode 6.0)
-                ("\u{1f7e1}", "🟡"), // Yellow circle (U+1F7E1, Unicode 12.0)
-                ("\u{1f7e2}", "🟢"), // Green circle (U+1F7E2, Unicode 12.0)
-                ("\u{1f535}", "🔵"), // Blue circle (U+1F535, Unicode 6.0)
+                ("\u{1f534}", "🔴"), // Red circle (U+1F534, Unicode 6)
+                ("\u{1f7e1}", "🟡"), // Yellow circle (U+1F7E1, Unicode 12)
+                ("\u{1f7e2}", "🟢"), // Green circle (U+1F7E2, Unicode 12)
+                ("\u{1f535}", "🔵"), // Blue circle (U+1F535, Unicode 6)
             ]
 
             for (i, (emojiStr, label)) in emoji.enumerated() {
