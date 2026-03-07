@@ -686,7 +686,7 @@ final public class TmuxService {
 
     /// Returns the terminal display width of a character (1 or 2 columns).
     /// Wide characters (CJK, emoji) occupy 2 columns in terminals.
-    static func displayWidth(of char: Character) -> Int {
+    nonisolated static func displayWidth(of char: Character) -> Int {
         guard let scalar = char.unicodeScalars.first else { return 1 }
         let value = scalar.value
 
