@@ -292,7 +292,7 @@ final public class ExternalServerClient {
     /// This also sends an encrypted push notification payload if the event
     /// would trigger a notification. The server uses the push payload to
     /// send a notification via APNs when viewer is not connected via WebSocket.
-    public func sendHookEvent(_ event: HookEvent, skipPushNotification: Bool = false) async {
+    public func sendHookEvent(_ event: HookEvent) async {
         guard state.isConnected, let pairId else {
             logger.debug("Not connected, cannot send hook event")
             return
@@ -304,7 +304,6 @@ final public class ExternalServerClient {
         await sendEncrypted(message)
 
         // Also send encrypted push payload for notifications when iOS is offline
-        guard !skipPushNotification else { return }
         await sendEncryptedPushNotification(for: event)
     }
 

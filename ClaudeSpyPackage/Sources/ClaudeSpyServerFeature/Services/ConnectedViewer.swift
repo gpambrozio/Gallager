@@ -1,6 +1,7 @@
 import ClaudeSpyCommon
 import ClaudeSpyEncryption
 import ClaudeSpyNetworking
+import Dependencies
 import Foundation
 import Logging
 
@@ -40,6 +41,9 @@ final public class ConnectedViewer: Identifiable {
     // MARK: - Properties
 
     private let logger = Logger(label: "com.claudespy.connectedviewer")
+
+    @ObservationIgnored
+    @Dependency(PushNotificationLogService.self) private var pushNotificationLog
 
     /// Unique identifier (same as pairId)
     public let id: String
@@ -585,6 +589,7 @@ final public class ConnectedViewer: Identifiable {
             let payload = EncryptedPushPayload(encryptedContent: encryptedContent, pairId: id)
             let message = WebSocketMessage.encryptedPush(payload)
             await send(message)
+            pushNotificationLog.logPushSent(event.action.eventName, event.tmuxPane)
         } catch {
             logger.error("Failed to encrypt push notification: \(error)")
         }

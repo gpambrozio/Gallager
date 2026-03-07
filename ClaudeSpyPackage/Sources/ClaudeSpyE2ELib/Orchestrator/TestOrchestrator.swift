@@ -107,6 +107,7 @@ public actor TestOrchestrator {
         // Pre-populate context with orchestrator configuration
         context.set("tmuxSocket", value: tmuxSocket ?? NSTemporaryDirectory() + "claudespy-e2e.sock")
         context.set("notificationLogPath", value: notificationLogPath(for: 0))
+        context.set("pushLogPath", value: pushLogPath(for: 0))
         context.set("scenarioName", value: scenarioDirName)
 
         var stepResults: [StepResult] = []
@@ -349,6 +350,7 @@ public actor TestOrchestrator {
                 "--hook-port-file", hookPortFilePath(for: instance),
                 "--test-accessibility-port", "\(driver.testAccessibilityPort)",
                 "--notification-log", notificationLogPath(for: instance),
+                "--push-log", pushLogPath(for: instance),
             ]
             try await driver.launchApp(path: macOSAppPath, arguments: arguments)
 
@@ -538,6 +540,17 @@ public actor TestOrchestrator {
                 )
             }
 
+        case let .assertStoredNotContains(key, substring):
+            guard let value = context.get(key) else {
+                throw OrchestratorError.assertionFailed("Key '\(key)' not found in context")
+            }
+            let resolvedSubstring = context.resolve(substring)
+            guard !value.contains(resolvedSubstring) else {
+                throw OrchestratorError.assertionFailed(
+                    "\(key) should NOT contain '\(resolvedSubstring)'. Value: '\(value.prefix(200))'"
+                )
+            }
+
         // General
         case let .wait(seconds):
             try await Task.sleep(for: .seconds(seconds))
@@ -593,6 +606,14 @@ public actor TestOrchestrator {
     /// so scenarios can verify notification delivery via `readFile`.
     private func notificationLogPath(for instance: Int) -> String {
         let base = NSTemporaryDirectory() + "claudespy-e2e-notifications.log"
+        return instance == 0 ? base : "\(base)-\(instance)"
+    }
+
+    /// Return the push notification log file path for the given instance number.
+    /// The macOS app writes push notification sends here during E2E tests
+    /// so scenarios can verify push delivery or suppression via `readFile`.
+    private func pushLogPath(for instance: Int) -> String {
+        let base = NSTemporaryDirectory() + "claudespy-e2e-push.log"
         return instance == 0 ? base : "\(base)-\(instance)"
     }
 
