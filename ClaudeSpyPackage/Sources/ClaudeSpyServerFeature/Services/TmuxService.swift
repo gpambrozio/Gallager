@@ -671,12 +671,10 @@ final public class TmuxService {
                         i = line.endIndex
                     }
                 } else {
-                    // Visible character — count toward column position
-                    // NOTE: wide characters (CJK, some emoji) occupy 2 columns in terminals
-                    // but are counted as 1 here. This may cause incorrect SGR tracking
-                    // for content with wide characters.
+                    // Visible character — count display columns toward cursor position.
+                    // Wide characters (CJK, emoji) occupy 2 terminal columns.
                     if lineIndex == cursorY {
-                        col += 1
+                        col += Self.displayWidth(of: line[i])
                     }
                     i = line.index(after: i)
                 }
@@ -684,6 +682,47 @@ final public class TmuxService {
         }
 
         return activeSGRs.joined()
+    }
+
+    /// Returns the terminal display width of a character (1 or 2 columns).
+    /// Wide characters (CJK, emoji) occupy 2 columns in terminals.
+    static func displayWidth(of char: Character) -> Int {
+        guard let scalar = char.unicodeScalars.first else { return 1 }
+        let value = scalar.value
+
+        // Common emoji ranges (U+1F000+) are 2-wide
+        if value >= 0x1F000 {
+            return 2
+        }
+
+        // East Asian Wide/Fullwidth characters
+        if value >= 0x1100 {
+            let props = scalar.properties
+            switch props.generalCategory {
+            case .nonspacingMark,
+                 .spacingMark,
+                 .enclosingMark,
+                 .format:
+                return 0
+            default:
+                break
+            }
+
+            if
+                (value >= 0x1100 && value <= 0x115F) || // Hangul Jamo leading consonants
+                value == 0x2329 || value == 0x232A || // Angle brackets
+                (value >= 0x2E80 && value <= 0x9FFF) || // CJK radicals, ideographs, Hiragana, Katakana
+                (value >= 0xAC00 && value <= 0xD7AF) || // Hangul Syllables
+                (value >= 0xF900 && value <= 0xFAFF) || // CJK Compatibility Ideographs
+                (value >= 0xFE10 && value <= 0xFE6F) || // CJK Compatibility Forms + Small Form Variants
+                (value >= 0xFF01 && value <= 0xFF60) || // Fullwidth Forms
+                (value >= 0xFFE0 && value <= 0xFFE6) || // Fullwidth Signs
+                (value >= 0x20000 && value <= 0x2FA1F) { // CJK Extension B+ and Compatibility Supplement
+                return 2
+            }
+        }
+
+        return 1
     }
 
     /// Forces a pane to redraw by sending Ctrl+L
