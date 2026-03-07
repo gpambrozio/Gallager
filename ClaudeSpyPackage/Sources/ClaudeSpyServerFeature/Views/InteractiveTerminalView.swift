@@ -110,7 +110,24 @@
                 }
             }
             terminalView?.mouseUp(with: event)
+
+            // Auto-copy selection to clipboard when mouse is released
+            if
+                let interactive = interactiveView,
+                interactive.autoCopyOnSelect,
+                interactive.getSelectedTextTrimmed() != nil {
+                interactive.copySelectionToClipboard()
+            }
         }
+    }
+
+    // MARK: - Terminal Actions
+
+    /// Selectors for terminal actions that can be dispatched via the responder chain.
+    @objc
+    public protocol TerminalActions {
+        func copyAsRichText(_ sender: Any?)
+        func copyWithControlSequences(_ sender: Any?)
     }
 
     // MARK: - Interactive Terminal View
@@ -319,6 +336,384 @@
             })
         }
 
+        // MARK: - Copy Support
+
+        /// Whether to automatically copy selected text to the clipboard when the mouse is released.
+        var autoCopyOnSelect = false
+
+        /// Returns the selected text with trailing whitespace trimmed from each line.
+        func getSelectedTextTrimmed() -> String? {
+            guard let text = terminalView.getSelection() else { return nil }
+            return Self.trimTrailingWhitespacePerLine(text)
+        }
+
+        /// Copies the current selection to the clipboard as plain text (trimmed).
+        func copySelectionToClipboard() {
+            guard let text = getSelectedTextTrimmed(), !text.isEmpty else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        }
+
+        /// Copies the current selection as rich text (RTF with terminal font/colors/styles).
+        @objc
+        func copyAsRichText(_ sender: Any?) {
+            guard let selectionText = terminalView.getSelection(), !selectionText.isEmpty else { return }
+
+            let terminal = terminalView.getTerminal()
+            let baseFont = terminalView.font as NSFont
+            let defaultFg = terminalView.nativeForegroundColor
+            let defaultBg = terminalView.nativeBackgroundColor
+            let colorMapper = TerminalColorMapper(defaultFg: defaultFg, defaultBg: defaultBg)
+            let fontMapper = TerminalFontMapper(base: baseFont)
+
+            // Build attributed string for all visible rows.
+            // Each row stores its trimmed text and attributed content separately
+            // so we can reconstruct with or without newlines for matching.
+            var rowTexts: [String] = []
+            var rowAttrs: [NSMutableAttributedString] = []
+
+            for row in 0..<terminal.rows {
+                guard let line = terminal.getLine(row: row) else { continue }
+
+                let lineText = line.translateToString(trimRight: true)
+                let rowAttr = NSMutableAttributedString()
+                var charIndex = lineText.startIndex
+                var col = 0
+
+                while col < terminal.cols, charIndex < lineText.endIndex {
+                    let cd = line[col]
+                    let charWidth = Int(max(cd.width, 1))
+
+                    let char = lineText[charIndex]
+                    let charStr = String(char)
+
+                    let attrs = buildAttributes(
+                        for: cd.attribute,
+                        fontMapper: fontMapper,
+                        colorMapper: colorMapper,
+                        defaultFg: defaultFg,
+                        defaultBg: defaultBg
+                    )
+
+                    rowAttr.append(NSAttributedString(string: charStr, attributes: attrs))
+
+                    col += charWidth
+                    charIndex = lineText.index(after: charIndex)
+                }
+
+                rowTexts.append(lineText)
+                rowAttrs.append(rowAttr)
+            }
+
+            // Join rows with newlines to match getSelection() output.
+            // Newlines carry the base font so RTF renderers use consistent line spacing.
+            let newlineAttrs: [NSAttributedString.Key: Any] = [
+                .font: baseFont,
+                .foregroundColor: defaultFg,
+                .backgroundColor: defaultBg,
+            ]
+            let fullPlain = rowTexts.joined(separator: "\n")
+            let fullAttributed = NSMutableAttributedString()
+            for (index, rowAttr) in rowAttrs.enumerated() {
+                if index > 0 {
+                    fullAttributed.append(NSAttributedString(string: "\n", attributes: newlineAttrs))
+                }
+                fullAttributed.append(rowAttr)
+            }
+
+            // Find selection within the full terminal text and extract the formatted portion.
+            // Search backwards because selections are typically near the bottom of the
+            // visible buffer. SwiftTerm's selection coordinates are internal to the package,
+            // so string matching is the best available approach. If identical text appears
+            // multiple times, the last occurrence (closest to the cursor) is matched.
+            let attributed: NSAttributedString
+            if let range = fullPlain.range(of: selectionText, options: .backwards) {
+                let nsRange = NSRange(range, in: fullPlain)
+                attributed = fullAttributed.attributedSubstring(from: nsRange)
+            } else {
+                // Fallback: apply default formatting to selection text
+                attributed = NSAttributedString(
+                    string: selectionText,
+                    attributes: [
+                        .font: baseFont,
+                        .foregroundColor: defaultFg,
+                        .backgroundColor: defaultBg,
+                    ]
+                )
+            }
+
+            // Trim trailing whitespace per line from the attributed string
+            let trimmed = Self.trimTrailingWhitespaceFromAttributedString(attributed)
+            let plainText = Self.trimTrailingWhitespacePerLine(selectionText)
+
+            guard let rtfData = trimmed.rtf(from: NSRange(location: 0, length: trimmed.length)) else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setData(rtfData, forType: .rtf)
+            NSPasteboard.general.setString(plainText, forType: .string)
+        }
+
+        /// Copies the current selection with ANSI control sequences preserved.
+        @objc
+        func copyWithControlSequences(_ sender: Any?) {
+            guard let selectionText = terminalView.getSelection(), !selectionText.isEmpty else { return }
+
+            let terminal = terminalView.getTerminal()
+
+            // Build per-row data with trimmed text matching getSelection() output
+            var rowTexts: [String] = []
+            var rowCells: [[(Character, Attribute)]] = []
+
+            for row in 0..<terminal.rows {
+                guard let line = terminal.getLine(row: row) else { continue }
+
+                let lineText = line.translateToString(trimRight: true)
+                var cells: [(Character, Attribute)] = []
+                var charIndex = lineText.startIndex
+                var col = 0
+
+                while col < terminal.cols, charIndex < lineText.endIndex {
+                    let cd = line[col]
+                    let charWidth = Int(max(cd.width, 1))
+                    let char = lineText[charIndex]
+                    cells.append((char, cd.attribute))
+                    col += charWidth
+                    charIndex = lineText.index(after: charIndex)
+                }
+
+                rowTexts.append(lineText)
+                rowCells.append(cells)
+            }
+
+            let fullPlain = rowTexts.joined(separator: "\n")
+
+            // Find the selection range within the full text (search backwards — see copyAsRichText comment)
+            guard let matchRange = fullPlain.range(of: selectionText, options: .backwards) else {
+                // Fallback: copy plain text without sequences
+                let trimmed = Self.trimTrailingWhitespacePerLine(selectionText)
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(trimmed, forType: .string)
+                return
+            }
+
+            // Map the matched character range back to row/col positions
+            let startOffset = fullPlain.distance(from: fullPlain.startIndex, to: matchRange.lowerBound)
+            let endOffset = fullPlain.distance(from: fullPlain.startIndex, to: matchRange.upperBound)
+
+            // Build ANSI-escaped text
+            var result = ""
+            var prevAttr: Attribute?
+            var globalOffset = 0
+
+            for (rowIndex, rowText) in rowTexts.enumerated() {
+                let rowStart = globalOffset
+                let rowEnd = globalOffset + rowText.count
+
+                if rowIndex > 0 {
+                    globalOffset += 1 // account for \n separator
+                }
+
+                // Check overlap with selection
+                let selStart = max(startOffset, rowStart)
+                let selEnd = min(endOffset, rowEnd)
+
+                if selStart < selEnd {
+                    // This row has selected content
+                    let localStart = selStart - rowStart
+                    let localEnd = selEnd - rowStart
+                    let cells = rowCells[rowIndex]
+
+                    if !result.isEmpty {
+                        result += "\n"
+                    }
+
+                    for i in localStart..<min(localEnd, cells.count) {
+                        let (char, attr) = cells[i]
+
+                        // Only emit SGR when attributes change
+                        if attr != prevAttr {
+                            result += Self.sgrSequence(for: attr)
+                            prevAttr = attr
+                        }
+                        result.append(char)
+                    }
+                }
+
+                globalOffset = rowEnd
+                if rowIndex < rowTexts.count - 1 {
+                    globalOffset += 1 // \n
+                }
+            }
+
+            // Reset at end
+            if prevAttr != nil {
+                result += "\u{1B}[0m"
+            }
+
+            // Trim trailing whitespace per line
+            let trimmed = Self.trimTrailingWhitespacePerLine(result)
+
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(trimmed, forType: .string)
+        }
+
+        /// Builds an SGR escape sequence for the given terminal attribute.
+        static func sgrSequence(for attr: Attribute) -> String {
+            var params = ["0"] // reset first
+            let style = attr.style
+
+            if style.contains(.bold) { params.append("1") }
+            if style.contains(.dim) { params.append("2") }
+            if style.contains(.italic) { params.append("3") }
+            if style.contains(.underline) { params.append("4") }
+            if style.contains(.blink) { params.append("5") }
+            if style.contains(.inverse) { params.append("7") }
+            if style.contains(.invisible) { params.append("8") }
+            if style.contains(.crossedOut) { params.append("9") }
+
+            // Foreground color
+            params.append(contentsOf: sgrColorParams(attr.fg, isFg: true))
+
+            // Background color
+            params.append(contentsOf: sgrColorParams(attr.bg, isFg: false))
+
+            // Underline color (SGR 58)
+            if let ulColor = attr.underlineColor {
+                switch ulColor {
+                case let .ansi256(code):
+                    params.append(contentsOf: ["58", "5", "\(code)"])
+                case let .trueColor(r, g, b):
+                    params.append(contentsOf: ["58", "2", "\(r)", "\(g)", "\(b)"])
+                default:
+                    break
+                }
+            }
+
+            return "\u{1B}[\(params.joined(separator: ";"))m"
+        }
+
+        /// Returns SGR parameters for a foreground or background color.
+        static func sgrColorParams(_ color: Attribute.Color, isFg: Bool) -> [String] {
+            switch color {
+            case .defaultColor,
+                 .defaultInvertedColor:
+                return [] // default color, no params needed (handled by reset)
+            case let .ansi256(code):
+                if code < 8 {
+                    // Standard colors: 30-37 fg, 40-47 bg
+                    return ["\((isFg ? 30 : 40) + Int(code))"]
+                } else if code < 16 {
+                    // Bright colors: 90-97 fg, 100-107 bg
+                    return ["\((isFg ? 90 : 100) + Int(code) - 8)"]
+                } else {
+                    // Extended 256-color: 38;5;N or 48;5;N
+                    return [isFg ? "38" : "48", "5", "\(code)"]
+                }
+            case let .trueColor(r, g, b):
+                return [isFg ? "38" : "48", "2", "\(r)", "\(g)", "\(b)"]
+            }
+        }
+
+        func buildAttributes(
+            for attr: Attribute,
+            fontMapper: TerminalFontMapper,
+            colorMapper: TerminalColorMapper,
+            defaultFg: NSColor,
+            defaultBg: NSColor
+        ) -> [NSAttributedString.Key: Any] {
+            let style = attr.style
+            var result: [NSAttributedString.Key: Any] = [:]
+
+            // Font (bold, italic, bold+italic)
+            result[.font] = fontMapper.font(for: style)
+
+            // Colors
+            var fgColor = colorMapper.mapColor(attr.fg, isFg: true, isBold: style.contains(.bold))
+            var bgColor = colorMapper.mapColor(attr.bg, isFg: false, isBold: false)
+
+            if style.contains(.inverse) {
+                swap(&fgColor, &bgColor)
+            }
+            if style.contains(.dim) {
+                fgColor = fgColor.withAlphaComponent(0.5)
+            }
+
+            result[.foregroundColor] = fgColor
+            result[.backgroundColor] = bgColor
+
+            // Underline
+            if style.contains(.underline) {
+                result[.underlineStyle] = NSUnderlineStyle.single.rawValue
+                if let ulColor = attr.underlineColor {
+                    result[.underlineColor] = colorMapper.mapColor(ulColor, isFg: true, isBold: false)
+                }
+            }
+
+            // Strikethrough
+            if style.contains(.crossedOut) {
+                result[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+                result[.strikethroughColor] = fgColor
+            }
+
+            return result
+        }
+
+        /// Trims trailing whitespace from each line of an attributed string.
+        static func trimTrailingWhitespaceFromAttributedString(
+            _ attributedString: NSAttributedString
+        ) -> NSAttributedString {
+            let nsString = attributedString.string as NSString
+            let result = NSMutableAttributedString()
+
+            // Split on newlines, tracking UTF-16 offsets for NSRange
+            var offset = 0
+            let newlineSet = CharacterSet.newlines
+            while offset < nsString.length {
+                let remaining = NSRange(location: offset, length: nsString.length - offset)
+                let newlineRange = nsString.rangeOfCharacter(from: newlineSet, range: remaining)
+                let lineEnd = newlineRange.location == NSNotFound
+                    ? nsString.length
+                    : newlineRange.location
+
+                // Trim trailing spaces/tabs from this line
+                var trimmedEnd = lineEnd
+                while trimmedEnd > offset {
+                    let ch = nsString.character(at: trimmedEnd - 1)
+                    if ch == 0x20 || ch == 0x09 {
+                        trimmedEnd -= 1
+                    } else {
+                        break
+                    }
+                }
+
+                if trimmedEnd > offset {
+                    result.append(attributedString.attributedSubstring(from: NSRange(location: offset, length: trimmedEnd - offset)))
+                }
+
+                if newlineRange.location != NSNotFound {
+                    // Preserve the original newline's attributes (font, colors)
+                    result.append(attributedString.attributedSubstring(from: newlineRange))
+                    offset = newlineRange.location + newlineRange.length
+                } else {
+                    break
+                }
+            }
+
+            return result
+        }
+
+        /// Trims trailing whitespace from each line while preserving line structure.
+        static func trimTrailingWhitespacePerLine(_ text: String) -> String {
+            text.split(separator: "\n", omittingEmptySubsequences: false)
+                .map { line in
+                    var s = line
+                    while s.last?.isWhitespace == true {
+                        s = s.dropLast()
+                    }
+                    return String(s)
+                }
+                .joined(separator: "\n")
+        }
+
         // MARK: - Keyboard Events
 
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -347,9 +742,8 @@
 
             case "c":
                 // Copy selected text to clipboard
-                if let selectedText = terminalView.getSelection() {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(selectedText, forType: .string)
+                if terminalView.getSelection() != nil {
+                    copySelectionToClipboard()
                     return true
                 }
                 return false
@@ -766,6 +1160,10 @@
         }
     }
 
+    // MARK: - TerminalActions
+
+    extension InteractiveTerminalView: @preconcurrency TerminalActions { }
+
     // MARK: - TerminalViewDelegate
 
     extension InteractiveTerminalView: @preconcurrency TerminalViewDelegate {
@@ -804,8 +1202,9 @@
 
         func clipboardCopy(source: TerminalView, content: Data) {
             if let string = String(data: content, encoding: .utf8) {
+                let trimmed = InteractiveTerminalView.trimTrailingWhitespacePerLine(string)
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(string, forType: .string)
+                NSPasteboard.general.setString(trimmed, forType: .string)
             }
         }
 
@@ -815,6 +1214,103 @@
 
         func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {
             // No-op - iTerm2 specific sequences not needed
+        }
+    }
+
+    // MARK: - Rich Text Copy Helpers
+
+    /// Maps SwiftTerm `Attribute.Color` values to `NSColor` for rich text copy.
+    ///
+    /// Builds an in-memory ANSI 256-color palette matching SwiftTerm's default
+    /// `terminalAppColors` base with the standard 6×6×6 cube and greyscale ramp.
+    struct TerminalColorMapper {
+        let defaultFg: NSColor
+        let defaultBg: NSColor
+        private let palette: [NSColor]
+
+        init(defaultFg: NSColor, defaultBg: NSColor) {
+            self.defaultFg = defaultFg
+            self.defaultBg = defaultBg
+            self.palette = Self.buildPalette()
+        }
+
+        func mapColor(_ color: Attribute.Color, isFg: Bool, isBold: Bool) -> NSColor {
+            switch color {
+            case .defaultColor:
+                return isFg ? defaultFg : defaultBg
+            case .defaultInvertedColor:
+                return isFg ? defaultBg : defaultFg
+            case let .ansi256(code):
+                // Bold text with standard colors (0-7) uses bright variants (8-15)
+                let idx = (code < 8 && isBold) ? Int(code) + 8 : Int(code)
+                return palette[min(idx, 255)]
+            case let .trueColor(r, g, b):
+                return NSColor(
+                    srgbRed: CGFloat(r) / 255,
+                    green: CGFloat(g) / 255,
+                    blue: CGFloat(b) / 255,
+                    alpha: 1
+                )
+            }
+        }
+
+        /// Builds the standard 256-color ANSI palette (matching SwiftTerm's terminalAppColors default).
+        private static func buildPalette() -> [NSColor] {
+            // First 16: SwiftTerm's terminalAppColors
+            let base16: [(UInt8, UInt8, UInt8)] = [
+                (0, 0, 0), (194, 54, 33), (37, 188, 36), (173, 173, 39),
+                (73, 46, 225), (211, 56, 211), (51, 187, 200), (203, 204, 205),
+                (129, 131, 131), (252, 57, 31), (49, 231, 34), (234, 236, 35),
+                (88, 51, 255), (249, 53, 248), (20, 240, 240), (233, 235, 235),
+            ]
+
+            var colors: [NSColor] = base16.map { r, g, b in
+                NSColor(srgbRed: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1)
+            }
+
+            // 216 color cube (indices 16-231)
+            let v: [CGFloat] = [0x00, 0x5F, 0x87, 0xAF, 0xD7, 0xFF].map { CGFloat($0) / 255 }
+            for i in 0..<216 {
+                colors.append(NSColor(
+                    srgbRed: v[(i / 36) % 6],
+                    green: v[(i / 6) % 6],
+                    blue: v[i % 6],
+                    alpha: 1
+                ))
+            }
+
+            // 24 greyscale (indices 232-255)
+            for i in 0..<24 {
+                let c = CGFloat(8 + i * 10) / 255
+                colors.append(NSColor(srgbRed: c, green: c, blue: c, alpha: 1))
+            }
+
+            return colors
+        }
+    }
+
+    /// Resolves terminal `CharacterStyle` flags to the appropriate `NSFont` variant.
+    struct TerminalFontMapper {
+        let normal: NSFont
+        let bold: NSFont
+        let italic: NSFont
+        let boldItalic: NSFont
+
+        init(base: NSFont) {
+            let fm = NSFontManager.shared
+            self.normal = base
+            self.bold = fm.convert(base, toHaveTrait: .boldFontMask)
+            self.italic = fm.convert(base, toHaveTrait: .italicFontMask)
+            self.boldItalic = fm.convert(base, toHaveTrait: [.boldFontMask, .italicFontMask])
+        }
+
+        func font(for style: CharacterStyle) -> NSFont {
+            let isBold = style.contains(.bold)
+            let isItalic = style.contains(.italic)
+            if isBold && isItalic { return boldItalic }
+            if isBold { return bold }
+            if isItalic { return italic }
+            return normal
         }
     }
 #endif

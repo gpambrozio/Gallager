@@ -337,6 +337,7 @@ struct TerminalContainerView: NSViewRepresentable {
         func updateSettings(_ settings: AppSettings) {
             updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
             applyTheme(settings.theme)
+            terminalView.autoCopyOnSelect = settings.autoCopyOnSelect
         }
 
         private func updateFont(name: String, size: CGFloat) {
