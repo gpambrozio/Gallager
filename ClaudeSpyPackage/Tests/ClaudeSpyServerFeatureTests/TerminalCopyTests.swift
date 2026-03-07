@@ -470,7 +470,7 @@
         func trueColor() {
             let mapper = makeMapper()
             let color = mapper.mapColor(.trueColor(red: 128, green: 64, blue: 32), isFg: true, isBold: false)
-            let expected = NSColor(srgbRed: 128.0 / 255, green: 64.0 / 255, blue: 32.0 / 255, alpha: 1)
+            let expected = NSColor(srgbRed: 128 / 255, green: 64 / 255, blue: 32 / 255, alpha: 1)
             #expect(color == expected)
         }
 
