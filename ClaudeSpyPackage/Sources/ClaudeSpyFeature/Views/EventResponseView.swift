@@ -12,6 +12,7 @@ extension HookEvent {
     /// Returns a contextual response view based on the event type, or nil if no response UI is needed.
     @MainActor
     func responseView(
+        isYoloMode: Bool,
         isConnected: Bool,
         sendCommand: @escaping CommandSender,
         state: ResponseState
@@ -27,6 +28,11 @@ extension HookEvent {
                 state: state
             ))
         case let .permissionRequest(body):
+            // In yolo mode, skip the response UI for auto-approvable events
+            // (the host auto-sends Enter after 500ms)
+            if isYoloMode, body.isYoloAutoApprovable {
+                return nil
+            }
             // Check for special tool types that need dedicated UIs
             if let toolInput = body.toolInput {
                 switch toolInput {
