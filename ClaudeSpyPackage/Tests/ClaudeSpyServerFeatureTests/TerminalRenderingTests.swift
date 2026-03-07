@@ -1247,17 +1247,30 @@
             #expect(TmuxService.displayWidth(of: "🎉") == 2)
         }
 
-        @Test("Emoji below U+1F000 are 2 columns wide")
-        func subU1F000EmojiWidth() {
-            #expect(TmuxService.displayWidth(of: "\u{2744}") == 2) // Snowflake
-            #expect(TmuxService.displayWidth(of: "\u{26BD}") == 2) // Soccer ball
-            #expect(TmuxService.displayWidth(of: "\u{2708}") == 2) // Airplane
-            #expect(TmuxService.displayWidth(of: "\u{231A}") == 2) // Watch
-            #expect(TmuxService.displayWidth(of: "\u{2614}") == 2) // Umbrella with rain
-            #expect(TmuxService.displayWidth(of: "\u{2764}") == 2) // Red heart
-            #expect(TmuxService.displayWidth(of: "\u{2B50}") == 2) // Star
-            #expect(TmuxService.displayWidth(of: "\u{2B05}") == 2) // Left arrow
-            #expect(TmuxService.displayWidth(of: "\u{25B6}") == 2) // Play button
+        @Test("Emoji in SwiftTerm eastAsianWide are 2 columns wide")
+        func eastAsianWideEmojiWidth() {
+            // These are in SwiftTerm's eastAsianWide table (always 2-wide)
+            #expect(TmuxService.displayWidth(of: "\u{26BD}") == 2) // ⚽ Soccer ball
+            #expect(TmuxService.displayWidth(of: "\u{231A}") == 2) // ⌚ Watch
+            #expect(TmuxService.displayWidth(of: "\u{2614}") == 2) // ☔ Umbrella with rain
+            #expect(TmuxService.displayWidth(of: "\u{2B50}") == 2) // ⭐ Star
+            #expect(TmuxService.displayWidth(of: "\u{2B1B}") == 2) // ⬛ Black large square
+            #expect(TmuxService.displayWidth(of: "\u{2705}") == 2) // ✅ Check mark
+            #expect(TmuxService.displayWidth(of: "\u{2757}") == 2) // ❗ Exclamation mark
+        }
+
+        @Test("Emoji NOT in eastAsianWide are 1 column wide (only wide with VS16)")
+        func vs16OnlyEmojiWidth() {
+            // These are in SwiftTerm's emojiVs16Base, NOT eastAsianWide
+            // They render as 1-wide unless followed by U+FE0F
+            #expect(TmuxService.displayWidth(of: "\u{2744}") == 1) // ❄ Snowflake
+            #expect(TmuxService.displayWidth(of: "\u{2764}") == 1) // ❤ Red heart
+            #expect(TmuxService.displayWidth(of: "\u{25B6}") == 1) // ▶ Play button
+            #expect(TmuxService.displayWidth(of: "\u{25C0}") == 1) // ◀ Reverse button
+            #expect(TmuxService.displayWidth(of: "\u{25AA}") == 1) // ▪ Black small square
+            #expect(TmuxService.displayWidth(of: "\u{2708}") == 1) // ✈ Airplane
+            #expect(TmuxService.displayWidth(of: "\u{2B05}") == 1) // ⬅ Left arrow
+            #expect(TmuxService.displayWidth(of: "\u{2600}") == 1) // ☀ Sun
         }
 
         @Test("CJK characters are 2 columns wide")
@@ -1267,13 +1280,13 @@
             #expect(TmuxService.displayWidth(of: "한") == 2) // Hangul
         }
 
-        @Test("Non-emoji symbols in Misc Symbols block are 1 column wide")
+        @Test("Non-emoji symbols are 1 column wide")
         func nonEmojiSymbolsWidth() {
             #expect(TmuxService.displayWidth(of: "\u{266A}") == 1) // ♪ Eighth note
             #expect(TmuxService.displayWidth(of: "\u{266B}") == 1) // ♫ Beamed eighth notes
-            #expect(TmuxService.displayWidth(of: "\u{2603}") == 1) // ☃ Snowman (text presentation)
-            #expect(TmuxService.displayWidth(of: "\u{2610}") == 1) // ☐ Ballot box
-            #expect(TmuxService.displayWidth(of: "\u{2612}") == 1) // ☒ Ballot box with X
+            #expect(TmuxService.displayWidth(of: "\u{2603}") == 1) // ☃ Snowman
+            #expect(TmuxService.displayWidth(of: "\u{2014}") == 1) // — Em dash
+            #expect(TmuxService.displayWidth(of: "\u{2013}") == 1) // – En dash
         }
 
         @Test("Box-drawing characters are 1 column wide")
