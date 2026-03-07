@@ -171,10 +171,67 @@ public enum EmojiTableRenderingScenario {
                     o("\u2534" if i<ncols-1 else "\u2518")
                 o("\n")
 
+            def table4():
+                """Markdown-style table with special characters.
+                Tests alignment with em dashes, en dashes, bold SGR,
+                code-style SGR, and backtick formatting — mimicking
+                how Claude Code renders markdown tables."""
+                o(f"\n{C}1;34mTable 4: Markdown-style table{C}0m\n\n")
+                # Column widths (content area, not including border+padding)
+                w1,w2,w3=30,22,40
+                tw=w1+w2+w3+8  # total width including borders and padding
+
+                def hline(left,mid,right,fill="\u2500"):
+                    o(left+fill*(w1+2)+mid+fill*(w2+2)+mid+fill*(w3+2)+right+"\n")
+
+                def row(c1,c2,c3,cw1=None,cw2=None,cw3=None):
+                    """Output a row. cw params are visible widths if different from len."""
+                    vw1=cw1 if cw1 is not None else len(c1)
+                    vw2=cw2 if cw2 is not None else len(c2)
+                    vw3=cw3 if cw3 is not None else len(c3)
+                    p1=" "*(w1-vw1)
+                    p2=" "*(w2-vw2)
+                    p3=" "*(w3-vw3)
+                    o(f"\u2502 {c1}{p1} \u2502 {c2}{p2} \u2502 {c3}{p3} \u2502\n")
+
+                import re
+                def sgrlen(s):
+                    """Visible length of string with ANSI codes stripped."""
+                    return len(re.sub(r'\033\[[0-9;]*m','',s))
+
+                hline("\u250c","\u252c","\u2510")
+                # Header with bold SGR
+                h1=f"{C}1mThread{C}22m"
+                h2=f"{C}1mFile{C}22m"
+                h3=f"{C}1mAction{C}22m"
+                row(h1,h2,h3,sgrlen(h1),sgrlen(h2),sgrlen(h3))
+                hline("\u251c","\u253c","\u2524")
+
+                # Row 1: em dash, en dash, bold, code-style formatting
+                r1c1=f"{C}1mBug{C}22m \u2014 fix column count"
+                r1c2=f"TmuxService.swift{C}2m:694{C}22m"
+                r1c3=f"Range U+2600\u2013U+27BF"
+                row(r1c1,r1c2,r1c3,sgrlen(r1c1),sgrlen(r1c2),sgrlen(r1c3))
+
+                # Row 2: code-style (dim) formatting, backticks as visual markers
+                r2c1=f"Resize in {C}36mupdateTerminal{C}0m"
+                r2c2=f"TerminalView{C}2m:319{C}22m"
+                r2c3=f"Call {C}36mreapplyDimensions{C}0m"
+                row(r2c1,r2c2,r2c3,sgrlen(r2c1),sgrlen(r2c2),sgrlen(r2c3))
+
+                # Row 3: plain ASCII (control row — should always align)
+                row("Plain ASCII control row","PlainFile.swift:42","No special chars here")
+
+                # Row 4: multiple em dashes and en dashes
+                row("A \u2014 B \u2014 C \u2014 D","X\u2013Y\u2013Z range","Dashes: \u2014 and \u2013 mixed")
+
+                hline("\u2514","\u2534","\u2518")
+
             o(f"{C}2J{C}H")
             table1()
             table2()
             table3()
+            table4()
             o(f"\n{C}1;32mDone.{C}0m\n")
             PYEOF
             """#,
