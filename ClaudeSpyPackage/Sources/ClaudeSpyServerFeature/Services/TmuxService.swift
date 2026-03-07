@@ -698,20 +698,11 @@ final public class TmuxService {
             return 2
         }
 
-        // Emoji and symbols below U+1F000 that terminals render as 2-wide
-        if
-            value == 0x231A || value == 0x231B || // Watch, Hourglass
-            value == 0x23E9 || value == 0x23EA || // Fast-forward, Rewind
-            value == 0x23EB || value == 0x23EC || // Fast up/down
-            value == 0x23F0 || // Alarm clock
-            value == 0x23F3 || // Hourglass flowing
-            (value >= 0x2600 && value <= 0x27BF) || // Misc Symbols + Dingbats
-            (value >= 0x2B05 && value <= 0x2B55) || // Arrows + geometric shapes
-            value == 0x2934 || value == 0x2935 || // Curved arrows
-            value == 0x25AA || value == 0x25AB || // Small squares
-            value == 0x25B6 || value == 0x25C0 || // Play/reverse buttons
-            value == 0x25FB || value == 0x25FC || // Medium squares
-            value == 0x25FD || value == 0x25FE { // Medium-small squares
+        // Emoji below U+1F000 with Emoji_Presentation — these default to
+        // 2-wide in terminals without needing a VS16 (U+FE0F) suffix.
+        // Only specific code points are listed; the surrounding ranges
+        // (Misc Symbols, Dingbats) contain many 1-wide text symbols.
+        if Self.isDefaultEmojiPresentation(value) {
             return 2
         }
 
@@ -743,6 +734,121 @@ final public class TmuxService {
         }
 
         return 1
+    }
+
+    /// Characters below U+1F000 that have the Emoji_Presentation property,
+    /// meaning terminals render them as 2 columns wide by default.
+    /// Source: Unicode 15.1 emoji-data.txt (Emoji_Presentation=Yes).
+    // swiftlint:disable:next cyclomatic_complexity
+    private nonisolated static func isDefaultEmojiPresentation(_ value: UInt32) -> Bool {
+        switch value {
+        // Horologicals
+        case 0x231A,
+             0x231B: return true // ⌚⌛
+        // Media controls
+        case 0x23E9...0x23EC: return true // ⏩⏪⏫⏬
+        case 0x23F0: return true // ⏰
+        case 0x23F3: return true // ⏳
+        // Geometric shapes with emoji presentation
+        case 0x25AA,
+             0x25AB: return true // ▪▫
+        case 0x25B6: return true // ▶
+        case 0x25C0: return true // ◀
+        case 0x25FB...0x25FE: return true // ◻◼◽◾
+        // Misc Symbols (U+2600 block) — only specific emoji
+        case 0x2600,
+             0x2601: return true // ☀☁
+        case 0x260E: return true // ☎
+        case 0x2611: return true // ☑
+        case 0x2614,
+             0x2615: return true // ☔☕
+        case 0x2618: return true // ☘
+        case 0x261D: return true // ☝
+        case 0x2620: return true // ☠
+        case 0x2622,
+             0x2623: return true // ☢☣
+        case 0x2626: return true // ☦
+        case 0x262A: return true // ☪
+        case 0x262E,
+             0x262F: return true // ☮☯
+        case 0x2638...0x263A: return true // ☸☹☺
+        case 0x2640: return true // ♀
+        case 0x2642: return true // ♂
+        case 0x2648...0x2653: return true // ♈–♓ (zodiac)
+        case 0x265F,
+             0x2660: return true // ♟♠
+        case 0x2663: return true // ♣
+        case 0x2665,
+             0x2666: return true // ♥♦
+        case 0x2668: return true // ♨
+        case 0x267B: return true // ♻
+        case 0x267E,
+             0x267F: return true // ♾♿
+        case 0x2692...0x2697: return true // ⚒–⚗
+        case 0x2699: return true // ⚙
+        case 0x269B,
+             0x269C: return true // ⚛⚜
+        case 0x26A0,
+             0x26A1: return true // ⚠⚡
+        case 0x26A7: return true // ⚧
+        case 0x26AA,
+             0x26AB: return true // ⚪⚫
+        case 0x26B0,
+             0x26B1: return true // ⚰⚱
+        case 0x26BD,
+             0x26BE: return true // ⚽⚾
+        case 0x26C4,
+             0x26C5: return true // ⛄⛅
+        case 0x26CE: return true // ⛎
+        case 0x26CF: return true // ⛏
+        case 0x26D1: return true // ⛑
+        case 0x26D3,
+             0x26D4: return true // ⛓⛔
+        case 0x26E9,
+             0x26EA: return true // ⛩⛪
+        case 0x26F0...0x26F5: return true // ⛰–⛵
+        case 0x26F7...0x26FA: return true // ⛷–⛺
+        case 0x26FD: return true // ⛽
+        // Dingbats (U+2700 block) — only specific emoji
+        case 0x2702: return true // ✂
+        case 0x2705: return true // ✅
+        case 0x2708...0x270D: return true // ✈–✍
+        case 0x270F: return true // ✏
+        case 0x2712: return true // ✒
+        case 0x2714: return true // ✔
+        case 0x2716: return true // ✖
+        case 0x271D: return true // ✝
+        case 0x2721: return true // ✡
+        case 0x2728: return true // ✨
+        case 0x2733,
+             0x2734: return true // ✳✴
+        case 0x2744: return true // ❄
+        case 0x2747: return true // ❇
+        case 0x274C: return true // ❌
+        case 0x274E: return true // ❎
+        case 0x2753...0x2755: return true // ❓❔❕
+        case 0x2757: return true // ❗
+        case 0x2763,
+             0x2764: return true // ❣❤
+        case 0x2795...0x2797: return true // ➕➖➗
+        case 0x27A1: return true // ➡
+        case 0x27B0: return true // ➰
+        case 0x27BF: return true // ➿
+        // Arrows + geometric shapes
+        case 0x2934,
+             0x2935: return true // ⤴⤵
+        case 0x2B05...0x2B07: return true // ⬅⬆⬇
+        case 0x2B1B,
+             0x2B1C: return true // ⬛⬜
+        case 0x2B50: return true // ⭐
+        case 0x2B55: return true // ⭕
+        // Wavy dash and copyright/registered/TM
+        case 0x3030: return true // 〰
+        case 0x303D: return true // 〽
+        case 0x3297: return true // ㊗
+        case 0x3299: return true // ㊙
+        default: return false
+        }
     }
 
     /// Forces a pane to redraw by sending Ctrl+L

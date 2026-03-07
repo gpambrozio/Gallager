@@ -1267,6 +1267,15 @@
             #expect(TmuxService.displayWidth(of: "한") == 2) // Hangul
         }
 
+        @Test("Non-emoji symbols in Misc Symbols block are 1 column wide")
+        func nonEmojiSymbolsWidth() {
+            #expect(TmuxService.displayWidth(of: "\u{266A}") == 1) // ♪ Eighth note
+            #expect(TmuxService.displayWidth(of: "\u{266B}") == 1) // ♫ Beamed eighth notes
+            #expect(TmuxService.displayWidth(of: "\u{2603}") == 1) // ☃ Snowman (text presentation)
+            #expect(TmuxService.displayWidth(of: "\u{2610}") == 1) // ☐ Ballot box
+            #expect(TmuxService.displayWidth(of: "\u{2612}") == 1) // ☒ Ballot box with X
+        }
+
         @Test("Box-drawing characters are 1 column wide")
         func boxDrawingWidth() {
             #expect(TmuxService.displayWidth(of: "│") == 1)
