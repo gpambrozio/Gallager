@@ -421,9 +421,13 @@
                 fullAttributed.append(rowAttr)
             }
 
-            // Find selection within the full terminal text and extract the formatted portion
+            // Find selection within the full terminal text and extract the formatted portion.
+            // Search backwards because selections are typically near the bottom of the
+            // visible buffer. SwiftTerm's selection coordinates are internal to the package,
+            // so string matching is the best available approach. If identical text appears
+            // multiple times, the last occurrence (closest to the cursor) is matched.
             let attributed: NSAttributedString
-            if let range = fullPlain.range(of: selectionText) {
+            if let range = fullPlain.range(of: selectionText, options: .backwards) {
                 let nsRange = NSRange(range, in: fullPlain)
                 attributed = fullAttributed.attributedSubstring(from: nsRange)
             } else {
@@ -482,8 +486,8 @@
 
             let fullPlain = rowTexts.joined(separator: "\n")
 
-            // Find the selection range within the full text
-            guard let matchRange = fullPlain.range(of: selectionText) else {
+            // Find the selection range within the full text (search backwards — see copyAsRichText comment)
+            guard let matchRange = fullPlain.range(of: selectionText, options: .backwards) else {
                 // Fallback: copy plain text without sequences
                 let trimmed = Self.trimTrailingWhitespacePerLine(selectionText)
                 NSPasteboard.general.clearContents()
@@ -596,10 +600,10 @@
             case let .ansi256(code):
                 if code < 8 {
                     // Standard colors: 30-37 fg, 40-47 bg
-                    return ["\(isFg ? 30 : 40 + Int(code))"]
+                    return ["\((isFg ? 30 : 40) + Int(code))"]
                 } else if code < 16 {
                     // Bright colors: 90-97 fg, 100-107 bg
-                    return ["\(isFg ? 90 : 100 + Int(code) - 8)"]
+                    return ["\((isFg ? 90 : 100) + Int(code) - 8)"]
                 } else {
                     // Extended 256-color: 38;5;N or 48;5;N
                     return [isFg ? "38" : "48", "5", "\(code)"]
