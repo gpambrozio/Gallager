@@ -128,9 +128,14 @@ sys.exit(1)
 # PERMISSION CHECKS (macOS)
 # =====================================================
 
-# Accessibility: needed for AppleScript UI automation of the macOS app
+# Accessibility: needed for AppleScript UI automation of the macOS app.
+# The test must actually send a keystroke — reading process names succeeds
+# with a weaker grant that doesn't cover keystroke injection (error 1002).
 check_accessibility() {
-    if osascript -e 'tell application "System Events" to get name of first process' &>/dev/null; then
+    # Send a harmless no-op keystroke (empty string) to the frontmost app.
+    # This exercises the same code path as the E2E keystroke commands and
+    # will fail with error 1002 if the terminal isn't fully authorised.
+    if osascript -e 'tell application "System Events" to keystroke ""' 2>/dev/null; then
         return 0
     fi
     return 1
