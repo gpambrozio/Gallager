@@ -39,6 +39,17 @@ public enum YoloModeAutoApproveScenario {
         TestStep.iosWaitForElement(.labelContains("Disable Yolo Mode"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-yolo-enabled")
 
+        // Verify macOS also reflects yolo mode enabled
+        TestStep.macOpenPanesWindow()
+        TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "session-1:0.0")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElement(
+            titled: "Yolo mode: auto-approving permissions (click to disable)",
+            timeout: 10
+        )
+
         // ══════════════════════════════════════════════════════════════
         // Phase 3: Send a yolo-auto-approvable PermissionRequest (Bash)
         //          and verify the response UI does NOT appear on iOS
@@ -157,6 +168,12 @@ public enum YoloModeAutoApproveScenario {
         // Verify iOS shows yolo mode disabled
         TestStep.iosWaitForElement(.labelContains("Enable Yolo Mode"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-yolo-disabled")
+
+        // Verify macOS also reflects yolo mode disabled
+        TestStep.macWaitForElement(
+            titled: "Enable yolo mode to auto-approve permissions",
+            timeout: 10
+        )
 
         // Snapshot the push log before the next event
         TestStep.readFile(path: "${pushLogPath}", storeAs: "pushLogBeforeNonYolo")
