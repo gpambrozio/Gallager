@@ -217,7 +217,7 @@ final public class ConnectedViewer: Identifiable {
     // MARK: - Sending Messages
 
     /// Send a hook event to be relayed to viewer (encrypted)
-    public func sendHookEvent(_ event: HookEvent) async {
+    public func sendHookEvent(_ event: HookEvent, skipPushNotification: Bool = false) async {
         guard state.isConnected else {
             logger.debug("Not connected to \(viewerName), cannot send hook event")
             return
@@ -229,6 +229,7 @@ final public class ConnectedViewer: Identifiable {
         await sendEncrypted(message)
 
         // Also send encrypted push payload for notifications when iOS is offline
+        guard !skipPushNotification else { return }
         await sendEncryptedPushNotification(for: event)
     }
 
