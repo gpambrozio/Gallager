@@ -725,7 +725,6 @@ final public class TmuxService {
     /// Matches SwiftTerm's `UnicodeWidthData.eastAsianWide` table exactly.
     /// Characters in this table are always rendered as 2 columns wide.
     /// Characters that only become wide with VS16 (U+FE0F) are NOT included.
-    // swiftlint:disable:next cyclomatic_complexity
     private nonisolated static func isEastAsianWide(_ value: UInt32) -> Bool {
         // Below 0x1100 nothing is wide
         guard value >= 0x1100 else { return false }
