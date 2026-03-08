@@ -11,7 +11,7 @@ allowed-tools:
   - Bash(pgrep *)
   - Bash(pkill *)
   - Bash(python3 -c *)
-description: This skill should be used when the user wants to manually debug, inspect, or exploratory-test the ClaudeSpy apps using the E2E infrastructure without writing a formal test scenario. Typical triggers include: "launch the app in interactive mode," "take a screenshot of the macOS/iOS app," "inspect the accessibility tree,", "reproduce this bug with the E2E setup," "send a hook event to the app," "create a tmux session for testing," "debug the app manually," or "drive the app to verify this fix." This skill provides hands-on, interactive control of the full E2E environment.
+description: Use this skill for hands-on, interactive debugging and exploratory testing of the ClaudeSpy apps using the E2E infrastructure — without writing a formal test scenario. This covers launching apps in interactive mode, taking ad-hoc screenshots of the macOS or iOS app, dumping the iOS accessibility tree to find element identifiers, reproducing bugs by manually driving the UI, sending hook events to the macOS app, creating tmux sessions for testing, checking relay server health, verifying a code fix by launching and interacting with the apps, or any task where you need to inspect live app state. Use this skill whenever someone says "launch the app", "take a screenshot", "inspect the accessibility tree", "reproduce this bug", "verify my fix", "drive the app", "send a hook event", "check the relay server", or wants to interactively poke at the running apps. Do NOT use this skill when the user wants to write, modify, or run formal automated e2e test scenarios — use e2e-testing for that instead.
 ---
 
 # E2E Manual Debugging & Interactive Testing
