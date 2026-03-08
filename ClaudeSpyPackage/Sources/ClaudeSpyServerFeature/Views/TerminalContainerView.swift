@@ -119,6 +119,12 @@ struct TerminalContainerView: NSViewRepresentable {
 
         init() {
             self.terminalView = InteractiveTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+            // Disable custom block glyph rendering. SwiftTerm's drawBoxDrawings snaps cell
+            // widths to integer pixels (baseCellWidthPx), while text uses fractional
+            // cellDimension.width. For non-integer cell widths (e.g. SF Mono 12pt = 7.42pt),
+            // this causes cumulative positioning drift — up to ~42pt at column 100 on non-Retina.
+            // Using the font's own box drawing glyphs keeps them on the same text grid.
+            terminalView.customBlockGlyphs = false
             applyDarkTheme()
         }
 
