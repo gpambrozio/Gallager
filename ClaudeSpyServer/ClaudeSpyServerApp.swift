@@ -61,6 +61,16 @@ struct TmuxPaneMirrorApp: App {
                 notificationLogPath = nil
             }
 
+            // E2E test support: override push notification log path for verification
+            let pushLogPath: String?
+            if let idx = CommandLine.arguments.firstIndex(of: "--push-log"),
+               idx + 1 < CommandLine.arguments.count
+            {
+                pushLogPath = CommandLine.arguments[idx + 1]
+            } else {
+                pushLogPath = nil
+            }
+
             prepareDependencies {
                 $0[PreferencesService.self] = prefs
                 $0[SecretsService.self] = .inMemory()
@@ -76,6 +86,10 @@ struct TmuxPaneMirrorApp: App {
                     // Clean up any previous log from earlier runs
                     try? FileManager.default.removeItem(atPath: notificationLogPath)
                     $0[TerminalNotificationService.self] = .e2eTest(logPath: notificationLogPath)
+                }
+                if let pushLogPath {
+                    try? FileManager.default.removeItem(atPath: pushLogPath)
+                    $0[PushNotificationLogService.self] = .e2eTest(logPath: pushLogPath)
                 }
             }
 

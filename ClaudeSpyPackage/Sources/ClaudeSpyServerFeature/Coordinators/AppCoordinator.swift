@@ -189,8 +189,18 @@
                 await updateSleepPrevention()
 
                 guard event.action.body.shouldSendToServer else { return }
+                // Skip push notifications for auto-approvable events in yolo mode
+                let skipPush: Bool
+                if let paneId = event.tmuxPane,
+                   case let .permissionRequest(body) = event.action,
+                   body.isYoloAutoApprovable,
+                   await windowManager.isYoloModeEnabled(for: paneId) {
+                    skipPush = true
+                } else {
+                    skipPush = false
+                }
                 // Forward to all connected viewers
-                await connectedViewerManager?.sendHookEventToAll(event)
+                await connectedViewerManager?.sendHookEventToAll(event, skipPushNotification: skipPush)
             })
 
             await initializeServices()

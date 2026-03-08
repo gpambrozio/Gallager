@@ -24,6 +24,9 @@
         /// Whether the host is connected
         let isConnected: Bool
 
+        /// Whether yolo mode is enabled for this pane
+        let isYoloMode: Bool
+
         /// Whether the navigation bar is hidden (show overlay keyboard button)
         let hideNavigationBar: Bool
 
@@ -45,6 +48,7 @@
             responseState: Binding<ResponseState?>,
             terminalTitle: Binding<String?>,
             isConnected: Bool,
+            isYoloMode: Bool = false,
             hideNavigationBar: Bool = false,
             settings: IOSSettings,
             sendCommand: @escaping CommandSender
@@ -53,6 +57,7 @@
             self._responseState = responseState
             self._terminalTitle = terminalTitle
             self.isConnected = isConnected
+            self.isYoloMode = isYoloMode
             self.hideNavigationBar = hideNavigationBar
             self.sendCommand = sendCommand
             self.coordinator = StreamCoordinator(
@@ -71,6 +76,7 @@
                     !isInteractive,
                     let responseState,
                     let responseView = responseState.event.responseView(
+                        isYoloMode: isYoloMode,
                         isConnected: isConnected,
                         sendCommand: sendCommand,
                         state: responseState
