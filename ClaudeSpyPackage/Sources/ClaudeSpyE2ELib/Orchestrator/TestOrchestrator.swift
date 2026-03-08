@@ -26,6 +26,7 @@ public actor TestOrchestrator {
     /// Instance 0 uses this path directly; instance N uses `\(hookPortFile)-\(N)`.
     private let hookPortFile: String
     private let skipComparison: Bool
+    private let reporter: (any TestProgressReporter)?
     private var screenshotCounter = 0
 
     /// Result of a single step
@@ -69,7 +70,8 @@ public actor TestOrchestrator {
         tmuxSocket: String? = nil,
         e2eRunnerPath: String? = nil,
         skipComparison: Bool = false,
-        hookPortFile: String? = nil
+        hookPortFile: String? = nil,
+        reporter: (any TestProgressReporter)? = nil
     ) {
         self.iosAppPath = iosAppPath
         self.macOSAppPath = macOSAppPath
@@ -79,6 +81,7 @@ public actor TestOrchestrator {
         self.tmuxSocket = tmuxSocket
         self.e2eRunnerPath = e2eRunnerPath
         self.skipComparison = skipComparison
+        self.reporter = reporter
         self.hookPortFile = hookPortFile ?? {
             let home = FileManager.default.homeDirectoryForCurrentUser.path
             return "\(home)/.claudespy-port-test"
@@ -90,6 +93,7 @@ public actor TestOrchestrator {
     /// Run a single scenario
     public func run(_ scenario: TestScenario) async -> ScenarioResult {
         logger.info("=== Starting scenario: \(scenario.name) ===")
+        await reporter?.scenarioStarted(scenario.name, totalSteps: scenario.steps.count)
         let startTime = ContinuousClock.now
 
         let scenarioDirName = sanitizeForPath(scenario.name)
@@ -115,6 +119,7 @@ public actor TestOrchestrator {
         for (index, step) in scenario.steps.enumerated() {
             let stepNumber = index + 1
             logger.info("  Step \(stepNumber)/\(scenario.steps.count): \(step)")
+            await reporter?.stepStarted(stepNumber, totalSteps: scenario.steps.count, description: "\(step)")
 
             do {
                 let screenshotResult = try await executeStep(step)
@@ -125,6 +130,7 @@ public actor TestOrchestrator {
                     error: nil,
                     screenshot: screenshotResult
                 ))
+                await reporter?.stepCompleted(stepNumber, screenshot: screenshotResult)
             } catch {
                 let duration = ContinuousClock.now - startTime
                 logger.error("  FAILED at step \(stepNumber): \(error)")
@@ -142,7 +148,8 @@ public actor TestOrchestrator {
                     error: error.localizedDescription,
                     screenshot: screenshotResult
                 ))
-                return ScenarioResult(
+                await reporter?.stepFailed(stepNumber, error: error.localizedDescription, screenshot: screenshotResult)
+                let result = ScenarioResult(
                     scenarioName: scenario.name,
                     success: false,
                     failedStep: stepNumber,
@@ -150,12 +157,14 @@ public actor TestOrchestrator {
                     duration: Double(duration.components.seconds),
                     steps: stepResults
                 )
+                await reporter?.scenarioCompleted(result)
+                return result
             }
         }
 
         let duration = ContinuousClock.now - startTime
         logger.info("=== Scenario PASSED: \(scenario.name) (\(duration)) ===")
-        return ScenarioResult(
+        let result = ScenarioResult(
             scenarioName: scenario.name,
             success: true,
             failedStep: nil,
@@ -163,6 +172,8 @@ public actor TestOrchestrator {
             duration: Double(duration.components.seconds),
             steps: stepResults
         )
+        await reporter?.scenarioCompleted(result)
+        return result
     }
 
     /// Run multiple scenarios, cleaning up after each one
@@ -174,6 +185,7 @@ public actor TestOrchestrator {
             results.append(result)
         }
         await uninstallSimulatorApps()
+        await reporter?.printSummary(results)
         return results
     }
 
