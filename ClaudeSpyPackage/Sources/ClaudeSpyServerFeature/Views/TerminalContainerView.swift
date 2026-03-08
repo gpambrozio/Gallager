@@ -318,6 +318,10 @@ struct TerminalContainerView: NSViewRepresentable {
             if changed {
                 terminalView.getTerminal().resize(cols: columns, rows: rows)
                 updateTerminalFrameSize()
+                // Re-apply dimensions after frame change — SwiftTerm's processSizeChange
+                // may have overridden them when the frame height doesn't exactly match
+                // cellHeight * rows.
+                reapplyDimensionsIfNeeded()
                 notifyStateChange()
             }
         }
@@ -350,6 +354,9 @@ struct TerminalContainerView: NSViewRepresentable {
                 ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
             terminalView.font = font
             updateTerminalFrameSize()
+            // SwiftTerm's resetFont() recalculates cols/rows from frame.width
+            // without subtracting scroller width. Re-apply our correct dimensions.
+            reapplyDimensionsIfNeeded()
         }
 
         func applyTheme(_ theme: TerminalTheme) {
@@ -408,6 +415,7 @@ struct TerminalContainerView: NSViewRepresentable {
             }
 
             updateTerminalFrameSize()
+            reapplyDimensionsIfNeeded()
         }
 
         // MARK: - Size Calculations
@@ -416,6 +424,18 @@ struct TerminalContainerView: NSViewRepresentable {
             // Let SwiftTerm tell us the optimal size - it knows its own cell dimensions and scroller width
             let optimalSize = terminalView.getOptimalFrameSize().size
             terminalView.setTerminalSize(optimalSize)
+        }
+
+        /// Re-applies the correct terminal dimensions if SwiftTerm's internal
+        /// sizing logic (processSizeChange/resetFont) has overridden them.
+        /// This happens because setTerminalSize uses bounds.height which may
+        /// not be an exact multiple of cellHeight * rows, causing SwiftTerm
+        /// to recalculate different dimensions.
+        private func reapplyDimensionsIfNeeded() {
+            let terminal = terminalView.getTerminal()
+            if terminal.cols != columns || terminal.rows != rows {
+                terminal.resize(cols: columns, rows: rows)
+            }
         }
 
         private func updateState(_ state: StreamState) {

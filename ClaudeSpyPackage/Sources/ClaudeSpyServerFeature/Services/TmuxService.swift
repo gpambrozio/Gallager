@@ -671,12 +671,10 @@ final public class TmuxService {
                         i = line.endIndex
                     }
                 } else {
-                    // Visible character — count toward column position
-                    // NOTE: wide characters (CJK, some emoji) occupy 2 columns in terminals
-                    // but are counted as 1 here. This may cause incorrect SGR tracking
-                    // for content with wide characters.
+                    // Visible character — count display columns toward cursor position.
+                    // Wide characters (CJK, emoji) occupy 2 terminal columns.
                     if lineIndex == cursorY {
-                        col += 1
+                        col += Self.displayWidth(of: line[i])
                     }
                     i = line.index(after: i)
                 }
@@ -684,6 +682,190 @@ final public class TmuxService {
         }
 
         return activeSGRs.joined()
+    }
+
+    /// Returns the terminal display width of a character (1 or 2 columns).
+    ///
+    /// This must match SwiftTerm's `UnicodeUtil.columnWidth(rune:)` so that
+    /// our cursor-position tracking agrees with the actual rendered output.
+    /// The width table is derived from SwiftTerm's `UnicodeWidthData.eastAsianWide`.
+    ///
+    /// For multi-scalar characters (ZWJ sequences, flags), only the first
+    /// scalar is inspected — terminals render them as 2 columns regardless.
+    nonisolated static func displayWidth(of char: Character) -> Int {
+        guard let scalar = char.unicodeScalars.first else { return 1 }
+        let value = scalar.value
+
+        // ASCII fast path
+        if value < 0x7F {
+            return value < 0x20 ? 0 : 1
+        }
+
+        // Zero-width categories (must match SwiftTerm's checks)
+        let props = scalar.properties
+        switch props.generalCategory {
+        case .nonspacingMark,
+             .spacingMark,
+             .enclosingMark:
+            return 0
+        case .format:
+            return value == 0x00AD ? 1 : 0
+        default:
+            break
+        }
+
+        // East Asian Wide — matches SwiftTerm's UnicodeWidthData.eastAsianWide
+        if Self.isEastAsianWide(value) {
+            return 2
+        }
+
+        return 1
+    }
+
+    /// Matches SwiftTerm's `UnicodeWidthData.eastAsianWide` table exactly.
+    /// Characters in this table are always rendered as 2 columns wide.
+    /// Characters that only become wide with VS16 (U+FE0F) are NOT included.
+    private nonisolated static func isEastAsianWide(_ value: UInt32) -> Bool {
+        // Below 0x1100 nothing is wide
+        guard value >= 0x1100 else { return false }
+
+        switch value {
+        // Hangul Jamo
+        case 0x1100...0x115F: return true
+        // Horologicals
+        case 0x231A...0x231B: return true
+        // Angle brackets
+        case 0x2329...0x232A: return true
+        // Media controls
+        case 0x23E9...0x23EC: return true
+        case 0x23F0: return true
+        case 0x23F3: return true
+        // Geometric shapes
+        case 0x25FD...0x25FE: return true
+        // Misc Symbols — only specific emoji
+        case 0x2614...0x2615: return true
+        case 0x2630...0x2637: return true
+        case 0x2648...0x2653: return true
+        case 0x267F: return true
+        case 0x268A...0x268F: return true
+        case 0x2693: return true
+        case 0x26A1: return true
+        case 0x26AA...0x26AB: return true
+        case 0x26BD...0x26BE: return true
+        case 0x26C4...0x26C5: return true
+        case 0x26CE: return true
+        case 0x26D4: return true
+        case 0x26EA: return true
+        case 0x26F2...0x26F3: return true
+        case 0x26F5: return true
+        case 0x26FA: return true
+        case 0x26FD: return true
+        // Dingbats — only specific emoji
+        case 0x2705: return true
+        case 0x270A...0x270B: return true
+        case 0x2728: return true
+        case 0x274C: return true
+        case 0x274E: return true
+        case 0x2753...0x2755: return true
+        case 0x2757: return true
+        case 0x2795...0x2797: return true
+        case 0x27B0: return true
+        case 0x27BF: return true
+        // Arrows + geometric shapes
+        case 0x2B1B...0x2B1C: return true
+        case 0x2B50: return true
+        case 0x2B55: return true
+        // CJK Radicals, Ideographs, Kana, etc.
+        case 0x2E80...0x2E99: return true
+        case 0x2E9B...0x2EF3: return true
+        case 0x2F00...0x2FD5: return true
+        case 0x2FF0...0x303E: return true
+        case 0x3041...0x3096: return true
+        case 0x3099...0x30FF: return true
+        case 0x3105...0x312F: return true
+        case 0x3131...0x318E: return true
+        case 0x3190...0x31E5: return true
+        case 0x31EF...0x321E: return true
+        case 0x3220...0x3247: return true
+        case 0x3250...0xA48C: return true
+        case 0xA490...0xA4C6: return true
+        case 0xA960...0xA97C: return true
+        case 0xAC00...0xD7A3: return true
+        case 0xF900...0xFAFF: return true
+        case 0xFE10...0xFE19: return true
+        case 0xFE30...0xFE52: return true
+        case 0xFE54...0xFE66: return true
+        case 0xFE68...0xFE6B: return true
+        case 0xFF01...0xFF60: return true
+        case 0xFFE0...0xFFE6: return true
+        // Supplementary planes
+        case 0x16FE0...0x16FE4: return true
+        case 0x16FF0...0x16FF6: return true
+        case 0x17000...0x18CD5: return true
+        case 0x18CFF...0x18D1E: return true
+        case 0x18D80...0x18DF2: return true
+        case 0x1AFF0...0x1AFF3: return true
+        case 0x1AFF5...0x1AFFB: return true
+        case 0x1AFFD...0x1AFFE: return true
+        case 0x1B000...0x1B122: return true
+        case 0x1B132: return true
+        case 0x1B150...0x1B152: return true
+        case 0x1B155: return true
+        case 0x1B164...0x1B167: return true
+        case 0x1B170...0x1B2FB: return true
+        case 0x1D300...0x1D356: return true
+        case 0x1D360...0x1D376: return true
+        // Emoji (U+1F000+)
+        case 0x1F004: return true
+        case 0x1F0CF: return true
+        case 0x1F18E: return true
+        case 0x1F191...0x1F19A: return true
+        case 0x1F200...0x1F202: return true
+        case 0x1F210...0x1F23B: return true
+        case 0x1F240...0x1F248: return true
+        case 0x1F250...0x1F251: return true
+        case 0x1F260...0x1F265: return true
+        case 0x1F300...0x1F320: return true
+        case 0x1F32D...0x1F335: return true
+        case 0x1F337...0x1F37C: return true
+        case 0x1F37E...0x1F393: return true
+        case 0x1F3A0...0x1F3CA: return true
+        case 0x1F3CF...0x1F3D3: return true
+        case 0x1F3E0...0x1F3F0: return true
+        case 0x1F3F4: return true
+        case 0x1F3F8...0x1F43E: return true
+        case 0x1F440: return true
+        case 0x1F442...0x1F4FC: return true
+        case 0x1F4FF...0x1F53D: return true
+        case 0x1F54B...0x1F54E: return true
+        case 0x1F550...0x1F567: return true
+        case 0x1F57A: return true
+        case 0x1F595...0x1F596: return true
+        case 0x1F5A4: return true
+        case 0x1F5FB...0x1F64F: return true
+        case 0x1F680...0x1F6C5: return true
+        case 0x1F6CC: return true
+        case 0x1F6D0...0x1F6D2: return true
+        case 0x1F6D5...0x1F6D8: return true
+        case 0x1F6DC...0x1F6DF: return true
+        case 0x1F6EB...0x1F6EC: return true
+        case 0x1F6F4...0x1F6FC: return true
+        case 0x1F7E0...0x1F7EB: return true
+        case 0x1F7F0: return true
+        case 0x1F90C...0x1F93A: return true
+        case 0x1F93C...0x1F945: return true
+        case 0x1F947...0x1F9FF: return true
+        case 0x1FA70...0x1FA7C: return true
+        case 0x1FA80...0x1FA8A: return true
+        case 0x1FA8E...0x1FAC6: return true
+        case 0x1FAC8: return true
+        case 0x1FACD...0x1FADC: return true
+        case 0x1FADF...0x1FAEA: return true
+        case 0x1FAEF...0x1FAF8: return true
+        case 0x20000...0x2FFFD: return true
+        case 0x30000...0x3FFFD: return true
+        default: return false
+        }
     }
 
     /// Forces a pane to redraw by sending Ctrl+L

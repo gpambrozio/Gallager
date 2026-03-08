@@ -1053,4 +1053,307 @@
             #expect(hasVisibleContent, "Should contain visible lines")
         }
     }
+
+    // MARK: - Emoji Width in Tables
+
+    @Suite("Emoji width handling in tables")
+    struct EmojiWidthTests {
+        @Test("Emoji characters occupy 2 columns in SwiftTerm")
+        func emojiOccupiesTwoColumns() {
+            let (terminal, _) = makeTerminal(cols: 80, rows: 10)
+
+            // Feed a line: "A🔴B" — if 🔴 is 2 cols wide, B should be at col 4
+            // A(col 0) + 🔴(col 1-2) + B(col 3)
+            terminal.feed(text: "\u{1b}[H") // home
+            terminal.feed(text: "A\u{1f534}B")
+
+            let cursorCol = terminal.buffer.x
+            // After A(1 col) + 🔴(2 cols) + B(1 col), cursor should be at col 4
+            #expect(cursorCol == 4, "Cursor should be at col 4 after A+🔴+B, got \(cursorCol)")
+
+            // Check that B is at col 3
+            let line = terminal.getLine(row: 0)!
+            let bChar = line[3].getCharacter()
+            #expect(bChar == "B", "Col 3 should have 'B', got '\(bChar)'")
+        }
+
+        @Test("Various emoji all occupy 2 columns")
+        func variousEmojiWidth() {
+            let (terminal, _) = makeTerminal(cols: 80, rows: 10)
+
+            let emoji: [(String, Character)] = [
+                ("\u{1f534}", "🔴"), // Red circle (U+1F534, Unicode 6)
+                ("\u{1f7e1}", "🟡"), // Yellow circle (U+1F7E1, Unicode 12)
+                ("\u{1f7e2}", "🟢"), // Green circle (U+1F7E2, Unicode 12)
+                ("\u{1f535}", "🔵"), // Blue circle (U+1F535, Unicode 6)
+            ]
+
+            for (i, (emojiStr, label)) in emoji.enumerated() {
+                terminal.feed(text: "\u{1b}[\(i + 1);1H") // move to row
+                terminal.feed(text: "X\(emojiStr)Y")
+
+                let line = terminal.getLine(row: i)!
+
+                // X at col 0, emoji at col 1-2, Y at col 3
+                let xChar = line[0].getCharacter()
+                let yChar = line[3].getCharacter()
+
+                #expect(xChar == "X", "\(label): col 0 should be 'X', got '\(xChar)'")
+                #expect(yChar == "Y", "\(label): col 3 should be 'Y' (emoji=2 cols), got '\(yChar)'")
+            }
+        }
+
+        @Test("Table with emoji renders with aligned columns")
+        func tableWithEmojiAlignment() {
+            let (terminal, _) = makeTerminal(cols: 40, rows: 10)
+
+            // Build a small table:
+            // ┌──────┬────────────────┐  (col widths: 6, 16)
+            // │ St   │ Notes          │
+            // ├──────┼────────────────┤
+            // │ 🔴   │ Bug found      │
+            // │ 🟢   │ All passing    │
+            // └──────┴────────────────┘
+            let c1 = 6
+            let c2 = 16
+            let top = "┌" + String(repeating: "─", count: c1) + "┬" + String(repeating: "─", count: c2) + "┐"
+            let header = "│ St   │ Notes          │"
+            let sep = "├" + String(repeating: "─", count: c1) + "┼" + String(repeating: "─", count: c2) + "┤"
+            // Emoji (2 cols) + 3 spaces = 5 display cols; with leading space = 6 cols
+            let row1 = "│ \u{1f534}   │ Bug found      │"
+            let row2 = "│ \u{1f7e2}   │ All passing    │"
+            let bottom = "└" + String(repeating: "─", count: c1) + "┴" + String(repeating: "─", count: c2) + "┘"
+
+            terminal.feed(text: "\u{1b}[H") // home
+            terminal.feed(text: top + "\r\n")
+            terminal.feed(text: header + "\r\n")
+            terminal.feed(text: sep + "\r\n")
+            terminal.feed(text: row1 + "\r\n")
+            terminal.feed(text: row2 + "\r\n")
+            terminal.feed(text: bottom)
+
+            // The ┬ on the top border and ┼ on the separator should be at the same column.
+            // ┌(0) + 6 dashes(1-6) + ┬(7) → col 7
+            let topLine = terminal.getLine(row: 0)!
+            let sepLine = terminal.getLine(row: 2)!
+            let dataLine1 = terminal.getLine(row: 3)!
+            let dataLine2 = terminal.getLine(row: 4)!
+
+            // Check that ┬ and ┼ are at col 7
+            let topSep = topLine[7].getCharacter()
+            let midSep = sepLine[7].getCharacter()
+            #expect(topSep == "┬", "Top border: col 7 should be ┬, got '\(topSep)'")
+            #expect(midSep == "┼", "Mid separator: col 7 should be ┼, got '\(midSep)'")
+
+            // Check that │ separators in data rows are ALSO at col 7
+            let data1Sep = dataLine1[7].getCharacter()
+            let data2Sep = dataLine2[7].getCharacter()
+            #expect(
+                data1Sep == "│",
+                "Data row 1 (🔴): col 7 should be │, got '\(data1Sep)' — emoji width mismatch?"
+            )
+            #expect(
+                data2Sep == "│",
+                "Data row 2 (🟢): col 7 should be │, got '\(data2Sep)' — emoji width mismatch?"
+            )
+
+            // Also check the right border alignment at col 24 (7 + 1 + 16 = 24)
+            let expectedRightCol = 1 + c1 + 1 + c2 // = 24
+            let topRight = topLine[expectedRightCol].getCharacter()
+            let data1Right = dataLine1[expectedRightCol].getCharacter()
+            #expect(topRight == "┐", "Top right corner at col \(expectedRightCol): got '\(topRight)'")
+            #expect(
+                data1Right == "│",
+                "Data row 1 right border at col \(expectedRightCol): got '\(data1Right)' — column shift from emoji?"
+            )
+        }
+
+        @Test("Table with emoji via processCapturePaneForStreaming")
+        @MainActor
+        func tableWithEmojiViaCapture() {
+            let service = TmuxService()
+            let cols = 40
+            let rows = 10
+            let c1 = 6
+            let c2 = 16
+
+            // Simulate capture-pane -e output of a table with emoji.
+            // capture-pane outputs the visible screen content with ANSI codes.
+            // Emoji are output as UTF-8 (not DEC graphics).
+            let visibleLines = [
+                "┌" + String(repeating: "─", count: c1) + "┬" + String(repeating: "─", count: c2) + "┐",
+                "│ St   │ Notes          │",
+                "├" + String(repeating: "─", count: c1) + "┼" + String(repeating: "─", count: c2) + "┤",
+                "│ \u{1f534}   │ Bug found      │",
+                "│ \u{1f7e2}   │ All passing    │",
+                "└" + String(repeating: "─", count: c1) + "┴" + String(repeating: "─", count: c2) + "┘",
+            ]
+            let visibleOutput = visibleLines.joined(separator: "\n")
+
+            let initialData = service.processCapturePaneForStreaming(
+                scrollbackOutput: nil,
+                visibleOutput: visibleOutput,
+                cursorOutput: "0,6,1",
+                height: rows
+            )
+
+            let (terminal, _) = makeTerminal(cols: cols, rows: rows)
+            terminal.feed(byteArray: Array(initialData))
+
+            // Verify column alignment after going through the capture pipeline
+            let topLine = terminal.getLine(row: 0)!
+            let dataLine1 = terminal.getLine(row: 3)!
+
+            let topSep = topLine[7].getCharacter()
+            let data1Sep = dataLine1[7].getCharacter()
+
+            #expect(topSep == "┬", "Top: col 7 = ┬, got '\(topSep)'")
+            #expect(
+                data1Sep == "│",
+                "Capture path — Data row 1 (🔴): col 7 should be │, got '\(data1Sep)'"
+            )
+
+            // Right border
+            let rightCol = 1 + c1 + 1 + c2 // 24
+            let topRight = topLine[rightCol].getCharacter()
+            let data1Right = dataLine1[rightCol].getCharacter()
+            #expect(topRight == "┐", "Capture: top right at col \(rightCol) = ┐, got '\(topRight)'")
+            #expect(
+                data1Right == "│",
+                "Capture: data row 1 right border at col \(rightCol) = │, got '\(data1Right)'"
+            )
+        }
+    }
+
+    // MARK: - Display Width Tests
+
+    @Suite("Character display width calculation")
+    struct DisplayWidthTests {
+        @Test("ASCII characters are 1 column wide")
+        func asciiWidth() {
+            #expect(TmuxService.displayWidth(of: "A") == 1)
+            #expect(TmuxService.displayWidth(of: "z") == 1)
+            #expect(TmuxService.displayWidth(of: " ") == 1)
+            #expect(TmuxService.displayWidth(of: "0") == 1)
+        }
+
+        @Test("Emoji are 2 columns wide")
+        func emojiWidth() {
+            #expect(TmuxService.displayWidth(of: "🔴") == 2)
+            #expect(TmuxService.displayWidth(of: "🟡") == 2)
+            #expect(TmuxService.displayWidth(of: "🟢") == 2)
+            #expect(TmuxService.displayWidth(of: "🔵") == 2)
+            #expect(TmuxService.displayWidth(of: "😀") == 2)
+            #expect(TmuxService.displayWidth(of: "🎉") == 2)
+        }
+
+        @Test("Emoji in SwiftTerm eastAsianWide are 2 columns wide")
+        func eastAsianWideEmojiWidth() {
+            // These are in SwiftTerm's eastAsianWide table (always 2-wide)
+            #expect(TmuxService.displayWidth(of: "\u{26BD}") == 2) // ⚽ Soccer ball
+            #expect(TmuxService.displayWidth(of: "\u{231A}") == 2) // ⌚ Watch
+            #expect(TmuxService.displayWidth(of: "\u{2614}") == 2) // ☔ Umbrella with rain
+            #expect(TmuxService.displayWidth(of: "\u{2B50}") == 2) // ⭐ Star
+            #expect(TmuxService.displayWidth(of: "\u{2B1B}") == 2) // ⬛ Black large square
+            #expect(TmuxService.displayWidth(of: "\u{2705}") == 2) // ✅ Check mark
+            #expect(TmuxService.displayWidth(of: "\u{2757}") == 2) // ❗ Exclamation mark
+        }
+
+        @Test("Emoji NOT in eastAsianWide are 1 column wide (only wide with VS16)")
+        func vs16OnlyEmojiWidth() {
+            // These are in SwiftTerm's emojiVs16Base, NOT eastAsianWide
+            // They render as 1-wide unless followed by U+FE0F
+            #expect(TmuxService.displayWidth(of: "\u{2744}") == 1) // ❄ Snowflake
+            #expect(TmuxService.displayWidth(of: "\u{2764}") == 1) // ❤ Red heart
+            #expect(TmuxService.displayWidth(of: "\u{25B6}") == 1) // ▶ Play button
+            #expect(TmuxService.displayWidth(of: "\u{25C0}") == 1) // ◀ Reverse button
+            #expect(TmuxService.displayWidth(of: "\u{25AA}") == 1) // ▪ Black small square
+            #expect(TmuxService.displayWidth(of: "\u{2708}") == 1) // ✈ Airplane
+            #expect(TmuxService.displayWidth(of: "\u{2B05}") == 1) // ⬅ Left arrow
+            #expect(TmuxService.displayWidth(of: "\u{2600}") == 1) // ☀ Sun
+        }
+
+        @Test("CJK characters are 2 columns wide")
+        func cjkWidth() {
+            #expect(TmuxService.displayWidth(of: "中") == 2)
+            #expect(TmuxService.displayWidth(of: "日") == 2)
+            #expect(TmuxService.displayWidth(of: "한") == 2) // Hangul
+        }
+
+        @Test("Non-emoji symbols are 1 column wide")
+        func nonEmojiSymbolsWidth() {
+            #expect(TmuxService.displayWidth(of: "\u{266A}") == 1) // ♪ Eighth note
+            #expect(TmuxService.displayWidth(of: "\u{266B}") == 1) // ♫ Beamed eighth notes
+            #expect(TmuxService.displayWidth(of: "\u{2603}") == 1) // ☃ Snowman
+            #expect(TmuxService.displayWidth(of: "\u{2014}") == 1) // — Em dash
+            #expect(TmuxService.displayWidth(of: "\u{2013}") == 1) // – En dash
+        }
+
+        @Test("Box-drawing characters are 1 column wide")
+        func boxDrawingWidth() {
+            #expect(TmuxService.displayWidth(of: "│") == 1)
+            #expect(TmuxService.displayWidth(of: "─") == 1)
+            #expect(TmuxService.displayWidth(of: "┌") == 1)
+            #expect(TmuxService.displayWidth(of: "┘") == 1)
+        }
+    }
+
+    // MARK: - extractActiveSGR with Wide Characters
+
+    @Suite("extractActiveSGR wide character handling")
+    struct ExtractActiveSGRWideCharTests {
+        @Test("Correctly tracks SGR past emoji characters")
+        @MainActor
+        func sgrPastEmoji() {
+            let service = TmuxService()
+            // Line: "🔴 \e[31mhello" — emoji at cols 0-1, space at col 2, SGR at col 3+
+            // Cursor at col 5 (inside "hello")
+            let lines = ["🔴 \u{1b}[31mhello"]
+            let sgr = service.extractActiveSGR(from: lines, cursorX: 5, cursorY: 0)
+            #expect(sgr == "\u{1b}[31m", "Should find SGR after emoji (2-col wide)")
+        }
+
+        @Test("Stops at correct column with emoji before cursor")
+        @MainActor
+        func stopsAtCorrectColumnWithEmoji() {
+            let service = TmuxService()
+            // Line: "A🔴\e[32mB\e[33mC"
+            // A at col 0 (1 col), 🔴 at col 1-2 (2 cols), B at col 3, C at col 4
+            // Cursor at col 3: should have picked up \e[32m but cursor is AT col 3
+            // so we stop before processing col 3
+            let lines = ["A\u{1f534}\u{1b}[32mB\u{1b}[33mC"]
+            let sgr = service.extractActiveSGR(from: lines, cursorX: 3, cursorY: 0)
+            // At col 3, we've passed A(col 0) and 🔴(cols 1-2), col is now 3 >= cursorX=3, so we stop
+            // The \e[32m hasn't been processed yet since it's at col 3
+            #expect(sgr == "", "Should stop before SGR at cursor column")
+        }
+
+        @Test("Picks up SGR between emoji")
+        @MainActor
+        func sgrBetweenEmoji() {
+            let service = TmuxService()
+            // Line: "🔴\e[31m🟡X"
+            // 🔴 at cols 0-1, \e[31m (no col), 🟡 at cols 2-3, X at col 4
+            // Cursor at col 4 should have \e[31m
+            let lines = ["\u{1f534}\u{1b}[31m\u{1f7e1}X"]
+            let sgr = service.extractActiveSGR(from: lines, cursorX: 4, cursorY: 0)
+            #expect(sgr == "\u{1b}[31m", "Should find SGR between two emoji")
+        }
+
+        @Test("Cursor positioned correctly with emoji in table row")
+        @MainActor
+        func cursorPositionWithEmojiInTable() {
+            let service = TmuxService()
+            // Line: "\e[31mA🔴\e[32mBC"
+            // A at col 0, 🔴 at cols 1-2, B at col 3, C at col 4
+            // Without the wide-char fix, col would be 1 after 🔴 (wrong),
+            // so cursor at col 4 would stop too late and pick up \e[33m.
+            // With the fix, col is 3 after 🔴 (correct).
+            let lines = ["\u{1b}[31mA\u{1f534}\u{1b}[32mBC"]
+            // cursorX=4: A(0), 🔴(1-2), B(3), at col 4 we stop
+            let sgr = service.extractActiveSGR(from: lines, cursorX: 4, cursorY: 0)
+            // SGR state: \e[31m (from before A), then \e[32m (from before B)
+            #expect(sgr == "\u{1b}[31m\u{1b}[32m", "Should track SGR correctly past 2-col emoji")
+        }
+    }
 #endif
