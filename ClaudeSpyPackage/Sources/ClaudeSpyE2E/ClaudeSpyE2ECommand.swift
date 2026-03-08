@@ -1,6 +1,12 @@
 import ArgumentParser
 import ClaudeSpyE2ELib
+import Dispatch
 import Foundation
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#endif
 
 @main
 struct ClaudeSpyE2ECommand: AsyncParsableCommand {
@@ -45,6 +51,9 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     @Option(name: .long, help: "Path to the hook server port file (default: ~/.claudespy-port-test)")
     var hookPortFile: String?
 
+    @Option(name: .long, help: "Path to write verbose logs (default: <tmpdir>/claudespy-e2e/e2e.log)")
+    var logFile: String?
+
     @Flag(name: .long, help: "List all available scenarios and exit")
     var listScenarios = false
 
@@ -53,6 +62,12 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             printScenarioList()
             return
         }
+
+        // Redirect verbose swift-log output to a file so the terminal stays clean
+        let logPath = logFile ?? (NSTemporaryDirectory() + "claudespy-e2e/e2e.log")
+        let logDir = (logPath as NSString).deletingLastPathComponent
+        try? FileManager.default.createDirectory(atPath: logDir, withIntermediateDirectories: true)
+        E2ELogging.bootstrapFileLogging(to: logPath)
 
         // Determine which scenarios we'll run to validate required paths
         let selectedScenarios: [TestScenario]
@@ -74,19 +89,25 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             throw ExitCode.failure
         }
 
-        print("ClaudeSpy E2E Test Coordinator")
-        print("==============================")
-        print("iOS app:     \(iosAppPath ?? "(not needed)")")
-        print("macOS app:   \(macosAppPath)")
-        print("Simulator:   \(simName)")
-        print("Screenshots: \(screenshotsDir)")
-        print("Baselines:   \(baselinesDir)")
-        print("Compare:     \(noCompare ? "disabled" : "enabled")")
-        print("Tmux socket: \(tmuxSocket ?? "(default)")")
-        print("E2E runner:  \(e2eRunnerPath ?? "(none)")")
-        print("Hook port file: \(hookPortFile ?? "(default: ~/.claudespy-port-test)")")
-        print()
+        let isTTY = isatty(fileno(stderr)) != 0
+        let bold = isTTY ? "\u{1b}[1m" : ""
+        let dim = isTTY ? "\u{1b}[2m" : ""
+        let cyan = isTTY ? "\u{1b}[36m" : ""
+        let reset = isTTY ? "\u{1b}[0m" : ""
 
+        fputs("\n\(cyan)\(bold)ClaudeSpy E2E Test Coordinator\(reset)\n", stderr)
+        fputs("\(dim)  iOS app:     \(iosAppPath ?? "(not needed)")\n", stderr)
+        fputs("  macOS app:   \(macosAppPath)\n", stderr)
+        fputs("  Simulator:   \(simName)\n", stderr)
+        fputs("  Screenshots: \(screenshotsDir)\n", stderr)
+        fputs("  Baselines:   \(baselinesDir)\n", stderr)
+        fputs("  Compare:     \(noCompare ? "disabled" : "enabled")\n", stderr)
+        fputs("  Tmux socket: \(tmuxSocket ?? "(default)")\n", stderr)
+        fputs("  E2E runner:  \(e2eRunnerPath ?? "(none)")\n", stderr)
+        fputs("  Hook port:   \(hookPortFile ?? "(default: ~/.claudespy-port-test)")\n", stderr)
+        fputs("  Log file:    \(logPath)\(reset)\n\n", stderr)
+
+        let reporter = TerminalReporter()
         let orchestrator = TestOrchestrator(
             iosAppPath: iosAppPath,
             macOSAppPath: macosAppPath,
@@ -96,8 +117,12 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             tmuxSocket: tmuxSocket,
             e2eRunnerPath: e2eRunnerPath,
             skipComparison: noCompare,
-            hookPortFile: hookPortFile
+            hookPortFile: hookPortFile,
+            reporter: reporter
         )
+
+        // Handle Ctrl-C: clean up processes then exit
+        setupSignalHandler(orchestrator: orchestrator)
 
         if interactive {
             try await runInteractive(orchestrator: orchestrator)
@@ -105,6 +130,27 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             try await runTests(orchestrator: orchestrator)
         }
     }
+
+    /// Install a SIGINT handler that runs cleanup before exiting.
+    private func setupSignalHandler(orchestrator: TestOrchestrator) {
+        let source = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+        // Ignore default SIGINT so our handler runs instead
+        signal(SIGINT, SIG_IGN)
+        source.setEventHandler {
+            fputs("\n\u{1b}[33mInterrupted — cleaning up...\u{1b}[0m\n", stderr)
+            Task {
+                await orchestrator.cleanup()
+                fputs("\u{1b}[33mCleanup complete.\u{1b}[0m\n", stderr)
+                _Exit(130)
+            }
+        }
+        source.resume()
+        // Keep the source alive for the process lifetime
+        Self._signalSource = source
+    }
+
+    /// Stored to prevent the dispatch source from being deallocated.
+    private nonisolated(unsafe) static var _signalSource: DispatchSourceSignal?
 
     private func printScenarioList() {
         print("Available scenarios:")
@@ -203,7 +249,6 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         }
 
         print("Running \(scenariosToRun.count) scenario(s)...")
-        print()
 
         let results = await orchestrator.runAll(scenariosToRun)
 
@@ -212,28 +257,10 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             try writeJSONResults(results, to: jsonOutputPath)
         }
 
-        // Print summary
-        print()
-        print("Results")
-        print("-------")
-
-        var allPassed = true
-        for result in results {
-            let status = result.success ? "PASS" : "FAIL"
-            let duration = String(format: "%.1fs", result.duration)
-            print("  [\(status)] \(result.scenarioName) (\(duration))")
-
-            if let error = result.error, let step = result.failedStep {
-                print("         Failed at step \(step): \(error)")
-                allPassed = false
-            }
-        }
-
-        print()
-        if allPassed {
-            print("All scenarios passed!")
-        } else {
-            print("Some scenarios failed.")
+        // Summary is printed by the reporter via runAll.
+        // Just check for failures to set exit code.
+        let allPassed = results.allSatisfy(\.success)
+        if !allPassed {
             throw ExitCode.failure
         }
     }

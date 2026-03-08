@@ -101,12 +101,28 @@ fi
 # =====================================================
 # HELPERS
 # =====================================================
+
+# Terminal colors (disabled when NO_COLOR is set or stdout is not a tty)
+if [ -z "${NO_COLOR:-}" ] && [ -t 1 ]; then
+    _BOLD=$'\033[1m'
+    _DIM=$'\033[2m'
+    _RED=$'\033[31m'
+    _GREEN=$'\033[32m'
+    _YELLOW=$'\033[33m'
+    _CYAN=$'\033[36m'
+    _RESET=$'\033[0m'
+else
+    _BOLD="" _DIM="" _RED="" _GREEN="" _YELLOW="" _CYAN="" _RESET=""
+fi
+
 step() {
     echo ""
-    echo "======================================"
-    echo "  $1"
-    echo "======================================"
+    echo "${_CYAN}${_BOLD}>>> $1${_RESET}"
 }
+
+ok()   { echo "  ${_GREEN}OK${_RESET}  $1"; }
+fail() { echo "  ${_RED}FAIL${_RESET}  $1"; }
+warn() { echo "  ${_YELLOW}WARN${_RESET}  $1"; }
 
 # Find a booted or available simulator UDID by name
 find_simulator_udid() {
@@ -205,54 +221,54 @@ if [ "$LIST_SCENARIOS" != true ]; then
     missing=false
 
     if check_accessibility; then
-        echo "  [OK] Accessibility"
+        ok "Accessibility"
     else
-        echo "  [MISSING] Accessibility"
+        fail "Accessibility"
         missing=true
     fi
 
     if check_screen_recording; then
-        echo "  [OK] Screen Recording"
+        ok "Screen Recording"
     else
-        echo "  [MISSING] Screen Recording"
+        fail "Screen Recording"
         missing=true
     fi
 
     if [ "$missing" = true ]; then
         echo ""
-        echo "The e2e tests require macOS permissions that haven't been granted yet."
-        echo "Your terminal app needs both Accessibility and Screen & System Audio Recording."
+        warn "The e2e tests require macOS permissions that haven't been granted yet."
+        echo "  Your terminal app needs both Accessibility and Screen & System Audio Recording."
         echo ""
-        echo "Opening System Settings — please grant the missing permissions."
+        echo "  Opening System Settings — please grant the missing permissions."
         open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
         echo ""
-        read -r -p "Press Enter after granting permissions to re-check..."
+        read -r -p "  Press Enter after granting permissions to re-check..."
 
         # Re-check
         still_missing=false
 
         if check_accessibility; then
-            echo "  [OK] Accessibility"
+            ok "Accessibility"
         else
-            echo "  [MISSING] Accessibility — still not granted"
+            fail "Accessibility — still not granted"
             still_missing=true
         fi
 
         if check_screen_recording; then
-            echo "  [OK] Screen Recording"
+            ok "Screen Recording"
         else
-            echo "  [MISSING] Screen Recording — still not granted"
-            echo "         (Grant in: System Settings > Privacy & Security > Screen & System Audio Recording)"
+            fail "Screen Recording — still not granted"
+            echo "       (Grant in: System Settings > Privacy & Security > Screen & System Audio Recording)"
             still_missing=true
         fi
 
         if [ "$still_missing" = true ]; then
             echo ""
-            echo "ERROR: Required permissions not granted. Cannot run e2e tests."
+            fail "Required permissions not granted. Cannot run e2e tests."
             exit 1
         fi
         echo ""
-        echo "All permissions granted."
+        ok "All permissions granted."
     fi
 fi
 
@@ -298,15 +314,15 @@ if [ "$SKIP_BUILD" = true ]; then
     missing=false
     for artifact in "$MACOS_APP" "$IOS_APP" "$E2E_BIN"; do
         if [ ! -e "$artifact" ]; then
-            echo "ERROR: Missing artifact: $artifact"
+            fail "Missing artifact: $artifact"
             missing=true
         fi
     done
     if [ "$missing" = true ]; then
-        echo "Run without --skip-build first."
+        fail "Run without --skip-build first."
         exit 1
     fi
-    echo "All artifacts found."
+    ok "All artifacts found."
 
     # Find simulator UDID for accessibility check
     SIM_UDID=$(find_simulator_udid)
@@ -314,12 +330,12 @@ else
     # Find simulator for iOS build destination
     SIM_UDID=$(find_simulator_udid)
     if [ -z "$SIM_UDID" ]; then
-        echo "ERROR: No simulator found with name '$SIM_NAME'"
-        echo "Available simulators:"
+        fail "No simulator found with name '$SIM_NAME'"
+        echo "  Available simulators:"
         xcrun simctl list devices available | grep iPhone | head -10
         exit 1
     fi
-    echo "Using simulator: $SIM_NAME ($SIM_UDID)"
+    ok "Simulator: ${_BOLD}$SIM_NAME${_RESET} ($SIM_UDID)"
 
     step "Building macOS app (ClaudeSpyServer)"
     xcodebuild "${XCODEBUILD_FLAGS[@]}" \
@@ -354,7 +370,7 @@ fi
 if [ -n "$SIM_UDID" ]; then
     step "Checking simulator accessibility"
     ensure_simulator_accessibility "$SIM_UDID"
-    echo "  [OK] Simulator accessibility enabled"
+    ok "Simulator accessibility enabled"
 fi
 
 # =====================================================
@@ -366,12 +382,12 @@ else
     step "Running E2E test"
 fi
 
-echo "macOS app:   $MACOS_APP"
-echo "iOS app:     $IOS_APP"
-echo "Simulator:   $SIM_NAME"
-echo "Tmux socket: $TMUX_SOCKET"
-echo "Screenshots: $SCREENSHOTS_DIR"
-echo "Baselines:   $BASELINES_DIR"
+echo "${_DIM}  macOS app:   $MACOS_APP"
+echo "  iOS app:     $IOS_APP"
+echo "  Simulator:   $SIM_NAME"
+echo "  Tmux socket: $TMUX_SOCKET"
+echo "  Screenshots: $SCREENSHOTS_DIR"
+echo "  Baselines:   $BASELINES_DIR${_RESET}"
 echo ""
 
 E2E_ARGS=(
