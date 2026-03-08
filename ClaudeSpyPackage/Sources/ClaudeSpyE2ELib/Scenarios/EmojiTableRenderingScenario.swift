@@ -70,12 +70,14 @@ public enum EmojiTableRenderingScenario {
                     ("4","\U0001f34e \U0001f34b \U0001f347 \U0001f353"),
                 ]
                 w1,w2=5,20
-                o(f"\u250c\u2500{''.join('\u2500'*w1)}\u252c\u2500{''.join('\u2500'*w2)}\u2510\n")
+                H="\u2500"
+                h1=H*w1;h2=H*w2
+                o(f"\u250c\u2500{h1}\u252c\u2500{h2}\u2510\n")
                 o(f"\u2502 {'#':<{w1}}\u2502 {'Item':<{w2}}\u2502\n")
-                o(f"\u251c\u2500{''.join('\u2500'*w1)}\u253c\u2500{''.join('\u2500'*w2)}\u2524\n")
+                o(f"\u251c\u2500{h1}\u253c\u2500{h2}\u2524\n")
                 for n,emojis in rows:
                     o(f"\u2502 {n:<{w1}}\u2502 {emojis:<{w2}}\u2502\n")
-                o(f"\u2514\u2500{''.join('\u2500'*w1)}\u2534\u2500{''.join('\u2500'*w2)}\u2518\n")
+                o(f"\u2514\u2500{h1}\u2534\u2500{h2}\u2518\n")
 
             def table2():
                 """Mixed text and emoji with colored headers."""
