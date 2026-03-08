@@ -1356,4 +1356,234 @@
             #expect(sgr == "\u{1b}[31m\u{1b}[32m", "Should track SGR correctly past 2-col emoji")
         }
     }
+
+    // MARK: - Issue #197: Special character width alignment
+
+    @Suite("Issue #197: Special character display width")
+    struct SpecialCharacterWidthTests {
+        @Test("Em dash is 1 column wide")
+        func emDashWidth() {
+            #expect(TmuxService.displayWidth(of: "\u{2014}") == 1, "Em dash (U+2014) should be 1 column")
+        }
+
+        @Test("En dash is 1 column wide")
+        func enDashWidth() {
+            #expect(TmuxService.displayWidth(of: "\u{2013}") == 1, "En dash (U+2013) should be 1 column")
+        }
+
+        @Test("Ellipsis is 1 column wide")
+        func ellipsisWidth() {
+            #expect(TmuxService.displayWidth(of: "\u{2026}") == 1, "Ellipsis (U+2026) should be 1 column")
+        }
+
+        @Test("Smart quotes are 1 column wide")
+        func smartQuotesWidth() {
+            #expect(TmuxService.displayWidth(of: "\u{2018}") == 1, "Left single quote should be 1 column")
+            #expect(TmuxService.displayWidth(of: "\u{2019}") == 1, "Right single quote should be 1 column")
+            #expect(TmuxService.displayWidth(of: "\u{201C}") == 1, "Left double quote should be 1 column")
+            #expect(TmuxService.displayWidth(of: "\u{201D}") == 1, "Right double quote should be 1 column")
+        }
+
+        @Test("Bullet is 1 column wide")
+        func bulletWidth() {
+            #expect(TmuxService.displayWidth(of: "\u{2022}") == 1, "Bullet (U+2022) should be 1 column")
+        }
+
+        @Test("Arrows are 1 column wide")
+        func arrowsWidth() {
+            #expect(TmuxService.displayWidth(of: "\u{2192}") == 1, "Right arrow should be 1 column")
+            #expect(TmuxService.displayWidth(of: "\u{2190}") == 1, "Left arrow should be 1 column")
+        }
+
+        @Test("Box drawing characters are 1 column wide")
+        func boxDrawingWidth() {
+            #expect(TmuxService.displayWidth(of: "\u{2500}") == 1, "Horizontal line should be 1 column")
+            #expect(TmuxService.displayWidth(of: "\u{2502}") == 1, "Vertical line should be 1 column")
+            #expect(TmuxService.displayWidth(of: "\u{250C}") == 1, "Top-left corner should be 1 column")
+            #expect(TmuxService.displayWidth(of: "\u{2510}") == 1, "Top-right corner should be 1 column")
+            #expect(TmuxService.displayWidth(of: "\u{2514}") == 1, "Bottom-left corner should be 1 column")
+            #expect(TmuxService.displayWidth(of: "\u{2518}") == 1, "Bottom-right corner should be 1 column")
+        }
+    }
+
+    @Suite("Issue #197: Special chars in terminal buffer")
+    struct SpecialCharacterTerminalTests {
+        @Test("Em dash occupies 1 column in SwiftTerm buffer")
+        func emDashInTerminal() {
+            let (terminal, _) = makeTerminal(cols: 40, rows: 5)
+            // Feed: "A—B" (A, em dash, B)
+            terminal.feed(text: "A\u{2014}B")
+            let row = getRowText(terminal, row: 0)
+            #expect(row.hasPrefix("A\u{2014}B"), "Row should start with 'A—B', got '\(row)'")
+
+            // Check column positions: A at 0, — at 1, B at 2
+            if let line = terminal.getLine(row: 0) {
+                #expect(line[0].getCharacter() == "A", "Col 0 should be 'A'")
+                #expect(line[1].getCharacter() == "\u{2014}", "Col 1 should be em dash")
+                #expect(line[2].getCharacter() == "B", "Col 2 should be 'B'")
+            }
+        }
+
+        @Test("En dash occupies 1 column in SwiftTerm buffer")
+        func enDashInTerminal() {
+            let (terminal, _) = makeTerminal(cols: 40, rows: 5)
+            terminal.feed(text: "A\u{2013}B")
+            if let line = terminal.getLine(row: 0) {
+                #expect(line[0].getCharacter() == "A", "Col 0 should be 'A'")
+                #expect(line[1].getCharacter() == "\u{2013}", "Col 1 should be en dash")
+                #expect(line[2].getCharacter() == "B", "Col 2 should be 'B'")
+            }
+        }
+
+        @Test("Table with em dashes has aligned borders in terminal buffer")
+        func tableWithEmDashAlignment() {
+            let (terminal, _) = makeTerminal(cols: 40, rows: 10)
+            let row1 = "| plain   | test  |"
+            let row2 = "| dash\u{2014}em | test  |"
+            terminal.feed(text: "\(row1)\r\n\(row2)")
+
+            if let line0 = terminal.getLine(row: 0), let line1 = terminal.getLine(row: 1) {
+                var pipes0: [Int] = []
+                var pipes1: [Int] = []
+                for col in 0..<terminal.cols {
+                    if line0[col].getCharacter() == "|" { pipes0.append(col) }
+                    if line1[col].getCharacter() == "|" { pipes1.append(col) }
+                }
+                #expect(
+                    pipes0 == pipes1,
+                    "Table borders should align: row0 pipes at \(pipes0), row1 pipes at \(pipes1)"
+                )
+            }
+        }
+
+        @Test("Table with bold SGR has aligned borders in terminal buffer")
+        func tableWithBoldSGRAlignment() {
+            let (terminal, _) = makeTerminal(cols: 50, rows: 10)
+            let row1 = "| plain   | test  |"
+            let row2 = "| \u{1b}[1mbold\u{1b}[0m    | test  |"
+            terminal.feed(text: "\(row1)\r\n\(row2)")
+
+            if let line0 = terminal.getLine(row: 0), let line1 = terminal.getLine(row: 1) {
+                var pipes0: [Int] = []
+                var pipes1: [Int] = []
+                for col in 0..<terminal.cols {
+                    if line0[col].getCharacter() == "|" { pipes0.append(col) }
+                    if line1[col].getCharacter() == "|" { pipes1.append(col) }
+                }
+                #expect(
+                    pipes0 == pipes1,
+                    "Bold text shouldn't shift borders: row0 pipes at \(pipes0), row1 pipes at \(pipes1)"
+                )
+            }
+        }
+
+        @Test("Table with mixed special chars and SGR has aligned borders")
+        func tableWithMixedSpecialCharsAlignment() {
+            let (terminal, _) = makeTerminal(cols: 50, rows: 10)
+            let row1 = "| plain        | OK |"
+            let row2 = "| A \u{2014} \u{1b}[1mbold\u{1b}[0m \u{2013} Z | OK |"
+            terminal.feed(text: "\(row1)\r\n\(row2)")
+
+            if let line0 = terminal.getLine(row: 0), let line1 = terminal.getLine(row: 1) {
+                var pipes0: [Int] = []
+                var pipes1: [Int] = []
+                for col in 0..<terminal.cols {
+                    if line0[col].getCharacter() == "|" { pipes0.append(col) }
+                    if line1[col].getCharacter() == "|" { pipes1.append(col) }
+                }
+                #expect(
+                    pipes0 == pipes1,
+                    "Mixed content shouldn't shift borders: row0 at \(pipes0), row1 at \(pipes1)"
+                )
+            }
+        }
+    }
+
+    @Suite("Issue #197: filterToColorCodesOnly with special chars")
+    struct FilterSpecialCharTests {
+        @Test("Preserves em dashes through filter")
+        @MainActor
+        func preservesEmDash() {
+            let service = TmuxService()
+            let input = "Hello \u{2014} world"
+            let result = service.filterToColorCodesOnly(input)
+            #expect(result == input, "Em dash should pass through filter unchanged")
+        }
+
+        @Test("Preserves en dashes through filter")
+        @MainActor
+        func preservesEnDash() {
+            let service = TmuxService()
+            let input = "2024\u{2013}2025"
+            let result = service.filterToColorCodesOnly(input)
+            #expect(result == input, "En dash should pass through filter unchanged")
+        }
+
+        @Test("Preserves mixed special chars with SGR through filter")
+        @MainActor
+        func preservesMixedSpecialChars() {
+            let service = TmuxService()
+            let input = "\u{1b}[1mBold\u{1b}[0m \u{2014} Normal \u{2013} End"
+            let result = service.filterToColorCodesOnly(input)
+            #expect(result == input, "Mixed special chars with SGR should pass through unchanged")
+        }
+
+        @Test("extractActiveSGR works with em dash in text")
+        @MainActor
+        func extractSGRWithEmDash() {
+            let service = TmuxService()
+            let lines = ["A\u{2014}\u{1b}[31mB"]
+            let sgr = service.extractActiveSGR(from: lines, cursorX: 3, cursorY: 0)
+            #expect(sgr == "\u{1b}[31m", "Should find SGR after em dash")
+        }
+
+        @Test("extractActiveSGR works with en dash in text")
+        @MainActor
+        func extractSGRWithEnDash() {
+            let service = TmuxService()
+            let lines = ["\u{1b}[32m2024\u{2013}\u{1b}[31m2025"]
+            let sgr = service.extractActiveSGR(from: lines, cursorX: 9, cursorY: 0)
+            #expect(sgr == "\u{1b}[32m\u{1b}[31m", "Should track SGR across en dash")
+        }
+    }
+
+    @Suite("Issue #197: processCapturePaneForStreaming with special chars")
+    @MainActor
+    struct CaptureSpecialCharTests {
+        @Test("Capture output with em dash produces correct terminal buffer")
+        func captureWithEmDashRendersCorrectly() {
+            let service = TmuxService()
+
+            let visibleOutput = """
+            | plain   | test  |
+            | dash\u{2014}em | test  |
+
+            """
+            let cursorOutput = "0,2,1"
+
+            let data = service.processCapturePaneForStreaming(
+                scrollbackOutput: nil,
+                visibleOutput: visibleOutput,
+                cursorOutput: cursorOutput,
+                height: 24
+            )
+
+            let (terminal, _) = makeTerminal(cols: 80, rows: 24)
+            let bytes = [UInt8](data)
+            terminal.feed(byteArray: bytes)
+
+            if let line0 = terminal.getLine(row: 0), let line1 = terminal.getLine(row: 1) {
+                var pipes0: [Int] = []
+                var pipes1: [Int] = []
+                for col in 0..<terminal.cols {
+                    if line0[col].getCharacter() == "|" { pipes0.append(col) }
+                    if line1[col].getCharacter() == "|" { pipes1.append(col) }
+                }
+                #expect(
+                    pipes0 == pipes1,
+                    "After capture processing, borders should align: row0=\(pipes0), row1=\(pipes1)"
+                )
+            }
+        }
+    }
 #endif

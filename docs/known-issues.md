@@ -100,3 +100,32 @@ Apple Color Emoji glyphs have a fixed advance width (~17pt at 13pt font) that ex
 1. **Upstream SwiftTerm fix**: Request cell-level clipping in `drawTerminalContents` or change render order (box-drawings after text)
 2. **Upgrade SwiftTerm**: v1.11.2 adds regional indicator combining for flag emoji, though it doesn't fix the visual overflow
 3. **Fork SwiftTerm**: Add per-cell clipping for wide characters in the rendering pipeline
+
+## Special Character Visual Overflow in Tables (Em Dashes, En Dashes)
+
+### Description
+
+Markdown-style tables containing em dashes (`—` U+2014), en dashes (`–` U+2013), or bold/code SGR formatting may show subtle spacing misalignment in the app compared to iTerm rendering the same tmux pane content.
+
+### Investigation Findings (Issue #197)
+
+**Character width tables agree**: Systematic comparison of tmux 3.6a's `utf8_width` and SwiftTerm 1.11.2's `UnicodeUtil.columnWidth` showed **no width mismatches** for em dashes, en dashes, box-drawing characters, smart quotes, bullets, arrows, or any other commonly-used special characters. Both treat these as 1-column wide.
+
+**Terminal buffer is correct**: Unit tests confirm that when feeding table content with em dashes through the capture-pane processing pipeline (`filterToColorCodesOnly` → SwiftTerm), the table border characters (`|`) end up at identical column positions regardless of whether the row contains special characters, bold SGR, or plain ASCII.
+
+**Root cause is visual rendering**: Like the emoji overflow issue above, the misalignment is a font rendering issue:
+- The monospace font may render em dash and en dash glyphs wider than one character cell
+- Bold glyphs may have slightly wider metrics than regular weight
+- SwiftTerm does not clip glyph rendering to cell boundaries
+- iTerm handles this correctly because it either clips glyphs or uses tmux control mode which positions characters based on tmux's cursor grid rather than re-rendering raw PTY bytes
+
+### Impact
+
+- Table borders may appear very slightly shifted visually (sub-pixel to ~1pt)
+- The terminal buffer data and character positions are correct
+- Only affects visual rendering, not cursor tracking or SGR state
+- Same class of issue as the emoji visual overflow above
+
+### Potential Future Solutions
+
+Same as emoji overflow: upstream SwiftTerm fix for per-cell glyph clipping, or a fork that adds clipping in the rendering pipeline

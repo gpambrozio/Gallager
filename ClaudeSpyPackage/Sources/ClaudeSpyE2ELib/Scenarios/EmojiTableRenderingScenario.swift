@@ -13,10 +13,13 @@ import Foundation
 ///
 /// The scenario:
 /// 1. Pairs macOS and iOS devices via the relay
-/// 2. Creates a tmux session (80×35) and renders three tables using a Python script:
+/// 2. Creates a tmux session (80×35) and renders four tables using a Python script:
 ///    - Table 1: Simple emoji-only table (varying emoji counts per row)
 ///    - Table 2: Mixed text and emoji with colored status indicators
 ///    - Table 3: Dense emoji grid (4×4) to stress-test rendering
+///    - Table 4: Markdown-style table with em dashes, en dashes, bold/code SGR,
+///      and a plain ASCII control row — tests character width handling for
+///      ambiguous-width characters and SGR-styled text (issue #197)
 /// 3. Takes screenshots on both macOS and iOS for each table
 /// 4. Forces a re-capture and takes final screenshots to verify
 ///    capture-pane correctly preserves emoji positioning
@@ -170,10 +173,60 @@ public enum EmojiTableRenderingScenario {
                     o("\u2534" if i<ncols-1 else "\u2518")
                 o("\n")
 
+            def table4():
+                """Markdown-style table with em/en dashes, bold, code SGR, and ASCII control row.
+                Tests character width handling for ambiguous-width and SGR-styled text."""
+                o(f"\n{C}1;31mTable 4: Special chars{C}0m\n\n")
+                hdr=[("Type",10),("Content",22),("Border",6)]
+                # top border
+                o("\u250c")
+                for i,(h,w) in enumerate(hdr):
+                    o("\u2500"*(w+2))
+                    o("\u252c" if i<len(hdr)-1 else "\u2510")
+                o("\n")
+                # header
+                o("\u2502")
+                for h,w in hdr:
+                    o(f" {C}1;37m{h:<{w}}{C}0m \u2502")
+                o("\n")
+                # separator
+                o("\u251c")
+                for i,(h,w) in enumerate(hdr):
+                    o("\u2500"*(w+2))
+                    o("\u253c" if i<len(hdr)-1 else "\u2524")
+                o("\n")
+                # data rows — each tests a different special character scenario
+                rows=[
+                    ("Plain","Hello world","OK"),
+                    ("Em dash","Hello \u2014 world","OK"),
+                    ("En dash","2024\u20132025 range","OK"),
+                    ("Bold",f"{C}1mBold text here{C}0m","OK"),
+                    ("Code",f"{C}7m code_span {C}0m","OK"),
+                    ("Mixed",f"A \u2014 {C}1mbold{C}0m \u2013 Z","OK"),
+                ]
+                for typ,content,border in rows:
+                    o(f"\u2502 {typ:<{hdr[0][1]}} \u2502 ")
+                    # Calculate visible width for padding
+                    import re
+                    vis=re.sub(r'\033\[[0-9;]*m','',content)
+                    vw=len(vis)
+                    cw=hdr[1][1]
+                    o(content)
+                    pad=cw-vw
+                    if pad>0:o(" "*pad)
+                    o(f" \u2502 {border:<{hdr[2][1]}} \u2502\n")
+                # bottom border
+                o("\u2514")
+                for i,(h,w) in enumerate(hdr):
+                    o("\u2500"*(w+2))
+                    o("\u2534" if i<len(hdr)-1 else "\u2518")
+                o("\n")
+
             o(f"{C}2J{C}H")
             table1()
             table2()
             table3()
+            table4()
             o(f"\n{C}1;32mDone.{C}0m\n")
             PYEOF
             """#,
