@@ -2,7 +2,7 @@
 name: e2e-testing
 allowed-tools:
   - Bash(./scripts/e2e-test.sh *)
-description: Use this skill for any e2e testing task: running or creating scenarios, adding test steps, managing element queries, debugging failures, adding accessibility hooks, or updating existing scenarios. It provides the scenario DSL, available test steps, element queries, and registration process.
+description: Use this skill when writing, modifying, running, or debugging formal e2e test scenarios — the Swift DSL-based automated tests in ClaudeSpyE2ELib. This includes creating new scenario files, adding or changing TestStep sequences, fixing failing scenarios, choosing ElementQuery matchers, registering scenarios in allScenarios, adding accessibility identifiers/hooks for testability, running ./scripts/e2e-test.sh, updating screenshot baselines, or extending the test framework with new step types. Use this skill whenever someone mentions e2e scenarios, test steps, element queries, screenshot baselines, the ScenarioBuilder DSL, or wants to run the automated e2e suite. Do NOT use this skill for ad-hoc manual debugging, taking one-off screenshots, interactively driving the app, or exploratory testing without writing a formal scenario — use e2e-manual-debugging for those instead.
 ---
 
 # E2E Test Scenario Development

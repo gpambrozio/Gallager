@@ -148,6 +148,8 @@ public enum TestStep: Sendable {
     case assertStoredNotEqual(key: String, otherKey: String)
     /// Assert a stored context value contains a substring
     case assertStoredContains(key: String, substring: String)
+    /// Assert a stored context value does NOT contain a substring
+    case assertStoredNotContains(key: String, substring: String)
 
     // MARK: - General
 

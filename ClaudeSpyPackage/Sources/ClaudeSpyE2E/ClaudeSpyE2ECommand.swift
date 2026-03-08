@@ -184,6 +184,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         TerminalNotificationScenario.scenario,
         CursorStyleScenario.scenario,
         TableRenderingScenario.scenario,
+        YoloModeAutoApproveScenario.scenario,
         EmojiTableRenderingScenario.scenario,
     ]
 

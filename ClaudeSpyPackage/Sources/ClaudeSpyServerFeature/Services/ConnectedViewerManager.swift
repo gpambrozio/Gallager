@@ -210,10 +210,10 @@ final public class ConnectedViewerManager {
     // MARK: - Broadcasting
 
     /// Send a hook event to all connected viewers.
-    public func sendHookEventToAll(_ event: HookEvent) async {
+    public func sendHookEventToAll(_ event: HookEvent, skipPushNotification: Bool = false) async {
         await withTaskGroup(of: Void.self) { group in
             for connection in connections.values where connection.state.isConnected {
-                group.addTask { await connection.sendHookEvent(event) }
+                group.addTask { await connection.sendHookEvent(event, skipPushNotification: skipPushNotification) }
             }
         }
     }

@@ -78,6 +78,7 @@
                     responseState: $service.responseState,
                     terminalTitle: $terminalTitle,
                     isConnected: service.isHostConnected,
+                    isYoloMode: service.isYoloModeEnabled,
                     hideNavigationBar: hideNavigationBar,
                     settings: settings,
                     sendCommand: { command in
