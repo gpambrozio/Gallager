@@ -185,6 +185,8 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             self.terminalView = InteractiveTerminalView(
                 frame: NSRect(x: 0, y: 0, width: 800, height: 600)
             )
+            // Disable custom block glyph rendering — see TerminalContainerView.init for details.
+            terminalView.customBlockGlyphs = false
             applyDarkTheme()
         }
 

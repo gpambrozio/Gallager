@@ -1109,6 +1109,11 @@
             }
         }
 
+        var customBlockGlyphs: Bool {
+            get { terminalView.customBlockGlyphs }
+            set { terminalView.customBlockGlyphs = newValue }
+        }
+
         var nativeForegroundColor: NSColor {
             get { terminalView.nativeForegroundColor }
             set { terminalView.nativeForegroundColor = newValue }
