@@ -6,6 +6,42 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.12</title>
+         <sparkle:version>12</sparkle:version>
+         <sparkle:shortVersionString>1.12</sparkle:shortVersionString>
+         <pubDate>Mon, 09 Mar 2026 08:00:08 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.12 Release Notes
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Rich text copy from terminal</strong> — Copy terminal selections as formatted rich text (Cmd+Option+C) preserving colors, bold, italic, and other styling. Also available: copy with ANSI escape sequences (Ctrl+Cmd+C) for pasting into other terminals.</li>
+<li><strong>Auto-copy on select</strong> — New option to automatically copy selected terminal text to the clipboard when the selection is released.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Cleaner iOS experience in yolo mode</strong> — Permission requests that are auto-approved on the Mac (such as file reads) no longer show response UI or trigger push notifications on iOS. Events requiring manual input still appear as expected.</li>
+<li><strong>Yolo mode persists across context compaction</strong> — Yolo mode is no longer reset when Claude Code compacts context mid-session. It now carries over seamlessly and only clears on an explicit session end.</li>
+<li><strong>Improved terminal text copy</strong> — Plain text copy now trims trailing whitespace that previously padded each line to the full column width.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Fixed box drawing misalignment on non-Retina displays</strong> — Table borders and box-drawing characters no longer drift out of alignment with text content on standard-resolution screens.</li>
+<li><strong>Fixed emoji and wide character column alignment</strong> — Tables containing emoji or CJK characters now render with correct column alignment. Wide characters are properly counted as two columns during terminal processing.</li>
+<li><strong>Updated SwiftTerm to 1.11.2</strong> — Fixes upstream issues with emoji background gaps, flag emoji rendering, and Unicode width detection.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.12.dmg"
+                    sparkle:edSignature="+nsggUC8pGv/uRDiXZGDQ6LtcIpup/YBi6hDrIkLuiseFHSIzNgaaAu5PPHWqzgO0UztpnGNwmIiUP8KtQMXDQ=="
+                    length="20315020"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.11</title>
          <sparkle:version>11</sparkle:version>
          <sparkle:shortVersionString>1.11</sparkle:shortVersionString>
