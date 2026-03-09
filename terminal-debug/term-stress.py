@@ -1049,10 +1049,6 @@ def test_osc(auto, delay):
     w(f"  {OSC}9;Test notification from term-stress{ST}")
     w(f"  (Sent notification — may appear in system tray)\n")
 
-    # Restore title
-    w(f"\n  Restoring original title...\n")
-    w(f"{OSC}0;{os.environ.get('SHELL', 'bash')}{ST}")
-
     pause(auto, delay)
 
 
