@@ -27,6 +27,7 @@
         // Data delivery
         private var dataHandler: (@Sendable (Data) -> Void)?
         private var notificationHandler: (@Sendable (TerminalStreamMessage.TerminalNotification) -> Void)?
+        private var titleChangeHandler: (@Sendable (String) -> Void)?
 
         // AsyncStream for FIFO-ordered data processing.
         // readabilityHandler yields into this stream; a single consumer task
@@ -70,6 +71,11 @@
         /// Sets the handler for terminal notifications (OSC 9/777).
         func setNotificationHandler(_ handler: @escaping @Sendable (TerminalStreamMessage.TerminalNotification) -> Void) {
             notificationHandler = handler
+        }
+
+        /// Sets the handler for terminal title changes (OSC 0/2).
+        func setTitleChangeHandler(_ handler: @escaping @Sendable (String) -> Void) {
+            titleChangeHandler = handler
         }
 
         /// Starts pipe-pane for this pane, creating the FIFO and opening it for reading.
@@ -224,6 +230,7 @@
             notificationParser.reset()
             dataHandler = nil
             notificationHandler = nil
+            titleChangeHandler = nil
 
             logger.info("pipe-pane stopped for \(paneId)")
         }
@@ -241,6 +248,11 @@
             // Report any detected notifications
             for notification in parseResult.notifications {
                 notificationHandler?(notification)
+            }
+
+            // Report title changes (OSC 0/2)
+            if let title = parseResult.titleChange {
+                titleChangeHandler?(title)
             }
 
             let filtered = parseResult.filteredData

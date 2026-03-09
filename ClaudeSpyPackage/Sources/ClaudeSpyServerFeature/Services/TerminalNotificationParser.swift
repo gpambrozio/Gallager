@@ -27,6 +27,8 @@
             let filteredData: Data
             /// Notifications found in the data
             let notifications: [TerminalStreamMessage.TerminalNotification]
+            /// Last terminal title change detected via OSC 0/2 (nil if none found)
+            let titleChange: String?
         }
 
         /// Maximum OSC buffer size (8 KB) before discarding as pass-through data.
@@ -52,6 +54,7 @@
         mutating func parse(_ data: Data) -> ParseResult {
             var result = scanOnly ? Data() : Data()
             var notifications: [TerminalStreamMessage.TerminalNotification] = []
+            var lastTitleChange: String?
 
             // Prepend any buffered incomplete sequence from previous read
             var dataToProcess = data
@@ -113,7 +116,7 @@
                         if j + 1 >= dataToProcess.endIndex {
                             // ESC at end inside OSC — buffer entire sequence
                             oscBuffer = Data(dataToProcess[oscStart...])
-                            return ParseResult(filteredData: result, notifications: notifications)
+                            return ParseResult(filteredData: result, notifications: notifications, titleChange: lastTitleChange)
                         }
                         if dataToProcess[j + 1] == 0x5C { // '\'
                             foundTerminator = true
@@ -133,15 +136,21 @@
                 // Extract content between ESC ] and terminator
                 let content = dataToProcess[contentStart..<j]
 
-                // Check if this is a notification OSC sequence
+                // Check if this is a notification or title OSC sequence
                 let (isNotificationSequence, notification) = parseNotificationContent(content)
                 if isNotificationSequence {
                     // Strip notification sequences from output
                     if let notification {
                         notifications.append(notification)
                     }
+                } else if let title = parseTitleContent(content) {
+                    // OSC 0/2 title change — pass through to terminal but also capture
+                    lastTitleChange = title
+                    if !scanOnly {
+                        result.append(contentsOf: dataToProcess[oscStart..<terminatorEnd])
+                    }
                 } else if !scanOnly {
-                    // Not a notification — pass through the entire OSC sequence unchanged
+                    // Not a notification or title — pass through the entire OSC sequence unchanged
                     result.append(contentsOf: dataToProcess[oscStart..<terminatorEnd])
                 }
 
@@ -156,7 +165,27 @@
                 oscBuffer = Data()
             }
 
-            return ParseResult(filteredData: result, notifications: notifications)
+            return ParseResult(filteredData: result, notifications: notifications, titleChange: lastTitleChange)
+        }
+
+        /// Attempt to parse OSC content as a terminal title change (OSC 0 or OSC 2).
+        ///
+        /// - OSC 0: Content is `0;<title>` (set window title and icon name)
+        /// - OSC 2: Content is `2;<title>` (set window title)
+        ///
+        /// Returns the title string if this is a title sequence, nil otherwise.
+        private func parseTitleContent(_ content: Data) -> String? {
+            guard let string = String(bytes: content, encoding: .utf8) else {
+                return nil
+            }
+
+            // OSC 0: "0;<title>" or OSC 2: "2;<title>"
+            if string.hasPrefix("0;") || string.hasPrefix("2;") {
+                let title = String(string.dropFirst(2))
+                return title.isEmpty ? nil : title
+            }
+
+            return nil
         }
 
         /// Attempt to parse OSC content as a notification.

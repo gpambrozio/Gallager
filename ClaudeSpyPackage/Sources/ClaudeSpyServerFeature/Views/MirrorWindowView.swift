@@ -13,6 +13,10 @@ struct MirrorWindowView: View {
     @State private var streamHeight: Int?
     @State private var terminalTitle: String?
 
+    init(paneInfo: PaneInfo) {
+        self.paneInfo = paneInfo
+    }
+
     private var windowTitle: String {
         if let terminalTitle, !terminalTitle.isEmpty {
             return terminalTitle
@@ -41,6 +45,12 @@ struct MirrorWindowView: View {
             }
         }
         .navigationTitle(windowTitle)
+        .onAppear {
+            // Restore previously detected title when view is recreated (e.g., switching panes in sidebar)
+            if terminalTitle == nil, let savedTitle = windowManager.terminalTitles[paneInfo.target] {
+                terminalTitle = savedTitle
+            }
+        }
     }
 
     // MARK: - Subviews
