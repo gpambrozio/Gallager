@@ -60,6 +60,14 @@ public enum EmojiTableRenderingScenario {
             E="\033";C=E+"["
             def o(s):sys.stdout.write(s);sys.stdout.flush()
 
+            def dw(s):
+                """Display width of a string (emoji=2 cols, others=1)."""
+                v=0
+                for ch in s:
+                    if ord(ch)>=0x1f000 or ord(ch) in (0x26bd,0x26be):v+=2
+                    else:v+=1
+                return v
+
             def table1():
                 """Simple emoji table with varying counts per row."""
                 o(f"{C}1;36mTable 1: Emoji counts{C}0m\n\n")
@@ -76,7 +84,8 @@ public enum EmojiTableRenderingScenario {
                 o(f"\u2502 {'#':<{w1}}\u2502 {'Item':<{w2}}\u2502\n")
                 o(f"\u251c\u2500{h1}\u253c\u2500{h2}\u2524\n")
                 for n,emojis in rows:
-                    o(f"\u2502 {n:<{w1}}\u2502 {emojis:<{w2}}\u2502\n")
+                    pad=w2-dw(emojis)
+                    o(f"\u2502 {n:<{w1}}\u2502 {emojis}{' '*pad}\u2502\n")
                 o(f"\u2514\u2500{h1}\u2534\u2500{h2}\u2518\n")
 
             def table2():
@@ -115,16 +124,10 @@ public enum EmojiTableRenderingScenario {
                         # For simplicity, just write the value and pad with
                         # enough spaces (terminal will handle alignment)
                         o(f" {val}")
-                        # Calculate visible width (approximate)
-                        plain=val
-                        # strip ANSI sequences for length calculation
+                        # Calculate visible width
                         import re
-                        vis=re.sub(r'\033\[[0-9;]*m','',plain)
-                        # count emoji as 2-wide
-                        vw=0
-                        for ch in vis:
-                            if ord(ch)>=0x1f000:vw+=2
-                            else:vw+=1
+                        vis=re.sub(r'\033\[[0-9;]*m','',val)
+                        vw=dw(vis)
                         pad=w-vw+1
                         if pad>0:o(" "*pad)
                         else:o(" ")
@@ -157,11 +160,11 @@ public enum EmojiTableRenderingScenario {
                 for row in grid:
                     o("\u2502")
                     for em in row:
-                        o(f" {em} ")
-                        # emoji is 2-wide, pad to w+2 total (including the 2 spaces)
-                        # 1 space + emoji(2) + spaces to fill = w+2
-                        pad=w-2+1  # w-emoji_width+trailing_space
-                        o(" "*pad+"\u2502")
+                        ew=dw(em)
+                        # cell content = w+2 display cols (matching border)
+                        # 1 leading space + emoji(ew) + remaining spaces
+                        pad=w+2-1-ew
+                        o(f" {em}{' '*pad}\u2502")
                     o("\n")
                 # bottom
                 o("\u2514")
