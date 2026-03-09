@@ -13,10 +13,6 @@ struct MirrorWindowView: View {
     @State private var streamHeight: Int?
     @State private var terminalTitle: String?
 
-    init(paneInfo: PaneInfo) {
-        self.paneInfo = paneInfo
-    }
-
     private var windowTitle: String {
         if let terminalTitle, !terminalTitle.isEmpty {
             return terminalTitle

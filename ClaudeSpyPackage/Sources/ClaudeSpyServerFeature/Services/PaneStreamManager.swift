@@ -317,6 +317,11 @@
             guard !title.isEmpty, context.terminalTitle != title else { return }
             context.terminalTitle = title
             streams[paneId] = context
+
+            // Notify global handler so MirrorWindowManager stays in sync
+            // even when the pane is streamed without a local mirror window
+            onTitleChange?(paneId, context.target, title)
+
             forwardTitleChange(paneId: paneId, title: title, excludingSubscription: fromSubscription)
         }
 
