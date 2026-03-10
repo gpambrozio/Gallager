@@ -15,8 +15,8 @@ public struct MainView: View {
 
     public init() { }
 
-    /// Selection state: either a local pane or a remote pane (hostId + paneId)
-    @State private var selectedPane: PaneInfo?
+    /// Selection state: either a local window or a remote pane (hostId + paneId)
+    @State private var selectedWindow: TmuxWindow?
     @State private var selectedRemotePane: RemotePaneSelection?
     @State private var attachError: String?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -28,10 +28,10 @@ public struct MainView: View {
 
     /// Tracks active session pane IDs for detecting section changes
     @State private var trackedActiveSessionPaneIds: Set<String> = []
-    /// ID to scroll to in the sidebar when a pane moves between sections
-    @State private var scrollToPaneId: String?
+    /// ID to scroll to in the sidebar when a window moves between sections
+    @State private var scrollToWindowId: String?
 
-    /// Per-session auto-resize state (keyed by pane target for local, "remote-hostId-paneId" for remote)
+    /// Per-session auto-resize state (keyed by window id for local, "remote-hostId-paneId" for remote)
     @State private var autoResizeEnabled: Set<String> = []
     /// Last dimensions sent via auto-resize, used to skip redundant calls during window drag
     @State private var lastAutoResizeDimensions: (columns: Int, rows: Int)?
@@ -73,20 +73,20 @@ public struct MainView: View {
                 Text(error)
             }
         }
-        .onChange(of: tmuxService.panes) { _, newPanes in
-            guard let selected = selectedPane else { return }
-            if let updated = newPanes.first(where: { $0.id == selected.id }) {
-                // Keep selection in sync with refreshed pane data
+        .onChange(of: tmuxService.windows) { _, newWindows in
+            guard let selected = selectedWindow else { return }
+            if let updated = newWindows.first(where: { $0.id == selected.id }) {
+                // Keep selection in sync with refreshed window data
                 if updated != selected {
-                    selectedPane = updated
+                    selectedWindow = updated
                 }
             } else {
-                // Selected pane was removed, clear selection
-                selectedPane = nil
+                // Selected window was removed, clear selection
+                selectedWindow = nil
             }
         }
-        .onChange(of: selectedPane) {
-            // Reset cached dimensions and trigger auto-resize for the newly selected pane
+        .onChange(of: selectedWindow) {
+            // Reset cached dimensions and trigger auto-resize for the newly selected window
             lastAutoResizeDimensions = nil
             handleAutoResize()
         }
@@ -107,14 +107,14 @@ public struct MainView: View {
     @ViewBuilder
     private var sidebarContent: some View {
         Group {
-            if tmuxService.isRefreshing && tmuxService.panes.isEmpty && !settings.hasRemoteHosts {
+            if tmuxService.isRefreshing && tmuxService.windows.isEmpty && !settings.hasRemoteHosts {
                 loadingView
-            } else if let error = tmuxService.lastError, tmuxService.panes.isEmpty, !settings.hasRemoteHosts {
+            } else if let error = tmuxService.lastError, tmuxService.windows.isEmpty, !settings.hasRemoteHosts {
                 errorView(error)
-            } else if tmuxService.panes.isEmpty && !settings.hasRemoteHosts {
+            } else if tmuxService.windows.isEmpty && !settings.hasRemoteHosts {
                 emptyView
             } else {
-                paneList
+                windowList
             }
         }
         .frame(minWidth: 200)
@@ -123,7 +123,7 @@ public struct MainView: View {
     private var loadingView: some View {
         VStack(spacing: 12) {
             ProgressView()
-            Text("Loading panes...")
+            Text("Loading windows...")
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -131,7 +131,7 @@ public struct MainView: View {
 
     private func errorView(_ message: String) -> some View {
         ContentUnavailableView(
-            "Error Loading Panes",
+            "Error Loading Windows",
             symbol: .exclamationmarkTriangle,
             description: message
         )
@@ -139,20 +139,25 @@ public struct MainView: View {
 
     private var emptyView: some View {
         ContentUnavailableView(
-            "No Panes Available",
+            "No Windows Available",
             symbol: .terminal
         )
     }
 
-    private var paneList: some View {
-        let panesWithClaude = tmuxService.panes.filter { windowManager.activeSessions[$0.paneId] != nil }
-        let panesWithoutClaude = tmuxService.panes.filter { windowManager.activeSessions[$0.paneId] == nil }
+    /// Whether a window has at least one pane with an active Claude session
+    private func windowHasClaude(_ window: TmuxWindow) -> Bool {
+        window.panes.contains { windowManager.activeSessions[$0.paneId] != nil }
+    }
+
+    private var windowList: some View {
+        let windowsWithClaude = tmuxService.windows.filter { windowHasClaude($0) }
+        let windowsWithoutClaude = tmuxService.windows.filter { !windowHasClaude($0) }
 
         return ScrollViewReader { proxy in
             List {
-                claudeSessionsSection(panes: panesWithClaude)
-                terminalsSection(panes: panesWithoutClaude, hasClaudeSessions: !panesWithClaude.isEmpty)
-                emptyLocalSection(hasAnyPanes: !panesWithClaude.isEmpty || !panesWithoutClaude.isEmpty)
+                claudeSessionsSection(windows: windowsWithClaude)
+                terminalsSection(windows: windowsWithoutClaude, hasClaudeSessions: !windowsWithClaude.isEmpty)
+                emptyLocalSection(hasAnyWindows: !windowsWithClaude.isEmpty || !windowsWithoutClaude.isEmpty)
                 remoteHostSections
             }
             .listStyle(.sidebar)
@@ -160,12 +165,12 @@ public struct MainView: View {
                 await refreshPanes()
                 await coordinator.viewerConnectionManager?.requestAllSessionStates()
             }
-            .onChange(of: scrollToPaneId) { _, paneId in
-                guard let paneId else { return }
+            .onChange(of: scrollToWindowId) { _, windowId in
+                guard let windowId else { return }
                 withAnimation {
-                    proxy.scrollTo(paneId, anchor: .center)
+                    proxy.scrollTo(windowId, anchor: .center)
                 }
-                Task { @MainActor in scrollToPaneId = nil }
+                Task { @MainActor in scrollToWindowId = nil }
             }
             .onChange(of: windowManager.activeSessionPaneIds) {
                 handleActiveSessionsChanged()
@@ -174,11 +179,11 @@ public struct MainView: View {
     }
 
     @ViewBuilder
-    private func claudeSessionsSection(panes: [PaneInfo]) -> some View {
-        if !panes.isEmpty {
+    private func claudeSessionsSection(windows: [TmuxWindow]) -> some View {
+        if !windows.isEmpty {
             Section {
-                ForEach(panes) { pane in
-                    paneButton(pane: pane, help: "Claude Code session active")
+                ForEach(windows) { window in
+                    windowButton(window: window, help: "Claude Code session active")
                 }
             } header: {
                 SectionHeader(title: "Claude Sessions", symbol: .sparkles) {
@@ -189,11 +194,11 @@ public struct MainView: View {
     }
 
     @ViewBuilder
-    private func terminalsSection(panes: [PaneInfo], hasClaudeSessions: Bool) -> some View {
-        if !panes.isEmpty {
+    private func terminalsSection(windows: [TmuxWindow], hasClaudeSessions: Bool) -> some View {
+        if !windows.isEmpty {
             Section {
-                ForEach(panes) { pane in
-                    paneButton(pane: pane)
+                ForEach(windows) { window in
+                    windowButton(window: window)
                 }
             } header: {
                 if !hasClaudeSessions {
@@ -208,8 +213,8 @@ public struct MainView: View {
     }
 
     @ViewBuilder
-    private func emptyLocalSection(hasAnyPanes: Bool) -> some View {
-        if !hasAnyPanes && settings.hasRemoteHosts {
+    private func emptyLocalSection(hasAnyWindows: Bool) -> some View {
+        if !hasAnyWindows && settings.hasRemoteHosts {
             Section {
                 Text("No local sessions")
                     .foregroundStyle(.secondary)
@@ -234,7 +239,7 @@ public struct MainView: View {
                     selectedRemotePane: $selectedRemotePane,
                     onSelect: { selection in
                         selectedRemotePane = selection
-                        selectedPane = nil
+                        selectedWindow = nil
                     },
                     onCreate: { project in
                         Task {
@@ -246,19 +251,19 @@ public struct MainView: View {
         }
     }
 
-    private func paneButton(pane: PaneInfo, help: String? = nil) -> some View {
+    private func windowButton(window: TmuxWindow, help: String? = nil) -> some View {
         Button {
-            selectedPane = pane
+            selectedWindow = window
             selectedRemotePane = nil
         } label: {
-            PaneSidebarRow(pane: pane)
+            WindowSidebarRow(window: window)
         }
-        .id(pane.id)
+        .id(window.id)
         .buttonStyle(.plain)
-        .accessibilityLabel(pane.target)
-        .accessibilityValue(windowManager.terminalTitles[pane.target] ?? "")
+        .accessibilityLabel(window.id)
+        .accessibilityValue(window.windowName)
         .help(help ?? "")
-        .listRowBackground(selectedPane?.id == pane.id && selectedRemotePane == nil ? Color.accentColor.opacity(0.2) : nil)
+        .listRowBackground(selectedWindow?.id == window.id && selectedRemotePane == nil ? Color.accentColor.opacity(0.2) : nil)
     }
 
     // MARK: - Detail View
@@ -278,10 +283,16 @@ public struct MainView: View {
                 }
             )
             .id(remote.resizeKey)
-        } else if let pane = selectedPane {
-            MirrorWindowView(paneInfo: pane)
-                .id(pane.id)
-        } else if tmuxService.panes.isEmpty && !settings.hasRemoteHosts {
+        } else if let window = selectedWindow {
+            WindowPaneLayoutView(
+                window: window,
+                onPaneStateChange: nil,
+                onPaneTitleChange: { pane, title in
+                    windowManager.updateTerminalTitle(target: pane.target, title: title)
+                }
+            )
+            .id(window.id)
+        } else if tmuxService.windows.isEmpty && !settings.hasRemoteHosts {
             NewSessionContent(
                 title: "New Session",
                 projects: projects,
@@ -299,9 +310,9 @@ public struct MainView: View {
                 HStack {
                     Spacer()
                     ContentUnavailableView(
-                        "Select a Pane",
+                        "Select a Window",
                         symbol: .terminal,
-                        description: "Choose a pane from the sidebar to view its mirror."
+                        description: "Choose a window from the sidebar to view its mirror."
                     )
                     Spacer()
                 }
@@ -318,15 +329,15 @@ public struct MainView: View {
             connectionStatusView
         }
 
-        // Actions for selected pane
+        // Actions for selected window
         ToolbarItemGroup(placement: .primaryAction) {
-            if let pane = selectedPane, selectedRemotePane == nil {
-                // Yolo mode toggle (only for panes with active Claude sessions)
-                if windowManager.activeSessions[pane.paneId] != nil {
+            if let window = selectedWindow, selectedRemotePane == nil {
+                // Yolo mode toggle (for panes with active Claude sessions in this window)
+                if let claudePane = window.panes.first(where: { windowManager.activeSessions[$0.paneId] != nil }) {
                     Toggle(isOn: Binding(
-                        get: { windowManager.isYoloModeEnabled(for: pane.paneId) },
+                        get: { windowManager.isYoloModeEnabled(for: claudePane.paneId) },
                         set: { newValue in
-                            windowManager.setYoloMode(enabled: newValue, for: pane.paneId)
+                            windowManager.setYoloMode(enabled: newValue, for: claudePane.paneId)
                             Task {
                                 await coordinator.connectedViewerManager?.pushSessionStateToAll()
                             }
@@ -335,29 +346,33 @@ public struct MainView: View {
                         Symbols.bolt.image
                     }
                     .toggleStyle(.button)
-                    .help(windowManager.isYoloModeEnabled(for: pane.paneId)
+                    .help(windowManager.isYoloModeEnabled(for: claudePane.paneId)
                         ? "Yolo mode: auto-approving permissions (click to disable)"
                         : "Enable yolo mode to auto-approve permissions")
                 }
 
                 Button {
-                    attachToTerminal(pane)
+                    if let activePane = window.activePane {
+                        attachToTerminal(activePane)
+                    }
                 } label: {
                     Symbols.macwindow.image
                 }
                 .help("Open session in terminal app")
 
                 Button {
-                    windowManager.openMirror(for: pane)
+                    if let activePane = window.activePane {
+                        windowManager.openMirror(for: activePane)
+                    }
                 } label: {
                     Symbols.macwindowBadgePlus.image
                 }
                 .help("Open mirror in new window")
 
                 resizeToolbarGroup(
-                    resizeKey: pane.target,
-                    localTarget: pane.target,
-                    isSessionAttached: tmuxService.attachedSessionNames.contains(pane.sessionName)
+                    resizeKey: window.id,
+                    localTarget: window.activePane?.target,
+                    isSessionAttached: tmuxService.attachedSessionNames.contains(window.sessionName)
                 )
 
                 Button {
@@ -367,8 +382,8 @@ public struct MainView: View {
                 }
                 .help("Close session")
                 .popover(isPresented: $showingCloseConfirmation, arrowEdge: .bottom) {
-                    CloseSessionConfirmation(sessionName: pane.sessionName) {
-                        closeSession(pane.sessionName)
+                    CloseSessionConfirmation(sessionName: window.sessionName) {
+                        closeSession(window.sessionName)
                     }
                 }
             } else if let remote = selectedRemotePane {
@@ -548,8 +563,8 @@ public struct MainView: View {
         // Cancel any pending debounced resize
         autoResizeTask?.cancel()
 
-        // Capture current selection before the debounce sleep to avoid racing with pane switches
-        let currentPane = selectedPane
+        // Capture current selection before the debounce sleep to avoid racing with window switches
+        let currentWindow = selectedWindow
         let currentRemote = selectedRemotePane
 
         autoResizeTask = Task {
@@ -566,10 +581,12 @@ public struct MainView: View {
                 return
             }
 
-            if let pane = currentPane, currentRemote == nil {
-                guard autoResizeEnabled.contains(pane.target) else { return }
-                guard !tmuxService.attachedSessionNames.contains(pane.sessionName) else { return }
-                await performResize(localTarget: pane.target)
+            if let window = currentWindow, currentRemote == nil {
+                guard autoResizeEnabled.contains(window.id) else { return }
+                guard !tmuxService.attachedSessionNames.contains(window.sessionName) else { return }
+                if let target = window.activePane?.target {
+                    await performResize(localTarget: target)
+                }
             } else if let remote = currentRemote {
                 guard autoResizeEnabled.contains(remote.resizeKey) else { return }
                 await performResize(remoteHostId: remote.hostId, remotePaneId: remote.paneId)
@@ -615,20 +632,20 @@ public struct MainView: View {
         // Detect removed Claude sessions (panes moving from Claude Sessions → Terminals)
         let removedSessionPaneIds = previousIds.subtracting(currentIds)
 
-        if let selected = selectedPane, newSessionPaneIds.contains(selected.paneId) {
-            // The currently selected pane just got a Claude session - scroll to it
-            scrollToPaneId = selected.id
-        } else if !removedSessionPaneIds.isEmpty, let selected = selectedPane {
-            // A session ended, causing panes to move between sections - scroll to keep the
-            // selected pane visible so sidebar elements don't get hidden off-screen
-            scrollToPaneId = selected.id
+        if let selected = selectedWindow, selected.panes.contains(where: { newSessionPaneIds.contains($0.paneId) }) {
+            // The currently selected window just got a Claude session - scroll to it
+            scrollToWindowId = selected.id
+        } else if !removedSessionPaneIds.isEmpty, let selected = selectedWindow {
+            // A session ended, causing windows to move between sections - scroll to keep the
+            // selected window visible so sidebar elements don't get hidden off-screen
+            scrollToWindowId = selected.id
         } else if
-            selectedPane == nil, selectedRemotePane == nil, newSessionPaneIds.count == 1,
+            selectedWindow == nil, selectedRemotePane == nil, newSessionPaneIds.count == 1,
             let newPaneId = newSessionPaneIds.first,
-            let pane = tmuxService.panes.first(where: { $0.paneId == newPaneId }) {
-            // Nothing selected and a single new session appeared - auto-select it
-            selectedPane = pane
-            scrollToPaneId = pane.id
+            let window = tmuxService.windows.first(where: { $0.panes.contains { $0.paneId == newPaneId } }) {
+            // Nothing selected and a single new session appeared - auto-select the window
+            selectedWindow = window
+            scrollToWindowId = window.id
         }
 
         trackedActiveSessionPaneIds = currentIds
@@ -643,8 +660,8 @@ public struct MainView: View {
         coordinator.pendingMenuBarSelection = nil
         switch selection {
         case let .local(paneId):
-            if let pane = tmuxService.panes.first(where: { $0.paneId == paneId }) {
-                selectedPane = pane
+            if let window = tmuxService.windows.first(where: { $0.panes.contains { $0.paneId == paneId } }) {
+                selectedWindow = window
                 selectedRemotePane = nil
             }
         case let .remote(hostId, hostName, paneId):
@@ -653,7 +670,7 @@ public struct MainView: View {
                 hostName: hostName,
                 paneId: paneId
             )
-            selectedPane = nil
+            selectedWindow = nil
         }
     }
 
@@ -784,9 +801,9 @@ public struct MainView: View {
                     runCommand: runCommand
                 )
 
-                // Find the new pane and select it
-                if let newPane = tmuxService.panes.first(where: { $0.paneId == paneId }) {
-                    selectedPane = newPane
+                // Find the new window containing the pane and select it
+                if let newWindow = tmuxService.windows.first(where: { $0.panes.contains { $0.paneId == paneId } }) {
+                    selectedWindow = newWindow
                 }
             } catch {
                 attachError = "Failed to create session: \(error.localizedDescription)"
@@ -836,7 +853,7 @@ public struct MainView: View {
                     paneId: paneId
                 )
                 selectedRemotePane = selection
-                selectedPane = nil
+                selectedWindow = nil
             }
         case let .failure(error):
             let projectContext = project?.name ?? "terminal"
@@ -945,38 +962,56 @@ extension SectionHeader {
 
 // MARK: - Sidebar Row
 
-/// A row displaying a single pane in the sidebar
-private struct PaneSidebarRow: View {
+/// A row displaying a tmux window in the sidebar
+private struct WindowSidebarRow: View {
     @Environment(MirrorWindowManager.self) private var windowManager
 
-    let pane: PaneInfo
+    let window: TmuxWindow
 
-    /// Check if pane has active Claude session
-    private var hasClaude: Bool {
-        windowManager.activeSessions[pane.paneId] != nil
+    /// Check if any pane in the window has an active Claude session
+    private var claudePanes: [PaneInfo] {
+        window.panes.filter { windowManager.activeSessions[$0.paneId] != nil }
     }
 
-    /// The latest event subtitle (e.g., last assistant message from a Stop hook)
+    /// The latest event subtitle from the first Claude session in this window
     private var sessionSubtitle: String? {
-        windowManager.activeSessions[pane.paneId]?.latestEvent?.action.subtitle
+        claudePanes.first.flatMap { windowManager.activeSessions[$0.paneId]?.latestEvent?.action.subtitle }
     }
 
-    /// Terminal title detected via OSC escape sequences
+    /// Terminal title from the active pane
     private var terminalTitle: String? {
-        windowManager.terminalTitles[pane.target]
+        window.activePane.flatMap { windowManager.terminalTitles[$0.target] }
+    }
+
+    /// Display name for the window
+    private var displayName: String {
+        if !window.windowName.isEmpty {
+            return "\(window.sessionName):\(window.windowIndex) \(window.windowName)"
+        }
+        return "\(window.sessionName):\(window.windowIndex)"
     }
 
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(pane.target)
+                    Text(displayName)
                         .font(.system(.body, design: .monospaced))
 
-                    if hasClaude {
+                    if !claudePanes.isEmpty {
                         Symbols.sparkles.image
                             .foregroundStyle(.purple)
                             .font(.caption)
+                    }
+
+                    if window.panes.count > 1 {
+                        Text("\(window.panes.count)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.secondary.opacity(0.15))
+                            .clipShape(Capsule())
                     }
                 }
 
@@ -987,15 +1022,17 @@ private struct PaneSidebarRow: View {
                         .lineLimit(1)
                 }
 
-                Text(pane.command)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if let activePane = window.activePane {
+                    Text(activePane.command)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
 
-                Text(pane.currentPath.abbreviatedPath)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
+                    Text(activePane.currentPath.abbreviatedPath)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
 
                 if let sessionSubtitle {
                     Text(sessionSubtitle)

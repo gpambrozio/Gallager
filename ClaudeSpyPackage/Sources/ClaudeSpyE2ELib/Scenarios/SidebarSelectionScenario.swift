@@ -32,21 +32,21 @@ public enum SidebarSelectionScenario {
         TestStep.wait(seconds: 1)
 
         // Store pane IDs for hook events
-        TestStep.tmuxStorePaneId(target: "sidebar-1:0.0", storeAs: "pane1Id")
-        TestStep.tmuxStorePaneId(target: "sidebar-2:0.0", storeAs: "pane2Id")
+        TestStep.tmuxStorePaneId(target: "sidebar-1:0", storeAs: "pane1Id")
+        TestStep.tmuxStorePaneId(target: "sidebar-2:0", storeAs: "pane2Id")
 
         // ── Phase 1: Both panes in Terminals section ────────────
 
         TestStep.log("Phase 1: Both panes should be in Terminals section")
         TestStep.macWaitForElement(titled: "Terminals", timeout: 5)
-        TestStep.macWaitForElement(titled: "sidebar-1:0.0", timeout: 5)
-        TestStep.macWaitForElement(titled: "sidebar-2:0.0", timeout: 5)
+        TestStep.macWaitForElement(titled: "sidebar-1:0", timeout: 5)
+        TestStep.macWaitForElement(titled: "sidebar-2:0", timeout: 5)
         TestStep.macScreenshot(label: "both-in-terminals")
 
         // ── Phase 2: Select pane 1, then start Claude session ───
 
         TestStep.log("Phase 2: Select pane 1 and start a Claude session on it")
-        TestStep.macClickButton(titled: "sidebar-1:0.0")
+        TestStep.macClickButton(titled: "sidebar-1:0")
         TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "pane1-selected")
 
@@ -67,21 +67,21 @@ public enum SidebarSelectionScenario {
         // Pane 1 should now be in "Claude Sessions" section
         TestStep.macWaitForElement(titled: "Claude Sessions", timeout: 10)
         // Pane 1 should still be visible (it moved sections, not disappeared)
-        TestStep.macWaitForElement(titled: "sidebar-1:0.0", timeout: 5)
+        TestStep.macWaitForElement(titled: "sidebar-1:0", timeout: 5)
         // Pane 2 should still be in "Terminals"
         TestStep.macWaitForElement(titled: "Terminals", timeout: 5)
-        TestStep.macWaitForElement(titled: "sidebar-2:0.0", timeout: 5)
+        TestStep.macWaitForElement(titled: "sidebar-2:0", timeout: 5)
         TestStep.macScreenshot(label: "pane1-moved-to-claude-sessions")
 
         // ── Phase 3: Verify selection is preserved ──────────────
 
         TestStep.log("Phase 3: Click pane 2, verify selection switches correctly")
-        TestStep.macClickButton(titled: "sidebar-2:0.0")
+        TestStep.macClickButton(titled: "sidebar-2:0")
         TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "pane2-selected")
 
         // Click pane 1 back (now in Claude Sessions section)
-        TestStep.macClickButton(titled: "sidebar-1:0.0")
+        TestStep.macClickButton(titled: "sidebar-1:0")
         TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "pane1-reselected-in-claude-sessions")
 
@@ -106,8 +106,8 @@ public enum SidebarSelectionScenario {
         TestStep.macWaitForElementToDisappear(titled: "Claude Sessions", timeout: 10)
         // Both panes should be back in "Terminals"
         TestStep.macWaitForElement(titled: "Terminals", timeout: 5)
-        TestStep.macWaitForElement(titled: "sidebar-1:0.0", timeout: 5)
-        TestStep.macWaitForElement(titled: "sidebar-2:0.0", timeout: 5)
+        TestStep.macWaitForElement(titled: "sidebar-1:0", timeout: 5)
+        TestStep.macWaitForElement(titled: "sidebar-2:0", timeout: 5)
         TestStep.macScreenshot(label: "pane1-back-in-terminals")
 
         // ── Phase 5: Session end keeps all elements visible ───
@@ -133,8 +133,8 @@ public enum SidebarSelectionScenario {
 
         // Pane 1 should be in Claude Sessions, pane 2 in Terminals
         TestStep.macWaitForElement(titled: "Claude Sessions", timeout: 10)
-        TestStep.macWaitForElement(titled: "sidebar-1:0.0", timeout: 5)
-        TestStep.macWaitForElement(titled: "sidebar-2:0.0", timeout: 5)
+        TestStep.macWaitForElement(titled: "sidebar-1:0", timeout: 5)
+        TestStep.macWaitForElement(titled: "sidebar-2:0", timeout: 5)
 
         // Now end the session — pane 1 moves back to Terminals
         TestStep.macSendHookEvent(
@@ -155,8 +155,8 @@ public enum SidebarSelectionScenario {
         TestStep.macWaitForElementToDisappear(titled: "Claude Sessions", timeout: 10)
         // CRITICAL: Both panes must be visible without scrolling (issue #174)
         TestStep.macWaitForElement(titled: "Terminals", timeout: 5)
-        TestStep.macWaitForElement(titled: "sidebar-1:0.0", timeout: 5)
-        TestStep.macWaitForElement(titled: "sidebar-2:0.0", timeout: 5)
+        TestStep.macWaitForElement(titled: "sidebar-1:0", timeout: 5)
+        TestStep.macWaitForElement(titled: "sidebar-2:0", timeout: 5)
         TestStep.macScreenshot(label: "all-visible-after-session-end")
 
         // ── Phase 6: Auto-select when no selection ──────────────
@@ -166,8 +166,8 @@ public enum SidebarSelectionScenario {
         // Create a third session to test auto-selection
         TestStep.tmuxCreateSession(name: "sidebar-3", width: 80, height: 24)
         TestStep.wait(seconds: 3)
-        TestStep.tmuxStorePaneId(target: "sidebar-3:0.0", storeAs: "pane3Id")
-        TestStep.macWaitForElement(titled: "sidebar-3:0.0", timeout: 5)
+        TestStep.tmuxStorePaneId(target: "sidebar-3:0", storeAs: "pane3Id")
+        TestStep.macWaitForElement(titled: "sidebar-3:0", timeout: 5)
 
         // Click a selected pane to clear visual focus, then click somewhere neutral
         // We need to ensure nothing is selected. The simplest way: select pane 1,
@@ -178,7 +178,7 @@ public enum SidebarSelectionScenario {
 
         // First, verify that when something IS selected, a new session on a
         // different pane does NOT steal selection
-        TestStep.macClickButton(titled: "sidebar-1:0.0")
+        TestStep.macClickButton(titled: "sidebar-1:0")
         TestStep.wait(seconds: 1)
 
         TestStep.macSendHookEvent(
@@ -196,9 +196,9 @@ public enum SidebarSelectionScenario {
 
         // Claude Sessions section should appear with pane 3
         TestStep.macWaitForElement(titled: "Claude Sessions", timeout: 10)
-        TestStep.macWaitForElement(titled: "sidebar-3:0.0", timeout: 5)
+        TestStep.macWaitForElement(titled: "sidebar-3:0", timeout: 5)
         // Pane 1 should still be visible in Terminals (not auto-switched)
-        TestStep.macWaitForElement(titled: "sidebar-1:0.0", timeout: 5)
+        TestStep.macWaitForElement(titled: "sidebar-1:0", timeout: 5)
         TestStep.macScreenshot(label: "new-session-no-steal")
     }
 }

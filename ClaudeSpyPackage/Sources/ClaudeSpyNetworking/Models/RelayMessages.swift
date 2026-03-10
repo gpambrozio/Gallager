@@ -66,6 +66,8 @@ public struct PaneInfoMessage: Codable, Sendable, Identifiable {
     public let width: Int
     public let height: Int
     public let isActive: Bool
+    public let windowLayout: String?
+    public let windowName: String?
 
     public init(
         id: String,
@@ -77,7 +79,9 @@ public struct PaneInfoMessage: Codable, Sendable, Identifiable {
         currentPath: String? = nil,
         width: Int,
         height: Int,
-        isActive: Bool
+        isActive: Bool,
+        windowLayout: String? = nil,
+        windowName: String? = nil
     ) {
         self.id = id
         self.target = target
@@ -89,6 +93,8 @@ public struct PaneInfoMessage: Codable, Sendable, Identifiable {
         self.width = width
         self.height = height
         self.isActive = isActive
+        self.windowLayout = windowLayout
+        self.windowName = windowName
     }
 }
 

@@ -48,6 +48,9 @@ final public class TmuxService {
     /// Current list of available panes (updated by refreshPanes)
     public private(set) var panes: [PaneInfo] = []
 
+    /// Current list of windows grouped from panes (updated alongside panes)
+    public private(set) var windows: [TmuxWindow] = []
+
     /// Handler called when the pane list changes (after refreshPanes detects a change)
     private var onPanesChanged: (@Sendable () async -> Void)?
 
@@ -75,6 +78,12 @@ final public class TmuxService {
     /// This is useful for pushing updates to remote clients (e.g., iOS).
     public func setPanesChangedHandler(_ handler: @escaping @Sendable () async -> Void) {
         onPanesChanged = handler
+    }
+
+    /// Updates both panes and windows together
+    private func updatePanes(_ newPanes: [PaneInfo]) {
+        panes = newPanes
+        windows = TmuxWindow.groupPanes(newPanes)
     }
 
     // MARK: - tmux Commands
@@ -127,8 +136,8 @@ final public class TmuxService {
             let attachedSessions = await getAttachedSessionNames()
             attachedSessionNames = attachedSessions
 
-            // Format: #{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}
-            let format = "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}"
+            // Format: #{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}|#{window_layout}|#{window_name}
+            let format = "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}|#{window_layout}|#{window_name}"
 
             let result = try await runTmuxCommand([
                 "list-panes",
@@ -138,7 +147,7 @@ final public class TmuxService {
 
             guard result.isSuccess else {
                 if isNoServerError(result.stderrString) {
-                    panes = []
+                    updatePanes([])
                     return panes
                 }
                 lastError = result.stderrString
@@ -164,17 +173,17 @@ final public class TmuxService {
 
             // Deduplicate by paneId - attached session versions will be kept
             var seen = Set<String>()
-            panes = sortedPanes.filter { pane in
+            updatePanes(sortedPanes.filter { pane in
                 if seen.contains(pane.paneId) {
                     return false
                 }
                 seen.insert(pane.paneId)
                 return true
-            }
+            })
         } catch TmuxError.noServerRunning {
             // Tmux has no sessions - this is legitimate, not an error
             lastError = nil
-            panes = []
+            updatePanes([])
         } catch {
             // Other errors (transient failures) - keep old panes to avoid falsely marking sessions as stale
             lastError = error.localizedDescription

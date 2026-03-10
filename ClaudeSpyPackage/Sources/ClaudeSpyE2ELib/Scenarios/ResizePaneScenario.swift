@@ -25,7 +25,7 @@ public enum ResizePaneScenario {
         TestStep.wait(seconds: 1)
 
         // Select first pane by clicking the sidebar row
-        TestStep.macClickButton(titled: "resize-test-1:0.0")
+        TestStep.macClickButton(titled: "resize-test-1:0")
         TestStep.wait(seconds: 1)
 
         // ── Phase 1: Manual Resize ─────────────────────────────────
@@ -40,7 +40,7 @@ public enum ResizePaneScenario {
 
         // Record initial pane dimensions (should be ~80x24)
         TestStep.tmuxStorePaneDimensions(
-            target: "resize-test-1:0.0",
+            target: "resize-test-1:0",
             widthKey: "initialWidth",
             heightKey: "initialHeight"
         )
@@ -58,7 +58,7 @@ public enum ResizePaneScenario {
 
         // Record dimensions after manual resize
         TestStep.tmuxStorePaneDimensions(
-            target: "resize-test-1:0.0",
+            target: "resize-test-1:0",
             widthKey: "phase1Width",
             heightKey: "phase1Height"
         )
@@ -85,7 +85,7 @@ public enum ResizePaneScenario {
 
         // Record dimensions after auto-resize
         TestStep.tmuxStorePaneDimensions(
-            target: "resize-test-1:0.0",
+            target: "resize-test-1:0",
             widthKey: "phase2Width",
             heightKey: "phase2Height"
         )
@@ -100,7 +100,7 @@ public enum ResizePaneScenario {
         TestStep.log("Phase 3: Per-Session Independence")
 
         // Select second pane
-        TestStep.macClickButton(titled: "resize-test-2:0.0")
+        TestStep.macClickButton(titled: "resize-test-2:0")
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "80x24", timeout: 1)
         TestStep.macType(text: "printf '|%9d' $(seq 10 10 190) | tr ' ' -", pressReturn: true)
@@ -109,7 +109,7 @@ public enum ResizePaneScenario {
 
         // Record pane 2 dimensions (should still be 80x53)
         TestStep.tmuxStorePaneDimensions(
-            target: "resize-test-2:0.0",
+            target: "resize-test-2:0",
             widthKey: "pane2BeforeWidth",
             heightKey: "pane2BeforeHeight"
         )
@@ -122,7 +122,7 @@ public enum ResizePaneScenario {
 
         // Record pane 2 dimensions again
         TestStep.tmuxStorePaneDimensions(
-            target: "resize-test-2:0.0",
+            target: "resize-test-2:0",
             widthKey: "pane2AfterWidth",
             heightKey: "pane2AfterHeight"
         )
@@ -138,7 +138,7 @@ public enum ResizePaneScenario {
         TestStep.log("Phase 4: Auto-Resize on Pane Switch")
 
         // Select first pane again (should trigger auto-resize from our fix)
-        TestStep.macClickButton(titled: "resize-test-1:0.0")
+        TestStep.macClickButton(titled: "resize-test-1:0")
         // Wait for debounce
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "130x47", timeout: 1)
@@ -146,7 +146,7 @@ public enum ResizePaneScenario {
 
         // Record pane 1 dimensions
         TestStep.tmuxStorePaneDimensions(
-            target: "resize-test-1:0.0",
+            target: "resize-test-1:0",
             widthKey: "phase4Width",
             heightKey: "phase4Height"
         )

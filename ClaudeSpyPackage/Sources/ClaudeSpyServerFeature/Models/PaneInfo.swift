@@ -26,6 +26,13 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
     public let height: Int
     /// Whether this pane is the active pane in its window
     public let isActive: Bool
+    /// The tmux window layout string (e.g., "d0c6,191x50,0,0{95x50,0,0,5,95x50,96,0,6}")
+    public let windowLayout: String
+    /// The name of the tmux window containing this pane
+    public let windowName: String
+
+    /// Identifier for the window this pane belongs to (session:windowIndex)
+    public var windowId: String { "\(sessionName):\(windowIndex)" }
 
     public init(
         paneId: String,
@@ -37,7 +44,9 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
         currentPath: String,
         width: Int,
         height: Int,
-        isActive: Bool
+        isActive: Bool,
+        windowLayout: String = "",
+        windowName: String = ""
     ) {
         self.paneId = paneId
         self.target = target
@@ -49,12 +58,14 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
         self.width = width
         self.height = height
         self.isActive = isActive
+        self.windowLayout = windowLayout
+        self.windowName = windowName
     }
 }
 
 public extension PaneInfo {
     /// Creates a PaneInfo from tmux format output
-    /// Expected format: id|session|window|pane|command|path|width|height|active
+    /// Expected format: id|session|window|pane|command|path|width|height|active|layout|window_name
     init?(fromTmuxOutput line: String) {
         let components = line.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
         guard components.count >= 9 else { return nil }
@@ -75,6 +86,8 @@ public extension PaneInfo {
         self.width = width
         self.height = height
         self.isActive = components[8] == "1"
+        self.windowLayout = components.count > 9 ? components[9] : ""
+        self.windowName = components.count > 10 ? components[10] : ""
         self.target = "\(sessionName):\(windowIndex).\(paneIndex)"
     }
 
@@ -90,7 +103,9 @@ public extension PaneInfo {
             currentPath: currentPath,
             width: width,
             height: height,
-            isActive: isActive
+            isActive: isActive,
+            windowLayout: windowLayout,
+            windowName: windowName
         )
     }
 }

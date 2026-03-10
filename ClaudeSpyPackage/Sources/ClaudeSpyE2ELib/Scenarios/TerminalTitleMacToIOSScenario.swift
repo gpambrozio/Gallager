@@ -34,8 +34,8 @@ public enum TerminalTitleMacToIOSScenario {
         TestStep.macSetSidebarWidth(250)
         TestStep.wait(seconds: 1)
 
-        TestStep.macWaitForElement(titled: "e2e-title-ios:0.0", timeout: 10)
-        TestStep.macClickButton(titled: "e2e-title-ios:0.0")
+        TestStep.macWaitForElement(titled: "e2e-title-ios:0", timeout: 10)
+        TestStep.macClickButton(titled: "e2e-title-ios:0")
         TestStep.wait(seconds: 2)
         TestStep.macScreenshot(label: "host-default-title")
 
@@ -43,11 +43,11 @@ public enum TerminalTitleMacToIOSScenario {
 
         TestStep.log("Setting custom terminal title via OSC 2 escape sequence")
         TestStep.tmuxSendKeys(
-            target: "e2e-title-ios:0.0",
+            target: "e2e-title-ios:0",
             keys: "printf '\\033]2;iOS Title Test\\007'",
             literal: false
         )
-        TestStep.tmuxSendKeys(target: "e2e-title-ios:0.0", keys: "Enter", literal: false)
+        TestStep.tmuxSendKeys(target: "e2e-title-ios:0", keys: "Enter", literal: false)
         TestStep.wait(seconds: 3)
 
         // ── Phase 5: Verify title appears on host's sidebar ───────────
@@ -76,11 +76,11 @@ public enum TerminalTitleMacToIOSScenario {
 
         TestStep.log("Changing title and verifying live update on iOS")
         TestStep.tmuxSendKeys(
-            target: "e2e-title-ios:0.0",
+            target: "e2e-title-ios:0",
             keys: "printf '\\033]2;Updated iOS Title\\007'",
             literal: false
         )
-        TestStep.tmuxSendKeys(target: "e2e-title-ios:0.0", keys: "Enter", literal: false)
+        TestStep.tmuxSendKeys(target: "e2e-title-ios:0", keys: "Enter", literal: false)
         TestStep.wait(seconds: 3)
 
         // Verify updated title on host
@@ -98,15 +98,15 @@ public enum TerminalTitleMacToIOSScenario {
 
         // Wait for the pane to be discovered by periodic refresh and appear in sidebar
         // (notification reader must be running before we set the title)
-        TestStep.macWaitForElement(titled: "e2e-title-ios2:0.0", timeout: 15)
+        TestStep.macWaitForElement(titled: "e2e-title-ios2:0", timeout: 15)
 
         // Set a title on the new (inactive) pane — iOS is still viewing the first pane
         TestStep.tmuxSendKeys(
-            target: "e2e-title-ios2:0.0",
+            target: "e2e-title-ios2:0",
             keys: "printf '\\033]2;Inactive iOS Title\\007'",
             literal: false
         )
-        TestStep.tmuxSendKeys(target: "e2e-title-ios2:0.0", keys: "Enter", literal: false)
+        TestStep.tmuxSendKeys(target: "e2e-title-ios2:0", keys: "Enter", literal: false)
         TestStep.wait(seconds: 3)
 
         // Debug screenshot before title check (CI diagnostics)
