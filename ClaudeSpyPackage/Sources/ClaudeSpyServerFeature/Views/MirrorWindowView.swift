@@ -41,6 +41,12 @@ struct MirrorWindowView: View {
             }
         }
         .navigationTitle(windowTitle)
+        .onAppear {
+            // Restore previously detected title when view is recreated (e.g., switching panes in sidebar)
+            if terminalTitle == nil, let savedTitle = windowManager.terminalTitles[paneInfo.target] {
+                terminalTitle = savedTitle
+            }
+        }
     }
 
     // MARK: - Subviews

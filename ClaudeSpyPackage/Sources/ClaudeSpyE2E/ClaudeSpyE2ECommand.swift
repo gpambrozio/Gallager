@@ -222,6 +222,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         TerminalLinksScenario.scenario,
         TerminalTitleMacToMacScenario.scenario,
         TerminalTitleMacToIOSScenario.scenario,
+        TerminalTitlePersistenceScenario.scenario,
         TruecolorRenderingScenario.scenario,
         ScrollbackGapScenario.scenario,
         YoloModeStateSyncScenario.scenario,

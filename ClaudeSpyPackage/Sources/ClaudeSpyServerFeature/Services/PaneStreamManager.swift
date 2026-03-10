@@ -54,10 +54,16 @@
         private struct NotificationReaderContext {
             let reader: PipePaneReader
             let sessionName: String
+            /// The pane target (e.g., "mysession:0.1") for mapping title changes
+            let target: String
         }
 
         /// Lightweight notification-only readers for panes that aren't fully mirrored
         private var notificationReaders: [String: NotificationReaderContext] = [:]
+
+        /// Titles detected by notification readers (before a full stream exists).
+        /// Used to seed new stream contexts so late-joining subscribers get the title.
+        private var notificationReaderTitles: [String: String] = [:]
 
         /// Task for periodic pane discovery (needed to detect new tmux sessions)
         private var paneRefreshTask: Task<Void, Never>?
@@ -65,6 +71,10 @@
         /// Global notification handler — called for any notification on any pane,
         /// regardless of which subscribers are active. Used by macOS to show desktop notifications.
         public var onNotification: (@MainActor (String, TerminalStreamMessage.TerminalNotification) -> Void)?
+
+        /// Global title change handler — called when a title change is detected on a
+        /// notification-only reader (inactive pane). Parameters: (paneId, target, title).
+        public var onTitleChange: (@MainActor (String, String, String) -> Void)?
 
         // MARK: - Public State
 
@@ -206,11 +216,15 @@
                     self?.forwardNotification(paneId: paneId, notification: notification)
                 }
 
+                // Seed with title detected by notification reader (if any)
+                let savedTitle = notificationReaderTitles.removeValue(forKey: paneId)
+
                 // Store context BEFORE connect() so callbacks work if triggered during connect
                 streams[paneId] = StreamContext(
                     stream: stream,
                     target: target,
-                    subscriberIds: [subscriptionId]
+                    subscriberIds: [subscriptionId],
+                    terminalTitle: savedTitle
                 )
 
                 // Connect and get initial content atomically
@@ -227,6 +241,11 @@
 
                 width = stream.width
                 height = stream.height
+
+                // Send saved title to the first subscriber
+                if let savedTitle {
+                    onTitleChange?(savedTitle)
+                }
 
                 logger.info("Created new stream", metadata: [
                     "paneId": "\(paneId)",
@@ -266,11 +285,12 @@
             if context.subscriberIds.isEmpty {
                 // Last subscriber - disconnect stream
                 let sessionName = TmuxControlClientManager.extractSessionName(from: context.target)
+                let target = context.target
                 await context.stream.disconnect()
                 streams.removeValue(forKey: paneId)
 
-                // Restart notification-only reader so we still detect OSC 9/777
-                await startNotificationReader(paneId: paneId, sessionName: sessionName)
+                // Restart notification-only reader so we still detect OSC 9/777 and title changes
+                await startNotificationReader(paneId: paneId, sessionName: sessionName, target: target)
 
                 logger.info("Disconnected stream (no subscribers), restarted notification reader", metadata: [
                     "paneId": "\(paneId)",
@@ -310,6 +330,11 @@
             guard !title.isEmpty, context.terminalTitle != title else { return }
             context.terminalTitle = title
             streams[paneId] = context
+
+            // Notify global handler so MirrorWindowManager stays in sync
+            // even when the pane is streamed without a local mirror window
+            onTitleChange?(paneId, context.target, title)
+
             forwardTitleChange(paneId: paneId, title: title, excludingSubscription: fromSubscription)
         }
 
@@ -349,7 +374,7 @@
         /// Called once on startup after initial pane discovery.
         public func startNotificationMonitoring(panes: [PaneInfo]) async {
             for pane in panes where streams[pane.paneId] == nil && notificationReaders[pane.paneId] == nil {
-                await startNotificationReader(paneId: pane.paneId, sessionName: pane.sessionName)
+                await startNotificationReader(paneId: pane.paneId, sessionName: pane.sessionName, target: pane.target)
             }
         }
 
@@ -367,7 +392,7 @@
 
             // Start readers for new panes not already covered
             for pane in panes where streams[pane.paneId] == nil && notificationReaders[pane.paneId] == nil {
-                await startNotificationReader(paneId: pane.paneId, sessionName: pane.sessionName)
+                await startNotificationReader(paneId: pane.paneId, sessionName: pane.sessionName, target: pane.target)
             }
         }
 
@@ -399,15 +424,24 @@
 
         // MARK: - Notification Reader Helpers
 
-        private func startNotificationReader(paneId: String, sessionName: String) async {
-            // scanOnly: true avoids building filtered output Data — only extracts notifications,
-            // reducing CPU/memory overhead for panes that may produce high-throughput output.
+        private func startNotificationReader(paneId: String, sessionName: String, target: String) async {
+            // scanOnly: true avoids building filtered output Data — only extracts notifications
+            // and title changes, reducing CPU/memory overhead for panes that may produce
+            // high-throughput output.
             let reader = PipePaneReader(paneId: paneId, scanOnly: true)
 
-            // Only set notification handler — no data handler means data is discarded
+            // Set notification handler — no data handler means data is discarded
             await reader.setNotificationHandler { [weak self] notification in
                 Task { @MainActor in
                     self?.forwardNotification(paneId: paneId, notification: notification)
+                }
+            }
+
+            // Set title change handler for OSC 0/2 sequences on inactive panes
+            await reader.setTitleChangeHandler { [weak self] title in
+                Task { @MainActor in
+                    self?.notificationReaderTitles[paneId] = title
+                    self?.onTitleChange?(paneId, target, title)
                 }
             }
 
@@ -419,7 +453,8 @@
                 )
                 notificationReaders[paneId] = NotificationReaderContext(
                     reader: reader,
-                    sessionName: sessionName
+                    sessionName: sessionName,
+                    target: target
                 )
                 logger.debug("Started notification reader", metadata: ["paneId": "\(paneId)"])
             } catch {

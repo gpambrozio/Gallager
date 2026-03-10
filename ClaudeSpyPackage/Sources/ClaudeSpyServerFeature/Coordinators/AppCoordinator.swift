@@ -304,6 +304,12 @@
                 notificationService.showNotification(paneId, notification)
             }
 
+            // Wire title changes from background notification readers to window manager
+            let wm = windowManager
+            paneStreamManager.onTitleChange = { _, target, title in
+                wm.updateTerminalTitle(target: target, title: title)
+            }
+
             // Start notification-only readers for all discovered panes
             let initialPanes = await tmuxService.refreshPanes()
             await paneStreamManager.startNotificationMonitoring(panes: initialPanes)
