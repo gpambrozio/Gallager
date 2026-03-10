@@ -109,6 +109,10 @@ public enum TerminalTitleMacToIOSScenario {
         TestStep.tmuxSendKeys(target: "e2e-title-ios2:0.0", keys: "Enter", literal: false)
         TestStep.wait(seconds: 3)
 
+        // Debug screenshot before title check (CI diagnostics)
+        TestStep.wait(seconds: 2)
+        TestStep.macScreenshot(label: "host-before-inactive-title-check")
+
         // Verify the inactive pane's title appears on the host sidebar
         TestStep.macWaitForElement(titled: "Inactive iOS Title", timeout: 10)
         TestStep.macScreenshot(label: "host-inactive-pane-title")
