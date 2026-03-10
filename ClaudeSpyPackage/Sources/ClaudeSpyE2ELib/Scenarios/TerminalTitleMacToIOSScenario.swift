@@ -95,7 +95,10 @@ public enum TerminalTitleMacToIOSScenario {
 
         TestStep.log("Creating second tmux session and setting its title while iOS views the first")
         TestStep.tmuxCreateSession(name: "e2e-title-ios2", width: 80, height: 24)
-        TestStep.wait(seconds: 2)
+
+        // Wait for the pane to be discovered by periodic refresh and appear in sidebar
+        // (notification reader must be running before we set the title)
+        TestStep.macWaitForElement(titled: "e2e-title-ios2:0.0", timeout: 15)
 
         // Set a title on the new (inactive) pane — iOS is still viewing the first pane
         TestStep.tmuxSendKeys(

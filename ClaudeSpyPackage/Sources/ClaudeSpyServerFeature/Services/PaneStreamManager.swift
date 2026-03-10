@@ -61,6 +61,10 @@
         /// Lightweight notification-only readers for panes that aren't fully mirrored
         private var notificationReaders: [String: NotificationReaderContext] = [:]
 
+        /// Titles detected by notification readers (before a full stream exists).
+        /// Used to seed new stream contexts so late-joining subscribers get the title.
+        private var notificationReaderTitles: [String: String] = [:]
+
         /// Task for periodic pane discovery (needed to detect new tmux sessions)
         private var paneRefreshTask: Task<Void, Never>?
 
@@ -212,11 +216,15 @@
                     self?.forwardNotification(paneId: paneId, notification: notification)
                 }
 
+                // Seed with title detected by notification reader (if any)
+                let savedTitle = notificationReaderTitles.removeValue(forKey: paneId)
+
                 // Store context BEFORE connect() so callbacks work if triggered during connect
                 streams[paneId] = StreamContext(
                     stream: stream,
                     target: target,
-                    subscriberIds: [subscriptionId]
+                    subscriberIds: [subscriptionId],
+                    terminalTitle: savedTitle
                 )
 
                 // Connect and get initial content atomically
@@ -233,6 +241,11 @@
 
                 width = stream.width
                 height = stream.height
+
+                // Send saved title to the first subscriber
+                if let savedTitle {
+                    onTitleChange?(savedTitle)
+                }
 
                 logger.info("Created new stream", metadata: [
                     "paneId": "\(paneId)",
@@ -427,6 +440,7 @@
             // Set title change handler for OSC 0/2 sequences on inactive panes
             await reader.setTitleChangeHandler { [weak self] title in
                 Task { @MainActor in
+                    self?.notificationReaderTitles[paneId] = title
                     self?.onTitleChange?(paneId, target, title)
                 }
             }

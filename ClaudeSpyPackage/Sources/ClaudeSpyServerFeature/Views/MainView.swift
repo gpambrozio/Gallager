@@ -256,6 +256,7 @@ public struct MainView: View {
         .id(pane.id)
         .buttonStyle(.plain)
         .accessibilityLabel(pane.target)
+        .accessibilityValue(windowManager.terminalTitles[pane.target] ?? "")
         .help(help ?? "")
         .listRowBackground(selectedPane?.id == pane.id && selectedRemotePane == nil ? Color.accentColor.opacity(0.2) : nil)
     }
