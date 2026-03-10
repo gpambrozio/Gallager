@@ -101,7 +101,7 @@ HookServerService events → MirrorWindowManager.handleHookEvent()
                          → SleepPreventionManager.updateForSessionCount()
 
 TmuxControlClientManager dimension changes → PaneStreamManager.updateDimensions()
-TmuxControlClientManager pane exits       → MirrorWindowManager.cleanupStaleSessions()
+TmuxControlClientManager pane exits       → MirrorWindowManager.updatePaneStates()
                                           → TerminalStreamService.stopStreamsForClosedPanes()
                                           → SleepPreventionManager.updateForSessionCount()
 

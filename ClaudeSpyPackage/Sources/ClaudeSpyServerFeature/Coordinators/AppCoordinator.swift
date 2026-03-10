@@ -327,7 +327,7 @@
             controlClientManager.setOnPanesChanged { [weak self] in
                 Task {
                     let panes = await tmuxForCleanup.refreshPanes()
-                    winManager.cleanupStaleSessions(currentPanes: panes)
+                    winManager.updatePaneStates(from: panes)
                     await terminalStreaming.stopStreamsForClosedPanes(currentPanes: panes)
                     await paneStreaming.updateNotificationMonitoring(panes: panes)
                     self?.updateSleepPrevention()

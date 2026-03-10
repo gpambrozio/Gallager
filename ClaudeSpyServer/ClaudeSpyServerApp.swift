@@ -210,7 +210,11 @@ struct TmuxPaneMirrorApp: App {
                 Divider()
 
                 ForEach(coordinator.windowManager.mirroredPaneIds, id: \.self) { paneId in
-                    Button(paneId) {
+                    Button(
+                        coordinator.windowManager.paneStates[paneId]?.terminalTitle
+                            ?? coordinator.windowManager.paneStates[paneId]?.target
+                            ?? paneId
+                    ) {
                         coordinator.windowManager.bringToFront(paneId: paneId)
                     }
                 }

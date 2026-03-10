@@ -52,8 +52,9 @@ final public class MirrorWindowManager {
 
         // Update or create entries for current panes
         for pane in panes {
-            if paneStates[pane.paneId] != nil {
-                pane.updateMetadata(of: &paneStates[pane.paneId]!)
+            if var state = paneStates[pane.paneId] {
+                pane.updateMetadata(of: &state)
+                paneStates[pane.paneId] = state
             } else {
                 paneStates[pane.paneId] = pane.makePaneState()
             }
@@ -182,12 +183,17 @@ final public class MirrorWindowManager {
     @discardableResult
     public func openMirror(for paneInfo: PaneInfo) -> NSWindow {
         // Ensure pane state exists with current metadata
-        if paneStates[paneInfo.paneId] != nil {
-            paneInfo.updateMetadata(of: &paneStates[paneInfo.paneId]!)
+        if var state = paneStates[paneInfo.paneId] {
+            paneInfo.updateMetadata(of: &state)
+            paneStates[paneInfo.paneId] = state
         } else {
             paneStates[paneInfo.paneId] = paneInfo.makePaneState()
         }
-        return openMirror(for: paneStates[paneInfo.paneId]!)
+        guard let state = paneStates[paneInfo.paneId] else {
+            // Should never happen since we just set it above, but satisfy the compiler
+            return openMirror(for: paneInfo.makePaneState())
+        }
+        return openMirror(for: state)
     }
 
     /// Opens a standalone mirror window for a remote terminal session.
@@ -472,18 +478,6 @@ final public class MirrorWindowManager {
         paneStates.removeValue(forKey: paneId)
         userClosedPanes.remove(paneId)
         closeMirror(for: paneId)
-    }
-
-    /// Cleans up state for panes that no longer exist.
-    /// Call this to remove orphaned entries when their tmux panes have been closed.
-    /// - Parameter currentPanes: The list of currently existing tmux panes
-    public func cleanupStaleSessions(currentPanes: [PaneInfo]) {
-        let existingPaneIds = Set(currentPanes.map(\.paneId))
-        let stalePaneIds = paneStates.keys.filter { !existingPaneIds.contains($0) }
-
-        for paneId in stalePaneIds {
-            removeStaleState(paneId: paneId)
-        }
     }
 }
 
