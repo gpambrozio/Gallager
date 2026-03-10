@@ -23,7 +23,7 @@ typealias TerminalTitleChangeHandler = @MainActor (String) -> Void
 /// - Handles dimension changes
 /// - Reports state back to parent via callback
 struct TerminalContainerView: NSViewRepresentable {
-    let paneInfo: PaneInfo
+    let paneState: PaneState
     let onStateChange: TerminalStateChangeHandler?
     let onTitleChange: TerminalTitleChangeHandler?
 
@@ -41,7 +41,7 @@ struct TerminalContainerView: NSViewRepresentable {
 
         // Start the coordinator with all dependencies
         coordinator.start(
-            paneInfo: paneInfo,
+            paneState: paneState,
             tmuxService: tmuxService,
             paneStreamManager: paneStreamManager,
             windowManager: windowManager,
@@ -62,9 +62,9 @@ struct TerminalContainerView: NSViewRepresentable {
         // Update container size on layout changes
         coordinator.updateContainerSize(nsView.frame.size)
 
-        // Check for column changes from tmux refresh (rows are dynamic)
-        if let currentPane = tmuxService.panes.first(where: { $0.id == paneInfo.id }) {
-            coordinator.handleExternalColumnChange(width: currentPane.width)
+        // Check for column changes from pane state (rows are dynamic)
+        if let currentWidth = windowManager.paneStates[paneState.paneId]?.width {
+            coordinator.handleExternalColumnChange(width: currentWidth)
         }
     }
 
@@ -88,7 +88,7 @@ struct TerminalContainerView: NSViewRepresentable {
 
         // MARK: State
 
-        private var paneInfo: PaneInfo?
+        private var paneState: PaneState?
         private var subscriptionId: UUID?
         private var streamState: StreamState = .disconnected
         private var columns = 80
@@ -131,7 +131,7 @@ struct TerminalContainerView: NSViewRepresentable {
         // MARK: Lifecycle
 
         func start(
-            paneInfo: PaneInfo,
+            paneState: PaneState,
             tmuxService: TmuxService,
             paneStreamManager: PaneStreamManager,
             windowManager: MirrorWindowManager,
@@ -139,13 +139,13 @@ struct TerminalContainerView: NSViewRepresentable {
             onStateChange: TerminalStateChangeHandler?,
             onTitleChange: TerminalTitleChangeHandler?
         ) {
-            self.paneInfo = paneInfo
+            self.paneState = paneState
             self.paneStreamManager = paneStreamManager
             self.windowManager = windowManager
             self.tmuxService = tmuxService
             self.onStateChange = onStateChange
             self.onTitleChange = onTitleChange
-            lastExternalWidth = paneInfo.width
+            lastExternalWidth = paneState.width
 
             // Apply initial settings
             updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
@@ -153,11 +153,11 @@ struct TerminalContainerView: NSViewRepresentable {
 
             // Wire up input handling — chained tasks ensure keys are sent in order
             terminalView.onInput = { [weak self] keys in
-                guard let self, let paneInfo = self.paneInfo else { return }
+                guard let self, let paneState = self.paneState else { return }
                 let previous = self.pendingKeyTask
                 self.pendingKeyTask = Task {
                     _ = await previous?.value
-                    await self.sendKeysToTmux(keys, target: paneInfo.target)
+                    await self.sendKeysToTmux(keys, target: paneState.target)
                 }
             }
 
@@ -168,7 +168,7 @@ struct TerminalContainerView: NSViewRepresentable {
 
             // Start connection
             Task {
-                await connect(paneInfo: paneInfo, tmuxService: tmuxService)
+                await connect(paneState: paneState, tmuxService: tmuxService)
             }
         }
 
@@ -216,16 +216,16 @@ struct TerminalContainerView: NSViewRepresentable {
 
         // MARK: Connection
 
-        private func connect(paneInfo: PaneInfo, tmuxService: TmuxService) async {
+        private func connect(paneState: PaneState, tmuxService: TmuxService) async {
             updateState(.connecting)
 
             // Get initial dimensions from tmux. Rows must match the tmux pane
             // so that absolute cursor positioning in live %output events maps correctly.
             do {
-                let dims = try await tmuxService.getPaneDimensions(paneInfo.target)
+                let dims = try await tmuxService.getPaneDimensions(paneState.target)
                 updateTerminalDimensions(cols: dims.width, rows: dims.height)
             } catch {
-                updateTerminalDimensions(cols: paneInfo.width, rows: paneInfo.height)
+                updateTerminalDimensions(cols: paneState.width, rows: paneState.height)
             }
 
             clear()
@@ -237,20 +237,21 @@ struct TerminalContainerView: NSViewRepresentable {
             }
 
             do {
-                let target = paneInfo.target
+                let paneId = paneState.paneId
+                let target = paneState.target
                 // Note: onTitleChange is intentionally omitted here. Title changes are detected
                 // locally by SwiftTerm's delegate (terminalView.onTitleChange) and then reported
                 // back to PaneStreamManager via reportTitleChange(), which forwards to other
                 // subscribers. This avoids a circular callback loop.
                 let result = try await paneStreamManager.subscribe(
-                    paneId: paneInfo.paneId,
+                    paneId: paneState.paneId,
                     target: target,
                     onData: { [weak self] data in
                         self?.handleData(data)
                     },
                     onDimensionChange: { [weak self, weak windowManager] newWidth, newHeight in
                         self?.updateTerminalDimensions(cols: newWidth, rows: newHeight)
-                        windowManager?.resizeWindow(target: target, columns: newWidth, rows: newHeight)
+                        windowManager?.resizeWindow(paneId: paneId, columns: newWidth, rows: newHeight)
                     }
                 )
 
@@ -276,9 +277,9 @@ struct TerminalContainerView: NSViewRepresentable {
             onTitleChange?(title)
 
             // Report to PaneStreamManager so other subscribers (e.g., TerminalStreamService) are notified
-            if let paneInfo, let subscriptionId {
+            if let paneState, let subscriptionId {
                 paneStreamManager?.reportTitleChange(
-                    paneId: paneInfo.paneId,
+                    paneId: paneState.paneId,
                     title: title,
                     fromSubscription: subscriptionId
                 )
@@ -394,7 +395,7 @@ struct TerminalContainerView: NSViewRepresentable {
 
             // Forward to pane stream manager (it will notify via onDimensionChange callback)
             // Note: rows are dynamic based on container, so we pass current rows
-            paneStreamManager?.updateDimensions(paneId: paneInfo?.paneId ?? "", width: width, height: rows)
+            paneStreamManager?.updateDimensions(paneId: paneState?.paneId ?? "", width: width, height: rows)
         }
 
         // MARK: Private Helpers

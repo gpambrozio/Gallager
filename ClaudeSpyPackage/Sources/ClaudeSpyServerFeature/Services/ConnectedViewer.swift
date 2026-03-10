@@ -264,11 +264,8 @@ final public class ConnectedViewer: Identifiable {
         // Set the pairId for this specific connection
         sessionState = SessionStateMessage(
             pairId: id,
-            sessions: sessionState.sessions,
-            activePanes: sessionState.activePanes,
-            panes: sessionState.panes,
-            claudeProjects: sessionState.claudeProjects,
-            yoloModePanes: sessionState.yoloModePanes
+            paneStates: sessionState.paneStates,
+            claudeProjects: sessionState.claudeProjects
         )
         logger.info("Pushing session state to viewer: \(viewerName)")
         await sendEncrypted(.sessionState(sessionState))

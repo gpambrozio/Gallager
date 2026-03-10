@@ -209,9 +209,9 @@ struct TmuxPaneMirrorApp: App {
             CommandGroup(after: .windowList) {
                 Divider()
 
-                ForEach(coordinator.windowManager.mirroredTargets, id: \.self) { target in
-                    Button(target) {
-                        coordinator.windowManager.bringToFront(target: target)
+                ForEach(coordinator.windowManager.mirroredPaneIds, id: \.self) { paneId in
+                    Button(paneId) {
+                        coordinator.windowManager.bringToFront(paneId: paneId)
                     }
                 }
             }
@@ -252,8 +252,8 @@ struct TmuxPaneMirrorApp: App {
     /// Total number of sessions needing attention across local and remote sources
     private var totalPendingSessionCount: Int {
         let localCount = coordinator.windowManager.pendingSessionCount
-        let remoteCount = coordinator.remoteSessionStore?.sessions.values
-            .filter(\.needsAttention).count ?? 0
+        let remoteCount = coordinator.remoteSessionStore?.paneStates.values
+            .filter { $0.claudeSession?.needsAttention == true }.count ?? 0
         return localCount + remoteCount
     }
 

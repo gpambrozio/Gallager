@@ -145,8 +145,8 @@ public struct MainView: View {
     }
 
     private var paneList: some View {
-        let panesWithClaude = tmuxService.panes.filter { windowManager.activeSessions[$0.paneId] != nil }
-        let panesWithoutClaude = tmuxService.panes.filter { windowManager.activeSessions[$0.paneId] == nil }
+        let panesWithClaude = tmuxService.panes.filter { windowManager.paneStates[$0.paneId]?.claudeSession != nil }
+        let panesWithoutClaude = tmuxService.panes.filter { windowManager.paneStates[$0.paneId]?.claudeSession == nil }
 
         return ScrollViewReader { proxy in
             List {
@@ -256,7 +256,7 @@ public struct MainView: View {
         .id(pane.id)
         .buttonStyle(.plain)
         .accessibilityLabel(pane.target)
-        .accessibilityValue(windowManager.terminalTitles[pane.target] ?? "")
+        .accessibilityValue(windowManager.paneStates[pane.paneId]?.terminalTitle ?? "")
         .help(help ?? "")
         .listRowBackground(selectedPane?.id == pane.id && selectedRemotePane == nil ? Color.accentColor.opacity(0.2) : nil)
     }
@@ -278,8 +278,8 @@ public struct MainView: View {
                 }
             )
             .id(remote.resizeKey)
-        } else if let pane = selectedPane {
-            MirrorWindowView(paneInfo: pane)
+        } else if let pane = selectedPane, let paneState = windowManager.paneStates[pane.paneId] {
+            MirrorWindowView(paneState: paneState)
                 .id(pane.id)
         } else if tmuxService.panes.isEmpty && !settings.hasRemoteHosts {
             NewSessionContent(
@@ -322,7 +322,7 @@ public struct MainView: View {
         ToolbarItemGroup(placement: .primaryAction) {
             if let pane = selectedPane, selectedRemotePane == nil {
                 // Yolo mode toggle (only for panes with active Claude sessions)
-                if windowManager.activeSessions[pane.paneId] != nil {
+                if windowManager.paneStates[pane.paneId]?.claudeSession != nil {
                     Toggle(isOn: Binding(
                         get: { windowManager.isYoloModeEnabled(for: pane.paneId) },
                         set: { newValue in
@@ -355,7 +355,7 @@ public struct MainView: View {
                 .help("Open mirror in new window")
 
                 resizeToolbarGroup(
-                    resizeKey: pane.target,
+                    resizeKey: pane.paneId,
                     localTarget: pane.target,
                     isSessionAttached: tmuxService.attachedSessionNames.contains(pane.sessionName)
                 )
@@ -375,7 +375,7 @@ public struct MainView: View {
                 // Yolo mode toggle for remote panes with active Claude sessions
                 if
                     let sessionStore = coordinator.remoteSessionStore,
-                    sessionStore.sessions[remote.paneId] != nil {
+                    sessionStore.session(for: remote.paneId) != nil {
                     Toggle(isOn: Binding(
                         get: { sessionStore.isYoloModeEnabled(for: remote.paneId) },
                         set: { newValue in
@@ -567,7 +567,7 @@ public struct MainView: View {
             }
 
             if let pane = currentPane, currentRemote == nil {
-                guard autoResizeEnabled.contains(pane.target) else { return }
+                guard autoResizeEnabled.contains(pane.paneId) else { return }
                 guard !tmuxService.attachedSessionNames.contains(pane.sessionName) else { return }
                 await performResize(localTarget: pane.target)
             } else if let remote = currentRemote {
@@ -951,19 +951,23 @@ private struct PaneSidebarRow: View {
 
     let pane: PaneInfo
 
+    private var paneState: PaneState? {
+        windowManager.paneStates[pane.paneId]
+    }
+
     /// Check if pane has active Claude session
     private var hasClaude: Bool {
-        windowManager.activeSessions[pane.paneId] != nil
+        paneState?.claudeSession != nil
     }
 
     /// The latest event subtitle (e.g., last assistant message from a Stop hook)
     private var sessionSubtitle: String? {
-        windowManager.activeSessions[pane.paneId]?.latestEvent?.action.subtitle
+        paneState?.claudeSession?.latestEvent?.action.subtitle
     }
 
     /// Terminal title detected via OSC escape sequences
     private var terminalTitle: String? {
-        windowManager.terminalTitles[pane.target]
+        paneState?.terminalTitle
     }
 
     var body: some View {
@@ -1186,7 +1190,7 @@ private struct RemoteHostSidebarSection: View {
         sessionStore.sessions(for: host.id)
     }
 
-    private var panes: [PaneInfoMessage] {
+    private var panes: [PaneState] {
         sessionStore.panes(for: host.id)
     }
 
@@ -1224,19 +1228,19 @@ private struct RemoteHostSidebarSection: View {
                         onSelect(RemotePaneSelection(
                             hostId: host.id,
                             hostName: host.displayName,
-                            paneId: pane.id
+                            paneId: pane.paneId
                         ))
                     } label: {
                         RemotePaneSidebarRow(
-                            title: pane.currentPath.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? pane.id,
-                            subtitle: "\(pane.sessionName):\(pane.windowIndex).\(pane.paneIndex)",
+                            title: pane.currentPath.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? pane.paneId,
+                            subtitle: pane.target.isEmpty ? pane.paneId : pane.target,
                             hasClaude: false
                         )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("\(pane.sessionName):\(pane.windowIndex).\(pane.paneIndex)")
+                    .accessibilityLabel(pane.target.isEmpty ? pane.paneId : pane.target)
                     .listRowBackground(
-                        selectedRemotePane?.paneId == pane.id && selectedRemotePane?.hostId == host.id
+                        selectedRemotePane?.paneId == pane.paneId && selectedRemotePane?.hostId == host.id
                             ? Color.accentColor.opacity(0.2) : nil
                     )
                 }

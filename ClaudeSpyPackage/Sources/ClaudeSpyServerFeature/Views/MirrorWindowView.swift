@@ -1,9 +1,10 @@
 import ClaudeSpyCommon
+import ClaudeSpyNetworking
 import SwiftUI
 
 /// View for a single pane mirror window
 struct MirrorWindowView: View {
-    let paneInfo: PaneInfo
+    let paneState: PaneState
 
     @Environment(AppSettings.self) private var settings
     @Environment(MirrorWindowManager.self) private var windowManager
@@ -17,13 +18,13 @@ struct MirrorWindowView: View {
         if let terminalTitle, !terminalTitle.isEmpty {
             return terminalTitle
         }
-        return "Mirror: \(paneInfo.paneId) (\(paneInfo.target))"
+        return "Mirror: \(paneState.paneId) (\(paneState.target))"
     }
 
     var body: some View {
         VStack(spacing: 0) {
             TerminalContainerView(
-                paneInfo: paneInfo,
+                paneState: paneState,
                 onStateChange: { state, width, height in
                     streamState = state
                     streamWidth = width
@@ -31,7 +32,7 @@ struct MirrorWindowView: View {
                 },
                 onTitleChange: { title in
                     terminalTitle = title
-                    windowManager.updateTerminalTitle(target: paneInfo.target, title: title)
+                    windowManager.updateTerminalTitle(paneId: paneState.paneId, title: title)
                 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -43,7 +44,7 @@ struct MirrorWindowView: View {
         .navigationTitle(windowTitle)
         .onAppear {
             // Restore previously detected title when view is recreated (e.g., switching panes in sidebar)
-            if terminalTitle == nil, let savedTitle = windowManager.terminalTitles[paneInfo.target] {
+            if terminalTitle == nil, let savedTitle = windowManager.paneStates[paneState.paneId]?.terminalTitle {
                 terminalTitle = savedTitle
             }
         }
@@ -63,7 +64,7 @@ struct MirrorWindowView: View {
             Divider()
                 .frame(height: 12)
 
-            Text("\(streamWidth ?? paneInfo.width)x\(streamHeight ?? paneInfo.height)")
+            Text("\(streamWidth ?? paneState.width)x\(streamHeight ?? paneState.height)")
 
             Spacer()
         }

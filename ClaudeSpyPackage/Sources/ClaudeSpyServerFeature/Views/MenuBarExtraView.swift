@@ -130,14 +130,13 @@ public struct MenuBarExtraView: View {
                 openWindow(id: "panes")
                 Self.bringAppToFront()
             } else if let connection = coordinator.viewerConnectionManager?.connection(for: host.id) {
-                let paneInfo = coordinator.remoteSessionStore?.panesByHost[host.id]?
-                    .first(where: { $0.id == session.paneId })
+                let remotePaneState = coordinator.remoteSessionStore?.paneState(for: session.paneId)
                 windowManager.openRemoteMirror(
                     paneId: session.paneId,
                     hostId: host.id,
                     hostName: host.displayName,
-                    terminalColumns: paneInfo?.width ?? 120,
-                    terminalRows: paneInfo?.height ?? 40,
+                    terminalColumns: remotePaneState?.width ?? 120,
+                    terminalRows: remotePaneState?.height ?? 40,
                     connection: connection
                 )
             }
