@@ -4,7 +4,7 @@ import ClaudeSpyEncryption
 import ClaudeSpyNetworking
 import SwiftUI
 
-/// The main application view showing available tmux panes in a sidebar layout
+/// The main application view showing available tmux windows in a sidebar layout
 public struct MainView: View {
     @Environment(TmuxService.self) private var tmuxService
     @Environment(MirrorWindowManager.self) private var windowManager
@@ -24,7 +24,7 @@ public struct MainView: View {
     @State private var projects: [ClaudeProjectInfo] = []
     @State private var isLoadingProjects = false
     @State private var creatingSelection: NewSessionCreatingState?
-    @State private var detailPaneSize: CGSize = .zero
+    @State private var detailViewSize: CGSize = .zero
 
     /// Tracks active session pane IDs for detecting section changes
     @State private var trackedActiveSessionPaneIds: Set<String> = []
@@ -46,12 +46,12 @@ public struct MainView: View {
                 .onGeometryChange(for: CGSize.self) { proxy in
                     proxy.size
                 } action: { newSize in
-                    detailPaneSize = newSize
+                    detailViewSize = newSize
                     handleAutoResize()
                 }
         }
         .navigationSplitViewStyle(.balanced)
-        .navigationTitle("Available Panes")
+        .navigationTitle("Available Windows")
         .toolbar {
             toolbarContent
         }
@@ -422,7 +422,7 @@ public struct MainView: View {
             } label: {
                 Symbols.arrowClockwise.image
             }
-            .help("Refresh pane list")
+            .help("Refresh window list")
             .keyboardShortcut("r", modifiers: .command)
             .disabled(tmuxService.isRefreshing)
         }
@@ -536,7 +536,7 @@ public struct MainView: View {
         } label: {
             Symbols.arrowUpLeftAndArrowDownRight.image
         }
-        .help(isSessionAttached ? attachedHelp : "Resize tmux pane to fit mirror view")
+        .help(isSessionAttached ? attachedHelp : "Resize tmux window to fit mirror view")
         .disabled(isSessionAttached)
 
         Toggle(isOn: Binding(
@@ -555,7 +555,7 @@ public struct MainView: View {
             Symbols.arrowDownRightAndArrowUpLeft.image
         }
         .toggleStyle(.button)
-        .help(isSessionAttached ? attachedHelp : "Auto-resize tmux pane when mirror view changes size")
+        .help(isSessionAttached ? attachedHelp : "Auto-resize tmux window when mirror view changes size")
         .disabled(isSessionAttached)
     }
 
@@ -743,7 +743,7 @@ public struct MainView: View {
     /// - Returns: A tuple of (columns, rows) for the terminal dimensions
     private func calculateOptimalTerminalDimensions() -> (columns: Int, rows: Int) {
         // Guard against uninitialized or invalid size
-        guard detailPaneSize.width >= 100, detailPaneSize.height >= 100 else {
+        guard detailViewSize.width >= 100, detailViewSize.height >= 100 else {
             return (columns: 120, rows: 40)
         }
 
@@ -760,8 +760,8 @@ public struct MainView: View {
         let verticalPadding: CGFloat = settings.showStatusBar ? 40 : 10
 
         // Calculate available content area
-        let availableWidth = max(0, detailPaneSize.width - horizontalPadding)
-        let availableHeight = max(0, detailPaneSize.height - verticalPadding)
+        let availableWidth = max(0, detailViewSize.width - horizontalPadding)
+        let availableHeight = max(0, detailViewSize.height - verticalPadding)
 
         // Apply reasonable bounds
         // Minimum: 80x24 (standard terminal size)

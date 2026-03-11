@@ -1,7 +1,7 @@
 import ClaudeSpyCommon
 import SwiftUI
 
-/// Renders all panes in a tmux window according to their layout arrangement
+/// Renders a tmux window with all its panes according to their layout arrangement
 struct WindowPaneLayoutView: View {
     let window: TmuxWindow
     let onPaneStateChange: ((PaneInfo, StreamState, Int, Int) -> Void)?

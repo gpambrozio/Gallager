@@ -73,9 +73,9 @@ public enum TmuxLayoutParser {
             scanner.scanChar("x"),
             let height = scanner.scanInt(),
             scanner.scanChar(","),
-            let _ = scanner.scanInt(), // X position (unused)
+            scanner.scanInt() != nil, // X position (unused)
             scanner.scanChar(","),
-            let _ = scanner.scanInt() // Y position (unused)
+            scanner.scanInt() != nil // Y position (unused)
         else { return nil }
 
         let rest = scanner.remaining
@@ -164,7 +164,7 @@ private struct Scanner {
             index = string.index(after: index)
         }
         guard start != index else { return nil }
-        return Int(string[start ..< index])
+        return Int(string[start..<index])
     }
 
     mutating func scanChar(_ char: Character) -> Bool {
