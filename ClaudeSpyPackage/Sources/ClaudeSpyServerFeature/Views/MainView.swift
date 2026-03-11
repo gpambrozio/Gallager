@@ -74,6 +74,11 @@ public struct MainView: View {
             }
         }
         .onChange(of: tmuxService.panes) { _, newPanes in
+            // Ensure pane states exist for all known panes so the detail view
+            // can render immediately when a pane is selected (without waiting
+            // for the periodic validation timer).
+            windowManager.updatePaneStates(from: newPanes)
+
             guard let selected = selectedPane else { return }
             if let updated = newPanes.first(where: { $0.id == selected.id }) {
                 // Keep selection in sync with refreshed pane data
