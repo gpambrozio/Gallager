@@ -5,15 +5,20 @@
   "hooks": {
     "PostToolUse": [
       {
+        "matcher": "Edit|MultiEdit|Write",
         "hooks": [
           {
-            "command": "jq -r '.tool_input.file_path' | { read file_path; if echo \"$file_path\" | grep -q '\\.swift$'; then swiftformat \"$file_path\"; fi; }",
-            "type": "command"
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | { read file_path; if echo \"$file_path\" | grep -q '\\.swift$'; then swiftformat \"$file_path\"; fi; }"
           }
-        ],
-        "matcher": "Edit|MultiEdit|Write"
+        ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "XcodeBuildTools@ClaudeCodePlugins": true,
+    "iOSSimulator@ClaudeCodePlugins": true,
+    "SwiftDevelopment@ClaudePrivate": true
   },
   "extraKnownMarketplaces": {
     "ClaudeCodePlugins": {
@@ -28,11 +33,5 @@
         "repo": "anthropics/claude-plugins-official"
       }
     }
-  },
-  "enabledPlugins": {
-    "XcodeBuildTools@ClaudeCodePlugins": true,
-    "iOSSimulator@ClaudeCodePlugins": true,
-    "SwiftDevelopment@ClaudePrivate": true,
-    "swift-lsp@claude-plugins-official": true
   }
 }
