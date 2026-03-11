@@ -584,6 +584,7 @@ public struct MainView: View {
             if let window = currentWindow, currentRemote == nil {
                 guard autoResizeEnabled.contains(window.id) else { return }
                 guard !tmuxService.attachedSessionNames.contains(window.sessionName) else { return }
+                // Resize the active pane; tmux adjusts sibling panes automatically
                 if let target = window.activePane?.target {
                     await performResize(localTarget: target)
                 }

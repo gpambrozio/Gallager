@@ -159,6 +159,7 @@ private struct LayoutNodeView: View {
     private func proportion(_ childSize: Int, of totalSize: Int, in availableSize: CGFloat, count: Int) -> CGFloat {
         let dividerSpace = CGFloat(count - 1) // 1pt per divider
         let usableSpace = availableSize - dividerSpace
+        guard totalSize > 0 else { return usableSpace / CGFloat(max(count, 1)) }
         return usableSpace * CGFloat(childSize) / CGFloat(totalSize)
     }
 }
