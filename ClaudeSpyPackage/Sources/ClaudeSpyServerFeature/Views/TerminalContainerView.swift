@@ -24,6 +24,9 @@ typealias TerminalTitleChangeHandler = @MainActor (String) -> Void
 /// - Reports state back to parent via callback
 struct TerminalContainerView: NSViewRepresentable {
     let paneState: PaneState
+    /// When false, the terminal won't auto-grab focus on window add or window-becomes-key.
+    /// Used in multi-pane layouts where multiple terminals share one window.
+    var autoFocus = true
     let onStateChange: TerminalStateChangeHandler?
     let onTitleChange: TerminalTitleChangeHandler?
 
@@ -38,6 +41,9 @@ struct TerminalContainerView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> InteractiveTerminalView {
         let coordinator = context.coordinator
+
+        // Configure auto-focus before starting (must be set before viewDidMoveToWindow fires)
+        coordinator.terminalView.autoFocusEnabled = autoFocus
 
         // Start the coordinator with all dependencies
         coordinator.start(
