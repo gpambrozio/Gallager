@@ -1,4 +1,5 @@
 #if os(macOS)
+    import ClaudeSpyCommon
     import ClaudeSpyNetworking
     import Foundation
     import Logging
@@ -242,8 +243,13 @@
             let tmuxFiltered = filterTmuxEscapeSequences(data)
             guard !tmuxFiltered.isEmpty else { return }
 
+            // Strip DA query sequences so mirroring SwiftTerm instances never
+            // see them and never generate response bytes in their send() delegate.
+            let daFiltered = TerminalResponseFilter.stripDAQueries(tmuxFiltered)
+            guard !daFiltered.isEmpty else { return }
+
             // Parse and strip OSC 9/777 notification sequences
-            let parseResult = notificationParser.parse(tmuxFiltered)
+            let parseResult = notificationParser.parse(daFiltered)
 
             // Report any detected notifications
             for notification in parseResult.notifications {
