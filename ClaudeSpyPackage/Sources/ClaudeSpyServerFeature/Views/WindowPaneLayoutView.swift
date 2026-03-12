@@ -2,6 +2,44 @@ import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import SwiftUI
 
+// MARK: - Proportional Tile Layout
+
+/// A positioned pane within the layout, with proportional coordinates relative to the total window.
+struct PositionedPane: Identifiable {
+    let id: String // paneId (e.g., "%5")
+    let paneInfo: PaneInfo
+    /// Proportional rectangle (0..1) within the total layout area
+    let rect: CGRect
+}
+
+/// Custom `Layout` that tiles subviews using proportional rectangles.
+///
+/// Unlike `ZStack` + `.offset()`, this places each subview at its true layout
+/// position so that hit-testing (clicks, focus) matches the visual placement.
+private struct ProportionalTileLayout: Layout {
+    let rects: [CGRect]
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for (index, subview) in subviews.enumerated() {
+            guard index < rects.count else { continue }
+            let proportional = rects[index]
+            let width = proportional.width * bounds.width
+            let height = proportional.height * bounds.height
+            let x = bounds.minX + proportional.origin.x * bounds.width
+            let y = bounds.minY + proportional.origin.y * bounds.height
+            subview.place(
+                at: CGPoint(x: x, y: y),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: width, height: height)
+            )
+        }
+    }
+}
+
 /// Renders a `TmuxWindow` by parsing its layout string and arranging
 /// `TerminalContainerView` instances in the correct split arrangement.
 struct WindowPaneLayoutView: View {
@@ -18,7 +56,7 @@ struct WindowPaneLayoutView: View {
             MirrorWindowView(paneState: paneState)
         } else if let layout = TmuxLayoutParser.parse(window.windowLayout) {
             VStack(spacing: 0) {
-                flattenedLayout(from: layout)
+                tiledLayout(from: layout)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if settings.showStatusBar {
@@ -37,48 +75,34 @@ struct WindowPaneLayoutView: View {
         }
     }
 
-    // MARK: - Flattened Layout
-
-    /// A positioned pane within the layout, with proportional coordinates relative to the total window.
-    private struct PositionedPane: Identifiable {
-        let id: String // paneId (e.g., "%5")
-        let paneInfo: PaneInfo
-        /// Proportional rectangle (0..1) within the total layout area
-        let rect: CGRect
-    }
+    // MARK: - Tiled Layout
 
     /// Flattens the layout tree into positioned rectangles and renders all terminals
-    /// in a single GeometryReader + ZStack. This avoids recursive `AnyView` and
-    /// ensures each TerminalContainerView has a stable `.id()`.
-    private func flattenedLayout(from layout: LayoutNode) -> some View {
+    /// using a custom `Layout` that places each subview at its true position.
+    /// This ensures hit-testing matches visual placement (unlike ZStack + offset).
+    private func tiledLayout(from layout: LayoutNode) -> some View {
         let totalWidth = CGFloat(layout.width)
         let totalHeight = CGFloat(layout.height)
         var positioned: [PositionedPane] = []
         flattenNode(layout, origin: .zero, totalWidth: totalWidth, totalHeight: totalHeight, into: &positioned)
 
-        return GeometryReader { geometry in
-            ZStack(alignment: .topLeading) {
-                ForEach(positioned) { pane in
-                    if let paneState = windowManager.paneStates[pane.paneInfo.paneId] {
-                        TerminalContainerView(
-                            paneState: paneState,
-                            autoFocus: false,
-                            onStateChange: { _, _, _ in },
-                            onTitleChange: { title in
-                                windowManager.updateTerminalTitle(paneId: paneState.paneId, title: title)
-                            }
-                        )
-                        .frame(
-                            width: pane.rect.width * geometry.size.width,
-                            height: pane.rect.height * geometry.size.height
-                        )
-                        .offset(
-                            x: pane.rect.origin.x * geometry.size.width,
-                            y: pane.rect.origin.y * geometry.size.height
-                        )
-                        .id(pane.id)
+        // Filter to only panes that have valid state — this ensures the Layout's
+        // rect count always matches the ForEach's subview count (no conditional gaps).
+        let validPanes = positioned.filter { windowManager.paneStates[$0.paneInfo.paneId] != nil }
+
+        return ProportionalTileLayout(rects: validPanes.map(\.rect)) {
+            ForEach(validPanes) { pane in
+                // Force-unwrap safe: filtered above
+                let paneState = windowManager.paneStates[pane.paneInfo.paneId]!
+                TerminalContainerView(
+                    paneState: paneState,
+                    autoFocus: false,
+                    onStateChange: { _, _, _ in },
+                    onTitleChange: { title in
+                        windowManager.updateTerminalTitle(paneId: paneState.paneId, title: title)
                     }
-                }
+                )
+                .id(pane.id)
             }
         }
     }

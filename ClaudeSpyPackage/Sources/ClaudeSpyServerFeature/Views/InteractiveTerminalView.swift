@@ -764,7 +764,6 @@
         }
 
         override func keyDown(with event: NSEvent) {
-            // Let the terminal view interpret the key
             terminalView.keyDown(with: event)
         }
 

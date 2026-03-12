@@ -62,6 +62,11 @@ struct TerminalContainerView: NSViewRepresentable {
     func updateNSView(_ nsView: InteractiveTerminalView, context: Context) {
         let coordinator = context.coordinator
 
+        // Update pane state — tmux rearranges pane indices when panes are
+        // added or removed, so the target (e.g., "session:0.1") can change.
+        // The coordinator must track the current target for key routing.
+        coordinator.updatePaneState(paneState)
+
         // Update settings if changed
         coordinator.updateSettings(settings)
 
@@ -204,6 +209,13 @@ struct TerminalContainerView: NSViewRepresentable {
                     }
                 }
             }
+        }
+
+        /// Updates the pane state when tmux rearranges pane indices.
+        /// The `onInput` closure reads `self.paneState.target` on each call,
+        /// so updating the stored state is sufficient — no closure re-wiring needed.
+        func updatePaneState(_ newState: PaneState) {
+            paneState = newState
         }
 
         func stop() {
