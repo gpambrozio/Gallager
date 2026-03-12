@@ -250,6 +250,9 @@ struct TmuxPaneMirrorApp: App {
                 .task {
                     await coordinator.setupAllServices()
                 }
+                .onChange(of: totalPendingSessionCount, initial: true) { _, newValue in
+                    NSApp.dockTile.badgeLabel = newValue > 0 ? "\(newValue)" : nil
+                }
         }
     }
 
