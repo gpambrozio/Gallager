@@ -97,10 +97,9 @@ public enum TerminalTitleMacToIOSScenario {
         TestStep.tmuxCreateSession(name: "e2e-title-ios2", width: 80, height: 24)
 
         // Wait for the pane to be discovered by periodic refresh and appear in sidebar
-        // (notification reader must be running before we set the title)
         TestStep.macWaitForElement(titled: "e2e-title-ios2:0.0", timeout: 15)
 
-        // Set a title on the new (inactive) pane — iOS is still viewing the first pane
+        // Set a title on the new (inactive) pane — iOS is still viewing the first pane.
         TestStep.tmuxSendKeys(
             target: "e2e-title-ios2:0.0",
             keys: "printf '\\033]2;Inactive iOS Title\\007'",
@@ -114,7 +113,7 @@ public enum TerminalTitleMacToIOSScenario {
         TestStep.macScreenshot(label: "host-before-inactive-title-check")
 
         // Verify the inactive pane's title appears on the host sidebar
-        TestStep.macWaitForElement(titled: "Inactive iOS Title", timeout: 10)
+        TestStep.macWaitForElement(titled: "Inactive iOS Title", timeout: 15)
         TestStep.macScreenshot(label: "host-inactive-pane-title")
 
         // Navigate back to the iOS session list

@@ -26,6 +26,8 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
     public let height: Int
     /// Whether this pane is the active pane in its window
     public let isActive: Bool
+    /// The terminal title set via OSC escape sequences (empty string means default/unset)
+    public let paneTitle: String
 
     public init(
         paneId: String,
@@ -37,7 +39,8 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
         currentPath: String,
         width: Int,
         height: Int,
-        isActive: Bool
+        isActive: Bool,
+        paneTitle: String = ""
     ) {
         self.paneId = paneId
         self.target = target
@@ -49,12 +52,13 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
         self.width = width
         self.height = height
         self.isActive = isActive
+        self.paneTitle = paneTitle
     }
 }
 
 public extension PaneInfo {
     /// Creates a PaneInfo from tmux format output
-    /// Expected format: id|session|window|pane|command|path|width|height|active
+    /// Expected format: id|session|window|pane|command|path|width|height|active|title
     init?(fromTmuxOutput line: String) {
         let components = line.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
         guard components.count >= 9 else { return nil }
@@ -75,6 +79,7 @@ public extension PaneInfo {
         self.width = width
         self.height = height
         self.isActive = components[8] == "1"
+        self.paneTitle = components.count >= 10 ? components[9] : ""
         self.target = "\(sessionName):\(windowIndex).\(paneIndex)"
     }
 
