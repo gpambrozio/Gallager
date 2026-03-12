@@ -251,12 +251,14 @@
                             if param.value >= 0x40, param.value <= 0x7E { break }
                         }
                     }
-                    // For other ESC sequences (e.g. ESC ]), just skip the next char
+                    // For other ESC sequences (e.g. ESC > or ESC =), skip the next char.
+                    // Note: some ESC sequences are 3 bytes (e.g. ESC ( B, ESC # 8) —
+                    // the third byte may leak through, but these are rare in notification text.
                     continue
                 }
 
-                // Skip control characters (0x00-0x1F) except tab, newline, carriage return
-                if scalar.value < 0x20, scalar != "\t", scalar != "\n", scalar != "\r" {
+                // Skip control characters (0x00-0x1F, 0x7F) except tab, newline, carriage return
+                if (scalar.value < 0x20 && scalar != "\t" && scalar != "\n" && scalar != "\r") || scalar.value == 0x7F {
                     continue
                 }
 
