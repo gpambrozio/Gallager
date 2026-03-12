@@ -67,6 +67,7 @@ actor TmuxControlClient {
     // Callbacks for notifications
     private var _onDimensionChange: (@Sendable (String, Int, Int) -> Void)?
     private var _onPaneExited: (@Sendable (String) -> Void)?
+    private var _onLayoutChange: (@Sendable () -> Void)?
     private var _onSessionChanged: (@Sendable (String, String) -> Void)?
     private var _onExit: (@Sendable (String?) -> Void)?
 
@@ -115,6 +116,10 @@ actor TmuxControlClient {
 
     func setOnPaneExited(_ handler: @escaping @Sendable (String) -> Void) {
         _onPaneExited = handler
+    }
+
+    func setOnLayoutChange(_ handler: @escaping @Sendable () -> Void) {
+        _onLayoutChange = handler
     }
 
     func setOnSessionChanged(_ handler: @escaping @Sendable (String, String) -> Void) {
@@ -333,6 +338,10 @@ actor TmuxControlClient {
         Task { [weak self] in
             await self?.refreshStreamingPaneDimensions()
         }
+        // Notify listeners that the layout changed — this triggers a full pane list
+        // refresh so new panes (splits) and layout string updates are detected instantly
+        // instead of waiting for the 5-second polling timer.
+        _onLayoutChange?()
     }
 
     private func refreshStreamingPaneDimensions() async {
