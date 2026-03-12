@@ -15,6 +15,9 @@
             _ paneId: String,
             _ notification: TerminalStreamMessage.TerminalNotification
         ) -> Void
+
+        /// Dismiss all delivered notifications for a specific pane.
+        public var dismissNotifications: @Sendable (_ paneId: String) -> Void
     }
 
     // MARK: - E2E Test Support
@@ -36,7 +39,8 @@
                     } else {
                         FileManager.default.createFile(atPath: logPath, contents: data)
                     }
-                }
+                },
+                dismissNotifications: { _ in }
             )
         }
     }
@@ -45,7 +49,10 @@
 
     extension TerminalNotificationService: DependencyKey {
         public static var previewValue: TerminalNotificationService {
-            TerminalNotificationService(showNotification: { _, _ in })
+            TerminalNotificationService(
+                showNotification: { _, _ in },
+                dismissNotifications: { _ in }
+            )
         }
 
         public static var liveValue: TerminalNotificationService {
@@ -54,6 +61,11 @@
                 showNotification: { paneId, notification in
                     Task {
                         await handler.show(paneId: paneId, notification: notification)
+                    }
+                },
+                dismissNotifications: { paneId in
+                    Task {
+                        await handler.dismissAll(for: paneId)
                     }
                 }
             )
@@ -97,6 +109,18 @@
                 ])
             } catch {
                 logger.warning("Failed to deliver notification: \(error)")
+            }
+        }
+
+        func dismissAll(for paneId: String) async {
+            let center = UNUserNotificationCenter.current()
+            let delivered = await center.deliveredNotifications()
+            let toRemove = delivered
+                .filter { $0.request.content.userInfo["paneId"] as? String == paneId }
+                .map(\.request.identifier)
+            if !toRemove.isEmpty {
+                center.removeDeliveredNotifications(withIdentifiers: toRemove)
+                logger.debug("Dismissed \(toRemove.count) notification(s) for pane \(paneId)")
             }
         }
 

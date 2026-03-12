@@ -180,10 +180,17 @@
             await dockIconService.startObserving()
 
             // Forward hook events to window manager AND all connected iOS devices
+            let notifService = terminalNotificationService
             await hookServer.setEventHandler(handler: { [weak self] event in
                 guard let self else { return }
                 // Handle locally
                 await windowManager.handleHookEvent(event)
+
+                // Dismiss terminal notifications when a session ends to avoid
+                // spurious notifications from the exiting process (fixes #205)
+                if case .sessionEnd = event.action, let paneId = event.tmuxPane {
+                    notifService.dismissNotifications(paneId)
+                }
 
                 // Update sleep prevention based on new session count
                 await updateSleepPrevention()
@@ -300,8 +307,12 @@
             )
 
             // Wire terminal notification display (fires for any monitored pane, regardless of streaming)
+            // Only show notifications for panes with active Claude sessions to avoid
+            // spurious notifications when a session exits (fixes #205)
             let notificationService = terminalNotificationService
+            let wm2 = windowManager
             paneStreamManager.onNotification = { paneId, notification in
+                guard wm2.paneStates[paneId]?.claudeSession != nil else { return }
                 notificationService.showNotification(paneId, notification)
             }
 
