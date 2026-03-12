@@ -176,8 +176,7 @@ final public class ExternalServerClient {
         let sessionState = await onSessionStateRequest()
         logger.info("Pushing session state to viewer", metadata: [
             "pairId": "\(sessionState.pairId)",
-            "sessionCount": "\(sessionState.sessions.count)",
-            "paneCount": "\(sessionState.panes?.count ?? 0)",
+            "paneCount": "\(sessionState.paneStates.count)",
         ])
         await sendEncrypted(.sessionState(sessionState))
     }

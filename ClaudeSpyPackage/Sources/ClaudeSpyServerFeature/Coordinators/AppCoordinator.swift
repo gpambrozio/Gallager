@@ -191,10 +191,11 @@
                 guard event.action.body.shouldSendToServer else { return }
                 // Skip push notifications for auto-approvable events in yolo mode
                 let skipPush: Bool
-                if let paneId = event.tmuxPane,
-                   case let .permissionRequest(body) = event.action,
-                   body.isYoloAutoApprovable,
-                   await windowManager.isYoloModeEnabled(for: paneId) {
+                if
+                    let paneId = event.tmuxPane,
+                    case let .permissionRequest(body) = event.action,
+                    body.isYoloAutoApprovable,
+                    await windowManager.isYoloModeEnabled(for: paneId) {
                     skipPush = true
                 } else {
                     skipPush = false
@@ -306,8 +307,8 @@
 
             // Wire title changes from background notification readers to window manager
             let wm = windowManager
-            paneStreamManager.onTitleChange = { _, target, title in
-                wm.updateTerminalTitle(target: target, title: title)
+            paneStreamManager.onTitleChange = { paneId, _, title in
+                wm.updateTerminalTitle(paneId: paneId, title: title)
             }
 
             // Start notification-only readers for all discovered panes
@@ -326,7 +327,7 @@
             controlClientManager.setOnPanesChanged { [weak self] in
                 Task {
                     let panes = await tmuxForCleanup.refreshPanes()
-                    winManager.cleanupStaleSessions(currentPanes: panes)
+                    winManager.updatePaneStates(from: panes)
                     await terminalStreaming.stopStreamsForClosedPanes(currentPanes: panes)
                     await paneStreaming.updateNotificationMonitoring(panes: panes)
                     self?.updateSleepPrevention()
@@ -379,23 +380,19 @@
             let scanner = projectScanner
             connectionManager.onSessionStateRequest = { [weak windowManager, tmuxService, scanner] in
                 guard let windowManager else {
-                    return SessionStateMessage(pairId: "", sessions: [:], activePanes: [], panes: [])
+                    return SessionStateMessage(pairId: "", paneStates: [:])
                 }
-                let sessions = await windowManager.activeSessions
-                let activePaneIds = await Array(windowManager.activeSessions.keys)
+                // Refresh panes to ensure metadata is current
                 let allPanes = await tmuxService.refreshPanes()
-                let paneMessages = allPanes.map { $0.asPaneInfoMessage }
+                await windowManager.updatePaneStates(from: allPanes)
+                let paneStates = await windowManager.paneStates
                 let claudeProjects = await scanner.scanProjects()
-                let yoloModePanes = await Array(windowManager.yoloModePanes)
 
                 // Note: pairId in SessionStateMessage is per-connection, will be set by individual connections
                 return SessionStateMessage(
                     pairId: "",
-                    sessions: sessions,
-                    activePanes: activePaneIds,
-                    panes: paneMessages,
-                    claudeProjects: claudeProjects,
-                    yoloModePanes: yoloModePanes
+                    paneStates: paneStates,
+                    claudeProjects: claudeProjects
                 )
             }
 
@@ -424,7 +421,7 @@
         /// Updates sleep prevention based on current session count.
         /// Called after hook events and session cleanup.
         private func updateSleepPrevention() {
-            let sessionCount = windowManager.activeSessions.count
+            let sessionCount = windowManager.activeSessionPaneIds.count
             let isEnabled = settings.preventSleepDuringSessions
             Task {
                 await sleepPreventionService.updateForSessionCount(sessionCount, isEnabled)

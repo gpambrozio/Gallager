@@ -26,60 +26,94 @@ public struct HookEventMessage: Codable, Sendable {
 /// Complete session state for sync between host and viewer
 public struct SessionStateMessage: Codable, Sendable {
     public let pairId: String
-    public let sessions: [String: ClaudeSession]
-    public let activePanes: [String]
-    /// All tmux panes (including those without Claude sessions)
-    public let panes: [PaneInfoMessage]?
+    /// Unified per-pane state keyed by pane ID
+    public let paneStates: [String: PaneState]
     /// Discovered Claude projects on the host
     public let claudeProjects: [ClaudeProjectInfo]?
-    /// Pane IDs with yolo mode enabled on the host
-    public let yoloModePanes: [String]?
 
     public init(
         pairId: String,
-        sessions: [String: ClaudeSession],
-        activePanes: [String],
-        panes: [PaneInfoMessage]? = nil,
-        claudeProjects: [ClaudeProjectInfo]? = nil,
-        yoloModePanes: [String]? = nil
+        paneStates: [String: PaneState],
+        claudeProjects: [ClaudeProjectInfo]? = nil
     ) {
         self.pairId = pairId
-        self.sessions = sessions
-        self.activePanes = activePanes
-        self.panes = panes
+        self.paneStates = paneStates
         self.claudeProjects = claudeProjects
-        self.yoloModePanes = yoloModePanes
     }
 }
 
-// MARK: - Pane Info for Viewer
+// MARK: - Pane State
 
-/// Simplified pane information for viewer display
-public struct PaneInfoMessage: Codable, Sendable, Identifiable {
-    public let id: String
-    public let target: String
-    public let sessionName: String
-    public let windowIndex: Int
-    public let paneIndex: Int
-    public let command: String?
-    public let currentPath: String?
-    public let width: Int
-    public let height: Int
-    public let isActive: Bool
+/// Unified per-pane state combining tmux metadata, Claude session info, and runtime flags.
+/// Used both locally on macOS and over the wire for iOS viewer sync.
+public struct PaneState: Codable, Sendable, Identifiable {
+    // MARK: - Tmux Pane Identity & Metadata
+
+    /// The tmux pane ID (e.g., "%0", "%5")
+    public let paneId: String
+
+    /// The full target string (e.g., "mysession:0.1")
+    public var target: String
+
+    /// The session name containing this pane
+    public var sessionName: String
+
+    /// The window index within the session
+    public var windowIndex: Int
+
+    /// The pane index within the window
+    public var paneIndex: Int
+
+    /// The command currently running in the pane
+    public var command: String?
+
+    /// The current working directory of the pane
+    public var currentPath: String?
+
+    /// Width of the pane in columns
+    public var width: Int
+
+    /// Height of the pane in rows
+    public var height: Int
+
+    /// Whether this pane is the active pane in its window
+    public var isActive: Bool
+
+    // MARK: - Terminal State
+
+    /// Terminal title detected via OSC escape sequences
+    public var terminalTitle: String?
+
+    // MARK: - Claude Session
+
+    /// The Claude Code session running in this pane, if any
+    public var claudeSession: ClaudeSession?
+
+    // MARK: - Behavior Flags
+
+    /// Whether yolo mode is enabled (auto-approve permissions)
+    public var yoloMode: Bool
+
+    // MARK: - Identifiable
+
+    public var id: String { paneId }
 
     public init(
-        id: String,
-        target: String,
-        sessionName: String,
-        windowIndex: Int,
-        paneIndex: Int,
+        paneId: String,
+        target: String = "",
+        sessionName: String = "",
+        windowIndex: Int = 0,
+        paneIndex: Int = 0,
         command: String? = nil,
         currentPath: String? = nil,
-        width: Int,
-        height: Int,
-        isActive: Bool
+        width: Int = 80,
+        height: Int = 24,
+        isActive: Bool = false,
+        terminalTitle: String? = nil,
+        claudeSession: ClaudeSession? = nil,
+        yoloMode: Bool = false
     ) {
-        self.id = id
+        self.paneId = paneId
         self.target = target
         self.sessionName = sessionName
         self.windowIndex = windowIndex
@@ -89,6 +123,9 @@ public struct PaneInfoMessage: Codable, Sendable, Identifiable {
         self.width = width
         self.height = height
         self.isActive = isActive
+        self.terminalTitle = terminalTitle
+        self.claudeSession = claudeSession
+        self.yoloMode = yoloMode
     }
 }
 

@@ -26,6 +26,8 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
     public let height: Int
     /// Whether this pane is the active pane in its window
     public let isActive: Bool
+    /// The terminal title set via OSC escape sequences (empty string means default/unset)
+    public let paneTitle: String
 
     public init(
         paneId: String,
@@ -37,7 +39,8 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
         currentPath: String,
         width: Int,
         height: Int,
-        isActive: Bool
+        isActive: Bool,
+        paneTitle: String = ""
     ) {
         self.paneId = paneId
         self.target = target
@@ -49,12 +52,13 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
         self.width = width
         self.height = height
         self.isActive = isActive
+        self.paneTitle = paneTitle
     }
 }
 
 public extension PaneInfo {
     /// Creates a PaneInfo from tmux format output
-    /// Expected format: id|session|window|pane|command|path|width|height|active
+    /// Expected format: id|session|window|pane|command|path|width|height|active|title
     init?(fromTmuxOutput line: String) {
         let components = line.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
         guard components.count >= 9 else { return nil }
@@ -75,13 +79,15 @@ public extension PaneInfo {
         self.width = width
         self.height = height
         self.isActive = components[8] == "1"
+        self.paneTitle = components.count >= 10 ? components[9] : ""
         self.target = "\(sessionName):\(windowIndex).\(paneIndex)"
     }
 
-    /// Converts to the shared networking model for iOS display
-    var asPaneInfoMessage: PaneInfoMessage {
-        PaneInfoMessage(
-            id: paneId,
+    /// Creates a new PaneState from this pane's metadata.
+    /// Claude session, terminal title, and yolo mode are left at defaults.
+    func makePaneState() -> PaneState {
+        PaneState(
+            paneId: paneId,
             target: target,
             sessionName: sessionName,
             windowIndex: windowIndex,
@@ -92,5 +98,19 @@ public extension PaneInfo {
             height: height,
             isActive: isActive
         )
+    }
+
+    /// Updates the tmux metadata fields of an existing PaneState, preserving
+    /// Claude session, terminal title, yolo mode, and other runtime state.
+    func updateMetadata(of state: inout PaneState) {
+        state.target = target
+        state.sessionName = sessionName
+        state.windowIndex = windowIndex
+        state.paneIndex = paneIndex
+        state.command = command
+        state.currentPath = currentPath
+        state.width = width
+        state.height = height
+        state.isActive = isActive
     }
 }

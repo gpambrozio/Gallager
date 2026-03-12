@@ -56,31 +56,68 @@ public enum TableRenderingScenario {
         // with `capture-pane -e`, it converts these to SO/SI (0x0E/0x0F)
         // sequences which our filterToColorCodesOnly must translate to
         // UTF-8 box-drawing characters.
+        //
+        // The script clears the screen and draws the table from the top,
+        // so the screenshot only shows the table — no Python source code.
+        // The table uses the full 80-column terminal width and includes
+        // multi-line rows to stress-test rendering.
+
+        // Write the table-drawing Python script to a temp file via the helper
+        // pane, then run it from the test pane. This avoids command echo in
+        // scrollback, making the screenshot deterministic.
+        //
+        // The script uses ESC(0 / ESC(B to switch DEC Special Graphics mode.
+        // It draws a full-width (80-col) table with 3 columns and multi-line
+        // rows, exercising all box-drawing junction types.
+        TestStep.log("Writing table-drawing script to temp file")
+        TestStep.tmuxSendKeys(
+            target: "table-helper:0.0",
+            keys: #"""
+            cat > /tmp/draw_table.py << 'PYEOF'
+            import sys
+            E='\033'
+            ON=E+'(0'    # Switch to DEC Special Graphics
+            OFF=E+'(B'   # Switch back to ASCII
+            C=E+'['      # CSI
+            # DEC chars: l=┌ k=┐ m=└ j=┘ q=─ x=│ w=┬ v=┴ t=├ u=┤ n=┼
+            # 3 columns: 24 + 26 + 24 = 74 content + 6 junctions/borders = 80
+            W1=24; W2=26; W3=24
+            def hline(left, mid, right):
+                sys.stdout.write(ON+left+'q'*W1+mid+'q'*W2+mid+'q'*W3+right+OFF+'\n')
+            def row(c1, c2, c3):
+                sys.stdout.write(ON+'x'+OFF+c1.ljust(W1)+ON+'x'+OFF+c2.ljust(W2)+ON+'x'+OFF+c3.ljust(W3)+ON+'x'+OFF+'\n')
+            sys.stdout.write(C+'2J'+C+'H')
+            sys.stdout.write(C+'1;33m  Box-Drawing Table Rendering Test'+C+'0m\n\n')
+            hline('l','w','k')
+            row(' Name',' Description',' Status')
+            hline('t','n','u')
+            row(' Authentication',' User login and token',' Active')
+            row('   Service',' management system','')
+            hline('t','n','u')
+            row(' Database Pool',' Connection pooling for',' Warning: 85%')
+            row('   Manager',' PostgreSQL with auto-',' capacity')
+            row('',' scaling and failover','')
+            hline('t','n','u')
+            row(' WebSocket Relay',' Real-time bidirectional',' Active')
+            row('',' message routing between','')
+            row('',' paired devices','')
+            hline('t','n','u')
+            row(' E2E Test Runner',' Automated scenario',' 32/33 passed')
+            row('',' execution framework','')
+            hline('m','v','j')
+            sys.stdout.write('\n'+C+'1;32m  All services operational.'+C+'0m\n')
+            sys.stdout.flush()
+            PYEOF
+            """#,
+            literal: true
+        )
+        TestStep.tmuxSendKeys(target: "table-helper:0.0", keys: "Enter")
+        TestStep.wait(seconds: 1)
 
         TestStep.log("Drawing table with DEC line-drawing characters")
         TestStep.tmuxSendKeys(
             target: "table-test:0.0",
-            keys: #"""
-            python3 -c "
-            import sys
-            E='\\033'
-            ON=E+'(0'
-            OFF=E+'(B'
-            C=E+'['
-            # DEC chars: l=┌ k=┐ m=└ j=┘ q=─ x=│ w=┬ v=┴ t=├ u=┤ n=┼
-            W=20
-            sys.stdout.write(f'{C}2J{C}H')
-            sys.stdout.write(f'{C}1;33mTable rendering test:{C}0m\\n\\n')
-            sys.stdout.write(f'{ON}l{\"q\"*W}w{\"q\"*W}k{OFF}\\n')
-            sys.stdout.write(f'{ON}x{OFF}{\" Header 1\":<{W}}{ON}x{OFF}{\" Header 2\":<{W}}{ON}x{OFF}\\n')
-            sys.stdout.write(f'{ON}t{\"q\"*W}n{\"q\"*W}u{OFF}\\n')
-            for i in range(1,4):
-                sys.stdout.write(f'{ON}x{OFF}{f\" Row {i} Col 1\":<{W}}{ON}x{OFF}{f\" Row {i} Col 2\":<{W}}{ON}x{OFF}\\n')
-            sys.stdout.write(f'{ON}m{\"q\"*W}v{\"q\"*W}j{OFF}\\n')
-            sys.stdout.write(f'\\n{C}1;32mDone.{C}0m\\n')
-            sys.stdout.flush()
-            "
-            """#,
+            keys: "python3 /tmp/draw_table.py",
             literal: true
         )
         TestStep.tmuxSendKeys(target: "table-test:0.0", keys: "Enter")

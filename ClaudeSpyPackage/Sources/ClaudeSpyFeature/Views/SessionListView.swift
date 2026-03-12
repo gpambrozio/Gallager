@@ -219,7 +219,7 @@
         let host: PairedHost
         let connection: ViewerConnection?
         let sessions: [(paneId: String, session: ClaudeSession)]
-        let panes: [PaneInfoMessage]
+        let panes: [PaneState]
         var showUsername = false
         let onNewSession: () -> Void
 
@@ -245,7 +245,7 @@
 
                     // Plain terminals for this host
                     ForEach(panes) { pane in
-                        NavigationLink(value: SessionNavigation.plainTerminal(paneId: pane.id, hostId: host.id)) {
+                        NavigationLink(value: SessionNavigation.plainTerminal(paneId: pane.paneId, hostId: host.id)) {
                             TerminalRowView(pane: pane)
                         }
                     }
@@ -376,19 +376,19 @@
 
     /// Row view for plain terminals (no Claude session)
     struct TerminalRowView: View {
-        let pane: PaneInfoMessage
+        let pane: PaneState
 
         /// Display name derived from current path or pane ID
         private var displayName: String {
             if let path = pane.currentPath, !path.isEmpty {
                 return URL(fileURLWithPath: path).lastPathComponent
             }
-            return pane.id
+            return pane.paneId
         }
 
         /// Subtitle showing session:window.pane info
         private var subtitle: String {
-            "\(pane.sessionName):\(pane.windowIndex).\(pane.paneIndex)"
+            pane.target.isEmpty ? pane.paneId : pane.target
         }
 
         var body: some View {

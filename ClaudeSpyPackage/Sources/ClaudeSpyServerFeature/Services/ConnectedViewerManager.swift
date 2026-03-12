@@ -271,9 +271,7 @@ final public class ConnectedViewerManager {
         connection.onSessionStateRequest = { [weak self] in
             await self?.onSessionStateRequest?() ?? SessionStateMessage(
                 pairId: "",
-                sessions: [:],
-                activePanes: [],
-                panes: []
+                paneStates: [:]
             )
         }
 

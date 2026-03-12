@@ -7,22 +7,15 @@ import SwiftUI
 @Observable
 @MainActor
 final public class MirrorWindowManager {
-    /// Currently open mirror windows keyed by pane target
+    /// Currently open mirror windows keyed by pane ID
     public private(set) var openWindows: [String: NSWindow] = [:]
 
-    /// Active Claude sessions keyed by pane ID
-    public private(set) var activeSessions: [String: ClaudeSession] = [:]
+    /// Unified per-pane state keyed by pane ID.
+    /// Contains tmux metadata, Claude session, terminal title, and yolo mode.
+    public private(set) var paneStates: [String: PaneState] = [:]
 
     /// Pane IDs that the user has manually closed (don't auto-reopen until session ends)
     private var userClosedPanes: Set<String> = []
-
-    /// Pane IDs with yolo mode enabled (auto-approve permissions).
-    /// Persists across session restarts (e.g. context compaction) but
-    /// resets on explicit session end or when the pane is removed.
-    public private(set) var yoloModePanes: Set<String> = []
-
-    /// Maps window target to pane ID for reverse lookup when window closes
-    private var windowPaneIds: [String: String] = [:]
 
     /// Strong references to window delegates (NSWindow.delegate is weak)
     private var windowDelegates: [String: MirrorWindowDelegate] = [:]
@@ -49,6 +42,31 @@ final public class MirrorWindowManager {
         self.paneStreamManager = paneStreamManager
     }
 
+    // MARK: - Pane State Management
+
+    /// Updates the pane states dictionary from tmux pane metadata.
+    /// Creates new entries for newly discovered panes, updates metadata for existing panes,
+    /// and removes entries for panes that no longer exist (cleaning up associated state).
+    public func updatePaneStates(from panes: [PaneInfo]) {
+        let currentPaneIds = Set(panes.map(\.paneId))
+
+        // Update or create entries for current panes
+        for pane in panes {
+            if var state = paneStates[pane.paneId] {
+                pane.updateMetadata(of: &state)
+                paneStates[pane.paneId] = state
+            } else {
+                paneStates[pane.paneId] = pane.makePaneState()
+            }
+        }
+
+        // Remove stale entries
+        let stalePaneIds = paneStates.keys.filter { !currentPaneIds.contains($0) }
+        for paneId in stalePaneIds {
+            removeStaleState(paneId: paneId)
+        }
+    }
+
     // MARK: - Periodic Session Validation
 
     /// Starts a background task that periodically validates sessions against actual tmux panes.
@@ -63,13 +81,9 @@ final public class MirrorWindowManager {
 
                 guard !Task.isCancelled, let self else { break }
 
-                // Always refresh panes to keep UI updated
+                // Refresh panes and update state
                 let panes = await self.tmuxService.refreshPanes()
-
-                // Only run cleanup if we have sessions to check
-                if !self.activeSessions.isEmpty {
-                    self.cleanupStaleSessions(currentPanes: panes)
-                }
+                self.updatePaneStates(from: panes)
             }
         }
     }
@@ -82,15 +96,20 @@ final public class MirrorWindowManager {
 
     // MARK: - Session Management
 
-    /// Updates a session for the given pane ID, creating one if it doesn't exist.
+    /// Updates the Claude session for the given pane ID, creating pane state if needed.
     /// Encapsulates the copy-mutate-reassign pattern for struct values in dictionaries.
     /// - Parameters:
     ///   - paneId: The tmux pane ID
     ///   - update: A closure that mutates the session
     private func updateSession(paneId: String, _ update: (inout ClaudeSession) -> Void) {
-        var session = activeSessions[paneId] ?? ClaudeSession(paneId: paneId)
+        var session = paneStates[paneId]?.claudeSession ?? ClaudeSession(paneId: paneId)
         update(&session)
-        activeSessions[paneId] = session
+        if paneStates[paneId] != nil {
+            paneStates[paneId]?.claudeSession = session
+        } else {
+            // Pane not yet known from tmux refresh — create minimal state
+            paneStates[paneId] = PaneState(paneId: paneId, claudeSession: session)
+        }
     }
 
     // MARK: - Hook Event Handling
@@ -105,8 +124,8 @@ final public class MirrorWindowManager {
         case .sessionEnd:
             // Add the final event before removing the session
             updateSession(paneId: paneId) { $0.addEvent(event) }
-            activeSessions.removeValue(forKey: paneId)
-            yoloModePanes.remove(paneId)
+            paneStates[paneId]?.claudeSession = nil
+            paneStates[paneId]?.yoloMode = false
             await closeMirrorForPane(paneId)
 
         case .sessionStart:
@@ -119,7 +138,7 @@ final public class MirrorWindowManager {
             updateSession(paneId: paneId) { $0.addEvent(event) }
             await autoOpenIfEnabled(paneId: paneId)
 
-        case let .permissionRequest(body) where yoloModePanes.contains(paneId) && body.isYoloAutoApprovable:
+        case let .permissionRequest(body) where isYoloModeEnabled(for: paneId) && body.isYoloAutoApprovable:
             // Yolo mode: auto-approve by sending Enter after a short delay
             updateSession(paneId: paneId) { $0.addEvent(event) }
             do {
@@ -136,31 +155,45 @@ final public class MirrorWindowManager {
     }
 
     /// Opens a mirror window for the specified pane
-    /// - Parameter paneInfo: The pane to mirror
+    /// - Parameter paneState: The pane state to mirror
     /// - Returns: The created or existing window
     @discardableResult
-    public func openMirror(for paneInfo: PaneInfo) -> NSWindow {
-        let windowKey = paneInfo.target
+    public func openMirror(for paneState: PaneState) -> NSWindow {
+        let paneId = paneState.paneId
 
         // Create the mirror view with required environment
-        let mirrorView = MirrorWindowView(paneInfo: paneInfo)
+        let mirrorView = MirrorWindowView(paneState: paneState)
             .environment(settings)
             .environment(tmuxService)
             .environment(self)
             .environment(paneStreamManager)
 
         let window = showMirrorWindow(
-            key: windowKey,
-            title: "Mirror: \(paneInfo.paneId) (\(paneInfo.target))",
-            terminalColumns: paneInfo.width,
-            terminalRows: paneInfo.height,
+            key: paneId,
+            title: "Mirror: \(paneState.paneId) (\(paneState.target))",
+            terminalColumns: paneState.width,
+            terminalRows: paneState.height,
             rootView: mirrorView
         )
 
-        // Store pane ID mapping for local mirrors
-        windowPaneIds[windowKey] = paneInfo.paneId
-
         return window
+    }
+
+    /// Opens a mirror window for the specified PaneInfo (convenience for callers that have PaneInfo)
+    @discardableResult
+    public func openMirror(for paneInfo: PaneInfo) -> NSWindow {
+        // Ensure pane state exists with current metadata
+        if var state = paneStates[paneInfo.paneId] {
+            paneInfo.updateMetadata(of: &state)
+            paneStates[paneInfo.paneId] = state
+        } else {
+            paneStates[paneInfo.paneId] = paneInfo.makePaneState()
+        }
+        guard let state = paneStates[paneInfo.paneId] else {
+            // Should never happen since we just set it above, but satisfy the compiler
+            return openMirror(for: paneInfo.makePaneState())
+        }
+        return openMirror(for: state)
     }
 
     /// Opens a standalone mirror window for a remote terminal session.
@@ -258,7 +291,7 @@ final public class MirrorWindowManager {
         window.setContentSize(size)
 
         // Set up window delegate to handle closing (must store strong reference)
-        let delegate = MirrorWindowDelegate(manager: self, target: key)
+        let delegate = MirrorWindowDelegate(manager: self, key: key)
         window.delegate = delegate
         windowDelegates[key] = delegate
 
@@ -274,11 +307,11 @@ final public class MirrorWindowManager {
 
     /// Resizes an existing mirror window to match new pane dimensions
     /// - Parameters:
-    ///   - target: The pane target
+    ///   - paneId: The pane ID
     ///   - columns: New width in character columns
     ///   - rows: New height in character rows
-    public func resizeWindow(target: String, columns: Int, rows: Int) {
-        guard let window = openWindows[target] else { return }
+    public func resizeWindow(paneId: String, columns: Int, rows: Int) {
+        guard let window = openWindows[paneId] else { return }
 
         // Calculate new window size using the same logic as openMirror
         let cellSize = FontMetrics.calculateCellSize(
@@ -303,104 +336,90 @@ final public class MirrorWindowManager {
         window.setFrame(frame, display: true, animate: true)
     }
 
-    /// Closes the mirror window for the specified pane target (programmatic close, not user-initiated)
-    public func closeMirror(for target: String) {
-        guard let window = openWindows[target] else { return }
+    /// Closes the mirror window for the specified key (programmatic close, not user-initiated)
+    public func closeMirror(for key: String) {
+        guard let window = openWindows[key] else { return }
         // Clear mappings BEFORE closing so windowWillClose delegate doesn't mark as user-closed
-        openWindows.removeValue(forKey: target)
-        windowPaneIds.removeValue(forKey: target)
-        windowDelegates.removeValue(forKey: target)
-        terminalTitles.removeValue(forKey: target)
+        openWindows.removeValue(forKey: key)
+        windowDelegates.removeValue(forKey: key)
         window.close()
     }
 
     /// Closes the mirror window for the specified pane ID
     /// - Parameter paneId: The tmux pane ID (e.g., "%0", "%1")
     public func closeMirrorForPane(_ paneId: String) async {
-        // Refresh panes to get current state and find the target for this pane ID
-        let allPanes = await tmuxService.refreshPanes()
-
-        guard let pane = allPanes.first(where: { $0.paneId == paneId }) else {
-            return
-        }
-
-        closeMirror(for: pane.target)
+        closeMirror(for: paneId)
     }
 
     /// Closes all mirror windows (programmatic, doesn't mark as user-closed)
     public func closeAll() {
         let windows = openWindows
         openWindows.removeAll()
-        windowPaneIds.removeAll()
         windowDelegates.removeAll()
-        terminalTitles.removeAll()
         for (_, window) in windows {
             window.close()
         }
     }
 
     /// Called when a window is closed by the user
-    fileprivate func windowWillClose(target: String) {
+    fileprivate func windowWillClose(key: String) {
         // Mark this pane as user-closed so we don't auto-reopen it
-        if let paneId = windowPaneIds[target] {
-            userClosedPanes.insert(paneId)
+        // (only for local pane windows, not remote windows)
+        if !key.hasPrefix("remote-") {
+            userClosedPanes.insert(key)
         }
-        openWindows.removeValue(forKey: target)
-        windowPaneIds.removeValue(forKey: target)
-        windowDelegates.removeValue(forKey: target)
-        terminalTitles.removeValue(forKey: target)
+        openWindows.removeValue(forKey: key)
+        windowDelegates.removeValue(forKey: key)
     }
-
-    /// Terminal titles keyed by pane target, detected via OSC escape sequences
-    public private(set) var terminalTitles: [String: String] = [:]
 
     /// Updates the terminal title for a pane and the associated window title.
     /// - Parameters:
-    ///   - target: The pane target (e.g., "mysession:0.1")
+    ///   - paneId: The tmux pane ID
     ///   - title: The new terminal title
-    public func updateTerminalTitle(target: String, title: String) {
-        terminalTitles[target] = title
-        openWindows[target]?.title = title
+    public func updateTerminalTitle(paneId: String, title: String) {
+        paneStates[paneId]?.terminalTitle = title
+        openWindows[paneId]?.title = title
     }
 
     /// Brings a mirror window to front if it exists
-    public func bringToFront(target: String) {
-        if let window = openWindows[target] {
+    public func bringToFront(paneId: String) {
+        if let window = openWindows[paneId] {
             window.makeKeyAndOrderFront(nil)
             window.orderFrontRegardless()
             NSApp.activate()
         }
     }
 
-    /// Returns whether a mirror is open for the given target
-    public func isOpen(target: String) -> Bool {
-        openWindows[target] != nil
+    /// Returns whether a mirror is open for the given pane ID
+    public func isOpen(paneId: String) -> Bool {
+        openWindows[paneId] != nil
     }
 
-    /// List of currently mirrored pane targets
-    public var mirroredTargets: [String] {
+    /// List of currently mirrored pane IDs
+    public var mirroredPaneIds: [String] {
         Array(openWindows.keys).sorted()
     }
 
     /// Set of pane IDs that have active Claude sessions
     public var activeSessionPaneIds: Set<String> {
-        Set(activeSessions.keys)
+        Set(paneStates.filter { $0.value.claudeSession != nil }.keys)
     }
 
     /// Number of sessions that need user attention
     public var pendingSessionCount: Int {
-        activeSessions.values.filter(\.needsAttention).count
+        paneStates.values.filter { $0.claudeSession?.needsAttention == true }.count
     }
 
     /// All sessions sorted with attention-needing sessions first
     public var sortedSessions: [ClaudeSession] {
-        activeSessions.values.sorted {
-            // Attention-needing sessions come first, then sort by pane ID
-            if $0.needsAttention != $1.needsAttention {
-                return $0.needsAttention
+        paneStates.values
+            .compactMap(\.claudeSession)
+            .sorted {
+                if $0.needsAttention != $1.needsAttention {
+                    return $0.needsAttention
+                }
+                return $0.paneId < $1.paneId
             }
-            return $0.paneId < $1.paneId
-        }
     }
 
     /// Auto-opens a mirror for the pane if the setting is enabled and the user hasn't manually closed it.
@@ -414,13 +433,16 @@ final public class MirrorWindowManager {
     /// If the pane no longer exists, the session is removed as stale.
     /// - Parameter paneId: The tmux pane ID (e.g., "%0", "%1")
     public func openMirrorForPane(_ paneId: String) async {
-        // Refresh panes to get current state
-        let allPanes = await tmuxService.refreshPanes()
+        // If we have state with valid metadata, use it directly
+        if let state = paneStates[paneId], !state.target.isEmpty {
+            openMirror(for: state)
+            return
+        }
 
-        // Find the pane with this pane ID (not target)
+        // Otherwise refresh from tmux
+        let allPanes = await tmuxService.refreshPanes()
         guard let pane = allPanes.first(where: { $0.paneId == paneId }) else {
-            // Pane no longer exists - clean up the stale session
-            removeStaleSession(paneId: paneId)
+            removeStaleState(paneId: paneId)
             return
         }
 
@@ -435,61 +457,43 @@ final public class MirrorWindowManager {
     ///   - enabled: Whether to enable or disable yolo mode
     ///   - paneId: The pane ID to set yolo mode for
     public func setYoloMode(enabled: Bool, for paneId: String) {
-        if enabled {
-            yoloModePanes.insert(paneId)
+        if paneStates[paneId] != nil {
+            paneStates[paneId]?.yoloMode = enabled
         } else {
-            yoloModePanes.remove(paneId)
+            // Create minimal state if needed
+            paneStates[paneId] = PaneState(paneId: paneId, yoloMode: enabled)
         }
     }
 
     /// Whether yolo mode is enabled for the given pane
     public func isYoloModeEnabled(for paneId: String) -> Bool {
-        yoloModePanes.contains(paneId)
+        paneStates[paneId]?.yoloMode ?? false
     }
 
-    // MARK: - Session Cleanup
+    // MARK: - State Cleanup
 
-    /// Removes a stale session for a pane that no longer exists.
-    ///
-    /// This also closes any associated mirror window.
-    /// - Parameter paneId: The tmux pane ID to remove
-    private func removeStaleSession(paneId: String) {
-        activeSessions.removeValue(forKey: paneId)
+    /// Removes state for a pane that no longer exists.
+    /// Also closes any associated mirror window.
+    private func removeStaleState(paneId: String) {
+        paneStates.removeValue(forKey: paneId)
         userClosedPanes.remove(paneId)
-        yoloModePanes.remove(paneId)
-
-        // Close the mirror window if open
-        for (target, mappedPaneId) in windowPaneIds where mappedPaneId == paneId {
-            closeMirror(for: target)
-        }
-    }
-
-    /// Cleans up active Claude sessions for panes that no longer exist.
-    /// Call this to remove orphaned sessions when their tmux panes have been closed.
-    /// - Parameter currentPanes: The list of currently existing tmux panes
-    public func cleanupStaleSessions(currentPanes: [PaneInfo]) {
-        let existingPaneIds = Set(currentPanes.map(\.paneId))
-        let stalePaneIds = activeSessions.keys.filter { !existingPaneIds.contains($0) }
-
-        for paneId in stalePaneIds {
-            removeStaleSession(paneId: paneId)
-        }
+        closeMirror(for: paneId)
     }
 }
 
 /// Window delegate to handle window lifecycle
 private class MirrorWindowDelegate: NSObject, NSWindowDelegate {
     weak var manager: MirrorWindowManager?
-    let target: String
+    let key: String
 
-    init(manager: MirrorWindowManager, target: String) {
+    init(manager: MirrorWindowManager, key: String) {
         self.manager = manager
-        self.target = target
+        self.key = key
     }
 
     func windowWillClose(_ notification: Notification) {
         Task { @MainActor in
-            manager?.windowWillClose(target: target)
+            manager?.windowWillClose(key: key)
         }
     }
 }

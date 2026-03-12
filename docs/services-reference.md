@@ -124,7 +124,7 @@ TmuxControlClient ──%layout-change──→ dimension change callback
 - Handles hook events (SessionStart opens window, SessionEnd closes)
 - Respects user-closed state (won't reopen until session ends)
 - Periodic session validation cleans up stale sessions
-- `cleanupStaleSessions(currentPanes:)` removes sessions for closed panes
+- `updatePaneStates(from:)` syncs pane state from tmux, removing stale entries
 
 ### TerminalContainerView (`ClaudeSpyServerFeature/Views/TerminalContainerView.swift`)
 

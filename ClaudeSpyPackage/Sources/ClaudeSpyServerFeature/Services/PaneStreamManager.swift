@@ -99,6 +99,22 @@
             streams[paneId]?.terminalTitle
         }
 
+        /// Known default pane titles to filter out when seeding from tmux state.
+        /// Tmux initializes `pane_title` to the system hostname, which may appear
+        /// in various forms depending on the system configuration.
+        private let defaultPaneTitles: Set<String> = {
+            var defaults = Set<String>()
+            defaults.insert(ProcessInfo.processInfo.hostName)
+            var buffer = [CChar](repeating: 0, count: Int(MAXHOSTNAMELEN))
+            if gethostname(&buffer, buffer.count) == 0, let hostname = String(validatingCString: buffer) {
+                defaults.insert(hostname)
+                if let dotIndex = hostname.firstIndex(of: ".") {
+                    defaults.insert(String(hostname[..<dotIndex]))
+                }
+            }
+            return defaults
+        }()
+
         // MARK: - Initialization
 
         public init(tmuxService: TmuxService, controlClientManager: TmuxControlClientManager) {
@@ -109,6 +125,11 @@
             controlClientManager.setOnDimensionChange { [weak self] paneId, width, height in
                 self?.updateDimensions(paneId: paneId, width: width, height: height)
             }
+        }
+
+        /// Whether a pane title from tmux is a custom title (not a default hostname variant).
+        private func isCustomPaneTitle(_ title: String) -> Bool {
+            !title.isEmpty && !defaultPaneTitles.contains(title)
         }
 
         // MARK: - Public API
@@ -393,6 +414,15 @@
             // Start readers for new panes not already covered
             for pane in panes where streams[pane.paneId] == nil && notificationReaders[pane.paneId] == nil {
                 await startNotificationReader(paneId: pane.paneId, sessionName: pane.sessionName, target: pane.target)
+            }
+
+            // For existing notification readers, check if tmux has a title that
+            // the pipe-pane listener missed (e.g., set during async startup).
+            for pane in panes where isCustomPaneTitle(pane.paneTitle) && notificationReaders[pane.paneId] != nil {
+                if notificationReaderTitles[pane.paneId] != pane.paneTitle {
+                    notificationReaderTitles[pane.paneId] = pane.paneTitle
+                    onTitleChange?(pane.paneId, pane.target, pane.paneTitle)
+                }
             }
         }
 

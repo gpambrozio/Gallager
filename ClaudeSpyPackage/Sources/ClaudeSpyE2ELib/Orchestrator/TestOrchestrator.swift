@@ -437,10 +437,11 @@ public actor TestOrchestrator {
             let resolvedName = context.resolve(name)
             let runner = processRunner
             // Use -f /dev/null to ignore user's tmux.conf (avoids base-index/pane-base-index
-            // being set to non-zero values which would change pane targets)
+            // being set to non-zero values which would change pane targets).
+            // Set DISABLE_AUTO_UPDATE to suppress oh-my-zsh update prompts that block the shell.
             _ = try await runner.runOrThrow(
                 "tmux",
-                arguments: ["-f", "/dev/null", "-S", socket, "new-session", "-d", "-s", resolvedName, "-x", "\(width)", "-y", "\(height)", "-c", NSHomeDirectory()]
+                arguments: ["-f", "/dev/null", "-S", socket, "new-session", "-d", "-s", resolvedName, "-x", "\(width)", "-y", "\(height)", "-c", NSHomeDirectory(), "-e", "DISABLE_AUTO_UPDATE=true"]
             )
 
         case let .tmuxStorePaneDimensions(target, widthKey, heightKey):
