@@ -102,6 +102,10 @@ struct WindowPaneLayoutView: View {
                         windowManager.updateTerminalTitle(paneId: paneState.paneId, title: title)
                     }
                 )
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
+                }
                 .id(pane.id)
             }
         }
