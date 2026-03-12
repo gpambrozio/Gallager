@@ -409,9 +409,9 @@
     // Swift 6 strict concurrency while acknowledging this UIKit threading guarantee.
     extension InteractiveTerminalView: @preconcurrency TerminalViewDelegate {
         func send(source: TerminalView, data: ArraySlice<UInt8>) {
-            // SwiftTerm auto-generates terminal responses (DA, cursor position reports, etc.)
-            // when it processes queries from the running program. These must NOT be forwarded
-            // back to the host as keystrokes — they'd appear as typed garbage in the pane.
+            // Defense-in-depth: DA queries are stripped from the feed on the macOS host,
+            // but catch any remaining auto-responses (cursor position reports, terminal
+            // parameter reports) that SwiftTerm may still generate.
             if TerminalResponseFilter.isTerminalResponse(data) { return }
 
             // Convert raw bytes to TmuxKey representations
