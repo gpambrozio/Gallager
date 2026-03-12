@@ -8,7 +8,6 @@ import Foundation
 /// - ``isTerminalResponse(_:)`` catches any auto-generated *response* sequences in the
 ///   `send()` delegate as a defense-in-depth fallback.
 public enum TerminalResponseFilter {
-
     // MARK: - Feed-level: strip DA queries
 
     /// Strips Device Attributes query sequences from terminal output data so that
@@ -49,13 +48,13 @@ public enum TerminalResponseFilter {
 
             // ESC [ c — Primary DA (no params)
             if third == 0x63 {
-                i = i + 3
+                i += 3
                 continue
             }
 
             // ESC [ 0 c — Primary DA (explicit zero param)
             if third == 0x30, remaining >= 4, data[i + 3] == 0x63 {
-                i = i + 4
+                i += 4
                 continue
             }
 
@@ -63,12 +62,12 @@ public enum TerminalResponseFilter {
             if third == 0x3E || third == 0x3D { // > or =
                 // ESC [ > c or ESC [ = c (no params)
                 if remaining >= 4, data[i + 3] == 0x63 {
-                    i = i + 4
+                    i += 4
                     continue
                 }
                 // ESC [ > 0 c or ESC [ = 0 c (explicit zero param)
                 if remaining >= 5, data[i + 3] == 0x30, data[i + 4] == 0x63 {
-                    i = i + 5
+                    i += 5
                     continue
                 }
             }
