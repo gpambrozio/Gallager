@@ -69,7 +69,7 @@ public enum TerminalTitleMacToMacScenario {
 
         TestStep.log("Opening Panes window on host")
         TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
+        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
         TestStep.wait(seconds: 1)
         TestStep.macMoveWindow(x: 10, y: 10)
         TestStep.macResizeWindow(width: 1_000, height: 600)
@@ -103,7 +103,7 @@ public enum TerminalTitleMacToMacScenario {
 
         TestStep.log("Opening Panes window on viewer and verifying title")
         TestStep.macOpenPanesWindow(instance: 1)
-        TestStep.macWaitForWindow(titled: "Panes", timeout: 5, instance: 1)
+        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5, instance: 1)
         TestStep.wait(seconds: 3)
 
         TestStep.macWaitForElement(titled: "e2e-title:0", timeout: 15, instance: 1)

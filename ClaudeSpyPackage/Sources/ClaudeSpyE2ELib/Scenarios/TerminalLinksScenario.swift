@@ -74,7 +74,7 @@ public enum TerminalLinksScenario {
 
         TestStep.log("Verifying links on macOS")
         TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
+        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
         TestStep.wait(seconds: 1)
         TestStep.macMoveWindow(x: 10, y: 10)
         TestStep.macResizeWindow(width: 1_200, height: 700)

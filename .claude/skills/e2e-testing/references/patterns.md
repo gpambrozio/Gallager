@@ -52,7 +52,7 @@ public static let scenario = ClaudeSpyE2ELib.scenario("My macOS Test", tags: ["m
     TestStep.wait(seconds: 3)
 
     TestStep.macOpenPanesWindow
-    TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
+    TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
     TestStep.wait(seconds: 1)
 
     // Select a pane in the sidebar

@@ -27,7 +27,7 @@ public enum TerminalTitleMacToIOSScenario {
 
         TestStep.log("Opening Panes window on host")
         TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
+        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
         TestStep.wait(seconds: 1)
         TestStep.macMoveWindow(x: 10, y: 10)
         TestStep.macResizeWindow(width: 1_000, height: 600)

@@ -58,7 +58,7 @@ public enum RapidKeystrokeOrderScenario {
 
         // ── Phase 6: Open Panes on viewer and select the remote pane ─
         TestStep.macOpenPanesWindow(instance: 1)
-        TestStep.macWaitForWindow(titled: "Panes", timeout: 5, instance: 1)
+        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5, instance: 1)
         TestStep.wait(seconds: 3)
         TestStep.macWaitForElement(titled: "e2e-rapid-keys:0", timeout: 15, instance: 1)
         TestStep.macClickButton(titled: "e2e-rapid-keys:0", instance: 1)
@@ -101,7 +101,7 @@ public enum RapidKeystrokeOrderScenario {
 
         // Open the host's Panes window and select its pane so the screenshot shows the terminal
         TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
+        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
         TestStep.macWaitForElement(titled: "e2e-rapid-keys:0", timeout: 10)
         TestStep.macClickButton(titled: "e2e-rapid-keys:0")
         TestStep.wait(seconds: 2)
