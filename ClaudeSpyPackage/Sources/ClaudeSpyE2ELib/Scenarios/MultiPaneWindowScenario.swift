@@ -17,9 +17,9 @@ public enum MultiPaneWindowScenario {
         TestStep.tmuxCreateSession(name: "multi-pane", width: 160, height: 50)
 
         // Produce some output so the terminal isn't empty
-        TestStep.tmuxSendKeys(target: "multi-pane:0.0", keys: "echo '=== PRIMARY PANE ==='", literal: false)
+        TestStep.tmuxSendKeys(target: "multi-pane:0.0", keys: "echo '=== PRIMARY PANE ==='", literal: true)
         TestStep.tmuxSendKeys(target: "multi-pane:0.0", keys: "Enter")
-        TestStep.tmuxSendKeys(target: "multi-pane:0.0", keys: "echo 'This is the original pane before any splits'", literal: false)
+        TestStep.tmuxSendKeys(target: "multi-pane:0.0", keys: "echo 'This is the original pane before any splits'", literal: true)
         TestStep.tmuxSendKeys(target: "multi-pane:0.0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
@@ -40,73 +40,75 @@ public enum MultiPaneWindowScenario {
         TestStep.macWaitForElement(titled: "multi-pane:0", timeout: 5)
         TestStep.macClickButton(titled: "multi-pane:0")
         TestStep.wait(seconds: 3)
-        TestStep.macScreenshot(label: "01-single-pane", compare: false)
+        TestStep.macScreenshot(label: "single-pane")
 
         // ── Stage 2: Vertical split (left | right) ─────────────
 
         TestStep.log("Stage 2: Split vertically — creates left and right panes")
-        TestStep.tmuxCommand(arguments: ["split-window", "-h", "-t", "multi-pane:0"])
+        TestStep.tmuxSendKeys(target: "multi-pane:0.0", keys: "tmux split-window -h", literal: true)
+        TestStep.tmuxSendKeys(target: "multi-pane:0.0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
         // Send content to the new right pane
-        TestStep.tmuxSendKeys(target: "multi-pane:0.1", keys: "echo '=== RIGHT PANE ==='", literal: false)
+        TestStep.tmuxSendKeys(target: "multi-pane:0.1", keys: "echo '=== RIGHT PANE ==='", literal: true)
         TestStep.tmuxSendKeys(target: "multi-pane:0.1", keys: "Enter")
-        TestStep.tmuxSendKeys(target: "multi-pane:0.1", keys: "echo 'Created by vertical split'", literal: false)
+        TestStep.tmuxSendKeys(target: "multi-pane:0.1", keys: "echo 'Created by vertical split'", literal: true)
         TestStep.tmuxSendKeys(target: "multi-pane:0.1", keys: "Enter")
         TestStep.wait(seconds: 3)
 
-        TestStep.macScreenshot(label: "02-two-panes-vertical-split", compare: false)
+        TestStep.macScreenshot(label: "two-panes-vertical-split")
 
         // ── Stage 3: Horizontal split (right splits into top/bottom) ──
 
         TestStep.log("Stage 3: Split right pane horizontally — creates top-right and bottom-right")
-        TestStep.tmuxCommand(arguments: ["split-window", "-v", "-t", "multi-pane:0.1"])
+        TestStep.tmuxSendKeys(target: "multi-pane:0.1", keys: "tmux split-window -v", literal: true)
+        TestStep.tmuxSendKeys(target: "multi-pane:0.1", keys: "Enter")
         TestStep.wait(seconds: 1)
 
         // Send content to the new bottom-right pane
-        TestStep.tmuxSendKeys(target: "multi-pane:0.2", keys: "echo '=== BOTTOM-RIGHT PANE ==='", literal: false)
+        TestStep.tmuxSendKeys(target: "multi-pane:0.2", keys: "echo '=== BOTTOM-RIGHT PANE ==='", literal: true)
         TestStep.tmuxSendKeys(target: "multi-pane:0.2", keys: "Enter")
-        TestStep.tmuxSendKeys(target: "multi-pane:0.2", keys: "echo 'Created by horizontal split of right pane'", literal: false)
+        TestStep.tmuxSendKeys(target: "multi-pane:0.2", keys: "echo 'Created by horizontal split of right pane'", literal: true)
         TestStep.tmuxSendKeys(target: "multi-pane:0.2", keys: "Enter")
         TestStep.wait(seconds: 3)
 
-        TestStep.macScreenshot(label: "03-three-panes-final-layout", compare: false)
+        TestStep.macScreenshot(label: "three-panes-final-layout")
 
         // ── Stage 4: More content in all panes ──────────────────
 
         TestStep.log("Stage 4: Add more content to all panes")
-        TestStep.tmuxSendKeys(target: "multi-pane:0.0", keys: "echo 'Left pane still going strong'", literal: false)
+        TestStep.tmuxSendKeys(target: "multi-pane:0.0", keys: "echo 'Left pane still going strong'", literal: true)
         TestStep.tmuxSendKeys(target: "multi-pane:0.0", keys: "Enter")
-        TestStep.tmuxSendKeys(target: "multi-pane:0.1", keys: "echo 'Top-right checking in'", literal: false)
+        TestStep.tmuxSendKeys(target: "multi-pane:0.1", keys: "echo 'Top-right checking in'", literal: true)
         TestStep.tmuxSendKeys(target: "multi-pane:0.1", keys: "Enter")
-        TestStep.tmuxSendKeys(target: "multi-pane:0.2", keys: "echo 'Bottom-right reporting for duty'", literal: false)
+        TestStep.tmuxSendKeys(target: "multi-pane:0.2", keys: "echo 'Bottom-right reporting for duty'", literal: true)
         TestStep.tmuxSendKeys(target: "multi-pane:0.2", keys: "Enter")
         TestStep.wait(seconds: 3)
 
-        TestStep.macScreenshot(label: "04-all-panes-with-extra-content", compare: false)
+        TestStep.macScreenshot(label: "all-panes-with-extra-content")
 
         // ── Stage 5: Exit left pane (original, 3 → 2 panes) ─────
 
         TestStep.log("Stage 5: Exit left pane (first created) — layout should collapse to two panes")
-        TestStep.tmuxSendKeys(target: "multi-pane:0.0", keys: "exit", literal: false)
+        TestStep.tmuxSendKeys(target: "multi-pane:0.0", keys: "exit", literal: true)
         TestStep.tmuxSendKeys(target: "multi-pane:0.0", keys: "Enter")
         TestStep.wait(seconds: 3)
 
-        TestStep.macScreenshot(label: "05-two-panes-after-exit", compare: false)
+        TestStep.macScreenshot(label: "two-panes-after-exit")
 
         // ── Stage 6: Exit top-right pane (second created, 2 → 1 pane) ──
 
         TestStep.log("Stage 6: Exit top-right pane (second created) — layout should collapse to single pane")
-        TestStep.tmuxSendKeys(target: "multi-pane:0.0", keys: "exit", literal: false)
+        TestStep.tmuxSendKeys(target: "multi-pane:0.0", keys: "exit", literal: true)
         TestStep.tmuxSendKeys(target: "multi-pane:0.0", keys: "Enter")
         TestStep.wait(seconds: 3)
 
-        TestStep.macScreenshot(label: "06-single-pane-after-exits", compare: false)
+        TestStep.macScreenshot(label: "single-pane-after-exits")
 
         // ── Stage 7: Exit last pane (third created) — window disappears ──
 
         TestStep.log("Stage 7: Exit last pane — window should disappear from sidebar")
-        TestStep.tmuxSendKeys(target: "multi-pane:0.0", keys: "exit", literal: false)
+        TestStep.tmuxSendKeys(target: "multi-pane:0.0", keys: "exit", literal: true)
         TestStep.tmuxSendKeys(target: "multi-pane:0.0", keys: "Enter")
         TestStep.wait(seconds: 3)
 
@@ -114,6 +116,32 @@ public enum MultiPaneWindowScenario {
         TestStep.macWaitForElementToDisappear(titled: "multi-pane:0", timeout: 10)
         // With no panes left, the app shows the "New Session" empty state
         TestStep.macWaitForElement(titled: "New Session", timeout: 5)
-        TestStep.macScreenshot(label: "07-no-panes-empty-state", compare: false)
+        TestStep.macScreenshot(label: "no-panes-empty-state")
+
+        TestStep.macClickButton(titled: "New Terminal")
+        TestStep.macWaitForElement(titled: "terminal:1", timeout: 5)
+        TestStep.macClickButton(titled: "terminal:1")
+        TestStep.wait(seconds: 3)
+
+        TestStep.tmuxSendKeys(target: "%0", keys: "tmux split-window -h", literal: true)
+        TestStep.tmuxSendKeys(target: "%0", keys: "Enter")
+        TestStep.wait(seconds: 3)
+
+        TestStep.tmuxSendKeys(target: "%1", keys: "tmux split-window -v", literal: true)
+        TestStep.tmuxSendKeys(target: "%1", keys: "Enter")
+        TestStep.wait(seconds: 3)
+
+        TestStep.tmuxSendKeys(target: "%2", keys: "exit", literal: true)
+        TestStep.tmuxSendKeys(target: "%2", keys: "Enter")
+        TestStep.wait(seconds: 3)
+
+        TestStep.tmuxSendKeys(target: "%1", keys: "exit", literal: true)
+        TestStep.tmuxSendKeys(target: "%1", keys: "Enter")
+        TestStep.wait(seconds: 6)
+
+        TestStep.tmuxSendKeys(target: "%0", keys: "echo 'Still here'", literal: true)
+        TestStep.tmuxSendKeys(target: "%0", keys: "Enter")
+        TestStep.wait(seconds: 3)
+        TestStep.macScreenshot(label: "last-should-have-echo")
     }
 }

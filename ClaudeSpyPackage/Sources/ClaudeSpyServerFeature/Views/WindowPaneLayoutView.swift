@@ -49,20 +49,20 @@ struct WindowPaneLayoutView: View {
     @Environment(MirrorWindowManager.self) private var windowManager
 
     var body: some View {
-        if
-            window.isSinglePane, let pane = window.panes.first,
-            let paneState = windowManager.paneStates[pane.paneId] {
-            // Single pane — render directly as before
-            MirrorWindowView(paneState: paneState)
-        } else if let layout = TmuxLayoutParser.parse(window.windowLayout) {
+        if let layout = TmuxLayoutParser.parse(window.windowLayout) {
             VStack(spacing: 0) {
                 tiledLayout(from: layout)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if settings.showStatusBar {
-                    multiPaneStatusBar
+                    statusBar
                 }
             }
+        } else if
+            window.isSinglePane, let pane = window.panes.first,
+            let paneState = windowManager.paneStates[pane.paneId] {
+            // Fallback for unparseable single-pane layout
+            MirrorWindowView(paneState: paneState)
         } else {
             // Fallback: stack panes vertically if layout parsing fails
             VStack(spacing: 1) {
@@ -89,6 +89,7 @@ struct WindowPaneLayoutView: View {
         // Filter to only panes that have valid state — this ensures the Layout's
         // rect count always matches the ForEach's subview count (no conditional gaps).
         let validPanes = positioned.filter { windowManager.paneStates[$0.paneInfo.paneId] != nil }
+        let isSingle = validPanes.count == 1
 
         return ProportionalTileLayout(rects: validPanes.map(\.rect)) {
             ForEach(validPanes) { pane in
@@ -96,15 +97,17 @@ struct WindowPaneLayoutView: View {
                 let paneState = windowManager.paneStates[pane.paneInfo.paneId]!
                 TerminalContainerView(
                     paneState: paneState,
-                    autoFocus: false,
+                    autoFocus: isSingle,
                     onStateChange: { _, _, _ in },
                     onTitleChange: { title in
                         windowManager.updateTerminalTitle(paneId: paneState.paneId, title: title)
                     }
                 )
                 .overlay {
-                    Rectangle()
-                        .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
+                    if !isSingle {
+                        Rectangle()
+                            .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
+                    }
                 }
                 .id(pane.id)
             }
@@ -150,15 +153,17 @@ struct WindowPaneLayoutView: View {
 
     // MARK: - Status Bar
 
-    private var multiPaneStatusBar: some View {
+    private var statusBar: some View {
         HStack {
             Text("\(window.sessionName):\(window.windowIndex)")
                 .font(.system(.caption, design: .monospaced))
 
-            Divider()
-                .frame(height: 12)
+            if window.panes.count > 1 {
+                Divider()
+                    .frame(height: 12)
 
-            Text("\(window.panes.count) panes")
+                Text("\(window.panes.count) panes")
+            }
 
             Spacer()
         }
