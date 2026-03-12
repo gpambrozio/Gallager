@@ -125,7 +125,7 @@
                 guard !hasRequestedPermission else { return }
                 hasRequestedPermission = true
                 do {
-                    isAuthorized = try await center.requestAuthorization(options: [.alert, .sound])
+                    isAuthorized = try await center.requestAuthorization(options: [.alert, .sound, .badge])
                     logger.info("Notification permission \(isAuthorized ? "granted" : "denied")")
                 } catch {
                     logger.warning("Failed to request notification permission: \(error)")
