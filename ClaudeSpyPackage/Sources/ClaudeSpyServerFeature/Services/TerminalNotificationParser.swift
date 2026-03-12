@@ -206,6 +206,16 @@
             // OSC 9: "9;<message>"
             if string.hasPrefix("9;") {
                 let message = String(string.dropFirst(2))
+
+                // Skip ConEmu-style OSC 9 sub-commands (e.g. "4;0;" for progress state,
+                // "1;filename" for tab title). These have a numeric prefix before the first
+                // semicolon, while real notifications start with readable text.
+                if let semicolonIndex = message.firstIndex(of: ";"),
+                    message[message.startIndex..<semicolonIndex].allSatisfy(\.isNumber)
+                {
+                    return (true, nil)
+                }
+
                 guard let sanitized = sanitizeNotificationText(message) else { return (true, nil) }
                 return (true, TerminalStreamMessage.TerminalNotification(body: sanitized))
             }
@@ -250,8 +260,18 @@
                         while let param = iterator.next() {
                             if param.value >= 0x40, param.value <= 0x7E { break }
                         }
+                    } else if next == "]" {
+                        // Nested OSC sequence: skip until BEL (0x07), ST (ESC \), or end
+                        while let oscChar = iterator.next() {
+                            if oscChar.value == 0x07 { break }
+                            if oscChar == "\u{1B}" {
+                                // Check for ST (ESC \)
+                                if let after = iterator.next(), after == "\\" { break }
+                            }
+                        }
                     }
-                    // For other ESC sequences (e.g. ESC > or ESC =), skip the next char.
+                    // For other ESC sequences (e.g. ESC > or ESC =), the next char
+                    // was already consumed above.
                     // Note: some ESC sequences are 3 bytes (e.g. ESC ( B, ESC # 8) —
                     // the third byte may leak through, but these are rare in notification text.
                     continue
