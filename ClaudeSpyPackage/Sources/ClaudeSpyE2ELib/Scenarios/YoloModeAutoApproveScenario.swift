@@ -43,7 +43,7 @@ public enum YoloModeAutoApproveScenario {
         TestStep.macOpenPanesWindow()
         TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
         TestStep.wait(seconds: 2)
-        TestStep.macClickButton(titled: "session-1:0.0")
+        TestStep.macClickButton(titled: "session-1:0")
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(
             titled: "Yolo mode: auto-approving permissions (click to disable)",
@@ -58,11 +58,11 @@ public enum YoloModeAutoApproveScenario {
 
         // Type a marker in tmux so we can detect the auto-approve Enter
         TestStep.tmuxSendKeys(
-            target: "session-1:0.0",
+            target: "session-1:0",
             keys: "echo BEFORE_YOLO_APPROVE",
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "session-1:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "session-1:0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
         // Send a Bash PermissionRequest (auto-approvable in yolo mode)
@@ -103,7 +103,7 @@ public enum YoloModeAutoApproveScenario {
 
         // Capture tmux pane content — the Enter should have produced
         // a new shell prompt line after the BEFORE_YOLO_APPROVE echo
-        TestStep.tmuxCapturePaneContent(target: "session-1:0.0", storeAs: "paneAfterApprove")
+        TestStep.tmuxCapturePaneContent(target: "session-1:0", storeAs: "paneAfterApprove")
         TestStep.assertStoredContains(key: "paneAfterApprove", substring: "BEFORE_YOLO_APPROVE")
 
         // Take screenshots to visually confirm the Enter keypress result

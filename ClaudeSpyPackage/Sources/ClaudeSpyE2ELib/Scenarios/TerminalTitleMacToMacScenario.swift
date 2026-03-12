@@ -76,8 +76,8 @@ public enum TerminalTitleMacToMacScenario {
         TestStep.macSetSidebarWidth(250)
         TestStep.wait(seconds: 1)
 
-        TestStep.macWaitForElement(titled: "e2e-title:0.0", timeout: 10)
-        TestStep.macClickButton(titled: "e2e-title:0.0")
+        TestStep.macWaitForElement(titled: "e2e-title:0", timeout: 10)
+        TestStep.macClickButton(titled: "e2e-title:0")
         TestStep.wait(seconds: 2)
         TestStep.macScreenshot(label: "host-default-title")
 
@@ -85,12 +85,12 @@ public enum TerminalTitleMacToMacScenario {
 
         TestStep.log("Setting custom terminal title via OSC 2 escape sequence")
         TestStep.tmuxSendKeys(
-            target: "e2e-title:0.0",
+            target: "e2e-title:0",
             keys: "printf '\\033]2;E2E Custom Title\\007'",
             literal: false
         )
         // Press Enter to execute the printf command
-        TestStep.tmuxSendKeys(target: "e2e-title:0.0", keys: "Enter", literal: false)
+        TestStep.tmuxSendKeys(target: "e2e-title:0", keys: "Enter", literal: false)
         TestStep.wait(seconds: 3)
 
         // ── Phase 8: Verify title appears on host's sidebar ───────────
@@ -106,8 +106,8 @@ public enum TerminalTitleMacToMacScenario {
         TestStep.macWaitForWindow(titled: "Panes", timeout: 5, instance: 1)
         TestStep.wait(seconds: 3)
 
-        TestStep.macWaitForElement(titled: "e2e-title:0.0", timeout: 15, instance: 1)
-        TestStep.macClickButton(titled: "e2e-title:0.0", instance: 1)
+        TestStep.macWaitForElement(titled: "e2e-title:0", timeout: 15, instance: 1)
+        TestStep.macClickButton(titled: "e2e-title:0", instance: 1)
         TestStep.wait(seconds: 3)
 
         // Verify the title shows on the viewer's window
@@ -118,11 +118,11 @@ public enum TerminalTitleMacToMacScenario {
 
         TestStep.log("Changing title again to verify live updates")
         TestStep.tmuxSendKeys(
-            target: "e2e-title:0.0",
+            target: "e2e-title:0",
             keys: "printf '\\033]2;Updated Title\\007'",
             literal: false
         )
-        TestStep.tmuxSendKeys(target: "e2e-title:0.0", keys: "Enter", literal: false)
+        TestStep.tmuxSendKeys(target: "e2e-title:0", keys: "Enter", literal: false)
         TestStep.wait(seconds: 3)
 
         // Verify updated title on both host and viewer

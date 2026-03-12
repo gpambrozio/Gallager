@@ -48,6 +48,11 @@ final public class TmuxService {
     /// Current list of available panes (updated by refreshPanes)
     public private(set) var panes: [PaneInfo] = []
 
+    /// Panes grouped by tmux window (derived from panes)
+    public var windows: [TmuxWindow] {
+        TmuxWindow.groupPanes(panes)
+    }
+
     /// Handler called when the pane list changes (after refreshPanes detects a change)
     private var onPanesChanged: (@Sendable () async -> Void)?
 
@@ -127,8 +132,8 @@ final public class TmuxService {
             let attachedSessions = await getAttachedSessionNames()
             attachedSessionNames = attachedSessions
 
-            // Format: #{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_title}
-            let format = "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_title}"
+            // Format: #{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_title}|#{window_layout}|#{window_name}
+            let format = "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_title}|#{window_layout}|#{window_name}"
 
             let result = try await runTmuxCommand([
                 "list-panes",

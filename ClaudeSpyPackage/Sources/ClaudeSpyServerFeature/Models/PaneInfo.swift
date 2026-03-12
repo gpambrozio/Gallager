@@ -28,6 +28,13 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
     public let isActive: Bool
     /// The terminal title set via OSC escape sequences (empty string means default/unset)
     public let paneTitle: String
+    /// The tmux window layout string (e.g., "d0c6,191x50,0,0{95x50,0,0,5,95x50,96,0,6}")
+    public let windowLayout: String
+    /// The tmux window name
+    public let windowName: String
+
+    /// Window identifier combining session name and window index (e.g., "mysession:0")
+    public var windowId: String { "\(sessionName):\(windowIndex)" }
 
     public init(
         paneId: String,
@@ -40,7 +47,9 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
         width: Int,
         height: Int,
         isActive: Bool,
-        paneTitle: String = ""
+        paneTitle: String = "",
+        windowLayout: String = "",
+        windowName: String = ""
     ) {
         self.paneId = paneId
         self.target = target
@@ -53,12 +62,14 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
         self.height = height
         self.isActive = isActive
         self.paneTitle = paneTitle
+        self.windowLayout = windowLayout
+        self.windowName = windowName
     }
 }
 
 public extension PaneInfo {
     /// Creates a PaneInfo from tmux format output
-    /// Expected format: id|session|window|pane|command|path|width|height|active|title
+    /// Expected format: id|session|window|pane|command|path|width|height|active|title|layout|windowName
     init?(fromTmuxOutput line: String) {
         let components = line.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
         guard components.count >= 9 else { return nil }
@@ -80,6 +91,8 @@ public extension PaneInfo {
         self.height = height
         self.isActive = components[8] == "1"
         self.paneTitle = components.count >= 10 ? components[9] : ""
+        self.windowLayout = components.count >= 11 ? components[10] : ""
+        self.windowName = components.count >= 12 ? components[11] : ""
         self.target = "\(sessionName):\(windowIndex).\(paneIndex)"
     }
 
@@ -96,7 +109,9 @@ public extension PaneInfo {
             currentPath: currentPath,
             width: width,
             height: height,
-            isActive: isActive
+            isActive: isActive,
+            windowLayout: windowLayout,
+            windowName: windowName
         )
     }
 
@@ -112,5 +127,7 @@ public extension PaneInfo {
         state.width = width
         state.height = height
         state.isActive = isActive
+        state.windowLayout = windowLayout
+        state.windowName = windowName
     }
 }

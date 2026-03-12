@@ -503,6 +503,12 @@ public actor TestOrchestrator {
             args.append(resolvedKeys)
             _ = try await runner.runOrThrow("tmux", arguments: args)
 
+        case let .tmuxCommand(arguments):
+            let socket = context.resolve("${tmuxSocket}")
+            let runner = processRunner
+            let resolvedArgs = arguments.map { context.resolve($0) }
+            _ = try await runner.runOrThrow("tmux", arguments: ["-f", "/dev/null", "-S", socket] + resolvedArgs)
+
         // Hook Events
         case let .macSendHookEvent(json, tmuxPane, projectPath, instance):
             let resolvedJson = context.resolve(json)

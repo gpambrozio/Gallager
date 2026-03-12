@@ -79,6 +79,12 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// Whether this pane is the active pane in its window
     public var isActive: Bool
 
+    /// The tmux window layout string for this pane's window
+    public var windowLayout: String
+
+    /// The tmux window name for this pane's window
+    public var windowName: String
+
     // MARK: - Terminal State
 
     /// Terminal title detected via OSC escape sequences
@@ -109,6 +115,8 @@ public struct PaneState: Codable, Sendable, Identifiable {
         width: Int = 80,
         height: Int = 24,
         isActive: Bool = false,
+        windowLayout: String = "",
+        windowName: String = "",
         terminalTitle: String? = nil,
         claudeSession: ClaudeSession? = nil,
         yoloMode: Bool = false
@@ -123,6 +131,8 @@ public struct PaneState: Codable, Sendable, Identifiable {
         self.width = width
         self.height = height
         self.isActive = isActive
+        self.windowLayout = windowLayout
+        self.windowName = windowName
         self.terminalTitle = terminalTitle
         self.claudeSession = claudeSession
         self.yoloMode = yoloMode

@@ -49,7 +49,7 @@ public enum TruecolorRenderingScenario {
         TestStep.macSetSidebarWidth(200)
         TestStep.wait(seconds: 1)
 
-        TestStep.macClickButton(titled: "truecolor-test:0.0")
+        TestStep.macClickButton(titled: "truecolor-test:0")
         TestStep.wait(seconds: 2)
 
         // ── Navigate to pane on iOS ─────────────────────────────────
@@ -71,7 +71,7 @@ public enum TruecolorRenderingScenario {
 
         TestStep.log("Creating parameterized truecolor script")
         TestStep.tmuxSendKeys(
-            target: "truecolor-test:0.0",
+            target: "truecolor-test:0",
             keys: #"""
             cat > $TMPDIR/tc.py << 'PYEOF'
             import sys,math,time,os
@@ -115,18 +115,18 @@ public enum TruecolorRenderingScenario {
             """#,
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "truecolor-test:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "truecolor-test:0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
         // ── Variant 1: Standard gradients (6 boxes, 50x5) ───────────
 
         TestStep.log("Variant 1/5: Standard Gradients")
         TestStep.tmuxSendKeys(
-            target: "truecolor-test:0.0",
+            target: "truecolor-test:0",
             keys: "V=0 python3 $TMPDIR/tc.py",
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "truecolor-test:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "truecolor-test:0", keys: "Enter")
         TestStep.wait(seconds: 6)
         TestStep.macScreenshot(label: "v1-standard-gradients")
         TestStep.wait(seconds: 1)
@@ -136,11 +136,11 @@ public enum TruecolorRenderingScenario {
 
         TestStep.log("Variant 2/5: Wide Warm Boxes")
         TestStep.tmuxSendKeys(
-            target: "truecolor-test:0.0",
+            target: "truecolor-test:0",
             keys: "V=1 python3 $TMPDIR/tc.py",
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "truecolor-test:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "truecolor-test:0", keys: "Enter")
         TestStep.wait(seconds: 6)
         TestStep.macScreenshot(label: "v2-wide-warm-boxes")
         TestStep.wait(seconds: 1)
@@ -150,11 +150,11 @@ public enum TruecolorRenderingScenario {
 
         TestStep.log("Variant 3/5: Small Cool Grid")
         TestStep.tmuxSendKeys(
-            target: "truecolor-test:0.0",
+            target: "truecolor-test:0",
             keys: "V=2 python3 $TMPDIR/tc.py",
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "truecolor-test:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "truecolor-test:0", keys: "Enter")
         TestStep.wait(seconds: 6)
         TestStep.macScreenshot(label: "v3-small-cool-grid")
         TestStep.wait(seconds: 1)
@@ -164,11 +164,11 @@ public enum TruecolorRenderingScenario {
 
         TestStep.log("Variant 4/5: Full-Width Bars")
         TestStep.tmuxSendKeys(
-            target: "truecolor-test:0.0",
+            target: "truecolor-test:0",
             keys: "V=3 python3 $TMPDIR/tc.py",
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "truecolor-test:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "truecolor-test:0", keys: "Enter")
         TestStep.wait(seconds: 6)
         TestStep.macScreenshot(label: "v4-full-width-bars")
         TestStep.wait(seconds: 1)
@@ -178,11 +178,11 @@ public enum TruecolorRenderingScenario {
 
         TestStep.log("Variant 5/5: Dense Rainbow Grid")
         TestStep.tmuxSendKeys(
-            target: "truecolor-test:0.0",
+            target: "truecolor-test:0",
             keys: "V=4 python3 $TMPDIR/tc.py",
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "truecolor-test:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "truecolor-test:0", keys: "Enter")
         TestStep.wait(seconds: 6)
         TestStep.macScreenshot(label: "v5-dense-rainbow-grid")
         TestStep.wait(seconds: 1)
@@ -191,11 +191,11 @@ public enum TruecolorRenderingScenario {
         // ── Cleanup ──────────────────────────────────────────────────
 
         TestStep.tmuxSendKeys(
-            target: "truecolor-test:0.0",
+            target: "truecolor-test:0",
             keys: "rm $TMPDIR/tc.py",
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "truecolor-test:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "truecolor-test:0", keys: "Enter")
     }
 }
 
