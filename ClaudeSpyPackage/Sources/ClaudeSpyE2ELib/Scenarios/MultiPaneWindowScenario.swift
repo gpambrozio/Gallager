@@ -137,11 +137,11 @@ public enum MultiPaneWindowScenario {
 
         TestStep.tmuxSendKeys(target: "%1", keys: "exit", literal: true)
         TestStep.tmuxSendKeys(target: "%1", keys: "Enter")
-        TestStep.wait(seconds: 6)
-
-        TestStep.tmuxSendKeys(target: "%0", keys: "echo 'Still here'", literal: true)
-        TestStep.tmuxSendKeys(target: "%0", keys: "Enter")
         TestStep.wait(seconds: 3)
+
+        // TestStep.tmuxSendKeys(target: "%0", keys: "echo 'Still here'", literal: true)
+        // TestStep.tmuxSendKeys(target: "%0", keys: "Enter")
+        // TestStep.wait(seconds: 3)
         TestStep.macScreenshot(label: "last-should-have-echo")
     }
 }

@@ -73,9 +73,9 @@ struct TerminalContainerView: NSViewRepresentable {
         // Update container size on layout changes
         coordinator.updateContainerSize(nsView.frame.size)
 
-        // Check for column changes from pane state (rows are dynamic)
-        if let currentWidth = windowManager.paneStates[paneState.paneId]?.width {
-            coordinator.handleExternalColumnChange(width: currentWidth)
+        // Check for dimension changes from pane state (updated after %layout-change)
+        if let currentState = windowManager.paneStates[paneState.paneId] {
+            coordinator.handleExternalDimensionChange(width: currentState.width, height: currentState.height)
         }
     }
 
@@ -407,13 +407,19 @@ struct TerminalContainerView: NSViewRepresentable {
 
         // MARK: External Dimension Changes
 
-        func handleExternalColumnChange(width: Int) {
+        func handleExternalDimensionChange(width: Int, height: Int) {
             guard width != lastExternalWidth else { return }
             lastExternalWidth = width
 
-            // Forward to pane stream manager (it will notify via onDimensionChange callback)
-            // Note: rows are dynamic based on container, so we pass current rows
-            paneStreamManager?.updateDimensions(paneId: paneState?.paneId ?? "", width: width, height: rows)
+            // Resize terminal immediately to avoid cursor misposition.
+            // Without this, the shell's prompt redraw (via pipe-pane) arrives
+            // while the terminal still has the old column count, then the async
+            // dimension callback reflows content that was already correct,
+            // placing the cursor at the end of the line instead of after the prompt.
+            updateTerminalDimensions(cols: width, rows: height)
+
+            // Also update the stream so other subscribers (e.g., iOS relay) get notified
+            paneStreamManager?.updateDimensions(paneId: paneState?.paneId ?? "", width: width, height: height)
         }
 
         // MARK: Private Helpers
