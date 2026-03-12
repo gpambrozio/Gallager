@@ -206,8 +206,8 @@
             // OSC 9: "9;<message>"
             if string.hasPrefix("9;") {
                 let message = String(string.dropFirst(2))
-                guard !message.isEmpty else { return (true, nil) }
-                return (true, TerminalStreamMessage.TerminalNotification(body: message))
+                guard let sanitized = sanitizeNotificationText(message) else { return (true, nil) }
+                return (true, TerminalStreamMessage.TerminalNotification(body: sanitized))
             }
 
             // OSC 777: "777;notify;<title>;<body>"
@@ -216,17 +216,55 @@
                 let parts = payload.split(separator: ";", maxSplits: 1)
                 guard parts.count == 2 else {
                     // Malformed — treat entire payload as body
-                    guard !payload.isEmpty else { return (true, nil) }
-                    return (true, TerminalStreamMessage.TerminalNotification(body: payload))
+                    guard let sanitized = sanitizeNotificationText(payload) else { return (true, nil) }
+                    return (true, TerminalStreamMessage.TerminalNotification(body: sanitized))
                 }
-                let title = String(parts[0])
-                let body = String(parts[1])
-                guard !body.isEmpty else { return (true, nil) }
+                let title = sanitizeNotificationText(String(parts[0]))
+                let body = sanitizeNotificationText(String(parts[1]))
+                guard let body else { return (true, nil) }
                 return (true, TerminalStreamMessage.TerminalNotification(title: title, body: body))
             }
 
             // Not a notification sequence
             return (false, nil)
+        }
+
+        /// Sanitizes notification text by stripping control characters and escape sequences.
+        ///
+        /// Returns nil if the sanitized text is empty (i.e., the original was all control
+        /// characters / escape sequences and not a real human-readable notification).
+        private func sanitizeNotificationText(_ text: String) -> String? {
+            guard !text.isEmpty else { return nil }
+
+            // Strip ANSI escape sequences (CSI sequences like ESC[...m)
+            // and any remaining ESC-prefixed sequences
+            var result = ""
+            var iterator = text.unicodeScalars.makeIterator()
+
+            while let scalar = iterator.next() {
+                if scalar == "\u{1B}" {
+                    // ESC — skip the escape sequence
+                    guard let next = iterator.next() else { break }
+                    if next == "[" {
+                        // CSI sequence: skip until we hit a letter (0x40-0x7E)
+                        while let param = iterator.next() {
+                            if param.value >= 0x40, param.value <= 0x7E { break }
+                        }
+                    }
+                    // For other ESC sequences (e.g. ESC ]), just skip the next char
+                    continue
+                }
+
+                // Skip control characters (0x00-0x1F) except tab, newline, carriage return
+                if scalar.value < 0x20, scalar != "\t", scalar != "\n", scalar != "\r" {
+                    continue
+                }
+
+                result.append(Character(scalar))
+            }
+
+            let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
         }
 
         /// Resets the parser state, clearing any buffered incomplete sequences.

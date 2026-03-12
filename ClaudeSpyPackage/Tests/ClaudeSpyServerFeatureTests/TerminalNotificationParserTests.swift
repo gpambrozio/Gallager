@@ -281,5 +281,61 @@
             #expect(result.notifications.isEmpty)
             #expect(result.filteredData == data)
         }
+
+        // MARK: - Content sanitization
+
+        @Test("Discards OSC 9 notification with only escape sequences")
+        func osc9WithOnlyEscapeSequences() {
+            var parser = TerminalNotificationParser()
+            // Body is just ANSI escape codes with no readable text
+            let data = Data("\u{1b}]9;\u{1b}[0m\u{1b}[?25h\u{07}".utf8)
+            let result = parser.parse(data)
+
+            // Sequence is recognized (stripped from output) but no notification emitted
+            #expect(result.notifications.isEmpty)
+            #expect(result.filteredData.isEmpty)
+        }
+
+        @Test("Discards OSC 9 notification with only control characters")
+        func osc9WithOnlyControlCharacters() {
+            var parser = TerminalNotificationParser()
+            let data = Data("\u{1b}]9;\u{01}\u{02}\u{03}\u{07}".utf8)
+            let result = parser.parse(data)
+
+            #expect(result.notifications.isEmpty)
+            #expect(result.filteredData.isEmpty)
+        }
+
+        @Test("Sanitizes OSC 9 notification by stripping escape sequences from text")
+        func osc9SanitizesEscapeSequences() {
+            var parser = TerminalNotificationParser()
+            // Body has ANSI color codes around readable text
+            let data = Data("\u{1b}]9;\u{1b}[32mBuild complete\u{1b}[0m\u{07}".utf8)
+            let result = parser.parse(data)
+
+            #expect(result.notifications.count == 1)
+            #expect(result.notifications[0].body == "Build complete")
+        }
+
+        @Test("Sanitizes OSC 777 notification title and body")
+        func osc777SanitizesContent() {
+            var parser = TerminalNotificationParser()
+            let data = Data("\u{1b}]777;notify;\u{1b}[1mAlert\u{1b}[0m;Task \u{1b}[32mdone\u{1b}[0m\u{07}".utf8)
+            let result = parser.parse(data)
+
+            #expect(result.notifications.count == 1)
+            #expect(result.notifications[0].title == "Alert")
+            #expect(result.notifications[0].body == "Task done")
+        }
+
+        @Test("Discards OSC 777 notification when body is only escape sequences")
+        func osc777DiscardsEscapeOnlyBody() {
+            var parser = TerminalNotificationParser()
+            let data = Data("\u{1b}]777;notify;Title;\u{1b}[0m\u{07}".utf8)
+            let result = parser.parse(data)
+
+            #expect(result.notifications.isEmpty)
+            #expect(result.filteredData.isEmpty)
+        }
     }
 #endif
