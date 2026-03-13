@@ -6,6 +6,49 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.13</title>
+         <sparkle:version>13</sparkle:version>
+         <sparkle:shortVersionString>1.13</sparkle:shortVersionString>
+         <pubDate>Fri, 13 Mar 2026 10:38:29 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.13 Release Notes
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Tmux windows in sidebar</strong> — The sidebar now displays tmux windows instead of individual panes, providing a cleaner and more intuitive navigation experience when monitoring multiple sessions.</li>
+</ul>
+
+<ul>
+<li><strong>Pending badge on dock and app switcher icons</strong> — The macOS dock icon and app switcher now show a badge when there are pending notifications, making it easier to notice activity at a glance.</li>
+</ul>
+
+<ul>
+<li><strong>Persistent terminal titles</strong> — Terminal titles are now preserved when switching between panes and are detected even on inactive panes, so you always see the correct title regardless of which pane is selected.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Fixed escape sequence leaks in notifications</strong> — Terminal escape sequences are now properly sanitized before appearing in notification content, preventing garbled text in alerts.</li>
+</ul>
+
+<ul>
+<li><strong>Fixed SwiftTerm DA responses appearing as typed input</strong> — Device attribute responses from the terminal emulator no longer leak through as if they were user-typed input.</li>
+</ul>
+
+<h2>Internal Improvements</h2>
+
+<ul>
+<li><strong>Unified pane state management</strong> — Per-pane state has been consolidated into a single `PaneState` struct, improving consistency and reliability of pane tracking.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.13.dmg"
+                    sparkle:edSignature="NPa0+ubr7xpQwdky05DfYF3jGbDANBfzaH9HGAJD08hZ7xrCAfx8CsVJ0jO3xryPjb87TVOjBTWFfXhlAGPoDg=="
+                    length="20411009"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.12</title>
          <sparkle:version>12</sparkle:version>
          <sparkle:shortVersionString>1.12</sparkle:shortVersionString>
