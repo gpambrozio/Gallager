@@ -383,6 +383,27 @@ public struct CreateTmuxSession: CommandSpec, Equatable {
     }
 }
 
+/// Set a custom description for a tmux window. Returns success/failure.
+/// The description is applied to all panes in the window and synced to all connected devices.
+public struct SetWindowDescription: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// The window ID (sessionName:windowIndex) to set the description for
+    public let windowId: String
+
+    /// The custom description text, or nil to clear
+    public let description: String?
+
+    public init(windowId: String, description: String?) {
+        self.windowId = windowId
+        self.description = description
+    }
+
+    public var commandType: CommandType {
+        .setWindowDescription(self)
+    }
+}
+
 /// Set yolo mode for a pane's Claude session. Returns success/failure.
 public struct SetYoloMode: CommandSpec, Equatable {
     public typealias Response = CommandResponseMessage
@@ -419,6 +440,8 @@ public enum CommandType: Codable, Sendable, Equatable {
     case resizeTmuxPane(ResizeTmuxPane)
     /// Set yolo mode (auto-approve permissions) for a pane
     case setYoloMode(SetYoloMode)
+    /// Set a custom description for a tmux window
+    case setWindowDescription(SetWindowDescription)
 
     // MARK: - Convenience Factory Methods
 
@@ -465,6 +488,11 @@ public enum CommandType: Codable, Sendable, Equatable {
     /// Create a setYoloMode command
     public static func setYoloMode(enabled: Bool) -> CommandType {
         .setYoloMode(SetYoloMode(enabled: enabled))
+    }
+
+    /// Create a setWindowDescription command
+    public static func setWindowDescription(windowId: String, description: String?) -> CommandType {
+        .setWindowDescription(SetWindowDescription(windowId: windowId, description: description))
     }
 }
 

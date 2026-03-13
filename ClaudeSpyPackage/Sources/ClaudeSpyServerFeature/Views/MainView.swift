@@ -252,6 +252,13 @@ public struct MainView: View {
                         Task {
                             await createRemoteSession(on: host, inProject: project)
                         }
+                    },
+                    onSetDescription: { windowId, description in
+                        Task {
+                            guard let manager = coordinator.viewerConnectionManager else { return }
+                            let command = SetWindowDescription(windowId: windowId, description: description)
+                            _ = await manager.sendCommand(command, paneId: "", hostId: host.id)
+                        }
                     }
                 )
             }
@@ -978,6 +985,9 @@ private struct WindowSidebarRow: View {
 
     let window: TmuxWindow
 
+    @State private var isEditingDescription = false
+    @State private var editedDescription = ""
+
     /// The primary pane to show info for (active pane or first pane)
     private var primaryPane: PaneInfo? { window.activePane }
 
@@ -1006,12 +1016,26 @@ private struct WindowSidebarRow: View {
         primaryPaneState?.terminalTitle
     }
 
+    /// Custom description for this window
+    private var customDescription: String? {
+        windowManager.windowDescriptions[window.id]
+    }
+
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
+                // Custom description shown prominently if set
+                if let customDescription {
+                    Text(customDescription)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                }
+
                 HStack(spacing: 6) {
                     Text(window.id)
-                        .font(.system(.body, design: .monospaced))
+                        .font(.system(customDescription != nil ? .caption : .body, design: .monospaced))
+                        .foregroundStyle(customDescription != nil ? .secondary : .primary)
 
                     if hasClaude {
                         Symbols.sparkles.image
@@ -1060,6 +1084,36 @@ private struct WindowSidebarRow: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+        .contextMenu {
+            Button {
+                editedDescription = customDescription ?? ""
+                isEditingDescription = true
+            } label: {
+                if customDescription != nil {
+                    Label("Edit Description", symbol: .pencil)
+                } else {
+                    Label("Add Description", symbol: .pencil)
+                }
+            }
+
+            if customDescription != nil {
+                Button(role: .destructive) {
+                    windowManager.setWindowDescription(nil, for: window.id)
+                } label: {
+                    Label("Remove Description", symbol: .xmark)
+                }
+            }
+        }
+        .alert("Window Description", isPresented: $isEditingDescription) {
+            TextField("Description", text: $editedDescription)
+            Button("Save") {
+                let trimmed = editedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+                windowManager.setWindowDescription(trimmed.isEmpty ? nil : trimmed, for: window.id)
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Enter a custom description for \(window.id)")
+        }
     }
 }
 
@@ -1230,8 +1284,13 @@ private struct RemoteHostSidebarSection: View {
     @Binding var selectedRemotePane: RemotePaneSelection?
     let onSelect: (RemotePaneSelection) -> Void
     let onCreate: (ClaudeProjectInfo?) -> Void
+    let onSetDescription: (String, String?) -> Void
 
     @Environment(AppSettings.self) private var settings
+
+    @State private var isEditingDescription = false
+    @State private var editedDescription = ""
+    @State private var editingPaneId = ""
 
     private var sessions: [(paneId: String, session: ClaudeSession)] {
         sessionStore.sessions(for: host.id)
@@ -1245,10 +1304,18 @@ private struct RemoteHostSidebarSection: View {
         !sessions.isEmpty || !panes.isEmpty
     }
 
+    /// Gets the window ID for a pane
+    private func windowId(for paneId: String) -> String? {
+        guard let state = sessionStore.paneState(for: paneId) else { return nil }
+        guard !state.sessionName.isEmpty else { return nil }
+        return "\(state.sessionName):\(state.windowIndex)"
+    }
+
     var body: some View {
         Section {
             if hasContent {
                 ForEach(sessions, id: \.paneId) { item in
+                    let paneState = sessionStore.paneState(for: item.paneId)
                     Button {
                         onSelect(RemotePaneSelection(
                             hostId: host.id,
@@ -1259,7 +1326,8 @@ private struct RemoteHostSidebarSection: View {
                         RemotePaneSidebarRow(
                             title: item.session.displayName,
                             subtitle: item.paneId,
-                            hasClaude: true
+                            hasClaude: true,
+                            customDescription: paneState?.customDescription
                         )
                     }
                     .buttonStyle(.plain)
@@ -1268,6 +1336,9 @@ private struct RemoteHostSidebarSection: View {
                         selectedRemotePane?.paneId == item.paneId && selectedRemotePane?.hostId == host.id
                             ? Color.accentColor.opacity(0.2) : nil
                     )
+                    .contextMenu {
+                        remoteDescriptionContextMenu(paneId: item.paneId, currentDescription: paneState?.customDescription)
+                    }
                 }
 
                 ForEach(panes) { pane in
@@ -1281,7 +1352,8 @@ private struct RemoteHostSidebarSection: View {
                         RemotePaneSidebarRow(
                             title: pane.currentPath.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? pane.paneId,
                             subtitle: pane.target.isEmpty ? pane.paneId : pane.target,
-                            hasClaude: false
+                            hasClaude: false,
+                            customDescription: pane.customDescription
                         )
                     }
                     .buttonStyle(.plain)
@@ -1290,6 +1362,9 @@ private struct RemoteHostSidebarSection: View {
                         selectedRemotePane?.paneId == pane.paneId && selectedRemotePane?.hostId == host.id
                             ? Color.accentColor.opacity(0.2) : nil
                     )
+                    .contextMenu {
+                        remoteDescriptionContextMenu(paneId: pane.paneId, currentDescription: pane.customDescription)
+                    }
                 }
             } else if connection?.isHostConnected == true {
                 Text("No active sessions")
@@ -1321,6 +1396,43 @@ private struct RemoteHostSidebarSection: View {
                 }
             )
         }
+        .alert("Window Description", isPresented: $isEditingDescription) {
+            TextField("Description", text: $editedDescription)
+            Button("Save") {
+                guard let wid = windowId(for: editingPaneId) else { return }
+                let trimmed = editedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+                onSetDescription(wid, trimmed.isEmpty ? nil : trimmed)
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Enter a custom description for this session")
+        }
+    }
+
+    @ViewBuilder
+    private func remoteDescriptionContextMenu(paneId: String, currentDescription: String?) -> some View {
+        Button {
+            editedDescription = currentDescription ?? ""
+            editingPaneId = paneId
+            isEditingDescription = true
+        } label: {
+            if currentDescription != nil {
+                Label("Edit Description", symbol: .pencil)
+            } else {
+                Label("Add Description", symbol: .pencil)
+            }
+        }
+        .disabled(connection?.isHostConnected != true)
+
+        if currentDescription != nil {
+            Button(role: .destructive) {
+                guard let wid = windowId(for: paneId) else { return }
+                onSetDescription(wid, nil)
+            } label: {
+                Label("Remove Description", symbol: .xmark)
+            }
+            .disabled(connection?.isHostConnected != true)
+        }
     }
 
     private var hostStatusColor: Color {
@@ -1337,13 +1449,22 @@ private struct RemotePaneSidebarRow: View {
     let title: String
     let subtitle: String
     let hasClaude: Bool
+    var customDescription: String?
 
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
+                if let customDescription {
+                    Text(customDescription)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                }
+
                 HStack(spacing: 6) {
                     Text(title)
-                        .font(.system(.body, design: .monospaced))
+                        .font(.system(customDescription != nil ? .caption : .body, design: .monospaced))
+                        .foregroundStyle(customDescription != nil ? .secondary : .primary)
 
                     if hasClaude {
                         Symbols.sparkles.image

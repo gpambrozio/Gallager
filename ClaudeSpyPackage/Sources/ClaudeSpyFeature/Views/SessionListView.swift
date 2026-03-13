@@ -102,6 +102,12 @@
                         showUsername: settings.hasDuplicateHostName(for: host),
                         onNewSession: {
                             selectedHostForNewSession = host
+                        },
+                        onSetDescription: { windowId, description in
+                            Task {
+                                let command = SetWindowDescription(windowId: windowId, description: description)
+                                _ = await connectionManager.sendCommand(command, paneId: "", hostId: host.id)
+                            }
                         }
                     )
                 }
@@ -222,11 +228,23 @@
         let panes: [PaneState]
         var showUsername = false
         let onNewSession: () -> Void
+        var onSetDescription: (String, String?) -> Void = { _, _ in }
 
         @Environment(SessionStore.self) private var sessionStore
 
+        @State private var isEditingDescription = false
+        @State private var editedDescription = ""
+        @State private var editingPaneId = ""
+
         private var hasContent: Bool {
             !sessions.isEmpty || !panes.isEmpty
+        }
+
+        /// Gets the window ID for a pane
+        private func windowId(for paneId: String) -> String? {
+            guard let state = sessionStore.paneState(for: paneId) else { return nil }
+            guard !state.sessionName.isEmpty else { return nil }
+            return "\(state.sessionName):\(state.windowIndex)"
         }
 
         var body: some View {
@@ -234,12 +252,17 @@
                 if hasContent {
                     // Claude sessions for this host
                     ForEach(sessions, id: \.paneId) { item in
+                        let paneState = sessionStore.paneState(for: item.paneId)
                         NavigationLink(value: SessionNavigation.claudeSession(paneId: item.paneId, hostId: host.id)) {
                             SessionRowView(
                                 paneId: item.paneId,
                                 session: item.session,
-                                isActive: sessionStore.isPaneActive(item.paneId)
+                                isActive: sessionStore.isPaneActive(item.paneId),
+                                customDescription: paneState?.customDescription
                             )
+                        }
+                        .contextMenu {
+                            descriptionContextMenu(paneId: item.paneId, currentDescription: paneState?.customDescription)
                         }
                     }
 
@@ -247,6 +270,9 @@
                     ForEach(panes) { pane in
                         NavigationLink(value: SessionNavigation.plainTerminal(paneId: pane.paneId, hostId: host.id)) {
                             TerminalRowView(pane: pane)
+                        }
+                        .contextMenu {
+                            descriptionContextMenu(paneId: pane.paneId, currentDescription: pane.customDescription)
                         }
                     }
                 } else {
@@ -266,6 +292,43 @@
                     showUsername: showUsername,
                     onNewSession: onNewSession
                 )
+            }
+            .alert("Session Description", isPresented: $isEditingDescription) {
+                TextField("Description", text: $editedDescription)
+                Button("Save") {
+                    guard let wid = windowId(for: editingPaneId) else { return }
+                    let trimmed = editedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+                    onSetDescription(wid, trimmed.isEmpty ? nil : trimmed)
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Enter a custom description for this session")
+            }
+        }
+
+        @ViewBuilder
+        private func descriptionContextMenu(paneId: String, currentDescription: String?) -> some View {
+            Button {
+                editedDescription = currentDescription ?? ""
+                editingPaneId = paneId
+                isEditingDescription = true
+            } label: {
+                if currentDescription != nil {
+                    Label("Edit Description", symbol: .pencil)
+                } else {
+                    Label("Add Description", symbol: .pencil)
+                }
+            }
+            .disabled(connection?.isHostConnected != true)
+
+            if currentDescription != nil {
+                Button(role: .destructive) {
+                    guard let wid = windowId(for: paneId) else { return }
+                    onSetDescription(wid, nil)
+                } label: {
+                    Label("Remove Description", symbol: .xmark)
+                }
+                .disabled(connection?.isHostConnected != true)
             }
         }
     }
@@ -323,6 +386,7 @@
         let paneId: String
         let session: ClaudeSession
         let isActive: Bool
+        var customDescription: String?
 
         private var indicatorColor: Color {
             if session.needsAttention {
@@ -342,9 +406,19 @@
                     .frame(width: 10, height: 10)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    // Project folder name (or pane ID as fallback)
-                    Text(session.displayName)
-                        .font(.headline)
+                    // Custom description shown prominently if set
+                    if let customDescription {
+                        Text(customDescription)
+                            .font(.headline)
+
+                        Text(session.displayName)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        // Project folder name (or pane ID as fallback)
+                        Text(session.displayName)
+                            .font(.headline)
+                    }
 
                     // Latest event summary
                     if let latestEvent = session.latestEvent {
@@ -399,9 +473,19 @@
                     .frame(width: 20, height: 20)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    // Display name (folder name or pane ID)
-                    Text(displayName)
-                        .font(.headline)
+                    // Custom description shown prominently if set
+                    if let customDescription = pane.customDescription {
+                        Text(customDescription)
+                            .font(.headline)
+
+                        Text(displayName)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        // Display name (folder name or pane ID)
+                        Text(displayName)
+                            .font(.headline)
+                    }
 
                     // Command and path info
                     HStack {
