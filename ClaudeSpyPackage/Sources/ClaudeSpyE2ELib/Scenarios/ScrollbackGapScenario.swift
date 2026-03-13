@@ -27,11 +27,11 @@ public enum ScrollbackGapScenario {
 
         // Generate numbered scrollback — 200 lines, only bottom ~50 visible
         TestStep.tmuxSendKeys(
-            target: "scrollback-gap-test:0.0",
+            target: "scrollback-gap-test:0",
             keys: "seq 1 200",
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "scrollback-gap-test:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "scrollback-gap-test:0", keys: "Enter")
         TestStep.wait(seconds: 2)
 
         // ── Launch macOS app with SHORT window ──────────────────────
@@ -40,7 +40,7 @@ public enum ScrollbackGapScenario {
         TestStep.wait(seconds: 3)
 
         TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
+        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
         TestStep.wait(seconds: 1)
         TestStep.macMoveWindow(x: 10, y: 10)
         // Short window: ~400px height gives ~20-25 terminal rows, well under 50
@@ -50,7 +50,7 @@ public enum ScrollbackGapScenario {
 
         // ── Start mirroring ─────────────────────────────────────────
 
-        TestStep.macClickButton(titled: "scrollback-gap-test:0.0")
+        TestStep.macClickButton(titled: "scrollback-gap-test:0")
         TestStep.wait(seconds: 3)
 
         // ── Capture: initial view (bottom of content) ───────────────

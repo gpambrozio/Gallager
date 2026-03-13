@@ -40,20 +40,20 @@ public enum TerminalRenderingBugsScenario {
         // Without this, the shell's default PS1 (with its own colors) would mask
         // the magenta carryover in the H17 phase.
         TestStep.tmuxSendKeys(
-            target: "render-bugs:0.0",
+            target: "render-bugs:0",
             keys: #"export PS1='$ '"#,
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "render-bugs:0.0", keys: "Enter")
-        TestStep.tmuxSendKeys(target: "render-bugs:0.0", keys: "clear", literal: true)
-        TestStep.tmuxSendKeys(target: "render-bugs:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "render-bugs:0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "render-bugs:0", keys: "clear", literal: true)
+        TestStep.tmuxSendKeys(target: "render-bugs:0", keys: "Enter")
         TestStep.wait(seconds: 0.5)
 
         TestStep.launchMacApp()
         TestStep.wait(seconds: 3)
 
         TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
+        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
         TestStep.wait(seconds: 1)
         TestStep.macMoveWindow(x: 10, y: 10)
         TestStep.macResizeWindow(width: 1_200, height: 700)
@@ -61,7 +61,7 @@ public enum TerminalRenderingBugsScenario {
         TestStep.wait(seconds: 1)
 
         // Select the main pane
-        TestStep.macClickButton(titled: "render-bugs:0.0")
+        TestStep.macClickButton(titled: "render-bugs:0")
         TestStep.wait(seconds: 2)
 
         // ── Phase 1: H17 — SGR state divergence after re-capture ─────
@@ -85,9 +85,9 @@ public enum TerminalRenderingBugsScenario {
         // capturePaneWithScrollbackForStreaming adds ESC[0m resets at end of each
         // captured line, killing the active magenta SGR state. After re-capture,
         // the terminal's SGR state is reset to default.
-        TestStep.macClickButton(titled: "render-helper:0.0")
+        TestStep.macClickButton(titled: "render-helper:0")
         TestStep.wait(seconds: 1)
-        TestStep.macClickButton(titled: "render-bugs:0.0")
+        TestStep.macClickButton(titled: "render-bugs:0")
         TestStep.wait(seconds: 2)
 
         // Now echo more text — this arrives via live stream with no color codes,
@@ -113,36 +113,36 @@ public enum TerminalRenderingBugsScenario {
         // Multiple commands in sequence create a distinctive scrollback pattern
         // that should be preserved after re-capture but isn't.
         TestStep.tmuxSendKeys(
-            target: "render-bugs:0.0",
+            target: "render-bugs:0",
             keys: #"printf '\e[0m'"#,
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "render-bugs:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "render-bugs:0", keys: "Enter")
         TestStep.wait(seconds: 0.3)
-        TestStep.tmuxSendKeys(target: "render-bugs:0.0", keys: "clear", literal: true)
-        TestStep.tmuxSendKeys(target: "render-bugs:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "render-bugs:0", keys: "clear", literal: true)
+        TestStep.tmuxSendKeys(target: "render-bugs:0", keys: "Enter")
         TestStep.wait(seconds: 0.5)
 
         // Fill with numbered lines to create scrollback
         TestStep.tmuxSendKeys(
-            target: "render-bugs:0.0",
+            target: "render-bugs:0",
             keys: #"for i in $(seq 1 35); do echo "LINE $i"; done"#,
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "render-bugs:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "render-bugs:0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
         // Clear and add a second batch of output — this pushes the first batch
         // into scrollback, creating a pattern the mirror accumulated via live stream.
-        TestStep.tmuxSendKeys(target: "render-bugs:0.0", keys: "clear", literal: true)
-        TestStep.tmuxSendKeys(target: "render-bugs:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "render-bugs:0", keys: "clear", literal: true)
+        TestStep.tmuxSendKeys(target: "render-bugs:0", keys: "Enter")
         TestStep.wait(seconds: 0.3)
         TestStep.tmuxSendKeys(
-            target: "render-bugs:0.0",
+            target: "render-bugs:0",
             keys: #"echo 'SCROLLBACK TEST: VISIBLE AFTER SCROLL UP'"#,
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "render-bugs:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "render-bugs:0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
         // Scroll up to reveal the scrollback content accumulated via live stream
@@ -154,9 +154,9 @@ public enum TerminalRenderingBugsScenario {
 
         // De-select / re-select to force re-capture, which replaces the mirror's
         // scrollback with tmux's captured content — this corrupts the scrollback.
-        TestStep.macClickButton(titled: "render-helper:0.0")
+        TestStep.macClickButton(titled: "render-helper:0")
         TestStep.wait(seconds: 1)
-        TestStep.macClickButton(titled: "render-bugs:0.0")
+        TestStep.macClickButton(titled: "render-bugs:0")
         TestStep.wait(seconds: 2)
 
         // Scroll up again to reveal the re-captured scrollback

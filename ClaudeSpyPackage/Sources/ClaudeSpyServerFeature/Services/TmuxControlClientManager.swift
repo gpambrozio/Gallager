@@ -79,6 +79,13 @@
                 }
             }
 
+            // Set up layout change handler (pane added/removed/resized)
+            await client.setOnLayoutChange { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.handlePanesChanged(reason: "layout changed")
+                }
+            }
+
             // Set up exit handler (entire session ended)
             await client.setOnExit { [weak self] reason in
                 Task { @MainActor [weak self] in

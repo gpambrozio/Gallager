@@ -79,17 +79,17 @@ public enum TwoMacPairingScenario {
 
         TestStep.log("Opening Panes window on viewer and verifying remote pane")
         TestStep.macOpenPanesWindow(instance: 1)
-        TestStep.macWaitForWindow(titled: "Panes", timeout: 5, instance: 1)
+        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5, instance: 1)
         TestStep.wait(seconds: 3)
 
         // The remote pane should show in the sidebar with format "session:window.pane"
-        TestStep.macWaitForElement(titled: "e2e-mac-pair:0.0", timeout: 15, instance: 1)
+        TestStep.macWaitForElement(titled: "e2e-mac-pair:0", timeout: 15, instance: 1)
         TestStep.macScreenshot(label: "viewer-sees-remote-pane", instance: 1)
 
         // ── Phase 7: Select the pane on the viewer ──────────────────
 
         TestStep.log("Selecting remote pane on viewer")
-        TestStep.macClickButton(titled: "e2e-mac-pair:0.0", instance: 1)
+        TestStep.macClickButton(titled: "e2e-mac-pair:0", instance: 1)
         TestStep.wait(seconds: 3)
         TestStep.macScreenshot(label: "viewer-pane-selected", instance: 1)
 
@@ -102,14 +102,14 @@ public enum TwoMacPairingScenario {
         // ── Phase 9: Verify command shows on the host's tmux pane ───
 
         TestStep.log("Verifying command appears in host's tmux pane")
-        TestStep.tmuxCapturePaneContent(target: "e2e-mac-pair:0.0", storeAs: "paneContent")
+        TestStep.tmuxCapturePaneContent(target: "e2e-mac-pair:0", storeAs: "paneContent")
         TestStep.assertStoredContains(key: "paneContent", substring: "e2e-test-hello")
 
         // Open the host's Panes window and select its session to visually verify
         TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
-        TestStep.macWaitForElement(titled: "e2e-mac-pair:0.0", timeout: 10)
-        TestStep.macClickButton(titled: "e2e-mac-pair:0.0")
+        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
+        TestStep.macWaitForElement(titled: "e2e-mac-pair:0", timeout: 10)
+        TestStep.macClickButton(titled: "e2e-mac-pair:0")
         TestStep.wait(seconds: 2)
         TestStep.macScreenshot(label: "host-shows-command")
     }

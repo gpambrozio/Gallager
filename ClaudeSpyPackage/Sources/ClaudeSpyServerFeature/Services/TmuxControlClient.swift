@@ -67,6 +67,7 @@ actor TmuxControlClient {
     // Callbacks for notifications
     private var _onDimensionChange: (@Sendable (String, Int, Int) -> Void)?
     private var _onPaneExited: (@Sendable (String) -> Void)?
+    private var _onLayoutChange: (@Sendable () -> Void)?
     private var _onSessionChanged: (@Sendable (String, String) -> Void)?
     private var _onExit: (@Sendable (String?) -> Void)?
 
@@ -115,6 +116,10 @@ actor TmuxControlClient {
 
     func setOnPaneExited(_ handler: @escaping @Sendable (String) -> Void) {
         _onPaneExited = handler
+    }
+
+    func setOnLayoutChange(_ handler: @escaping @Sendable () -> Void) {
+        _onLayoutChange = handler
     }
 
     func setOnSessionChanged(_ handler: @escaping @Sendable (String, String) -> Void) {
@@ -305,7 +310,7 @@ actor TmuxControlClient {
 
     private func parseLine(_ line: String) {
         if line.hasPrefix("%layout-change ") {
-            handleLayoutChange()
+            handleLayoutChange(line)
         } else if line.hasPrefix("%begin ") {
             parseBeginBlock(line)
         } else if line.hasPrefix("%end ") {
@@ -324,14 +329,54 @@ actor TmuxControlClient {
 
     // MARK: - Layout Change Handling
 
-    private func handleLayoutChange() {
+    private func handleLayoutChange(_ line: String) {
         logger.debug("Layout change detected")
-        // Must not await sendCommand() on the consumer task — the consumer is the sole
-        // reader of the AsyncStream, and sendCommand() suspends until it reads the
-        // %begin/%end response from that same stream. Spawning a separate task lets the
-        // consumer continue draining the stream so the response can be processed.
+
+        // Extract pane dimensions directly from the layout string in the event.
+        // Format: "%layout-change @<window-id> <layout-string> [<visible-layout>]"
+        // This fires BEFORE pipe-pane delivers the shell's SIGWINCH redraw data,
+        // so the terminal resizes before processing absolute cursor positioning
+        // sequences that assume the new column count.
+        let parts = line.split(separator: " ", maxSplits: 2)
+        if parts.count >= 3 {
+            let layoutString = String(parts[2].split(separator: " ").first ?? parts[2])
+            if let layout = TmuxLayoutParser.parse(layoutString) {
+                updateTrackedDimensionsFromLayout(layout)
+            }
+        }
+
+        // Still refresh via list-panes to detect pane exits (panes no longer in layout)
         Task { [weak self] in
             await self?.refreshStreamingPaneDimensions()
+        }
+        // Notify listeners that the layout changed — this triggers a full pane list
+        // refresh so new panes (splits) and layout string updates are detected instantly
+        // instead of waiting for the 5-second polling timer.
+        _onLayoutChange?()
+    }
+
+    /// Walks the layout tree and fires dimension change callbacks for tracked panes
+    /// whose dimensions differ from cached values.
+    private func updateTrackedDimensionsFromLayout(_ node: LayoutNode) {
+        switch node {
+        case let .pane(id, width, height):
+            let paneId = "%\(id)"
+            if
+                let cached = cachedDimensions[paneId],
+                cached.width != width || cached.height != height {
+                cachedDimensions[paneId] = (width, height)
+                logger.debug("Pane dimension changed (from layout)", metadata: [
+                    "paneId": "\(paneId)",
+                    "width": "\(width)",
+                    "height": "\(height)",
+                ])
+                _onDimensionChange?(paneId, width, height)
+            }
+        case let .horizontal(children, _, _),
+             let .vertical(children, _, _):
+            for child in children {
+                updateTrackedDimensionsFromLayout(child)
+            }
         }
     }
 

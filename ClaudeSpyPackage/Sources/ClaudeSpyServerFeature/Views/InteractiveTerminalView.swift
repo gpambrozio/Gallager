@@ -156,6 +156,10 @@
         /// Callback invoked when the terminal title changes (via OSC 0 or OSC 2 escape sequences).
         var onTitleChange: (@MainActor (String) -> Void)?
 
+        /// When false, the terminal won't auto-grab focus on window add or window-becomes-key.
+        /// Used in multi-pane layouts where multiple terminals share one window.
+        var autoFocusEnabled = true
+
         var preserveUserScroll = false
         var onResize: ((NSSize) -> Void)?
 
@@ -303,10 +307,13 @@
 
             guard let window else { return }
 
-            // Auto-focus when added to a window
-            Task { [weak self] in
-                guard let self else { return }
-                self.window?.makeFirstResponder(self)
+            // Auto-focus when added to a window (disabled in multi-pane layouts
+            // where multiple terminals share one window to avoid focus fighting)
+            if autoFocusEnabled {
+                Task { [weak self] in
+                    guard let self else { return }
+                    self.window?.makeFirstResponder(self)
+                }
             }
 
             // Re-focus when window becomes key (e.g., after switching apps)
@@ -317,10 +324,13 @@
             ) { [weak self] _ in
                 Task { @MainActor in
                     guard let self, let window = self.window else { return }
-                    window.makeFirstResponder(self)
-                    // makeFirstResponder is a no-op if already first responder,
-                    // so explicitly set hasFocus to restore cursor appearance.
-                    self.terminalView.hasFocus = true
+                    if self.autoFocusEnabled {
+                        window.makeFirstResponder(self)
+                    }
+                    // If we're already first responder, restore cursor appearance
+                    if window.firstResponder === self {
+                        self.terminalView.hasFocus = true
+                    }
                 }
             })
 
@@ -754,7 +764,6 @@
         }
 
         override func keyDown(with event: NSEvent) {
-            // Let the terminal view interpret the key
             terminalView.keyDown(with: event)
         }
 

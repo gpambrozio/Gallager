@@ -32,34 +32,34 @@ public enum DAResponseLeakScenario {
 
         // ── Phase 3: Open pane on macOS host ──────────────────────────
         TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
+        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
         TestStep.wait(seconds: 1)
         TestStep.macMoveWindow(x: 10, y: 10)
         TestStep.macResizeWindow(width: 900, height: 500)
         TestStep.macSetSidebarWidth(200)
         TestStep.wait(seconds: 1)
 
-        TestStep.macWaitForElement(titled: "e2e-da-leak:0.0", timeout: 10)
-        TestStep.macClickButton(titled: "e2e-da-leak:0.0")
+        TestStep.macWaitForElement(titled: "e2e-da-leak:0", timeout: 10)
+        TestStep.macClickButton(titled: "e2e-da-leak:0")
         TestStep.wait(seconds: 2)
 
         // Clear screen to have a clean baseline
-        TestStep.tmuxSendKeys(target: "e2e-da-leak:0.0", keys: "clear", literal: true)
-        TestStep.tmuxSendKeys(target: "e2e-da-leak:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "e2e-da-leak:0", keys: "clear", literal: true)
+        TestStep.tmuxSendKeys(target: "e2e-da-leak:0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
         // ── Phase 4: Test Primary DA with macOS only ──────────────────
         // At this point only the macOS SwiftTerm is mirroring the pane.
         TestStep.log("Sending Primary DA query (ESC[c) — macOS mirror active")
         TestStep.tmuxSendKeys(
-            target: "e2e-da-leak:0.0",
+            target: "e2e-da-leak:0",
             keys: #"printf '\e[c' && sleep 1 && echo MAC_DA1_DONE"#,
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "e2e-da-leak:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "e2e-da-leak:0", keys: "Enter")
         TestStep.wait(seconds: 3)
 
-        TestStep.tmuxCapturePaneContent(target: "e2e-da-leak:0.0", storeAs: "macDA1")
+        TestStep.tmuxCapturePaneContent(target: "e2e-da-leak:0", storeAs: "macDA1")
         TestStep.assertStoredContains(key: "macDA1", substring: "MAC_DA1_DONE")
         // SwiftTerm DA response: ESC[?65;1;2;6;21;22;17;28c
         // These fragments are unique to SwiftTerm and won't match tmux's own
@@ -81,8 +81,8 @@ public enum DAResponseLeakScenario {
         TestStep.wait(seconds: 3)
 
         // Clear screen before the combined test
-        TestStep.tmuxSendKeys(target: "e2e-da-leak:0.0", keys: "clear", literal: true)
-        TestStep.tmuxSendKeys(target: "e2e-da-leak:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "e2e-da-leak:0", keys: "clear", literal: true)
+        TestStep.tmuxSendKeys(target: "e2e-da-leak:0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
         // ── Phase 6: Test Primary DA with both mirrors active ─────────
@@ -90,14 +90,14 @@ public enum DAResponseLeakScenario {
         // If either leaks, we'll see response fragments in the pane.
         TestStep.log("Sending Primary DA query (ESC[c) — both mirrors active")
         TestStep.tmuxSendKeys(
-            target: "e2e-da-leak:0.0",
+            target: "e2e-da-leak:0",
             keys: #"printf '\e[c' && sleep 1 && echo BOTH_DA1_DONE"#,
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "e2e-da-leak:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "e2e-da-leak:0", keys: "Enter")
         TestStep.wait(seconds: 3)
 
-        TestStep.tmuxCapturePaneContent(target: "e2e-da-leak:0.0", storeAs: "bothDA1")
+        TestStep.tmuxCapturePaneContent(target: "e2e-da-leak:0", storeAs: "bothDA1")
         TestStep.assertStoredContains(key: "bothDA1", substring: "BOTH_DA1_DONE")
         TestStep.assertStoredNotContains(key: "bothDA1", substring: ";28c")
         TestStep.assertStoredNotContains(key: "bothDA1", substring: ";22;17")

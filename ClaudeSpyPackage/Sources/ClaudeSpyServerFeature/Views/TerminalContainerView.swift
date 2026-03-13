@@ -24,6 +24,9 @@ typealias TerminalTitleChangeHandler = @MainActor (String) -> Void
 /// - Reports state back to parent via callback
 struct TerminalContainerView: NSViewRepresentable {
     let paneState: PaneState
+    /// When false, the terminal won't auto-grab focus on window add or window-becomes-key.
+    /// Used in multi-pane layouts where multiple terminals share one window.
+    var autoFocus = true
     let onStateChange: TerminalStateChangeHandler?
     let onTitleChange: TerminalTitleChangeHandler?
 
@@ -38,6 +41,9 @@ struct TerminalContainerView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> InteractiveTerminalView {
         let coordinator = context.coordinator
+
+        // Configure auto-focus before starting (must be set before viewDidMoveToWindow fires)
+        coordinator.terminalView.autoFocusEnabled = autoFocus
 
         // Start the coordinator with all dependencies
         coordinator.start(
@@ -56,15 +62,20 @@ struct TerminalContainerView: NSViewRepresentable {
     func updateNSView(_ nsView: InteractiveTerminalView, context: Context) {
         let coordinator = context.coordinator
 
+        // Update pane state — tmux rearranges pane indices when panes are
+        // added or removed, so the target (e.g., "session:0.1") can change.
+        // The coordinator must track the current target for key routing.
+        coordinator.updatePaneState(paneState)
+
         // Update settings if changed
         coordinator.updateSettings(settings)
 
         // Update container size on layout changes
         coordinator.updateContainerSize(nsView.frame.size)
 
-        // Check for column changes from pane state (rows are dynamic)
-        if let currentWidth = windowManager.paneStates[paneState.paneId]?.width {
-            coordinator.handleExternalColumnChange(width: currentWidth)
+        // Check for dimension changes from pane state (updated after %layout-change)
+        if let currentState = windowManager.paneStates[paneState.paneId] {
+            coordinator.handleExternalDimensionChange(width: currentState.width, height: currentState.height)
         }
     }
 
@@ -198,6 +209,13 @@ struct TerminalContainerView: NSViewRepresentable {
                     }
                 }
             }
+        }
+
+        /// Updates the pane state when tmux rearranges pane indices.
+        /// The `onInput` closure reads `self.paneState.target` on each call,
+        /// so updating the stored state is sufficient — no closure re-wiring needed.
+        func updatePaneState(_ newState: PaneState) {
+            paneState = newState
         }
 
         func stop() {
@@ -389,13 +407,19 @@ struct TerminalContainerView: NSViewRepresentable {
 
         // MARK: External Dimension Changes
 
-        func handleExternalColumnChange(width: Int) {
+        func handleExternalDimensionChange(width: Int, height: Int) {
             guard width != lastExternalWidth else { return }
             lastExternalWidth = width
 
-            // Forward to pane stream manager (it will notify via onDimensionChange callback)
-            // Note: rows are dynamic based on container, so we pass current rows
-            paneStreamManager?.updateDimensions(paneId: paneState?.paneId ?? "", width: width, height: rows)
+            // Resize terminal immediately to avoid cursor misposition.
+            // Without this, the shell's prompt redraw (via pipe-pane) arrives
+            // while the terminal still has the old column count, then the async
+            // dimension callback reflows content that was already correct,
+            // placing the cursor at the end of the line instead of after the prompt.
+            updateTerminalDimensions(cols: width, rows: height)
+
+            // Also update the stream so other subscribers (e.g., iOS relay) get notified
+            paneStreamManager?.updateDimensions(paneId: paneState?.paneId ?? "", width: width, height: height)
         }
 
         // MARK: Private Helpers

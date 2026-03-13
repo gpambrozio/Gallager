@@ -131,6 +131,8 @@ public enum TestStep: Sendable {
     case tmuxCapturePaneContent(target: String, storeAs: String)
     /// Send keys to a tmux pane on the test socket (bypasses macOS app input path)
     case tmuxSendKeys(target: String, keys: String, literal: Bool = false)
+    /// Run an arbitrary tmux command on the test socket (e.g., "split-window -h -t session:0")
+    case tmuxCommand(arguments: [String])
 
     // MARK: - Hook Events
 

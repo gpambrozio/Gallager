@@ -64,9 +64,9 @@ public enum StopHookSummaryScenario {
         //     rows merge child text elements), so we verify the session entry
         //     exists and rely on the screenshot for visual verification of the summary.
         TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
+        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
         TestStep.wait(seconds: 2)
-        TestStep.macWaitForElement(titled: "session-1:0.0", timeout: 5)
+        TestStep.macWaitForElement(titled: "session-1:0", timeout: 5)
         TestStep.macScreenshot(label: "mac-stop-session")
     }
 }

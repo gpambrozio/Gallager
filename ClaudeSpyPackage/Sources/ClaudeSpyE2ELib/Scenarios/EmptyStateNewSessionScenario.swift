@@ -16,7 +16,7 @@ public enum EmptyStateNewSessionScenario {
         TestStep.wait(seconds: 3)
 
         TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
+        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
         TestStep.macMoveWindow(x: 10, y: 10)
         TestStep.macResizeWindow(width: 1_200, height: 800)
         TestStep.macSetSidebarWidth(200)

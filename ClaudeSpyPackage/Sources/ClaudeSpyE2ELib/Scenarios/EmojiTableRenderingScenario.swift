@@ -36,13 +36,11 @@ public enum EmojiTableRenderingScenario {
         TestStep.tmuxCreateSession(name: "emoji-helper", width: 80, height: 24)
 
         TestStep.tmuxSendKeys(
-            target: "emoji-tbl:0.0",
+            target: "emoji-tbl:0",
             keys: #"export PS1='$ '"#,
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "emoji-tbl:0.0", keys: "Enter")
-        TestStep.tmuxSendKeys(target: "emoji-tbl:0.0", keys: "clear", literal: true)
-        TestStep.tmuxSendKeys(target: "emoji-tbl:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "emoji-tbl:0", keys: "Enter")
         TestStep.wait(seconds: 0.5)
 
         // -- Create the Python script that draws all three tables ----------
@@ -53,11 +51,12 @@ public enum EmojiTableRenderingScenario {
 
         TestStep.log("Creating emoji table rendering script")
         TestStep.tmuxSendKeys(
-            target: "emoji-tbl:0.0",
+            target: "emoji-helper:0",
             keys: #"""
             cat > $TMPDIR/emoji_tables.py << 'PYEOF'
             import sys
             E="\033";C=E+"["
+            import time
             def o(s):sys.stdout.write(s);sys.stdout.flush()
 
             def dw(s):
@@ -173,6 +172,7 @@ public enum EmojiTableRenderingScenario {
                     o("\u2534" if i<ncols-1 else "\u2518")
                 o("\n")
 
+            time.sleep(0.5)
             o(f"{C}2J{C}H")
             table1()
             table2()
@@ -182,31 +182,31 @@ public enum EmojiTableRenderingScenario {
             """#,
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "emoji-tbl:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "emoji-helper:0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
         // -- Run the script ------------------------------------------------
 
         TestStep.log("Running emoji table script")
         TestStep.tmuxSendKeys(
-            target: "emoji-tbl:0.0",
+            target: "emoji-tbl:0",
             keys: "python3 $TMPDIR/emoji_tables.py",
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "emoji-tbl:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "emoji-tbl:0", keys: "Enter")
         TestStep.wait(seconds: 3)
 
         // -- Select the pane on macOS --------------------------------------
 
         TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
+        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
         TestStep.wait(seconds: 1)
         TestStep.macMoveWindow(x: 10, y: 10)
         TestStep.macResizeWindow(width: 1_100, height: 700)
         TestStep.macSetSidebarWidth(200)
         TestStep.wait(seconds: 1)
 
-        TestStep.macClickButton(titled: "emoji-tbl:0.0")
+        TestStep.macClickButton(titled: "emoji-tbl:0")
         TestStep.wait(seconds: 3)
 
         // Screenshot: all three emoji tables on macOS
@@ -231,11 +231,11 @@ public enum EmojiTableRenderingScenario {
         // during re-capture.
 
         TestStep.log("Forcing re-capture via pane re-selection")
-        TestStep.macClickButton(titled: "emoji-helper:0.0")
+        TestStep.macClickButton(titled: "emoji-helper:0")
         TestStep.wait(seconds: 1)
         TestStep.iosTap(.labelContains("Sessions"))
         TestStep.wait(seconds: 2)
-        TestStep.macClickButton(titled: "emoji-tbl:0.0")
+        TestStep.macClickButton(titled: "emoji-tbl:0")
         TestStep.wait(seconds: 3)
 
         // Screenshot: tables should still render correctly after re-capture
@@ -250,11 +250,11 @@ public enum EmojiTableRenderingScenario {
         // -- Cleanup -------------------------------------------------------
 
         TestStep.tmuxSendKeys(
-            target: "emoji-tbl:0.0",
+            target: "emoji-tbl:0",
             keys: "rm $TMPDIR/emoji_tables.py",
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "emoji-tbl:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "emoji-tbl:0", keys: "Enter")
     }
 }
 

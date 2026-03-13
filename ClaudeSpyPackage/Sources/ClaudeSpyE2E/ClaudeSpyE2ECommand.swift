@@ -233,6 +233,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         TableRenderingScenario.scenario,
         YoloModeAutoApproveScenario.scenario,
         EmojiTableRenderingScenario.scenario,
+        MultiPaneWindowScenario.scenario,
         DAResponseLeakScenario.scenario,
     ]
 

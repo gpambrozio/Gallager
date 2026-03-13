@@ -24,13 +24,13 @@ public enum YoloModeContextCompactionScenario {
         TestStep.wait(seconds: 3)
 
         TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
+        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
         TestStep.wait(seconds: 1)
         TestStep.macResizeWindow(width: 1_000, height: 600)
         TestStep.macSetSidebarWidth(250)
         TestStep.wait(seconds: 1)
 
-        TestStep.tmuxStorePaneId(target: "yolo-compact:0.0", storeAs: "paneId")
+        TestStep.tmuxStorePaneId(target: "yolo-compact:0", storeAs: "paneId")
 
         // ── Phase 1: Start a Claude session ─────────────────────
 
@@ -49,7 +49,7 @@ public enum YoloModeContextCompactionScenario {
         TestStep.wait(seconds: 3)
 
         // Select the pane in sidebar to see yolo button
-        TestStep.macClickButton(titled: "yolo-compact:0.0")
+        TestStep.macClickButton(titled: "yolo-compact:0")
         TestStep.wait(seconds: 1)
 
         // Verify yolo mode starts disabled
@@ -131,7 +131,7 @@ public enum YoloModeContextCompactionScenario {
         TestStep.wait(seconds: 3)
 
         // Select the pane again
-        TestStep.macClickButton(titled: "yolo-compact:0.0")
+        TestStep.macClickButton(titled: "yolo-compact:0")
         TestStep.wait(seconds: 1)
 
         // Yolo mode should be disabled on the fresh session

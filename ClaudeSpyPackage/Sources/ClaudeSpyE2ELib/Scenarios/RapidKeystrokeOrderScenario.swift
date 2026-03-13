@@ -58,10 +58,10 @@ public enum RapidKeystrokeOrderScenario {
 
         // ── Phase 6: Open Panes on viewer and select the remote pane ─
         TestStep.macOpenPanesWindow(instance: 1)
-        TestStep.macWaitForWindow(titled: "Panes", timeout: 5, instance: 1)
+        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5, instance: 1)
         TestStep.wait(seconds: 3)
-        TestStep.macWaitForElement(titled: "e2e-rapid-keys:0.0", timeout: 15, instance: 1)
-        TestStep.macClickButton(titled: "e2e-rapid-keys:0.0", instance: 1)
+        TestStep.macWaitForElement(titled: "e2e-rapid-keys:0", timeout: 15, instance: 1)
+        TestStep.macClickButton(titled: "e2e-rapid-keys:0", instance: 1)
         TestStep.wait(seconds: 3)
 
         // ── Phase 7: Rapid keystroke tests ──────────────────────────
@@ -72,28 +72,28 @@ public enum RapidKeystrokeOrderScenario {
         TestStep.log("Round 1: Rapid typing 'abcdefghij'")
         TestStep.macType(text: "echo round1-abcdefghij", pressReturn: true, instance: 1)
         TestStep.wait(seconds: 3)
-        TestStep.tmuxCapturePaneContent(target: "e2e-rapid-keys:0.0", storeAs: "round1")
+        TestStep.tmuxCapturePaneContent(target: "e2e-rapid-keys:0", storeAs: "round1")
         TestStep.assertStoredContains(key: "round1", substring: "round1-abcdefghij")
 
         // Round 2: A longer string to increase likelihood of reordering
         TestStep.log("Round 2: Rapid typing 'the-quick-brown-fox'")
         TestStep.macType(text: "echo round2-the-quick-brown-fox", pressReturn: true, instance: 1)
         TestStep.wait(seconds: 3)
-        TestStep.tmuxCapturePaneContent(target: "e2e-rapid-keys:0.0", storeAs: "round2")
+        TestStep.tmuxCapturePaneContent(target: "e2e-rapid-keys:0", storeAs: "round2")
         TestStep.assertStoredContains(key: "round2", substring: "round2-the-quick-brown-fox")
 
         // Round 3: Numbers and special chars
         TestStep.log("Round 3: Rapid typing '1234567890'")
         TestStep.macType(text: "echo round3-1234567890", pressReturn: true, instance: 1)
         TestStep.wait(seconds: 3)
-        TestStep.tmuxCapturePaneContent(target: "e2e-rapid-keys:0.0", storeAs: "round3")
+        TestStep.tmuxCapturePaneContent(target: "e2e-rapid-keys:0", storeAs: "round3")
         TestStep.assertStoredContains(key: "round3", substring: "round3-1234567890")
 
         // Round 4: Mixed case to catch case-sensitive ordering bugs
         TestStep.log("Round 4: Rapid typing mixed case")
         TestStep.macType(text: "echo round4-AaBbCcDdEe", pressReturn: true, instance: 1)
         TestStep.wait(seconds: 3)
-        TestStep.tmuxCapturePaneContent(target: "e2e-rapid-keys:0.0", storeAs: "round4")
+        TestStep.tmuxCapturePaneContent(target: "e2e-rapid-keys:0", storeAs: "round4")
         TestStep.assertStoredContains(key: "round4", substring: "round4-AaBbCcDdEe")
 
         // ── Phase 8: Screenshot both panes for visual verification ────
@@ -101,9 +101,9 @@ public enum RapidKeystrokeOrderScenario {
 
         // Open the host's Panes window and select its pane so the screenshot shows the terminal
         TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
-        TestStep.macWaitForElement(titled: "e2e-rapid-keys:0.0", timeout: 10)
-        TestStep.macClickButton(titled: "e2e-rapid-keys:0.0")
+        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
+        TestStep.macWaitForElement(titled: "e2e-rapid-keys:0", timeout: 10)
+        TestStep.macClickButton(titled: "e2e-rapid-keys:0")
         TestStep.wait(seconds: 2)
         TestStep.macScreenshot(label: "host-after-keystrokes")
         TestStep.macScreenshot(label: "viewer-after-keystrokes", instance: 1)

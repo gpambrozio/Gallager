@@ -156,17 +156,23 @@
             // Note: readabilityHandler captures `continuation` strongly, so the handler
             // keeps yielding if PipePaneReader is deallocated without stopPipePane().
             // Callers MUST call stopPipePane() to clean up — see PaneStream.disconnect().
-            handle.readabilityHandler = { [weak self] handle in
-                let data = handle.availableData
-                guard !data.isEmpty else {
-                    // EOF - cat process died or pipe-pane stopped
+            let fd = handle.fileDescriptor
+            handle.readabilityHandler = { [weak self] _ in
+                // Read directly from the file descriptor to avoid NSFileHandle's
+                // -availableData which throws an uncatchable NSException if the
+                // descriptor was closed between the dispatch source firing and
+                // the handler executing.
+                var buf = [UInt8](repeating: 0, count: 65_536)
+                let bytesRead = read(fd, &buf, buf.count)
+                guard bytesRead > 0 else {
+                    // EOF or error — cat process died or pipe-pane stopped
                     continuation.finish()
                     Task { [weak self] in
                         await self?.handleEOF()
                     }
                     return
                 }
-                continuation.yield(data)
+                continuation.yield(Data(buf[..<bytesRead]))
             }
 
             // Single consumer task — processes data in strict FIFO order

@@ -40,14 +40,14 @@ public enum TableRenderingScenario {
 
         // Use a plain prompt so it doesn't interfere with table rendering
         TestStep.tmuxSendKeys(
-            target: "table-test:0.0",
+            target: "table-test:0",
             keys: #"export PS1='$ '"#,
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "table-test:0.0", keys: "Enter")
-        TestStep.tmuxSendKeys(target: "table-test:0.0", keys: "clear", literal: true)
-        TestStep.tmuxSendKeys(target: "table-test:0.0", keys: "Enter")
-        TestStep.wait(seconds: 0.5)
+        TestStep.tmuxSendKeys(target: "table-test:0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "table-test:0", keys: "clear", literal: true)
+        TestStep.tmuxSendKeys(target: "table-test:0", keys: "Enter")
+        TestStep.wait(seconds: 1)
 
         // ── Draw table using DEC line-drawing characters ──────────────
         //
@@ -71,7 +71,7 @@ public enum TableRenderingScenario {
         // rows, exercising all box-drawing junction types.
         TestStep.log("Writing table-drawing script to temp file")
         TestStep.tmuxSendKeys(
-            target: "table-helper:0.0",
+            target: "table-helper:0",
             keys: #"""
             cat > /tmp/draw_table.py << 'PYEOF'
             import sys
@@ -111,22 +111,22 @@ public enum TableRenderingScenario {
             """#,
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "table-helper:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "table-helper:0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
         TestStep.log("Drawing table with DEC line-drawing characters")
         TestStep.tmuxSendKeys(
-            target: "table-test:0.0",
+            target: "table-test:0",
             keys: "python3 /tmp/draw_table.py",
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "table-test:0.0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "table-test:0", keys: "Enter")
         TestStep.wait(seconds: 2)
 
         // ── Select the pane on macOS ─────────────────────────────────
 
         TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Panes", timeout: 5)
+        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
         TestStep.wait(seconds: 1)
         TestStep.macMoveWindow(x: 10, y: 10)
         TestStep.macResizeWindow(width: 1_000, height: 600)
@@ -135,7 +135,7 @@ public enum TableRenderingScenario {
 
         // Selecting the pane triggers capture-pane which exercises
         // the SO/SI → UTF-8 translation in filterToColorCodesOnly
-        TestStep.macClickButton(titled: "table-test:0.0")
+        TestStep.macClickButton(titled: "table-test:0")
         TestStep.wait(seconds: 3)
 
         // Screenshot: table should show Unicode box-drawing characters
@@ -157,9 +157,9 @@ public enum TableRenderingScenario {
         // ── Re-capture: de-select and re-select ───────────────────────
 
         TestStep.log("Forcing re-capture via pane re-selection")
-        TestStep.macClickButton(titled: "table-helper:0.0")
+        TestStep.macClickButton(titled: "table-helper:0")
         TestStep.wait(seconds: 1)
-        TestStep.macClickButton(titled: "table-test:0.0")
+        TestStep.macClickButton(titled: "table-test:0")
         TestStep.wait(seconds: 3)
 
         // Screenshot: table should still render correctly after re-capture
