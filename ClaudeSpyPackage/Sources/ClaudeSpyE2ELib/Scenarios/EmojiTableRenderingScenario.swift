@@ -43,7 +43,7 @@ public enum EmojiTableRenderingScenario {
         TestStep.tmuxSendKeys(target: "emoji-tbl:0", keys: "Enter")
         TestStep.tmuxSendKeys(target: "emoji-tbl:0", keys: "clear", literal: true)
         TestStep.tmuxSendKeys(target: "emoji-tbl:0", keys: "Enter")
-        TestStep.wait(seconds: 0.5)
+        TestStep.wait(seconds: 1)
 
         // -- Create the Python script that draws all three tables ----------
         //

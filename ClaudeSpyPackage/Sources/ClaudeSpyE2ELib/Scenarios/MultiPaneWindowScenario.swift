@@ -119,8 +119,9 @@ public enum MultiPaneWindowScenario {
         TestStep.macScreenshot(label: "no-panes-empty-state")
 
         TestStep.macClickButton(titled: "New Terminal")
-        TestStep.macWaitForElement(titled: "terminal:1", timeout: 5)
-        TestStep.macClickButton(titled: "terminal:1")
+        TestStep.wait(seconds: 3)
+        TestStep.macWaitForElement(titled: "terminal:0", timeout: 5)
+        TestStep.macClickButton(titled: "terminal:0")
         TestStep.wait(seconds: 3)
 
         TestStep.tmuxSendKeys(target: "%0", keys: "tmux split-window -h", literal: true)

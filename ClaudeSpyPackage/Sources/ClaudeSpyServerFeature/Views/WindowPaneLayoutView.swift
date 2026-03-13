@@ -165,6 +165,13 @@ struct WindowPaneLayoutView: View {
                 Text("\(window.panes.count) panes")
             }
 
+            if let activePane = window.activePane {
+                Divider()
+                    .frame(height: 12)
+
+                Text("\(activePane.width)x\(activePane.height)")
+            }
+
             Spacer()
         }
         .font(.caption)
