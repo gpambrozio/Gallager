@@ -153,6 +153,16 @@ public actor MacOSDriver {
         throw MacOSDriverError.elementNotFound("\(menuButtonTitle) → \(itemTitle)")
     }
 
+    // MARK: - Key Press
+
+    /// Press Tab key via CGEvent to cycle focus between elements in dialogs.
+    public func pressTab() async throws {
+        logger.info("Pressing Tab key")
+        // Tab key code = 48
+        MacOSAccessibility.pressKey(code: 48)
+        try await Task.sleep(for: .milliseconds(200))
+    }
+
     // MARK: - Right-Click / Context Menu
 
     /// Right-click on an element to open its context menu.

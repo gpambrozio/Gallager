@@ -205,6 +205,15 @@ enum MacOSAccessibility {
         rightClick(appPID: appPID, matching: .anyTextMatches(titled))
     }
 
+    /// Post a CGEvent key press for the given virtual key code.
+    static func pressKey(code: UInt16) {
+        let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true)
+        let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false)
+        keyDown?.post(tap: .cghidEventTap)
+        usleep(50_000)
+        keyUp?.post(tap: .cghidEventTap)
+    }
+
     // MARK: - Window Management
 
     /// Move the first visible window to a screen position via AX attributes.

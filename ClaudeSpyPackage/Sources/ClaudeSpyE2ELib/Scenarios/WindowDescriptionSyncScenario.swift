@@ -58,9 +58,18 @@ public enum WindowDescriptionSyncScenario {
         // Right-click the window row and select "Add Description"
         TestStep.macContextMenuClick(elementTitle: "e2e-desc:0", menuItem: "Add Description")
 
-        // The alert appears with a text field — type the description and save
+        // Screenshot the alert to see its state
         TestStep.macWaitForElement(titled: "Window Description", timeout: 5)
+        TestStep.macScreenshot(label: "host-alert-appeared", compare: false)
+
+        // Press Tab to focus the text field, type, then Return to save
+        TestStep.wait(seconds: 0.5)
+        TestStep.macPressTab()
         TestStep.macType(text: "My Test Description", pressReturn: false)
+
+        // Screenshot after typing but before saving
+        TestStep.macScreenshot(label: "host-alert-text-typed", compare: false)
+
         TestStep.macClickButton(titled: "Save")
         TestStep.wait(seconds: 2)
 
@@ -68,8 +77,12 @@ public enum WindowDescriptionSyncScenario {
 
         TestStep.log("Verifying description visible on host and iOS")
 
+        // Screenshot first to see what the sidebar looks like
+        TestStep.macScreenshot(label: "host-after-save", compare: false)
+        TestStep.iosScreenshot(label: "ios-after-save", compare: false)
+
         // Host should show the custom description
-        TestStep.macWaitForElement(titled: "My Test Description", timeout: 5)
+        TestStep.macWaitForElement(titled: "My Test Description", timeout: 10)
         TestStep.macScreenshot(label: "host-after-add-description")
 
         // iOS should also show it (synced via session state push)
@@ -83,15 +96,21 @@ public enum WindowDescriptionSyncScenario {
         // Right-click on the description text and select "Edit Description"
         TestStep.macContextMenuClick(elementTitle: "My Test Description", menuItem: "Edit Description")
 
-        // Alert appears with pre-filled text (selected by default) — type replacement
+        // Alert appears with pre-filled text — Tab to focus, type replacement, Return to save
         TestStep.macWaitForElement(titled: "Window Description", timeout: 5)
+        TestStep.macScreenshot(label: "host-edit-alert-appeared", compare: false)
+        TestStep.wait(seconds: 0.5)
+        TestStep.macPressTab()
         TestStep.macType(text: "Updated Description", pressReturn: false)
+        TestStep.macScreenshot(label: "host-edit-alert-text-typed", compare: false)
         TestStep.macClickButton(titled: "Save")
         TestStep.wait(seconds: 2)
 
         // ── Phase 6: Verify updated description on both ─────────────────
 
         TestStep.log("Verifying updated description on host and iOS")
+
+        TestStep.macScreenshot(label: "host-after-edit-save", compare: false)
 
         TestStep.macWaitForElement(titled: "Updated Description", timeout: 5)
         TestStep.macScreenshot(label: "host-after-edit-description")

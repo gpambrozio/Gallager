@@ -266,7 +266,8 @@ public struct MainView: View {
     }
 
     private func windowButton(window: TmuxWindow, help: String? = nil) -> some View {
-        Button {
+        let description = window.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customDescription }
+        return Button {
             selectedWindow = window
             selectedRemotePane = nil
         } label: {
@@ -274,7 +275,7 @@ public struct MainView: View {
         }
         .id(window.id)
         .buttonStyle(.plain)
-        .accessibilityLabel(window.id)
+        .accessibilityLabel(description ?? window.id)
         .accessibilityValue(windowAccessibilityValue(window))
         .help(help ?? "")
         .listRowBackground(selectedWindow?.id == window.id && selectedRemotePane == nil ? Color.accentColor.opacity(0.2) : nil)
