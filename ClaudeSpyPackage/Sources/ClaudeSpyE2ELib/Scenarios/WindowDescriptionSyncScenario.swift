@@ -3,9 +3,9 @@ import Foundation
 /// E2E scenario: Window description synchronization across devices
 ///
 /// Verifies that custom window descriptions can be set via context menu on the
-/// macOS host and sync correctly to the macOS viewer:
+/// macOS host and sync correctly to the iOS viewer:
 /// 1. Host adds a description via right-click context menu
-/// 2. Description appears on both host and viewer
+/// 2. Description appears on both host and iOS
 /// 3. Host edits the description via context menu
 /// 4. Updated description syncs to both
 /// 5. Host removes the description via context menu
@@ -15,12 +15,15 @@ public enum WindowDescriptionSyncScenario {
         "Window Description Sync",
         tags: ["description", "sync"]
     ) {
-        // ── Phase 1: Setup two Mac apps paired ──────────────────────────
+        // ── Phase 1: Fresh pairing (macOS host + iOS viewer) ────────────
 
-        TwoMacPairingScenario.scenario
+        FreshPairingScenario.scenario
 
-        // Send a SessionStart hook so pane becomes a Claude session
-        TestStep.tmuxStorePaneId(target: "e2e-mac-pair:0.0", storeAs: "paneId")
+        // Create tmux session and make it a Claude session via hook
+        TestStep.tmuxCreateSession(name: "e2e-desc", width: 80, height: 24)
+        TestStep.wait(seconds: 3)
+
+        TestStep.tmuxStorePaneId(target: "e2e-desc:0.0", storeAs: "paneId")
 
         TestStep.macSendHookEvent(
             json: """
@@ -35,62 +38,66 @@ public enum WindowDescriptionSyncScenario {
         )
         TestStep.wait(seconds: 3)
 
-        // ── Phase 2: Verify both apps see the session ───────────────────
+        // ── Phase 2: Verify session visible on host and iOS ─────────────
 
-        TestStep.macWaitForElement(titled: "e2e-mac-pair:0", timeout: 10)
-        TestStep.macWaitForElement(titled: "e2e-mac-pair:0", timeout: 10, instance: 1)
+        // Open the Panes window on the host to see sidebar rows
+        TestStep.macOpenPanesWindow()
+        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
+        TestStep.macWaitForElement(titled: "e2e-desc:0", timeout: 10)
+
+        // iOS should show the session with the project name
+        TestStep.iosWaitForElement(.labelContains("DescProject"), timeout: 15)
 
         TestStep.macScreenshot(label: "host-before-description")
-        TestStep.macScreenshot(label: "viewer-before-description", instance: 1)
+        TestStep.iosScreenshot(label: "ios-before-description")
 
         // ── Phase 3: Add description via context menu on host ───────────
 
         TestStep.log("Adding description on host via context menu")
 
         // Right-click the window row and select "Add Description"
-        TestStep.macContextMenuClick(elementTitle: "e2e-mac-pair:0", menuItem: "Add Description")
+        TestStep.macContextMenuClick(elementTitle: "e2e-desc:0", menuItem: "Add Description")
 
-        // The alert appears with a text field — type the description
+        // The alert appears with a text field — type the description and save
         TestStep.macWaitForElement(titled: "Window Description", timeout: 5)
         TestStep.macType(text: "My Test Description", pressReturn: false)
         TestStep.macClickButton(titled: "Save")
         TestStep.wait(seconds: 2)
 
-        // ── Phase 4: Verify description on host and viewer ──────────────
+        // ── Phase 4: Verify description on host and iOS ─────────────────
 
-        TestStep.log("Verifying description visible on both apps")
+        TestStep.log("Verifying description visible on host and iOS")
 
         // Host should show the custom description
         TestStep.macWaitForElement(titled: "My Test Description", timeout: 5)
         TestStep.macScreenshot(label: "host-after-add-description")
 
-        // Viewer should also show it (synced via session state)
-        TestStep.macWaitForElement(titled: "My Test Description", timeout: 10, instance: 1)
-        TestStep.macScreenshot(label: "viewer-after-add-description", instance: 1)
+        // iOS should also show it (synced via session state push)
+        TestStep.iosWaitForElement(.labelContains("My Test Description"), timeout: 15)
+        TestStep.iosScreenshot(label: "ios-after-add-description")
 
         // ── Phase 5: Edit description via context menu on host ──────────
 
         TestStep.log("Editing description on host via context menu")
 
-        // Right-click and select "Edit Description" (now it says Edit, not Add)
+        // Right-click on the description text and select "Edit Description"
         TestStep.macContextMenuClick(elementTitle: "My Test Description", menuItem: "Edit Description")
 
-        // Clear the field and type new description
+        // Alert appears with pre-filled text (selected by default) — type replacement
         TestStep.macWaitForElement(titled: "Window Description", timeout: 5)
-        // Select all existing text and replace it
         TestStep.macType(text: "Updated Description", pressReturn: false)
         TestStep.macClickButton(titled: "Save")
         TestStep.wait(seconds: 2)
 
         // ── Phase 6: Verify updated description on both ─────────────────
 
-        TestStep.log("Verifying updated description on both apps")
+        TestStep.log("Verifying updated description on host and iOS")
 
         TestStep.macWaitForElement(titled: "Updated Description", timeout: 5)
         TestStep.macScreenshot(label: "host-after-edit-description")
 
-        TestStep.macWaitForElement(titled: "Updated Description", timeout: 10, instance: 1)
-        TestStep.macScreenshot(label: "viewer-after-edit-description", instance: 1)
+        TestStep.iosWaitForElement(.labelContains("Updated Description"), timeout: 15)
+        TestStep.iosScreenshot(label: "ios-after-edit-description")
 
         // ── Phase 7: Remove description via context menu ────────────────
 
@@ -101,13 +108,15 @@ public enum WindowDescriptionSyncScenario {
 
         // ── Phase 8: Verify description removed on both ─────────────────
 
-        TestStep.log("Verifying description removed on both apps")
+        TestStep.log("Verifying description removed on host and iOS")
 
-        // The custom description should be gone, window ID should be back
+        // Host: custom description gone, window ID should be visible again
         TestStep.macWaitForElementToDisappear(titled: "Updated Description", timeout: 5)
+        TestStep.macWaitForElement(titled: "e2e-desc:0", timeout: 5)
         TestStep.macScreenshot(label: "host-after-remove-description")
 
-        TestStep.macWaitForElementToDisappear(titled: "Updated Description", timeout: 10, instance: 1)
-        TestStep.macScreenshot(label: "viewer-after-remove-description", instance: 1)
+        // iOS: description gone, project name should be back as primary label
+        TestStep.iosWaitForElement(.labelContains("DescProject"), timeout: 15)
+        TestStep.iosScreenshot(label: "ios-after-remove-description")
     }
 }
