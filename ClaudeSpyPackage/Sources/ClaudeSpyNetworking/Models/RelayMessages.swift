@@ -105,9 +105,12 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// Whether yolo mode is enabled (auto-approve permissions)
     public var yoloMode: Bool
 
-    // MARK: - Identifiable
+    // MARK: - Computed Properties
 
     public var id: String { paneId }
+
+    /// Window identifier combining session name and window index (e.g., "mysession:0")
+    public var windowId: String { "\(sessionName):\(windowIndex)" }
 
     public init(
         paneId: String,

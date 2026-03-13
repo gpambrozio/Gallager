@@ -14,9 +14,6 @@ final public class MirrorWindowManager {
     /// Contains tmux metadata, Claude session, terminal title, and yolo mode.
     public private(set) var paneStates: [String: PaneState] = [:]
 
-    /// Custom descriptions for windows, keyed by window ID (sessionName:windowIndex)
-    public private(set) var windowDescriptions: [String: String] = [:]
-
     /// Pane IDs that the user has manually closed (don't auto-reopen until session ends)
     private var userClosedPanes: Set<String> = []
 
@@ -71,9 +68,6 @@ final public class MirrorWindowManager {
         for paneId in stalePaneIds {
             removeStaleState(paneId: paneId)
         }
-
-        // Reapply custom descriptions to updated pane states
-        applyAllWindowDescriptions()
     }
 
     // MARK: - Periodic Session Validation
@@ -481,37 +475,17 @@ final public class MirrorWindowManager {
 
     // MARK: - Window Descriptions
 
-    /// Sets a custom description for a window and applies it to all panes in that window.
+    /// Sets a custom description for a window, updating all panes that belong to it.
     /// - Parameters:
     ///   - description: The description text, or nil to clear
     ///   - windowId: The window ID (sessionName:windowIndex)
     public func setWindowDescription(_ description: String?, for windowId: String) {
-        if let description, !description.isEmpty {
-            windowDescriptions[windowId] = description
-        } else {
-            windowDescriptions.removeValue(forKey: windowId)
+        let normalizedDescription = description?.isEmpty == true ? nil : description
+        for (paneId, state) in paneStates where state.windowId == windowId {
+            paneStates[paneId]?.customDescription = normalizedDescription
         }
-        applyWindowDescription(for: windowId)
+        // Fire-and-forget: avoids blocking the caller while the push completes
         Task { await onDescriptionChanged?() }
-    }
-
-    /// Applies the stored description for a window to all its pane states.
-    private func applyWindowDescription(for windowId: String) {
-        let description = windowDescriptions[windowId]
-        for (paneId, state) in paneStates {
-            let paneWindowId = "\(state.sessionName):\(state.windowIndex)"
-            if paneWindowId == windowId {
-                paneStates[paneId]?.customDescription = description
-            }
-        }
-    }
-
-    /// Applies all stored window descriptions to current pane states.
-    /// Called after pane states are updated from tmux.
-    private func applyAllWindowDescriptions() {
-        for windowId in windowDescriptions.keys {
-            applyWindowDescription(for: windowId)
-        }
     }
 
     // MARK: - State Cleanup

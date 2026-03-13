@@ -1016,9 +1016,9 @@ private struct WindowSidebarRow: View {
         primaryPaneState?.terminalTitle
     }
 
-    /// Custom description for this window
+    /// Custom description for this window (from the primary pane's state)
     private var customDescription: String? {
-        windowManager.windowDescriptions[window.id]
+        primaryPaneState?.customDescription
     }
 
     var body: some View {
@@ -1304,13 +1304,6 @@ private struct RemoteHostSidebarSection: View {
         !sessions.isEmpty || !panes.isEmpty
     }
 
-    /// Gets the window ID for a pane
-    private func windowId(for paneId: String) -> String? {
-        guard let state = sessionStore.paneState(for: paneId) else { return nil }
-        guard !state.sessionName.isEmpty else { return nil }
-        return "\(state.sessionName):\(state.windowIndex)"
-    }
-
     var body: some View {
         Section {
             if hasContent {
@@ -1399,9 +1392,11 @@ private struct RemoteHostSidebarSection: View {
         .alert("Window Description", isPresented: $isEditingDescription) {
             TextField("Description", text: $editedDescription)
             Button("Save") {
-                guard let wid = windowId(for: editingPaneId) else { return }
+                guard
+                    let state = sessionStore.paneState(for: editingPaneId),
+                    !state.sessionName.isEmpty else { return }
                 let trimmed = editedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-                onSetDescription(wid, trimmed.isEmpty ? nil : trimmed)
+                onSetDescription(state.windowId, trimmed.isEmpty ? nil : trimmed)
             }
             Button("Cancel", role: .cancel) { }
         } message: {
@@ -1426,8 +1421,10 @@ private struct RemoteHostSidebarSection: View {
 
         if currentDescription != nil {
             Button(role: .destructive) {
-                guard let wid = windowId(for: paneId) else { return }
-                onSetDescription(wid, nil)
+                guard
+                    let state = sessionStore.paneState(for: paneId),
+                    !state.sessionName.isEmpty else { return }
+                onSetDescription(state.windowId, nil)
             } label: {
                 Label("Remove Description", symbol: .xmark)
             }
