@@ -281,5 +281,138 @@
             #expect(result.notifications.isEmpty)
             #expect(result.filteredData == data)
         }
+
+        // MARK: - Content sanitization
+
+        @Test("Discards OSC 9 notification with only escape sequences")
+        func osc9WithOnlyEscapeSequences() {
+            var parser = TerminalNotificationParser()
+            // Body is just ANSI escape codes with no readable text
+            let data = Data("\u{1b}]9;\u{1b}[0m\u{1b}[?25h\u{07}".utf8)
+            let result = parser.parse(data)
+
+            // Sequence is recognized (stripped from output) but no notification emitted
+            #expect(result.notifications.isEmpty)
+            #expect(result.filteredData.isEmpty)
+        }
+
+        @Test("Discards OSC 9 notification with only control characters")
+        func osc9WithOnlyControlCharacters() {
+            var parser = TerminalNotificationParser()
+            let data = Data("\u{1b}]9;\u{01}\u{02}\u{03}\u{07}".utf8)
+            let result = parser.parse(data)
+
+            #expect(result.notifications.isEmpty)
+            #expect(result.filteredData.isEmpty)
+        }
+
+        @Test("Sanitizes OSC 9 notification by stripping escape sequences from text")
+        func osc9SanitizesEscapeSequences() {
+            var parser = TerminalNotificationParser()
+            // Body has ANSI color codes around readable text
+            let data = Data("\u{1b}]9;\u{1b}[32mBuild complete\u{1b}[0m\u{07}".utf8)
+            let result = parser.parse(data)
+
+            #expect(result.notifications.count == 1)
+            #expect(result.notifications[0].body == "Build complete")
+        }
+
+        @Test("Sanitizes OSC 777 notification title and body")
+        func osc777SanitizesContent() {
+            var parser = TerminalNotificationParser()
+            let data = Data("\u{1b}]777;notify;\u{1b}[1mAlert\u{1b}[0m;Task \u{1b}[32mdone\u{1b}[0m\u{07}".utf8)
+            let result = parser.parse(data)
+
+            #expect(result.notifications.count == 1)
+            #expect(result.notifications[0].title == "Alert")
+            #expect(result.notifications[0].body == "Task done")
+        }
+
+        @Test("Discards OSC 777 notification when body is only escape sequences")
+        func osc777DiscardsEscapeOnlyBody() {
+            var parser = TerminalNotificationParser()
+            let data = Data("\u{1b}]777;notify;Title;\u{1b}[0m\u{07}".utf8)
+            let result = parser.parse(data)
+
+            #expect(result.notifications.isEmpty)
+            #expect(result.filteredData.isEmpty)
+        }
+
+        // MARK: - ConEmu-style OSC 9 sub-commands
+
+        @Test("Discards ConEmu OSC 9 progress state sub-command")
+        func osc9ConEmuProgressState() {
+            var parser = TerminalNotificationParser()
+            // ESC]9;4;0;BEL — ConEmu "set progress state" (state=0, clear progress)
+            let data = Data("\u{1b}]9;4;0;\u{07}".utf8)
+            let result = parser.parse(data)
+
+            #expect(result.notifications.isEmpty)
+            #expect(result.filteredData.isEmpty)
+        }
+
+        @Test("Discards ConEmu OSC 9 tab title sub-command")
+        func osc9ConEmuTabTitle() {
+            var parser = TerminalNotificationParser()
+            // ESC]9;1;filenameBEL — ConEmu "set tab title"
+            let data = Data("\u{1b}]9;1;my-session\u{07}".utf8)
+            let result = parser.parse(data)
+
+            #expect(result.notifications.isEmpty)
+            #expect(result.filteredData.isEmpty)
+        }
+
+        @Test("Keeps real OSC 9 notification that starts with a digit but no sub-command")
+        func osc9NotificationStartingWithDigit() {
+            var parser = TerminalNotificationParser()
+            // "3 tasks completed" starts with a digit but has no digit-only prefix before semicolon
+            let data = Data("\u{1b}]9;3 tasks completed\u{07}".utf8)
+            let result = parser.parse(data)
+
+            #expect(result.notifications.count == 1)
+            #expect(result.notifications[0].body == "3 tasks completed")
+        }
+
+        @Test("Keeps real OSC 9 notification without any semicolons in body")
+        func osc9NotificationNoSemicolons() {
+            var parser = TerminalNotificationParser()
+            let data = Data("\u{1b}]9;Build complete\u{07}".utf8)
+            let result = parser.parse(data)
+
+            #expect(result.notifications.count == 1)
+            #expect(result.notifications[0].body == "Build complete")
+        }
+
+        // MARK: - Nested OSC in notification body
+
+        @Test("Strips nested OSC sequence from notification body")
+        func osc9WithNestedOSCSequence() {
+            var parser = TerminalNotificationParser()
+            // Body contains ESC]4;0; (nested OSC without its own terminator)
+            let data = Data("\u{1b}]9;\u{1b}]4;0;\u{07}".utf8)
+            let result = parser.parse(data)
+
+            // Nested OSC consumes remaining content — empty body → discard
+            #expect(result.notifications.isEmpty)
+            #expect(result.filteredData.isEmpty)
+        }
+
+        @Test("Strips nested OSC sequence but keeps surrounding text")
+        func osc9WithNestedOSCAndText() {
+            var parser = TerminalNotificationParser()
+            // Body has text, then a nested OSC, then more text
+            let data = Data("\u{1b}]9;Hello \u{1b}]0;title\u{07}world\u{07}".utf8)
+            let result = parser.parse(data)
+
+            // The first BEL terminates the nested OSC within sanitization,
+            // but "world" is after the outer BEL so it's not part of the notification body.
+            // The outer parser sees: ESC]9; then scans for BEL → finds first BEL after "title"
+            // So body is "Hello ESC]0;title", sanitizer strips nested OSC → "Hello "
+            // Wait, actually the outer parser finds the FIRST BEL, so body includes up to first BEL.
+            // Let me reconsider: the outer parser's content is "Hello \u{1b}]0;title"
+            // (stops at first BEL). Sanitizer: "Hello " + ESC] skips to end → "Hello"
+            #expect(result.notifications.count == 1)
+            #expect(result.notifications[0].body == "Hello")
+        }
     }
 #endif

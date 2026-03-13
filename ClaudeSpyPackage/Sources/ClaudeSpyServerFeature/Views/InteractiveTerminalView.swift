@@ -1182,6 +1182,11 @@
 
     extension InteractiveTerminalView: @preconcurrency TerminalViewDelegate {
         func send(source: TerminalView, data: ArraySlice<UInt8>) {
+            // Defense-in-depth: DA queries are stripped from the feed in PipePaneReader,
+            // but catch any remaining auto-responses (cursor position reports, terminal
+            // parameter reports) that SwiftTerm may still generate.
+            if TerminalResponseFilter.isTerminalResponse(data) { return }
+
             // Convert raw bytes to TmuxKey representations
             let keys = TmuxKey.from(bytes: Data(data))
             guard !keys.isEmpty else { return }
