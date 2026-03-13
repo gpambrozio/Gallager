@@ -41,9 +41,7 @@ public enum EmojiTableRenderingScenario {
             literal: true
         )
         TestStep.tmuxSendKeys(target: "emoji-tbl:0", keys: "Enter")
-        TestStep.tmuxSendKeys(target: "emoji-tbl:0", keys: "clear", literal: true)
-        TestStep.tmuxSendKeys(target: "emoji-tbl:0", keys: "Enter")
-        TestStep.wait(seconds: 1)
+        TestStep.wait(seconds: 0.5)
 
         // -- Create the Python script that draws all three tables ----------
         //
@@ -58,6 +56,7 @@ public enum EmojiTableRenderingScenario {
             cat > $TMPDIR/emoji_tables.py << 'PYEOF'
             import sys
             E="\033";C=E+"["
+            import time
             def o(s):sys.stdout.write(s);sys.stdout.flush()
 
             def dw(s):
@@ -173,6 +172,7 @@ public enum EmojiTableRenderingScenario {
                     o("\u2534" if i<ncols-1 else "\u2518")
                 o("\n")
 
+            time.sleep(0.5)
             o(f"{C}2J{C}H")
             table1()
             table2()
