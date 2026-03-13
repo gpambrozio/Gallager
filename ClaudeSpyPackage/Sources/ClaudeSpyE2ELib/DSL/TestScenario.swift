@@ -91,6 +91,10 @@ public enum TestStep: Sendable {
     case macClickButton(titled: String, instance: Int = 0)
     /// Click a menu trigger button then click a menu item
     case macClickMenuItem(menuButtonTitle: String, itemTitle: String, instance: Int = 0)
+    /// Right-click an element to open its context menu
+    case macRightClick(titled: String, instance: Int = 0)
+    /// Right-click an element and then click a menu item from the context menu
+    case macContextMenuClick(elementTitle: String, menuItem: String, instance: Int = 0)
     /// Trigger unpair on the first paired viewer via test HTTP endpoint
     case macUnpair(instance: Int = 0)
     /// Read the clipboard and store in context

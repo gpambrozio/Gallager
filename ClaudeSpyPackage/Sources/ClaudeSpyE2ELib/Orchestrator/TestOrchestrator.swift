@@ -384,6 +384,12 @@ public actor TestOrchestrator {
         case let .macClickMenuItem(menuButtonTitle, itemTitle, instance):
             try await macDriver(for: instance).clickMenuItem(menuButtonTitle: menuButtonTitle, itemTitle: itemTitle)
 
+        case let .macRightClick(titled, instance):
+            try await macDriver(for: instance).rightClick(titled: titled)
+
+        case let .macContextMenuClick(elementTitle, menuItem, instance):
+            try await macDriver(for: instance).contextMenuClick(elementTitle: elementTitle, menuItem: menuItem)
+
         case let .macUnpair(instance):
             try await macDriver(for: instance).unpair()
 

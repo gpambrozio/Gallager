@@ -153,6 +153,58 @@ public actor MacOSDriver {
         throw MacOSDriverError.elementNotFound("\(menuButtonTitle) → \(itemTitle)")
     }
 
+    // MARK: - Right-Click / Context Menu
+
+    /// Right-click on an element to open its context menu.
+    public func rightClick(titled: String) async throws {
+        let pid = try requirePID()
+        logger.info("Right-clicking: \(titled)")
+        try await waitForAXElement(pid: pid, titled: titled, timeout: 5)
+        if !MacOSAccessibility.rightClick(appPID: pid, titled: titled) {
+            throw MacOSDriverError.elementNotFound(titled)
+        }
+    }
+
+    /// Right-click on an element matching a query to open its context menu.
+    public func rightClick(matching query: ElementQuery) async throws {
+        let pid = try requirePID()
+        logger.info("Right-clicking element matching query")
+        _ = try await Polling.waitFor(
+            description: "macOS UI element for right-click",
+            timeout: 5,
+            pollInterval: 0.5
+        ) {
+            MacOSAccessibility.findElement(appPID: pid, matching: query)
+        }
+        if !MacOSAccessibility.rightClick(appPID: pid, matching: query) {
+            throw MacOSDriverError.elementNotFound("query for right-click")
+        }
+    }
+
+    /// Right-click on an element to open its context menu, then click a menu item.
+    /// Combines right-click with polling for the context menu item to appear.
+    public func contextMenuClick(elementTitle: String, menuItem: String) async throws {
+        let pid = try requirePID()
+        logger.info("Context menu click: '\(elementTitle)' → '\(menuItem)'")
+
+        // Step 1: Right-click to open context menu
+        try await waitForAXElement(pid: pid, titled: elementTitle, timeout: 5)
+        if !MacOSAccessibility.rightClick(appPID: pid, titled: elementTitle) {
+            throw MacOSDriverError.elementNotFound(elementTitle)
+        }
+
+        // Step 2: Poll for the menu item (context menu needs time to appear)
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            try await Task.sleep(for: .milliseconds(300))
+            if MacOSAccessibility.press(appPID: pid, titled: menuItem) {
+                return
+            }
+        }
+
+        throw MacOSDriverError.elementNotFound("\(elementTitle) context menu → \(menuItem)")
+    }
+
     // MARK: - Panes Window
 
     /// Open the Panes window via the status item menu

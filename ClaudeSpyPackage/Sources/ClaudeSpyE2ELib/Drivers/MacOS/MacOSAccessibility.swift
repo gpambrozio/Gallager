@@ -163,6 +163,48 @@ enum MacOSAccessibility {
         mouseUp?.post(tap: .cghidEventTap)
     }
 
+    /// Post a CGEvent right-click at the given screen coordinates.
+    /// Used to trigger context menus on macOS UI elements.
+    static func rightClickAtPoint(_ point: CGPoint) {
+        logger.info("CGEvent right-click at (\(point.x), \(point.y))")
+        let mouseDown = CGEvent(
+            mouseEventSource: nil,
+            mouseType: .rightMouseDown,
+            mouseCursorPosition: point,
+            mouseButton: .right
+        )
+        let mouseUp = CGEvent(
+            mouseEventSource: nil,
+            mouseType: .rightMouseUp,
+            mouseCursorPosition: point,
+            mouseButton: .right
+        )
+        mouseDown?.post(tap: .cghidEventTap)
+        usleep(50_000) // 50ms
+        mouseUp?.post(tap: .cghidEventTap)
+    }
+
+    /// Right-click on an element matching the query to open its context menu.
+    /// Returns true if the element was found and right-clicked.
+    @discardableResult
+    static func rightClick(appPID: pid_t, matching query: ElementQuery) -> Bool {
+        let matches = findAllRawElements(appPID: appPID, matching: query)
+        guard let center = matches.lazy.compactMap({ centerOfElement($0) }).first else {
+            logger.info("rightClick: element not found for \(query)")
+            return false
+        }
+        focusApp(appPID: appPID)
+        usleep(200_000) // 200ms for focus
+        rightClickAtPoint(center)
+        return true
+    }
+
+    /// Right-click on an element matching by "titled" text.
+    @discardableResult
+    static func rightClick(appPID: pid_t, titled: String) -> Bool {
+        rightClick(appPID: appPID, matching: .anyTextMatches(titled))
+    }
+
     // MARK: - Window Management
 
     /// Move the first visible window to a screen position via AX attributes.
