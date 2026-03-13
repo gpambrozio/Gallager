@@ -254,9 +254,16 @@
                                 customDescription: paneState?.customDescription
                             )
                         }
-                        .contextMenu {
-                            descriptionContextMenu(paneId: item.paneId, currentDescription: paneState?.customDescription)
-                        }
+                        .modifier(DescriptionEditingModifier(
+                            paneId: item.paneId,
+                            currentDescription: paneState?.customDescription,
+                            isHostConnected: connection?.isHostConnected == true,
+                            sessionStore: sessionStore,
+                            onSetDescription: onSetDescription,
+                            isEditingDescription: $isEditingDescription,
+                            editedDescription: $editedDescription,
+                            editingPaneId: $editingPaneId
+                        ))
                     }
 
                     // Plain terminals for this host
@@ -264,9 +271,16 @@
                         NavigationLink(value: SessionNavigation.plainTerminal(paneId: pane.paneId, hostId: host.id)) {
                             TerminalRowView(pane: pane)
                         }
-                        .contextMenu {
-                            descriptionContextMenu(paneId: pane.paneId, currentDescription: pane.customDescription)
-                        }
+                        .modifier(DescriptionEditingModifier(
+                            paneId: pane.paneId,
+                            currentDescription: pane.customDescription,
+                            isHostConnected: connection?.isHostConnected == true,
+                            sessionStore: sessionStore,
+                            onSetDescription: onSetDescription,
+                            isEditingDescription: $isEditingDescription,
+                            editedDescription: $editedDescription,
+                            editingPaneId: $editingPaneId
+                        ))
                     }
                 } else {
                     // Empty state for this host
@@ -289,43 +303,13 @@
             .alert("Session Description", isPresented: $isEditingDescription) {
                 TextField("Description", text: $editedDescription)
                 Button("Save") {
-                    guard
-                        let state = sessionStore.paneState(for: editingPaneId),
-                        !state.sessionName.isEmpty else { return }
+                    guard let state = sessionStore.paneState(for: editingPaneId) else { return }
                     let trimmed = editedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
                     onSetDescription(state.windowId, trimmed.isEmpty ? nil : trimmed)
                 }
                 Button("Cancel", role: .cancel) { }
             } message: {
                 Text("Enter a custom description for this session")
-            }
-        }
-
-        @ViewBuilder
-        private func descriptionContextMenu(paneId: String, currentDescription: String?) -> some View {
-            Button {
-                editedDescription = currentDescription ?? ""
-                editingPaneId = paneId
-                isEditingDescription = true
-            } label: {
-                if currentDescription != nil {
-                    Label("Edit Description", symbol: .pencil)
-                } else {
-                    Label("Add Description", symbol: .pencil)
-                }
-            }
-            .disabled(connection?.isHostConnected != true)
-
-            if currentDescription != nil {
-                Button(role: .destructive) {
-                    guard
-                        let state = sessionStore.paneState(for: paneId),
-                        !state.sessionName.isEmpty else { return }
-                    onSetDescription(state.windowId, nil)
-                } label: {
-                    Label("Remove Description", symbol: .xmark)
-                }
-                .disabled(connection?.isHostConnected != true)
             }
         }
     }

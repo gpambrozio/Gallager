@@ -375,6 +375,7 @@
                 // Handle window description
                 if case let .setWindowDescription(spec) = command.command {
                     winManager.setWindowDescription(spec.description, for: spec.windowId)
+                    await connectionManager?.pushSessionStateToAll()
                     return .success(for: command.id)
                 }
 
