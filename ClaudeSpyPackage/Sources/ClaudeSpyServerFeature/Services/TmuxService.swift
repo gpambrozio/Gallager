@@ -132,7 +132,6 @@ final public class TmuxService {
             let attachedSessions = await getAttachedSessionNames()
             attachedSessionNames = attachedSessions
 
-            // Format: #{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_title}|#{window_layout}|#{window_name}
             let format = "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_title}|#{window_layout}|#{window_name}"
 
             let result = try await runTmuxCommand([
