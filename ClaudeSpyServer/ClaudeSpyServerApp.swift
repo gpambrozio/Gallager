@@ -153,7 +153,6 @@ struct TmuxPaneMirrorApp: App {
         .defaultLaunchBehavior(.suppressed)
         .onChange(of: totalPendingSessionCount, initial: true) { _, newValue in
             NSApp.dockTile.badgeLabel = newValue > 0 ? "\(newValue)" : nil
-            NSApp.dockTile.showsApplicationBadge = newValue > 0
         }
         .commands {
             // App menu - custom About window
