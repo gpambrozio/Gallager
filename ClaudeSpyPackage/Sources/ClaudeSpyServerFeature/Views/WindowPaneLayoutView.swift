@@ -93,23 +93,23 @@ struct WindowPaneLayoutView: View {
 
         return ProportionalTileLayout(rects: validPanes.map(\.rect)) {
             ForEach(validPanes) { pane in
-                // Force-unwrap safe: filtered above
-                let paneState = windowManager.paneStates[pane.paneInfo.paneId]!
-                TerminalContainerView(
-                    paneState: paneState,
-                    autoFocus: isSingle,
-                    onStateChange: { _, _, _ in },
-                    onTitleChange: { title in
-                        windowManager.updateTerminalTitle(paneId: paneState.paneId, title: title)
+                if let paneState = windowManager.paneStates[pane.paneInfo.paneId] {
+                    TerminalContainerView(
+                        paneState: paneState,
+                        autoFocus: isSingle,
+                        onStateChange: { _, _, _ in },
+                        onTitleChange: { title in
+                            windowManager.updateTerminalTitle(paneId: paneState.paneId, title: title)
+                        }
+                    )
+                    .overlay {
+                        if !isSingle {
+                            Rectangle()
+                                .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
+                        }
                     }
-                )
-                .overlay {
-                    if !isSingle {
-                        Rectangle()
-                            .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
-                    }
+                    .id(pane.id)
                 }
-                .id(pane.id)
             }
         }
     }

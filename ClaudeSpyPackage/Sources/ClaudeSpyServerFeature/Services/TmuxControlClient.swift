@@ -339,7 +339,7 @@ actor TmuxControlClient {
         // sequences that assume the new column count.
         let parts = line.split(separator: " ", maxSplits: 2)
         if parts.count >= 3 {
-            let layoutString = String(parts[2])
+            let layoutString = String(parts[2].split(separator: " ").first ?? parts[2])
             if let layout = TmuxLayoutParser.parse(layoutString) {
                 updateTrackedDimensionsFromLayout(layout)
             }

@@ -74,24 +74,24 @@ public enum TmuxLayoutParser {
             // Horizontal split (children side by side)
             var children: [LayoutNode] = []
             while !scanner.scan("}") {
+                if scanner.isAtEnd { return nil }
                 if !children.isEmpty {
                     _ = scanner.scan(",")
                 }
                 guard let child = parseNode(&scanner) else { return nil }
                 children.append(child)
-                if scanner.isAtEnd { break }
             }
             return .horizontal(children: children, width: width, height: height)
         } else if scanner.scan("[") {
             // Vertical split (children stacked)
             var children: [LayoutNode] = []
             while !scanner.scan("]") {
+                if scanner.isAtEnd { return nil }
                 if !children.isEmpty {
                     _ = scanner.scan(",")
                 }
                 guard let child = parseNode(&scanner) else { return nil }
                 children.append(child)
-                if scanner.isAtEnd { break }
             }
             return .vertical(children: children, width: width, height: height)
         } else if scanner.scan(",") {
@@ -101,10 +101,8 @@ public enum TmuxLayoutParser {
         } else {
             // End of string or just a single-pane layout without trailing pane ID
             // Try to read pane ID if there's anything left
-            if let paneId = scanner.scanInt() {
-                return .pane(id: paneId, width: width, height: height)
-            }
-            return .pane(id: 0, width: width, height: height)
+            guard let paneId = scanner.scanInt() else { return nil }
+            return .pane(id: paneId, width: width, height: height)
         }
     }
 }
