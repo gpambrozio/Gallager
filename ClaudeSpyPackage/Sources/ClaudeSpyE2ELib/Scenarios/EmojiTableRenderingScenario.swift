@@ -53,7 +53,7 @@ public enum EmojiTableRenderingScenario {
 
         TestStep.log("Creating emoji table rendering script")
         TestStep.tmuxSendKeys(
-            target: "emoji-tbl:0",
+            target: "emoji-helper:0",
             keys: #"""
             cat > $TMPDIR/emoji_tables.py << 'PYEOF'
             import sys
@@ -182,7 +182,7 @@ public enum EmojiTableRenderingScenario {
             """#,
             literal: true
         )
-        TestStep.tmuxSendKeys(target: "emoji-tbl:0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "emoji-helper:0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
         // -- Run the script ------------------------------------------------
