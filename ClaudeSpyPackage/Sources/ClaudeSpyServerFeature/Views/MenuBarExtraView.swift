@@ -153,10 +153,13 @@ public struct MenuBarExtraView: View {
             session.displayName
         }
 
-        Label {
-            Text(title)
-        } icon: {
-            SessionStatusIndicator(session: session)
+        // Menu items can't render ProgressView, so use SF Symbols for all states
+        if session.needsAttention {
+            Label(title, symbol: .bellBadgeFill)
+        } else if session.isWorking {
+            Label(title, symbol: .boltFill)
+        } else {
+            Label(title, symbol: .moonFill)
         }
     }
 }
