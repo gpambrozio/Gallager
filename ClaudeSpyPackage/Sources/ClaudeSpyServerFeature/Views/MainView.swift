@@ -259,6 +259,13 @@ public struct MainView: View {
                         Task {
                             await createRemoteSession(on: host, inProject: project)
                         }
+                    },
+                    onSetDescription: { windowId, description in
+                        Task {
+                            guard let manager = coordinator.viewerConnectionManager else { return }
+                            let command = SetWindowDescription(windowId: windowId, description: description)
+                            _ = await manager.sendCommand(command, paneId: "", hostId: host.id)
+                        }
                     }
                 )
             }
@@ -266,7 +273,8 @@ public struct MainView: View {
     }
 
     private func windowButton(window: TmuxWindow, help: String? = nil) -> some View {
-        Button {
+        let description = window.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customDescription }
+        return Button {
             selectedWindow = window
             selectedRemotePane = nil
         } label: {
@@ -274,7 +282,7 @@ public struct MainView: View {
         }
         .id(window.id)
         .buttonStyle(.plain)
-        .accessibilityLabel(window.id)
+        .accessibilityLabel(description ?? window.id)
         .accessibilityValue(windowAccessibilityValue(window))
         .help(help ?? "")
         .listRowBackground(selectedWindow?.id == window.id && selectedRemotePane == nil ? Color.accentColor.opacity(0.2) : nil)
@@ -1050,6 +1058,11 @@ private struct WindowSidebarRow: View {
         primaryPaneState?.terminalTitle
     }
 
+    /// Custom description for this window (from the primary pane's state)
+    private var customDescription: String? {
+        primaryPaneState?.customDescription
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             if let session = claudeSession {
@@ -1059,9 +1072,18 @@ private struct WindowSidebarRow: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
+                // Custom description shown prominently if set
+                if let customDescription {
+                    Text(customDescription)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                }
+
                 HStack(spacing: 6) {
                     Text(window.id)
-                        .font(.system(.body, design: .monospaced))
+                        .font(.system(customDescription != nil ? .caption : .body, design: .monospaced))
+                        .foregroundStyle(customDescription != nil ? .secondary : .primary)
 
                     if !window.isSinglePane {
                         HStack(spacing: 2) {
@@ -1104,6 +1126,13 @@ private struct WindowSidebarRow: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+        .modifier(DescriptionEditingModifier(
+            windowId: window.id,
+            currentDescription: customDescription,
+            onSetDescription: { windowId, description in
+                windowManager.setWindowDescription(description, for: windowId)
+            }
+        ))
     }
 }
 
@@ -1274,6 +1303,7 @@ private struct RemoteHostSidebarSection: View {
     @Binding var selectedRemotePane: RemotePaneSelection?
     let onSelect: (RemotePaneSelection) -> Void
     let onCreate: (ClaudeProjectInfo?) -> Void
+    let onSetDescription: (String, String?) -> Void
 
     @Environment(AppSettings.self) private var settings
 
@@ -1293,6 +1323,7 @@ private struct RemoteHostSidebarSection: View {
         Section {
             if hasContent {
                 ForEach(sessions, id: \.paneId) { item in
+                    let paneState = sessionStore.paneState(for: item.paneId)
                     Button {
                         onSelect(RemotePaneSelection(
                             hostId: host.id,
@@ -1303,15 +1334,22 @@ private struct RemoteHostSidebarSection: View {
                         RemotePaneSidebarRow(
                             title: item.session.displayName,
                             subtitle: item.paneId,
-                            claudeSession: item.session
+                            claudeSession: item.session,
+                            customDescription: paneState?.customDescription
                         )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(item.paneId)
+                    .accessibilityLabel(paneState?.customDescription ?? item.paneId)
                     .listRowBackground(
                         selectedRemotePane?.paneId == item.paneId && selectedRemotePane?.hostId == host.id
                             ? Color.accentColor.opacity(0.2) : nil
                     )
+                    .modifier(DescriptionEditingModifier(
+                        windowId: paneState?.windowId ?? "",
+                        currentDescription: paneState?.customDescription,
+                        isDisabled: connection?.isHostConnected != true,
+                        onSetDescription: onSetDescription
+                    ))
                 }
 
                 ForEach(panes) { pane in
@@ -1325,15 +1363,22 @@ private struct RemoteHostSidebarSection: View {
                         RemotePaneSidebarRow(
                             title: pane.currentPath.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? pane.paneId,
                             subtitle: pane.target.isEmpty ? pane.paneId : pane.target,
-                            claudeSession: nil
+                            claudeSession: nil,
+                            customDescription: pane.customDescription
                         )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(pane.target.isEmpty ? pane.paneId : pane.target)
+                    .accessibilityLabel(pane.customDescription ?? (pane.target.isEmpty ? pane.paneId : pane.target))
                     .listRowBackground(
                         selectedRemotePane?.paneId == pane.paneId && selectedRemotePane?.hostId == host.id
                             ? Color.accentColor.opacity(0.2) : nil
                     )
+                    .modifier(DescriptionEditingModifier(
+                        windowId: pane.windowId,
+                        currentDescription: pane.customDescription,
+                        isDisabled: connection?.isHostConnected != true,
+                        onSetDescription: onSetDescription
+                    ))
                 }
             } else if connection?.isHostConnected == true {
                 Text("No active sessions")
@@ -1381,6 +1426,7 @@ private struct RemotePaneSidebarRow: View {
     let title: String
     let subtitle: String
     let claudeSession: ClaudeSession?
+    var customDescription: String?
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -1391,8 +1437,16 @@ private struct RemotePaneSidebarRow: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
+                if let customDescription {
+                    Text(customDescription)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                }
+
                 Text(title)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(customDescription != nil ? .caption : .body, design: .monospaced))
+                    .foregroundStyle(customDescription != nil ? .secondary : .primary)
 
                 Text(subtitle)
                     .font(.caption)

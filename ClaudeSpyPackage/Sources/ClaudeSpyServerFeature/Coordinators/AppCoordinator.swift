@@ -382,6 +382,13 @@
                     return .success(for: command.id)
                 }
 
+                // Handle window description
+                if case let .setWindowDescription(spec) = command.command {
+                    winManager.setWindowDescription(spec.description, for: spec.windowId)
+                    await connectionManager?.pushSessionStateToAll()
+                    return .success(for: command.id)
+                }
+
                 // Regular commands execute on the actor executor
                 return await executor.execute(command)
             }
@@ -424,6 +431,11 @@
 
             // Push session state to all viewers whenever panes change
             tmuxService.setPanesChangedHandler { [weak connectionManager] in
+                await connectionManager?.pushSessionStateToAll()
+            }
+
+            // Push session state when window descriptions change locally
+            windowManager.onDescriptionChanged = { [weak connectionManager] in
                 await connectionManager?.pushSessionStateToAll()
             }
         }

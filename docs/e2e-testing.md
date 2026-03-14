@@ -295,6 +295,8 @@ If the scenario fails, fix the issue and re-run until it passes. Never commit a 
 | `macSelectSettingsTab(_:)` | Click a Settings sidebar tab |
 | `macClickButton(titled:)` | Click a button/element by title, label, or `.help()` attribute |
 | `macClickMenuItem(menuButtonTitle:itemTitle:)` | Click a menu trigger button then click a menu item |
+| `macRightClick(titled:)` | Right-click an element to open its context menu |
+| `macContextMenuClick(elementTitle:menuItem:)` | Right-click an element and select an item from the context menu |
 | `macUnpair` | Trigger unpair on the first paired viewer via test HTTP endpoint |
 | `macWaitForElement(titled:timeout:)` | Wait for a text element to appear in the macOS app's accessibility tree |
 | `macReadClipboard(storeAs:)` | Read clipboard contents into a variable |

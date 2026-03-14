@@ -1,0 +1,162 @@
+import Foundation
+
+/// E2E scenario: Window description synchronization across all three platforms
+///
+/// Verifies that custom window descriptions sync between macOS host, iOS viewer,
+/// and macOS viewer:
+/// 1. Host adds a description via context menu → iOS and Mac viewer see it
+/// 2. Mac viewer edits the description via context menu → host and iOS see it
+/// 3. Host removes the description → all platforms reflect the removal
+public enum WindowDescriptionSyncScenario {
+    public static let scenario = ClaudeSpyE2ELib.scenario(
+        "Window Description Sync",
+        tags: ["description", "sync"]
+    ) {
+        // ── Phase 1: Pair macOS host with iOS viewer ────────────────────
+
+        FreshPairingScenario.scenario
+
+        // ── Phase 2: Pair macOS host with Mac viewer (instance 1) ───────
+
+        TestStep.log("Generating second pairing code for Mac viewer")
+        // Settings window is still open from FreshPairingScenario on Remote Access tab
+        // After first pairing, the button changes to "Add Viewer"
+        TestStep.macSelectSettingsTab("Remote Access")
+        TestStep.wait(seconds: 1)
+        TestStep.macClickButton(titled: "Add Viewer")
+        TestStep.wait(seconds: 3)
+        TestStep.macClickButton(titled: "Copy Code")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macReadClipboard(storeAs: "viewerPairingCode")
+
+        TestStep.log("Launching Mac viewer (instance 1)")
+        TestStep.launchMacApp(instance: 1)
+        TestStep.wait(seconds: 3)
+
+        TestStep.macOpenSettings(instance: 1)
+        TestStep.macWaitForWindow(titled: "General", timeout: 5, instance: 1)
+        TestStep.macSelectSettingsTab("Remote Hosts", instance: 1)
+        TestStep.wait(seconds: 1)
+        TestStep.macClickButton(titled: "Add Host", instance: 1)
+        TestStep.wait(seconds: 1)
+        TestStep.macFocusElement(titled: "Pairing Code", instance: 1)
+        TestStep.wait(seconds: 0.5)
+        TestStep.macType(text: "${viewerPairingCode}", pressReturn: true, instance: 1)
+        TestStep.wait(seconds: 5)
+
+        // Verify Mac viewer connected
+        TestStep.macWaitForElement(titled: "Connected", timeout: 15, instance: 1)
+
+        // ── Phase 3: Create Claude session on host ──────────────────────
+
+        TestStep.tmuxCreateSession(name: "e2e-desc", width: 80, height: 24)
+        TestStep.wait(seconds: 3)
+
+        TestStep.tmuxStorePaneId(target: "e2e-desc:0.0", storeAs: "paneId")
+
+        TestStep.macSendHookEvent(
+            json: """
+            {
+                "hook_event_name": "SessionStart",
+                "session_id": "e2e-desc-session",
+                "timestamp": "2026-02-14T10:00:00.000000Z"
+            }
+            """,
+            tmuxPane: "${paneId}",
+            projectPath: "/Users/test/DescProject"
+        )
+        TestStep.wait(seconds: 3)
+
+        // ── Phase 4: Open Panes windows and set fixed sizes ─────────────
+
+        // Host shows window ID in sidebar
+        TestStep.macOpenPanesWindow()
+        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
+        TestStep.wait(seconds: 1)
+        TestStep.macResizeWindow(width: 1_000, height: 600)
+        TestStep.macSetSidebarWidth(250)
+        TestStep.macWaitForElement(titled: "e2e-desc:0", timeout: 10)
+
+        // Viewer shows project name in sidebar (like iOS)
+        TestStep.wait(seconds: 3)
+        TestStep.macOpenPanesWindow(instance: 1)
+        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5, instance: 1)
+        TestStep.wait(seconds: 1)
+        TestStep.macResizeWindow(width: 1_000, height: 600, instance: 1)
+        TestStep.macSetSidebarWidth(250, instance: 1)
+        TestStep.macScreenshot(label: "viewer-panes-opened", instance: 1)
+        TestStep.macWaitForElement(titled: "DescProject", timeout: 30, instance: 1)
+
+        TestStep.iosWaitForElement(.labelContains("DescProject"), timeout: 15)
+
+        TestStep.macScreenshot(label: "host-before-description")
+        TestStep.macScreenshot(label: "viewer-before-description", instance: 1)
+        TestStep.iosScreenshot(label: "ios-before-description")
+
+        // ── Phase 5: Host adds description via context menu ─────────────
+
+        TestStep.log("Host adding description via context menu")
+
+        TestStep.macContextMenuClick(elementTitle: "e2e-desc:0", menuItem: "Add Description")
+        TestStep.macWaitForElement(titled: "Window Description", timeout: 5)
+        TestStep.macScreenshot(label: "host-alert-add")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macPressTab()
+        TestStep.macType(text: "My Test Description", pressReturn: false)
+        TestStep.macScreenshot(label: "host-alert-add-typed")
+        TestStep.macClickButton(titled: "Save")
+        TestStep.wait(seconds: 2)
+
+        // Verify on all three platforms
+        TestStep.macWaitForElement(titled: "My Test Description", timeout: 10)
+        TestStep.macScreenshot(label: "host-after-add")
+
+        TestStep.macWaitForElement(titled: "My Test Description", timeout: 10, instance: 1)
+        TestStep.macScreenshot(label: "viewer-after-add", instance: 1)
+
+        TestStep.iosWaitForElement(.labelContains("My Test Description"), timeout: 15)
+        TestStep.iosScreenshot(label: "ios-after-add")
+
+        // ── Phase 6: Mac viewer edits description via context menu ──────
+
+        TestStep.log("Mac viewer editing description via context menu")
+
+        TestStep.macContextMenuClick(elementTitle: "My Test Description", menuItem: "Edit Description", instance: 1)
+        TestStep.macWaitForElement(titled: "Window Description", timeout: 5, instance: 1)
+        TestStep.macScreenshot(label: "viewer-alert-edit", instance: 1)
+        TestStep.wait(seconds: 0.5)
+        TestStep.macPressTab(instance: 1)
+        TestStep.macSelectAll(instance: 1)
+        TestStep.macType(text: "Viewer Updated", pressReturn: false, instance: 1)
+        TestStep.macScreenshot(label: "viewer-alert-edit-typed", instance: 1)
+        TestStep.macClickButton(titled: "Save", instance: 1)
+        TestStep.wait(seconds: 2)
+
+        // Verify on all three platforms
+        TestStep.macWaitForElement(titled: "Viewer Updated", timeout: 10)
+        TestStep.macScreenshot(label: "host-after-viewer-edit")
+
+        TestStep.macWaitForElement(titled: "Viewer Updated", timeout: 10, instance: 1)
+        TestStep.macScreenshot(label: "viewer-after-viewer-edit", instance: 1)
+
+        TestStep.iosWaitForElement(.labelContains("Viewer Updated"), timeout: 15)
+        TestStep.iosScreenshot(label: "ios-after-viewer-edit")
+
+        // ── Phase 7: Host removes description via context menu ──────────
+
+        TestStep.log("Host removing description via context menu")
+
+        TestStep.macContextMenuClick(elementTitle: "Viewer Updated", menuItem: "Remove Description")
+        TestStep.wait(seconds: 2)
+
+        // Verify removed on all three platforms
+        TestStep.macWaitForElementToDisappear(titled: "Viewer Updated", timeout: 5)
+        TestStep.macWaitForElement(titled: "e2e-desc:0", timeout: 5)
+
+        TestStep.macWaitForElementToDisappear(titled: "Viewer Updated", timeout: 10, instance: 1)
+        TestStep.macScreenshot(label: "viewer-after-remove", instance: 1)
+
+        TestStep.iosWaitForElement(.labelContains("DescProject"), timeout: 15)
+        TestStep.iosScreenshot(label: "ios-after-remove")
+    }
+}

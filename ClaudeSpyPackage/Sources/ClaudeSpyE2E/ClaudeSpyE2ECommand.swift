@@ -236,6 +236,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         MultiPaneWindowScenario.scenario,
         DAResponseLeakScenario.scenario,
         MarkHandledScenario.scenario,
+        WindowDescriptionSyncScenario.scenario,
     ]
 
     private func runTests(orchestrator: TestOrchestrator) async throws {
