@@ -96,38 +96,16 @@ public struct MainView: View {
             lastAutoResizeDimensions = nil
             handleAutoResize()
 
-            // Mark all Claude sessions in the selected window as handled
-            if let window = selectedWindow {
-                var stateChanged = false
-                for pane in window.panes {
-                    if windowManager.paneStates[pane.paneId]?.claudeSession?.needsAttention == true {
-                        windowManager.markSessionHandled(paneId: pane.paneId)
-                        stateChanged = true
-                    }
-                }
-                if stateChanged {
-                    Task {
-                        await coordinator.connectedViewerManager?.pushSessionStateToAll()
-                    }
-                }
-            }
+            markSelectedSessionsHandledIfActive()
         }
         .onChange(of: selectedRemotePane) {
             lastAutoResizeDimensions = nil
             handleAutoResize()
 
-            // Mark the selected remote session as handled
-            if let remote = selectedRemotePane {
-                coordinator.remoteSessionStore?.markSessionHandled(paneId: remote.paneId)
-                // Notify the host so it can sync to all viewers
-                Task {
-                    _ = await coordinator.viewerConnectionManager?.sendCommand(
-                        MarkHandled(),
-                        paneId: remote.paneId,
-                        hostId: remote.hostId
-                    )
-                }
-            }
+            markSelectedSessionsHandledIfActive()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            markSelectedSessionsHandledIfActive()
         }
         .onChange(of: coordinator.pendingMenuBarSelection) {
             applyPendingMenuBarSelection()
@@ -688,6 +666,38 @@ public struct MainView: View {
         }
 
         trackedActiveSessionPaneIds = currentIds
+    }
+
+    // MARK: - Session Attention
+
+    /// Marks the currently selected session(s) as handled, but only when the app is active.
+    private func markSelectedSessionsHandledIfActive() {
+        guard NSApp.isActive else { return }
+
+        if let window = selectedWindow {
+            var stateChanged = false
+            for pane in window.panes
+                where windowManager.paneStates[pane.paneId]?.claudeSession?.needsAttention == true {
+                windowManager.markSessionHandled(paneId: pane.paneId)
+                stateChanged = true
+            }
+            if stateChanged {
+                Task {
+                    await coordinator.connectedViewerManager?.pushSessionStateToAll()
+                }
+            }
+        }
+
+        if let remote = selectedRemotePane {
+            coordinator.remoteSessionStore?.markSessionHandled(paneId: remote.paneId)
+            Task {
+                _ = await coordinator.viewerConnectionManager?.sendCommand(
+                    MarkHandled(),
+                    paneId: remote.paneId,
+                    hostId: remote.hostId
+                )
+            }
+        }
     }
 
     // MARK: - Pending Menu Bar Selection
