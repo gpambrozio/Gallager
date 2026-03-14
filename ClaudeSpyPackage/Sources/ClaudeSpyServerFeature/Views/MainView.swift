@@ -1289,10 +1289,6 @@ private struct RemoteHostSidebarSection: View {
 
     @Environment(AppSettings.self) private var settings
 
-    @State private var isEditingDescription = false
-    @State private var editedDescription = ""
-    @State private var editingPaneId = ""
-
     private var sessions: [(paneId: String, session: ClaudeSession)] {
         sessionStore.sessions(for: host.id)
     }
@@ -1335,10 +1331,7 @@ private struct RemoteHostSidebarSection: View {
                         currentDescription: paneState?.customDescription,
                         isHostConnected: connection?.isHostConnected == true,
                         sessionStore: sessionStore,
-                        onSetDescription: onSetDescription,
-                        isEditingDescription: $isEditingDescription,
-                        editedDescription: $editedDescription,
-                        editingPaneId: $editingPaneId
+                        onSetDescription: onSetDescription
                     ))
                 }
 
@@ -1368,10 +1361,7 @@ private struct RemoteHostSidebarSection: View {
                         currentDescription: pane.customDescription,
                         isHostConnected: connection?.isHostConnected == true,
                         sessionStore: sessionStore,
-                        onSetDescription: onSetDescription,
-                        isEditingDescription: $isEditingDescription,
-                        editedDescription: $editedDescription,
-                        editingPaneId: $editingPaneId
+                        onSetDescription: onSetDescription
                     ))
                 }
             } else if connection?.isHostConnected == true {
@@ -1403,17 +1393,6 @@ private struct RemoteHostSidebarSection: View {
                     )
                 }
             )
-        }
-        .alert("Window Description", isPresented: $isEditingDescription) {
-            TextField("Description", text: $editedDescription)
-            Button("Save") {
-                guard let state = sessionStore.paneState(for: editingPaneId) else { return }
-                let trimmed = editedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-                onSetDescription(state.windowId, trimmed.isEmpty ? nil : trimmed)
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Enter a custom description for this session")
         }
     }
 

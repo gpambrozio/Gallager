@@ -45,8 +45,9 @@ public struct DescriptionContextMenuButtons: View {
 
 /// View modifier that adds description editing context menu and alert to a view.
 ///
-/// Used by both iOS (HostSessionsSection) and macOS (RemoteHostSidebarSection)
-/// for editing descriptions on remote panes via a callback.
+/// Both the context menu and the alert are attached at the same view level (per-row),
+/// which ensures the alert's TextField receives focus correctly on macOS.
+/// Used by both iOS (HostSessionsSection) and macOS (RemoteHostSidebarSection).
 public struct DescriptionEditingModifier: ViewModifier {
     let paneId: String
     let currentDescription: String?
@@ -54,28 +55,21 @@ public struct DescriptionEditingModifier: ViewModifier {
     let sessionStore: SessionStore
     let onSetDescription: (String, String?) -> Void
 
-    @Binding var isEditingDescription: Bool
-    @Binding var editedDescription: String
-    @Binding var editingPaneId: String
+    @State private var isEditingDescription = false
+    @State private var editedDescription = ""
 
     public init(
         paneId: String,
         currentDescription: String?,
         isHostConnected: Bool,
         sessionStore: SessionStore,
-        onSetDescription: @escaping (String, String?) -> Void,
-        isEditingDescription: Binding<Bool>,
-        editedDescription: Binding<String>,
-        editingPaneId: Binding<String>
+        onSetDescription: @escaping (String, String?) -> Void
     ) {
         self.paneId = paneId
         self.currentDescription = currentDescription
         self.isHostConnected = isHostConnected
         self.sessionStore = sessionStore
         self.onSetDescription = onSetDescription
-        self._isEditingDescription = isEditingDescription
-        self._editedDescription = editedDescription
-        self._editingPaneId = editingPaneId
     }
 
     public func body(content: Content) -> some View {
@@ -86,7 +80,6 @@ public struct DescriptionEditingModifier: ViewModifier {
                     isDisabled: !isHostConnected,
                     onEdit: {
                         editedDescription = currentDescription ?? ""
-                        editingPaneId = paneId
                         isEditingDescription = true
                     },
                     onRemove: {
@@ -94,6 +87,17 @@ public struct DescriptionEditingModifier: ViewModifier {
                         onSetDescription(state.windowId, nil)
                     }
                 )
+            }
+            .alert("Window Description", isPresented: $isEditingDescription) {
+                TextField("Description", text: $editedDescription)
+                Button("Save") {
+                    guard let state = sessionStore.paneState(for: paneId) else { return }
+                    let trimmed = editedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+                    onSetDescription(state.windowId, trimmed.isEmpty ? nil : trimmed)
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Enter a custom description for this session")
             }
     }
 }

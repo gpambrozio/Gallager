@@ -232,10 +232,6 @@
 
         @Environment(SessionStore.self) private var sessionStore
 
-        @State private var isEditingDescription = false
-        @State private var editedDescription = ""
-        @State private var editingPaneId = ""
-
         private var hasContent: Bool {
             !sessions.isEmpty || !panes.isEmpty
         }
@@ -259,10 +255,7 @@
                             currentDescription: paneState?.customDescription,
                             isHostConnected: connection?.isHostConnected == true,
                             sessionStore: sessionStore,
-                            onSetDescription: onSetDescription,
-                            isEditingDescription: $isEditingDescription,
-                            editedDescription: $editedDescription,
-                            editingPaneId: $editingPaneId
+                            onSetDescription: onSetDescription
                         ))
                     }
 
@@ -276,10 +269,7 @@
                             currentDescription: pane.customDescription,
                             isHostConnected: connection?.isHostConnected == true,
                             sessionStore: sessionStore,
-                            onSetDescription: onSetDescription,
-                            isEditingDescription: $isEditingDescription,
-                            editedDescription: $editedDescription,
-                            editingPaneId: $editingPaneId
+                            onSetDescription: onSetDescription
                         ))
                     }
                 } else {
@@ -299,17 +289,6 @@
                     showUsername: showUsername,
                     onNewSession: onNewSession
                 )
-            }
-            .alert("Session Description", isPresented: $isEditingDescription) {
-                TextField("Description", text: $editedDescription)
-                Button("Save") {
-                    guard let state = sessionStore.paneState(for: editingPaneId) else { return }
-                    let trimmed = editedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-                    onSetDescription(state.windowId, trimmed.isEmpty ? nil : trimmed)
-                }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("Enter a custom description for this session")
             }
         }
     }
