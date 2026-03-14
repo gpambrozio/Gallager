@@ -11,6 +11,8 @@
         case claudeSession(paneId: String, hostId: String)
         /// Navigate to live terminal for a plain terminal (no Claude session)
         case plainTerminal(paneId: String, hostId: String)
+        /// Navigate to a multi-pane window layout view
+        case window(windowId: String, hostId: String)
     }
 
     /// View displaying a list of active Claude sessions and terminals from all paired hosts.
@@ -58,6 +60,17 @@
                     } else {
                         hostDisconnectedView
                     }
+                case let .window(windowId, hostId):
+                    if let connection = connectionManager.connection(for: hostId) {
+                        WindowLayoutView(
+                            windowId: windowId,
+                            hostId: hostId,
+                            relayClient: connection.relayClient,
+                            settings: settings
+                        )
+                    } else {
+                        hostDisconnectedView
+                    }
                 }
             }
             .toolbar {
@@ -97,8 +110,7 @@
                     HostSessionsSection(
                         host: host,
                         connection: connectionManager.connection(for: host.id),
-                        sessions: sessionStore.sessions(for: host.id),
-                        panes: sessionStore.panes(for: host.id),
+                        windows: sessionStore.windows(for: host.id),
                         showUsername: settings.hasDuplicateHostName(for: host),
                         onNewSession: {
                             selectedHostForNewSession = host
@@ -220,12 +232,11 @@
 
     // MARK: - Host Sessions Section
 
-    /// A section displaying sessions and terminals from a single host
+    /// A section displaying sessions and terminals from a single host, grouped by tmux window
     struct HostSessionsSection: View {
         let host: PairedHost
         let connection: ViewerConnection?
-        let sessions: [(paneId: String, session: ClaudeSession)]
-        let panes: [PaneState]
+        let windows: [TmuxWindow]
         var showUsername = false
         let onNewSession: () -> Void
         var onSetDescription: (String, String?) -> Void = { _, _ in }
@@ -233,42 +244,30 @@
         @Environment(SessionStore.self) private var sessionStore
 
         private var hasContent: Bool {
-            !sessions.isEmpty || !panes.isEmpty
+            !windows.isEmpty
+        }
+
+        /// Windows that contain at least one Claude session
+        private var claudeWindows: [TmuxWindow] {
+            windows.filter(\.hasClaude)
+        }
+
+        /// Windows without any Claude sessions (plain terminals)
+        private var terminalWindows: [TmuxWindow] {
+            windows.filter { !$0.hasClaude }
         }
 
         var body: some View {
             Section {
                 if hasContent {
-                    // Claude sessions for this host
-                    ForEach(sessions, id: \.paneId) { item in
-                        let paneState = sessionStore.paneState(for: item.paneId)
-                        NavigationLink(value: SessionNavigation.claudeSession(paneId: item.paneId, hostId: host.id)) {
-                            SessionRowView(
-                                paneId: item.paneId,
-                                session: item.session,
-                                isActive: sessionStore.isPaneActive(item.paneId),
-                                customDescription: paneState?.customDescription
-                            )
-                        }
-                        .modifier(DescriptionEditingModifier(
-                            windowId: paneState?.windowId ?? "",
-                            currentDescription: paneState?.customDescription,
-                            isDisabled: connection?.isHostConnected != true,
-                            onSetDescription: onSetDescription
-                        ))
+                    // Claude session windows
+                    ForEach(claudeWindows) { window in
+                        windowRow(window)
                     }
 
-                    // Plain terminals for this host
-                    ForEach(panes) { pane in
-                        NavigationLink(value: SessionNavigation.plainTerminal(paneId: pane.paneId, hostId: host.id)) {
-                            TerminalRowView(pane: pane)
-                        }
-                        .modifier(DescriptionEditingModifier(
-                            windowId: pane.windowId,
-                            currentDescription: pane.customDescription,
-                            isDisabled: connection?.isHostConnected != true,
-                            onSetDescription: onSetDescription
-                        ))
+                    // Plain terminal windows
+                    ForEach(terminalWindows) { window in
+                        windowRow(window)
                     }
                 } else {
                     // Empty state for this host
@@ -288,6 +287,59 @@
                     onNewSession: onNewSession
                 )
             }
+        }
+
+        @ViewBuilder
+        private func windowRow(_ window: TmuxWindow) -> some View {
+            if window.isSinglePane, let pane = window.panes.first {
+                // Single-pane window: navigate directly to the pane (same as before)
+                singlePaneRow(pane: pane, window: window)
+            } else {
+                // Multi-pane window: navigate to window layout view
+                multiPaneRow(window: window)
+            }
+        }
+
+        @ViewBuilder
+        private func singlePaneRow(pane: PaneState, window: TmuxWindow) -> some View {
+            if let session = pane.claudeSession {
+                NavigationLink(value: SessionNavigation.claudeSession(paneId: pane.paneId, hostId: host.id)) {
+                    SessionRowView(
+                        paneId: pane.paneId,
+                        session: session,
+                        isActive: sessionStore.isPaneActive(pane.paneId),
+                        customDescription: pane.customDescription
+                    )
+                }
+                .modifier(DescriptionEditingModifier(
+                    windowId: window.id,
+                    currentDescription: window.customDescription,
+                    isDisabled: connection?.isHostConnected != true,
+                    onSetDescription: onSetDescription
+                ))
+            } else {
+                NavigationLink(value: SessionNavigation.plainTerminal(paneId: pane.paneId, hostId: host.id)) {
+                    TerminalRowView(pane: pane)
+                }
+                .modifier(DescriptionEditingModifier(
+                    windowId: window.id,
+                    currentDescription: window.customDescription,
+                    isDisabled: connection?.isHostConnected != true,
+                    onSetDescription: onSetDescription
+                ))
+            }
+        }
+
+        private func multiPaneRow(window: TmuxWindow) -> some View {
+            NavigationLink(value: SessionNavigation.window(windowId: window.id, hostId: host.id)) {
+                WindowRowView(window: window)
+            }
+            .modifier(DescriptionEditingModifier(
+                windowId: window.id,
+                currentDescription: window.customDescription,
+                isDisabled: connection?.isHostConnected != true,
+                onSetDescription: onSetDescription
+            ))
         }
     }
 
@@ -465,6 +517,85 @@
                     Text("\(pane.width)×\(pane.height)")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    // MARK: - Window Row View
+
+    /// Row view for a multi-pane tmux window
+    struct WindowRowView: View {
+        let window: TmuxWindow
+
+        @Environment(SessionStore.self) private var sessionStore
+
+        /// Display name: custom description, active pane path, or window ID
+        private var displayName: String {
+            if let pane = window.activePane, let path = pane.currentPath, !path.isEmpty {
+                return URL(fileURLWithPath: path).lastPathComponent
+            }
+            return window.id
+        }
+
+        var body: some View {
+            HStack(spacing: 12) {
+                // Split pane icon for multi-pane windows
+                Symbols.rectangleSplit2x1.image
+                    .foregroundStyle(window.hasClaude ? .primary : .secondary)
+                    .frame(width: 20, height: 20)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        if let customDescription = window.customDescription {
+                            Text(customDescription)
+                                .font(.headline)
+                        } else {
+                            Text(displayName)
+                                .font(.headline)
+                        }
+
+                        Spacer()
+
+                        // Pane count badge
+                        Text("\(window.panes.count) panes")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.fill.tertiary, in: Capsule())
+                    }
+
+                    // Show window ID if custom description is set
+                    if window.customDescription != nil {
+                        Text(window.id)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    // Show active pane info
+                    HStack {
+                        if window.hasClaude {
+                            Symbols.sparkles.image
+                                .font(.caption)
+                                .foregroundStyle(.purple)
+                            Text("Claude session active")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        } else if let pane = window.activePane, let command = pane.command, !command.isEmpty {
+                            Text(command)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+
+                        Spacer()
+
+                        Text(window.id)
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
             }
             .padding(.vertical, 4)

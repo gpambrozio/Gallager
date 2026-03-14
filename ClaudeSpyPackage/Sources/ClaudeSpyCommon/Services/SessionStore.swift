@@ -99,6 +99,14 @@ final public class SessionStore {
             .map(\.value)
     }
 
+    /// Get all pane states for a specific host grouped by tmux window
+    public func windows(for hostId: String) -> [TmuxWindow] {
+        let hostPanes = paneStates
+            .filter { paneToHostMap[$0.key] == hostId }
+            .map(\.value)
+        return TmuxWindow.groupPanes(hostPanes)
+    }
+
     /// Get Claude projects for a specific host
     public func projects(for hostId: String) -> [ClaudeProjectInfo] {
         claudeProjectsByHost[hostId] ?? []

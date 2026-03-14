@@ -40,10 +40,10 @@ private struct ProportionalTileLayout: Layout {
     }
 }
 
-/// Renders a `TmuxWindow` by parsing its layout string and arranging
+/// Renders a `LocalTmuxWindow` by parsing its layout string and arranging
 /// `TerminalContainerView` instances in the correct split arrangement.
 struct WindowPaneLayoutView: View {
-    let window: TmuxWindow
+    let window: LocalTmuxWindow
 
     @Environment(AppSettings.self) private var settings
     @Environment(MirrorWindowManager.self) private var windowManager

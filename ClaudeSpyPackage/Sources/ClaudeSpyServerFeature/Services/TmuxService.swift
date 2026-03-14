@@ -49,8 +49,8 @@ final public class TmuxService {
     public private(set) var panes: [PaneInfo] = []
 
     /// Panes grouped by tmux window (derived from panes)
-    public var windows: [TmuxWindow] {
-        TmuxWindow.groupPanes(panes)
+    public var windows: [LocalTmuxWindow] {
+        LocalTmuxWindow.groupPanes(panes)
     }
 
     /// Handler called when the pane list changes (after refreshPanes detects a change)
