@@ -98,8 +98,17 @@ public struct MainView: View {
 
             // Mark all Claude sessions in the selected window as handled
             if let window = selectedWindow {
+                var stateChanged = false
                 for pane in window.panes {
-                    windowManager.markSessionHandled(paneId: pane.paneId)
+                    if windowManager.paneStates[pane.paneId]?.claudeSession?.needsAttention == true {
+                        windowManager.markSessionHandled(paneId: pane.paneId)
+                        stateChanged = true
+                    }
+                }
+                if stateChanged {
+                    Task {
+                        await coordinator.connectedViewerManager?.pushSessionStateToAll()
+                    }
                 }
             }
         }

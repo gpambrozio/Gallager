@@ -33,7 +33,7 @@ public struct ClaudeSession: Codable, Sendable {
 
     /// The event ID up to which the user has handled/seen this session.
     /// When this matches the latest event's ID, `needsAttention` returns false.
-    public var handledUpToEventId: UUID?
+    public private(set) var handledUpToEventId: UUID?
 
     public init(paneId: String) {
         self.paneId = paneId
