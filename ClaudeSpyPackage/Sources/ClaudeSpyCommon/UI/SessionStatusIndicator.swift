@@ -13,15 +13,18 @@ public struct SessionStatusIndicator: View {
     }
 
     public var body: some View {
-        if session.needsAttention {
-            Symbols.bellBadgeFill.image
-                .foregroundStyle(.orange)
-        } else if session.isWorking {
-            ProgressView()
-                .controlSize(.small)
-        } else {
-            Symbols.moonFill.image
-                .foregroundStyle(.secondary)
+        Group {
+            if session.needsAttention {
+                Symbols.bellBadgeFill.image
+                    .foregroundStyle(.orange)
+            } else if session.isWorking {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Symbols.moonFill.image
+                    .foregroundStyle(.secondary)
+            }
         }
+        .accessibilityLabel(session.statusLabel)
     }
 }

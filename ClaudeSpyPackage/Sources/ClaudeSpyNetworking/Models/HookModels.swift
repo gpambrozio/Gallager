@@ -87,10 +87,10 @@ public struct ClaudeSession: Codable, Sendable {
              .postToolUseFailure,
              .userPromptSubmit,
              .subagentStart,
-             .preCompact,
-             .sessionStart:
+             .preCompact:
             return true
-        case .stop,
+        case .sessionStart,
+             .stop,
              .sessionEnd,
              .permissionRequest,
              .notification,
@@ -100,6 +100,13 @@ public struct ClaudeSession: Codable, Sendable {
              .unknown:
             return false
         }
+    }
+
+    /// Human-readable status label for accessibility and testing.
+    public var statusLabel: String {
+        if needsAttention { return "Attention" }
+        if isWorking { return "Working" }
+        return "Idle"
     }
 
     /// Marks the current latest event as handled, clearing the `needsAttention` flag.

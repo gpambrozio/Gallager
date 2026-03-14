@@ -282,17 +282,8 @@ public struct MainView: View {
         }
         .id(window.id)
         .buttonStyle(.plain)
-        .accessibilityLabel(description ?? window.id)
-        .accessibilityValue(windowAccessibilityValue(window))
         .help(help ?? "")
         .listRowBackground(selectedWindow?.id == window.id && selectedRemotePane == nil ? Color.accentColor.opacity(0.2) : nil)
-    }
-
-    private func windowAccessibilityValue(_ window: TmuxWindow) -> String {
-        if let activePane = window.activePane {
-            return windowManager.paneStates[activePane.paneId]?.terminalTitle ?? ""
-        }
-        return ""
     }
 
     // MARK: - Detail View
@@ -1124,6 +1115,16 @@ private struct WindowSidebarRow: View {
 
             Spacer()
         }
+        // Invisible text exposing session status to macOS accessibility tree for e2e tests.
+        // ProgressView (working state) prevents AX from reading .accessibilityValue directly.
+        .overlay {
+            if let status = claudeSession?.statusLabel {
+                Text(status)
+                    .font(.system(size: 1))
+                    .opacity(0)
+                    .accessibilityLabel(status)
+            }
+        }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .modifier(DescriptionEditingModifier(
@@ -1339,7 +1340,6 @@ private struct RemoteHostSidebarSection: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(paneState?.customDescription ?? item.paneId)
                     .listRowBackground(
                         selectedRemotePane?.paneId == item.paneId && selectedRemotePane?.hostId == host.id
                             ? Color.accentColor.opacity(0.2) : nil
@@ -1455,6 +1455,16 @@ private struct RemotePaneSidebarRow: View {
             }
 
             Spacer()
+        }
+        // Invisible text exposing session status to macOS accessibility tree for e2e tests.
+        // ProgressView (working state) prevents AX from reading .accessibilityValue directly.
+        .overlay {
+            if let status = claudeSession?.statusLabel {
+                Text(status)
+                    .font(.system(size: 1))
+                    .opacity(0)
+                    .accessibilityLabel(status)
+            }
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())

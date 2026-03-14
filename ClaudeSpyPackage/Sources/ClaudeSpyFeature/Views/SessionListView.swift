@@ -250,6 +250,7 @@
                                 customDescription: paneState?.customDescription
                             )
                         }
+                        .accessibilityValue(item.session.statusLabel)
                         .modifier(DescriptionEditingModifier(
                             windowId: paneState?.windowId ?? "",
                             currentDescription: paneState?.customDescription,
