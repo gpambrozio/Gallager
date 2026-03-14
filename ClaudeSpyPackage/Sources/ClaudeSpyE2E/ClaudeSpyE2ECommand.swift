@@ -235,6 +235,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         EmojiTableRenderingScenario.scenario,
         MultiPaneWindowScenario.scenario,
         DAResponseLeakScenario.scenario,
+        WindowDescriptionSyncScenario.scenario,
     ]
 
     private func runTests(orchestrator: TestOrchestrator) async throws {

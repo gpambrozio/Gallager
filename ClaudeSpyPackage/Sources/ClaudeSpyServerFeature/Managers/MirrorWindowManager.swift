@@ -23,6 +23,9 @@ final public class MirrorWindowManager {
     /// Task for periodic session validation
     private var sessionValidationTask: Task<Void, Never>?
 
+    /// Called when window descriptions change, to push updated state to viewers
+    public var onDescriptionChanged: (@MainActor @Sendable () async -> Void)?
+
     /// Interval between session validation checks (in seconds)
     private let validationInterval: TimeInterval = 5
 
@@ -468,6 +471,21 @@ final public class MirrorWindowManager {
     /// Whether yolo mode is enabled for the given pane
     public func isYoloModeEnabled(for paneId: String) -> Bool {
         paneStates[paneId]?.yoloMode ?? false
+    }
+
+    // MARK: - Window Descriptions
+
+    /// Sets a custom description for a window, updating all panes that belong to it.
+    /// - Parameters:
+    ///   - description: The description text, or nil to clear
+    ///   - windowId: The window ID (sessionName:windowIndex)
+    public func setWindowDescription(_ description: String?, for windowId: String) {
+        let normalizedDescription = description?.isEmpty == true ? nil : description
+        for (paneId, state) in paneStates where state.windowId == windowId {
+            paneStates[paneId]?.customDescription = normalizedDescription
+        }
+        // Fire-and-forget: avoids blocking the caller while the push completes
+        Task { await onDescriptionChanged?() }
     }
 
     // MARK: - State Cleanup

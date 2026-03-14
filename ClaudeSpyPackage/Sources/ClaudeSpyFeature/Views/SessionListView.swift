@@ -102,6 +102,12 @@
                         showUsername: settings.hasDuplicateHostName(for: host),
                         onNewSession: {
                             selectedHostForNewSession = host
+                        },
+                        onSetDescription: { windowId, description in
+                            Task {
+                                let command = SetWindowDescription(windowId: windowId, description: description)
+                                _ = await connectionManager.sendCommand(command, paneId: "", hostId: host.id)
+                            }
                         }
                     )
                 }
@@ -222,6 +228,7 @@
         let panes: [PaneState]
         var showUsername = false
         let onNewSession: () -> Void
+        var onSetDescription: (String, String?) -> Void = { _, _ in }
 
         @Environment(SessionStore.self) private var sessionStore
 
@@ -234,13 +241,21 @@
                 if hasContent {
                     // Claude sessions for this host
                     ForEach(sessions, id: \.paneId) { item in
+                        let paneState = sessionStore.paneState(for: item.paneId)
                         NavigationLink(value: SessionNavigation.claudeSession(paneId: item.paneId, hostId: host.id)) {
                             SessionRowView(
                                 paneId: item.paneId,
                                 session: item.session,
-                                isActive: sessionStore.isPaneActive(item.paneId)
+                                isActive: sessionStore.isPaneActive(item.paneId),
+                                customDescription: paneState?.customDescription
                             )
                         }
+                        .modifier(DescriptionEditingModifier(
+                            windowId: paneState?.windowId ?? "",
+                            currentDescription: paneState?.customDescription,
+                            isDisabled: connection?.isHostConnected != true,
+                            onSetDescription: onSetDescription
+                        ))
                     }
 
                     // Plain terminals for this host
@@ -248,6 +263,12 @@
                         NavigationLink(value: SessionNavigation.plainTerminal(paneId: pane.paneId, hostId: host.id)) {
                             TerminalRowView(pane: pane)
                         }
+                        .modifier(DescriptionEditingModifier(
+                            windowId: pane.windowId,
+                            currentDescription: pane.customDescription,
+                            isDisabled: connection?.isHostConnected != true,
+                            onSetDescription: onSetDescription
+                        ))
                     }
                 } else {
                     // Empty state for this host
@@ -323,6 +344,7 @@
         let paneId: String
         let session: ClaudeSession
         let isActive: Bool
+        var customDescription: String?
 
         private var indicatorColor: Color {
             if session.needsAttention {
@@ -342,9 +364,19 @@
                     .frame(width: 10, height: 10)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    // Project folder name (or pane ID as fallback)
-                    Text(session.displayName)
-                        .font(.headline)
+                    // Custom description shown prominently if set
+                    if let customDescription {
+                        Text(customDescription)
+                            .font(.headline)
+
+                        Text(session.displayName)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        // Project folder name (or pane ID as fallback)
+                        Text(session.displayName)
+                            .font(.headline)
+                    }
 
                     // Latest event summary
                     if let latestEvent = session.latestEvent {
@@ -399,9 +431,19 @@
                     .frame(width: 20, height: 20)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    // Display name (folder name or pane ID)
-                    Text(displayName)
-                        .font(.headline)
+                    // Custom description shown prominently if set
+                    if let customDescription = pane.customDescription {
+                        Text(customDescription)
+                            .font(.headline)
+
+                        Text(displayName)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        // Display name (folder name or pane ID)
+                        Text(displayName)
+                            .font(.headline)
+                    }
 
                     // Command and path info
                     HStack {

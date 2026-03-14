@@ -85,6 +85,11 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// The tmux window name for this pane's window
     public var windowName: String
 
+    // MARK: - Custom Description
+
+    /// User-defined description for this window, shown prominently in the sidebar
+    public var customDescription: String?
+
     // MARK: - Terminal State
 
     /// Terminal title detected via OSC escape sequences
@@ -100,9 +105,12 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// Whether yolo mode is enabled (auto-approve permissions)
     public var yoloMode: Bool
 
-    // MARK: - Identifiable
+    // MARK: - Computed Properties
 
     public var id: String { paneId }
+
+    /// Window identifier combining session name and window index (e.g., "mysession:0")
+    public var windowId: String { "\(sessionName):\(windowIndex)" }
 
     public init(
         paneId: String,
@@ -117,6 +125,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         isActive: Bool = false,
         windowLayout: String = "",
         windowName: String = "",
+        customDescription: String? = nil,
         terminalTitle: String? = nil,
         claudeSession: ClaudeSession? = nil,
         yoloMode: Bool = false
@@ -133,6 +142,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         self.isActive = isActive
         self.windowLayout = windowLayout
         self.windowName = windowName
+        self.customDescription = customDescription
         self.terminalTitle = terminalTitle
         self.claudeSession = claudeSession
         self.yoloMode = yoloMode
