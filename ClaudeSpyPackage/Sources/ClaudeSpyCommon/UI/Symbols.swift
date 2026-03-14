@@ -15,6 +15,7 @@ public enum Symbols: String {
     case arrowRight = "arrow.right"
     case arrowUpCircleFill = "arrow.up.circle.fill"
     case arrowUpLeftAndArrowDownRight = "arrow.up.left.and.arrow.down.right"
+    case bellBadgeFill = "bell.badge.fill"
     case bellFill = "bell.fill"
     case bolt
     case boltFill = "bolt.fill"
@@ -47,6 +48,7 @@ public enum Symbols: String {
     case macwindow
     case macwindowBadgePlus = "macwindow.badge.plus"
     case magnifyingglass
+    case moonFill = "moon.fill"
     case pause
     case pauseCircleFill = "pause.circle.fill"
     case pencilLine = "pencil.line"

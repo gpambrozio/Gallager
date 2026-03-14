@@ -153,10 +153,10 @@ public struct MenuBarExtraView: View {
             session.displayName
         }
 
-        if session.needsAttention {
-            Label(title, symbol: .exclamationmarkCircleFill)
-        } else {
+        Label {
             Text(title)
+        } icon: {
+            SessionStatusIndicator(session: session)
         }
     }
 }

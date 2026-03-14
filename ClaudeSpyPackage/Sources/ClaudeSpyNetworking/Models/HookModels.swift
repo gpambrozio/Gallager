@@ -77,6 +77,31 @@ public struct ClaudeSession: Codable, Sendable {
         return latest.id != handledUpToEventId
     }
 
+    /// Whether the session is actively working (Claude is processing, not waiting for input).
+    /// True when the latest event is a tool use, prompt submit, subagent activity, or similar active action.
+    public var isWorking: Bool {
+        guard let latest = latestEvent else { return false }
+        switch latest.action {
+        case .preToolUse,
+             .postToolUse,
+             .postToolUseFailure,
+             .userPromptSubmit,
+             .subagentStart,
+             .preCompact,
+             .sessionStart:
+            return true
+        case .stop,
+             .sessionEnd,
+             .permissionRequest,
+             .notification,
+             .subagentStop,
+             .teammateIdle,
+             .taskCompleted,
+             .unknown:
+            return false
+        }
+    }
+
     /// Marks the current latest event as handled, clearing the `needsAttention` flag.
     /// If a new attention-triggering event arrives later, `needsAttention` will become true again.
     public mutating func markHandled() {
@@ -639,7 +664,8 @@ public extension PermissionRequestBody {
         // requires explicit user input, so treat it as approvable.
         guard let toolInput else { return true }
         switch toolInput {
-        case .askUserQuestion, .exitPlanMode:
+        case .askUserQuestion,
+             .exitPlanMode:
             return false
         default:
             return true

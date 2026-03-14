@@ -1025,9 +1025,14 @@ private struct WindowSidebarRow: View {
         return windowManager.paneStates[pane.paneId]
     }
 
-    /// Check if any pane in the window has an active Claude session
-    private var hasClaude: Bool {
-        window.panes.contains { windowManager.paneStates[$0.paneId]?.claudeSession != nil }
+    /// The first Claude session found in any pane of this window, if any
+    private var claudeSession: ClaudeSession? {
+        for pane in window.panes {
+            if let session = windowManager.paneStates[pane.paneId]?.claudeSession {
+                return session
+            }
+        }
+        return nil
     }
 
     /// The latest event subtitle from the first pane with a Claude session
@@ -1046,17 +1051,17 @@ private struct WindowSidebarRow: View {
     }
 
     var body: some View {
-        HStack {
+        HStack(alignment: .top, spacing: 8) {
+            if let session = claudeSession {
+                SessionStatusIndicator(session: session)
+                    .font(.system(size: 16))
+                    .frame(width: 20)
+            }
+
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(window.id)
                         .font(.system(.body, design: .monospaced))
-
-                    if hasClaude {
-                        Symbols.sparkles.image
-                            .foregroundStyle(.purple)
-                            .font(.caption)
-                    }
 
                     if !window.isSinglePane {
                         HStack(spacing: 2) {
@@ -1298,7 +1303,7 @@ private struct RemoteHostSidebarSection: View {
                         RemotePaneSidebarRow(
                             title: item.session.displayName,
                             subtitle: item.paneId,
-                            hasClaude: true
+                            claudeSession: item.session
                         )
                     }
                     .buttonStyle(.plain)
@@ -1320,7 +1325,7 @@ private struct RemoteHostSidebarSection: View {
                         RemotePaneSidebarRow(
                             title: pane.currentPath.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? pane.paneId,
                             subtitle: pane.target.isEmpty ? pane.paneId : pane.target,
-                            hasClaude: false
+                            claudeSession: nil
                         )
                     }
                     .buttonStyle(.plain)
@@ -1375,21 +1380,19 @@ private struct RemoteHostSidebarSection: View {
 private struct RemotePaneSidebarRow: View {
     let title: String
     let subtitle: String
-    let hasClaude: Bool
+    let claudeSession: ClaudeSession?
 
     var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(title)
-                        .font(.system(.body, design: .monospaced))
+        HStack(alignment: .top, spacing: 8) {
+            if let session = claudeSession {
+                SessionStatusIndicator(session: session)
+                    .font(.system(size: 16))
+                    .frame(width: 20)
+            }
 
-                    if hasClaude {
-                        Symbols.sparkles.image
-                            .foregroundStyle(.purple)
-                            .font(.caption)
-                    }
-                }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(.body, design: .monospaced))
 
                 Text(subtitle)
                     .font(.caption)
