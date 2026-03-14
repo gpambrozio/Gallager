@@ -152,7 +152,6 @@ public enum WindowDescriptionSyncScenario {
         // Verify removed on all three platforms
         TestStep.macWaitForElementToDisappear(titled: "Viewer Updated", timeout: 5)
         TestStep.macWaitForElement(titled: "e2e-desc:0", timeout: 5)
-        TestStep.macScreenshot(label: "host-after-remove")
 
         TestStep.macWaitForElementToDisappear(titled: "Viewer Updated", timeout: 10, instance: 1)
         TestStep.macScreenshot(label: "viewer-after-remove", instance: 1)
