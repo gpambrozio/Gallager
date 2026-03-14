@@ -251,10 +251,9 @@
                             )
                         }
                         .modifier(DescriptionEditingModifier(
-                            paneId: item.paneId,
+                            windowId: paneState?.windowId ?? "",
                             currentDescription: paneState?.customDescription,
-                            isHostConnected: connection?.isHostConnected == true,
-                            sessionStore: sessionStore,
+                            isDisabled: connection?.isHostConnected != true,
                             onSetDescription: onSetDescription
                         ))
                     }
@@ -265,10 +264,9 @@
                             TerminalRowView(pane: pane)
                         }
                         .modifier(DescriptionEditingModifier(
-                            paneId: pane.paneId,
+                            windowId: pane.windowId,
                             currentDescription: pane.customDescription,
-                            isHostConnected: connection?.isHostConnected == true,
-                            sessionStore: sessionStore,
+                            isDisabled: connection?.isHostConnected != true,
                             onSetDescription: onSetDescription
                         ))
                     }

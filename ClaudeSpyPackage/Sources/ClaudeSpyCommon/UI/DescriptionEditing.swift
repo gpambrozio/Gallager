@@ -47,28 +47,24 @@ public struct DescriptionContextMenuButtons: View {
 ///
 /// Both the context menu and the alert are attached at the same view level (per-row),
 /// which ensures the alert's TextField receives focus correctly on macOS.
-/// Used by both iOS (HostSessionsSection) and macOS (RemoteHostSidebarSection).
 public struct DescriptionEditingModifier: ViewModifier {
-    let paneId: String
+    let windowId: String
     let currentDescription: String?
-    let isHostConnected: Bool
-    let sessionStore: SessionStore
+    let isDisabled: Bool
     let onSetDescription: (String, String?) -> Void
 
     @State private var isEditingDescription = false
     @State private var editedDescription = ""
 
     public init(
-        paneId: String,
+        windowId: String,
         currentDescription: String?,
-        isHostConnected: Bool,
-        sessionStore: SessionStore,
+        isDisabled: Bool = false,
         onSetDescription: @escaping (String, String?) -> Void
     ) {
-        self.paneId = paneId
+        self.windowId = windowId
         self.currentDescription = currentDescription
-        self.isHostConnected = isHostConnected
-        self.sessionStore = sessionStore
+        self.isDisabled = isDisabled
         self.onSetDescription = onSetDescription
     }
 
@@ -77,23 +73,21 @@ public struct DescriptionEditingModifier: ViewModifier {
             .contextMenu {
                 DescriptionContextMenuButtons(
                     currentDescription: currentDescription,
-                    isDisabled: !isHostConnected,
+                    isDisabled: isDisabled,
                     onEdit: {
                         editedDescription = currentDescription ?? ""
                         isEditingDescription = true
                     },
                     onRemove: {
-                        guard let state = sessionStore.paneState(for: paneId) else { return }
-                        onSetDescription(state.windowId, nil)
+                        onSetDescription(windowId, nil)
                     }
                 )
             }
             .alert("Window Description", isPresented: $isEditingDescription) {
                 TextField("Description", text: $editedDescription)
                 Button("Save") {
-                    guard let state = sessionStore.paneState(for: paneId) else { return }
                     let trimmed = editedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-                    onSetDescription(state.windowId, trimmed.isEmpty ? nil : trimmed)
+                    onSetDescription(windowId, trimmed.isEmpty ? nil : trimmed)
                 }
                 Button("Cancel", role: .cancel) { }
             } message: {

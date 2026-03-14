@@ -986,9 +986,6 @@ private struct WindowSidebarRow: View {
 
     let window: TmuxWindow
 
-    @State private var isEditingDescription = false
-    @State private var editedDescription = ""
-
     /// The primary pane to show info for (active pane or first pane)
     private var primaryPane: PaneInfo? { window.activePane }
 
@@ -1085,36 +1082,13 @@ private struct WindowSidebarRow: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
-        .contextMenu {
-            Button {
-                editedDescription = customDescription ?? ""
-                isEditingDescription = true
-            } label: {
-                if customDescription != nil {
-                    Label("Edit Description", symbol: .pencil)
-                } else {
-                    Label("Add Description", symbol: .pencil)
-                }
+        .modifier(DescriptionEditingModifier(
+            windowId: window.id,
+            currentDescription: customDescription,
+            onSetDescription: { windowId, description in
+                windowManager.setWindowDescription(description, for: windowId)
             }
-
-            if customDescription != nil {
-                Button(role: .destructive) {
-                    windowManager.setWindowDescription(nil, for: window.id)
-                } label: {
-                    Label("Remove Description", symbol: .xmark)
-                }
-            }
-        }
-        .alert("Window Description", isPresented: $isEditingDescription) {
-            TextField("Description", text: $editedDescription)
-            Button("Save") {
-                let trimmed = editedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-                windowManager.setWindowDescription(trimmed.isEmpty ? nil : trimmed, for: window.id)
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Enter a custom description for \(window.id)")
-        }
+        ))
     }
 }
 
@@ -1327,10 +1301,9 @@ private struct RemoteHostSidebarSection: View {
                             ? Color.accentColor.opacity(0.2) : nil
                     )
                     .modifier(DescriptionEditingModifier(
-                        paneId: item.paneId,
+                        windowId: paneState?.windowId ?? "",
                         currentDescription: paneState?.customDescription,
-                        isHostConnected: connection?.isHostConnected == true,
-                        sessionStore: sessionStore,
+                        isDisabled: connection?.isHostConnected != true,
                         onSetDescription: onSetDescription
                     ))
                 }
@@ -1357,10 +1330,9 @@ private struct RemoteHostSidebarSection: View {
                             ? Color.accentColor.opacity(0.2) : nil
                     )
                     .modifier(DescriptionEditingModifier(
-                        paneId: pane.paneId,
+                        windowId: pane.windowId,
                         currentDescription: pane.customDescription,
-                        isHostConnected: connection?.isHostConnected == true,
-                        sessionStore: sessionStore,
+                        isDisabled: connection?.isHostConnected != true,
                         onSetDescription: onSetDescription
                     ))
                 }
