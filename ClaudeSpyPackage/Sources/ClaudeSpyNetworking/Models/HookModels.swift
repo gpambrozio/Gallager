@@ -31,6 +31,10 @@ public struct ClaudeSession: Codable, Sendable {
     /// Recent hook events, newest first, limited to last 5
     public private(set) var events: [HookEvent] = []
 
+    /// The event ID up to which the user has handled/seen this session.
+    /// When this matches the latest event's ID, `needsAttention` returns false.
+    public var handledUpToEventId: UUID?
+
     public init(paneId: String) {
         self.paneId = paneId
     }
@@ -66,10 +70,17 @@ public struct ClaudeSession: Codable, Sendable {
     }
 
     /// Whether this session needs user attention.
-    /// This is true when the latest event would trigger a notification (e.g., permission request, session idle).
-    /// Uses the same logic as the iOS app's badge indicator.
+    /// This is true when the latest event would trigger a notification (e.g., permission request, session idle)
+    /// AND the user hasn't already handled/seen this event.
     public var needsAttention: Bool {
-        latestEvent?.wouldTriggerNotification ?? false
+        guard let latest = latestEvent, latest.wouldTriggerNotification else { return false }
+        return latest.id != handledUpToEventId
+    }
+
+    /// Marks the current latest event as handled, clearing the `needsAttention` flag.
+    /// If a new attention-triggering event arrives later, `needsAttention` will become true again.
+    public mutating func markHandled() {
+        handledUpToEventId = latestEvent?.id
     }
 }
 

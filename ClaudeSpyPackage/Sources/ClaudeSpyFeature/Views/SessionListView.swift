@@ -45,6 +45,10 @@
                             relayClient: connection.relayClient,
                             settings: settings
                         )
+                        .task {
+                            sessionStore.markSessionHandled(paneId: paneId)
+                            _ = await connection.sendCommand(MarkHandled(), paneId: paneId)
+                        }
                     } else {
                         hostDisconnectedView
                     }

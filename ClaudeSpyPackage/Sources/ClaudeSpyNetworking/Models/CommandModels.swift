@@ -399,6 +399,17 @@ public struct SetYoloMode: CommandSpec, Equatable {
     }
 }
 
+/// Mark a session as handled (user has seen it). Returns success/failure.
+public struct MarkHandled: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    public init() { }
+
+    public var commandType: CommandType {
+        .markHandled(self)
+    }
+}
+
 // MARK: - Command Types
 
 /// Commands that can be sent from viewer to host, with their associated data.
@@ -419,6 +430,8 @@ public enum CommandType: Codable, Sendable, Equatable {
     case resizeTmuxPane(ResizeTmuxPane)
     /// Set yolo mode (auto-approve permissions) for a pane
     case setYoloMode(SetYoloMode)
+    /// Mark a session as handled (user has seen it)
+    case markHandled(MarkHandled)
 
     // MARK: - Convenience Factory Methods
 
@@ -465,6 +478,11 @@ public enum CommandType: Codable, Sendable, Equatable {
     /// Create a setYoloMode command
     public static func setYoloMode(enabled: Bool) -> CommandType {
         .setYoloMode(SetYoloMode(enabled: enabled))
+    }
+
+    /// Create a markHandled command
+    public static var markHandled: CommandType {
+        .markHandled(MarkHandled())
     }
 }
 

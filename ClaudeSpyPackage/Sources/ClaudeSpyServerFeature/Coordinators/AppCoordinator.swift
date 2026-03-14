@@ -372,6 +372,13 @@
                     return .success(for: command.id)
                 }
 
+                // Handle mark session as handled
+                if case .markHandled = command.command {
+                    winManager.markSessionHandled(paneId: command.paneId)
+                    await connectionManager?.pushSessionStateToAll()
+                    return .success(for: command.id)
+                }
+
                 // Regular commands execute on the actor executor
                 return await executor.execute(command)
             }

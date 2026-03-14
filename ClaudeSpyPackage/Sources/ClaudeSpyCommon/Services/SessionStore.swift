@@ -230,6 +230,13 @@ final public class SessionStore {
         paneStates[paneId]?.yoloMode ?? false
     }
 
+    /// Marks a session as handled (user has seen it), clearing the `needsAttention` flag locally.
+    /// - Parameter paneId: The pane ID whose session should be marked handled
+    public func markSessionHandled(paneId: String) {
+        guard paneStates[paneId]?.claudeSession?.needsAttention == true else { return }
+        paneStates[paneId]?.claudeSession?.markHandled()
+    }
+
     // MARK: - Event Response Storage (iOS only)
 
     #if os(iOS)

@@ -95,10 +95,30 @@ public struct MainView: View {
             // Reset cached dimensions and trigger auto-resize for the newly selected window
             lastAutoResizeDimensions = nil
             handleAutoResize()
+
+            // Mark all Claude sessions in the selected window as handled
+            if let window = selectedWindow {
+                for pane in window.panes {
+                    windowManager.markSessionHandled(paneId: pane.paneId)
+                }
+            }
         }
         .onChange(of: selectedRemotePane) {
             lastAutoResizeDimensions = nil
             handleAutoResize()
+
+            // Mark the selected remote session as handled
+            if let remote = selectedRemotePane {
+                coordinator.remoteSessionStore?.markSessionHandled(paneId: remote.paneId)
+                // Notify the host so it can sync to all viewers
+                Task {
+                    _ = await coordinator.viewerConnectionManager?.sendCommand(
+                        MarkHandled(),
+                        paneId: remote.paneId,
+                        hostId: remote.hostId
+                    )
+                }
+            }
         }
         .onChange(of: coordinator.pendingMenuBarSelection) {
             applyPendingMenuBarSelection()

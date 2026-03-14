@@ -449,6 +449,15 @@ final public class MirrorWindowManager {
         openMirror(for: pane)
     }
 
+    // MARK: - Mark Handled
+
+    /// Marks a session as handled (user has seen it), clearing the `needsAttention` flag.
+    /// - Parameter paneId: The pane ID whose session should be marked handled
+    public func markSessionHandled(paneId: String) {
+        guard paneStates[paneId]?.claudeSession?.needsAttention == true else { return }
+        paneStates[paneId]?.claudeSession?.markHandled()
+    }
+
     // MARK: - Yolo Mode
 
     /// Sets yolo mode for a pane's Claude session.
