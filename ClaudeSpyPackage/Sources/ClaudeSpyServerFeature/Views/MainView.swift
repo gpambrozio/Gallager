@@ -1325,7 +1325,7 @@ private struct RemoteHostSidebarSection: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(item.paneId)
+                    .accessibilityLabel(paneState?.customDescription ?? item.paneId)
                     .listRowBackground(
                         selectedRemotePane?.paneId == item.paneId && selectedRemotePane?.hostId == host.id
                             ? Color.accentColor.opacity(0.2) : nil
@@ -1358,7 +1358,7 @@ private struct RemoteHostSidebarSection: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(pane.target.isEmpty ? pane.paneId : pane.target)
+                    .accessibilityLabel(pane.customDescription ?? (pane.target.isEmpty ? pane.paneId : pane.target))
                     .listRowBackground(
                         selectedRemotePane?.paneId == pane.paneId && selectedRemotePane?.hostId == host.id
                             ? Color.accentColor.opacity(0.2) : nil

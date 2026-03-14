@@ -157,9 +157,21 @@ public actor MacOSDriver {
 
     /// Press Tab key via CGEvent to cycle focus between elements in dialogs.
     public func pressTab() async throws {
-        logger.info("Pressing Tab key")
-        // Tab key code = 48
-        MacOSAccessibility.pressKey(code: 48)
+        let pid = try requirePID()
+        logger.info("Pressing Tab key (PID \(pid))")
+        MacOSAccessibility.focusApp(appPID: pid)
+        try await Task.sleep(for: .milliseconds(200))
+        MacOSAccessibility.pressKey(code: 48) // Tab
+        try await Task.sleep(for: .milliseconds(200))
+    }
+
+    /// Press Cmd+A to select all text in the focused field.
+    public func selectAll() async throws {
+        let pid = try requirePID()
+        logger.info("Pressing Cmd+A (PID \(pid))")
+        MacOSAccessibility.focusApp(appPID: pid)
+        try await Task.sleep(for: .milliseconds(200))
+        MacOSAccessibility.selectAll()
         try await Task.sleep(for: .milliseconds(200))
     }
 

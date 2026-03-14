@@ -93,6 +93,8 @@ public enum TestStep: Sendable {
     case macClickMenuItem(menuButtonTitle: String, itemTitle: String, instance: Int = 0)
     /// Press Tab key to cycle focus between elements in dialogs
     case macPressTab(instance: Int = 0)
+    /// Press Cmd+A to select all text in the focused field
+    case macSelectAll(instance: Int = 0)
     /// Right-click an element to open its context menu
     case macRightClick(titled: String, instance: Int = 0)
     /// Right-click an element and then click a menu item from the context menu

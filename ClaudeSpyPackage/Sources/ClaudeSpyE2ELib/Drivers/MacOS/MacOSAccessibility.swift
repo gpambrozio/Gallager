@@ -206,12 +206,22 @@ enum MacOSAccessibility {
     }
 
     /// Post a CGEvent key press for the given virtual key code.
-    static func pressKey(code: UInt16) {
+    static func pressKey(code: UInt16, modifiers: CGEventFlags = []) {
         let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true)
         let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false)
+        if !modifiers.isEmpty {
+            keyDown?.flags = modifiers
+            keyUp?.flags = modifiers
+        }
         keyDown?.post(tap: .cghidEventTap)
         usleep(50_000)
         keyUp?.post(tap: .cghidEventTap)
+    }
+
+    /// Post Cmd+A to select all text in the focused field.
+    static func selectAll() {
+        // Key code 0 = 'a'
+        pressKey(code: 0, modifiers: .maskCommand)
     }
 
     // MARK: - Window Management
