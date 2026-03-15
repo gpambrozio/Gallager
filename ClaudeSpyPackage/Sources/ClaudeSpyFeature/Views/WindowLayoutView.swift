@@ -25,6 +25,12 @@
         /// Tracks keyboard visibility for toolbar icon state
         @State private var keyboardVisible = false
 
+        /// Service for the active pane's Claude session (nil if no session)
+        @State private var activeService: SessionDetailService?
+
+        /// Whether to show the session info popover
+        @State private var showSessionInfo = false
+
         /// The current window data from the session store
         private var window: TmuxWindow? {
             sessionStore.window(id: windowId, hostId: hostId)
@@ -56,6 +62,34 @@
                     }
                     .disabled(!relayClient.isHostConnected)
                 }
+
+                if let activeService, activeService.session != nil {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            let newValue = !activeService.isYoloModeEnabled
+                            Task {
+                                await activeService.sendCommand(.setYoloMode(enabled: newValue))
+                            }
+                        } label: {
+                            Label(
+                                activeService.isYoloModeEnabled ? "Disable Yolo Mode" : "Enable Yolo Mode",
+                                symbol: .bolt
+                            )
+                        }
+                        .tint(activeService.isYoloModeEnabled ? .red : nil)
+                    }
+
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            showSessionInfo = true
+                        } label: {
+                            Label("Session Info", symbol: .infoCircle)
+                        }
+                        .popover(isPresented: $showSessionInfo) {
+                            sessionInfoPopover
+                        }
+                    }
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
                 keyboardVisible = true
@@ -63,28 +97,52 @@
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                 keyboardVisible = false
             }
-            .task {
+            .onAppear {
                 // Default to the active pane (or first pane) on appear
                 if activePaneId == nil, let window {
                     activePaneId = window.activePane?.paneId ?? window.panes.first?.paneId
                 }
+                updateActiveService()
+            }
+            .onChange(of: activePaneId) {
+                updateActiveService()
             }
         }
 
         @ViewBuilder
         private func windowContent(_ window: TmuxWindow) -> some View {
-            if let layout = TmuxLayoutParser.parse(window.windowLayout) {
-                VStack(spacing: 0) {
+            VStack(spacing: 0) {
+                // Response view for active pane's Claude session (full width, above layout)
+                if
+                    !isKeyboardActive,
+                    let activeService,
+                    let responseState = activeService.responseState,
+                    let responseView = responseState.event.responseView(
+                        isYoloMode: activeService.isYoloModeEnabled,
+                        isConnected: relayClient.isHostConnected,
+                        sendCommand: { command in
+                            await activeService.sendCommand(command)
+                        },
+                        state: responseState
+                    ) {
+                    responseView
+                        .padding()
+                        .background(Color(.systemGroupedBackground))
+
+                    Divider()
+                }
+
+                if let layout = TmuxLayoutParser.parse(window.windowLayout) {
                     tiledLayout(window: window, layout: layout)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                     statusBar(window)
-                }
-            } else {
-                // Fallback: list panes vertically if layout parsing fails
-                VStack(spacing: 1) {
-                    ForEach(window.panes) { pane in
-                        paneTerminal(pane: pane)
+                } else {
+                    // Fallback: list panes vertically if layout parsing fails
+                    VStack(spacing: 1) {
+                        ForEach(window.panes) { pane in
+                            paneTerminal(pane: pane)
+                        }
                     }
                 }
             }
@@ -217,6 +275,46 @@
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .background(.bar)
+        }
+
+        // MARK: - Active Pane Service
+
+        /// Creates or clears the SessionDetailService when the active pane changes
+        private func updateActiveService() {
+            guard let activePaneId else {
+                activeService = nil
+                return
+            }
+            // Only recreate if the pane changed
+            if activeService?.paneId != activePaneId {
+                activeService = SessionDetailService(
+                    paneId: activePaneId,
+                    sessionStore: sessionStore,
+                    relayClient: relayClient
+                )
+            }
+        }
+
+        @ViewBuilder
+        private var sessionInfoPopover: some View {
+            if let activeService {
+                NavigationStack {
+                    SessionInfoView(
+                        session: activeService.session,
+                        paneId: activeService.paneId,
+                        isPaneActive: activeService.isPaneActive
+                    )
+                    .navigationTitle("Session Info")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") {
+                                showSessionInfo = false
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // MARK: - Command Sending

@@ -119,7 +119,7 @@
 
     /// View displaying session information shown in the popover.
     /// Contains recent events and session info.
-    private struct SessionInfoView: View {
+    struct SessionInfoView: View {
         let session: ClaudeSession?
         let paneId: String
         let isPaneActive: Bool
