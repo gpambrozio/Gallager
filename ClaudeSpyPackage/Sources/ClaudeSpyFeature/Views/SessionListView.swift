@@ -592,9 +592,13 @@
 
                         Spacer()
 
-                        Text(window.id)
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                        // Only show window ID when the headline differs
+                        // (avoids redundancy when displayName already falls back to window.id)
+                        if window.customDescription != nil || displayName != window.id {
+                            Text(window.id)
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
                     }
                 }
             }

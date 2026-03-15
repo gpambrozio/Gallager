@@ -303,6 +303,33 @@ final public class ViewerRelayClient {
         }
     }
 
+    /// Send a `CommandType` to the host, discarding the typed response.
+    ///
+    /// This is a convenience wrapper around `sendCommand(_:paneId:)` that dispatches
+    /// the enum variant to the underlying generic method. Useful when the caller doesn't
+    /// need the response (fire-and-forget style).
+    @discardableResult
+    public func send(_ command: CommandType, paneId: String) async -> Bool {
+        switch command {
+        case let .sendKeystroke(spec):
+            return (try? await sendCommand(spec, paneId: paneId).get()) != nil
+        case let .cancelOperation(spec):
+            return (try? await sendCommand(spec, paneId: paneId).get()) != nil
+        case let .startTerminalStream(spec):
+            return (try? await sendCommand(spec, paneId: paneId).get()) != nil
+        case let .stopTerminalStream(spec):
+            return (try? await sendCommand(spec, paneId: paneId).get()) != nil
+        case let .createTmuxSession(spec):
+            return (try? await sendCommand(spec, paneId: "").get()) != nil
+        case let .resizeTmuxPane(spec):
+            return (try? await sendCommand(spec, paneId: paneId).get()) != nil
+        case let .setYoloMode(spec):
+            return (try? await sendCommand(spec, paneId: paneId).get()) != nil
+        case let .setWindowDescription(spec):
+            return (try? await sendCommand(spec, paneId: "").get()) != nil
+        }
+    }
+
     /// Request current session state from host
     public func requestSessionState() async {
         guard state.isConnected else {

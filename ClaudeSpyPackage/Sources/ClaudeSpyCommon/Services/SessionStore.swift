@@ -107,6 +107,23 @@ final public class SessionStore {
         return TmuxWindow.groupPanes(hostPanes)
     }
 
+    /// Get a single window by ID for a specific host, without grouping all panes
+    public func window(id windowId: String, hostId: String) -> TmuxWindow? {
+        let windowPanes = paneStates
+            .filter { paneToHostMap[$0.key] == hostId && $0.value.windowId == windowId }
+            .map(\.value)
+            .sorted { $0.paneIndex < $1.paneIndex }
+        guard let first = windowPanes.first else { return nil }
+        return TmuxWindow(
+            id: windowId,
+            sessionName: first.sessionName,
+            windowIndex: first.windowIndex,
+            windowName: first.windowName,
+            windowLayout: first.windowLayout,
+            panes: windowPanes
+        )
+    }
+
     /// Get Claude projects for a specific host
     public func projects(for hostId: String) -> [ClaudeProjectInfo] {
         claudeProjectsByHost[hostId] ?? []

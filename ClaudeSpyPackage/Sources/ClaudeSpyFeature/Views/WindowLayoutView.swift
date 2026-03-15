@@ -18,7 +18,7 @@
 
         /// The current window data from the session store
         private var window: TmuxWindow? {
-            sessionStore.windows(for: hostId).first { $0.id == windowId }
+            sessionStore.window(id: windowId, hostId: hostId)
         }
 
         var body: some View {
@@ -170,24 +170,7 @@
         // MARK: - Command Sending
 
         private func sendCommand(_ command: CommandType, paneId: String) async {
-            switch command {
-            case let .sendKeystroke(spec):
-                _ = await relayClient.sendCommand(spec, paneId: paneId)
-            case let .cancelOperation(spec):
-                _ = await relayClient.sendCommand(spec, paneId: paneId)
-            case let .startTerminalStream(spec):
-                _ = await relayClient.sendCommand(spec, paneId: paneId)
-            case let .stopTerminalStream(spec):
-                _ = await relayClient.sendCommand(spec, paneId: paneId)
-            case let .createTmuxSession(spec):
-                _ = await relayClient.sendCommand(spec, paneId: "")
-            case let .resizeTmuxPane(spec):
-                _ = await relayClient.sendCommand(spec, paneId: paneId)
-            case let .setYoloMode(spec):
-                _ = await relayClient.sendCommand(spec, paneId: paneId)
-            case let .setWindowDescription(spec):
-                _ = await relayClient.sendCommand(spec, paneId: "")
-            }
+            await relayClient.send(command, paneId: paneId)
         }
     }
 
@@ -200,28 +183,4 @@
         let rect: CGRect
     }
 
-    /// Custom Layout that tiles subviews using proportional rectangles
-    private struct ProportionalTileLayout: Layout {
-        let rects: [CGRect]
-
-        func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-            proposal.replacingUnspecifiedDimensions()
-        }
-
-        func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-            for (index, subview) in subviews.enumerated() {
-                guard index < rects.count else { continue }
-                let proportional = rects[index]
-                let width = proportional.width * bounds.width
-                let height = proportional.height * bounds.height
-                let x = bounds.minX + proportional.origin.x * bounds.width
-                let y = bounds.minY + proportional.origin.y * bounds.height
-                subview.place(
-                    at: CGPoint(x: x, y: y),
-                    anchor: .topLeading,
-                    proposal: ProposedViewSize(width: width, height: height)
-                )
-            }
-        }
-    }
 #endif

@@ -48,25 +48,7 @@
 
         /// Send a command to the host for this pane
         private func sendCommand(_ command: CommandType) async {
-            switch command {
-            case let .sendKeystroke(spec):
-                _ = await relayClient.sendCommand(spec, paneId: paneId)
-            case let .cancelOperation(spec):
-                _ = await relayClient.sendCommand(spec, paneId: paneId)
-            case let .startTerminalStream(spec):
-                _ = await relayClient.sendCommand(spec, paneId: paneId)
-            case let .stopTerminalStream(spec):
-                _ = await relayClient.sendCommand(spec, paneId: paneId)
-            case let .createTmuxSession(spec):
-                // Session creation doesn't target an existing pane, but handle for exhaustiveness
-                _ = await relayClient.sendCommand(spec, paneId: "")
-            case let .resizeTmuxPane(spec):
-                _ = await relayClient.sendCommand(spec, paneId: paneId)
-            case let .setYoloMode(spec):
-                _ = await relayClient.sendCommand(spec, paneId: paneId)
-            case let .setWindowDescription(spec):
-                _ = await relayClient.sendCommand(spec, paneId: "")
-            }
+            await relayClient.send(command, paneId: paneId)
         }
     }
 
