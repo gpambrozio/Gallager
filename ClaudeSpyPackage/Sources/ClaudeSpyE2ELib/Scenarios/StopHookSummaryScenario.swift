@@ -65,7 +65,10 @@ public enum StopHookSummaryScenario {
         //     exists and rely on the screenshot for visual verification of the summary.
         TestStep.macOpenPanesWindow()
         TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
-        TestStep.wait(seconds: 2)
+        TestStep.wait(seconds: 1)
+        TestStep.macResizeWindow(width: 1_000, height: 600)
+        TestStep.macSetSidebarWidth(250)
+        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "session-1:0", timeout: 5)
         TestStep.macScreenshot(label: "mac-stop-session")
     }
