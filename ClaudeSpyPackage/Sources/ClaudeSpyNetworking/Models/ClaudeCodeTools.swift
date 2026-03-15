@@ -99,6 +99,7 @@ public enum ClaudeCodeTool: Sendable, Equatable {
         case .lsp: "LSP"
         case .toolSearch: "ToolSearch"
         case let .mcp(params): params.fullToolName
+        // "Tool" suffix matches official Claude Code tool names (see tools reference)
         case .listMcpResources: "ListMcpResourcesTool"
         case .readMcpResource: "ReadMcpResourceTool"
         case let .other(name, _): name
@@ -129,7 +130,7 @@ public enum ClaudeCodeTool: Sendable, Equatable {
         case .taskCreate, .taskGet, .taskList, .taskUpdate:
             nil
         case let .agent(params):
-            params.description
+            params.taskDescription
         case .todoWrite:
             nil
         case .enterPlanMode, .exitPlanMode:
@@ -184,9 +185,9 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             return try .glob(container.decode(GlobParameters.self))
         case "Bash":
             return try .bash(container.decode(BashParameters.self))
-        case "TaskOutput", "BashOutput":
+        case "TaskOutput":
             return try .taskOutput(container.decode(TaskOutputParameters.self))
-        case "TaskStop", "KillShell":
+        case "TaskStop":
             return try .taskStop(container.decode(TaskStopParameters.self))
         case "TaskCreate":
             return try .taskCreate(container.decode(GenericToolParameters.self))
@@ -196,7 +197,7 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             return try .taskList(container.decode(GenericToolParameters.self))
         case "TaskUpdate":
             return try .taskUpdate(container.decode(GenericToolParameters.self))
-        case "Agent", "Task":
+        case "Agent":
             return try .agent(container.decode(AgentParameters.self))
         case "TodoWrite":
             return try .todoWrite(container.decode(TodoWriteParameters.self))
@@ -214,7 +215,7 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             return try .webSearch(container.decode(WebSearchParameters.self))
         case "NotebookEdit":
             return try .notebookEdit(container.decode(NotebookEditParameters.self))
-        case "Skill", "SlashCommand":
+        case "Skill":
             return try .skill(container.decode(SkillParameters.self))
         case "AskUserQuestion":
             return try .askUserQuestion(container.decode(AskUserQuestionParameters.self))
@@ -373,62 +374,26 @@ public struct BashParameters: Codable, Sendable, Equatable {
 }
 
 public struct TaskOutputParameters: Codable, Sendable, Equatable {
-    /// The task or bash process identifier
     public let taskId: String
     public let filter: String?
 
     enum CodingKeys: String, CodingKey {
         case taskId = "task_id"
-        case bashId = "bash_id"
         case filter
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        // Accept both task_id and bash_id (legacy) for backward compatibility
-        if let taskId = try container.decodeIfPresent(String.self, forKey: .taskId) {
-            self.taskId = taskId
-        } else {
-            self.taskId = try container.decode(String.self, forKey: .bashId)
-        }
-        self.filter = try container.decodeIfPresent(String.self, forKey: .filter)
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(taskId, forKey: .taskId)
-        try container.encodeIfPresent(filter, forKey: .filter)
     }
 }
 
 public struct TaskStopParameters: Codable, Sendable, Equatable {
-    /// The task or shell identifier to stop
     public let taskId: String
 
     enum CodingKeys: String, CodingKey {
         case taskId = "task_id"
-        case shellId = "shell_id"
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        // Accept both task_id and shell_id (legacy) for backward compatibility
-        if let taskId = try container.decodeIfPresent(String.self, forKey: .taskId) {
-            self.taskId = taskId
-        } else {
-            self.taskId = try container.decode(String.self, forKey: .shellId)
-        }
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(taskId, forKey: .taskId)
     }
 }
 
 public struct AgentParameters: Codable, Sendable, Equatable {
     public let prompt: String
-    public let description: String
+    public let taskDescription: String
     public let subagentType: String?
     public let isolation: String?
     public let model: String?
@@ -437,7 +402,7 @@ public struct AgentParameters: Codable, Sendable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case prompt
-        case description
+        case taskDescription = "description"
         case subagentType = "subagent_type"
         case isolation
         case model
@@ -541,29 +506,6 @@ public struct NotebookEditParameters: Codable, Sendable, Equatable {
 public struct SkillParameters: Codable, Sendable, Equatable {
     public let skill: String
     public let args: String?
-
-    enum CodingKeys: String, CodingKey {
-        case skill
-        case args
-        case command
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        // Accept both "skill" and "command" (legacy SlashCommand) for backward compatibility
-        if let skill = try container.decodeIfPresent(String.self, forKey: .skill) {
-            self.skill = skill
-        } else {
-            self.skill = try container.decode(String.self, forKey: .command)
-        }
-        self.args = try container.decodeIfPresent(String.self, forKey: .args)
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(skill, forKey: .skill)
-        try container.encodeIfPresent(args, forKey: .args)
-    }
 }
 
 public struct AskUserQuestionParameters: Codable, Sendable, Equatable {
@@ -622,7 +564,7 @@ public struct GenericToolParameters: Codable, Sendable, Equatable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
-        self.rawParameters = (try? container.decode([String: AnyCodable].self)) ?? [:]
+        self.rawParameters = try container.decode([String: AnyCodable].self)
     }
 
     public func encode(to encoder: Encoder) throws {

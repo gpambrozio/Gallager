@@ -415,15 +415,24 @@ struct ToolInputView: View {
                 headerRow("Stop Task")
                 detailRow("Task ID:", params.taskId)
 
-            case .taskCreate, .taskGet, .taskList, .taskUpdate:
-                headerRow("Manage Tasks")
+            case .taskCreate:
+                headerRow("Create Task")
+
+            case .taskGet:
+                headerRow("Get Task")
+
+            case .taskList:
+                headerRow("List Tasks")
+
+            case .taskUpdate:
+                headerRow("Update Task")
 
             case let .agent(params):
                 headerRow("Run Subagent")
                 if let subagentType = params.subagentType {
                     detailRow("Type:", subagentType)
                 }
-                detailRow("Task:", params.description)
+                detailRow("Task:", params.taskDescription)
 
             case let .todoWrite(params):
                 headerRow("Manage Todo List")
