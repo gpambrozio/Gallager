@@ -64,6 +64,8 @@
                 _ = await relayClient.sendCommand(spec, paneId: paneId)
             case let .setYoloMode(spec):
                 _ = await relayClient.sendCommand(spec, paneId: paneId)
+            case let .markHandled(spec):
+                _ = await relayClient.sendCommand(spec, paneId: paneId)
             case let .setWindowDescription(spec):
                 _ = await relayClient.sendCommand(spec, paneId: "")
             }

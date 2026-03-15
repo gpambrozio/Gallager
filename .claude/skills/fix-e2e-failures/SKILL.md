@@ -5,83 +5,40 @@ description: Investigate and fix E2E test failures from the latest test report. 
 allowed-tools:
   - AskUserQuestion
   - Read
-  - Read(../ClaudeSpyTestResults/**)
+  - Read(/../ClaudeSpyTestResults/**)
   - Write
   - Bash(git *)
+  - Bash(${CLAUDE_SKILL_DIR}/scripts/find_failures.py *)
 ---
 
 # Fix E2E Test Failures
 
 This skill handles E2E test failures reported in the ClaudeSpyTestResults repository. It finds the latest failing report, identifies what broke, and guides the fix.
 
-## Step 1: Find the Latest Failing Report
+## Step 1: Find Failures
 
-The test results live in a sibling repository at `../ClaudeSpyTestResults/`.
-
-First, pull the latest results:
+Run the bundled script to pull latest results and extract failures in one step:
 
 ```bash
-git -C ../ClaudeSpyTestResults pull --rebase 2>/dev/null || true
+${CLAUDE_SKILL_DIR}/scripts/find_failures.py --results-dir ../ClaudeSpyTestResults
 ```
 
-Then read `../ClaudeSpyTestResults/results/index.json` to find the most recent run with failures. The index is sorted newest-first. Look for entries where `allPassed` is `false` and `buildFailed` is `false` (build failures need separate handling — inform the user the build itself failed and there are no test results to analyze).
+The script outputs JSON with one of these statuses:
+- `"all_passed"` — No failures found. Tell the user and stop.
+- `"build_failed"` — The build itself failed, no test results. Inform the user.
+- `"no_results"` — Results directory not found. Check the path.
+- `"failures_found"` — Failures detected. Continue to Step 2.
 
-If no failing report exists, tell the user all recent E2E runs passed and stop.
+When `status` is `"failures_found"`, the output includes:
+- `metadata` — branch, commit, PR URL
+- `failures[]` — each with `scenarioName`, `error`, `failedStep`, `failedStepDescription`, `type` (`"functional"` or `"screenshot_mismatch"`), and `screenshot` (with paths to actual/baseline/diff images)
+- `message` — human-readable summary
 
-## Step 2: Load the Report and Identify Failures
+Present the `message` summary to the user.
 
-Read the report at `../ClaudeSpyTestResults/results/<folder>/report.json`.
+## Step 2: Check Out the PR Branch
 
-The report structure is:
-```json
-{
-  "metadata": {
-    "branch": "feature-branch",
-    "commit": "abc1234",
-    "commitFull": "abc1234...",
-    "commitMessage": "...",
-    "prNumber": "207",
-    "prUrl": "https://github.com/gpambrozio/ClaudeSpy/pull/207"
-  },
-  "scenarios": [
-    {
-      "scenarioName": "Scenario Name",
-      "success": false,
-      "error": "error description",
-      "failedStep": 19,
-      "steps": [
-        {
-          "stepNumber": 1,
-          "description": "step description",
-          "success": true,
-          "error": null,
-          "screenshot": {
-            "label": "screenshot-label",
-            "imageHash": "sha256hash",
-            "baselineHash": "sha256hash",
-            "diffHash": "sha256hash or null",
-            "diffPercentage": 1.5,
-            "passed": false,
-            "baselineCreated": false
-          }
-        }
-      ]
-    }
-  ]
-}
-```
-
-Extract all failed scenarios — for each, note:
-- The scenario name
-- The error message
-- The failed step number and description
-- Whether it's a screenshot comparison failure (has `screenshot` with `passed: false`) or a functional failure
-
-Present a summary to the user showing which scenarios failed and why.
-
-## Step 3: Check Out the PR Branch
-
-If the report has a `prNumber`, check out the PR's branch:
+If the output has `metadata.prNumber`, check out the PR's branch:
 
 ```bash
 gh pr checkout <prNumber>
@@ -93,17 +50,15 @@ If there's no PR associated, check out the branch from the metadata directly:
 git checkout <branch>
 ```
 
-## Step 4: Examine Failure Details
+## Step 3: Examine Failure Details
 
 For each failed scenario, look at:
 
 1. **The failed step** — understand what the test was trying to do
-2. **Screenshot failures** — if the step has a screenshot with `passed: false`, view the images:
-   - Actual image: `../ClaudeSpyTestResults/images/<imageHash>.png`
-   - Baseline image: `../ClaudeSpyTestResults/images/<baselineHash>.png`
-   - Diff image (if exists): `../ClaudeSpyTestResults/images/<diffHash>.png`
-
-   Use the Read tool to view these PNG files — it renders images visually.
+2. **Screenshot failures** — if `type` is `"screenshot_mismatch"`, view the images using the Read tool (it renders PNGs visually):
+   - `screenshot.actualImage` — what the test produced
+   - `screenshot.baselineImage` — what was expected
+   - `screenshot.diffImage` — visual diff (if available)
 
 3. **Functional failures** — read the error message carefully. Common causes:
    - Element not found (UI changed, accessibility label changed)
@@ -113,7 +68,7 @@ For each failed scenario, look at:
 
 4. **The scenario source** — find it in `ClaudeSpyPackage/Sources/ClaudeSpyE2ELib/Scenarios/` and read the relevant steps around the failure point.
 
-## Step 5: Ask the User How to Proceed
+## Step 4: Ask the User How to Proceed
 
 Use the `AskUserQuestion` tool to ask the user:
 
@@ -161,7 +116,7 @@ When the user confirms the UI change is intentional:
    rm -rf E2ETests/<scenario-directory>/
    ```
 
-   The scenario directory name is the scenario name sanitized (lowercased, spaces to hyphens). It's inside a numbered prefix directory. Find it with:
+   The scenario directory name is the scenario name sanitized (lowercased, spaces to hyphens). Find it with:
    ```bash
    ls E2ETests/ | grep -i "<partial-scenario-name>"
    ```
@@ -186,3 +141,5 @@ When the user confirms the UI change is intentional:
 - If you changed Swift source code or after checking out from git, drop `--skip-build` so the changes get compiled.
 - Screenshot baselines live in `E2ETests/` with numbered prefixes matching scenario registration order in `ClaudeSpyE2ECommand.swift`.
 - The `--scenario` flag accepts the human-readable scenario name (e.g., "Fresh Pairing", "Empty State New Session").
+- **Baselines are not automatically regenerated** — If existing baselines are present, the test compares against them and fails on mismatch. To regenerate baselines, you must either delete the baseline directory first (`rm -rf E2ETests/<scenario-directory>/`) so the next run creates fresh baselines, or run with `--no-compare` to skip all screenshot comparisons (the test still takes screenshots but won't fail on mismatches).
+- **Never commit screenshot baselines** — Baselines in `E2ETests/` are generated by CI and must not be pushed to GitHub. If changes cause existing baselines to become invalid (e.g., UI changes, new/reordered screenshots), delete the affected baseline directory so CI regenerates them.
