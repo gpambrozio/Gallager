@@ -67,6 +67,12 @@
                         }
                     }
                 }
+                .task { await service.markHandledIfNeeded() }
+                .onChange(of: service.session?.needsAttention) {
+                    if service.session?.needsAttention == true {
+                        Task { await service.markHandledIfNeeded() }
+                    }
+                }
                 .environment(service.client)
         }
 

@@ -235,6 +235,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         EmojiTableRenderingScenario.scenario,
         MultiPaneWindowScenario.scenario,
         DAResponseLeakScenario.scenario,
+        MarkHandledScenario.scenario,
         WindowDescriptionSyncScenario.scenario,
         MultiPaneIOSScenario.scenario,
     ]

@@ -338,6 +338,8 @@ final public class ViewerRelayClient {
             return (try? await sendCommand(spec, paneId: paneId).get()) != nil
         case let .setYoloMode(spec):
             return (try? await sendCommand(spec, paneId: paneId).get()) != nil
+        case let .markHandled(spec):
+            return (try? await sendCommand(spec, paneId: paneId).get()) != nil
         case let .setWindowDescription(spec):
             return (try? await sendCommand(spec, paneId: "").get()) != nil
         }

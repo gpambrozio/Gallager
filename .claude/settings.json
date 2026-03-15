@@ -18,7 +18,8 @@
   "enabledPlugins": {
     "XcodeBuildTools@ClaudeCodePlugins": true,
     "iOSSimulator@ClaudeCodePlugins": true,
-    "SwiftDevelopment@ClaudePrivate": true
+    "SwiftDevelopment@ClaudePrivate": true,
+    "cupertino@cupertino-marketplace": true
   },
   "extraKnownMarketplaces": {
     "ClaudeCodePlugins": {

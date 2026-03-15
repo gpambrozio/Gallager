@@ -153,10 +153,13 @@ public struct MenuBarExtraView: View {
             session.displayName
         }
 
+        // Menu items can't render ProgressView, so use SF Symbols for all states
         if session.needsAttention {
-            Label(title, symbol: .exclamationmarkCircleFill)
+            Label(title, symbol: .bellBadgeFill)
+        } else if session.isWorking {
+            Label(title, symbol: .figureRun)
         } else {
-            Text(title)
+            Label(title, symbol: .moonFill)
         }
     }
 }
