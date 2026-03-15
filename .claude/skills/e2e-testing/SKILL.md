@@ -21,6 +21,8 @@ Scenarios are defined declaratively using a `@resultBuilder` DSL and executed se
 
 Always use `./scripts/e2e-test.sh` to run scenarios. It builds the apps, launches the orchestrator, and runs the scenario in a clean environment.
 
+When running tests baseline images are never updated automatically; If a test created baselines that need updating you need to remove the baseline images before running the scenario.
+
 ## Creating a New Scenario
 
 ### Step 1: Create the Scenario File
@@ -65,8 +67,6 @@ private static let allScenarios: [TestScenario] = [
     MyScenario.scenario,  // Always add new scenarios at the end
 ]
 ```
-
-**Important:** Always append at the end — never insert in the middle. The array position determines the numbered baseline directory prefix (e.g., `01-fresh-pairing/`, `02-new-terminal/`). Inserting in the middle shifts all subsequent numbers, breaking existing screenshot baselines.
 
 ### Step 3: Add Accessibility Hooks (if needed)
 
