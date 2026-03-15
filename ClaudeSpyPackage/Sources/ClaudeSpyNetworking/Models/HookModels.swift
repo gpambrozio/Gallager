@@ -31,6 +31,10 @@ public struct ClaudeSession: Codable, Sendable {
     /// Recent hook events, newest first, limited to last 5
     public private(set) var events: [HookEvent] = []
 
+    /// The event ID up to which the user has handled/seen this session.
+    /// When this matches the latest event's ID, `needsAttention` returns false.
+    public private(set) var handledUpToEventId: UUID?
+
     public init(paneId: String) {
         self.paneId = paneId
     }
@@ -66,10 +70,49 @@ public struct ClaudeSession: Codable, Sendable {
     }
 
     /// Whether this session needs user attention.
-    /// This is true when the latest event would trigger a notification (e.g., permission request, session idle).
-    /// Uses the same logic as the iOS app's badge indicator.
+    /// This is true when the latest event would trigger a notification (e.g., permission request, session idle)
+    /// AND the user hasn't already handled/seen this event.
     public var needsAttention: Bool {
-        latestEvent?.wouldTriggerNotification ?? false
+        guard let latest = latestEvent, latest.wouldTriggerNotification else { return false }
+        return latest.id != handledUpToEventId
+    }
+
+    /// Whether the session is actively working (Claude is processing, not waiting for input).
+    /// True when the latest event is a tool use, prompt submit, subagent activity, or similar active action.
+    public var isWorking: Bool {
+        guard let latest = latestEvent else { return false }
+        switch latest.action {
+        case .preToolUse,
+             .postToolUse,
+             .postToolUseFailure,
+             .userPromptSubmit,
+             .subagentStart,
+             .preCompact:
+            return true
+        case .sessionStart,
+             .stop,
+             .sessionEnd,
+             .permissionRequest,
+             .notification,
+             .subagentStop,
+             .teammateIdle,
+             .taskCompleted,
+             .unknown:
+            return false
+        }
+    }
+
+    /// Human-readable status label for accessibility and testing.
+    public var statusLabel: String {
+        if needsAttention { return "Attention" }
+        if isWorking { return "Working" }
+        return "Idle"
+    }
+
+    /// Marks the current latest event as handled, clearing the `needsAttention` flag.
+    /// If a new attention-triggering event arrives later, `needsAttention` will become true again.
+    public mutating func markHandled() {
+        handledUpToEventId = latestEvent?.id
     }
 }
 
@@ -628,7 +671,8 @@ public extension PermissionRequestBody {
         // requires explicit user input, so treat it as approvable.
         guard let toolInput else { return true }
         switch toolInput {
-        case .askUserQuestion, .exitPlanMode:
+        case .askUserQuestion,
+             .exitPlanMode:
             return false
         default:
             return true

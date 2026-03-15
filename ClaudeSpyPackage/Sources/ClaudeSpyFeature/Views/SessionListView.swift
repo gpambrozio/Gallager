@@ -250,6 +250,7 @@
                                 customDescription: paneState?.customDescription
                             )
                         }
+                        .accessibilityValue(item.session.statusLabel)
                         .modifier(DescriptionEditingModifier(
                             windowId: paneState?.windowId ?? "",
                             currentDescription: paneState?.customDescription,
@@ -346,22 +347,10 @@
         let isActive: Bool
         var customDescription: String?
 
-        private var indicatorColor: Color {
-            if session.needsAttention {
-                return .red
-            } else if isActive {
-                return .green
-            } else {
-                return .gray.opacity(0.3)
-            }
-        }
-
         var body: some View {
-            HStack(spacing: 12) {
-                // Activity indicator - red for notification, green for active, gray for inactive
-                Circle()
-                    .fill(indicatorColor)
-                    .frame(width: 10, height: 10)
+            HStack(alignment: .top, spacing: 12) {
+                SessionStatusIndicator(session: session)
+                    .frame(width: 20, height: 20)
 
                 VStack(alignment: .leading, spacing: 4) {
                     // Custom description shown prominently if set
@@ -424,7 +413,7 @@
         }
 
         var body: some View {
-            HStack(spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
                 // Terminal icon instead of activity indicator
                 Symbols.terminal.image
                     .foregroundStyle(.secondary)

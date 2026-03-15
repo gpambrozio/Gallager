@@ -95,10 +95,17 @@ public struct MainView: View {
             // Reset cached dimensions and trigger auto-resize for the newly selected window
             lastAutoResizeDimensions = nil
             handleAutoResize()
+
+            markSelectedSessionsHandledIfActive()
         }
         .onChange(of: selectedRemotePane) {
             lastAutoResizeDimensions = nil
             handleAutoResize()
+
+            markSelectedSessionsHandledIfActive()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            markSelectedSessionsHandledIfActive()
         }
         .onChange(of: coordinator.pendingMenuBarSelection) {
             applyPendingMenuBarSelection()
@@ -275,17 +282,8 @@ public struct MainView: View {
         }
         .id(window.id)
         .buttonStyle(.plain)
-        .accessibilityLabel(description ?? window.id)
-        .accessibilityValue(windowAccessibilityValue(window))
         .help(help ?? "")
         .listRowBackground(selectedWindow?.id == window.id && selectedRemotePane == nil ? Color.accentColor.opacity(0.2) : nil)
-    }
-
-    private func windowAccessibilityValue(_ window: TmuxWindow) -> String {
-        if let activePane = window.activePane {
-            return windowManager.paneStates[activePane.paneId]?.terminalTitle ?? ""
-        }
-        return ""
     }
 
     // MARK: - Detail View
@@ -669,6 +667,38 @@ public struct MainView: View {
         trackedActiveSessionPaneIds = currentIds
     }
 
+    // MARK: - Session Attention
+
+    /// Marks the currently selected session(s) as handled, but only when the app is active.
+    private func markSelectedSessionsHandledIfActive() {
+        guard NSApp.isActive else { return }
+
+        if let window = selectedWindow {
+            var stateChanged = false
+            for pane in window.panes
+                where windowManager.paneStates[pane.paneId]?.claudeSession?.needsAttention == true {
+                windowManager.markSessionHandled(paneId: pane.paneId)
+                stateChanged = true
+            }
+            if stateChanged {
+                Task {
+                    await coordinator.connectedViewerManager?.pushSessionStateToAll()
+                }
+            }
+        }
+
+        if let remote = selectedRemotePane {
+            coordinator.remoteSessionStore?.markSessionHandled(paneId: remote.paneId)
+            Task {
+                _ = await coordinator.viewerConnectionManager?.sendCommand(
+                    MarkHandled(),
+                    paneId: remote.paneId,
+                    hostId: remote.hostId
+                )
+            }
+        }
+    }
+
     // MARK: - Pending Menu Bar Selection
 
     /// Applies a pending menu bar selection, if any.
@@ -994,9 +1024,14 @@ private struct WindowSidebarRow: View {
         return windowManager.paneStates[pane.paneId]
     }
 
-    /// Check if any pane in the window has an active Claude session
-    private var hasClaude: Bool {
-        window.panes.contains { windowManager.paneStates[$0.paneId]?.claudeSession != nil }
+    /// The first Claude session found in any pane of this window, if any
+    private var claudeSession: ClaudeSession? {
+        for pane in window.panes {
+            if let session = windowManager.paneStates[pane.paneId]?.claudeSession {
+                return session
+            }
+        }
+        return nil
     }
 
     /// The latest event subtitle from the first pane with a Claude session
@@ -1020,7 +1055,13 @@ private struct WindowSidebarRow: View {
     }
 
     var body: some View {
-        HStack {
+        HStack(alignment: .top, spacing: 8) {
+            if let session = claudeSession {
+                SessionStatusIndicator(session: session)
+                    .font(.system(size: 16))
+                    .frame(width: 20)
+            }
+
             VStack(alignment: .leading, spacing: 2) {
                 // Custom description shown prominently if set
                 if let customDescription {
@@ -1034,12 +1075,6 @@ private struct WindowSidebarRow: View {
                     Text(window.id)
                         .font(.system(customDescription != nil ? .caption : .body, design: .monospaced))
                         .foregroundStyle(customDescription != nil ? .secondary : .primary)
-
-                    if hasClaude {
-                        Symbols.sparkles.image
-                            .foregroundStyle(.purple)
-                            .font(.caption)
-                    }
 
                     if !window.isSinglePane {
                         HStack(spacing: 2) {
@@ -1079,6 +1114,16 @@ private struct WindowSidebarRow: View {
             }
 
             Spacer()
+        }
+        // Invisible text exposing session status to macOS accessibility tree for e2e tests.
+        // ProgressView (working state) prevents AX from reading .accessibilityValue directly.
+        .overlay {
+            if let status = claudeSession?.statusLabel {
+                Text(status)
+                    .font(.system(size: 1))
+                    .opacity(0)
+                    .accessibilityLabel(status)
+            }
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
@@ -1290,12 +1335,11 @@ private struct RemoteHostSidebarSection: View {
                         RemotePaneSidebarRow(
                             title: item.session.displayName,
                             subtitle: item.paneId,
-                            hasClaude: true,
+                            claudeSession: item.session,
                             customDescription: paneState?.customDescription
                         )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(paneState?.customDescription ?? item.paneId)
                     .listRowBackground(
                         selectedRemotePane?.paneId == item.paneId && selectedRemotePane?.hostId == host.id
                             ? Color.accentColor.opacity(0.2) : nil
@@ -1319,7 +1363,7 @@ private struct RemoteHostSidebarSection: View {
                         RemotePaneSidebarRow(
                             title: pane.currentPath.flatMap { URL(fileURLWithPath: $0).lastPathComponent } ?? pane.paneId,
                             subtitle: pane.target.isEmpty ? pane.paneId : pane.target,
-                            hasClaude: false,
+                            claudeSession: nil,
                             customDescription: pane.customDescription
                         )
                     }
@@ -1381,11 +1425,17 @@ private struct RemoteHostSidebarSection: View {
 private struct RemotePaneSidebarRow: View {
     let title: String
     let subtitle: String
-    let hasClaude: Bool
+    let claudeSession: ClaudeSession?
     var customDescription: String?
 
     var body: some View {
-        HStack {
+        HStack(alignment: .top, spacing: 8) {
+            if let session = claudeSession {
+                SessionStatusIndicator(session: session)
+                    .font(.system(size: 16))
+                    .frame(width: 20)
+            }
+
             VStack(alignment: .leading, spacing: 2) {
                 if let customDescription {
                     Text(customDescription)
@@ -1394,17 +1444,9 @@ private struct RemotePaneSidebarRow: View {
                         .lineLimit(1)
                 }
 
-                HStack(spacing: 6) {
-                    Text(title)
-                        .font(.system(customDescription != nil ? .caption : .body, design: .monospaced))
-                        .foregroundStyle(customDescription != nil ? .secondary : .primary)
-
-                    if hasClaude {
-                        Symbols.sparkles.image
-                            .foregroundStyle(.purple)
-                            .font(.caption)
-                    }
-                }
+                Text(title)
+                    .font(.system(customDescription != nil ? .caption : .body, design: .monospaced))
+                    .foregroundStyle(customDescription != nil ? .secondary : .primary)
 
                 Text(subtitle)
                     .font(.caption)
@@ -1413,6 +1455,16 @@ private struct RemotePaneSidebarRow: View {
             }
 
             Spacer()
+        }
+        // Invisible text exposing session status to macOS accessibility tree for e2e tests.
+        // ProgressView (working state) prevents AX from reading .accessibilityValue directly.
+        .overlay {
+            if let status = claudeSession?.statusLabel {
+                Text(status)
+                    .font(.system(size: 1))
+                    .opacity(0)
+                    .accessibilityLabel(status)
+            }
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())

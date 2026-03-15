@@ -121,6 +121,13 @@ final public class SessionDetailService {
 
     // MARK: - Actions
 
+    /// Marks the session as handled locally and notifies the host
+    public func markHandledIfNeeded() async {
+        guard session?.needsAttention == true else { return }
+        sessionStore.markSessionHandled(paneId: paneId)
+        _ = await relayClient.sendCommand(MarkHandled(), paneId: paneId)
+    }
+
     /// Send a command to the host for this pane (fire-and-forget style)
     public func sendCommand(_ command: CommandType) async {
         // Extract the spec from the CommandType and send it
@@ -139,6 +146,8 @@ final public class SessionDetailService {
         case let .resizeTmuxPane(spec):
             _ = await relayClient.sendCommand(spec, paneId: paneId)
         case let .setYoloMode(spec):
+            _ = await relayClient.sendCommand(spec, paneId: paneId)
+        case let .markHandled(spec):
             _ = await relayClient.sendCommand(spec, paneId: paneId)
         case let .setWindowDescription(spec):
             _ = await relayClient.sendCommand(spec, paneId: "")
