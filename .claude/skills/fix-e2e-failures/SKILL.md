@@ -82,6 +82,14 @@ Use the `AskUserQuestion` tool to ask the user:
 
 If there are multiple failed scenarios, present them all together so the user can decide on each one. The user may choose different strategies for different failures.
 
+## Step 5: Follow the Chosen Path (see below)
+
+## Step 6: Commit and Push Changes
+
+## Step 7: Notify user and ask if it's ready for CI
+
+Use the AskUserQuestion tool to ask the user if they want to trigger CI. If yes, add the "ready for testing" label to the pr. If not just stop.
+
 ## Path A: Investigate and Fix the Bug
 
 When the user chooses to investigate and fix:
@@ -132,7 +140,7 @@ When the user confirms the UI change is intentional:
 
 4. **Present findings to the user** — Show the new baseline images and explain what they depict. Use AskUserQuestion to ask the user to confirm the new baselines look correct before proceeding.
 
-5. **Once confirmed**, the new baselines are ready. Inform the user the baselines have been updated and they can commit when ready.
+5. **Once confirmed**, the new baselines are ready. Remove the from git so that ci will re-generate them.
 
 ## Important Notes
 
