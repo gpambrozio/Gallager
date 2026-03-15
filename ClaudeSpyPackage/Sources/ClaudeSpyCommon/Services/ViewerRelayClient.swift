@@ -140,8 +140,21 @@ final public class ViewerRelayClient {
     /// Called when session state is received from host
     public var onSessionState: (@Sendable (SessionStateMessage) -> Void)?
 
-    /// Called when a terminal stream message is received from host
-    public var onTerminalStream: (@MainActor @Sendable (TerminalStreamMessage) -> Void)?
+    /// Per-pane terminal stream handlers, keyed by pane ID.
+    /// Multiple panes can receive stream data concurrently.
+    private var terminalStreamHandlers: [String: @MainActor @Sendable (TerminalStreamMessage) -> Void] = [:]
+
+    /// Register a terminal stream handler for a specific pane
+    public func setTerminalStreamHandler(
+        for paneId: String,
+        handler: (@MainActor @Sendable (TerminalStreamMessage) -> Void)?
+    ) {
+        if let handler {
+            terminalStreamHandlers[paneId] = handler
+        } else {
+            terminalStreamHandlers.removeValue(forKey: paneId)
+        }
+    }
 
     /// Called when partner's public key is received (for persisting to settings)
     public var onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)?
@@ -567,7 +580,7 @@ final public class ViewerRelayClient {
 
         case let .terminalStream(streamMessage):
             logger.trace("Received terminal stream for pane \(streamMessage.paneId)")
-            onTerminalStream?(streamMessage)
+            terminalStreamHandlers[streamMessage.paneId]?(streamMessage)
 
         case let .hostConnected(connectedMessage):
             logger.info("Host device connected")

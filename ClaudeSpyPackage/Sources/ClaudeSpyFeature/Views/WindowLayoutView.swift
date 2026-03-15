@@ -16,6 +16,15 @@
 
         @Environment(SessionStore.self) private var sessionStore
 
+        /// The currently selected pane (receives keyboard input)
+        @State private var activePaneId: String?
+
+        /// Whether keyboard input is active on the selected pane
+        @State private var isKeyboardActive = false
+
+        /// Tracks keyboard visibility for toolbar icon state
+        @State private var keyboardVisible = false
+
         /// The current window data from the session store
         private var window: TmuxWindow? {
             sessionStore.window(id: windowId, hostId: hostId)
@@ -35,6 +44,31 @@
             }
             .navigationTitle(window?.customDescription ?? windowId)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        isKeyboardActive.toggle()
+                    } label: {
+                        Label(
+                            keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
+                            symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
+                        )
+                    }
+                    .disabled(!relayClient.isHostConnected)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                keyboardVisible = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                keyboardVisible = false
+            }
+            .task {
+                // Default to the active pane (or first pane) on appear
+                if activePaneId == nil, let window {
+                    activePaneId = window.activePane?.paneId ?? window.panes.first?.paneId
+                }
+            }
         }
 
         @ViewBuilder
@@ -67,14 +101,30 @@
                 totalWidth: totalWidth, totalHeight: totalHeight,
                 into: &positioned
             )
+            let isMultiPane = positioned.count > 1
 
             return ProportionalTileLayout(rects: positioned.map(\.rect)) {
                 ForEach(positioned) { pane in
+                    let isSelected = pane.id == activePaneId
                     paneTerminal(pane: pane.paneState)
                         .overlay {
-                            if positioned.count > 1 {
+                            if isMultiPane {
+                                // Border: accent for selected, subtle for others
                                 Rectangle()
-                                    .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
+                                    .strokeBorder(
+                                        isSelected ? Color.accentColor : Color.white.opacity(0.3),
+                                        lineWidth: isSelected ? 2 : 1
+                                    )
+                            }
+                            // Transparent tap target for non-active panes.
+                            // UIKit terminal views absorb touches, so this overlay
+                            // intercepts taps to allow pane selection.
+                            if !isSelected && isMultiPane {
+                                Color.clear
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        activePaneId = pane.id
+                                    }
                             }
                         }
                 }
@@ -138,6 +188,8 @@
                 terminalTitle: .constant(nil),
                 isConnected: relayClient.isHostConnected,
                 hideNavigationBar: false,
+                showKeyboardButton: false,
+                isActive: pane.paneId == activePaneId && isKeyboardActive,
                 settings: settings,
                 sendCommand: { command in
                     await sendCommand(command, paneId: pane.paneId)
