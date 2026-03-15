@@ -404,25 +404,33 @@ struct ToolInputView: View {
                     detailRow("Description:", desc, maxLines: 3)
                 }
 
-            case let .bashOutput(params):
-                headerRow("Read Command Output")
-                detailRow("Bash ID:", params.bashId)
+            case let .taskOutput(params):
+                headerRow("Read Task Output")
+                detailRow("Task ID:", params.taskId)
                 if let filter = params.filter {
                     detailRow("Filter:", filter)
                 }
 
-            case let .killShell(params):
-                headerRow("Kill Shell")
-                detailRow("Shell ID:", params.shellId)
+            case let .taskStop(params):
+                headerRow("Stop Task")
+                detailRow("Task ID:", params.taskId)
 
-            case let .task(params):
-                headerRow("Run Subagent Task")
-                detailRow("Subagent:", params.subagentType.rawValue)
+            case .taskCreate, .taskGet, .taskList, .taskUpdate:
+                headerRow("Manage Tasks")
+
+            case let .agent(params):
+                headerRow("Run Subagent")
+                if let subagentType = params.subagentType {
+                    detailRow("Type:", subagentType)
+                }
                 detailRow("Task:", params.description)
 
             case let .todoWrite(params):
                 headerRow("Manage Todo List")
                 detailRow("Managing:", "\(params.todos.count) todo items")
+
+            case .enterPlanMode:
+                headerRow("Enter Plan Mode")
 
             case let .exitPlanMode(params):
                 headerRow("Exit Plan Mode")
@@ -432,6 +440,12 @@ struct ToolInputView: View {
                 if params.plan != nil {
                     detailRow("Plan:", "Included")
                 }
+
+            case .enterWorktree:
+                headerRow("Enter Worktree")
+
+            case .exitWorktree:
+                headerRow("Exit Worktree")
 
             case let .webFetch(params):
                 headerRow("Fetch Web Page")
@@ -461,9 +475,12 @@ struct ToolInputView: View {
                     detailRow("Mode:", mode.rawValue)
                 }
 
-            case let .slashCommand(params):
-                headerRow("Run Slash Command")
-                detailRow("Command:", params.command)
+            case let .skill(params):
+                headerRow("Run Skill")
+                detailRow("Skill:", params.skill)
+                if let args = params.args {
+                    detailRow("Args:", args)
+                }
 
             case let .askUserQuestion(params):
                 headerRow("Ask User Questions")
@@ -472,10 +489,25 @@ struct ToolInputView: View {
                     detailRow("\(index + 1).", question.question, maxLines: 2)
                 }
 
+            case .cronCreate, .cronDelete, .cronList:
+                headerRow("Scheduled Tasks")
+
+            case .lsp:
+                headerRow("Code Intelligence")
+
+            case .toolSearch:
+                headerRow("Tool Search")
+
             case let .mcp(params):
                 headerRow("MCP Tool")
                 detailRow("Server:", params.server)
                 detailRow("Tool:", params.tool)
+
+            case .listMcpResources:
+                headerRow("List MCP Resources")
+
+            case .readMcpResource:
+                headerRow("Read MCP Resource")
 
             case let .other(name, _):
                 headerRow(name)

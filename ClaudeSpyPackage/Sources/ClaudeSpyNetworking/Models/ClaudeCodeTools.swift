@@ -1,6 +1,7 @@
 import Foundation
 
 // MARK: - Claude Code Tool Enum
+// Reference: https://code.claude.com/docs/en/tools-reference
 
 public enum ClaudeCodeTool: Sendable, Equatable {
     // File Operations
@@ -15,13 +16,24 @@ public enum ClaudeCodeTool: Sendable, Equatable {
 
     // Execution
     case bash(BashParameters)
-    case bashOutput(BashOutputParameters)
-    case killShell(KillShellParameters)
+
+    // Task Management
+    case taskOutput(TaskOutputParameters)
+    case taskStop(TaskStopParameters)
+    case taskCreate(GenericToolParameters)
+    case taskGet(GenericToolParameters)
+    case taskList(GenericToolParameters)
+    case taskUpdate(GenericToolParameters)
 
     // Subagents & Planning
-    case task(TaskParameters)
+    case agent(AgentParameters)
     case todoWrite(TodoWriteParameters)
+    case enterPlanMode(GenericToolParameters)
     case exitPlanMode(ExitPlanModeParameters)
+
+    // Worktrees
+    case enterWorktree(GenericToolParameters)
+    case exitWorktree(GenericToolParameters)
 
     // Web Operations
     case webFetch(WebFetchParameters)
@@ -30,14 +42,27 @@ public enum ClaudeCodeTool: Sendable, Equatable {
     // Jupyter Notebooks
     case notebookEdit(NotebookEditParameters)
 
-    // Slash Commands
-    case slashCommand(SlashCommandParameters)
+    // Skills
+    case skill(SkillParameters)
 
     // User Interaction
     case askUserQuestion(AskUserQuestionParameters)
 
+    // Scheduled Tasks
+    case cronCreate(GenericToolParameters)
+    case cronDelete(GenericToolParameters)
+    case cronList(GenericToolParameters)
+
+    // Code Intelligence
+    case lsp(GenericToolParameters)
+
+    // Tool Discovery
+    case toolSearch(GenericToolParameters)
+
     // MCP Tools (mcp__<server>__<tool>)
     case mcp(MCPToolParameters)
+    case listMcpResources(GenericToolParameters)
+    case readMcpResource(GenericToolParameters)
 
     // Fallback for unknown tools
     case other(String, [String: AnyCodable])
@@ -51,17 +76,31 @@ public enum ClaudeCodeTool: Sendable, Equatable {
         case .grep: "Grep"
         case .glob: "Glob"
         case .bash: "Bash"
-        case .bashOutput: "BashOutput"
-        case .killShell: "KillShell"
-        case .task: "Task"
+        case .taskOutput: "TaskOutput"
+        case .taskStop: "TaskStop"
+        case .taskCreate: "TaskCreate"
+        case .taskGet: "TaskGet"
+        case .taskList: "TaskList"
+        case .taskUpdate: "TaskUpdate"
+        case .agent: "Agent"
         case .todoWrite: "TodoWrite"
+        case .enterPlanMode: "EnterPlanMode"
         case .exitPlanMode: "ExitPlanMode"
+        case .enterWorktree: "EnterWorktree"
+        case .exitWorktree: "ExitWorktree"
         case .webFetch: "WebFetch"
         case .webSearch: "WebSearch"
         case .notebookEdit: "NotebookEdit"
-        case .slashCommand: "SlashCommand"
+        case .skill: "Skill"
         case .askUserQuestion: "AskUserQuestion"
+        case .cronCreate: "CronCreate"
+        case .cronDelete: "CronDelete"
+        case .cronList: "CronList"
+        case .lsp: "LSP"
+        case .toolSearch: "ToolSearch"
         case let .mcp(params): params.fullToolName
+        case .listMcpResources: "ListMcpResourcesTool"
+        case .readMcpResource: "ReadMcpResourceTool"
         case let .other(name, _): name
         }
     }
@@ -83,15 +122,19 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             params.pattern
         case let .bash(params):
             params.command
-        case let .bashOutput(params):
-            params.bashId
-        case let .killShell(params):
-            params.shellId
-        case let .task(params):
+        case let .taskOutput(params):
+            params.taskId
+        case let .taskStop(params):
+            params.taskId
+        case .taskCreate, .taskGet, .taskList, .taskUpdate:
+            nil
+        case let .agent(params):
             params.description
         case .todoWrite:
             nil
-        case .exitPlanMode:
+        case .enterPlanMode, .exitPlanMode:
+            nil
+        case .enterWorktree, .exitWorktree:
             nil
         case let .webFetch(params):
             params.url
@@ -99,17 +142,26 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             params.query
         case let .notebookEdit(params):
             params.notebookPath
-        case let .slashCommand(params):
-            params.command
+        case let .skill(params):
+            params.skill
         case let .askUserQuestion(params):
             params.questions.first?.question
+        case .cronCreate, .cronDelete, .cronList:
+            nil
+        case .lsp:
+            nil
+        case .toolSearch:
+            nil
         case let .mcp(params):
             params.tool
+        case .listMcpResources, .readMcpResource:
+            nil
         case .other:
             nil
         }
     }
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public static func decode(from decoder: Decoder, toolName: String?) throws -> ClaudeCodeTool? {
         let container = try decoder.singleValueContainer()
 
@@ -132,26 +184,54 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             return try .glob(container.decode(GlobParameters.self))
         case "Bash":
             return try .bash(container.decode(BashParameters.self))
-        case "BashOutput":
-            return try .bashOutput(container.decode(BashOutputParameters.self))
-        case "KillShell":
-            return try .killShell(container.decode(KillShellParameters.self))
-        case "Task":
-            return try .task(container.decode(TaskParameters.self))
+        case "TaskOutput", "BashOutput":
+            return try .taskOutput(container.decode(TaskOutputParameters.self))
+        case "TaskStop", "KillShell":
+            return try .taskStop(container.decode(TaskStopParameters.self))
+        case "TaskCreate":
+            return try .taskCreate(container.decode(GenericToolParameters.self))
+        case "TaskGet":
+            return try .taskGet(container.decode(GenericToolParameters.self))
+        case "TaskList":
+            return try .taskList(container.decode(GenericToolParameters.self))
+        case "TaskUpdate":
+            return try .taskUpdate(container.decode(GenericToolParameters.self))
+        case "Agent", "Task":
+            return try .agent(container.decode(AgentParameters.self))
         case "TodoWrite":
             return try .todoWrite(container.decode(TodoWriteParameters.self))
+        case "EnterPlanMode":
+            return try .enterPlanMode(container.decode(GenericToolParameters.self))
         case "ExitPlanMode":
             return try .exitPlanMode(container.decode(ExitPlanModeParameters.self))
+        case "EnterWorktree":
+            return try .enterWorktree(container.decode(GenericToolParameters.self))
+        case "ExitWorktree":
+            return try .exitWorktree(container.decode(GenericToolParameters.self))
         case "WebFetch":
             return try .webFetch(container.decode(WebFetchParameters.self))
         case "WebSearch":
             return try .webSearch(container.decode(WebSearchParameters.self))
         case "NotebookEdit":
             return try .notebookEdit(container.decode(NotebookEditParameters.self))
-        case "SlashCommand":
-            return try .slashCommand(container.decode(SlashCommandParameters.self))
+        case "Skill", "SlashCommand":
+            return try .skill(container.decode(SkillParameters.self))
         case "AskUserQuestion":
             return try .askUserQuestion(container.decode(AskUserQuestionParameters.self))
+        case "CronCreate":
+            return try .cronCreate(container.decode(GenericToolParameters.self))
+        case "CronDelete":
+            return try .cronDelete(container.decode(GenericToolParameters.self))
+        case "CronList":
+            return try .cronList(container.decode(GenericToolParameters.self))
+        case "LSP":
+            return try .lsp(container.decode(GenericToolParameters.self))
+        case "ToolSearch":
+            return try .toolSearch(container.decode(GenericToolParameters.self))
+        case "ListMcpResourcesTool":
+            return try .listMcpResources(container.decode(GenericToolParameters.self))
+        case "ReadMcpResourceTool":
+            return try .readMcpResource(container.decode(GenericToolParameters.self))
         default:
             if let name = toolName, name.hasPrefix("mcp__") {
                 return try .mcp(container.decode(MCPToolParameters.self))
@@ -292,39 +372,77 @@ public struct BashParameters: Codable, Sendable, Equatable {
     }
 }
 
-public struct BashOutputParameters: Codable, Sendable, Equatable {
-    public let bashId: String
+public struct TaskOutputParameters: Codable, Sendable, Equatable {
+    /// The task or bash process identifier
+    public let taskId: String
     public let filter: String?
 
     enum CodingKeys: String, CodingKey {
+        case taskId = "task_id"
         case bashId = "bash_id"
         case filter
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // Accept both task_id and bash_id (legacy) for backward compatibility
+        if let taskId = try container.decodeIfPresent(String.self, forKey: .taskId) {
+            self.taskId = taskId
+        } else {
+            self.taskId = try container.decode(String.self, forKey: .bashId)
+        }
+        self.filter = try container.decodeIfPresent(String.self, forKey: .filter)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(taskId, forKey: .taskId)
+        try container.encodeIfPresent(filter, forKey: .filter)
+    }
 }
 
-public struct KillShellParameters: Codable, Sendable, Equatable {
-    public let shellId: String
+public struct TaskStopParameters: Codable, Sendable, Equatable {
+    /// The task or shell identifier to stop
+    public let taskId: String
 
     enum CodingKeys: String, CodingKey {
+        case taskId = "task_id"
         case shellId = "shell_id"
     }
-}
 
-public struct TaskParameters: Codable, Sendable, Equatable {
-    public let subagentType: SubagentType
-    public let prompt: String
-    public let description: String
-
-    public enum SubagentType: String, Codable, Sendable, Equatable {
-        case generalPurpose = "general-purpose"
-        case statusLineSetup = "statusline-setup"
-        case outputStyleSetup = "output-style-setup"
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // Accept both task_id and shell_id (legacy) for backward compatibility
+        if let taskId = try container.decodeIfPresent(String.self, forKey: .taskId) {
+            self.taskId = taskId
+        } else {
+            self.taskId = try container.decode(String.self, forKey: .shellId)
+        }
     }
 
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(taskId, forKey: .taskId)
+    }
+}
+
+public struct AgentParameters: Codable, Sendable, Equatable {
+    public let prompt: String
+    public let description: String
+    public let subagentType: String?
+    public let isolation: String?
+    public let model: String?
+    public let resume: String?
+    public let runInBackground: Bool?
+
     enum CodingKeys: String, CodingKey {
-        case subagentType = "subagent_type"
         case prompt
         case description
+        case subagentType = "subagent_type"
+        case isolation
+        case model
+        case resume
+        case runInBackground = "run_in_background"
     }
 }
 
@@ -420,8 +538,32 @@ public struct NotebookEditParameters: Codable, Sendable, Equatable {
     }
 }
 
-public struct SlashCommandParameters: Codable, Sendable, Equatable {
-    public let command: String
+public struct SkillParameters: Codable, Sendable, Equatable {
+    public let skill: String
+    public let args: String?
+
+    enum CodingKeys: String, CodingKey {
+        case skill
+        case args
+        case command
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // Accept both "skill" and "command" (legacy SlashCommand) for backward compatibility
+        if let skill = try container.decodeIfPresent(String.self, forKey: .skill) {
+            self.skill = skill
+        } else {
+            self.skill = try container.decode(String.self, forKey: .command)
+        }
+        self.args = try container.decodeIfPresent(String.self, forKey: .args)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(skill, forKey: .skill)
+        try container.encodeIfPresent(args, forKey: .args)
+    }
 }
 
 public struct AskUserQuestionParameters: Codable, Sendable, Equatable {
@@ -469,6 +611,26 @@ public struct MCPToolParameters: Codable, Sendable, Equatable {
     }
 }
 
+/// Generic parameters for tools without a known parameter schema.
+/// Stores raw key-value pairs to handle any parameters received over the wire.
+public struct GenericToolParameters: Codable, Sendable, Equatable {
+    public let rawParameters: [String: AnyCodable]
+
+    public init(rawParameters: [String: AnyCodable] = [:]) {
+        self.rawParameters = rawParameters
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self.rawParameters = (try? container.decode([String: AnyCodable].self)) ?? [:]
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawParameters)
+    }
+}
+
 // MARK: - ClaudeCodeTool Codable
 
 extension ClaudeCodeTool: Codable {
@@ -478,6 +640,7 @@ extension ClaudeCodeTool: Codable {
         self = .other("Unknown", dictionary)
     }
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self {
@@ -495,15 +658,29 @@ extension ClaudeCodeTool: Codable {
             try container.encode(params)
         case let .bash(params):
             try container.encode(params)
-        case let .bashOutput(params):
+        case let .taskOutput(params):
             try container.encode(params)
-        case let .killShell(params):
+        case let .taskStop(params):
             try container.encode(params)
-        case let .task(params):
+        case let .taskCreate(params):
+            try container.encode(params)
+        case let .taskGet(params):
+            try container.encode(params)
+        case let .taskList(params):
+            try container.encode(params)
+        case let .taskUpdate(params):
+            try container.encode(params)
+        case let .agent(params):
             try container.encode(params)
         case let .todoWrite(params):
             try container.encode(params)
+        case let .enterPlanMode(params):
+            try container.encode(params)
         case let .exitPlanMode(params):
+            try container.encode(params)
+        case let .enterWorktree(params):
+            try container.encode(params)
+        case let .exitWorktree(params):
             try container.encode(params)
         case let .webFetch(params):
             try container.encode(params)
@@ -511,11 +688,25 @@ extension ClaudeCodeTool: Codable {
             try container.encode(params)
         case let .notebookEdit(params):
             try container.encode(params)
-        case let .slashCommand(params):
+        case let .skill(params):
             try container.encode(params)
         case let .askUserQuestion(params):
             try container.encode(params)
+        case let .cronCreate(params):
+            try container.encode(params)
+        case let .cronDelete(params):
+            try container.encode(params)
+        case let .cronList(params):
+            try container.encode(params)
+        case let .lsp(params):
+            try container.encode(params)
+        case let .toolSearch(params):
+            try container.encode(params)
         case let .mcp(params):
+            try container.encode(params)
+        case let .listMcpResources(params):
+            try container.encode(params)
+        case let .readMcpResource(params):
             try container.encode(params)
         case let .other(_, dictionary):
             try container.encode(dictionary)
