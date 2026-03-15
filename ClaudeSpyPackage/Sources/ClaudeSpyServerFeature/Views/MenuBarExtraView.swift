@@ -157,7 +157,7 @@ public struct MenuBarExtraView: View {
         if session.needsAttention {
             Label(title, symbol: .bellBadgeFill)
         } else if session.isWorking {
-            Label(title, symbol: .boltFill)
+            Label(title, symbol: .figureRun)
         } else {
             Label(title, symbol: .moonFill)
         }

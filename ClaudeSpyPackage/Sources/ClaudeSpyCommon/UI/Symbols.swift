@@ -32,6 +32,7 @@ public enum Symbols: String {
     case ellipsisCircle = "ellipsis.circle"
     case exclamationmarkCircleFill = "exclamationmark.circle.fill"
     case exclamationmarkTriangle = "exclamationmark.triangle"
+    case figureRun = "figure.run"
     case folder
     case gearshape
     case handsAndSparklesFill = "hands.and.sparkles.fill"
