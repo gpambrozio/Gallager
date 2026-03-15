@@ -20,36 +20,6 @@ Launch, drive, inspect, and screenshot the ClaudeSpy apps interactively — with
 writing a formal test scenario. Intended for debugging issues, verifying fixes,
 and exploratory testing.
 
-## Quick Start
-
-### 1. Build (if needed)
-
-Build all E2E targets (skip if already built):
-
-```bash
-./scripts/e2e-test.sh
-```
-
-**Workaround — build without running tests:** There is no `--build-only` flag; run a
-full build by invoking the script normally (it builds then runs tests).
-
-### 2. Launch in Interactive Mode
-
-```bash
-# Launch all apps (server + macOS + iOS), no pairing:
-./scripts/e2e-test.sh --skip-build --interactive
-
-# Launch and run a scenario first (e.g. pair the apps), then wait:
-./scripts/e2e-test.sh --skip-build --interactive --scenario "Fresh Pairing"
-```
-
-Interactive mode starts everything, prints "Press Enter to shut down...", then waits.
-While waiting, all manual interaction commands below are available.
-
-### 3. Shut Down
-
-Press Enter in the terminal running interactive mode. Cleanup runs automatically.
-
 ## Environment Details
 
 When running in E2E mode, these services are active:
