@@ -311,6 +311,7 @@
                         customDescription: pane.customDescription
                     )
                 }
+                .accessibilityValue(session.statusLabel)
                 .modifier(DescriptionEditingModifier(
                     windowId: window.id,
                     currentDescription: window.customDescription,
