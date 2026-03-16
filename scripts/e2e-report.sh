@@ -35,6 +35,18 @@ while [[ $# -gt 0 ]]; do
             RESULTS_DIR="$2"
             shift 2
             ;;
+        --dashboard-url)
+            E2E_ARGS+=(--dashboard-url "$2")
+            shift 2
+            ;;
+        --dashboard-pr-number)
+            E2E_ARGS+=(--dashboard-pr-number "$2")
+            shift 2
+            ;;
+        --dashboard-pr-title)
+            E2E_ARGS+=(--dashboard-pr-title "$2")
+            shift 2
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -47,7 +59,11 @@ while [[ $# -gt 0 ]]; do
             echo "                      (default: $RESULTS_DIR)"
             echo "  -h, --help          Show this help"
             echo ""
-            echo "All e2e-test.sh options (--skip-build, --sim-name, --scenario, etc.)"
+            echo "  --dashboard-url URL      Send live CI updates to dashboard (fail-silent)"
+            echo "  --dashboard-pr-number N  PR number for dashboard display"
+            echo "  --dashboard-pr-title STR PR title for dashboard display"
+            echo ""
+            echo "All other e2e-test.sh options (--skip-build, --sim-name, --scenario, etc.)"
             echo "are passed through."
             exit 0
             ;;
