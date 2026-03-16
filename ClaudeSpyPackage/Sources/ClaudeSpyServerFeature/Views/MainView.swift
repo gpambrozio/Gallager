@@ -1340,7 +1340,6 @@ private struct RemoteHostSidebarSection: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(paneState?.customDescription ?? item.session.displayName)
                     .listRowBackground(
                         selectedRemotePane?.paneId == item.paneId && selectedRemotePane?.hostId == host.id
                             ? Color.accentColor.opacity(0.2) : nil
