@@ -1,10 +1,11 @@
+import ClaudeSpyNetworking
 import Foundation
 
-/// Groups local tmux panes (PaneInfo) that belong to the same window.
+/// Groups pane states that belong to the same tmux window.
 ///
-/// Used by the macOS app for local tmux window management. For the shared
-/// cross-platform window grouping (using PaneState), see `TmuxWindow` in ClaudeSpyCommon.
-public struct LocalTmuxWindow: Identifiable, Sendable, Hashable {
+/// Used on iOS to group remote pane states by window, and available on macOS
+/// for remote host display. For local tmux windows on macOS, see `LocalTmuxWindow`.
+public struct TmuxWindow: Identifiable, Sendable {
     /// Unique identifier: "sessionName:windowIndex"
     public let id: String
     /// The session name
@@ -15,25 +16,35 @@ public struct LocalTmuxWindow: Identifiable, Sendable, Hashable {
     public let windowName: String
     /// The tmux window layout string
     public let windowLayout: String
-    /// Panes in this window, sorted by pane index
-    public let panes: [PaneInfo]
+    /// Pane states in this window, sorted by pane index
+    public let panes: [PaneState]
 
     /// Whether this window has only a single pane
     public var isSinglePane: Bool { panes.count == 1 }
 
     /// The active pane in this window, or the first pane if none is active
-    public var activePane: PaneInfo? {
+    public var activePane: PaneState? {
         panes.first(where: \.isActive) ?? panes.first
     }
 
-    /// Groups panes by window and returns sorted windows
-    public static func groupPanes(_ panes: [PaneInfo]) -> [LocalTmuxWindow] {
-        let grouped = Dictionary(grouping: panes) { $0.windowId }
+    /// Whether any pane in this window has a Claude session
+    public var hasClaude: Bool {
+        panes.contains { $0.claudeSession != nil }
+    }
 
-        return grouped.compactMap { windowId, windowPanes -> LocalTmuxWindow? in
+    /// The custom description for this window (from any pane, since descriptions are per-window)
+    public var customDescription: String? {
+        panes.first(where: { $0.customDescription != nil })?.customDescription
+    }
+
+    /// Groups pane states by window and returns sorted windows
+    public static func groupPanes(_ paneStates: [PaneState]) -> [TmuxWindow] {
+        let grouped = Dictionary(grouping: paneStates) { $0.windowId }
+
+        return grouped.compactMap { windowId, windowPanes -> TmuxWindow? in
             guard let first = windowPanes.first else { return nil }
             let sortedPanes = windowPanes.sorted { $0.paneIndex < $1.paneIndex }
-            return LocalTmuxWindow(
+            return TmuxWindow(
                 id: windowId,
                 sessionName: first.sessionName,
                 windowIndex: first.windowIndex,

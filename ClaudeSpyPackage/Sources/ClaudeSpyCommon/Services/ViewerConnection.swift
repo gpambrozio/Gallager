@@ -131,23 +131,16 @@ final public class ViewerConnection: Identifiable {
     /// - Parameters:
     ///   - onHookEvent: Called when a hook event is received
     ///   - onSessionState: Called when session state is received
-    ///   - onTerminalStream: Called when terminal stream data is received
     ///   - onPartnerKeyReceived: Called when partner's public key is updated
     ///   - onUnpaired: Called when the pairing was removed by the other side
     public func setupCallbacks(
         onHookEvent: (@Sendable (HookEventMessage) -> Void)? = nil,
         onSessionState: (@Sendable (SessionStateMessage) -> Void)? = nil,
-        onTerminalStream: (@MainActor @Sendable (TerminalStreamMessage) -> Void)? = nil,
         onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)? = nil,
         onUnpaired: (@MainActor @Sendable () async -> Void)? = nil
     ) {
         relayClient.onHookEvent = onHookEvent
         relayClient.onSessionState = onSessionState
-        // Only set the terminal stream callback if there are no active subscribers,
-        // otherwise the multiplexer is already installed and we'd overwrite it.
-        if terminalStreamSubscribers.isEmpty {
-            relayClient.onTerminalStream = onTerminalStream
-        }
         relayClient.onPartnerKeyReceived = onPartnerKeyReceived
         relayClient.onUnpaired = onUnpaired
     }
@@ -173,8 +166,8 @@ final public class ViewerConnection: Identifiable {
         let subscriptionId = UUID()
         terminalStreamSubscribers[subscriptionId] = (paneId: paneId, handler: handler)
 
-        // Install the multiplexing handler on the relay client if not already set up
-        installTerminalStreamMultiplexer()
+        // Install per-pane multiplexing handler on the relay client
+        installTerminalStreamMultiplexer(for: paneId)
 
         return subscriptionId
     }
@@ -183,14 +176,18 @@ final public class ViewerConnection: Identifiable {
     ///
     /// - Parameter subscriptionId: The ID returned from `subscribeToTerminalStream`
     public func unsubscribeFromTerminalStream(_ subscriptionId: UUID) {
-        terminalStreamSubscribers.removeValue(forKey: subscriptionId)
+        guard let subscriber = terminalStreamSubscribers.removeValue(forKey: subscriptionId) else { return }
+
+        // If no more subscribers for this pane, remove the handler
+        let hasOtherSubscribers = terminalStreamSubscribers.values.contains { $0.paneId == subscriber.paneId }
+        if !hasOtherSubscribers {
+            relayClient.setTerminalStreamHandler(for: subscriber.paneId, handler: nil)
+        }
     }
 
-    /// Installs a single onTerminalStream handler that routes messages to all matching subscribers.
-    /// Only overwrites the callback on the first subscriber to avoid clobbering an existing multiplexer.
-    private func installTerminalStreamMultiplexer() {
-        guard terminalStreamSubscribers.count == 1 else { return }
-        relayClient.onTerminalStream = { [weak self] message in
+    /// Installs a per-pane handler on the relay client that routes messages to all matching subscribers.
+    private func installTerminalStreamMultiplexer(for paneId: String) {
+        relayClient.setTerminalStreamHandler(for: paneId) { [weak self] message in
             guard let self else { return }
             for (_, subscriber) in self.terminalStreamSubscribers where subscriber.paneId == message.paneId {
                 subscriber.handler(message)

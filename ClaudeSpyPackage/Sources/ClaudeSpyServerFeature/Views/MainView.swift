@@ -16,7 +16,7 @@ public struct MainView: View {
     public init() { }
 
     /// Selection state: either a local window or a remote pane (hostId + paneId)
-    @State private var selectedWindow: TmuxWindow?
+    @State private var selectedWindow: LocalTmuxWindow?
     @State private var selectedRemotePane: RemotePaneSelection?
     @State private var attachError: String?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -158,7 +158,7 @@ public struct MainView: View {
     }
 
     /// Whether a window has any pane with an active Claude session
-    private func windowHasClaude(_ window: TmuxWindow) -> Bool {
+    private func windowHasClaude(_ window: LocalTmuxWindow) -> Bool {
         window.panes.contains { windowManager.paneStates[$0.paneId]?.claudeSession != nil }
     }
 
@@ -193,7 +193,7 @@ public struct MainView: View {
     }
 
     @ViewBuilder
-    private func claudeSessionsSection(windows: [TmuxWindow]) -> some View {
+    private func claudeSessionsSection(windows: [LocalTmuxWindow]) -> some View {
         if !windows.isEmpty {
             Section {
                 ForEach(windows) { window in
@@ -208,7 +208,7 @@ public struct MainView: View {
     }
 
     @ViewBuilder
-    private func terminalsSection(windows: [TmuxWindow], hasClaudeSessions: Bool) -> some View {
+    private func terminalsSection(windows: [LocalTmuxWindow], hasClaudeSessions: Bool) -> some View {
         if !windows.isEmpty {
             Section {
                 ForEach(windows) { window in
@@ -272,7 +272,7 @@ public struct MainView: View {
         }
     }
 
-    private func windowButton(window: TmuxWindow, help: String? = nil) -> some View {
+    private func windowButton(window: LocalTmuxWindow, help: String? = nil) -> some View {
         let description = window.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customDescription }
         return Button {
             selectedWindow = window
@@ -1014,7 +1014,7 @@ extension SectionHeader {
 private struct WindowSidebarRow: View {
     @Environment(MirrorWindowManager.self) private var windowManager
 
-    let window: TmuxWindow
+    let window: LocalTmuxWindow
 
     /// The primary pane to show info for (active pane or first pane)
     private var primaryPane: PaneInfo? { window.activePane }
