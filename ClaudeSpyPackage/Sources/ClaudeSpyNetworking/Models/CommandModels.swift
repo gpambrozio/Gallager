@@ -431,7 +431,7 @@ public struct MarkHandled: CommandSpec, Equatable {
     }
 }
 
-/// Split a tmux pane horizontally or vertically. Returns the new pane ID.
+/// Split a tmux pane horizontally or vertically. On success, the response's `paneId` field contains the newly created pane's ID.
 public struct SplitTmuxPane: CommandSpec, Equatable {
     public typealias Response = CommandResponseMessage
 

@@ -45,7 +45,6 @@ public actor TmuxCommandExecutor {
                     command.paneId,
                     horizontal: spec.direction == .horizontal
                 )
-                logger.info("Command executed successfully", metadata: ["commandId": "\(command.id)"])
                 return .success(for: command.id, paneId: newPaneId)
 
             case .selectTmuxPane:

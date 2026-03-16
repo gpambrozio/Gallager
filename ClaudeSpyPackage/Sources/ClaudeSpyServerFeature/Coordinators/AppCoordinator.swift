@@ -401,12 +401,13 @@
                 }
 
                 // Handle select pane (needs state refresh to update active pane)
+                // Note: no pushSessionStateToAll — active pane is host-local state,
+                // iOS viewers don't render it, so pushing would just add chatter.
                 if case .selectTmuxPane = command.command {
                     let response = await executor.execute(command)
                     if response.success {
                         let allPanes = await tmux.refreshPanes()
                         await winManager.updatePaneStates(from: allPanes)
-                        await connectionManager?.pushSessionStateToAll()
                     }
                     return response
                 }

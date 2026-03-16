@@ -943,8 +943,6 @@ final public class TmuxService {
         }
 
         let paneId = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Refresh panes to pick up the new pane
-        await refreshPanes()
         return paneId
     }
 

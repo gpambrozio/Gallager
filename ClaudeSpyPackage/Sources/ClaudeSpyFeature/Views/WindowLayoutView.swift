@@ -31,6 +31,9 @@
         /// Whether to show the session info popover
         @State private var showSessionInfo = false
 
+        /// Guards against sending selectTmuxPane on initial pane assignment
+        @State private var hasInitializedPane = false
+
         /// The current window data from the session store
         private var window: TmuxWindow? {
             sessionStore.window(id: windowId, hostId: hostId)
@@ -103,14 +106,16 @@
                     activePaneId = window.activePane?.paneId ?? window.panes.first?.paneId
                 }
                 updateActiveService()
+                hasInitializedPane = true
             }
             .onChange(of: activePaneId) {
                 updateActiveService()
                 // Sync pane selection to the tmux session on the host
-                if let activePaneId {
-                    Task {
-                        await sendCommand(.selectTmuxPane, paneId: activePaneId)
-                    }
+                // Guard: skip the initial assignment from onAppear to avoid
+                // redirecting the host's tmux focus when the iOS view loads
+                guard hasInitializedPane, let activePaneId else { return }
+                Task {
+                    await sendCommand(.selectTmuxPane, paneId: activePaneId)
                 }
             }
         }
