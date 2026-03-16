@@ -62,6 +62,18 @@ while [[ $# -gt 0 ]]; do
             JSON_OUTPUT="$2"
             shift 2
             ;;
+        --dashboard-url)
+            DASHBOARD_URL="$2"
+            shift 2
+            ;;
+        --dashboard-pr-number)
+            DASHBOARD_PR_NUMBER="$2"
+            shift 2
+            ;;
+        --dashboard-pr-title)
+            DASHBOARD_PR_TITLE="$2"
+            shift 2
+            ;;
         --interactive|-i)
             INTERACTIVE=true
             shift
