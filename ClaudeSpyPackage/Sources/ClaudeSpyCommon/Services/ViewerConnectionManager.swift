@@ -310,9 +310,6 @@ final public class ViewerConnectionManager {
                     self?.onSessionState?(state)
                 }
             },
-            onTerminalStream: { _ in
-                // Terminal streams are handled by individual views
-            },
             onPartnerKeyReceived: { [weak self] publicKey, keyId in
                 guard let self else { return }
                 await self.onPartnerKeyReceived?(hostId, publicKey, keyId)

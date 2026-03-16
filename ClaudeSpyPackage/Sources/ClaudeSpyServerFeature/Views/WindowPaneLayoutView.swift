@@ -12,38 +12,10 @@ struct PositionedPane: Identifiable {
     let rect: CGRect
 }
 
-/// Custom `Layout` that tiles subviews using proportional rectangles.
-///
-/// Unlike `ZStack` + `.offset()`, this places each subview at its true layout
-/// position so that hit-testing (clicks, focus) matches the visual placement.
-private struct ProportionalTileLayout: Layout {
-    let rects: [CGRect]
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        proposal.replacingUnspecifiedDimensions()
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        for (index, subview) in subviews.enumerated() {
-            guard index < rects.count else { continue }
-            let proportional = rects[index]
-            let width = proportional.width * bounds.width
-            let height = proportional.height * bounds.height
-            let x = bounds.minX + proportional.origin.x * bounds.width
-            let y = bounds.minY + proportional.origin.y * bounds.height
-            subview.place(
-                at: CGPoint(x: x, y: y),
-                anchor: .topLeading,
-                proposal: ProposedViewSize(width: width, height: height)
-            )
-        }
-    }
-}
-
-/// Renders a `TmuxWindow` by parsing its layout string and arranging
+/// Renders a `LocalTmuxWindow` by parsing its layout string and arranging
 /// `TerminalContainerView` instances in the correct split arrangement.
 struct WindowPaneLayoutView: View {
-    let window: TmuxWindow
+    let window: LocalTmuxWindow
 
     @Environment(AppSettings.self) private var settings
     @Environment(MirrorWindowManager.self) private var windowManager

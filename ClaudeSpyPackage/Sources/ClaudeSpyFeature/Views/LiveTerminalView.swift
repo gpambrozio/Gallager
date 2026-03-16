@@ -30,6 +30,15 @@
         /// Whether the navigation bar is hidden (show overlay keyboard button)
         let hideNavigationBar: Bool
 
+        /// Whether to show the keyboard toggle button in the toolbar.
+        /// Set to false when used in multi-pane layouts where the parent manages the keyboard.
+        let showKeyboardButton: Bool
+
+        /// Whether this terminal pane is the active/selected one.
+        /// When false, keyboard input is suppressed regardless of `isInteractive`.
+        /// Used in multi-pane layouts where only the selected pane accepts input.
+        let isActive: Bool
+
         /// Command sender for response actions
         let sendCommand: CommandSender
 
@@ -50,6 +59,8 @@
             isConnected: Bool,
             isYoloMode: Bool = false,
             hideNavigationBar: Bool = false,
+            showKeyboardButton: Bool = true,
+            isActive: Bool = true,
             settings: IOSSettings,
             sendCommand: @escaping CommandSender
         ) {
@@ -59,6 +70,8 @@
             self.isConnected = isConnected
             self.isYoloMode = isYoloMode
             self.hideNavigationBar = hideNavigationBar
+            self.showKeyboardButton = showKeyboardButton
+            self.isActive = isActive
             self.sendCommand = sendCommand
             self.coordinator = StreamCoordinator(
                 paneId: paneId,
@@ -97,16 +110,18 @@
                     }
             }
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        isInteractive.toggle()
-                    } label: {
-                        Label(
-                            keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
-                            symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
-                        )
+                if showKeyboardButton {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            isInteractive.toggle()
+                        } label: {
+                            Label(
+                                keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
+                                symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
+                            )
+                        }
+                        .disabled(!isConnected || coordinator.streamState != .streaming)
                     }
-                    .disabled(!isConnected || coordinator.streamState != .streaming)
                 }
             }
             .task {
@@ -167,9 +182,12 @@
             case .streaming,
                  .ended: // View auto-dismisses on stream end
                 if let state = coordinator.terminalState {
+                    // When showKeyboardButton is false, parent controls interactivity
+                    // entirely through isActive. Otherwise, use internal toggle.
+                    let effectiveInteractive = showKeyboardButton ? (isInteractive && isActive) : isActive
                     TerminalStreamContainerView(
                         terminalState: state,
-                        isInteractive: isInteractive,
+                        isInteractive: effectiveInteractive,
                         onInput: { keys in
                             coordinator.enqueueKeySend(keys: keys, relayClient: relayClient)
                         }
@@ -208,14 +226,11 @@
             let currentCoordinator = coordinator
             let currentPaneId = paneId
 
-            // Set up stream message handler BEFORE sending the command
+            // Set up per-pane stream message handler BEFORE sending the command
             // Use strong capture to prevent the coordinator from being deallocated during async gaps
-            relayClient.onTerminalStream = { message in
+            relayClient.setTerminalStreamHandler(for: currentPaneId) { message in
                 // Verify this callback is for the current stream session
-                guard
-                    currentCoordinator.streamSessionId == streamSessionId,
-                    message.paneId == currentPaneId
-                else { return }
+                guard currentCoordinator.streamSessionId == streamSessionId else { return }
                 currentCoordinator.handleStreamMessage(message)
             }
 
@@ -241,7 +256,7 @@
 
             // Invalidate the current stream session first
             coordinator.streamSessionId = nil
-            relayClient.onTerminalStream = nil
+            relayClient.setTerminalStreamHandler(for: paneId, handler: nil)
 
             guard isConnected else { return }
             _ = await relayClient.sendCommand(
