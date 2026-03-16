@@ -34,8 +34,8 @@ public enum FontMetrics {
 
     /// Calculates the cell size for an existing font.
     ///
-    /// This exactly matches SwiftTerm's `computeFontDimensions()` method, including
-    /// the pixel-grid snapping introduced in v1.12.0.
+    /// This exactly matches SwiftTerm's `computeFontDimensions()` method, with additional
+    /// width pixel-grid snapping to avoid sub-pixel seams between columns.
     /// Use this overload when you already have a font reference (e.g., from `TerminalView.font`).
     ///
     /// - Parameter font: The monospace font to measure (NSFont on macOS, UIFont on iOS)
@@ -60,12 +60,14 @@ public enum FontMetrics {
             let cellWidth = "W".size(withAttributes: fontAttributes).width
         #endif
 
-        // Snap to pixel grid to avoid sub-pixel seams (matches SwiftTerm v1.12.0)
+        // Snap width to pixel grid to avoid sub-pixel seams between columns
         let scale = screenScaleFactor
         let snappedWidth = ceil(cellWidth * scale) / scale
-        let snappedHeight = ceil(cellHeight * scale) / scale
 
-        return CGSize(width: max(1, snappedWidth), height: max(min(snappedHeight, 8192), 1))
+        // Height cap of 8192 matches SwiftTerm's computeFontDimensions() safety limit
+        // (see AppleTerminalView.swift in SwiftTerm). cellHeight is already ceil()'d above,
+        // so no additional pixel snapping is needed for height.
+        return CGSize(width: max(1, snappedWidth), height: max(min(cellHeight, 8192), 1))
     }
 
     /// Returns the width of SwiftTerm's internal scroller.
@@ -96,7 +98,7 @@ public enum FontMetrics {
         #if canImport(AppKit) && !targetEnvironment(macCatalyst)
             NSScreen.main?.backingScaleFactor ?? 2.0
         #else
-            UIScreen.main.scale
+            UITraitCollection.current.displayScale
         #endif
     }
 
