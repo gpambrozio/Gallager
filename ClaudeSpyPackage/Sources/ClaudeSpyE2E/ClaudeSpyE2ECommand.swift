@@ -54,6 +54,15 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     @Option(name: .long, help: "Path to write verbose logs (default: <tmpdir>/claudespy-e2e/e2e.log)")
     var logFile: String?
 
+    @Option(name: .long, help: "Dashboard URL for live CI progress updates (e.g. http://localhost:3000). Fails silently if unreachable.")
+    var dashboardUrl: String?
+
+    @Option(name: .long, help: "PR number to display in dashboard CI updates")
+    var dashboardPrNumber: Int?
+
+    @Option(name: .long, help: "PR title to display in dashboard CI updates")
+    var dashboardPrTitle: String?
+
     @Flag(name: .long, help: "List all available scenarios and exit")
     var listScenarios = false
 
@@ -107,7 +116,15 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         fputs("  Hook port:   \(hookPortFile ?? "(default: ~/.claudespy-port-test)")\n", stderr)
         fputs("  Log file:    \(logPath)\(reset)\n\n", stderr)
 
-        let reporter = TerminalReporter()
+        var reporters: [any TestProgressReporter] = [TerminalReporter()]
+        var dashboardReporter: DashboardReporter? = nil
+        if let urlString = dashboardUrl, let url = URL(string: urlString) {
+            let dr = DashboardReporter(dashboardURL: url, prNumber: dashboardPrNumber, prTitle: dashboardPrTitle)
+            dashboardReporter = dr
+            reporters.append(dr)
+        }
+        let reporter = CompositeReporter(reporters)
+
         let orchestrator = TestOrchestrator(
             iosAppPath: iosAppPath,
             macOSAppPath: macosAppPath,
@@ -127,6 +144,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         if interactive {
             try await runInteractive(orchestrator: orchestrator)
         } else {
+            await dashboardReporter?.sendRunStarted()
             try await runTests(orchestrator: orchestrator)
         }
     }
