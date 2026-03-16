@@ -416,4 +416,16 @@ if [ -n "$JSON_OUTPUT" ]; then
     E2E_ARGS+=(--json-output "$JSON_OUTPUT")
 fi
 
+if [ -n "$DASHBOARD_URL" ]; then
+    E2E_ARGS+=(--dashboard-url "$DASHBOARD_URL")
+fi
+
+if [ -n "$DASHBOARD_PR_NUMBER" ]; then
+    E2E_ARGS+=(--dashboard-pr-number "$DASHBOARD_PR_NUMBER")
+fi
+
+if [ -n "$DASHBOARD_PR_TITLE" ]; then
+    E2E_ARGS+=(--dashboard-pr-title "$DASHBOARD_PR_TITLE")
+fi
+
 "$E2E_BIN" "${E2E_ARGS[@]}"
