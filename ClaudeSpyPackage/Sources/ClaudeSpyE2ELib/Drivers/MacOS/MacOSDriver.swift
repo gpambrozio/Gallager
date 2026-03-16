@@ -498,7 +498,8 @@ public actor MacOSDriver {
 
     // MARK: - Private: CGWindowList
 
-    /// Finds the CGWindowID for the first on-screen window owned by the test app instance (by PID).
+    /// Finds the CGWindowID for the main on-screen window owned by the test app instance (by PID).
+    /// Skips tiny windows (tooltips, menu bar items) by requiring a minimum size.
     private func getWindowID() -> CGWindowID? {
         guard let pid = appPID else { return nil }
         guard
@@ -508,12 +509,23 @@ public actor MacOSDriver {
             return nil
         }
 
+        let minimumDimension: CGFloat = 200
+
         for window in windowList {
             guard
                 let ownerPID = window[kCGWindowOwnerPID as String] as? pid_t,
                 ownerPID == pid,
                 let windowNumber = window[kCGWindowNumber as String] as? CGWindowID
             else { continue }
+
+            // Skip tiny windows like tooltips and menu bar items
+            if let bounds = window[kCGWindowBounds as String] as? [String: CGFloat],
+               let width = bounds["Width"], let height = bounds["Height"],
+               width < minimumDimension || height < minimumDimension
+            {
+                continue
+            }
+
             return windowNumber
         }
         return nil
