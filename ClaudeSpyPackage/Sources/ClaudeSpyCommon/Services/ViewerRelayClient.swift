@@ -140,8 +140,21 @@ final public class ViewerRelayClient {
     /// Called when session state is received from host
     public var onSessionState: (@Sendable (SessionStateMessage) -> Void)?
 
-    /// Called when a terminal stream message is received from host
-    public var onTerminalStream: (@MainActor @Sendable (TerminalStreamMessage) -> Void)?
+    /// Per-pane terminal stream handlers, keyed by pane ID.
+    /// Multiple panes can receive stream data concurrently.
+    private var terminalStreamHandlers: [String: @MainActor @Sendable (TerminalStreamMessage) -> Void] = [:]
+
+    /// Register a terminal stream handler for a specific pane
+    public func setTerminalStreamHandler(
+        for paneId: String,
+        handler: (@MainActor @Sendable (TerminalStreamMessage) -> Void)?
+    ) {
+        if let handler {
+            terminalStreamHandlers[paneId] = handler
+        } else {
+            terminalStreamHandlers.removeValue(forKey: paneId)
+        }
+    }
 
     /// Called when partner's public key is received (for persisting to settings)
     public var onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)?
@@ -300,6 +313,35 @@ final public class ViewerRelayClient {
                     handler(.failure(ViewerRelayClientError.timeout))
                 }
             }
+        }
+    }
+
+    /// Send a `CommandType` to the host, discarding the typed response.
+    ///
+    /// This is a convenience wrapper around `sendCommand(_:paneId:)` that dispatches
+    /// the enum variant to the underlying generic method. Useful when the caller doesn't
+    /// need the response (fire-and-forget style).
+    @discardableResult
+    public func send(_ command: CommandType, paneId: String) async -> Bool {
+        switch command {
+        case let .sendKeystroke(spec):
+            return (try? await sendCommand(spec, paneId: paneId).get()) != nil
+        case let .cancelOperation(spec):
+            return (try? await sendCommand(spec, paneId: paneId).get()) != nil
+        case let .startTerminalStream(spec):
+            return (try? await sendCommand(spec, paneId: paneId).get()) != nil
+        case let .stopTerminalStream(spec):
+            return (try? await sendCommand(spec, paneId: paneId).get()) != nil
+        case let .createTmuxSession(spec):
+            return (try? await sendCommand(spec, paneId: "").get()) != nil
+        case let .resizeTmuxPane(spec):
+            return (try? await sendCommand(spec, paneId: paneId).get()) != nil
+        case let .setYoloMode(spec):
+            return (try? await sendCommand(spec, paneId: paneId).get()) != nil
+        case let .markHandled(spec):
+            return (try? await sendCommand(spec, paneId: paneId).get()) != nil
+        case let .setWindowDescription(spec):
+            return (try? await sendCommand(spec, paneId: "").get()) != nil
         }
     }
 
@@ -540,7 +582,7 @@ final public class ViewerRelayClient {
 
         case let .terminalStream(streamMessage):
             logger.trace("Received terminal stream for pane \(streamMessage.paneId)")
-            onTerminalStream?(streamMessage)
+            terminalStreamHandlers[streamMessage.paneId]?(streamMessage)
 
         case let .hostConnected(connectedMessage):
             logger.info("Host device connected")
