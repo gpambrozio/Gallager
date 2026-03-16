@@ -106,6 +106,12 @@
             }
             .onChange(of: activePaneId) {
                 updateActiveService()
+                // Sync pane selection to the tmux session on the host
+                if let activePaneId {
+                    Task {
+                        await sendCommand(.selectTmuxPane, paneId: activePaneId)
+                    }
+                }
             }
         }
 
@@ -269,12 +275,52 @@
                 Text("\(window.panes.count) panes")
 
                 Spacer()
+
+                tmuxControls
             }
             .font(.caption)
             .foregroundStyle(.secondary)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .background(.bar)
+        }
+
+        // MARK: - Tmux Controls
+
+        private var tmuxControls: some View {
+            HStack(spacing: 12) {
+                // Send tmux prefix key (Ctrl+B)
+                Button {
+                    guard let activePaneId else { return }
+                    Task {
+                        await sendCommand(.sendKeystroke([.ctrl("b")]), paneId: activePaneId)
+                    }
+                } label: {
+                    Label("Tmux Prefix", symbol: .terminal)
+                }
+
+                // Split pane horizontally (left-right)
+                Button {
+                    guard let activePaneId else { return }
+                    Task {
+                        await sendCommand(.splitTmuxPane(direction: .horizontal), paneId: activePaneId)
+                    }
+                } label: {
+                    Label("Split Horizontal", symbol: .rectangleSplit2x1Fill)
+                }
+
+                // Split pane vertically (top-bottom)
+                Button {
+                    guard let activePaneId else { return }
+                    Task {
+                        await sendCommand(.splitTmuxPane(direction: .vertical), paneId: activePaneId)
+                    }
+                } label: {
+                    Label("Split Vertical", symbol: .rectangleSplit1x2Fill)
+                }
+            }
+            .labelStyle(.iconOnly)
+            .disabled(!relayClient.isHostConnected || activePaneId == nil)
         }
 
         // MARK: - Active Pane Service

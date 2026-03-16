@@ -389,6 +389,28 @@
                     return .success(for: command.id)
                 }
 
+                // Handle split pane (needs state refresh after split)
+                if case .splitTmuxPane = command.command {
+                    let response = await executor.execute(command)
+                    if response.success {
+                        let allPanes = await tmux.refreshPanes()
+                        await winManager.updatePaneStates(from: allPanes)
+                        await connectionManager?.pushSessionStateToAll()
+                    }
+                    return response
+                }
+
+                // Handle select pane (needs state refresh to update active pane)
+                if case .selectTmuxPane = command.command {
+                    let response = await executor.execute(command)
+                    if response.success {
+                        let allPanes = await tmux.refreshPanes()
+                        await winManager.updatePaneStates(from: allPanes)
+                        await connectionManager?.pushSessionStateToAll()
+                    }
+                    return response
+                }
+
                 // Regular commands execute on the actor executor
                 return await executor.execute(command)
             }

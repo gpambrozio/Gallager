@@ -431,6 +431,41 @@ public struct MarkHandled: CommandSpec, Equatable {
     }
 }
 
+/// Split a tmux pane horizontally or vertically. Returns the new pane ID.
+public struct SplitTmuxPane: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// Direction to split
+    public let direction: SplitDirection
+
+    public init(direction: SplitDirection) {
+        self.direction = direction
+    }
+
+    public var commandType: CommandType {
+        .splitTmuxPane(self)
+    }
+}
+
+/// Direction for splitting a tmux pane
+public enum SplitDirection: String, Codable, Sendable {
+    /// Split left-right (new pane appears to the right)
+    case horizontal
+    /// Split top-bottom (new pane appears below)
+    case vertical
+}
+
+/// Select (focus) a tmux pane. Returns success/failure.
+public struct SelectTmuxPane: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    public init() { }
+
+    public var commandType: CommandType {
+        .selectTmuxPane(self)
+    }
+}
+
 // MARK: - Command Types
 
 /// Commands that can be sent from viewer to host, with their associated data.
@@ -455,6 +490,10 @@ public enum CommandType: Codable, Sendable, Equatable {
     case markHandled(MarkHandled)
     /// Set a custom description for a tmux window
     case setWindowDescription(SetWindowDescription)
+    /// Split a tmux pane
+    case splitTmuxPane(SplitTmuxPane)
+    /// Select (focus) a tmux pane
+    case selectTmuxPane(SelectTmuxPane)
 
     // MARK: - Convenience Factory Methods
 
@@ -511,6 +550,16 @@ public enum CommandType: Codable, Sendable, Equatable {
     /// Create a setWindowDescription command
     public static func setWindowDescription(windowId: String, description: String?) -> CommandType {
         .setWindowDescription(SetWindowDescription(windowId: windowId, description: description))
+    }
+
+    /// Create a splitTmuxPane command
+    public static func splitTmuxPane(direction: SplitDirection) -> CommandType {
+        .splitTmuxPane(SplitTmuxPane(direction: direction))
+    }
+
+    /// Create a selectTmuxPane command
+    public static var selectTmuxPane: CommandType {
+        .selectTmuxPane(SelectTmuxPane())
     }
 }
 
