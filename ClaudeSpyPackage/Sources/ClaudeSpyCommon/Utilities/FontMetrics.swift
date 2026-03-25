@@ -67,7 +67,7 @@ public enum FontMetrics {
         // Height cap of 8192 matches SwiftTerm's computeFontDimensions() safety limit
         // (see AppleTerminalView.swift in SwiftTerm). cellHeight is already ceil()'d above,
         // so no additional pixel snapping is needed for height.
-        return CGSize(width: max(1, snappedWidth), height: max(min(cellHeight, 8192), 1))
+        return CGSize(width: max(1, snappedWidth), height: max(min(cellHeight, 8_192), 1))
     }
 
     /// Returns the width of SwiftTerm's internal scroller.
@@ -96,7 +96,7 @@ public enum FontMetrics {
 
     private static var screenScaleFactor: CGFloat {
         #if canImport(AppKit) && !targetEnvironment(macCatalyst)
-            NSScreen.main?.backingScaleFactor ?? 2.0
+            NSScreen.main?.backingScaleFactor ?? 2
         #else
             UITraitCollection.current.displayScale
         #endif
