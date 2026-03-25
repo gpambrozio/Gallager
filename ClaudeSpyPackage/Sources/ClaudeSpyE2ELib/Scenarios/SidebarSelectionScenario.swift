@@ -20,16 +20,8 @@ public enum SidebarSelectionScenario {
         TestStep.tmuxCreateSession(name: "sidebar-1", width: 80, height: 24)
         TestStep.tmuxCreateSession(name: "sidebar-2", width: 80, height: 24)
 
-        TestStep.launchMacApp()
-        TestStep.wait(seconds: 3)
-
-        TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
-        TestStep.wait(seconds: 1)
-        TestStep.macMoveWindow(x: 10, y: 10)
-        TestStep.macResizeWindow(width: 1_000, height: 600)
+        Shortcut.macOnlySetup
         TestStep.macSetSidebarWidth(250)
-        TestStep.wait(seconds: 1)
 
         // Store pane IDs for hook events
         TestStep.tmuxStorePaneId(target: "sidebar-1:0", storeAs: "pane1Id")

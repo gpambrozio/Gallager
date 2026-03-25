@@ -13,16 +13,7 @@ public enum ResizePaneScenario {
         TestStep.tmuxCreateSession(name: "resize-test-1", width: 80, height: 24)
         TestStep.tmuxCreateSession(name: "resize-test-2", width: 80, height: 24)
 
-        TestStep.launchMacApp()
-        TestStep.wait(seconds: 3)
-
-        TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
-        TestStep.wait(seconds: 1)
-        TestStep.macMoveWindow(x: 10, y: 10)
-        TestStep.macResizeWindow(width: 1_000, height: 600)
-        TestStep.macSetSidebarWidth(200)
-        TestStep.wait(seconds: 1)
+        Shortcut.macOnlySetup
 
         // Select first pane by clicking the sidebar row
         TestStep.macClickButton(titled: "resize-test-1:0")

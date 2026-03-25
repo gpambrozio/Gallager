@@ -12,15 +12,8 @@ public enum EmptyStateNewSessionScenario {
         // The orchestrator kills the isolated tmux server between scenarios,
         // so we're guaranteed a clean slate here.
 
-        TestStep.launchMacApp()
-        TestStep.wait(seconds: 3)
-
-        TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
-        TestStep.macMoveWindow(x: 10, y: 10)
+        Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 800)
-        TestStep.macSetSidebarWidth(200)
-        TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "empty-state-start")
 
         // ── Verify empty state with new session options in detail ──

@@ -125,13 +125,7 @@ public enum TableRenderingScenario {
 
         // ── Select the pane on macOS ─────────────────────────────────
 
-        TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
-        TestStep.wait(seconds: 1)
-        TestStep.macMoveWindow(x: 10, y: 10)
-        TestStep.macResizeWindow(width: 1_000, height: 600)
-        TestStep.macSetSidebarWidth(200)
-        TestStep.wait(seconds: 1)
+        Shortcut.openPanesWindow
 
         // Selecting the pane triggers capture-pane which exercises
         // the SO/SI → UTF-8 translation in filterToColorCodesOnly
