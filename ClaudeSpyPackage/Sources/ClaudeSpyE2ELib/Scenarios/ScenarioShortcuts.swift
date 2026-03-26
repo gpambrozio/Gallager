@@ -145,8 +145,8 @@ public enum Shortcut {
         tags: ["shortcut"]
     ) {
         // Fail fast if Settings window isn't open for instance 0
-        TestStep.macWaitForWindow(titled: "General", timeout: 5)
-        TestStep.macSelectSettingsTab("Remote Access")
+        // After FreshPairingScenario, Settings is on "Remote Access" tab
+        TestStep.macWaitForWindow(titled: "Remote Access", timeout: 5)
         TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "Add Viewer")
         TestStep.wait(seconds: 3)
