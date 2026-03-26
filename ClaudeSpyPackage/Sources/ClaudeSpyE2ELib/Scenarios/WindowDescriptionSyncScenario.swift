@@ -76,9 +76,9 @@ public enum WindowDescriptionSyncScenario {
         TestStep.macResizeWindow(width: 1_000, height: 600)
         TestStep.macSetSidebarWidth(250)
         TestStep.macWaitForElement(titled: "e2e-desc:0", timeout: 10)
+        TestStep.macWaitForElement(titled: "DescProject", timeout: 10)
 
         // Viewer shows project name in sidebar (like iOS)
-        TestStep.wait(seconds: 3)
         TestStep.macOpenPanesWindow(instance: 1)
         TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5, instance: 1)
         TestStep.wait(seconds: 1)
