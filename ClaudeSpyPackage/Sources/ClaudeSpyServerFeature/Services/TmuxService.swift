@@ -988,12 +988,15 @@ final public class TmuxService {
 
         // Build command arguments
         // -d: detached, -x: width, -y: height, -c: working directory
+        // -e: set environment variables (suppress oh-my-zsh update prompts)
         var args = [
             "new-session",
             "-d",
             "-s", sessionName,
             "-x", String(width),
             "-y", String(height),
+            "-e", "DISABLE_AUTO_UPDATE=true",
+            "-e", "DISABLE_UPDATE_PROMPT=true",
         ]
 
         // Add working directory if specified
