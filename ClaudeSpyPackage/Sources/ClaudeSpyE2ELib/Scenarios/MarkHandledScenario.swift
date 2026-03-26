@@ -45,18 +45,10 @@ public enum MarkHandledScenario {
         TestStep.wait(seconds: 3)
 
         // Open panes windows on host and viewer
-        TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
-        TestStep.wait(seconds: 1)
-        TestStep.macResizeWindow(width: 1_000, height: 600)
-        TestStep.macSetSidebarWidth(250)
+        Shortcut.openPanesWindow()
         TestStep.macWaitForElement(titled: "e2e-state:0", timeout: 10)
 
-        TestStep.macOpenPanesWindow(instance: 1)
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5, instance: 1)
-        TestStep.wait(seconds: 1)
-        TestStep.macResizeWindow(width: 1_000, height: 600, instance: 1)
-        TestStep.macSetSidebarWidth(250, instance: 1)
+        Shortcut.openPanesWindow(instance: 1)
         TestStep.macWaitForElement(titled: "StateProject", timeout: 30, instance: 1)
 
         // ── Phase 3: Verify "Attention" on all three platforms ────────────

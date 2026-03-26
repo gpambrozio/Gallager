@@ -41,7 +41,7 @@ public enum TruecolorRenderingScenario {
         TestStep.tmuxCreateSession(name: "truecolor-test", width: 120, height: 40)
         TestStep.wait(seconds: 3)
 
-        Shortcut.openPanesWindow
+        Shortcut.openPanesWindow()
         TestStep.macResizeWindow(width: 1_200, height: 700)
 
         TestStep.macClickButton(titled: "truecolor-test:0")

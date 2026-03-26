@@ -10,33 +10,38 @@ import Foundation
 ///
 /// Shortcuts are `TestScenario` values that get flattened into the parent
 /// scenario via `ScenarioBuilder.buildExpression(_: TestScenario)`.
+///
+/// **Note:** Shortcuts use `tags: ["shortcut"]` but are **not** registered in
+/// `allScenarios`, so the test runner will never execute them standalone.
 public enum Shortcut {
 
     // MARK: - macOS Setup
 
     /// Open the Panes window and configure it with standard sizing.
     ///
-    /// Expects the macOS app (instance 0) is already running.
+    /// Expects the macOS app for the given instance is already running.
     ///
     /// **Provides:**
-    /// - Panes window open, positioned at (10, 10), 1000×600, sidebar width 200
+    /// - Panes window open, positioned at (10, 10), 1000×600, sidebar width 250
     ///
     /// **Override after** if you need a different size:
     /// ```swift
-    /// Shortcut.openPanesWindow
+    /// Shortcut.openPanesWindow()
     /// TestStep.macResizeWindow(width: 1_200, height: 700)
     /// ```
-    public static let openPanesWindow = ClaudeSpyE2ELib.scenario(
-        "Open Panes Window",
-        tags: ["shortcut"]
-    ) {
-        TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
-        TestStep.wait(seconds: 1)
-        TestStep.macMoveWindow(x: 10, y: 10)
-        TestStep.macResizeWindow(width: 1_000, height: 600)
-        TestStep.macSetSidebarWidth(200)
-        TestStep.wait(seconds: 1)
+    public static func openPanesWindow(instance: Int = 0) -> TestScenario {
+        ClaudeSpyE2ELib.scenario(
+            "Open Panes Window",
+            tags: ["shortcut"]
+        ) {
+            TestStep.macOpenPanesWindow(instance: instance)
+            TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5, instance: instance)
+            TestStep.wait(seconds: 1)
+            TestStep.macMoveWindow(x: 10, y: 10, instance: instance)
+            TestStep.macResizeWindow(width: 1_000, height: 600, instance: instance)
+            TestStep.macSetSidebarWidth(250, instance: instance)
+            TestStep.wait(seconds: 1)
+        }
     }
 
     /// Launch the macOS app and open the Panes window with standard sizing.
@@ -46,7 +51,7 @@ public enum Shortcut {
     ///
     /// **Provides:**
     /// - macOS app launched (instance 0)
-    /// - Panes window open, positioned at (10, 10), 1000×600, sidebar width 200
+    /// - Panes window open, positioned at (10, 10), 1000×600, sidebar width 250
     ///
     /// **Override after** if you need a different size:
     /// ```swift
@@ -60,7 +65,7 @@ public enum Shortcut {
         TestStep.launchMacApp()
         TestStep.wait(seconds: 3)
 
-        Shortcut.openPanesWindow
+        Shortcut.openPanesWindow()
     }
 
     // MARK: - Pairing
@@ -72,9 +77,17 @@ public enum Shortcut {
     /// - Mac host (instance 0) launched and connected
     /// - Mac viewer (instance 1) launched and connected
     /// - Both showing "Connected" on their settings pages
-    /// - Context variable `pairingCode` stored
+    /// - Settings window visible for both instances
+    /// - Context variable `twoMac.pairingCode` stored
     ///
-    /// Does **not** create tmux sessions — add those in your scenario.
+    /// **Does not** create tmux sessions or open Panes windows — add those in your scenario.
+    ///
+    /// **Override after** to open Panes windows:
+    /// ```swift
+    /// Shortcut.twoMacPairing
+    /// Shortcut.openPanesWindow()
+    /// Shortcut.openPanesWindow(instance: 1)
+    /// ```
     public static let twoMacPairing = ClaudeSpyE2ELib.scenario(
         "Two Mac Pairing Setup",
         tags: ["shortcut"]
@@ -94,7 +107,7 @@ public enum Shortcut {
         TestStep.wait(seconds: 3)
         TestStep.macClickButton(titled: "Copy Code")
         TestStep.wait(seconds: 0.5)
-        TestStep.macReadClipboard(storeAs: "pairingCode")
+        TestStep.macReadClipboard(storeAs: "twoMac.pairingCode")
 
         // Launch viewer and pair with host
         TestStep.launchMacApp(instance: 1)
@@ -108,7 +121,7 @@ public enum Shortcut {
         TestStep.wait(seconds: 1)
         TestStep.macFocusElement(titled: "Pairing Code", instance: 1)
         TestStep.wait(seconds: 0.5)
-        TestStep.macType(text: "${pairingCode}", pressReturn: true, instance: 1)
+        TestStep.macType(text: "${twoMac.pairingCode}", pressReturn: true, instance: 1)
         TestStep.wait(seconds: 5)
 
         // Verify pairing succeeded
@@ -131,6 +144,8 @@ public enum Shortcut {
         "Add Mac Viewer",
         tags: ["shortcut"]
     ) {
+        // Fail fast if Settings window isn't open for instance 0
+        TestStep.macWaitForWindow(titled: "General", timeout: 5)
         TestStep.macSelectSettingsTab("Remote Access")
         TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "Add Viewer")

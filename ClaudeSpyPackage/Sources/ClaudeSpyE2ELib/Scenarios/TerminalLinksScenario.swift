@@ -73,7 +73,7 @@ public enum TerminalLinksScenario {
         // ── Verify on macOS ─────────────────────────────────────────
 
         TestStep.log("Verifying links on macOS")
-        Shortcut.openPanesWindow
+        Shortcut.openPanesWindow()
         TestStep.macResizeWindow(width: 1_200, height: 700)
 
         // Select the links-test pane

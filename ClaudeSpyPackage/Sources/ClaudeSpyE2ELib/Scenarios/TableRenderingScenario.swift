@@ -125,7 +125,7 @@ public enum TableRenderingScenario {
 
         // ── Select the pane on macOS ─────────────────────────────────
 
-        Shortcut.openPanesWindow
+        Shortcut.openPanesWindow()
 
         // Selecting the pane triggers capture-pane which exercises
         // the SO/SI → UTF-8 translation in filterToColorCodesOnly

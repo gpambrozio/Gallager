@@ -25,8 +25,7 @@ public enum TerminalTitleMacToMacScenario {
         // ── Phase 6: Open Panes window on host and select pane ────────
 
         TestStep.log("Opening Panes window on host")
-        Shortcut.openPanesWindow
-        TestStep.macSetSidebarWidth(250)
+        Shortcut.openPanesWindow()
 
         TestStep.macWaitForElement(titled: "e2e-title:0", timeout: 10)
         TestStep.macClickButton(titled: "e2e-title:0")

@@ -21,7 +21,6 @@ public enum YoloModeContextCompactionScenario {
         TestStep.tmuxCreateSession(name: "yolo-compact", width: 80, height: 24)
 
         Shortcut.macOnlySetup
-        TestStep.macSetSidebarWidth(250)
 
         TestStep.tmuxStorePaneId(target: "yolo-compact:0", storeAs: "paneId")
 

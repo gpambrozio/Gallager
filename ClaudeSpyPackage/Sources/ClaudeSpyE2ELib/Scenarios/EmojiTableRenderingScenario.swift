@@ -198,7 +198,7 @@ public enum EmojiTableRenderingScenario {
 
         // -- Select the pane on macOS --------------------------------------
 
-        Shortcut.openPanesWindow
+        Shortcut.openPanesWindow()
         TestStep.macResizeWindow(width: 1_100, height: 700)
 
         TestStep.macClickButton(titled: "emoji-tbl:0")

@@ -31,7 +31,7 @@ public enum DAResponseLeakScenario {
         TestStep.wait(seconds: 3)
 
         // ── Phase 3: Open pane on macOS host ──────────────────────────
-        Shortcut.openPanesWindow
+        Shortcut.openPanesWindow()
         TestStep.macResizeWindow(width: 900, height: 500)
 
         TestStep.macWaitForElement(titled: "e2e-da-leak:0", timeout: 10)

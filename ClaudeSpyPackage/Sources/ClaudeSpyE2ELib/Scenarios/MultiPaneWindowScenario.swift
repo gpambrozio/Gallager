@@ -26,7 +26,6 @@ public enum MultiPaneWindowScenario {
         // Launch macOS app and open Panes window
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 700)
-        TestStep.macSetSidebarWidth(250)
         TestStep.wait(seconds: 1)
 
         // Select the window and verify single-pane rendering

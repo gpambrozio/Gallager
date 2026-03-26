@@ -43,20 +43,12 @@ public enum WindowDescriptionSyncScenario {
         // ── Phase 4: Open Panes windows and set fixed sizes ─────────────
 
         // Host shows window ID in sidebar
-        TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
-        TestStep.wait(seconds: 1)
-        TestStep.macResizeWindow(width: 1_000, height: 600)
-        TestStep.macSetSidebarWidth(250)
+        Shortcut.openPanesWindow()
         TestStep.macWaitForElement(titled: "e2e-desc:0", timeout: 10)
 
         // Viewer shows project name in sidebar (like iOS)
         TestStep.wait(seconds: 3)
-        TestStep.macOpenPanesWindow(instance: 1)
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5, instance: 1)
-        TestStep.wait(seconds: 1)
-        TestStep.macResizeWindow(width: 1_000, height: 600, instance: 1)
-        TestStep.macSetSidebarWidth(250, instance: 1)
+        Shortcut.openPanesWindow(instance: 1)
         TestStep.macScreenshot(label: "viewer-panes-opened", instance: 1)
         TestStep.macWaitForElement(titled: "DescProject", timeout: 30, instance: 1)
 

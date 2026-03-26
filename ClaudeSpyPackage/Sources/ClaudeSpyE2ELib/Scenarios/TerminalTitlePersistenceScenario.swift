@@ -19,7 +19,6 @@ public enum TerminalTitlePersistenceScenario {
         TestStep.tmuxCreateSession(name: "title-persist-2", width: 80, height: 24)
 
         Shortcut.macOnlySetup
-        TestStep.macSetSidebarWidth(250)
 
         // ── Phase 1: Set title on selected pane ──────────────────
 
