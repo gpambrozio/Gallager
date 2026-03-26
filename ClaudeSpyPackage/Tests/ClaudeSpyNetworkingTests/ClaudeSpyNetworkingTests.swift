@@ -291,6 +291,14 @@ struct TmuxKeyCsiParsingTests {
         #expect(TmuxKey.from(bytes: space) == [.space])
     }
 
+    @Test("Parses CSI u for Ctrl+Alt+C")
+    func parsesCsiUCtrlAltC() {
+        // ESC [ 99 ; 7 u — Ctrl+Alt+C (codepoint 99, modifier 7 = 1 + alt + ctrl)
+        let data = Data([0x1B, 0x5B, 0x39, 0x39, 0x3B, 0x37, 0x75])
+        let keys = TmuxKey.from(bytes: data)
+        #expect(keys == [.ctrlAlt("c")])
+    }
+
     @Test("Parses CSI u for Shift+Tab as backtab")
     func parsesCsiUShiftTab() {
         // ESC [ 9 ; 2 u — Shift+Tab (codepoint 9, modifier 2 = 1 + shift)

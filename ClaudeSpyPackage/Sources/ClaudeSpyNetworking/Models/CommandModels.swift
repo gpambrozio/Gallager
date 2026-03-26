@@ -56,6 +56,9 @@ public enum TmuxKey: Codable, Sendable, Equatable {
     /// Alt/Meta key combinations (e.g., .alt("b") for Meta-b / word backward)
     case alt(Character)
 
+    /// Control+Alt key combinations (e.g., .ctrlAlt("x") for Ctrl+Alt+X)
+    case ctrlAlt(Character)
+
     /// Delay in milliseconds (not a real key, handled specially by executor)
     case delay(Int)
 
@@ -80,6 +83,7 @@ public enum TmuxKey: Codable, Sendable, Equatable {
         case .pageDown: "PageDown"
         case let .ctrl(char): "C-\(char)"
         case let .alt(char): "M-\(char)"
+        case let .ctrlAlt(char): "C-M-\(char)"
         case .delay: "" // Not a real key, handled by executor
         }
     }
@@ -338,10 +342,12 @@ private extension TmuxKey {
                 return CsiParseResult(keys: [], nextIndex: nextIndex)
             }
             let char = Character(scalar)
-            // Note: Ctrl takes precedence over Alt. Ctrl+Alt+X maps to .ctrl(x)
-            // because TmuxKey has no .ctrlAlt case. This matches tmux send-keys
-            // behavior where C-x is the closest representation.
-            if hasCtrl, char.isLetter {
+            if hasCtrl, hasAlt, char.isLetter {
+                return CsiParseResult(
+                    keys: [.ctrlAlt(Character(char.lowercased()))],
+                    nextIndex: nextIndex
+                )
+            } else if hasCtrl, char.isLetter {
                 return CsiParseResult(
                     keys: [.ctrl(Character(char.lowercased()))],
                     nextIndex: nextIndex
