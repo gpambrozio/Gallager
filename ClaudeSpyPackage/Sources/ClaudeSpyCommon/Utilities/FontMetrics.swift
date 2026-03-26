@@ -34,7 +34,8 @@ public enum FontMetrics {
 
     /// Calculates the cell size for an existing font.
     ///
-    /// This exactly matches SwiftTerm's `computeFontDimensions()` method.
+    /// This exactly matches SwiftTerm's `computeFontDimensions()` method, with additional
+    /// width pixel-grid snapping to avoid sub-pixel seams between columns.
     /// Use this overload when you already have a font reference (e.g., from `TerminalView.font`).
     ///
     /// - Parameter font: The monospace font to measure (NSFont on macOS, UIFont on iOS)
@@ -59,7 +60,14 @@ public enum FontMetrics {
             let cellWidth = "W".size(withAttributes: fontAttributes).width
         #endif
 
-        return CGSize(width: max(1, cellWidth), height: max(1, cellHeight))
+        // Snap width to pixel grid to avoid sub-pixel seams between columns
+        let scale = screenScaleFactor
+        let snappedWidth = ceil(cellWidth * scale) / scale
+
+        // Height cap of 8192 matches SwiftTerm's computeFontDimensions() safety limit
+        // (see AppleTerminalView.swift in SwiftTerm). cellHeight is already ceil()'d above,
+        // so no additional pixel snapping is needed for height.
+        return CGSize(width: max(1, snappedWidth), height: max(min(cellHeight, 8_192), 1))
     }
 
     /// Returns the width of SwiftTerm's internal scroller.
@@ -85,6 +93,14 @@ public enum FontMetrics {
     }
 
     // MARK: - Private Helpers
+
+    private static var screenScaleFactor: CGFloat {
+        #if canImport(AppKit) && !targetEnvironment(macCatalyst)
+            NSScreen.main?.backingScaleFactor ?? 2
+        #else
+            UITraitCollection.current.displayScale
+        #endif
+    }
 
     private static func createFont(name: String, size: CGFloat) -> CTFont {
         #if canImport(AppKit) && !targetEnvironment(macCatalyst)
