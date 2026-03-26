@@ -24,16 +24,9 @@ public enum MultiPaneWindowScenario {
         TestStep.wait(seconds: 1)
 
         // Launch macOS app and open Panes window
-        TestStep.launchMacApp()
-        TestStep.wait(seconds: 3)
-
-        TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
-        TestStep.wait(seconds: 1)
-        TestStep.macMoveWindow(x: 10, y: 10)
+        Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 700)
-        TestStep.macSetSidebarWidth(250)
-        TestStep.wait(seconds: 2)
+        TestStep.wait(seconds: 1)
 
         // Select the window and verify single-pane rendering
         TestStep.log("Verify sidebar shows 'multi-pane:0' and select it")

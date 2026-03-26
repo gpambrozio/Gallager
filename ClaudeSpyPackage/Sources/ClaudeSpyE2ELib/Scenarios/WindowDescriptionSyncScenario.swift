@@ -18,34 +18,7 @@ public enum WindowDescriptionSyncScenario {
 
         // ── Phase 2: Pair macOS host with Mac viewer (instance 1) ───────
 
-        TestStep.log("Generating second pairing code for Mac viewer")
-        // Settings window is still open from FreshPairingScenario on Remote Access tab
-        // After first pairing, the button changes to "Add Viewer"
-        TestStep.macSelectSettingsTab("Remote Access")
-        TestStep.wait(seconds: 1)
-        TestStep.macClickButton(titled: "Add Viewer")
-        TestStep.wait(seconds: 3)
-        TestStep.macClickButton(titled: "Copy Code")
-        TestStep.wait(seconds: 0.5)
-        TestStep.macReadClipboard(storeAs: "viewerPairingCode")
-
-        TestStep.log("Launching Mac viewer (instance 1)")
-        TestStep.launchMacApp(instance: 1)
-        TestStep.wait(seconds: 3)
-
-        TestStep.macOpenSettings(instance: 1)
-        TestStep.macWaitForWindow(titled: "General", timeout: 5, instance: 1)
-        TestStep.macSelectSettingsTab("Remote Hosts", instance: 1)
-        TestStep.wait(seconds: 1)
-        TestStep.macClickButton(titled: "Add Host", instance: 1)
-        TestStep.wait(seconds: 1)
-        TestStep.macFocusElement(titled: "Pairing Code", instance: 1)
-        TestStep.wait(seconds: 0.5)
-        TestStep.macType(text: "${viewerPairingCode}", pressReturn: true, instance: 1)
-        TestStep.wait(seconds: 5)
-
-        // Verify Mac viewer connected
-        TestStep.macWaitForElement(titled: "Connected", timeout: 15, instance: 1)
+        Shortcut.addMacViewer
 
         // ── Phase 3: Create Claude session on host ──────────────────────
 
@@ -70,20 +43,13 @@ public enum WindowDescriptionSyncScenario {
         // ── Phase 4: Open Panes windows and set fixed sizes ─────────────
 
         // Host shows window ID in sidebar
-        TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
-        TestStep.wait(seconds: 1)
-        TestStep.macResizeWindow(width: 1_000, height: 600)
-        TestStep.macSetSidebarWidth(250)
+        Shortcut.openPanesWindow()
         TestStep.macWaitForElement(titled: "e2e-desc:0", timeout: 10)
         TestStep.macWaitForElement(titled: "DescProject", timeout: 10)
 
         // Viewer shows project name in sidebar (like iOS)
-        TestStep.macOpenPanesWindow(instance: 1)
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5, instance: 1)
-        TestStep.wait(seconds: 1)
-        TestStep.macResizeWindow(width: 1_000, height: 600, instance: 1)
-        TestStep.macSetSidebarWidth(250, instance: 1)
+        TestStep.wait(seconds: 3)
+        Shortcut.openPanesWindow(instance: 1)
         TestStep.macScreenshot(label: "viewer-panes-opened", instance: 1)
         TestStep.macWaitForElement(titled: "DescProject", timeout: 30, instance: 1)
 
