@@ -684,7 +684,7 @@ public struct InstructionsLoadedBody: HookBodyProtocol {
     public let filePath: String?
     public let memoryType: String?
     public let loadReason: String?
-    public var shouldSendToServer: Bool { false }
+    public var shouldSendToServer: Bool { true }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -695,6 +695,26 @@ public struct InstructionsLoadedBody: HookBodyProtocol {
         case filePath = "file_path"
         case memoryType = "memory_type"
         case loadReason = "load_reason"
+    }
+
+    public init(
+        sessionId: String,
+        transcriptPath: String? = nil,
+        cwd: String? = nil,
+        hookEventName: String,
+        timestamp: String? = nil,
+        filePath: String? = nil,
+        memoryType: String? = nil,
+        loadReason: String? = nil
+    ) {
+        self.sessionId = sessionId
+        self.transcriptPath = transcriptPath
+        self.cwd = cwd
+        self.hookEventName = hookEventName
+        self.timestamp = timestamp
+        self.filePath = filePath
+        self.memoryType = memoryType
+        self.loadReason = loadReason
     }
 }
 
@@ -719,6 +739,26 @@ public struct StopFailureBody: HookBodyProtocol {
         case errorDetails = "error_details"
         case lastAssistantMessage = "last_assistant_message"
     }
+
+    public init(
+        sessionId: String,
+        transcriptPath: String? = nil,
+        cwd: String? = nil,
+        hookEventName: String,
+        timestamp: String? = nil,
+        error: String? = nil,
+        errorDetails: String? = nil,
+        lastAssistantMessage: String? = nil
+    ) {
+        self.sessionId = sessionId
+        self.transcriptPath = transcriptPath
+        self.cwd = cwd
+        self.hookEventName = hookEventName
+        self.timestamp = timestamp
+        self.error = error
+        self.errorDetails = errorDetails
+        self.lastAssistantMessage = lastAssistantMessage
+    }
 }
 
 public struct ConfigChangeBody: HookBodyProtocol {
@@ -740,6 +780,24 @@ public struct ConfigChangeBody: HookBodyProtocol {
         case source
         case filePath = "file_path"
     }
+
+    public init(
+        sessionId: String,
+        transcriptPath: String? = nil,
+        cwd: String? = nil,
+        hookEventName: String,
+        timestamp: String? = nil,
+        source: String? = nil,
+        filePath: String? = nil
+    ) {
+        self.sessionId = sessionId
+        self.transcriptPath = transcriptPath
+        self.cwd = cwd
+        self.hookEventName = hookEventName
+        self.timestamp = timestamp
+        self.source = source
+        self.filePath = filePath
+    }
 }
 
 public struct CwdChangedBody: HookBodyProtocol {
@@ -750,7 +808,7 @@ public struct CwdChangedBody: HookBodyProtocol {
     public let timestamp: String?
     public let oldCwd: String?
     public let newCwd: String?
-    public var shouldSendToServer: Bool { false }
+    public var shouldSendToServer: Bool { true }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -760,6 +818,24 @@ public struct CwdChangedBody: HookBodyProtocol {
         case timestamp
         case oldCwd = "old_cwd"
         case newCwd = "new_cwd"
+    }
+
+    public init(
+        sessionId: String,
+        transcriptPath: String? = nil,
+        cwd: String? = nil,
+        hookEventName: String,
+        timestamp: String? = nil,
+        oldCwd: String? = nil,
+        newCwd: String? = nil
+    ) {
+        self.sessionId = sessionId
+        self.transcriptPath = transcriptPath
+        self.cwd = cwd
+        self.hookEventName = hookEventName
+        self.timestamp = timestamp
+        self.oldCwd = oldCwd
+        self.newCwd = newCwd
     }
 }
 
@@ -782,6 +858,24 @@ public struct FileChangedBody: HookBodyProtocol {
         case filePath = "file_path"
         case event
     }
+
+    public init(
+        sessionId: String,
+        transcriptPath: String? = nil,
+        cwd: String? = nil,
+        hookEventName: String,
+        timestamp: String? = nil,
+        filePath: String? = nil,
+        event: String? = nil
+    ) {
+        self.sessionId = sessionId
+        self.transcriptPath = transcriptPath
+        self.cwd = cwd
+        self.hookEventName = hookEventName
+        self.timestamp = timestamp
+        self.filePath = filePath
+        self.event = event
+    }
 }
 
 public struct WorktreeCreateBody: HookBodyProtocol {
@@ -791,7 +885,7 @@ public struct WorktreeCreateBody: HookBodyProtocol {
     public let hookEventName: String
     public let timestamp: String?
     public let name: String?
-    public var shouldSendToServer: Bool { false }
+    public var shouldSendToServer: Bool { true }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -800,6 +894,22 @@ public struct WorktreeCreateBody: HookBodyProtocol {
         case hookEventName = "hook_event_name"
         case timestamp
         case name
+    }
+
+    public init(
+        sessionId: String,
+        transcriptPath: String? = nil,
+        cwd: String? = nil,
+        hookEventName: String,
+        timestamp: String? = nil,
+        name: String? = nil
+    ) {
+        self.sessionId = sessionId
+        self.transcriptPath = transcriptPath
+        self.cwd = cwd
+        self.hookEventName = hookEventName
+        self.timestamp = timestamp
+        self.name = name
     }
 }
 
@@ -822,6 +932,24 @@ public struct WorktreeRemoveBody: HookBodyProtocol {
         case name
         case worktreePath = "worktree_path"
     }
+
+    public init(
+        sessionId: String,
+        transcriptPath: String? = nil,
+        cwd: String? = nil,
+        hookEventName: String,
+        timestamp: String? = nil,
+        name: String? = nil,
+        worktreePath: String? = nil
+    ) {
+        self.sessionId = sessionId
+        self.transcriptPath = transcriptPath
+        self.cwd = cwd
+        self.hookEventName = hookEventName
+        self.timestamp = timestamp
+        self.name = name
+        self.worktreePath = worktreePath
+    }
 }
 
 public struct PostCompactBody: HookBodyProtocol {
@@ -840,6 +968,22 @@ public struct PostCompactBody: HookBodyProtocol {
         case hookEventName = "hook_event_name"
         case timestamp
         case triggeredBy = "triggered_by"
+    }
+
+    public init(
+        sessionId: String,
+        transcriptPath: String? = nil,
+        cwd: String? = nil,
+        hookEventName: String,
+        timestamp: String? = nil,
+        triggeredBy: String? = nil
+    ) {
+        self.sessionId = sessionId
+        self.transcriptPath = transcriptPath
+        self.cwd = cwd
+        self.hookEventName = hookEventName
+        self.timestamp = timestamp
+        self.triggeredBy = triggeredBy
     }
 }
 
@@ -860,6 +1004,22 @@ public struct ElicitationBody: HookBodyProtocol {
         case timestamp
         case serverName = "server_name"
     }
+
+    public init(
+        sessionId: String,
+        transcriptPath: String? = nil,
+        cwd: String? = nil,
+        hookEventName: String,
+        timestamp: String? = nil,
+        serverName: String? = nil
+    ) {
+        self.sessionId = sessionId
+        self.transcriptPath = transcriptPath
+        self.cwd = cwd
+        self.hookEventName = hookEventName
+        self.timestamp = timestamp
+        self.serverName = serverName
+    }
 }
 
 public struct ElicitationResultBody: HookBodyProtocol {
@@ -878,6 +1038,22 @@ public struct ElicitationResultBody: HookBodyProtocol {
         case hookEventName = "hook_event_name"
         case timestamp
         case serverName = "server_name"
+    }
+
+    public init(
+        sessionId: String,
+        transcriptPath: String? = nil,
+        cwd: String? = nil,
+        hookEventName: String,
+        timestamp: String? = nil,
+        serverName: String? = nil
+    ) {
+        self.sessionId = sessionId
+        self.transcriptPath = transcriptPath
+        self.cwd = cwd
+        self.hookEventName = hookEventName
+        self.timestamp = timestamp
+        self.serverName = serverName
     }
 }
 
@@ -1366,7 +1542,7 @@ public enum HookAction: Codable, Sendable {
             "Error: \(body.error ?? "Unknown")"
         case let .configChange(body):
             "Config Changed: \(body.source ?? "Unknown")"
-        case let .cwdChanged(body):
+        case .cwdChanged:
             "Directory Changed"
         case let .fileChanged(body):
             "File \(body.event ?? "Changed")"
