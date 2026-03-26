@@ -124,6 +124,33 @@ public static let scenario = ClaudeSpyE2ELib.scenario("Advanced Test", tags: ["a
 
 The `ScenarioBuilder` result builder flattens included scenario steps inline.
 
+### Reusable Shortcuts
+
+The `Shortcut` enum in `ScenarioShortcuts.swift` provides pre-built scenario fragments for common setup sequences. **Always prefer shortcuts over duplicating setup steps.**
+
+| Shortcut | What it provides |
+|----------|-----------------|
+| `Shortcut.macOnlySetup` | Launches macOS app + opens Panes window (positioned at 10,10, 1000x600, sidebar 250) |
+| `Shortcut.openPanesWindow(instance:)` | Opens and sizes the Panes window (expects app already running) |
+| `Shortcut.twoMacPairing` | Starts server, launches two Mac instances, pairs them, verifies "Connected" |
+| `Shortcut.addMacViewer` | After `FreshPairingScenario`, adds a Mac viewer as instance 1 |
+
+Usage:
+```swift
+public static let scenario = ClaudeSpyE2ELib.scenario("My Test", tags: ["macos-only"]) {
+    Shortcut.macOnlySetup  // Replaces manual launchMacApp + openPanesWindow steps
+
+    // Test-specific steps...
+    TestStep.macScreenshot(label: "initial-state")
+}
+```
+
+Override defaults after a shortcut if needed:
+```swift
+Shortcut.macOnlySetup
+TestStep.macResizeWindow(width: 1_200, height: 700)  // Override default size
+```
+
 ## Variable Interpolation
 
 Pass data between steps via `ExecutionContext`:
@@ -172,7 +199,9 @@ Use `.roleAndLabelContains` for confirmation dialogs to target the button specif
 Detailed patterns are in `references/patterns.md`. Key patterns:
 
 - **Full pairing flow** - Compose with `FreshPairingScenario.scenario`
-- **macOS-only scenario** - Tag with `"macos-only"`, use `tmuxCreateSession` instead of server/iOS
+- **macOS-only scenario** - Tag with `"macos-only"`, use `Shortcut.macOnlySetup` or `tmuxCreateSession` instead of server/iOS
+- **Two-Mac pairing** - Use `Shortcut.twoMacPairing` for host + viewer setup
+- **Add viewer to existing pairing** - Use `Shortcut.addMacViewer` after `FreshPairingScenario`
 - **Unpair verification** - Use `waitForNoPairings` + `verifyServerHasPairings(count: 0)`
 - **Reconnection testing** - Use `serverDisconnectDevice(.viewer)` or `serverDisconnectDevice(.host)`
 - **Assertion chains** - Store values with keys, then compare with `assertStoredEqual`/`assertStoredNotEqual`

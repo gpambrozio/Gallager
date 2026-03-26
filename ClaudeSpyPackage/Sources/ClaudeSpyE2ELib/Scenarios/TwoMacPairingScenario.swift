@@ -7,66 +7,14 @@ public enum TwoMacPairingScenario {
         "Two Mac Pairing",
         tags: ["pairing", "macos-only"]
     ) {
-        // ── Phase 1: Setup ──────────────────────────────────────────
+        // ── Phase 1–4: Pair two Mac apps (host + viewer) ────────────
 
-        TestStep.log("Starting relay server")
-        TestStep.startServer
-        TestStep.verifyServerHealth
+        Shortcut.twoMacPairing
 
-        // ── Phase 2: Launch host (mac1) and generate pairing code ───
-
-        TestStep.log("Launching host Mac app (mac1)")
-        TestStep.launchMacApp()
-        TestStep.wait(seconds: 3)
-
-        TestStep.macOpenSettings()
-        TestStep.macWaitForWindow(titled: "General", timeout: 5)
-        TestStep.macSelectSettingsTab("Remote Access")
-        TestStep.wait(seconds: 1)
-        TestStep.macClickButton(titled: "Generate Pairing Code")
-        TestStep.wait(seconds: 3)
-        TestStep.macClickButton(titled: "Copy Code")
-        TestStep.wait(seconds: 0.5)
-        TestStep.macReadClipboard(storeAs: "pairingCode")
-        TestStep.log("Pairing code: ${pairingCode}")
-
-        // ── Phase 3: Launch viewer (mac2) and pair with host ────────
-
-        TestStep.log("Launching viewer Mac app (mac2)")
-        TestStep.launchMacApp(instance: 1)
-        TestStep.wait(seconds: 3)
-
-        TestStep.macOpenSettings(instance: 1)
-        TestStep.macWaitForWindow(titled: "General", timeout: 5, instance: 1)
-        TestStep.macSelectSettingsTab("Remote Hosts", instance: 1)
-        TestStep.wait(seconds: 1)
-
-        // Click "Add Host" to open the pairing sheet
-        TestStep.macClickButton(titled: "Add Host", instance: 1)
-        TestStep.wait(seconds: 1)
-
-        // Focus the text field, type the pairing code, then press Return to trigger Connect
-        TestStep.macFocusElement(titled: "Pairing Code", instance: 1)
-        TestStep.wait(seconds: 0.5)
-        TestStep.macType(text: "${pairingCode}", pressReturn: true, instance: 1)
-        TestStep.wait(seconds: 5)
-
-        // ── Phase 4: Verify pairing succeeded ───────────────────────
-
-        TestStep.log("Verifying pairing and connections")
-        // Screenshot both apps before asserting so we can diagnose failures
+        // Diagnostic screenshots
         TestStep.macScreenshot(label: "host-after-pairing", compare: false)
         TestStep.macScreenshot(label: "viewer-after-pairing", compare: false, instance: 1)
-        TestStep.verifyServerHasPairings(count: 1)
-        TestStep.waitForHostConnected(timeout: 15)
-        TestStep.waitForViewerConnected(timeout: 15)
-
-        // Verify host shows "Connected" on its settings page
-        TestStep.macWaitForElement(titled: "Connected", timeout: 15)
         TestStep.macScreenshot(label: "host-connected")
-
-        // Verify viewer shows "Connected" on its Remote Hosts page
-        TestStep.macWaitForElement(titled: "Connected", timeout: 15, instance: 1)
         TestStep.macScreenshot(label: "viewer-connected", instance: 1)
 
         // ── Phase 5: Create tmux session on host ────────────────────

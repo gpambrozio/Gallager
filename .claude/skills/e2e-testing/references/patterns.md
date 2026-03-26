@@ -42,18 +42,13 @@ TestStep.launchMacApp
 
 ## Pattern: macOS-Only Scenario
 
-For scenarios that don't need iOS or the relay server, tag with `"macos-only"` and use tmux directly. No need to call `startServer` - `launchMacApp` still passes `--server-url` to prevent accidental production connections, but no running server is required:
+For scenarios that don't need iOS or the relay server, tag with `"macos-only"` and use tmux directly. Use `Shortcut.macOnlySetup` to handle app launch and Panes window setup:
 
 ```swift
 public static let scenario = ClaudeSpyE2ELib.scenario("My macOS Test", tags: ["macos-only"]) {
     TestStep.tmuxCreateSession(name: "test-session", width: 80, height: 24)
 
-    TestStep.launchMacApp
-    TestStep.wait(seconds: 3)
-
-    TestStep.macOpenPanesWindow
-    TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
-    TestStep.wait(seconds: 1)
+    Shortcut.macOnlySetup  // Launches app + opens Panes window (1000x600, sidebar 250)
 
     // Select a pane in the sidebar
     TestStep.macClickButton(titled: "test-session:0.0")
@@ -63,6 +58,14 @@ public static let scenario = ClaudeSpyE2ELib.scenario("My macOS Test", tags: ["m
     TestStep.macType(text: "echo hello", pressReturn: true)
 }
 ```
+
+If you need a different window size, override after the shortcut:
+```swift
+Shortcut.macOnlySetup
+TestStep.macResizeWindow(width: 1_200, height: 700)
+```
+
+For scenarios that only need the Panes window (app already running), use `Shortcut.openPanesWindow(instance:)` instead.
 
 Note: `launchMacApp` always includes `--server-url` to prevent accidental production connections, even without a running server.
 

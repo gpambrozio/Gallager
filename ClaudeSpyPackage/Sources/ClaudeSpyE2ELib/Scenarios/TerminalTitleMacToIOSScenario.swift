@@ -26,13 +26,7 @@ public enum TerminalTitleMacToIOSScenario {
         // ── Phase 3: Open Panes window on host and select pane ────────
 
         TestStep.log("Opening Panes window on host")
-        TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
-        TestStep.wait(seconds: 1)
-        TestStep.macMoveWindow(x: 10, y: 10)
-        TestStep.macResizeWindow(width: 1_000, height: 600)
-        TestStep.macSetSidebarWidth(250)
-        TestStep.wait(seconds: 1)
+        Shortcut.openPanesWindow()
 
         TestStep.macWaitForElement(titled: "e2e-title-ios:0", timeout: 10)
         TestStep.macClickButton(titled: "e2e-title-ios:0")

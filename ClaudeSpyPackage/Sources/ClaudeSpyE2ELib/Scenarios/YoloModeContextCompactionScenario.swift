@@ -20,15 +20,7 @@ public enum YoloModeContextCompactionScenario {
         TestStep.log("Setting up tmux session and Mac app")
         TestStep.tmuxCreateSession(name: "yolo-compact", width: 80, height: 24)
 
-        TestStep.launchMacApp()
-        TestStep.wait(seconds: 3)
-
-        TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
-        TestStep.wait(seconds: 1)
-        TestStep.macResizeWindow(width: 1_000, height: 600)
-        TestStep.macSetSidebarWidth(250)
-        TestStep.wait(seconds: 1)
+        Shortcut.macOnlySetup
 
         TestStep.tmuxStorePaneId(target: "yolo-compact:0", storeAs: "paneId")
 

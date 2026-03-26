@@ -36,17 +36,9 @@ public enum ScrollbackGapScenario {
 
         // ── Launch macOS app with SHORT window ──────────────────────
 
-        TestStep.launchMacApp()
-        TestStep.wait(seconds: 3)
-
-        TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
-        TestStep.wait(seconds: 1)
-        TestStep.macMoveWindow(x: 10, y: 10)
+        Shortcut.macOnlySetup
         // Short window: ~400px height gives ~20-25 terminal rows, well under 50
         TestStep.macResizeWindow(width: 1_200, height: 400)
-        TestStep.macSetSidebarWidth(200)
-        TestStep.wait(seconds: 1)
 
         // ── Start mirroring ─────────────────────────────────────────
 
