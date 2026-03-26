@@ -247,6 +247,8 @@ private extension TmuxKey {
             let b = data[j]
             if b >= 0x30, b <= 0x39 { // '0'-'9'
                 currentParam = currentParam &* 10 &+ Int(b - 0x30)
+                // Cap at max Unicode codepoint to prevent wrapping on adversarial input
+                if currentParam > 0x10FFFF { return nil }
                 hasDigit = true
                 j += 1
             } else if b == 0x3B { // ';'
@@ -317,12 +319,16 @@ private extension TmuxKey {
         }
 
         let modifier = params.count >= 2 ? params[1] : 1
+        let hasShift = (modifier &- 1) & 1 != 0
         let hasCtrl = (modifier &- 1) & 4 != 0
         let hasAlt = (modifier &- 1) & 2 != 0
 
-        // Map well-known codepoints to their TmuxKey equivalents
+        // Map well-known codepoints to their TmuxKey equivalents.
+        // Modifier-aware: Shift+Tab → backtab, Ctrl+letter → ctrl(char).
+        // Other modifier combinations on special keys (e.g., Ctrl+Enter) are
+        // passed as the base key since TmuxKey has no representation for them.
         switch codepoint {
-        case 9: return CsiParseResult(keys: [.tab], nextIndex: nextIndex)
+        case 9: return CsiParseResult(keys: [hasShift ? .backtab : .tab], nextIndex: nextIndex)
         case 13: return CsiParseResult(keys: [.enter], nextIndex: nextIndex)
         case 27: return CsiParseResult(keys: [.escape], nextIndex: nextIndex)
         case 32: return CsiParseResult(keys: [.space], nextIndex: nextIndex)
@@ -332,6 +338,9 @@ private extension TmuxKey {
                 return CsiParseResult(keys: [], nextIndex: nextIndex)
             }
             let char = Character(scalar)
+            // Note: Ctrl takes precedence over Alt. Ctrl+Alt+X maps to .ctrl(x)
+            // because TmuxKey has no .ctrlAlt case. This matches tmux send-keys
+            // behavior where C-x is the closest representation.
             if hasCtrl, char.isLetter {
                 return CsiParseResult(
                     keys: [.ctrl(Character(char.lowercased()))],
