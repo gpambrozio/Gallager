@@ -138,6 +138,10 @@ public enum KittyKeyboardProtocolScenario {
         TestStep.tmuxSendKeys(target: "e2e-kitty-kb:0", keys: "Enter")
         TestStep.wait(seconds: 3)
 
+        // Screenshot right after script execution — shows the actual
+        // mirror output, useful for debugging failures.
+        TestStep.macScreenshot(label: "kitty-script-output")
+
         // ── Capture and assert ─────────────────────────────────────────
 
         TestStep.tmuxCapturePaneContent(target: "e2e-kitty-kb:0", storeAs: "kittyOutput")
