@@ -22,21 +22,10 @@ public enum KittyKeyboardProtocolScenario {
     ) {
         // ── Setup ──────────────────────────────────────────────────────
 
-        TestStep.log("Creating tmux session for kitty keyboard protocol test")
         TestStep.tmuxCreateSession(name: "e2e-kitty-kb", width: 100, height: 30)
 
-        TestStep.launchMacApp()
-        TestStep.wait(seconds: 3)
+        Shortcut.macOnlySetup
 
-        TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
-        TestStep.wait(seconds: 1)
-        TestStep.macMoveWindow(x: 10, y: 10)
-        TestStep.macResizeWindow(width: 1_000, height: 600)
-        TestStep.macSetSidebarWidth(200)
-        TestStep.wait(seconds: 1)
-
-        TestStep.macWaitForElement(titled: "e2e-kitty-kb:0", timeout: 10)
         TestStep.macClickButton(titled: "e2e-kitty-kb:0")
         TestStep.wait(seconds: 2)
 
