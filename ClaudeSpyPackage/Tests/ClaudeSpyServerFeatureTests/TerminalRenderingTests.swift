@@ -688,8 +688,10 @@
         @Test("Scrollback content is included with SGR resets")
         func scrollbackIncluded() async {
             let service = TmuxService()
+            // Real tmux `capture-pane -S -N -E -1` includes both scrollback AND
+            // visible content, so scrollbackOutput must contain the visible lines too.
             let result = service.processCapturePaneForStreaming(
-                scrollbackOutput: "scrollback line",
+                scrollbackOutput: "scrollback line\nvisible line",
                 visibleOutput: "visible line",
                 cursorOutput: "0,0,1",
                 height: 5

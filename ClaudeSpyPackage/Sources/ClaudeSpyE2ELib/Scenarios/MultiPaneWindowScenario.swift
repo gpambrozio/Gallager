@@ -117,25 +117,26 @@ public enum MultiPaneWindowScenario {
         TestStep.macClickButton(titled: "terminal:0")
         TestStep.wait(seconds: 3)
 
-        TestStep.tmuxSendKeys(target: "%0", keys: "tmux split-window -h", literal: true)
-        TestStep.tmuxSendKeys(target: "%0", keys: "Enter")
+        // Use session-relative targets (not global %N pane IDs which auto-increment)
+        TestStep.tmuxSendKeys(target: "terminal:0.0", keys: "tmux split-window -h", literal: true)
+        TestStep.tmuxSendKeys(target: "terminal:0.0", keys: "Enter")
         TestStep.wait(seconds: 3)
 
-        TestStep.tmuxSendKeys(target: "%1", keys: "tmux split-window -v", literal: true)
-        TestStep.tmuxSendKeys(target: "%1", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "terminal:0.1", keys: "tmux split-window -v", literal: true)
+        TestStep.tmuxSendKeys(target: "terminal:0.1", keys: "Enter")
         TestStep.wait(seconds: 3)
         TestStep.macScreenshot(label: "three-panes-new-session")
 
-        TestStep.tmuxSendKeys(target: "%2", keys: "exit", literal: true)
-        TestStep.tmuxSendKeys(target: "%2", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "terminal:0.2", keys: "exit", literal: true)
+        TestStep.tmuxSendKeys(target: "terminal:0.2", keys: "Enter")
         TestStep.wait(seconds: 3)
 
-        TestStep.tmuxSendKeys(target: "%1", keys: "exit", literal: true)
-        TestStep.tmuxSendKeys(target: "%1", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "terminal:0.1", keys: "exit", literal: true)
+        TestStep.tmuxSendKeys(target: "terminal:0.1", keys: "Enter")
         TestStep.wait(seconds: 3)
 
-        TestStep.tmuxSendKeys(target: "%0", keys: "echo 'Still here'", literal: true)
-        TestStep.tmuxSendKeys(target: "%0", keys: "Enter")
+        TestStep.tmuxSendKeys(target: "terminal:0.0", keys: "echo 'Still here'", literal: true)
+        TestStep.tmuxSendKeys(target: "terminal:0.0", keys: "Enter")
         TestStep.wait(seconds: 3)
         TestStep.macScreenshot(label: "last-should-have-echo")
     }

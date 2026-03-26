@@ -373,15 +373,34 @@ final public class TmuxService {
 
         var output = ""
 
+        // Parse visible lines early — needed by both Part 1 (to exclude visible area
+        // from scrollback) and Part 2 (to render the visible area).
+        var visibleContent = visibleOutput
+        if visibleContent.hasSuffix("\n") {
+            visibleContent.removeLast()
+        }
+        let visibleLines = visibleContent
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+
         // Part 1: Output scrollback with filtered escape codes (keep only SGR/colors)
+        // The scrollback capture (`-S -N -E -1`) includes both scrollback AND visible
+        // content. We only output the scrollback-only portion here — the visible area
+        // is handled by Part 2. Without this trim, the visible content from Part 1
+        // can remain stuck at the top of the mirror terminal when Part 2 doesn't
+        // fill the full screen height (since Part 2's ESC[2K only clears the cursor
+        // row, not earlier Part 1 lines that scrolled to the top).
         if let scrollbackContent = scrollbackOutput {
             var trimmed = scrollbackContent
             if trimmed.hasSuffix("\n") {
                 trimmed.removeLast()
             }
             let scrollbackLinesList = trimmed.split(separator: "\n", omittingEmptySubsequences: false)
+            // Both captures end at the same point (-E -1 vs default), so the difference
+            // in line count gives us the scrollback-only lines (before the visible area).
+            let scrollbackOnlyCount = max(0, scrollbackLinesList.count - visibleLines.count)
 
-            for line in scrollbackLinesList {
+            for line in scrollbackLinesList.prefix(scrollbackOnlyCount) {
                 // Strip any trailing CR (tmux may output \r\n line endings)
                 var lineStr = String(line)
                 if lineStr.hasSuffix("\r") {
@@ -399,15 +418,6 @@ final public class TmuxService {
         // This allows the content to work correctly regardless of the mirror terminal's
         // row count. Content flows naturally - if the mirror has fewer rows than tmux,
         // excess lines scroll into scrollback and the bottom (most recent) content is visible.
-
-        // Trim trailing newline before splitting to avoid extra empty line at end
-        var visibleContent = visibleOutput
-        if visibleContent.hasSuffix("\n") {
-            visibleContent.removeLast()
-        }
-        let visibleLines = visibleContent
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map(String.init)
 
         // Determine how many lines to output. We must output at least
         // cursorY + 1 lines so the cursor can be positioned on the correct row.
@@ -988,12 +998,15 @@ final public class TmuxService {
 
         // Build command arguments
         // -d: detached, -x: width, -y: height, -c: working directory
+        // -e: set environment variables (suppress oh-my-zsh update prompts)
         var args = [
             "new-session",
             "-d",
             "-s", sessionName,
             "-x", String(width),
             "-y", String(height),
+            "-e", "DISABLE_AUTO_UPDATE=true",
+            "-e", "DISABLE_UPDATE_PROMPT=true",
         ]
 
         // Add working directory if specified

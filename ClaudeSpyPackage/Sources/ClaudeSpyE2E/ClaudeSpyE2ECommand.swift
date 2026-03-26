@@ -117,7 +117,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         fputs("  Log file:    \(logPath)\(reset)\n\n", stderr)
 
         var reporters: [any TestProgressReporter] = [TerminalReporter()]
-        var dashboardReporter: DashboardReporter? = nil
+        var dashboardReporter: DashboardReporter?
         if let urlString = dashboardUrl, let url = URL(string: urlString) {
             let dr = DashboardReporter(dashboardURL: url, prNumber: dashboardPrNumber, prTitle: dashboardPrTitle)
             dashboardReporter = dr
