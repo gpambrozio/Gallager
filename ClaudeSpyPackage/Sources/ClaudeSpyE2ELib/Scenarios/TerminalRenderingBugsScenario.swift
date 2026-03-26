@@ -49,16 +49,8 @@ public enum TerminalRenderingBugsScenario {
         TestStep.tmuxSendKeys(target: "render-bugs:0", keys: "Enter")
         TestStep.wait(seconds: 0.5)
 
-        TestStep.launchMacApp()
-        TestStep.wait(seconds: 3)
-
-        TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
-        TestStep.wait(seconds: 1)
-        TestStep.macMoveWindow(x: 10, y: 10)
+        Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 700)
-        TestStep.macSetSidebarWidth(200)
-        TestStep.wait(seconds: 1)
 
         // Select the main pane
         TestStep.macClickButton(titled: "render-bugs:0")

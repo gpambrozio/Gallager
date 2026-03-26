@@ -12,52 +12,9 @@ public enum TerminalTitleMacToMacScenario {
         "Terminal Title Mac-to-Mac",
         tags: ["terminal-title", "macos-only"]
     ) {
-        // ── Phase 1: Setup relay server ───────────────────────────────
+        // ── Phase 1–4: Pair two Mac apps (host + viewer) ────────────
 
-        TestStep.log("Starting relay server")
-        TestStep.startServer
-        TestStep.verifyServerHealth
-
-        // ── Phase 2: Launch host (mac1) and generate pairing code ─────
-
-        TestStep.log("Launching host Mac app (mac1)")
-        TestStep.launchMacApp()
-        TestStep.wait(seconds: 3)
-
-        TestStep.macOpenSettings()
-        TestStep.macWaitForWindow(titled: "General", timeout: 5)
-        TestStep.macSelectSettingsTab("Remote Access")
-        TestStep.wait(seconds: 1)
-        TestStep.macClickButton(titled: "Generate Pairing Code")
-        TestStep.wait(seconds: 3)
-        TestStep.macClickButton(titled: "Copy Code")
-        TestStep.wait(seconds: 0.5)
-        TestStep.macReadClipboard(storeAs: "pairingCode")
-
-        // ── Phase 3: Launch viewer (mac2) and pair with host ──────────
-
-        TestStep.log("Launching viewer Mac app (mac2)")
-        TestStep.launchMacApp(instance: 1)
-        TestStep.wait(seconds: 3)
-
-        TestStep.macOpenSettings(instance: 1)
-        TestStep.macWaitForWindow(titled: "General", timeout: 5, instance: 1)
-        TestStep.macSelectSettingsTab("Remote Hosts", instance: 1)
-        TestStep.wait(seconds: 1)
-        TestStep.macClickButton(titled: "Add Host", instance: 1)
-        TestStep.wait(seconds: 1)
-        TestStep.macFocusElement(titled: "Pairing Code", instance: 1)
-        TestStep.wait(seconds: 0.5)
-        TestStep.macType(text: "${pairingCode}", pressReturn: true, instance: 1)
-        TestStep.wait(seconds: 5)
-
-        // ── Phase 4: Verify pairing ───────────────────────────────────
-
-        TestStep.verifyServerHasPairings(count: 1)
-        TestStep.waitForHostConnected(timeout: 15)
-        TestStep.waitForViewerConnected(timeout: 15)
-        TestStep.macWaitForElement(titled: "Connected", timeout: 15)
-        TestStep.macWaitForElement(titled: "Connected", timeout: 15, instance: 1)
+        Shortcut.twoMacPairing
 
         // ── Phase 5: Create tmux session on host ──────────────────────
 
@@ -68,13 +25,7 @@ public enum TerminalTitleMacToMacScenario {
         // ── Phase 6: Open Panes window on host and select pane ────────
 
         TestStep.log("Opening Panes window on host")
-        TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
-        TestStep.wait(seconds: 1)
-        TestStep.macMoveWindow(x: 10, y: 10)
-        TestStep.macResizeWindow(width: 1_000, height: 600)
-        TestStep.macSetSidebarWidth(250)
-        TestStep.wait(seconds: 1)
+        Shortcut.openPanesWindow()
 
         TestStep.macWaitForElement(titled: "e2e-title:0", timeout: 10)
         TestStep.macClickButton(titled: "e2e-title:0")

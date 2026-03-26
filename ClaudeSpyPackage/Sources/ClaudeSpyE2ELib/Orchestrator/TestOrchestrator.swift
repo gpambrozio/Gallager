@@ -406,10 +406,12 @@ public actor TestOrchestrator {
             context.set(storeAs, value: value)
 
         case let .macWaitForElement(titled, timeout, instance):
-            try await macDriver(for: instance).waitForElement(titled: titled, timeout: timeout)
+            let resolvedTitle = context.resolve(titled)
+            try await macDriver(for: instance).waitForElement(titled: resolvedTitle, timeout: timeout)
 
         case let .macWaitForElementToDisappear(titled, timeout, instance):
-            try await macDriver(for: instance).waitForElementToDisappear(titled: titled, timeout: timeout)
+            let resolvedTitle = context.resolve(titled)
+            try await macDriver(for: instance).waitForElementToDisappear(titled: resolvedTitle, timeout: timeout)
 
         case let .macOpenPanesWindow(instance):
             try await macDriver(for: instance).openPanesWindow()
@@ -453,7 +455,7 @@ public actor TestOrchestrator {
             // Set DISABLE_AUTO_UPDATE to suppress oh-my-zsh update prompts that block the shell.
             _ = try await runner.runOrThrow(
                 "tmux",
-                arguments: ["-f", "/dev/null", "-S", socket, "new-session", "-d", "-s", resolvedName, "-x", "\(width)", "-y", "\(height)", "-c", NSHomeDirectory(), "-e", "DISABLE_AUTO_UPDATE=true"]
+                arguments: ["-f", "/dev/null", "-S", socket, "new-session", "-d", "-s", resolvedName, "-x", "\(width)", "-y", "\(height)", "-c", NSHomeDirectory(), "-e", "DISABLE_AUTO_UPDATE=true", "-e", "DISABLE_UPDATE_PROMPT=true"]
             )
 
         case let .tmuxStorePaneDimensions(target, widthKey, heightKey):

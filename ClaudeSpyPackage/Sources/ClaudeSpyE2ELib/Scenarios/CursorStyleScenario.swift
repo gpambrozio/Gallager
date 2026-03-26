@@ -21,16 +21,8 @@ public enum CursorStyleScenario {
         TestStep.log("Creating tmux session for cursor style test")
         TestStep.tmuxCreateSession(name: "cursor-test", width: 80, height: 24)
 
-        TestStep.launchMacApp()
-        TestStep.wait(seconds: 3)
-
-        TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
-        TestStep.wait(seconds: 1)
-        TestStep.macMoveWindow(x: 10, y: 10)
+        Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 900, height: 500)
-        TestStep.macSetSidebarWidth(200)
-        TestStep.wait(seconds: 1)
 
         TestStep.macClickButton(titled: "cursor-test:0")
         TestStep.wait(seconds: 2)
