@@ -56,6 +56,9 @@ public enum TmuxKey: Codable, Sendable, Equatable {
     /// Alt/Meta key combinations (e.g., .alt("b") for Meta-b / word backward)
     case alt(Character)
 
+    /// Control+Alt key combinations (e.g., .ctrlAlt("x") for Ctrl+Alt+X)
+    case ctrlAlt(Character)
+
     /// Delay in milliseconds (not a real key, handled specially by executor)
     case delay(Int)
 
@@ -80,6 +83,7 @@ public enum TmuxKey: Codable, Sendable, Equatable {
         case .pageDown: "PageDown"
         case let .ctrl(char): "C-\(char)"
         case let .alt(char): "M-\(char)"
+        case let .ctrlAlt(char): "C-M-\(char)"
         case .delay: "" // Not a real key, handled by executor
         }
     }
@@ -100,6 +104,9 @@ public extension TmuxKey {
     /// Parses escape sequences (arrow keys, etc.), control characters, and regular text.
     /// This is the inverse of what tmux send-keys does - we take what SwiftTerm gives us
     /// and convert it back to logical keystrokes.
+    ///
+    /// Supports both legacy CSI sequences (e.g., `ESC [ C` for Right) and the kitty
+    /// keyboard protocol's CSI u encoding (e.g., `ESC [ 97 ; 5 u` for Ctrl+A).
     ///
     /// - Parameter data: Raw bytes from the terminal (e.g., from TerminalViewDelegate.send)
     /// - Returns: Array of TmuxKey values ready for transmission
@@ -125,76 +132,19 @@ public extension TmuxKey {
 
                 // CSI sequence: ESC [
                 if nextByte == 0x5B, index + 2 < data.endIndex {
-                    let seqByte = data[index + 2]
-
-                    // Arrow keys and simple CSI sequences
-                    switch seqByte {
-                    case 0x41: // A - Up
+                    // Use general CSI parser that handles both simple and parameterized sequences
+                    if let parsed = parseCsiSequence(data: data, escIndex: index) {
                         flushText()
-                        result.append(.up)
-                        index = data.index(index, offsetBy: 3)
+                        result.append(contentsOf: parsed.keys)
+                        index = parsed.nextIndex
                         continue
-                    case 0x42: // B - Down
-                        flushText()
-                        result.append(.down)
-                        index = data.index(index, offsetBy: 3)
-                        continue
-                    case 0x43: // C - Right
-                        flushText()
-                        result.append(.right)
-                        index = data.index(index, offsetBy: 3)
-                        continue
-                    case 0x44: // D - Left
-                        flushText()
-                        result.append(.left)
-                        index = data.index(index, offsetBy: 3)
-                        continue
-                    case 0x48: // H - Home
-                        flushText()
-                        result.append(.home)
-                        index = data.index(index, offsetBy: 3)
-                        continue
-                    case 0x46: // F - End
-                        flushText()
-                        result.append(.end)
-                        index = data.index(index, offsetBy: 3)
-                        continue
-                    case 0x5A: // Z - Backtab (Shift+Tab)
-                        flushText()
-                        result.append(.backtab)
-                        index = data.index(index, offsetBy: 3)
-                        continue
-                    default:
-                        break
                     }
 
-                    // Extended sequences: ESC [ n ~
-                    if index + 3 < data.endIndex, data[index + 3] == 0x7E {
-                        switch seqByte {
-                        case 0x33: // 3~ - Delete
-                            flushText()
-                            result.append(.delete)
-                            index = data.index(index, offsetBy: 4)
-                            continue
-                        case 0x35: // 5~ - Page Up
-                            flushText()
-                            result.append(.pageUp)
-                            index = data.index(index, offsetBy: 4)
-                            continue
-                        case 0x36: // 6~ - Page Down
-                            flushText()
-                            result.append(.pageDown)
-                            index = data.index(index, offsetBy: 4)
-                            continue
-                        default:
-                            break
-                        }
-                    }
-
-                    // Unrecognized CSI sequence - consume ESC [ and next byte to avoid infinite loop
+                    // Unrecognized or incomplete CSI — skip ESC byte only,
+                    // let remaining bytes be processed normally
                     flushText()
                     result.append(.escape)
-                    index = data.index(index, offsetBy: 3)
+                    index = data.index(after: index)
                     continue
                 }
 
@@ -270,6 +220,147 @@ public extension TmuxKey {
 
         flushText()
         return result
+    }
+}
+
+// MARK: - CSI Sequence Parsing
+
+private extension TmuxKey {
+    /// Result of parsing a CSI sequence.
+    struct CsiParseResult {
+        let keys: [TmuxKey]
+        let nextIndex: Data.Index
+    }
+
+    /// Parses a CSI sequence starting at `escIndex` (pointing to ESC byte).
+    ///
+    /// Handles both simple sequences (`ESC [ C` for Right) and parameterized ones
+    /// (`ESC [ 1 ; 5 C` for Ctrl+Right, `ESC [ 97 ; 5 u` for Ctrl+A in kitty protocol).
+    ///
+    /// Returns parsed keys and the index after the sequence, or nil if the sequence
+    /// is incomplete or contains invalid bytes.
+    static func parseCsiSequence(data: Data, escIndex: Data.Index) -> CsiParseResult? {
+        // Start after ESC [
+        var j = escIndex + 2
+        var params: [Int] = []
+        var currentParam = 0
+        var hasDigit = false
+
+        // Collect parameters: digits separated by semicolons
+        while j < data.endIndex {
+            let b = data[j]
+            if b >= 0x30, b <= 0x39 { // '0'-'9'
+                currentParam = currentParam &* 10 &+ Int(b - 0x30)
+                // Cap at max Unicode codepoint to prevent wrapping on adversarial input
+                if currentParam > 0x10FFFF { return nil }
+                hasDigit = true
+                j += 1
+            } else if b == 0x3B { // ';'
+                params.append(hasDigit ? currentParam : 0)
+                currentParam = 0
+                hasDigit = false
+                j += 1
+            } else if b >= 0x40, b <= 0x7E { // Final byte (@ through ~)
+                if hasDigit || !params.isEmpty {
+                    params.append(currentParam)
+                }
+                let nextIndex = j + 1
+                return mapCsiFinalByte(params: params, finalByte: b, nextIndex: nextIndex)
+            } else {
+                return nil // Invalid byte in CSI params
+            }
+        }
+        return nil // Incomplete sequence
+    }
+
+    /// Maps a CSI final byte (with parsed parameters) to TmuxKey values.
+    static func mapCsiFinalByte(
+        params: [Int],
+        finalByte: UInt8,
+        nextIndex: Data.Index
+    ) -> CsiParseResult? {
+        switch finalByte {
+        case 0x41: // A — Up
+            return CsiParseResult(keys: [.up], nextIndex: nextIndex)
+        case 0x42: // B — Down
+            return CsiParseResult(keys: [.down], nextIndex: nextIndex)
+        case 0x43: // C — Right
+            return CsiParseResult(keys: [.right], nextIndex: nextIndex)
+        case 0x44: // D — Left
+            return CsiParseResult(keys: [.left], nextIndex: nextIndex)
+        case 0x48: // H — Home
+            return CsiParseResult(keys: [.home], nextIndex: nextIndex)
+        case 0x46: // F — End
+            return CsiParseResult(keys: [.end], nextIndex: nextIndex)
+        case 0x5A: // Z — Backtab (Shift+Tab)
+            return CsiParseResult(keys: [.backtab], nextIndex: nextIndex)
+        case 0x7E: // ~ — Extended key, dispatched on first param
+            guard let code = params.first else { return nil }
+            switch code {
+            case 3: return CsiParseResult(keys: [.delete], nextIndex: nextIndex)
+            case 5: return CsiParseResult(keys: [.pageUp], nextIndex: nextIndex)
+            case 6: return CsiParseResult(keys: [.pageDown], nextIndex: nextIndex)
+            default:
+                // Unknown extended key — consume the sequence silently
+                return CsiParseResult(keys: [], nextIndex: nextIndex)
+            }
+        case 0x75: // u — CSI u (kitty keyboard protocol key event)
+            return mapCsiUKey(params: params, nextIndex: nextIndex)
+        default:
+            // Unknown final byte — consume the sequence to prevent garbage output
+            return CsiParseResult(keys: [], nextIndex: nextIndex)
+        }
+    }
+
+    /// Maps a CSI u (kitty keyboard protocol) sequence to TmuxKey values.
+    ///
+    /// Format: `ESC [ codepoint [; modifiers [; event-type]] u`
+    ///
+    /// Modifier encoding: value = 1 + (shift ? 1 : 0) + (alt ? 2 : 0) + (ctrl ? 4 : 0)
+    static func mapCsiUKey(params: [Int], nextIndex: Data.Index) -> CsiParseResult? {
+        guard let codepoint = params.first, codepoint > 0 else {
+            return CsiParseResult(keys: [], nextIndex: nextIndex)
+        }
+
+        let modifier = params.count >= 2 ? params[1] : 1
+        let hasShift = (modifier &- 1) & 1 != 0
+        let hasCtrl = (modifier &- 1) & 4 != 0
+        let hasAlt = (modifier &- 1) & 2 != 0
+
+        // Map well-known codepoints to their TmuxKey equivalents.
+        // Modifier-aware: Shift+Tab → backtab, Ctrl+letter → ctrl(char).
+        // Other modifier combinations on special keys (e.g., Ctrl+Enter) are
+        // passed as the base key since TmuxKey has no representation for them.
+        switch codepoint {
+        case 9: return CsiParseResult(keys: [hasShift ? .backtab : .tab], nextIndex: nextIndex)
+        case 13: return CsiParseResult(keys: [.enter], nextIndex: nextIndex)
+        case 27: return CsiParseResult(keys: [.escape], nextIndex: nextIndex)
+        case 32: return CsiParseResult(keys: [.space], nextIndex: nextIndex)
+        case 127: return CsiParseResult(keys: [.backspace], nextIndex: nextIndex)
+        default:
+            guard let scalar = UnicodeScalar(codepoint) else {
+                return CsiParseResult(keys: [], nextIndex: nextIndex)
+            }
+            let char = Character(scalar)
+            if hasCtrl, hasAlt, char.isLetter {
+                return CsiParseResult(
+                    keys: [.ctrlAlt(Character(char.lowercased()))],
+                    nextIndex: nextIndex
+                )
+            } else if hasCtrl, char.isLetter {
+                return CsiParseResult(
+                    keys: [.ctrl(Character(char.lowercased()))],
+                    nextIndex: nextIndex
+                )
+            } else if hasAlt {
+                return CsiParseResult(keys: [.alt(char)], nextIndex: nextIndex)
+            } else {
+                return CsiParseResult(
+                    keys: [.text(String(char))],
+                    nextIndex: nextIndex
+                )
+            }
+        }
     }
 }
 
