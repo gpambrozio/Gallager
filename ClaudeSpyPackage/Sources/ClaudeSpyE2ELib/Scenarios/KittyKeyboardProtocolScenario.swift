@@ -123,6 +123,12 @@ public enum KittyKeyboardProtocolScenario {
 
         // ── Run the test script ────────────────────────────────────────
 
+        // Clear the screen so heredoc prompt lines (which contain escape
+        // sequence source code like "\x1b[>1u") don't pollute assertions.
+        TestStep.tmuxSendKeys(target: "e2e-kitty-kb:0", keys: "clear", literal: true)
+        TestStep.tmuxSendKeys(target: "e2e-kitty-kb:0", keys: "Enter")
+        TestStep.wait(seconds: 1)
+
         TestStep.log("Running kitty keyboard protocol test script")
         TestStep.tmuxSendKeys(
             target: "e2e-kitty-kb:0",
