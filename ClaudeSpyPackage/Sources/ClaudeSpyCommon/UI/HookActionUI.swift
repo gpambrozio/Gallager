@@ -32,6 +32,26 @@ public extension HookAction {
             .checkmarkCircleFill
         case .preCompact:
             .arrowDownRightAndArrowUpLeft
+        case .instructionsLoaded:
+            .docOnClipboard
+        case .stopFailure:
+            .exclamationmarkCircleFill
+        case .configChange:
+            .gearshape
+        case .cwdChanged:
+            .folder
+        case .fileChanged:
+            .pencilLine
+        case .worktreeCreate:
+            .macwindowBadgePlus
+        case .worktreeRemove:
+            .xmarkCircle
+        case .postCompact:
+            .arrowDownRightAndArrowUpLeft
+        case .elicitation:
+            .ellipsisCircle
+        case .elicitationResult:
+            .checkmarkCircle
         case .unknown:
             .questionmark
         }
@@ -64,8 +84,23 @@ public extension HookAction {
             .yellow
         case .taskCompleted:
             .green
-        case .preCompact:
+        case .preCompact,
+             .postCompact:
             .indigo
+        case .instructionsLoaded,
+             .configChange,
+             .fileChanged,
+             .worktreeRemove:
+            .gray
+        case .stopFailure:
+            .red
+        case .cwdChanged,
+             .worktreeCreate:
+            .blue
+        case .elicitation:
+            .orange
+        case .elicitationResult:
+            .green
         case .unknown:
             .gray
         }
