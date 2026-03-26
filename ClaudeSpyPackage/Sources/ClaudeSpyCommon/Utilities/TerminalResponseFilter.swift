@@ -81,6 +81,75 @@ public enum TerminalResponseFilter {
         return result.count == data.count ? data : result
     }
 
+    // MARK: - Feed-level: strip Kitty keyboard protocol sequences
+
+    /// Strips Kitty keyboard protocol negotiation sequences from terminal output
+    /// so that mirroring SwiftTerm instances never enter an unsupported keyboard mode.
+    ///
+    /// Matched sequences (all end with `u`):
+    /// - Push mode:  `ESC [ > Ps u`   (enable progressive enhancement)
+    /// - Pop mode:   `ESC [ < Ps u`   or `ESC [ < u`
+    /// - Query mode: `ESC [ ? u`      (terminal responds with `ESC [ ? Ps u`)
+    /// - Set flags:  `ESC [ = Ps ; Ps u`
+    ///
+    /// Returns the data with all matching sequences removed.
+    public static func stripKittyKeyboardProtocol(_ data: Data) -> Data {
+        guard data.contains(0x1B) else { return data }
+
+        var result = Data()
+        result.reserveCapacity(data.count)
+        var i = data.startIndex
+
+        while i < data.endIndex {
+            guard data[i] == 0x1B else {
+                result.append(data[i])
+                i += 1
+                continue
+            }
+
+            let remaining = data.distance(from: i, to: data.endIndex)
+            // Need at least ESC [ X u (4 bytes)
+            guard remaining >= 4, data[i + 1] == 0x5B else {
+                result.append(data[i])
+                i += 1
+                continue
+            }
+
+            let third = data[i + 2]
+
+            // Only match private-use parameter prefixes: > < ? =
+            if third == 0x3E || third == 0x3C || third == 0x3F || third == 0x3D {
+                // Scan forward for 'u' (0x75) as final byte.
+                // Valid parameter bytes are digits (0x30-0x39) and semicolons (0x3B).
+                var j = i + 3
+                var foundTerminator = false
+
+                while j < data.endIndex {
+                    let b = data[j]
+                    if b == 0x75 { // 'u'
+                        foundTerminator = true
+                        i = j + 1
+                        break
+                    } else if (b >= 0x30 && b <= 0x39) || b == 0x3B {
+                        j += 1
+                    } else {
+                        break // Not a kitty keyboard sequence
+                    }
+                }
+
+                if foundTerminator {
+                    continue // i already advanced past the sequence
+                }
+            }
+
+            // Not a kitty sequence — pass ESC byte through
+            result.append(data[i])
+            i += 1
+        }
+
+        return result.count == data.count ? data : result
+    }
+
     // MARK: - Send-level: detect terminal responses (defense-in-depth)
 
     /// Detects terminal auto-response sequences that SwiftTerm generates internally.
@@ -103,6 +172,8 @@ public enum TerminalResponseFilter {
         if thirdByte >= 0x30, thirdByte <= 0x39, lastByte == 0x52 { return true } // digit...R
         // Terminal Parameter Report: ESC [ digits ... x
         if thirdByte >= 0x30, thirdByte <= 0x39, lastByte == 0x78 { return true } // digit...x
+        // Kitty keyboard protocol response: ESC [ ? ... u
+        if thirdByte == 0x3F, lastByte == 0x75 { return true } // ?...u
 
         return false
     }

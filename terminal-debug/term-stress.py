@@ -1198,6 +1198,205 @@ def test_corners(auto, delay):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TEST 23: Kitty keyboard protocol sequences
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@test("Kitty keyboard protocol",
+      "Progressive enhancement enable/disable and CSI u key encoding")
+def test_kitty_keyboard_protocol(auto, delay):
+    banner("Kitty Keyboard Protocol",
+           "Tests protocol negotiation sequences and CSI u key encoding.\n"
+           "  In a terminal mirror, these sequences caused garbage text (e.g. '7418u')\n"
+           "  and phantom escape key events before being properly filtered.")
+    cols, _ = get_term_size()
+
+    # ── Part 1: Protocol negotiation sequences ──
+    # These are sent by apps like Claude Code to enable the kitty keyboard
+    # protocol. A mirror must strip them or its terminal enters an unsupported
+    # mode where keypresses generate unrecognized CSI u sequences.
+
+    sgr("1;33")
+    w("  Part 1: Protocol negotiation (should be invisible to mirrors)\n")
+    reset_all()
+    w("\n")
+
+    # Push mode: ESC [ > 1 u  (enable disambiguate-escape-codes)
+    w("  Sending push mode (ESC[>1u)... ")
+    wb(b"\x1b[>1u")
+    time.sleep(0.1)
+    w("sent\n")
+
+    # Push with higher flags: ESC [ > 5 u (disambiguate + report-event-types)
+    w("  Sending push mode flags=5 (ESC[>5u)... ")
+    wb(b"\x1b[>5u")
+    time.sleep(0.1)
+    w("sent\n")
+
+    # Query mode: ESC [ ? u (ask terminal what mode is active)
+    w("  Sending query (ESC[?u)... ")
+    wb(b"\x1b[?u")
+    time.sleep(0.1)
+    w("sent\n")
+
+    # Set flags: ESC [ = 1;2 u
+    w("  Sending set flags (ESC[=1;2u)... ")
+    wb(b"\x1b[=1;2u")
+    time.sleep(0.1)
+    w("sent\n")
+
+    # Pop mode: ESC [ < u (disable / pop one level)
+    w("  Sending pop mode (ESC[<u)... ")
+    wb(b"\x1b[<u")
+    time.sleep(0.1)
+    w("sent\n")
+
+    # Pop remaining
+    wb(b"\x1b[<u")
+    time.sleep(0.1)
+
+    w("\n")
+    sgr("32")
+    w("  ✓ If the mirror shows 'sent' after each line without garbage, filtering works.\n")
+    sgr("31")
+    w("  ✗ If the mirror shows garbled text or enters a broken keyboard mode, it's broken.\n")
+    reset_all()
+
+    w("\n")
+
+    # ── Part 2: Interleaved with normal content ──
+    # Real apps send these negotiation sequences mixed in with regular output.
+    # The mirror must strip them without disturbing surrounding text.
+
+    sgr("1;33")
+    w("  Part 2: Protocol sequences interleaved with normal output\n")
+    reset_all()
+    w("\n")
+
+    w("  Before")
+    wb(b"\x1b[>1u")          # push mode (should be stripped)
+    w(" — After")
+    wb(b"\x1b[<u")           # pop mode (should be stripped)
+    w(" — End\n")
+    w("  Expected: 'Before — After — End' with no gaps or garbage\n")
+
+    w("\n")
+
+    # ── Part 3: Rapid push/pop cycling ──
+    # Some apps push/pop the protocol around each input prompt.
+
+    sgr("1;33")
+    w("  Part 3: Rapid push/pop cycling (10 iterations)\n")
+    reset_all()
+    w("\n  ")
+    for i in range(10):
+        wb(b"\x1b[>1u")       # push
+        w(f"[{i}]")
+        wb(b"\x1b[<u")        # pop
+        time.sleep(0.05)
+    w("\n  Expected: [0][1][2][3][4][5][6][7][8][9]\n")
+
+    pause(auto, delay)
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TEST 24: CSI u key event encoding (kitty protocol output)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@test("CSI u key event simulation",
+      "Simulates what SwiftTerm would emit if kitty keyboard mode leaked through")
+def test_csi_u_key_events(auto, delay):
+    banner("CSI u Key Event Simulation",
+           "When kitty keyboard protocol leaks to a mirror terminal, keypresses\n"
+           "  get encoded as CSI u sequences instead of classic escape sequences.\n"
+           "  This test writes those raw sequences to show what the mirror would see.")
+    cols, _ = get_term_size()
+
+    # ── Part 1: Show the raw bytes that would appear as garbage ──
+    sgr("1;33")
+    w("  Part 1: Raw CSI u sequences (what the user sees as garbage)\n")
+    reset_all()
+    w("\n")
+
+    # These are the actual byte sequences that SwiftTerm would generate
+    # when in kitty keyboard mode. Without proper parsing, the TmuxKey
+    # parser would emit .escape + literal text.
+    cases = [
+        (b"\x1b[97u",       "a",        "ESC[97u",      "codepoint 97 = 'a'"),
+        (b"\x1b[65u",       "A",        "ESC[65u",      "codepoint 65 = 'A'"),
+        (b"\x1b[13u",       "Enter",    "ESC[13u",      "codepoint 13"),
+        (b"\x1b[27u",       "Escape",   "ESC[27u",      "codepoint 27"),
+        (b"\x1b[9u",        "Tab",      "ESC[9u",       "codepoint 9"),
+        (b"\x1b[127u",      "Backspace","ESC[127u",     "codepoint 127"),
+        (b"\x1b[32u",       "Space",    "ESC[32u",      "codepoint 32"),
+        (b"\x1b[97;5u",     "Ctrl+A",   "ESC[97;5u",    "codepoint 97, modifier 5"),
+        (b"\x1b[98;3u",     "Alt+B",    "ESC[98;3u",    "codepoint 98, modifier 3"),
+        (b"\x1b[99;7u",     "Ctrl+Alt+C","ESC[99;7u",   "codepoint 99, modifier 7"),
+    ]
+
+    for raw_bytes, key_name, seq_repr, description in cases:
+        w(f"  {key_name:<12} {seq_repr:<14} ({description})\n")
+
+    w("\n")
+    sgr("90")
+    w("  Without CSI u parsing, each of these would produce:\n")
+    w("  .escape + text(\"digits + u\") → phantom esc + garbage like '97u'\n")
+    reset_all()
+
+    w("\n")
+
+    # ── Part 2: Modified arrow keys (parameterized CSI) ──
+    sgr("1;33")
+    w("  Part 2: Modified arrow keys (CSI with parameters)\n")
+    reset_all()
+    w("\n")
+
+    arrow_cases = [
+        (b"\x1b[1;5C",  "Ctrl+Right",  "ESC[1;5C",  "param 1, modifier 5, final C"),
+        (b"\x1b[1;5D",  "Ctrl+Left",   "ESC[1;5D",  "param 1, modifier 5, final D"),
+        (b"\x1b[1;2A",  "Shift+Up",    "ESC[1;2A",  "param 1, modifier 2, final A"),
+        (b"\x1b[1;3B",  "Alt+Down",    "ESC[1;3B",  "param 1, modifier 3, final B"),
+        (b"\x1b[1;2H",  "Shift+Home",  "ESC[1;2H",  "param 1, modifier 2, final H"),
+        (b"\x1b[1;2F",  "Shift+End",   "ESC[1;2F",  "param 1, modifier 2, final F"),
+    ]
+
+    for raw_bytes, key_name, seq_repr, description in arrow_cases:
+        w(f"  {key_name:<14} {seq_repr:<12} ({description})\n")
+
+    w("\n")
+    sgr("90")
+    w("  Without parameterized CSI parsing, ESC[1;5C would produce:\n")
+    w("  .escape + text(\"1;5C\") instead of .right\n")
+    reset_all()
+
+    w("\n")
+
+    # ── Part 3: Live demonstration — write sequences into the terminal ──
+    sgr("1;33")
+    w("  Part 3: Live output — writing actual CSI u bytes\n")
+    reset_all()
+    w("\n")
+
+    w("  Writing ESC[>1u (enable kitty mode) then typing 'hello':\n  → ")
+    wb(b"\x1b[>1u")           # Enable kitty mode
+    time.sleep(0.1)
+    w("hello")
+    wb(b"\x1b[<u")            # Disable kitty mode
+    w("\n  Expected: 'hello' (no garbage before or after)\n")
+
+    w("\n")
+
+    # Show what the "7418u" garbage the user reported might look like.
+    # The exact bytes depend on what key was pressed, but here's a plausible
+    # sequence that could produce "7418u"-like output:
+    w("  Simulating the '7418u' garbage pattern:\n")
+    w("  If a mirror sees ESC[55;52;49;56u and doesn't parse CSI u:\n")
+    w("  → ESC triggers 'esc again to cancel'\n")
+    w("  → Remaining '55;52;49;56u' appears as literal text\n")
+
+    pause(auto, delay)
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # RUNNER
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

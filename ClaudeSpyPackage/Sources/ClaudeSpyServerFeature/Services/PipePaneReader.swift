@@ -254,8 +254,13 @@
             let daFiltered = TerminalResponseFilter.stripDAQueries(tmuxFiltered)
             guard !daFiltered.isEmpty else { return }
 
+            // Strip Kitty keyboard protocol negotiation sequences so mirroring
+            // SwiftTerm instances never enter an unsupported keyboard mode.
+            let kittyFiltered = TerminalResponseFilter.stripKittyKeyboardProtocol(daFiltered)
+            guard !kittyFiltered.isEmpty else { return }
+
             // Parse and strip OSC 9/777 notification sequences
-            let parseResult = notificationParser.parse(daFiltered)
+            let parseResult = notificationParser.parse(kittyFiltered)
 
             // Report any detected notifications
             for notification in parseResult.notifications {

@@ -181,6 +181,159 @@ struct PushModelsTests {
     }
 }
 
+// MARK: - TmuxKey CSI Parsing Tests
+
+@Suite("TmuxKey CSI Parsing")
+struct TmuxKeyCsiParsingTests {
+    // MARK: - Legacy CSI sequences (unchanged behavior)
+
+    @Test("Parses simple arrow keys")
+    func parsesSimpleArrowKeys() {
+        let right = Data([0x1B, 0x5B, 0x43]) // ESC [ C
+        #expect(TmuxKey.from(bytes: right) == [.right])
+
+        let left = Data([0x1B, 0x5B, 0x44]) // ESC [ D
+        #expect(TmuxKey.from(bytes: left) == [.left])
+
+        let up = Data([0x1B, 0x5B, 0x41]) // ESC [ A
+        #expect(TmuxKey.from(bytes: up) == [.up])
+
+        let down = Data([0x1B, 0x5B, 0x42]) // ESC [ B
+        #expect(TmuxKey.from(bytes: down) == [.down])
+    }
+
+    @Test("Parses home and end keys")
+    func parsesHomeEnd() {
+        let home = Data([0x1B, 0x5B, 0x48]) // ESC [ H
+        #expect(TmuxKey.from(bytes: home) == [.home])
+
+        let end = Data([0x1B, 0x5B, 0x46]) // ESC [ F
+        #expect(TmuxKey.from(bytes: end) == [.end])
+    }
+
+    @Test("Parses backtab")
+    func parsesBacktab() {
+        let backtab = Data([0x1B, 0x5B, 0x5A]) // ESC [ Z
+        #expect(TmuxKey.from(bytes: backtab) == [.backtab])
+    }
+
+    @Test("Parses extended key sequences")
+    func parsesExtendedKeys() {
+        let delete = Data([0x1B, 0x5B, 0x33, 0x7E]) // ESC [ 3 ~
+        #expect(TmuxKey.from(bytes: delete) == [.delete])
+
+        let pageUp = Data([0x1B, 0x5B, 0x35, 0x7E]) // ESC [ 5 ~
+        #expect(TmuxKey.from(bytes: pageUp) == [.pageUp])
+
+        let pageDown = Data([0x1B, 0x5B, 0x36, 0x7E]) // ESC [ 6 ~
+        #expect(TmuxKey.from(bytes: pageDown) == [.pageDown])
+    }
+
+    // MARK: - Modified arrow keys (parameterized CSI)
+
+    @Test("Parses modified arrow keys CSI 1;mod X")
+    func parsesModifiedArrowKeys() {
+        // ESC [ 1 ; 5 C — Ctrl+Right (modifier 5)
+        let ctrlRight = Data([0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x43])
+        #expect(TmuxKey.from(bytes: ctrlRight) == [.right])
+
+        // ESC [ 1 ; 2 A — Shift+Up (modifier 2)
+        let shiftUp = Data([0x1B, 0x5B, 0x31, 0x3B, 0x32, 0x41])
+        #expect(TmuxKey.from(bytes: shiftUp) == [.up])
+    }
+
+    // MARK: - CSI u (kitty keyboard protocol)
+
+    @Test("Parses CSI u for regular character")
+    func parsesCsiURegularChar() {
+        // ESC [ 97 u — 'a' (codepoint 97)
+        let data = Data([0x1B, 0x5B, 0x39, 0x37, 0x75])
+        let keys = TmuxKey.from(bytes: data)
+        #expect(keys == [.text("a")])
+    }
+
+    @Test("Parses CSI u for Ctrl+A")
+    func parsesCsiUCtrlA() {
+        // ESC [ 97 ; 5 u — Ctrl+A (codepoint 97, modifier 5 = 1 + ctrl)
+        let data = Data([0x1B, 0x5B, 0x39, 0x37, 0x3B, 0x35, 0x75])
+        let keys = TmuxKey.from(bytes: data)
+        #expect(keys == [.ctrl("a")])
+    }
+
+    @Test("Parses CSI u for Alt+B")
+    func parsesCsiUAltB() {
+        // ESC [ 98 ; 3 u — Alt+B (codepoint 98, modifier 3 = 1 + alt)
+        let data = Data([0x1B, 0x5B, 0x39, 0x38, 0x3B, 0x33, 0x75])
+        let keys = TmuxKey.from(bytes: data)
+        #expect(keys == [.alt("b")])
+    }
+
+    @Test("Parses CSI u for special keys")
+    func parsesCsiUSpecialKeys() {
+        // ESC [ 13 u — Enter
+        let enter = Data([0x1B, 0x5B, 0x31, 0x33, 0x75])
+        #expect(TmuxKey.from(bytes: enter) == [.enter])
+
+        // ESC [ 27 u — Escape
+        let escape = Data([0x1B, 0x5B, 0x32, 0x37, 0x75])
+        #expect(TmuxKey.from(bytes: escape) == [.escape])
+
+        // ESC [ 9 u — Tab
+        let tab = Data([0x1B, 0x5B, 0x39, 0x75])
+        #expect(TmuxKey.from(bytes: tab) == [.tab])
+
+        // ESC [ 127 u — Backspace
+        let backspace = Data([0x1B, 0x5B, 0x31, 0x32, 0x37, 0x75])
+        #expect(TmuxKey.from(bytes: backspace) == [.backspace])
+
+        // ESC [ 32 u — Space
+        let space = Data([0x1B, 0x5B, 0x33, 0x32, 0x75])
+        #expect(TmuxKey.from(bytes: space) == [.space])
+    }
+
+    @Test("Parses CSI u for Ctrl+Alt+C")
+    func parsesCsiUCtrlAltC() {
+        // ESC [ 99 ; 7 u — Ctrl+Alt+C (codepoint 99, modifier 7 = 1 + alt + ctrl)
+        let data = Data([0x1B, 0x5B, 0x39, 0x39, 0x3B, 0x37, 0x75])
+        let keys = TmuxKey.from(bytes: data)
+        #expect(keys == [.ctrlAlt("c")])
+    }
+
+    @Test("Parses CSI u for Shift+Tab as backtab")
+    func parsesCsiUShiftTab() {
+        // ESC [ 9 ; 2 u — Shift+Tab (codepoint 9, modifier 2 = 1 + shift)
+        let data = Data([0x1B, 0x5B, 0x39, 0x3B, 0x32, 0x75])
+        #expect(TmuxKey.from(bytes: data) == [.backtab])
+    }
+
+    @Test("Unknown CSI sequence produces no garbage output")
+    func unknownCsiProducesNoGarbage() {
+        // ESC [ 200 ~ — bracketed paste start (unknown extended key)
+        let data = Data([0x1B, 0x5B, 0x32, 0x30, 0x30, 0x7E])
+        let keys = TmuxKey.from(bytes: data)
+        #expect(keys.isEmpty)
+    }
+
+    @Test("Unrecognized CSI final byte produces no garbage")
+    func unrecognizedCsiFinalByteNoGarbage() {
+        // ESC [ 1 P — unknown final byte 'P'
+        let data = Data([0x1B, 0x5B, 0x31, 0x50])
+        let keys = TmuxKey.from(bytes: data)
+        #expect(keys.isEmpty)
+    }
+
+    @Test("CSI u with surrounding text")
+    func csiUWithSurroundingText() {
+        // "abc" + ESC [ 13 u (Enter) + "def"
+        var data = Data("abc".utf8)
+        data.append(contentsOf: [0x1B, 0x5B, 0x31, 0x33, 0x75]) // ESC [ 13 u
+        data.append(Data("def".utf8))
+
+        let keys = TmuxKey.from(bytes: data)
+        #expect(keys == [.text("abc"), .enter, .text("def")])
+    }
+}
+
 @Suite("WebSocket Message Tests")
 struct WebSocketMessageTests {
     @Test("encryptedPush message encodes correctly")

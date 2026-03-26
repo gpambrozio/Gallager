@@ -116,6 +116,110 @@ struct StripDAQueriesTests {
     }
 }
 
+// MARK: - stripKittyKeyboardProtocol
+
+@Suite("TerminalResponseFilter.stripKittyKeyboardProtocol")
+struct StripKittyKeyboardProtocolTests {
+    @Test("Strips push mode ESC[>1u")
+    func stripsPushMode() {
+        let input = Data([0x1B, 0x5B, 0x3E, 0x31, 0x75]) // ESC [ > 1 u
+        let result = TerminalResponseFilter.stripKittyKeyboardProtocol(input)
+        #expect(result.isEmpty)
+    }
+
+    @Test("Strips push mode with multiple flags ESC[>5u")
+    func stripsPushModeMultipleFlags() {
+        let input = Data([0x1B, 0x5B, 0x3E, 0x35, 0x75]) // ESC [ > 5 u
+        let result = TerminalResponseFilter.stripKittyKeyboardProtocol(input)
+        #expect(result.isEmpty)
+    }
+
+    @Test("Strips pop mode ESC[<u")
+    func stripsPopMode() {
+        let input = Data([0x1B, 0x5B, 0x3C, 0x75]) // ESC [ < u
+        let result = TerminalResponseFilter.stripKittyKeyboardProtocol(input)
+        #expect(result.isEmpty)
+    }
+
+    @Test("Strips pop mode with count ESC[<2u")
+    func stripsPopModeWithCount() {
+        let input = Data([0x1B, 0x5B, 0x3C, 0x32, 0x75]) // ESC [ < 2 u
+        let result = TerminalResponseFilter.stripKittyKeyboardProtocol(input)
+        #expect(result.isEmpty)
+    }
+
+    @Test("Strips query mode ESC[?u")
+    func stripsQueryMode() {
+        let input = Data([0x1B, 0x5B, 0x3F, 0x75]) // ESC [ ? u
+        let result = TerminalResponseFilter.stripKittyKeyboardProtocol(input)
+        #expect(result.isEmpty)
+    }
+
+    @Test("Strips set flags mode ESC[=1;2u")
+    func stripsSetFlags() {
+        let input = Data([0x1B, 0x5B, 0x3D, 0x31, 0x3B, 0x32, 0x75]) // ESC [ = 1 ; 2 u
+        let result = TerminalResponseFilter.stripKittyKeyboardProtocol(input)
+        #expect(result.isEmpty)
+    }
+
+    @Test("Strips kitty sequence embedded in surrounding data")
+    func stripsEmbeddedKitty() {
+        var input = Data("hello".utf8)
+        input.append(contentsOf: [0x1B, 0x5B, 0x3E, 0x31, 0x75]) // ESC [ > 1 u
+        input.append(Data("world".utf8))
+
+        let result = TerminalResponseFilter.stripKittyKeyboardProtocol(input)
+        #expect(result == Data("helloworld".utf8))
+    }
+
+    @Test("Strips multiple kitty sequences")
+    func stripsMultipleKittySequences() {
+        var input = Data([0x1B, 0x5B, 0x3E, 0x31, 0x75]) // ESC [ > 1 u (push)
+        input.append(Data("text".utf8))
+        input.append(contentsOf: [0x1B, 0x5B, 0x3C, 0x75]) // ESC [ < u (pop)
+
+        let result = TerminalResponseFilter.stripKittyKeyboardProtocol(input)
+        #expect(result == Data("text".utf8))
+    }
+
+    @Test("Preserves normal data without ESC")
+    func preservesNormalData() {
+        let input = Data("normal terminal output".utf8)
+        let result = TerminalResponseFilter.stripKittyKeyboardProtocol(input)
+        #expect(result == input)
+    }
+
+    @Test("Preserves other ESC sequences")
+    func preservesOtherEscapeSequences() {
+        // ESC [ 3 1 m (red foreground) should pass through
+        let input = Data([0x1B, 0x5B, 0x33, 0x31, 0x6D])
+        let result = TerminalResponseFilter.stripKittyKeyboardProtocol(input)
+        #expect(result == input)
+    }
+
+    @Test("Preserves DEC private mode sequences")
+    func preservesDECPrivateMode() {
+        // ESC [ ? 25 h (show cursor) — ? prefix but final byte is 'h', not 'u'
+        let input = Data([0x1B, 0x5B, 0x3F, 0x32, 0x35, 0x68])
+        let result = TerminalResponseFilter.stripKittyKeyboardProtocol(input)
+        #expect(result == input)
+    }
+
+    @Test("Preserves DA queries with > prefix")
+    func preservesSecondaryDAQuery() {
+        // ESC [ > c (secondary DA query) — > prefix but final byte is 'c', not 'u'
+        let input = Data([0x1B, 0x5B, 0x3E, 0x63])
+        let result = TerminalResponseFilter.stripKittyKeyboardProtocol(input)
+        #expect(result == input)
+    }
+
+    @Test("Handles empty data")
+    func handlesEmptyData() {
+        let result = TerminalResponseFilter.stripKittyKeyboardProtocol(Data())
+        #expect(result.isEmpty)
+    }
+}
+
 // MARK: - isTerminalResponse
 
 @Suite("TerminalResponseFilter.isTerminalResponse")
@@ -135,6 +239,12 @@ struct IsTerminalResponseTests {
     @Test("Detects cursor position report ESC[24;1R")
     func detectsCursorPositionReport() {
         let data: [UInt8] = [0x1B, 0x5B, 0x32, 0x34, 0x3B, 0x31, 0x52]
+        #expect(TerminalResponseFilter.isTerminalResponse(data[...]))
+    }
+
+    @Test("Detects kitty keyboard protocol response ESC[?1u")
+    func detectsKittyProtocolResponse() {
+        let data: [UInt8] = [0x1B, 0x5B, 0x3F, 0x31, 0x75] // ESC [ ? 1 u
         #expect(TerminalResponseFilter.isTerminalResponse(data[...]))
     }
 
