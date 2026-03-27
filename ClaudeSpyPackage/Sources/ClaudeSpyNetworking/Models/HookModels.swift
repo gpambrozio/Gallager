@@ -85,13 +85,13 @@ public struct ClaudeSession: Codable, Sendable {
         case .preToolUse,
              .postToolUse,
              .postToolUseFailure,
+             .userPromptSubmit,
              .subagentStart,
              .subagentStop,
              .taskCreated,
              .taskCompleted:
             return true
         case .sessionStart,
-             .userPromptSubmit,
              .stop,
              .stopFailure,
              .sessionEnd,
