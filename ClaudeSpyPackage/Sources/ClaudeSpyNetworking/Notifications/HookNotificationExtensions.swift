@@ -25,6 +25,10 @@ public extension HookEventMessage {
             } else {
                 return nil
             }
+        case let .stopFailure(failureBody):
+            body = "\(projectName): Error — \(failureBody.errorType ?? "unknown failure")"
+        case let .taskCreated(taskBody):
+            body = "\(projectName): Task created — \(taskBody.taskSubject ?? "unknown")"
         default:
             return nil
         }
