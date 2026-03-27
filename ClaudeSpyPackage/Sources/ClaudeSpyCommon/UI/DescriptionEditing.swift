@@ -47,11 +47,15 @@ public struct DescriptionContextMenuButtons: View {
 ///
 /// Both the context menu and the alert are attached at the same view level (per-row),
 /// which ensures the alert's TextField receives focus correctly on macOS.
-public struct DescriptionEditingModifier: ViewModifier {
+///
+/// Callers can supply additional context menu items via the `additionalMenu` parameter.
+/// These items appear above the description editing buttons.
+public struct DescriptionEditingModifier<AdditionalMenu: View>: ViewModifier {
     let windowId: String
     let currentDescription: String?
     let isDisabled: Bool
     let onSetDescription: (String, String?) -> Void
+    let additionalMenu: AdditionalMenu
 
     @State private var isEditingDescription = false
     @State private var editedDescription = ""
@@ -60,17 +64,21 @@ public struct DescriptionEditingModifier: ViewModifier {
         windowId: String,
         currentDescription: String?,
         isDisabled: Bool = false,
-        onSetDescription: @escaping (String, String?) -> Void
+        onSetDescription: @escaping (String, String?) -> Void,
+        @ViewBuilder additionalMenu: () -> AdditionalMenu
     ) {
         self.windowId = windowId
         self.currentDescription = currentDescription
         self.isDisabled = isDisabled
         self.onSetDescription = onSetDescription
+        self.additionalMenu = additionalMenu()
     }
 
     public func body(content: Content) -> some View {
         content
             .contextMenu {
+                additionalMenu
+
                 DescriptionContextMenuButtons(
                     currentDescription: currentDescription,
                     isDisabled: isDisabled,
@@ -93,5 +101,22 @@ public struct DescriptionEditingModifier: ViewModifier {
             } message: {
                 Text("Enter a custom description for this session")
             }
+    }
+}
+
+extension DescriptionEditingModifier where AdditionalMenu == EmptyView {
+    public init(
+        windowId: String,
+        currentDescription: String?,
+        isDisabled: Bool = false,
+        onSetDescription: @escaping (String, String?) -> Void
+    ) {
+        self.init(
+            windowId: windowId,
+            currentDescription: currentDescription,
+            isDisabled: isDisabled,
+            onSetDescription: onSetDescription,
+            additionalMenu: { EmptyView() }
+        )
     }
 }
