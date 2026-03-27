@@ -164,7 +164,7 @@ public enum FooterRenderingScenario {
         TestStep.tmuxCapturePaneContent(target: "footer-test:0", storeAs: "pane-content")
         TestStep.assertStoredContains(key: "pane-content", substring: "FIXED FOOTER")
         TestStep.assertStoredContains(key: "pane-content", substring: "FIXED HEADER")
-        TestStep.assertStoredContains(key: "pane-content", substring: "Scrolling line 76")
+        TestStep.assertStoredContains(key: "pane-content", substring: "Scrolling line  76")
 
         // ── Select the pane on macOS ─────────────────────────────────
         // Screenshot: should show header and footer on macOS
