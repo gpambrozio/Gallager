@@ -385,32 +385,43 @@ final public class TmuxService {
 
         // Part 1: Output scrollback with filtered escape codes (keep only SGR/colors)
         // The scrollback capture (`-S -N -E -1`) includes both scrollback AND visible
-        // content. We only output the scrollback-only portion here — the visible area
-        // is handled by Part 2. Without this trim, the visible content from Part 1
-        // can remain stuck at the top of the mirror terminal when Part 2 doesn't
-        // fill the full screen height (since Part 2's ESC[2K only clears the cursor
-        // row, not earlier Part 1 lines that scrolled to the top).
-        if let scrollbackContent = scrollbackOutput {
+        // content. We output ALL of it here — including the visible-area overlap.
+        // The visible-area lines from Part 1 get pushed into SwiftTerm's scrollback
+        // buffer when Part 2 writes the full visible area, making them available
+        // when the user scrolls up. Part 2 ensures no stale Part 1 content remains
+        // visible by always outputting at least `height` lines.
+        //
+        // Exception: when the visible area is mostly empty (fewer than 1/4 of lines
+        // have content), the screen was recently cleared. In this case, skip Part 1
+        // entirely — the scrollback content is stale pre-clear history that would
+        // pollute the mirror's scrollback buffer.
+        let nonEmptyVisibleCount = visibleLines.count { line in
+            !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        let screenWasCleared = nonEmptyVisibleCount < max(1, height / 4)
+
+        var hasScrollback = false
+        if !screenWasCleared, let scrollbackContent = scrollbackOutput {
             var trimmed = scrollbackContent
             if trimmed.hasSuffix("\n") {
                 trimmed.removeLast()
             }
             let scrollbackLinesList = trimmed.split(separator: "\n", omittingEmptySubsequences: false)
-            // Both captures end at the same point (-E -1 vs default), so the difference
-            // in line count gives us the scrollback-only lines (before the visible area).
-            let scrollbackOnlyCount = max(0, scrollbackLinesList.count - visibleLines.count)
 
-            for line in scrollbackLinesList.prefix(scrollbackOnlyCount) {
-                // Strip any trailing CR (tmux may output \r\n line endings)
-                var lineStr = String(line)
-                if lineStr.hasSuffix("\r") {
-                    lineStr.removeLast()
+            if !scrollbackLinesList.isEmpty {
+                hasScrollback = true
+                for line in scrollbackLinesList {
+                    // Strip any trailing CR (tmux may output \r\n line endings)
+                    var lineStr = String(line)
+                    if lineStr.hasSuffix("\r") {
+                        lineStr.removeLast()
+                    }
+                    // Filter to colors only, reset attributes, output content with newline
+                    let filtered = filterToColorCodesOnly(lineStr)
+                    output += "\u{1b}[0m" // Reset at start
+                    output += filtered
+                    output += "\u{1b}[0m\r\n" // Reset, carriage return, newline
                 }
-                // Filter to colors only, reset attributes, output content with newline
-                let filtered = filterToColorCodesOnly(lineStr)
-                output += "\u{1b}[0m" // Reset at start
-                output += filtered
-                output += "\u{1b}[0m\r\n" // Reset, carriage return, newline
             }
         }
 
@@ -419,17 +430,21 @@ final public class TmuxService {
         // row count. Content flows naturally - if the mirror has fewer rows than tmux,
         // excess lines scroll into scrollback and the bottom (most recent) content is visible.
 
-        // Determine how many lines to output. We must output at least
-        // cursorY + 1 lines so the cursor can be positioned on the correct row.
-        // capture-pane trims trailing empty lines, so cursorY may exceed
-        // visibleLines.count — we'll pad with empty lines to reach it.
-        let linesToOutput = max(cursorY + 1, visibleLines.count)
+        // Determine how many lines to output. We must output at least:
+        // - cursorY + 1: so the cursor can be positioned on the correct row
+        // - visibleLines.count: to render all captured visible content
+        // - height (when scrollback exists): to fully overwrite any Part 1
+        //   visible-area lines that are still showing in the terminal. Without
+        //   this, when visibleLines.count < height, stale Part 1 content can
+        //   remain visible at the top of the screen.
+        let minForScrollback = hasScrollback ? height : 0
+        let linesToOutput = max(cursorY + 1, visibleLines.count, minForScrollback)
 
         // Move to home only when there's no scrollback. When scrollback exists,
         // visible lines flow continuously after scrollback — the terminal's own
         // scrolling pushes excess content into the scrollback buffer. Using \e[H]
         // with scrollback would jump back to the top and overwrite scrollback lines.
-        if scrollbackOutput == nil {
+        if !hasScrollback {
             output += "\u{1b}[H" // Cursor to home (row 1, col 1)
         }
 

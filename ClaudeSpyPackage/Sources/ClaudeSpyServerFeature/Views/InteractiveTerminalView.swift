@@ -163,6 +163,11 @@
         var preserveUserScroll = false
         var onResize: ((NSSize) -> Void)?
 
+        /// When set, the terminal dimensions are locked to these values.
+        /// SwiftTerm's async processSizeChange (triggered by frame updates)
+        /// will be overridden to maintain the locked dimensions.
+        var lockedDimensions: (cols: Int, rows: Int)?
+
         // URL detection state
         private var isOverURL = false
         private var urlPreviewField: NSTextField?
@@ -1084,7 +1089,20 @@
 
         func setTerminalSize(_ size: NSSize) {
             terminalWidth = size.width
-            terminalView.frame = NSRect(x: -horizontalOffset, y: 0, width: size.width, height: bounds.height)
+            // When dimensions are locked (tmux pane), use the optimal height
+            // to avoid triggering SwiftTerm's processSizeChange which would
+            // recalculate rows and corrupt the terminal buffer. Position the
+            // terminal at the top of the container (high y in AppKit coords).
+            let height: CGFloat
+            let originY: CGFloat
+            if lockedDimensions != nil {
+                height = size.height
+                originY = bounds.height - height
+            } else {
+                height = bounds.height
+                originY = 0
+            }
+            terminalView.frame = NSRect(x: -horizontalOffset, y: originY, width: size.width, height: height)
 
             let maxOffset = max(0, terminalWidth - bounds.width)
             if horizontalOffset > maxOffset {
@@ -1102,7 +1120,14 @@
                 let h = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay)
                 scroller.frame = NSRect(x: 0, y: 0, width: bounds.width, height: h)
             }
-            terminalView.frame.size.height = bounds.height
+            // When dimensions are locked, don't change the terminal frame
+            // height — this triggers SwiftTerm's processSizeChange which
+            // corrupts the buffer. Keep it at optimal height, pinned to top.
+            if lockedDimensions == nil {
+                terminalView.frame.size.height = bounds.height
+            } else {
+                terminalView.frame.origin.y = bounds.height - terminalView.frame.size.height
+            }
             updateHorizontalScroller()
             updateURLUnderlines()
             onResize?(frame.size)
@@ -1202,7 +1227,14 @@
         }
 
         func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
-            // No-op - size is managed externally
+            // When dimensions are locked (connected to a tmux pane), SwiftTerm's
+            // processSizeChange may recalculate rows from the frame height after
+            // a layout pass, overriding our locked dimensions. Re-apply them here.
+            if
+                let locked = lockedDimensions,
+                newCols != locked.cols || newRows != locked.rows {
+                source.getTerminal().resize(cols: locked.cols, rows: locked.rows)
+            }
         }
 
         func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {

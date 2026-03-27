@@ -363,6 +363,9 @@ step "Pushing results to repository"
 
 cd "$RESULTS_DIR"
 
+git fetch origin 2>/dev/null || true
+git rebase origin/main 2>/dev/null || true
+
 git add results/"$RESULT_FOLDER" results/index.json images/
 git commit -m "E2E results: ${SAFE_BRANCH} @ ${COMMIT} (${TIMESTAMP})
 
