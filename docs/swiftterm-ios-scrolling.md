@@ -84,12 +84,12 @@ ClaudeSpy wraps TerminalView in an outer UIScrollView to enable horizontal scrol
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ Outer UIScrollView (horizontal scrolling only)               │
+│ Outer UIScrollView (horizontal + vertical scrolling)         │
 │ ┌─────────────────────────────────────────────────────────┐ │
 │ │ InteractiveTerminalView (SwiftTerm subclass)            │ │
 │ │ - Width: exact terminal width (cols × cellWidth)        │ │
-│ │ - Height: constrained to available screen space         │ │
-│ │ - Handles all vertical scrolling (scrollback)           │ │
+│ │ - Height: max(screen height, rows × cellHeight)         │ │
+│ │ - Handles scrollback via internal UIScrollView          │ │
 │ │ - contentSize.height > frame.height for history         │ │
 │ └─────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
@@ -111,24 +111,27 @@ If the terminal frame height exceeds the available screen height, the outer scro
 
 Users would have to scroll TWO views to reach the bottom of content.
 
-### The Fix: Constrain Terminal Height to Available Space
+### The Fix: Flexible Height with Minimum Screen Fill
 
-Rather than allowing the terminal frame to exceed screen height and then trying to lock scroll position, ClaudeSpy constrains the terminal height to exactly match the available screen space:
+The terminal height uses two constraints: a required minimum equal to the screen height (so short terminals fill the screen), and a preferred height matching the exact terminal content height. When the host terminal has more rows than fit on screen, the terminal frame expands and the outer scroll view provides vertical scrolling:
 
 ```swift
 NSLayoutConstraint.activate([
     // ... other constraints ...
-    // Height: exactly match available screen height (no vertical scrolling on outer view)
-    terminalView.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
+    // Height: at least screen height (fills screen for short terminals)
+    terminalView.heightAnchor.constraint(greaterThanOrEqualTo: scrollView.frameLayoutGuide.heightAnchor),
+    // Height: prefers exact terminal content height (expands for tall terminals)
+    heightConstraint, // equalToConstant, priority: .defaultHigh
 ])
 ```
 
 This ensures:
-- **Outer scroll view**: Only scrolls horizontally (for wide terminals)
-- **Inner terminal (SwiftTerm)**: Handles all vertical scrolling via its built-in scrollback support
-- **Single scroll gesture**: Users only interact with one scroll view for vertical navigation
+- **Short terminals** (rows fit on screen): Terminal fills available space, SwiftTerm may expand rows (acceptable — no data loss)
+- **Tall terminals** (rows exceed screen): Terminal frame matches content height, preventing SwiftTerm from auto-resizing and destroying bottom rows (e.g. DECSTBM footers)
+- **Outer scroll view**: Scrolls both horizontally (wide terminals) and vertically (tall terminals)
+- **Inner terminal (SwiftTerm)**: Handles scrollback navigation
 
-**Note**: An alternative approach using `UIScrollViewDelegate` to lock vertical position was attempted but caused jumpy behavior and content visibility issues.
+**Note**: Earlier versions used `equalTo: scrollView.frameLayoutGuide.heightAnchor` which locked the terminal to screen height. This caused SwiftTerm's `processSizeChange` to shrink the buffer for tall terminals, destroying content (see GitHub issue #244).
 
 ## InteractiveTerminalView Subclass
 
@@ -183,15 +186,20 @@ ClaudeSpy extends SwiftTerm's `TerminalView` with `InteractiveTerminalView`:
 
 ### Scroll-to-Bottom Implementation
 
-Since the outer scroll view only scrolls horizontally, only the inner terminal needs scrolling:
+Both the inner terminal (scrollback) and outer scroll view (tall terminals) need scrolling:
 
 ```swift
-// Set up scroll-to-bottom callback - only inner terminal needs scrolling
-// (outer scroll view height = terminal height, so no vertical scrolling there)
-terminalState.scrollToBottom = { [weak terminalView] in
-    guard let terminalView else { return }
-    let maxY = terminalView.contentSize.height - terminalView.bounds.height
-    terminalView.setContentOffset(CGPoint(x: 0, y: max(0, maxY)), animated: false)
+terminalState.scrollToBottom = { [weak terminalView, weak scrollView] in
+    guard let terminalView, let scrollView else { return }
+    // Inner: scroll SwiftTerm to bottom of scrollback
+    let innerMaxY = terminalView.contentSize.height - terminalView.bounds.height
+    terminalView.setContentOffset(CGPoint(x: 0, y: max(0, innerMaxY)), animated: false)
+    // Outer: scroll to bottom of terminal frame (for tall terminals)
+    let outerMaxY = scrollView.contentSize.height - scrollView.bounds.height
+    scrollView.setContentOffset(
+        CGPoint(x: scrollView.contentOffset.x, y: max(0, outerMaxY)),
+        animated: false
+    )
 }
 ```
 
