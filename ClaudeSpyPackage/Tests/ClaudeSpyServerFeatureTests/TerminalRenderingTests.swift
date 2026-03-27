@@ -1358,4 +1358,227 @@
             #expect(sgr == "\u{1b}[31m\u{1b}[32m", "Should track SGR correctly past 2-col emoji")
         }
     }
+
+    // MARK: - Clear Screen Recapture
+
+    @Suite("Clear screen recapture behavior")
+    struct ClearScreenRecaptureTests {
+        @Test("After clear, recapture visible area shows only prompt — not scrollback")
+        @MainActor
+        func clearRecaptureShowsOnlyPrompt() {
+            // Simulate: user ran `seq 1 10` then `clear` in a 24-row terminal.
+            // After clear, tmux state:
+            //   Scrollback: history including "$ clear"
+            //   Visible: prompt on row 0, cursor on row 1, rows 2-23 empty
+            //
+            // capture-pane trims trailing empty lines, so:
+            //   Scrollback capture: [history..., "$ clear", prompt_line1, prompt_line2]
+            //   Visible capture:    [prompt_line1, prompt_line2]
+
+            let service = TmuxService()
+            let height = 24
+
+            // Build scrollback: some history + the "$ clear" command + visible overlap
+            var scrollbackLines: [String] = []
+            scrollbackLines.append("$ seq 1 10")
+            for idx in 1...10 {
+                scrollbackLines.append("\(idx)")
+            }
+            scrollbackLines.append("$ clear")
+            // Visible overlap (capture-pane -S -N -E -1 includes visible too)
+            scrollbackLines.append("user@host ~")
+            scrollbackLines.append("$ ")
+
+            let scrollbackOutput = scrollbackLines.joined(separator: "\n") + "\n"
+            // Visible: full height with trailing empties (tmux doesn't trim visible capture)
+            var visibleLinesList = ["user@host ~", "$ "]
+            for _ in 2..<height {
+                visibleLinesList.append("")
+            }
+            let visibleOutput = visibleLinesList.joined(separator: "\n") + "\n"
+            let cursorOutput = "2,1,1" // cursor at col 2, row 1
+
+            let data = service.processCapturePaneForStreaming(
+                scrollbackOutput: scrollbackOutput,
+                visibleOutput: visibleOutput,
+                cursorOutput: cursorOutput,
+                height: height
+            )
+
+            // Feed into a SwiftTerm terminal of the same height
+            let (terminal, _) = makeTerminal(cols: 80, rows: height)
+            terminal.feed(text: String(data: data, encoding: .utf8)!)
+
+            // The visible buffer should show the prompt at rows 0-1, rest empty.
+            // "$ clear" must NOT appear in the visible area — it should be in scrollback only.
+            let row0 = getRowText(terminal, row: 0)
+            let row1 = getRowText(terminal, row: 1)
+            // SwiftTerm fills cleared cells with \u{0000} (null), not space.
+            // getRowText trims whitespace but not nulls, so check for null-only content.
+            let row2Raw = getRowText(terminal, row: 2)
+            let row2 = row2Raw.filter { $0 != "\0" }
+
+            #expect(row0.contains("user@host"), "Row 0 should have the prompt, got: '\(row0)'")
+            #expect(row1.contains("$"), "Row 1 should have '$ ', got: '\(row1)'")
+            #expect(row2.isEmpty, "Row 2 should be empty after clear, got: '\(row2)'")
+
+            // Verify "$ clear" is NOT in the visible area
+            for row in 0..<height {
+                let text = getRowText(terminal, row: row).filter { $0 != "\0" }
+                #expect(
+                    !text.contains("clear"),
+                    "Row \(row) should not contain 'clear' in visible area, got: '\(text)'"
+                )
+            }
+        }
+
+        @Test("After clear, scrollback is NOT output (stale content suppressed)")
+        @MainActor
+        func clearRecaptureOmitsScrollback() {
+            // When scrollback capture has fewer lines than visible capture (typical
+            // after `clear`), scrollback should be suppressed entirely.
+            let service = TmuxService()
+            let height = 24
+
+            // Scrollback capture: 14 lines (< visible 24)
+            var scrollbackLines: [String] = []
+            scrollbackLines.append("$ seq 1 10")
+            for idx in 1...10 {
+                scrollbackLines.append("\(idx)")
+            }
+            scrollbackLines.append("$ clear")
+            scrollbackLines.append("user@host ~")
+            scrollbackLines.append("$ ")
+
+            let scrollbackOutput = scrollbackLines.joined(separator: "\n") + "\n"
+            // Visible: full 24 lines (tmux doesn't trim trailing empties for visible)
+            var visibleLinesList = ["user@host ~", "$ "]
+            for _ in 2..<height {
+                visibleLinesList.append("")
+            }
+            let visibleOutput = visibleLinesList.joined(separator: "\n") + "\n"
+            let cursorOutput = "2,1,1"
+
+            let data = service.processCapturePaneForStreaming(
+                scrollbackOutput: scrollbackOutput,
+                visibleOutput: visibleOutput,
+                cursorOutput: cursorOutput,
+                height: height
+            )
+
+            // Use an OVERSIZED terminal so all content is visible (no scrollback)
+            let oversizedRows = 200
+            let (terminal, _) = makeTerminal(cols: 80, rows: oversizedRows)
+            terminal.feed(text: String(data: data, encoding: .utf8)!)
+
+            // Collect all non-empty rows
+            var allContent: [String] = []
+            for row in 0..<oversizedRows {
+                let text = getRowText(terminal, row: row).filter { $0 != "\0" }
+                if !text.isEmpty {
+                    allContent.append(text)
+                }
+            }
+
+            // Should NOT contain scrollback history — it was suppressed
+            #expect(!allContent.contains { $0.contains("seq 1 10") }, "Scrollback should be suppressed after clear")
+            #expect(!allContent.contains { $0.contains("clear") }, "$ clear should not appear after clear")
+            // Should still have prompt
+            #expect(allContent.contains { $0.contains("user@host") }, "Should still have prompt")
+        }
+
+        @Test("After clear with large scrollback, scrollback is still suppressed")
+        @MainActor
+        func clearRecaptureWithLargeScrollback() {
+            // seq 1 100 && clear in a 40-row terminal: scrollback has >100 lines
+            // but the visible area is mostly empty (just prompt).
+            let service = TmuxService()
+            let height = 40
+
+            var scrollbackLines: [String] = []
+            scrollbackLines.append("$ seq 1 100")
+            for idx in 1...100 {
+                scrollbackLines.append("\(idx)")
+            }
+            scrollbackLines.append("$ clear")
+            scrollbackLines.append("user@host ~")
+            scrollbackLines.append("$ ")
+            let scrollbackOutput = scrollbackLines.joined(separator: "\n") + "\n"
+
+            // Visible: full 40 lines, only prompt at top
+            var visibleLinesList = ["user@host ~", "$ "]
+            for _ in 2..<height {
+                visibleLinesList.append("")
+            }
+            let visibleOutput = visibleLinesList.joined(separator: "\n") + "\n"
+
+            let data = service.processCapturePaneForStreaming(
+                scrollbackOutput: scrollbackOutput,
+                visibleOutput: visibleOutput,
+                cursorOutput: "2,1,1",
+                height: height
+            )
+
+            let oversizedRows = 300
+            let (terminal, _) = makeTerminal(cols: 80, rows: oversizedRows)
+            terminal.feed(text: String(data: data, encoding: .utf8)!)
+
+            var allContent: [String] = []
+            for row in 0..<oversizedRows {
+                let text = getRowText(terminal, row: row).filter { $0 != "\0" }
+                if !text.isEmpty { allContent.append(text) }
+            }
+
+            // Scrollback should be suppressed despite having many lines
+            #expect(!allContent.contains { $0.contains("seq 1 100") }, "Scrollback suppressed after clear")
+            #expect(!allContent.contains { $0.contains("clear") }, "$ clear suppressed")
+            #expect(allContent.contains { $0.contains("user@host") }, "Prompt still present")
+        }
+
+        @Test("Scrollback IS output when there is genuine scrollback content")
+        @MainActor
+        func scrollbackOutputWhenContentExceedsVisible() {
+            // When scrollback capture has MORE lines than visible (typical for
+            // `seq 1 200`), scrollback should be output normally.
+            let service = TmuxService()
+            let height = 24
+
+            // Scrollback: 160 lines (>> visible 24)
+            var scrollbackLines: [String] = []
+            for idx in 1...158 {
+                scrollbackLines.append("Line \(idx)")
+            }
+            scrollbackLines.append("Visible 1")
+            scrollbackLines.append("$ ")
+
+            let scrollbackOutput = scrollbackLines.joined(separator: "\n") + "\n"
+            var visibleLinesList: [String] = []
+            for idx in 135...158 {
+                visibleLinesList.append("Line \(idx)")
+            }
+            let visibleOutput = visibleLinesList.joined(separator: "\n") + "\n"
+            let cursorOutput = "0,23,1"
+
+            let data = service.processCapturePaneForStreaming(
+                scrollbackOutput: scrollbackOutput,
+                visibleOutput: visibleOutput,
+                cursorOutput: cursorOutput,
+                height: height
+            )
+
+            let oversizedRows = 500
+            let (terminal, _) = makeTerminal(cols: 80, rows: oversizedRows)
+            terminal.feed(text: String(data: data, encoding: .utf8)!)
+
+            var allContent: [String] = []
+            for row in 0..<oversizedRows {
+                let text = getRowText(terminal, row: row).filter { $0 != "\0" }
+                if !text.isEmpty { allContent.append(text) }
+            }
+
+            // Should contain scrollback history
+            #expect(allContent.contains { $0.contains("Line 1") }, "Should have scrollback content")
+            #expect(allContent.contains { $0.contains("Line 100") }, "Should have deep scrollback content")
+        }
+    }
 #endif
