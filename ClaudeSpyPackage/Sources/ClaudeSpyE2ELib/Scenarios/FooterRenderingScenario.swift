@@ -22,8 +22,8 @@ public enum FooterRenderingScenario {
         FreshPairingScenario.scenario
 
         // ── Setup ─────────────────────────────────────────────────────
-        TestStep.log("Creating 100×65 tmux session for footer rendering test")
-        TestStep.tmuxCreateSession(name: "footer-test", width: 100, height: 65)
+        TestStep.log("Creating 106×63 tmux session for footer rendering test")
+        TestStep.tmuxCreateSession(name: "footer-test", width: 106, height: 63)
         TestStep.tmuxCreateSession(name: "footer-helper", width: 80, height: 24)
 
         TestStep.tmuxSendKeys(
@@ -133,6 +133,21 @@ public enum FooterRenderingScenario {
         TestStep.tmuxSendKeys(target: "footer-helper:0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
+        TestStep.log("Selecting pane on macOS for mirroring")
+
+        Shortcut.openPanesWindow()
+        // Resize macOS window to fit the 100×65 terminal
+        TestStep.macResizeWindow(width: 1_072, height: 1_040)
+        TestStep.macClickButton(titled: "footer-test:0")
+
+        // ── Navigate to pane on iOS ─────────────────────────────────
+        TestStep.log("Opening terminal pane on iOS mirror")
+        TestStep.iosWaitForElement(.labelContains("footer-test"), timeout: 15)
+        TestStep.iosTap(.labelContains("footer-test"))
+        TestStep.wait(seconds: 1)
+        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting"), timeout: 15)
+        TestStep.wait(seconds: 1)
+
         // ── Run the script ───────────────────────────────────────────
         TestStep.log("Running DECSTBM scroll region test")
         TestStep.tmuxSendKeys(
@@ -149,32 +164,17 @@ public enum FooterRenderingScenario {
         TestStep.tmuxCapturePaneContent(target: "footer-test:0", storeAs: "pane-content")
         TestStep.assertStoredContains(key: "pane-content", substring: "FIXED FOOTER")
         TestStep.assertStoredContains(key: "pane-content", substring: "FIXED HEADER")
+        TestStep.assertStoredContains(key: "pane-content", substring: "Scrolling line 76")
 
         // ── Select the pane on macOS ─────────────────────────────────
-        TestStep.log("Selecting pane on macOS for mirroring")
-
-        // Resize macOS window to fit the 100×65 terminal
-        TestStep.macResizeWindow(width: 1_072, height: 1_022)
-        Shortcut.openPanesWindow()
-        TestStep.macClickButton(titled: "footer-test:0")
-        TestStep.wait(seconds: 3)
-
         // Screenshot: should show header and footer on macOS
-        TestStep.macScreenshot(label: "footer-mac-full-terminal", compare: false)
-
-        // ── Navigate to pane on iOS ─────────────────────────────────
-        TestStep.log("Opening terminal pane on iOS mirror")
-        TestStep.iosWaitForElement(.labelContains("footer-test"), timeout: 15)
-        TestStep.iosTap(.labelContains("footer-test"))
-        TestStep.wait(seconds: 3)
-        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting"), timeout: 15)
-        TestStep.wait(seconds: 3)
+        TestStep.macScreenshot(label: "footer-mac-full-terminal")
 
         // Screenshot: should show the terminal content on iOS
         // Before the fix, the footer is missing because SwiftTerm auto-resizes
         // the buffer to fit the screen, destroying bottom rows.
         // After the fix, the terminal expands and the outer scroll view allows
         // scrolling to see the footer.
-        TestStep.iosScreenshot(label: "footer-ios-terminal", compare: false)
+        TestStep.iosScreenshot(label: "footer-ios-terminal")
     }
 }
