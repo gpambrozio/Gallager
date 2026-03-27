@@ -25,6 +25,7 @@ public struct MainView: View {
     @State private var isLoadingProjects = false
     @State private var creatingSelection: NewSessionCreatingState?
     @State private var detailPaneSize: CGSize = .zero
+    @State private var contextMenuCloseSessionName: String?
 
     /// Tracks active session pane IDs for detecting section changes
     @State private var trackedActiveSessionPaneIds: Set<String> = []
@@ -72,6 +73,19 @@ public struct MainView: View {
             if let error = attachError {
                 Text(error)
             }
+        }
+        .alert("Close Session?", isPresented: .init(
+            get: { contextMenuCloseSessionName != nil },
+            set: { if !$0 { contextMenuCloseSessionName = nil } }
+        )) {
+            if let sessionName = contextMenuCloseSessionName {
+                Button("Close \"\(sessionName)\"", role: .destructive) {
+                    closeSession(sessionName)
+                }
+            }
+            Button("Cancel", role: .cancel) { contextMenuCloseSessionName = nil }
+        } message: {
+            Text("This will end all processes in the session.")
         }
         .onChange(of: tmuxService.panes) { _, newPanes in
             // Ensure pane states exist for all known panes so the detail view
@@ -266,6 +280,35 @@ public struct MainView: View {
                             let command = SetWindowDescription(windowId: windowId, description: description)
                             _ = await manager.sendCommand(command, paneId: "", hostId: host.id)
                         }
+                    },
+                    onToggleYolo: { paneId, enabled in
+                        Task {
+                            guard let manager = coordinator.viewerConnectionManager else { return }
+                            _ = await manager.sendCommand(
+                                SetYoloMode(enabled: enabled),
+                                paneId: paneId,
+                                hostId: host.id
+                            )
+                        }
+                    },
+                    onResize: { paneId in
+                        Task {
+                            await performResize(remoteHostId: host.id, remotePaneId: paneId)
+                        }
+                    },
+                    isAutoResizeEnabled: { resizeKey in
+                        autoResizeEnabled.contains(resizeKey)
+                    },
+                    onToggleAutoResize: { resizeKey, enabled in
+                        if enabled {
+                            autoResizeEnabled.insert(resizeKey)
+                            let paneId = RemotePaneSelection.paneId(from: resizeKey, hostId: host.id)
+                            Task {
+                                await performResize(remoteHostId: host.id, remotePaneId: paneId)
+                            }
+                        } else {
+                            autoResizeEnabled.remove(resizeKey)
+                        }
                     }
                 )
             }
@@ -274,6 +317,10 @@ public struct MainView: View {
 
     private func windowButton(window: LocalTmuxWindow, help: String? = nil) -> some View {
         let description = window.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customDescription }
+        let claudePane = window.panes.first { windowManager.paneStates[$0.paneId]?.claudeSession != nil }
+        let activePane = window.activePane
+        let isSessionAttached = tmuxService.attachedSessionNames.contains(window.sessionName)
+
         return Button {
             selectedWindow = window
             selectedRemotePane = nil
@@ -284,6 +331,74 @@ public struct MainView: View {
         .buttonStyle(.plain)
         .help(help ?? "")
         .listRowBackground(selectedWindow?.id == window.id && selectedRemotePane == nil ? Color.accentColor.opacity(0.2) : nil)
+        .modifier(DescriptionEditingModifier(
+            windowId: window.id,
+            currentDescription: description,
+            onSetDescription: { windowId, description in
+                windowManager.setWindowDescription(description, for: windowId)
+            },
+            additionalMenu: {
+                if let claudePane {
+                    Toggle(isOn: localYoloModeBinding(for: claudePane.paneId)) {
+                        Label("Yolo Mode", symbol: .bolt)
+                    }
+
+                    Divider()
+                }
+
+                if let activePane {
+                    Button {
+                        attachToTerminal(activePane)
+                    } label: {
+                        Label("Open in Terminal", symbol: .macwindow)
+                    }
+
+                    Button {
+                        windowManager.openMirror(for: activePane)
+                    } label: {
+                        Label("Open in New Window", symbol: .macwindowBadgePlus)
+                    }
+
+                    Divider()
+
+                    Button {
+                        Task {
+                            await performResize(localTarget: activePane.target)
+                        }
+                    } label: {
+                        Label("Resize to Fit", symbol: .arrowUpLeftAndArrowDownRight)
+                    }
+                    .disabled(isSessionAttached)
+
+                    Toggle(isOn: Binding(
+                        get: { autoResizeEnabled.contains(activePane.paneId) },
+                        set: { enabled in
+                            if enabled {
+                                autoResizeEnabled.insert(activePane.paneId)
+                                Task {
+                                    await performResize(localTarget: activePane.target)
+                                }
+                            } else {
+                                autoResizeEnabled.remove(activePane.paneId)
+                            }
+                        }
+                    )) {
+                        Label("Auto-resize", symbol: .arrowDownRightAndArrowUpLeft)
+                    }
+                    .disabled(isSessionAttached)
+                }
+
+                Divider()
+
+                Button(role: .destructive) {
+                    contextMenuCloseSessionName = window.sessionName
+                } label: {
+                    Label("Close Session", symbol: .xmark)
+                }
+
+                Divider()
+            }
+        ))
     }
 
     // MARK: - Detail View
@@ -351,15 +466,7 @@ public struct MainView: View {
 
                 // Yolo mode toggle (only for windows with active Claude sessions)
                 if let claudePane {
-                    Toggle(isOn: Binding(
-                        get: { windowManager.isYoloModeEnabled(for: claudePane.paneId) },
-                        set: { newValue in
-                            windowManager.setYoloMode(enabled: newValue, for: claudePane.paneId)
-                            Task {
-                                await coordinator.connectedViewerManager?.pushSessionStateToAll()
-                            }
-                        }
-                    )) {
+                    Toggle(isOn: localYoloModeBinding(for: claudePane.paneId)) {
                         Symbols.bolt.image
                     }
                     .toggleStyle(.button)
@@ -533,6 +640,18 @@ public struct MainView: View {
     }
 
     // MARK: - Resize
+
+    private func localYoloModeBinding(for paneId: String) -> Binding<Bool> {
+        Binding(
+            get: { windowManager.isYoloModeEnabled(for: paneId) },
+            set: { newValue in
+                windowManager.setYoloMode(enabled: newValue, for: paneId)
+                Task {
+                    await coordinator.connectedViewerManager?.pushSessionStateToAll()
+                }
+            }
+        )
+    }
 
     @ViewBuilder
     private func resizeToolbarGroup(
@@ -1127,13 +1246,6 @@ private struct WindowSidebarRow: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
-        .modifier(DescriptionEditingModifier(
-            windowId: window.id,
-            currentDescription: customDescription,
-            onSetDescription: { windowId, description in
-                windowManager.setWindowDescription(description, for: windowId)
-            }
-        ))
     }
 }
 
@@ -1291,6 +1403,13 @@ private struct RemotePaneSelection: Equatable, Hashable {
     let paneId: String
 
     var resizeKey: String { "remote-\(hostId)-\(paneId)" }
+
+    /// Extracts the paneId from a resizeKey generated by this type.
+    static func paneId(from resizeKey: String, hostId: String) -> String {
+        let prefix = "remote-\(hostId)-"
+        guard resizeKey.hasPrefix(prefix) else { return resizeKey }
+        return String(resizeKey.dropFirst(prefix.count))
+    }
 }
 
 // MARK: - Remote Host Sidebar Section
@@ -1305,6 +1424,10 @@ private struct RemoteHostSidebarSection: View {
     let onSelect: (RemotePaneSelection) -> Void
     let onCreate: (ClaudeProjectInfo?) -> Void
     let onSetDescription: (String, String?) -> Void
+    let onToggleYolo: (String, Bool) -> Void
+    let onResize: (String) -> Void
+    let isAutoResizeEnabled: (String) -> Bool
+    let onToggleAutoResize: (String, Bool) -> Void
 
     @Environment(AppSettings.self) private var settings
 
@@ -1347,8 +1470,11 @@ private struct RemoteHostSidebarSection: View {
                     .modifier(DescriptionEditingModifier(
                         windowId: paneState?.windowId ?? "",
                         currentDescription: paneState?.customDescription,
-                        isDisabled: connection?.isHostConnected != true,
-                        onSetDescription: onSetDescription
+                        isDisabled: paneState == nil || connection?.isHostConnected != true,
+                        onSetDescription: onSetDescription,
+                        additionalMenu: {
+                            remoteContextMenuItems(paneId: item.paneId, hasClaude: true)
+                        }
                     ))
                 }
 
@@ -1377,7 +1503,10 @@ private struct RemoteHostSidebarSection: View {
                         windowId: pane.windowId,
                         currentDescription: pane.customDescription,
                         isDisabled: connection?.isHostConnected != true,
-                        onSetDescription: onSetDescription
+                        onSetDescription: onSetDescription,
+                        additionalMenu: {
+                            remoteContextMenuItems(paneId: pane.paneId, hasClaude: false)
+                        }
                     ))
                 }
             } else if connection?.isHostConnected == true {
@@ -1410,6 +1539,41 @@ private struct RemoteHostSidebarSection: View {
                 }
             )
         }
+    }
+
+    @ViewBuilder
+    private func remoteContextMenuItems(paneId: String, hasClaude: Bool) -> some View {
+        let resizeKey = "remote-\(host.id)-\(paneId)"
+        let isDisconnected = connection?.isHostConnected != true
+
+        if hasClaude {
+            Toggle(isOn: Binding(
+                get: { sessionStore.isYoloModeEnabled(for: paneId) },
+                set: { onToggleYolo(paneId, $0) }
+            )) {
+                Label("Yolo Mode", symbol: .bolt)
+            }
+            .disabled(isDisconnected)
+
+            Divider()
+        }
+
+        Button {
+            onResize(paneId)
+        } label: {
+            Label("Resize to Fit", symbol: .arrowUpLeftAndArrowDownRight)
+        }
+        .disabled(isDisconnected)
+
+        Toggle(isOn: Binding(
+            get: { isAutoResizeEnabled(resizeKey) },
+            set: { onToggleAutoResize(resizeKey, $0) }
+        )) {
+            Label("Auto-resize", symbol: .arrowDownRightAndArrowUpLeft)
+        }
+        .disabled(isDisconnected)
+
+        Divider()
     }
 
     private var hostStatusColor: Color {
