@@ -30,8 +30,28 @@ public extension HookAction {
             .pauseCircleFill
         case .taskCompleted:
             .checkmarkCircleFill
-        case .preCompact:
+        case .preCompact,
+             .postCompact:
             .arrowDownRightAndArrowUpLeft
+        case .instructionsLoaded:
+            .docTextFill
+        case .stopFailure:
+            .exclamationmarkCircleFill
+        case .configChange:
+            .docBadgeGearshapeFill
+        case .cwdChanged:
+            .folderBadgeGearshape
+        case .fileChanged:
+            .docTextFill
+        case .elicitation,
+             .elicitationResult:
+            .bubbleLeftAndExclamationmarkBubbleRight
+        case .worktreeCreate:
+            .arrowTriangleBranch
+        case .worktreeRemove:
+            .arrowTriangleBranch
+        case .taskCreated:
+            .folderBadgePlus
         case .unknown:
             .questionmark
         }
@@ -64,8 +84,28 @@ public extension HookAction {
             .yellow
         case .taskCompleted:
             .green
-        case .preCompact:
+        case .preCompact,
+             .postCompact:
             .indigo
+        case .instructionsLoaded:
+            .teal
+        case .stopFailure:
+            .red
+        case .configChange:
+            .orange
+        case .cwdChanged:
+            .brown
+        case .fileChanged:
+            .mint
+        case .elicitation,
+             .elicitationResult:
+            .purple
+        case .worktreeCreate:
+            .green
+        case .worktreeRemove:
+            .red
+        case .taskCreated:
+            .green
         case .unknown:
             .gray
         }

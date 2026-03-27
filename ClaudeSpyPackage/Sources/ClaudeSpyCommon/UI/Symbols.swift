@@ -13,12 +13,14 @@ public enum Symbols: String {
     case arrowDown = "arrow.down"
     case arrowDownRightAndArrowUpLeft = "arrow.down.right.and.arrow.up.left"
     case arrowRight = "arrow.right"
+    case arrowTriangleBranch = "arrow.triangle.branch"
     case arrowUpCircleFill = "arrow.up.circle.fill"
     case arrowUpLeftAndArrowDownRight = "arrow.up.left.and.arrow.down.right"
     case bellBadgeFill = "bell.badge.fill"
     case bellFill = "bell.fill"
     case bolt
     case boltFill = "bolt.fill"
+    case bubbleLeftAndExclamationmarkBubbleRight = "bubble.left.and.exclamationmark.bubble.right"
     case checkmark
     case checkmarkCircle = "checkmark.circle"
     case checkmarkCircleFill = "checkmark.circle.fill"
@@ -28,12 +30,16 @@ public enum Symbols: String {
     case chevronRight = "chevron.right"
     case chevronUp = "chevron.up"
     case circle
+    case docBadgeGearshapeFill = "doc.badge.gearshape.fill"
     case docOnClipboard = "doc.on.clipboard"
+    case docTextFill = "doc.text.fill"
     case ellipsisCircle = "ellipsis.circle"
     case exclamationmarkCircleFill = "exclamationmark.circle.fill"
     case exclamationmarkTriangle = "exclamationmark.triangle"
     case figureRun = "figure.run"
     case folder
+    case folderBadgeGearshape = "folder.badge.gearshape"
+    case folderBadgePlus = "folder.badge.plus"
     case gearshape
     case handsAndSparklesFill = "hands.and.sparkles.fill"
     case infoCircle = "info.circle"
