@@ -346,12 +346,8 @@ struct TerminalContainerView: NSViewRepresentable {
             terminalView.lockedDimensions = (cols: columns, rows: rows)
             if changed {
                 terminalView.getTerminal().resize(cols: columns, rows: rows)
-                // Don't call updateTerminalFrameSize() here — it sets the NSView frame
-                // to the optimal size for the locked dimensions, which may be smaller
-                // than the container. The container then auto-resizes the view back,
-                // triggering SwiftTerm's processSizeChange in a cycle that corrupts
-                // the terminal content. The sizeChanged delegate handles any async
-                // resize attempts by re-applying locked dimensions.
+                updateTerminalFrameSize()
+                reapplyDimensionsIfNeeded()
                 notifyStateChange()
             }
         }
@@ -437,9 +433,11 @@ struct TerminalContainerView: NSViewRepresentable {
             guard rows > 0 else { return }
 
             if rowsLockedToTmux {
-                // When locked, just ensure SwiftTerm hasn't drifted.
-                // Don't update the frame — that triggers processSizeChange
-                // which overrides our locked dimensions.
+                // When locked, skip row recalculation but still update the
+                // frame size so the terminal width tracks the container.
+                // setTerminalSize uses locked optimal height (not bounds.height)
+                // to avoid triggering processSizeChange row recalculation.
+                updateTerminalFrameSize()
                 reapplyDimensionsIfNeeded()
                 return
             }
