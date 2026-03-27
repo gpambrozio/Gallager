@@ -25,6 +25,8 @@ public extension HookEventMessage {
             } else {
                 return nil
             }
+        case let .stopFailure(failureBody):
+            body = "\(projectName): Error — \(failureBody.errorType ?? "unknown failure")"
         default:
             return nil
         }
