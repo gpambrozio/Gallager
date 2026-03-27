@@ -77,8 +77,6 @@ public struct DescriptionEditingModifier<AdditionalMenu: View>: ViewModifier {
     public func body(content: Content) -> some View {
         content
             .contextMenu {
-                additionalMenu
-
                 DescriptionContextMenuButtons(
                     currentDescription: currentDescription,
                     isDisabled: isDisabled,
@@ -90,6 +88,8 @@ public struct DescriptionEditingModifier<AdditionalMenu: View>: ViewModifier {
                         onSetDescription(windowId, nil)
                     }
                 )
+
+                additionalMenu
             }
             .alert("Window Description", isPresented: $isEditingDescription) {
                 TextField("Description", text: $editedDescription)
