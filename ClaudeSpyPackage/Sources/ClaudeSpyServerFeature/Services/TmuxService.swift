@@ -390,24 +390,38 @@ final public class TmuxService {
         // buffer when Part 2 writes the full visible area, making them available
         // when the user scrolls up. Part 2 ensures no stale Part 1 content remains
         // visible by always outputting at least `height` lines.
-        if let scrollbackContent = scrollbackOutput {
+        //
+        // Exception: when the visible area is mostly empty (fewer than 1/4 of lines
+        // have content), the screen was recently cleared. In this case, skip Part 1
+        // entirely — the scrollback content is stale pre-clear history that would
+        // pollute the mirror's scrollback buffer.
+        let nonEmptyVisibleCount = visibleLines.count { line in
+            !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        let screenWasCleared = nonEmptyVisibleCount < max(1, height / 4)
+
+        var hasScrollback = false
+        if !screenWasCleared, let scrollbackContent = scrollbackOutput {
             var trimmed = scrollbackContent
             if trimmed.hasSuffix("\n") {
                 trimmed.removeLast()
             }
             let scrollbackLinesList = trimmed.split(separator: "\n", omittingEmptySubsequences: false)
 
-            for line in scrollbackLinesList {
-                // Strip any trailing CR (tmux may output \r\n line endings)
-                var lineStr = String(line)
-                if lineStr.hasSuffix("\r") {
-                    lineStr.removeLast()
+            if !scrollbackLinesList.isEmpty {
+                hasScrollback = true
+                for line in scrollbackLinesList {
+                    // Strip any trailing CR (tmux may output \r\n line endings)
+                    var lineStr = String(line)
+                    if lineStr.hasSuffix("\r") {
+                        lineStr.removeLast()
+                    }
+                    // Filter to colors only, reset attributes, output content with newline
+                    let filtered = filterToColorCodesOnly(lineStr)
+                    output += "\u{1b}[0m" // Reset at start
+                    output += filtered
+                    output += "\u{1b}[0m\r\n" // Reset, carriage return, newline
                 }
-                // Filter to colors only, reset attributes, output content with newline
-                let filtered = filterToColorCodesOnly(lineStr)
-                output += "\u{1b}[0m" // Reset at start
-                output += filtered
-                output += "\u{1b}[0m\r\n" // Reset, carriage return, newline
             }
         }
 
@@ -423,14 +437,14 @@ final public class TmuxService {
         //   visible-area lines that are still showing in the terminal. Without
         //   this, when visibleLines.count < height, stale Part 1 content can
         //   remain visible at the top of the screen.
-        let minForScrollback = scrollbackOutput != nil ? height : 0
+        let minForScrollback = hasScrollback ? height : 0
         let linesToOutput = max(cursorY + 1, visibleLines.count, minForScrollback)
 
         // Move to home only when there's no scrollback. When scrollback exists,
         // visible lines flow continuously after scrollback — the terminal's own
         // scrolling pushes excess content into the scrollback buffer. Using \e[H]
         // with scrollback would jump back to the top and overwrite scrollback lines.
-        if scrollbackOutput == nil {
+        if !hasScrollback {
             output += "\u{1b}[H" // Cursor to home (row 1, col 1)
         }
 
