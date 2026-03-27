@@ -21,14 +21,15 @@ struct E2EEServiceTests {
     @Test("Service reuses existing key pair")
     func serviceReusesKeyPair() async throws {
         let keyManager = InMemoryKeyManager()
+        let keyPairStore = KeyPairStore()
 
         // First service generates a key
-        let service1 = try await createService(keyManager: keyManager)
+        let service1 = try await createService(keyManager: keyManager, keyPairStore: keyPairStore)
         let publicKey1 = service1.publicKey
         let keyId1 = service1.keyId
 
-        // Second service should reuse the same key
-        let service2 = try await createService(keyManager: keyManager)
+        // Second service should reuse the same key (shared KeyPairStore)
+        let service2 = try await createService(keyManager: keyManager, keyPairStore: keyPairStore)
         let publicKey2 = service2.publicKey
         let keyId2 = service2.keyId
 
@@ -256,9 +257,12 @@ struct E2EEServiceTests {
 
     // MARK: - Helpers
 
-    private func createService(keyManager: InMemoryKeyManager = InMemoryKeyManager()) async throws -> E2EEService {
+    private func createService(
+        keyManager: InMemoryKeyManager = InMemoryKeyManager(),
+        keyPairStore: KeyPairStore = KeyPairStore()
+    ) async throws -> E2EEService {
         try await withDependencies {
-            $0[SecretsService.self] = .from(keyManager)
+            $0[SecretsService.self] = .from(keyManager, keyPairStore: keyPairStore)
         } operation: {
             try await E2EEService()
         }
@@ -325,8 +329,7 @@ final private class KeyPairStore: @unchecked Sendable {
 
 extension SecretsService {
     /// Creates a `SecretsService` backed by an `InMemoryKeyManager` for testing.
-    static func from(_ keyManager: InMemoryKeyManager) -> SecretsService {
-        let keyPairStore = KeyPairStore()
+    fileprivate static func from(_ keyManager: InMemoryKeyManager, keyPairStore: KeyPairStore = KeyPairStore()) -> SecretsService {
 
         return SecretsService(
             generateKeyPair: {

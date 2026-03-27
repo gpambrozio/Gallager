@@ -199,6 +199,15 @@ verify_bundled_plugin() {
 }
 
 # =====================================================
+# Run unit tests
+# =====================================================
+run_unit_tests() {
+    log_info "Running unit tests..."
+    "$SCRIPT_DIR/unit-tests.sh" || log_error "Unit tests failed. Fix failing tests before releasing."
+    log_success "All unit tests passed"
+}
+
+# =====================================================
 # Build archive
 # =====================================================
 build_archive() {
@@ -591,6 +600,7 @@ main() {
     echo ""
 
     check_prerequisites
+    run_unit_tests
 
     local current_version
     current_version=$(get_version)
