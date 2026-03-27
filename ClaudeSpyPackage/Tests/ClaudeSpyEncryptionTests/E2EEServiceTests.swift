@@ -329,7 +329,7 @@ final private class KeyPairStore: @unchecked Sendable {
 
 extension SecretsService {
     /// Creates a `SecretsService` backed by an `InMemoryKeyManager` for testing.
-    fileprivate static func from(_ keyManager: InMemoryKeyManager, keyPairStore: KeyPairStore = KeyPairStore()) -> SecretsService {
+    private static func from(_ keyManager: InMemoryKeyManager, keyPairStore: KeyPairStore = KeyPairStore()) -> SecretsService {
 
         return SecretsService(
             generateKeyPair: {
