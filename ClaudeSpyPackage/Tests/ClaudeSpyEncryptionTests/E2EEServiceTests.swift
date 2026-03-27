@@ -262,7 +262,7 @@ struct E2EEServiceTests {
         keyPairStore: KeyPairStore = KeyPairStore()
     ) async throws -> E2EEService {
         try await withDependencies {
-            $0[SecretsService.self] = .from(keyManager, keyPairStore: keyPairStore)
+            $0[SecretsService.self] = makeSecretsService(keyManager: keyManager, keyPairStore: keyPairStore)
         } operation: {
             try await E2EEService()
         }
@@ -273,13 +273,13 @@ struct E2EEServiceTests {
         let keyManager2 = InMemoryKeyManager()
 
         let service1 = try await withDependencies {
-            $0[SecretsService.self] = .from(keyManager1)
+            $0[SecretsService.self] = makeSecretsService(keyManager: keyManager1)
         } operation: {
             try await E2EEService()
         }
 
         let service2 = try await withDependencies {
-            $0[SecretsService.self] = .from(keyManager2)
+            $0[SecretsService.self] = makeSecretsService(keyManager: keyManager2)
         } operation: {
             try await E2EEService()
         }
@@ -327,38 +327,38 @@ final private class KeyPairStore: @unchecked Sendable {
     }
 }
 
-extension SecretsService {
-    /// Creates a `SecretsService` backed by an `InMemoryKeyManager` for testing.
-    private static func from(_ keyManager: InMemoryKeyManager, keyPairStore: KeyPairStore = KeyPairStore()) -> SecretsService {
-
-        return SecretsService(
-            generateKeyPair: {
-                let keyPair = try await keyManager.generateKeyPair()
-                keyPairStore.set(keyPair)
-                return keyPair
-            },
-            loadKeyPair: {
-                keyPairStore.get()
-            },
-            hasStoredKeyPair: {
-                await keyManager.hasStoredKeyPair()
-            },
-            deleteKeys: {
-                await keyManager.deleteKeys()
-                keyPairStore.set(nil)
-            },
-            storeSessionKey: { keyData, pairId in
-                await keyManager.storeSessionKey(keyData, for: pairId)
-            },
-            loadSessionKey: { pairId in
-                await keyManager.loadSessionKey(for: pairId)
-            },
-            deleteSessionKey: { pairId in
-                await keyManager.deleteSessionKey(for: pairId)
-            },
-            hasStoredSessionKey: { pairId in
-                await keyManager.hasStoredSessionKey(for: pairId)
-            }
-        )
-    }
+/// Creates a `SecretsService` backed by an `InMemoryKeyManager` for testing.
+private func makeSecretsService(
+    keyManager: InMemoryKeyManager,
+    keyPairStore: KeyPairStore = KeyPairStore()
+) -> SecretsService {
+    SecretsService(
+        generateKeyPair: {
+            let keyPair = try await keyManager.generateKeyPair()
+            keyPairStore.set(keyPair)
+            return keyPair
+        },
+        loadKeyPair: {
+            keyPairStore.get()
+        },
+        hasStoredKeyPair: {
+            await keyManager.hasStoredKeyPair()
+        },
+        deleteKeys: {
+            await keyManager.deleteKeys()
+            keyPairStore.set(nil)
+        },
+        storeSessionKey: { keyData, pairId in
+            await keyManager.storeSessionKey(keyData, for: pairId)
+        },
+        loadSessionKey: { pairId in
+            await keyManager.loadSessionKey(for: pairId)
+        },
+        deleteSessionKey: { pairId in
+            await keyManager.deleteSessionKey(for: pairId)
+        },
+        hasStoredSessionKey: { pairId in
+            await keyManager.hasStoredSessionKey(for: pairId)
+        }
+    )
 }
