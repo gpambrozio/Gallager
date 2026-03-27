@@ -163,6 +163,11 @@
         var preserveUserScroll = false
         var onResize: ((NSSize) -> Void)?
 
+        /// When set, the terminal dimensions are locked to these values.
+        /// SwiftTerm's async processSizeChange (triggered by frame updates)
+        /// will be overridden to maintain the locked dimensions.
+        var lockedDimensions: (cols: Int, rows: Int)?
+
         // URL detection state
         private var isOverURL = false
         private var urlPreviewField: NSTextField?
@@ -1102,7 +1107,14 @@
                 let h = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay)
                 scroller.frame = NSRect(x: 0, y: 0, width: bounds.width, height: h)
             }
-            terminalView.frame.size.height = bounds.height
+            // When dimensions are locked to a tmux pane, don't change the terminal
+            // frame height — this triggers SwiftTerm's processSizeChange which
+            // overrides our locked row count, causing scrollback content to leak
+            // into the visible area. The terminal renders at the locked dimensions;
+            // extra container space is unused.
+            if lockedDimensions == nil {
+                terminalView.frame.size.height = bounds.height
+            }
             updateHorizontalScroller()
             updateURLUnderlines()
             onResize?(frame.size)
@@ -1202,7 +1214,13 @@
         }
 
         func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
-            // No-op - size is managed externally
+            // When dimensions are locked (connected to a tmux pane), SwiftTerm's
+            // processSizeChange may recalculate rows from the frame height after
+            // a layout pass, overriding our locked dimensions. Re-apply them here.
+            if let locked = lockedDimensions,
+               (newCols != locked.cols || newRows != locked.rows) {
+                source.getTerminal().resize(cols: locked.cols, rows: locked.rows)
+            }
         }
 
         func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
