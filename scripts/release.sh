@@ -83,7 +83,7 @@ done
 log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }  # exits
 
 get_version() {
     grep "^MARKETING_VERSION" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d ' '
@@ -196,6 +196,15 @@ verify_bundled_plugin() {
     fi
 
     log_success "Bundled plugin verified"
+}
+
+# =====================================================
+# Run unit tests
+# =====================================================
+run_unit_tests() {
+    log_info "Running unit tests..."
+    "$SCRIPT_DIR/unit-tests.sh" || log_error "Unit tests failed. Fix failing tests before releasing."
+    log_success "All unit tests passed"
 }
 
 # =====================================================
@@ -591,6 +600,7 @@ main() {
     echo ""
 
     check_prerequisites
+    run_unit_tests
 
     local current_version
     current_version=$(get_version)
