@@ -13,7 +13,8 @@ public extension HookAction {
         case .preToolUse,
              .postToolUse:
             .wrenchAndScrewdriver
-        case .postToolUseFailure:
+        case .postToolUseFailure,
+             .stopFailure:
             .exclamationmarkTriangle
         case .permissionRequest:
             .lockFill
@@ -28,9 +29,27 @@ public extension HookAction {
             .playFill
         case .teammateIdle:
             .pauseCircleFill
+        case .taskCreated:
+            .listBulletClipboard
         case .taskCompleted:
             .checkmarkCircleFill
-        case .preCompact:
+        case .elicitation:
+            .personBubbleFill
+        case .elicitationResult:
+            .checkmarkCircle
+        case .configChange:
+            .docBadgeGearshapeFill
+        case .worktreeCreate,
+             .worktreeRemove:
+            .folderBadgeGearshape
+        case .instructionsLoaded:
+            .docTextFill
+        case .fileChanged:
+            .pencilLine
+        case .cwdChanged:
+            .folder
+        case .preCompact,
+             .postCompact:
             .arrowDownRightAndArrowUpLeft
         case .unknown:
             .questionmark
@@ -47,7 +66,8 @@ public extension HookAction {
         case .preToolUse,
              .postToolUse:
             .blue
-        case .postToolUseFailure:
+        case .postToolUseFailure,
+             .stopFailure:
             .red
         case .permissionRequest:
             .orange
@@ -62,9 +82,25 @@ public extension HookAction {
             .blue
         case .teammateIdle:
             .yellow
+        case .taskCreated:
+            .blue
         case .taskCompleted:
             .green
-        case .preCompact:
+        case .elicitation:
+            .orange
+        case .elicitationResult:
+            .green
+        case .configChange,
+             .instructionsLoaded:
+            .secondary
+        case .worktreeCreate,
+             .worktreeRemove:
+            .secondary
+        case .fileChanged,
+             .cwdChanged:
+            .secondary
+        case .preCompact,
+             .postCompact:
             .indigo
         case .unknown:
             .gray

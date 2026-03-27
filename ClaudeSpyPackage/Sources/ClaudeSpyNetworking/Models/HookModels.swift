@@ -82,23 +82,15 @@ public struct ClaudeSession: Codable, Sendable {
     public var isWorking: Bool {
         guard let latest = latestEvent else { return false }
         switch latest.action {
-        case .preToolUse,
-             .postToolUse,
-             .postToolUseFailure,
-             .userPromptSubmit,
-             .subagentStart,
-             .preCompact:
-            return true
         case .sessionStart,
              .stop,
+             .stopFailure,
              .sessionEnd,
-             .permissionRequest,
-             .notification,
-             .subagentStop,
-             .teammateIdle,
-             .taskCompleted,
              .unknown:
             return false
+        default:
+            // Everything inside the agentic loop + UserPromptSubmit is working
+            return true
         }
     }
 
@@ -116,7 +108,8 @@ public struct ClaudeSession: Codable, Sendable {
         guard let latest = latestEvent else { return }
         switch latest.action {
         case .sessionStart,
-             .stop:
+             .stop,
+             .stopFailure:
             handledUpToEventId = latest.id
         default:
             break
@@ -665,6 +658,217 @@ public struct PreCompactBody: HookBodyProtocol {
     }
 }
 
+public struct StopFailureBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public let error: String?
+    public var shouldSendToServer: Bool { true }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+        case error
+    }
+}
+
+public struct TaskCreatedBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public let taskId: String?
+    public let taskSubject: String?
+    public let taskDescription: String?
+    public let teammateName: String?
+    public let teamName: String?
+    public var shouldSendToServer: Bool { true }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+        case taskId = "task_id"
+        case taskSubject = "task_subject"
+        case taskDescription = "task_description"
+        case teammateName = "teammate_name"
+        case teamName = "team_name"
+    }
+}
+
+public struct ElicitationBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public let message: String?
+    public let mcpServerName: String?
+    public var shouldSendToServer: Bool { true }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+        case message
+        case mcpServerName = "mcp_server_name"
+    }
+}
+
+public struct ElicitationResultBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public var shouldSendToServer: Bool { false }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+    }
+}
+
+public struct ConfigChangeBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public let source: String?
+    public var shouldSendToServer: Bool { false }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+        case source
+    }
+}
+
+public struct WorktreeCreateBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public var shouldSendToServer: Bool { false }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+    }
+}
+
+public struct WorktreeRemoveBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public var shouldSendToServer: Bool { false }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+    }
+}
+
+public struct InstructionsLoadedBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public var shouldSendToServer: Bool { false }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+    }
+}
+
+public struct FileChangedBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public let filePath: String?
+    public var shouldSendToServer: Bool { false }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+        case filePath = "file_path"
+    }
+}
+
+public struct CwdChangedBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public let oldCwd: String?
+    public let newCwd: String?
+    public var shouldSendToServer: Bool { false }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+        case oldCwd = "old_cwd"
+        case newCwd = "new_cwd"
+    }
+}
+
+public struct PostCompactBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public var shouldSendToServer: Bool { false }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+    }
+}
+
 // MARK: - Yolo Mode Support
 
 public extension PermissionRequestBody {
@@ -849,11 +1053,22 @@ public enum HookAction: Codable, Sendable {
     case notification(NotificationBody)
     case userPromptSubmit(UserPromptSubmitBody)
     case stop(StopBody)
+    case stopFailure(StopFailureBody)
     case subagentStart(SubagentStartBody)
     case subagentStop(SubagentStopBody)
     case teammateIdle(TeammateIdleBody)
+    case taskCreated(TaskCreatedBody)
     case taskCompleted(TaskCompletedBody)
+    case elicitation(ElicitationBody)
+    case elicitationResult(ElicitationResultBody)
+    case configChange(ConfigChangeBody)
+    case worktreeCreate(WorktreeCreateBody)
+    case worktreeRemove(WorktreeRemoveBody)
+    case instructionsLoaded(InstructionsLoadedBody)
+    case fileChanged(FileChangedBody)
+    case cwdChanged(CwdChangedBody)
     case preCompact(PreCompactBody)
+    case postCompact(PostCompactBody)
     case unknown(CommonHookFields)
 
     private enum CodingKeys: String, CodingKey {
@@ -871,11 +1086,22 @@ public enum HookAction: Codable, Sendable {
         case notification
         case userPromptSubmit
         case stop
+        case stopFailure
         case subagentStart
         case subagentStop
         case teammateIdle
+        case taskCreated
         case taskCompleted
+        case elicitation
+        case elicitationResult
+        case configChange
+        case worktreeCreate
+        case worktreeRemove
+        case instructionsLoaded
+        case fileChanged
+        case cwdChanged
         case preCompact
+        case postCompact
         case unknown
     }
 
@@ -911,6 +1137,9 @@ public enum HookAction: Codable, Sendable {
         case .stop:
             let body = try container.decode(StopBody.self, forKey: .body)
             self = .stop(body)
+        case .stopFailure:
+            let body = try container.decode(StopFailureBody.self, forKey: .body)
+            self = .stopFailure(body)
         case .subagentStart:
             let body = try container.decode(SubagentStartBody.self, forKey: .body)
             self = .subagentStart(body)
@@ -920,12 +1149,42 @@ public enum HookAction: Codable, Sendable {
         case .teammateIdle:
             let body = try container.decode(TeammateIdleBody.self, forKey: .body)
             self = .teammateIdle(body)
+        case .taskCreated:
+            let body = try container.decode(TaskCreatedBody.self, forKey: .body)
+            self = .taskCreated(body)
         case .taskCompleted:
             let body = try container.decode(TaskCompletedBody.self, forKey: .body)
             self = .taskCompleted(body)
+        case .elicitation:
+            let body = try container.decode(ElicitationBody.self, forKey: .body)
+            self = .elicitation(body)
+        case .elicitationResult:
+            let body = try container.decode(ElicitationResultBody.self, forKey: .body)
+            self = .elicitationResult(body)
+        case .configChange:
+            let body = try container.decode(ConfigChangeBody.self, forKey: .body)
+            self = .configChange(body)
+        case .worktreeCreate:
+            let body = try container.decode(WorktreeCreateBody.self, forKey: .body)
+            self = .worktreeCreate(body)
+        case .worktreeRemove:
+            let body = try container.decode(WorktreeRemoveBody.self, forKey: .body)
+            self = .worktreeRemove(body)
+        case .instructionsLoaded:
+            let body = try container.decode(InstructionsLoadedBody.self, forKey: .body)
+            self = .instructionsLoaded(body)
+        case .fileChanged:
+            let body = try container.decode(FileChangedBody.self, forKey: .body)
+            self = .fileChanged(body)
+        case .cwdChanged:
+            let body = try container.decode(CwdChangedBody.self, forKey: .body)
+            self = .cwdChanged(body)
         case .preCompact:
             let body = try container.decode(PreCompactBody.self, forKey: .body)
             self = .preCompact(body)
+        case .postCompact:
+            let body = try container.decode(PostCompactBody.self, forKey: .body)
+            self = .postCompact(body)
         case .unknown:
             let body = try container.decode(CommonHookFields.self, forKey: .body)
             self = .unknown(body)
@@ -947,6 +1206,39 @@ public enum HookAction: Codable, Sendable {
             try container.encode(body, forKey: .body)
         case let .postToolUseFailure(body):
             try container.encode(ActionType.postToolUseFailure, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .stopFailure(body):
+            try container.encode(ActionType.stopFailure, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .taskCreated(body):
+            try container.encode(ActionType.taskCreated, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .elicitation(body):
+            try container.encode(ActionType.elicitation, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .elicitationResult(body):
+            try container.encode(ActionType.elicitationResult, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .configChange(body):
+            try container.encode(ActionType.configChange, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .worktreeCreate(body):
+            try container.encode(ActionType.worktreeCreate, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .worktreeRemove(body):
+            try container.encode(ActionType.worktreeRemove, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .instructionsLoaded(body):
+            try container.encode(ActionType.instructionsLoaded, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .fileChanged(body):
+            try container.encode(ActionType.fileChanged, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .cwdChanged(body):
+            try container.encode(ActionType.cwdChanged, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .postCompact(body):
+            try container.encode(ActionType.postCompact, forKey: .type)
             try container.encode(body, forKey: .body)
         case let .sessionEnd(body):
             try container.encode(ActionType.sessionEnd, forKey: .type)
@@ -996,11 +1288,22 @@ public enum HookAction: Codable, Sendable {
         case let .notification(body): body
         case let .userPromptSubmit(body): body
         case let .stop(body): body
+        case let .stopFailure(body): body
         case let .subagentStart(body): body
         case let .subagentStop(body): body
         case let .teammateIdle(body): body
+        case let .taskCreated(body): body
         case let .taskCompleted(body): body
+        case let .elicitation(body): body
+        case let .elicitationResult(body): body
+        case let .configChange(body): body
+        case let .worktreeCreate(body): body
+        case let .worktreeRemove(body): body
+        case let .instructionsLoaded(body): body
+        case let .fileChanged(body): body
+        case let .cwdChanged(body): body
         case let .preCompact(body): body
+        case let .postCompact(body): body
         case let .unknown(body): body
         }
     }
@@ -1044,16 +1347,38 @@ public enum HookAction: Codable, Sendable {
             "Prompt Submitted"
         case .stop:
             "Session Idle"
+        case .stopFailure:
+            "API Error"
         case let .subagentStart(body):
             "Subagent: \(body.agentType ?? "Started")"
         case .subagentStop:
             "Subagent Stopped"
         case let .teammateIdle(body):
             "Teammate Idle: \(body.teammateName ?? "Unknown")"
+        case let .taskCreated(body):
+            "Task Created: \(body.taskSubject ?? "Unknown")"
         case let .taskCompleted(body):
             "Task Done: \(body.taskSubject ?? "Unknown")"
+        case let .elicitation(body):
+            "Elicitation: \(body.mcpServerName ?? "MCP")"
+        case .elicitationResult:
+            "Elicitation Responded"
+        case let .configChange(body):
+            "Config Changed: \(body.source ?? "unknown")"
+        case .worktreeCreate:
+            "Worktree Created"
+        case .worktreeRemove:
+            "Worktree Removed"
+        case .instructionsLoaded:
+            "Instructions Loaded"
+        case let .fileChanged(body):
+            "File Changed: \(body.filePath ?? "unknown")"
+        case let .cwdChanged(body):
+            "Directory Changed: \(body.newCwd ?? "unknown")"
         case let .preCompact(body):
             "Compacting (\(body.trigger ?? "unknown"))"
+        case .postCompact:
+            "Compaction Done"
         case let .unknown(body):
             body.hookEventName
         }
@@ -1080,16 +1405,33 @@ public enum HookAction: Codable, Sendable {
             body.prompt
         case let .stop(body):
             body.lastAssistantMessage
+        case let .stopFailure(body):
+            body.error
         case .subagentStart,
              .subagentStop:
             nil
         case let .teammateIdle(body):
             body.teamName
+        case let .taskCreated(body):
+            body.taskDescription
         case let .taskCompleted(body):
             body.taskDescription
+        case let .elicitation(body):
+            body.message
+        case let .configChange(body):
+            body.source
+        case let .fileChanged(body):
+            body.filePath
+        case let .cwdChanged(body):
+            body.newCwd
         case let .preCompact(body):
             body.customInstructions
-        case .unknown:
+        case .elicitationResult,
+             .worktreeCreate,
+             .worktreeRemove,
+             .instructionsLoaded,
+             .postCompact,
+             .unknown:
             nil
         }
     }
@@ -1144,6 +1486,39 @@ public enum HookAction: Codable, Sendable {
         case "PreCompact":
             let body = try decoder.decode(PreCompactBody.self, from: jsonData)
             return .preCompact(body)
+        case "PostCompact":
+            let body = try decoder.decode(PostCompactBody.self, from: jsonData)
+            return .postCompact(body)
+        case "StopFailure":
+            let body = try decoder.decode(StopFailureBody.self, from: jsonData)
+            return .stopFailure(body)
+        case "TaskCreated":
+            let body = try decoder.decode(TaskCreatedBody.self, from: jsonData)
+            return .taskCreated(body)
+        case "Elicitation":
+            let body = try decoder.decode(ElicitationBody.self, from: jsonData)
+            return .elicitation(body)
+        case "ElicitationResult":
+            let body = try decoder.decode(ElicitationResultBody.self, from: jsonData)
+            return .elicitationResult(body)
+        case "ConfigChange":
+            let body = try decoder.decode(ConfigChangeBody.self, from: jsonData)
+            return .configChange(body)
+        case "WorktreeCreate":
+            let body = try decoder.decode(WorktreeCreateBody.self, from: jsonData)
+            return .worktreeCreate(body)
+        case "WorktreeRemove":
+            let body = try decoder.decode(WorktreeRemoveBody.self, from: jsonData)
+            return .worktreeRemove(body)
+        case "InstructionsLoaded":
+            let body = try decoder.decode(InstructionsLoadedBody.self, from: jsonData)
+            return .instructionsLoaded(body)
+        case "FileChanged":
+            let body = try decoder.decode(FileChangedBody.self, from: jsonData)
+            return .fileChanged(body)
+        case "CwdChanged":
+            let body = try decoder.decode(CwdChangedBody.self, from: jsonData)
+            return .cwdChanged(body)
         default:
             return .unknown(common)
         }

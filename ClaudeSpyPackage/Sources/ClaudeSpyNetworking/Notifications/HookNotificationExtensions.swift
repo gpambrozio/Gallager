@@ -19,12 +19,28 @@ public extension HookEventMessage {
             } else {
                 body = "\(projectName): Claude Code is waiting for your input"
             }
+        case let .stopFailure(failureBody):
+            if let error = failureBody.error {
+                body = "\(projectName): API error — \(error)"
+            } else {
+                body = "\(projectName): Claude Code encountered an API error"
+            }
         case let .notification(notifBody):
             if let message = notifBody.message {
                 body = "\(projectName): \(message)"
             } else {
                 return nil
             }
+        case let .elicitation(elicitBody):
+            let server = elicitBody.mcpServerName ?? "MCP server"
+            if let message = elicitBody.message {
+                body = "\(projectName): \(server) — \(message)"
+            } else {
+                body = "\(projectName): \(server) needs your input"
+            }
+        case let .taskCreated(taskBody):
+            let subject = taskBody.taskSubject ?? "New task"
+            body = "\(projectName): \(subject)"
         default:
             return nil
         }
