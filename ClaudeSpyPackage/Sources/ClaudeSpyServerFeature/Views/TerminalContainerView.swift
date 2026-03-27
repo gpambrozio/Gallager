@@ -222,6 +222,7 @@ struct TerminalContainerView: NSViewRepresentable {
             pendingKeyTask?.cancel()
             pendingKeyTask = nil
             rowsLockedToTmux = false
+            terminalView.lockedDimensions = nil
             guard let subId = subscriptionId else { return }
             let manager = paneStreamManager
             Task {
@@ -340,12 +341,12 @@ struct TerminalContainerView: NSViewRepresentable {
             columns = newColumns
             rows = newRows
             rowsLockedToTmux = true
+            // Lock dimensions on the terminal view so its sizeChanged delegate
+            // can re-apply them when SwiftTerm's async processSizeChange fires.
+            terminalView.lockedDimensions = (cols: columns, rows: rows)
             if changed {
                 terminalView.getTerminal().resize(cols: columns, rows: rows)
                 updateTerminalFrameSize()
-                // Re-apply dimensions after frame change — SwiftTerm's processSizeChange
-                // may have overridden them when the frame height doesn't exactly match
-                // cellHeight * rows.
                 reapplyDimensionsIfNeeded()
                 notifyStateChange()
             }
@@ -425,24 +426,34 @@ struct TerminalContainerView: NSViewRepresentable {
         // MARK: Private Helpers
 
         /// Recalculates rows based on container height and resizes terminal.
-        /// When rows are locked to tmux pane height, only updates frame sizing.
+        /// When rows are locked to tmux pane height, only re-applies locked
+        /// dimensions — frame updates are skipped to avoid triggering SwiftTerm's
+        /// processSizeChange which would override the locked row count.
         private func recalculateRowsAndResize() {
             guard rows > 0 else { return }
 
-            if !rowsLockedToTmux {
-                // Derive cell height from SwiftTerm's optimal frame size
-                let currentOptimalSize = terminalView.getOptimalFrameSize().size
-                let cellHeight = currentOptimalSize.height / CGFloat(rows)
-                guard cellHeight > 0 else { return }
+            if rowsLockedToTmux {
+                // When locked, skip row recalculation but still update the
+                // frame size so the terminal width tracks the container.
+                // setTerminalSize uses locked optimal height (not bounds.height)
+                // to avoid triggering processSizeChange row recalculation.
+                updateTerminalFrameSize()
+                reapplyDimensionsIfNeeded()
+                return
+            }
 
-                // Calculate rows from container height
-                let newRows = max(1, Int(containerSize.height / cellHeight))
+            // Derive cell height from SwiftTerm's optimal frame size
+            let currentOptimalSize = terminalView.getOptimalFrameSize().size
+            let cellHeight = currentOptimalSize.height / CGFloat(rows)
+            guard cellHeight > 0 else { return }
 
-                if newRows != rows {
-                    rows = newRows
-                    terminalView.getTerminal().resize(cols: columns, rows: rows)
-                    notifyStateChange()
-                }
+            // Calculate rows from container height
+            let newRows = max(1, Int(containerSize.height / cellHeight))
+
+            if newRows != rows {
+                rows = newRows
+                terminalView.getTerminal().resize(cols: columns, rows: rows)
+                notifyStateChange()
             }
 
             updateTerminalFrameSize()
