@@ -180,6 +180,13 @@ struct WindowPaneLayoutView: View {
             .padding(4)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
             .padding(4)
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.arrow.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
         }
 
         private func splitPane(horizontal: Bool) async {
