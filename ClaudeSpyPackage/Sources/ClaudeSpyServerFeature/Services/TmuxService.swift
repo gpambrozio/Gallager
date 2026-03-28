@@ -384,24 +384,23 @@ final public class TmuxService {
             .map(String.init)
 
         // Part 1: Output scrollback with filtered escape codes (keep only SGR/colors)
-        // The scrollback capture (`-S -N -E -1`) includes both scrollback AND visible
-        // content. We output ALL of it here — including the visible-area overlap.
-        // The visible-area lines from Part 1 get pushed into SwiftTerm's scrollback
-        // buffer when Part 2 writes the full visible area, making them available
-        // when the user scrolls up. Part 2 ensures no stale Part 1 content remains
-        // visible by always outputting at least `height` lines.
+        // The scrollback capture (`-S -N -E -1`) contains only scrollback lines
+        // (lines above the visible area). We output them here; they get pushed
+        // into SwiftTerm's scrollback buffer when Part 2 writes the visible area.
         //
-        // Exception: when the visible area is mostly empty (fewer than 1/4 of lines
-        // have content), the screen was recently cleared. In this case, skip Part 1
-        // entirely — the scrollback content is stale pre-clear history that would
-        // pollute the mirror's scrollback buffer.
+        // Scrollback is suppressed in two cases:
+        // 1. The visible area is mostly empty (screenWasCleared) — indicates
+        //    `clear` was just run and the scrollback is stale pre-clear history.
+        // 2. The scrollback has fewer lines than the terminal height — indicates
+        //    `clear` was run and the screen has since been re-filled. After
+        //    clear, tmux trims the pushed blank lines, leaving only a small
+        //    number of stale lines in the scrollback capture.
         let nonEmptyVisibleCount = visibleLines.count { line in
             !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         let screenWasCleared = nonEmptyVisibleCount < max(1, height / 4)
 
         var hasScrollback = false
-        var scrollbackLineCount = 0
         if !screenWasCleared, let scrollbackContent = scrollbackOutput {
             var trimmed = scrollbackContent
             if trimmed.hasSuffix("\n") {
@@ -409,9 +408,18 @@ final public class TmuxService {
             }
             let scrollbackLinesList = trimmed.split(separator: "\n", omittingEmptySubsequences: false)
 
-            if !scrollbackLinesList.isEmpty {
+            // Skip scrollback when it has fewer lines than the terminal
+            // height. This catches the case where `clear` (or \e[2J) was run
+            // and the screen has since been re-filled — the screenWasCleared
+            // heuristic above only detects clears when the visible area is
+            // still mostly empty. After clear + fill, the scrollback contains
+            // only a small number of stale pre-clear lines (tmux trims the
+            // blank pushed lines), while genuine scrollback from continuous
+            // output (e.g., `seq 1 200`) produces many more lines than height.
+            let hasEnoughScrollback = scrollbackLinesList.count >= height
+
+            if !scrollbackLinesList.isEmpty, hasEnoughScrollback {
                 hasScrollback = true
-                scrollbackLineCount = scrollbackLinesList.count
                 for line in scrollbackLinesList {
                     // Strip any trailing CR (tmux may output \r\n line endings)
                     var lineStr = String(line)
@@ -429,16 +437,20 @@ final public class TmuxService {
 
         // Part 2: Render visible area from the top of the screen.
 
-        // When scrollback was output (Part 1), explicitly scroll it into the
-        // terminal's scrollback buffer using SU (Scroll Up). Without this,
-        // Part 1 content remains visible at the top when the mirror terminal
-        // is taller than the source tmux pane (e.g. after a `clear` command,
-        // the "$ clear" text would linger at the top of the mirror).
-        // Cap at `height` to avoid pushing blank lines into the scrollback
-        // buffer when scrollbackLineCount exceeds the terminal height.
+        // When scrollback was output (Part 1), push it into the terminal's
+        // scrollback buffer using line feeds. Each LF at the bottom of the
+        // screen triggers natural scrolling that moves the top visible line
+        // into the scrollback buffer. We use `height - 1` LFs to push all
+        // content rows without pushing the trailing blank line (from Part 1's
+        // last \r\n) into scrollback.
+        //
+        // Note: SU (CSI n S) cannot be used here — SwiftTerm's cmdScrollUp
+        // deletes lines via splice instead of pushing them to scrollback,
+        // which destroys Part 1 content and creates a gap when scrolling up.
         if hasScrollback {
-            let scrollAmount = min(scrollbackLineCount, height)
-            output += "\u{1b}[\(scrollAmount)S"
+            // When height == 1, count is 0 — intentional no-op since a
+            // single-row pane has no scrollback worth preserving.
+            output += String(repeating: "\n", count: height - 1)
         }
 
         // Determine how many lines to output. We must output at least:
@@ -449,13 +461,13 @@ final public class TmuxService {
         let minForScrollback = hasScrollback ? height : 0
         let linesToOutput = max(cursorY + 1, visibleLines.count, minForScrollback)
 
-        // Always position cursor at the top for Part 2. After the SU scroll
+        // Always position cursor at the top for Part 2. After the LF scroll
         // above (when scrollback exists), the visible area is clear and ready
         // for the visible content to be drawn from the top.
         output += "\u{1b}[H" // Cursor to home (row 1, col 1)
 
         // Output visible lines sequentially, clearing each line before writing.
-        // After the SU scroll above, Part 1 is in the scrollback buffer, so the
+        // After the LF scroll above, Part 1 is in the scrollback buffer, so the
         // visible area is empty — we clear each line defensively and draw Part 2.
         // Filter each line to keep only color codes (remove cursor positioning that could interfere)
         for index in 0..<linesToOutput {
