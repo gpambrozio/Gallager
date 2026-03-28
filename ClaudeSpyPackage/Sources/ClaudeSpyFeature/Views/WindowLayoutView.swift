@@ -31,8 +31,8 @@
         /// Whether to show the session info popover
         @State private var showSessionInfo = false
 
-        /// Guards against sending selectTmuxPane on initial pane assignment
-        @State private var hasInitializedPane = false
+        /// Guards against double-splits from rapid taps
+        @State private var isSplitting = false
 
         /// The current window data from the session store
         private var window: TmuxWindow? {
@@ -106,16 +106,15 @@
                     activePaneId = window.activePane?.paneId ?? window.panes.first?.paneId
                 }
                 updateActiveService()
-                hasInitializedPane = true
             }
-            .onChange(of: activePaneId) {
+            .onChange(of: activePaneId) { oldValue, newValue in
                 updateActiveService()
-                // Sync pane selection to the tmux session on the host
-                // Guard: skip the initial assignment from onAppear to avoid
-                // redirecting the host's tmux focus when the iOS view loads
-                guard hasInitializedPane, let activePaneId else { return }
+                // Sync pane selection to the tmux session on the host.
+                // When oldValue is nil, it's the initial assignment from onAppear
+                // — skip it to avoid redirecting the host's tmux focus on load.
+                guard oldValue != nil, let newValue else { return }
                 Task {
-                    await sendCommand(.selectTmuxPane, paneId: activePaneId)
+                    await sendCommand(.selectTmuxPane, paneId: newValue)
                 }
             }
         }
@@ -306,9 +305,11 @@
 
                 // Split pane horizontally (left-right)
                 Button {
-                    guard let activePaneId else { return }
+                    guard let activePaneId, !isSplitting else { return }
+                    isSplitting = true
                     Task {
                         await sendCommand(.splitTmuxPane(direction: .horizontal), paneId: activePaneId)
+                        isSplitting = false
                     }
                 } label: {
                     Label("Split Horizontal", symbol: .rectangleSplit2x1Fill)
@@ -316,9 +317,11 @@
 
                 // Split pane vertically (top-bottom)
                 Button {
-                    guard let activePaneId else { return }
+                    guard let activePaneId, !isSplitting else { return }
+                    isSplitting = true
                     Task {
                         await sendCommand(.splitTmuxPane(direction: .vertical), paneId: activePaneId)
+                        isSplitting = false
                     }
                 } label: {
                     Label("Split Vertical", symbol: .rectangleSplit1x2Fill)

@@ -326,10 +326,22 @@
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(100))
                 sessionsNavigationPath = NavigationPath()
-                if let paneState = sessionStore.paneStates[deepLink.paneId] {
-                    sessionsNavigationPath.append(SessionNavigation(windowId: paneState.windowId, hostId: deepLink.hostId))
+
+                // Pane state may not be synced yet on cold start (e.g., launched via
+                // push notification). Retry briefly to allow the session store to populate.
+                var paneState = sessionStore.paneStates[deepLink.paneId]
+                if paneState == nil {
+                    for _ in 0..<5 {
+                        try? await Task.sleep(for: .milliseconds(500))
+                        paneState = sessionStore.paneStates[deepLink.paneId]
+                        if paneState != nil { break }
+                    }
                 }
-                currentlyDisplayedPaneId = deepLink.paneId
+
+                if let paneState {
+                    sessionsNavigationPath.append(SessionNavigation(windowId: paneState.windowId, hostId: deepLink.hostId))
+                    currentlyDisplayedPaneId = deepLink.paneId
+                }
             }
         }
 
