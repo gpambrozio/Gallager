@@ -63,7 +63,7 @@ public enum ScrollbackGapScenario {
 
         // ── Scroll up to reveal PAGE3 ───────────────────────────────
 
-        TestStep.macScrollUp(pages: 3)
+        TestStep.macScrollUp(pages: 1)
         TestStep.wait(seconds: 1)
 
         // Should show PAGE3 content (~~~~ pattern)
@@ -71,7 +71,7 @@ public enum ScrollbackGapScenario {
 
         // ── Scroll up more to reveal PAGE2 ──────────────────────────
 
-        TestStep.macScrollUp(pages: 3)
+        TestStep.macScrollUp(pages: 1)
         TestStep.wait(seconds: 1)
 
         // Should show PAGE2 content (#### pattern)
@@ -79,7 +79,7 @@ public enum ScrollbackGapScenario {
 
         // ── Scroll up further to reveal PAGE1 ───────────────────────
 
-        TestStep.macScrollUp(pages: 3)
+        TestStep.macScrollUp(pages: 1)
         TestStep.wait(seconds: 1)
 
         // Should show PAGE1 content (AAAA pattern)
