@@ -66,20 +66,11 @@ struct WindowPaneLayoutView: View {
         return ProportionalTileLayout(rects: validPanes.map(\.rect)) {
             ForEach(validPanes) { pane in
                 if let paneState = windowManager.paneStates[pane.paneInfo.paneId] {
-                    TerminalContainerView(
+                    PaneTileView(
                         paneState: paneState,
-                        autoFocus: isSingle,
-                        onStateChange: { _, _, _ in },
-                        onTitleChange: { title in
-                            windowManager.updateTerminalTitle(paneId: paneState.paneId, title: title)
-                        }
+                        paneInfo: pane.paneInfo,
+                        isSingle: isSingle
                     )
-                    .overlay {
-                        if !isSingle {
-                            Rectangle()
-                                .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
-                        }
-                    }
                     .id(pane.id)
                 }
             }
@@ -119,6 +110,83 @@ struct WindowPaneLayoutView: View {
             for child in children {
                 flattenNode(child, origin: CGPoint(x: origin.x, y: yOffset), totalWidth: totalWidth, totalHeight: totalHeight, into: &result)
                 yOffset += CGFloat(child.height) / totalHeight
+            }
+        }
+    }
+
+    // MARK: - Pane Tile
+
+    /// Wraps a terminal pane with hover-triggered split buttons.
+    private struct PaneTileView: View {
+        let paneState: PaneState
+        let paneInfo: PaneInfo
+        let isSingle: Bool
+
+        @Environment(MirrorWindowManager.self) private var windowManager
+        @State private var isHovering = false
+
+        var body: some View {
+            TerminalContainerView(
+                paneState: paneState,
+                autoFocus: isSingle,
+                onStateChange: { _, _, _ in },
+                onTitleChange: { title in
+                    windowManager.updateTerminalTitle(paneId: paneState.paneId, title: title)
+                }
+            )
+            .overlay {
+                if !isSingle {
+                    Rectangle()
+                        .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                PaneSplitButtons(paneTarget: paneInfo.paneId)
+                    .opacity(isHovering ? 1 : 0)
+                    .animation(.easeInOut(duration: 0.15), value: isHovering)
+            }
+            .onHover { isHovering = $0 }
+        }
+    }
+
+    // MARK: - Split Buttons
+
+    /// Overlay buttons for splitting a pane horizontally or vertically.
+    /// Shown on hover in the top-right corner of each pane.
+    private struct PaneSplitButtons: View {
+        let paneTarget: String
+
+        @Environment(TmuxService.self) private var tmuxService
+
+        var body: some View {
+            HStack(spacing: 2) {
+                Button {
+                    Task { await splitPane(horizontal: true) }
+                } label: {
+                    Symbols.rectangleSplit2x1Fill.image
+                }
+                .help("Split Horizontal")
+
+                Button {
+                    Task { await splitPane(horizontal: false) }
+                } label: {
+                    Symbols.rectangleSplit1x2Fill.image
+                }
+                .help("Split Vertical")
+            }
+            .buttonStyle(.borderless)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(4)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
+            .padding(4)
+        }
+
+        private func splitPane(horizontal: Bool) async {
+            do {
+                _ = try await tmuxService.splitPane(paneTarget, horizontal: horizontal)
+            } catch {
+                print("Failed to split pane: \(error)")
             }
         }
     }
