@@ -584,7 +584,8 @@
                 let newWidth = CGFloat(width) * cellSize.width + FontMetrics.horizontalBuffer
                 widthConstraint?.constant = newWidth
 
-                // Update terminal buffer size and lock dimensions against SwiftTerm auto-resize
+                // Lock dimensions BEFORE resize — resize() may trigger layoutSubviews,
+                // which checks managedTerminalSize to restore the correct dimensions.
                 terminalView.managedTerminalSize = (cols: width, rows: height)
                 terminalView.getTerminal().resize(cols: width, rows: height)
             }

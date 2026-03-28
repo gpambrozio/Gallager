@@ -76,21 +76,22 @@ SwiftTerm fully supports vertical scrolling for terminal scrollback history.
 
 For wide terminals (more columns than fit on screen), the content is clipped on the right. There's no way to scroll horizontally to see clipped content using SwiftTerm alone.
 
-## ClaudeSpy's Solution: Nested Scroll Views
+## ClaudeSpy's Solution: Outer Scroll View + Managed Terminal Size
 
-ClaudeSpy wraps TerminalView in an outer UIScrollView to enable horizontal scrolling.
+ClaudeSpy wraps TerminalView in an outer UIScrollView to enable horizontal scrolling, and overrides SwiftTerm's auto-resize to preserve the host terminal's dimensions.
 
 ### Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ Outer UIScrollView (horizontal + vertical scrolling)         │
+│ Outer UIScrollView (horizontal scrolling only)              │
 │ ┌─────────────────────────────────────────────────────────┐ │
 │ │ InteractiveTerminalView (SwiftTerm subclass)            │ │
 │ │ - Width: exact terminal width (cols × cellWidth)        │ │
-│ │ - Height: max(screen height, rows × cellHeight)         │ │
-│ │ - Handles scrollback via internal UIScrollView          │ │
-│ │ - contentSize.height > frame.height for history         │ │
+│ │ - Height: locked to screen height (equalTo constraint)  │ │
+│ │ - Terminal buffer: managed externally (may exceed view)  │ │
+│ │ - Handles ALL vertical scrolling (scrollback + content) │ │
+│ │ - contentSize.height > frame.height for tall terminals  │ │
 │ └─────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -98,40 +99,38 @@ ClaudeSpy wraps TerminalView in an outer UIScrollView to enable horizontal scrol
 ### Why This Works
 
 1. **TerminalView width = exact terminal width**: SwiftTerm renders all columns
-2. **TerminalView height = available screen space**: Fits within viewport
+2. **TerminalView height = screen height**: Fits within viewport via `equalTo` constraint
 3. **Outer scroll view**: Only scrolls horizontally for wide terminals
-4. **SwiftTerm internal scroll**: Handles all vertical scrollback navigation
+4. **SwiftTerm internal scroll**: Handles all vertical scrolling (both scrollback history and tall terminal content that extends beyond the view frame)
 
-### The Problem: Unintended Vertical Scrolling
+### The Problem: SwiftTerm Auto-Resize Destroys Content
 
-If the terminal frame height exceeds the available screen height, the outer scroll view would also become vertically scrollable. This creates a confusing dual-scroll UX:
+SwiftTerm's `layoutSubviews` calls `processSizeChange(newSize: bounds.size)`, which computes `newRows = height / cellHeight` and resizes the terminal buffer to match. When the host terminal has more rows than fit on the iOS screen (e.g., a 65-row macOS terminal on a ~40-row iPhone), SwiftTerm shrinks the buffer, destroying bottom rows including DECSTBM scroll region footers (see GitHub issue #244).
 
-- **Inner terminal**: Scrolls vertically through scrollback history
-- **Outer scroll view**: Also scrolls vertically to show different parts of the terminal frame
+### The Fix: Managed Terminal Size Override
 
-Users would have to scroll TWO views to reach the bottom of content.
-
-### The Fix: Flexible Height with Minimum Screen Fill
-
-The terminal height uses two constraints: a required minimum equal to the screen height (so short terminals fill the screen), and a preferred height matching the exact terminal content height. When the host terminal has more rows than fit on screen, the terminal frame expands and the outer scroll view provides vertical scrolling:
+`InteractiveTerminalView` uses a `managedTerminalSize` property to lock the terminal buffer dimensions. After SwiftTerm's `layoutSubviews` shrinks the buffer, our override immediately restores the correct dimensions:
 
 ```swift
-NSLayoutConstraint.activate([
-    // ... other constraints ...
-    // Height: at least screen height (fills screen for short terminals)
-    terminalView.heightAnchor.constraint(greaterThanOrEqualTo: scrollView.frameLayoutGuide.heightAnchor),
-    // Height: prefers exact terminal content height (expands for tall terminals)
-    heightConstraint, // equalToConstant, priority: .defaultHigh
-])
+var managedTerminalSize: (cols: Int, rows: Int)?
+
+override func layoutSubviews() {
+    super.layoutSubviews()
+    // Restore externally-managed dimensions after SwiftTerm's auto-resize
+    if let size = managedTerminalSize {
+        let terminal = getTerminal()
+        if terminal.cols != size.cols || terminal.rows != size.rows {
+            terminal.resize(cols: size.cols, rows: size.rows)
+        }
+    }
+}
 ```
 
 This ensures:
-- **Short terminals** (rows fit on screen): Terminal fills available space, SwiftTerm may expand rows (acceptable — no data loss)
-- **Tall terminals** (rows exceed screen): Terminal frame matches content height, preventing SwiftTerm from auto-resizing and destroying bottom rows (e.g. DECSTBM footers)
-- **Outer scroll view**: Scrolls both horizontally (wide terminals) and vertically (tall terminals)
-- **Inner terminal (SwiftTerm)**: Handles scrollback navigation
-
-**Note**: Earlier versions used `equalTo: scrollView.frameLayoutGuide.heightAnchor` which locked the terminal to screen height. This caused SwiftTerm's `processSizeChange` to shrink the buffer for tall terminals, destroying content (see GitHub issue #244).
+- **Short terminals** (rows fit on screen): Terminal fills available space, SwiftTerm's own scrolling handles scrollback
+- **Tall terminals** (rows exceed screen): Buffer keeps all rows (e.g., 65 rows), SwiftTerm's contentSize accommodates the full buffer, and its internal scrolling lets users reach the footer
+- **Single scroll view**: No nested vertical scrolling — SwiftTerm handles everything
+- **Auto-scroll on new content**: `feedPreservingScroll` snaps to the real bottom (`contentSize.height - bounds.height`) when the user is at the bottom, compensating for SwiftTerm's `updateScroller` which positions for `terminal.rows` instead of the actual view height
 
 ## InteractiveTerminalView Subclass
 
@@ -162,16 +161,22 @@ ClaudeSpy extends SwiftTerm's `TerminalView` with `InteractiveTerminalView`:
 3. **Feed with Scroll Preservation**
    ```swift
    func feedPreservingScroll(_ bytes: ArraySlice<UInt8>) {
+       let maxScrollY = max(0, contentSize.height - bounds.height)
+       let isAtBottom = maxScrollY <= 0 || super.contentOffset.y >= maxScrollY - 5
        if preserveUserScroll {
-           let isAtBottom = contentOffset.y >= maxScrollY - 5
            blockScrollChanges = !isAtBottom
        }
        feed(byteArray: bytes)
        blockScrollChanges = false
+       // Snap to real bottom for managed-size terminals
+       if isAtBottom, managedTerminalSize != nil {
+           let newMaxY = max(0, contentSize.height - bounds.height)
+           super.contentOffset.y = newMaxY
+       }
    }
    ```
 
-   This prevents new content from auto-scrolling when the user has scrolled up to read history.
+   This prevents new content from auto-scrolling when the user has scrolled up to read history. For tall terminals with `managedTerminalSize`, it also snaps to the correct bottom position after feeding.
 
 ## TerminalState Bridge
 
@@ -186,22 +191,17 @@ ClaudeSpy extends SwiftTerm's `TerminalView` with `InteractiveTerminalView`:
 
 ### Scroll-to-Bottom Implementation
 
-Both the inner terminal (scrollback) and outer scroll view (tall terminals) need scrolling:
+Only the inner terminal needs scrolling — the outer scroll view handles horizontal only:
 
 ```swift
-terminalState.scrollToBottom = { [weak terminalView, weak scrollView] in
-    guard let terminalView, let scrollView else { return }
-    // Inner: scroll SwiftTerm to bottom of scrollback
-    let innerMaxY = terminalView.contentSize.height - terminalView.bounds.height
-    terminalView.setContentOffset(CGPoint(x: 0, y: max(0, innerMaxY)), animated: false)
-    // Outer: scroll to bottom of terminal frame (for tall terminals)
-    let outerMaxY = scrollView.contentSize.height - scrollView.bounds.height
-    scrollView.setContentOffset(
-        CGPoint(x: scrollView.contentOffset.x, y: max(0, outerMaxY)),
-        animated: false
-    )
+terminalState.scrollToBottom = { [weak terminalView] in
+    guard let terminalView else { return }
+    let maxY = terminalView.contentSize.height - terminalView.bounds.height
+    terminalView.setContentOffset(CGPoint(x: 0, y: max(0, maxY)), animated: false)
 }
 ```
+
+For tall terminals where `managedTerminalSize` is set, `feedPreservingScroll` also snaps to the real bottom after each feed (since SwiftTerm's `updateScroller` positions for `terminal.rows` instead of the actual view height).
 
 Called on:
 - Initial content load (after 100ms delay for layout)
