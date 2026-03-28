@@ -47,9 +47,7 @@ public enum FreshPairingScenario {
         // 9. Wait for both host and viewer to connect to relay server
         TestStep.waitForHostConnected(timeout: 15)
         TestStep.waitForViewerConnected(timeout: 15)
-        TestStep.macScreenshot(label: "mac-connected", tolerance: 5)
-
-        // 10. Verify macOS shows "Connected" on settings page (not "Waiting for viewer")
         TestStep.macWaitForElement(titled: "Connected", timeout: 15)
+        TestStep.macScreenshot(label: "mac-connected", tolerance: 5)
     }
 }
