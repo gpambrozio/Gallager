@@ -401,7 +401,6 @@ final public class TmuxService {
         let screenWasCleared = nonEmptyVisibleCount < max(1, height / 4)
 
         var hasScrollback = false
-        var scrollbackLineCount = 0
         if !screenWasCleared, let scrollbackContent = scrollbackOutput {
             var trimmed = scrollbackContent
             if trimmed.hasSuffix("\n") {
@@ -411,7 +410,6 @@ final public class TmuxService {
 
             if !scrollbackLinesList.isEmpty {
                 hasScrollback = true
-                scrollbackLineCount = scrollbackLinesList.count
                 for line in scrollbackLinesList {
                     // Strip any trailing CR (tmux may output \r\n line endings)
                     var lineStr = String(line)
@@ -429,16 +427,18 @@ final public class TmuxService {
 
         // Part 2: Render visible area from the top of the screen.
 
-        // When scrollback was output (Part 1), explicitly scroll it into the
-        // terminal's scrollback buffer using SU (Scroll Up). Without this,
-        // Part 1 content remains visible at the top when the mirror terminal
-        // is taller than the source tmux pane (e.g. after a `clear` command,
-        // the "$ clear" text would linger at the top of the mirror).
-        // Cap at `height` to avoid pushing blank lines into the scrollback
-        // buffer when scrollbackLineCount exceeds the terminal height.
+        // When scrollback was output (Part 1), push it into the terminal's
+        // scrollback buffer using line feeds. Each LF at the bottom of the
+        // screen triggers natural scrolling that moves the top visible line
+        // into the scrollback buffer. We use `height - 1` LFs to push all
+        // content rows without pushing the trailing blank line (from Part 1's
+        // last \r\n) into scrollback.
+        //
+        // Note: SU (CSI n S) cannot be used here — SwiftTerm's cmdScrollUp
+        // deletes lines via splice instead of pushing them to scrollback,
+        // which destroys Part 1 content and creates a gap when scrolling up.
         if hasScrollback {
-            let scrollAmount = min(scrollbackLineCount, height)
-            output += "\u{1b}[\(scrollAmount)S"
+            output += String(repeating: "\n", count: height - 1)
         }
 
         // Determine how many lines to output. We must output at least:
@@ -449,13 +449,13 @@ final public class TmuxService {
         let minForScrollback = hasScrollback ? height : 0
         let linesToOutput = max(cursorY + 1, visibleLines.count, minForScrollback)
 
-        // Always position cursor at the top for Part 2. After the SU scroll
+        // Always position cursor at the top for Part 2. After the LF scroll
         // above (when scrollback exists), the visible area is clear and ready
         // for the visible content to be drawn from the top.
         output += "\u{1b}[H" // Cursor to home (row 1, col 1)
 
         // Output visible lines sequentially, clearing each line before writing.
-        // After the SU scroll above, Part 1 is in the scrollback buffer, so the
+        // After the LF scroll above, Part 1 is in the scrollback buffer, so the
         // visible area is empty — we clear each line defensively and draw Part 2.
         // Filter each line to keep only color codes (remove cursor positioning that could interfere)
         for index in 0..<linesToOutput {
