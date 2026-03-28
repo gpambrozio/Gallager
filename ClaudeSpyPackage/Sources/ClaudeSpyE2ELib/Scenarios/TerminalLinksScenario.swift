@@ -29,45 +29,31 @@ public enum TerminalLinksScenario {
         TestStep.tmuxCreateSession(name: "links-test", width: 120, height: 40)
 
         // Set a plain prompt to avoid shell color codes interfering with link rendering
-        TestStep.tmuxSendKeys(
-            target: "links-test:0",
-            keys: #"export PS1='$ '"#,
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "links-test:0", keys: "Enter")
-        TestStep.tmuxSendKeys(target: "links-test:0", keys: "clear", literal: true)
-        TestStep.tmuxSendKeys(target: "links-test:0", keys: "Enter")
-        TestStep.wait(seconds: 0.5)
+        Shortcut.tmuxClearAndSetPrompt(target: "links-test:0")
 
         // ── Emit URLs ───────────────────────────────────────────────
 
         // 1. Plain-text URL (detected by regex)
-        TestStep.tmuxSendKeys(
+        Shortcut.tmuxRunCommand(
             target: "links-test:0",
-            keys: #"echo 'Plain URL: https://example.com/plain-link'"#,
-            literal: true
+            command: #"echo 'Plain URL: https://example.com/plain-link'"#
         )
-        TestStep.tmuxSendKeys(target: "links-test:0", keys: "Enter")
         TestStep.wait(seconds: 0.3)
 
         // 2. OSC 8 hyperlink escape sequence
         // Format: \e]8;;URL\e\\VISIBLE_TEXT\e]8;;\e\\
         // Using \a (BEL) as string terminator since tmux handles it more reliably
-        TestStep.tmuxSendKeys(
+        Shortcut.tmuxRunCommand(
             target: "links-test:0",
-            keys: #"printf 'OSC8 link: \e]8;;https://example.com/osc8-link\aClick Here\e]8;;\a\n'"#,
-            literal: true
+            command: #"printf 'OSC8 link: \e]8;;https://example.com/osc8-link\aClick Here\e]8;;\a\n'"#
         )
-        TestStep.tmuxSendKeys(target: "links-test:0", keys: "Enter")
         TestStep.wait(seconds: 0.3)
 
         // 3. OSC 8 link where the visible text is also a URL (OSC 8 should take priority)
-        TestStep.tmuxSendKeys(
+        Shortcut.tmuxRunCommand(
             target: "links-test:0",
-            keys: #"printf 'Dual link: \e]8;;https://example.com/real-target\ahttps://example.com/visible-url\e]8;;\a\n'"#,
-            literal: true
+            command: #"printf 'Dual link: \e]8;;https://example.com/real-target\ahttps://example.com/visible-url\e]8;;\a\n'"#
         )
-        TestStep.tmuxSendKeys(target: "links-test:0", keys: "Enter")
         TestStep.wait(seconds: 0.5)
 
         // ── Verify on macOS ─────────────────────────────────────────

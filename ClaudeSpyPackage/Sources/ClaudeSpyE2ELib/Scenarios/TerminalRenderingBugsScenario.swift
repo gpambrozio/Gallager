@@ -39,15 +39,7 @@ public enum TerminalRenderingBugsScenario {
         // Set a plain prompt with no color codes so SGR inheritance is clearly visible.
         // Without this, the shell's default PS1 (with its own colors) would mask
         // the magenta carryover in the H17 phase.
-        TestStep.tmuxSendKeys(
-            target: "render-bugs:0",
-            keys: #"export PS1='$ '"#,
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "render-bugs:0", keys: "Enter")
-        TestStep.tmuxSendKeys(target: "render-bugs:0", keys: "clear", literal: true)
-        TestStep.tmuxSendKeys(target: "render-bugs:0", keys: "Enter")
-        TestStep.wait(seconds: 0.5)
+        Shortcut.tmuxClearAndSetPrompt(target: "render-bugs:0")
 
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 700)
@@ -104,37 +96,26 @@ public enum TerminalRenderingBugsScenario {
         // Build up scrollback content via live PTY stream (no re-selecting).
         // Multiple commands in sequence create a distinctive scrollback pattern
         // that should be preserved after re-capture but isn't.
-        TestStep.tmuxSendKeys(
-            target: "render-bugs:0",
-            keys: #"printf '\e[0m'"#,
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "render-bugs:0", keys: "Enter")
+        Shortcut.tmuxRunCommand(target: "render-bugs:0", command: #"printf '\e[0m'"#)
         TestStep.wait(seconds: 0.3)
-        TestStep.tmuxSendKeys(target: "render-bugs:0", keys: "clear", literal: true)
-        TestStep.tmuxSendKeys(target: "render-bugs:0", keys: "Enter")
+        Shortcut.tmuxRunCommand(target: "render-bugs:0", command: "clear")
         TestStep.wait(seconds: 0.5)
 
         // Fill with numbered lines to create scrollback
-        TestStep.tmuxSendKeys(
+        Shortcut.tmuxRunCommand(
             target: "render-bugs:0",
-            keys: #"for i in $(seq 1 35); do echo "LINE $i"; done"#,
-            literal: true
+            command: #"for i in $(seq 1 35); do echo "LINE $i"; done"#
         )
-        TestStep.tmuxSendKeys(target: "render-bugs:0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
         // Clear and add a second batch of output — this pushes the first batch
         // into scrollback, creating a pattern the mirror accumulated via live stream.
-        TestStep.tmuxSendKeys(target: "render-bugs:0", keys: "clear", literal: true)
-        TestStep.tmuxSendKeys(target: "render-bugs:0", keys: "Enter")
+        Shortcut.tmuxRunCommand(target: "render-bugs:0", command: "clear")
         TestStep.wait(seconds: 0.3)
-        TestStep.tmuxSendKeys(
+        Shortcut.tmuxRunCommand(
             target: "render-bugs:0",
-            keys: #"echo 'SCROLLBACK TEST: VISIBLE AFTER SCROLL UP'"#,
-            literal: true
+            command: #"echo 'SCROLLBACK TEST: VISIBLE AFTER SCROLL UP'"#
         )
-        TestStep.tmuxSendKeys(target: "render-bugs:0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
         // Scroll up to reveal the scrollback content accumulated via live stream

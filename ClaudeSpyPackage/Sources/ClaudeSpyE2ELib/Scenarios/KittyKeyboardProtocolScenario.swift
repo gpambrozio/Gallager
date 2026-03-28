@@ -30,8 +30,7 @@ public enum KittyKeyboardProtocolScenario {
         TestStep.wait(seconds: 2)
 
         // Clear screen for clean baseline
-        TestStep.tmuxSendKeys(target: "e2e-kitty-kb:0", keys: "clear", literal: true)
-        TestStep.tmuxSendKeys(target: "e2e-kitty-kb:0", keys: "Enter")
+        Shortcut.tmuxRunCommand(target: "e2e-kitty-kb:0", command: "clear")
         TestStep.wait(seconds: 1)
 
         // ── Create inline test script ──────────────────────────────────
@@ -114,17 +113,11 @@ public enum KittyKeyboardProtocolScenario {
 
         // Clear the screen so heredoc prompt lines (which contain escape
         // sequence source code like "\x1b[>1u") don't pollute assertions.
-        TestStep.tmuxSendKeys(target: "e2e-kitty-kb:0", keys: "clear", literal: true)
-        TestStep.tmuxSendKeys(target: "e2e-kitty-kb:0", keys: "Enter")
+        Shortcut.tmuxRunCommand(target: "e2e-kitty-kb:0", command: "clear")
         TestStep.wait(seconds: 1)
 
         TestStep.log("Running kitty keyboard protocol test script")
-        TestStep.tmuxSendKeys(
-            target: "e2e-kitty-kb:0",
-            keys: "python3 $TMPDIR/kitty-kb-test.py",
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "e2e-kitty-kb:0", keys: "Enter")
+        Shortcut.tmuxRunCommand(target: "e2e-kitty-kb:0", command: "python3 $TMPDIR/kitty-kb-test.py")
         TestStep.wait(seconds: 3)
 
         // Screenshot right after script execution — shows the actual
@@ -162,12 +155,7 @@ public enum KittyKeyboardProtocolScenario {
 
         // ── Cleanup ────────────────────────────────────────────────────
 
-        TestStep.tmuxSendKeys(
-            target: "e2e-kitty-kb:0",
-            keys: "rm $TMPDIR/kitty-kb-test.py",
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "e2e-kitty-kb:0", keys: "Enter")
+        Shortcut.tmuxRunCommand(target: "e2e-kitty-kb:0", command: "rm $TMPDIR/kitty-kb-test.py")
     }
 }
 

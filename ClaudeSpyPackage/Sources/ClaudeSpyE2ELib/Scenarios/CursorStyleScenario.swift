@@ -28,19 +28,16 @@ public enum CursorStyleScenario {
         TestStep.wait(seconds: 2)
 
         // Clear screen and set a simple prompt
-        TestStep.tmuxSendKeys(target: "cursor-test:0", keys: "clear", literal: true)
-        TestStep.tmuxSendKeys(target: "cursor-test:0", keys: "Enter")
+        Shortcut.tmuxRunCommand(target: "cursor-test:0", command: "clear")
         TestStep.wait(seconds: 0.5)
 
         // ── Steady Block (DECSCUSR 2) ─────────────────────────────────
 
         TestStep.log("Setting cursor to steady block (DECSCUSR 2)")
-        TestStep.tmuxSendKeys(
+        Shortcut.tmuxRunCommand(
             target: "cursor-test:0",
-            keys: #"printf '\e[2 q' && echo 'Cursor: Steady Block'"#,
-            literal: true
+            command: #"printf '\e[2 q' && echo 'Cursor: Steady Block'"#
         )
-        TestStep.tmuxSendKeys(target: "cursor-test:0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
         TestStep.macScreenshot(label: "cursor-steady-block")
@@ -48,12 +45,10 @@ public enum CursorStyleScenario {
         // ── Steady Underline (DECSCUSR 4) ─────────────────────────────
 
         TestStep.log("Setting cursor to steady underline (DECSCUSR 4)")
-        TestStep.tmuxSendKeys(
+        Shortcut.tmuxRunCommand(
             target: "cursor-test:0",
-            keys: #"printf '\e[4 q' && echo 'Cursor: Steady Underline'"#,
-            literal: true
+            command: #"printf '\e[4 q' && echo 'Cursor: Steady Underline'"#
         )
-        TestStep.tmuxSendKeys(target: "cursor-test:0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
         TestStep.macScreenshot(label: "cursor-steady-underline")
@@ -61,35 +56,29 @@ public enum CursorStyleScenario {
         // ── Steady Bar (DECSCUSR 6) ───────────────────────────────────
 
         TestStep.log("Setting cursor to steady bar (DECSCUSR 6)")
-        TestStep.tmuxSendKeys(
+        Shortcut.tmuxRunCommand(
             target: "cursor-test:0",
-            keys: #"printf '\e[6 q' && echo 'Cursor: Steady Bar'"#,
-            literal: true
+            command: #"printf '\e[6 q' && echo 'Cursor: Steady Bar'"#
         )
-        TestStep.tmuxSendKeys(target: "cursor-test:0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
         TestStep.macScreenshot(label: "cursor-steady-bar")
 
         // ── Reset to default style ───────────────────────────────────
 
-        TestStep.tmuxSendKeys(
+        Shortcut.tmuxRunCommand(
             target: "cursor-test:0",
-            keys: #"printf '\e[0 q'"#,
-            literal: true
+            command: #"printf '\e[0 q'"#
         )
-        TestStep.tmuxSendKeys(target: "cursor-test:0", keys: "Enter")
         TestStep.wait(seconds: 0.5)
 
         // ── Cursor Hidden (DECTCEM ?25l) ─────────────────────────────
 
         TestStep.log("Hiding cursor (DECTCEM ?25l)")
-        TestStep.tmuxSendKeys(
+        Shortcut.tmuxRunCommand(
             target: "cursor-test:0",
-            keys: #"printf '\e[?25l' && echo 'Cursor: Hidden'"#,
-            literal: true
+            command: #"printf '\e[?25l' && echo 'Cursor: Hidden'"#
         )
-        TestStep.tmuxSendKeys(target: "cursor-test:0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
         TestStep.macScreenshot(label: "cursor-hidden")
@@ -97,12 +86,10 @@ public enum CursorStyleScenario {
         // ── Cursor Shown (DECTCEM ?25h) ──────────────────────────────
 
         TestStep.log("Showing cursor (DECTCEM ?25h)")
-        TestStep.tmuxSendKeys(
+        Shortcut.tmuxRunCommand(
             target: "cursor-test:0",
-            keys: #"printf '\e[?25h' && echo 'Cursor: Visible'"#,
-            literal: true
+            command: #"printf '\e[?25h' && echo 'Cursor: Visible'"#
         )
-        TestStep.tmuxSendKeys(target: "cursor-test:0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
         TestStep.macScreenshot(label: "cursor-visible")
