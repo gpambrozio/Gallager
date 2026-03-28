@@ -454,8 +454,9 @@ final public class TmuxService {
         // for the visible content to be drawn from the top.
         output += "\u{1b}[H" // Cursor to home (row 1, col 1)
 
-        // Output visible lines sequentially, clearing each line before writing
-        // This overwrites any Part 1 content that scrolled into visible area
+        // Output visible lines sequentially, clearing each line before writing.
+        // After the SU scroll above, Part 1 is in the scrollback buffer, so the
+        // visible area is empty — we clear each line defensively and draw Part 2.
         // Filter each line to keep only color codes (remove cursor positioning that could interfere)
         for index in 0..<linesToOutput {
             output += "\u{1b}[2K" // Clear current line

@@ -1052,7 +1052,10 @@
                 """
             )
 
-            // Visible area should contain Part 2 content but NOT scrollback
+            // Visible area should contain Part 2 content but NOT scrollback.
+            // `blankGapLines` above guards general layout integrity (no holes in content).
+            // `scrollbackInVisible` below is the specific regression guard: Part 1
+            // lines must never leak into the visible area after the SU scroll.
             let hasVisibleContent = allLines.contains { $0.hasPrefix("Visible ") || $0.hasPrefix("$") }
             #expect(hasVisibleContent, "Visible area should contain Part 2 content")
             let scrollbackInVisible = allLines.contains { $0.hasPrefix("Line ") }
@@ -1580,10 +1583,26 @@
             #expect(rawStr.contains("Line 100"), "Raw output should have deep scrollback content")
 
             // When fed to a terminal, visible area should show Part 2 content
+            // and scrollback should be pushed into the terminal's scrollback buffer
+            // by the SU escape — verifying SwiftTerm actually processes the sequence.
             let (terminal, _) = makeTerminal(cols: 80, rows: height)
             terminal.feed(text: rawStr)
             let visibleRow0 = getRowText(terminal, row: 0)
             #expect(visibleRow0.contains("Line 135"), "Visible row 0 should show Part 2 content")
+
+            // Verify scrollback was pushed into terminal's scrollback buffer (not just
+            // present in raw bytes). Row 0 of the scroll-invariant buffer is the first
+            // line of scrollback — if SU handling regressed, this would be nil/empty.
+            if let scrollbackLine = terminal.getScrollInvariantLine(row: 0) {
+                var text = ""
+                for col in 0..<terminal.cols {
+                    text += String(scrollbackLine[col].getCharacter())
+                }
+                #expect(text.trimmingCharacters(in: .whitespaces).contains("Line 1"),
+                        "First scrollback line in terminal buffer should be 'Line 1'")
+            } else {
+                Issue.record("Terminal scrollback buffer is empty — SU scroll did not push content")
+            }
         }
     }
 #endif
