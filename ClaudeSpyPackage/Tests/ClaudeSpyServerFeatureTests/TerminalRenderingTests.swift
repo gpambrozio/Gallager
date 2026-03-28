@@ -1550,6 +1550,79 @@
             #expect(allContent.contains { $0.contains("user@host") }, "Prompt still present")
         }
 
+        @Test("After clear + screen re-fill, stale scrollback is suppressed via gap detection")
+        @MainActor
+        func clearThenFillScreenSuppressesScrollback() {
+            // Scenario: user runs `clear`, then a script that fills the screen
+            // (e.g., python3 draw_table.py which also does \e[2J internally).
+            // The visible area is full (screenWasCleared = false), but the
+            // scrollback capture contains stale pre-clear content separated
+            // by a block of empty lines from the cleared visible area.
+            let service = TmuxService()
+            let height = 24
+
+            // Build scrollback: pre-clear content + cleared-area blank lines +
+            // visible overlap (post-clear table content)
+            var scrollbackLines: [String] = []
+            // Pre-clear content (old prompt and commands)
+            scrollbackLines.append("$ export PS1='$ '")
+            scrollbackLines.append("$ clear")
+            // Blank lines from the cleared visible area pushed to scrollback
+            // (24 - 2 content lines = 22 blank lines)
+            for _ in 0..<(height - 2) {
+                scrollbackLines.append("")
+            }
+            // Post-clear visible overlap (table content that now fills screen)
+            scrollbackLines.append("$ python3 /tmp/draw_table.py")
+            scrollbackLines.append("Box-Drawing Table Rendering Test")
+            for i in 1...10 {
+                scrollbackLines.append("Row \(i) data")
+            }
+            scrollbackLines.append("$ ")
+            let scrollbackOutput = scrollbackLines.joined(separator: "\n") + "\n"
+
+            // Visible: full screen with table content
+            var visibleLinesList = ["$ python3 /tmp/draw_table.py",
+                                    "Box-Drawing Table Rendering Test"]
+            for i in 1...10 {
+                visibleLinesList.append("Row \(i) data")
+            }
+            visibleLinesList.append("$ ")
+            // Pad to full height
+            while visibleLinesList.count < height {
+                visibleLinesList.append("")
+            }
+            let visibleOutput = visibleLinesList.joined(separator: "\n") + "\n"
+
+            let data = service.processCapturePaneForStreaming(
+                scrollbackOutput: scrollbackOutput,
+                visibleOutput: visibleOutput,
+                cursorOutput: "2,12,1",
+                height: height
+            )
+
+            let oversizedRows = 200
+            let (terminal, _) = makeTerminal(cols: 80, rows: oversizedRows)
+            terminal.feed(text: String(data: data, encoding: .utf8)!)
+
+            var allContent: [String] = []
+            for row in 0..<oversizedRows {
+                let text = getRowText(terminal, row: row).filter { $0 != "\0" }
+                if !text.isEmpty { allContent.append(text) }
+            }
+
+            // Pre-clear content should NOT appear
+            #expect(!allContent.contains { $0.contains("export PS1") },
+                    "Pre-clear content should be suppressed")
+            #expect(!allContent.contains { $0.contains("clear") },
+                    "$ clear should not appear")
+            // Post-clear visible content SHOULD appear
+            #expect(allContent.contains { $0.contains("Box-Drawing Table") },
+                    "Table content should be present")
+            #expect(allContent.contains { $0.contains("Row 1 data") },
+                    "Table rows should be present")
+        }
+
         @Test("Scrollback IS output when there is genuine scrollback content")
         @MainActor
         func scrollbackOutputWhenContentExceedsVisible() {

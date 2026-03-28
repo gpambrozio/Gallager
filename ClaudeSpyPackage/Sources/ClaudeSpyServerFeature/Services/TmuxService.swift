@@ -408,7 +408,29 @@ final public class TmuxService {
             }
             let scrollbackLinesList = trimmed.split(separator: "\n", omittingEmptySubsequences: false)
 
-            if !scrollbackLinesList.isEmpty {
+            // Detect "clear gap" — a block of consecutive empty lines in the
+            // scrollback indicating that `clear` (or \e[2J) pushed a mostly-empty
+            // visible area into the scrollback buffer. This extends the
+            // screenWasCleared heuristic to handle the case where the screen has
+            // been re-filled with new content since the clear (e.g., `clear` then
+            // running a script that fills the screen).
+            let clearGapThreshold = max(3, height / 3)
+            var hasClearGap = false
+            var consecutiveEmpty = 0
+            for line in scrollbackLinesList {
+                let stripped = String(line).trimmingCharacters(in: .whitespacesAndNewlines)
+                if stripped.isEmpty {
+                    consecutiveEmpty += 1
+                    if consecutiveEmpty >= clearGapThreshold {
+                        hasClearGap = true
+                        break
+                    }
+                } else {
+                    consecutiveEmpty = 0
+                }
+            }
+
+            if !scrollbackLinesList.isEmpty, !hasClearGap {
                 hasScrollback = true
                 for line in scrollbackLinesList {
                     // Strip any trailing CR (tmux may output \r\n line endings)
