@@ -1025,6 +1025,9 @@
             // Use getScrollInvariantLine to read both scrollback and visible area.
             // Lines should be continuous from Line 1 through Line 101 with no gaps.
             var allContent: [String] = []
+            // yDisp == yBase here (no user scrolling has occurred), giving us
+            // the total line count (scrollback + visible). yBase would be
+            // preferable but it's internal to SwiftTerm.
             let totalLines = terminal.buffer.yDisp + terminal.rows
             for row in 0..<totalLines {
                 guard let line = terminal.getScrollInvariantLine(row: row) else { continue }
@@ -1035,14 +1038,22 @@
             }
 
             // Verify early scrollback is preserved (this is what SU was destroying)
-            #expect(allContent.contains { $0.contains("Line 1") },
-                    "First scrollback line should be preserved")
-            #expect(allContent.contains { $0.contains("Line 30") },
-                    "Middle scrollback line should be preserved (was destroyed by SU)")
-            #expect(allContent.contains { $0.contains("Line 62") },
-                    "Last scrollback-only line should be preserved")
-            #expect(allContent.contains { $0.contains("Line 63") },
-                    "First visible line should be present")
+            #expect(
+                allContent.contains { $0.contains("Line 1") },
+                "First scrollback line should be preserved"
+            )
+            #expect(
+                allContent.contains { $0.contains("Line 30") },
+                "Middle scrollback line should be preserved (was destroyed by SU)"
+            )
+            #expect(
+                allContent.contains { $0.contains("Line 62") },
+                "Last scrollback-only line should be preserved"
+            )
+            #expect(
+                allContent.contains { $0.contains("Line 63") },
+                "First visible line should be present"
+            )
 
             // Verify no gap: find all "Line N" entries and check they are continuous
             let lineNumbers = allContent.compactMap { line -> Int? in
@@ -1050,9 +1061,12 @@
                 return Int(line.dropFirst(5))
             }
             let sortedNumbers = lineNumbers.sorted()
+            #expect(!lineNumbers.isEmpty, "Should have found at least one 'Line N' entry in buffer")
             for i in 1..<sortedNumbers.count {
-                #expect(sortedNumbers[i] == sortedNumbers[i - 1] + 1,
-                        "Gap in scrollback: Line \(sortedNumbers[i - 1]) → Line \(sortedNumbers[i])")
+                #expect(
+                    sortedNumbers[i] == sortedNumbers[i - 1] + 1,
+                    "Gap in scrollback: Line \(sortedNumbers[i - 1]) → Line \(sortedNumbers[i])"
+                )
             }
         }
     }
@@ -1589,8 +1603,10 @@
                 for col in 0..<terminal.cols {
                     text += String(scrollbackLine[col].getCharacter())
                 }
-                #expect(text.trimmingCharacters(in: .whitespaces).contains("Line 1"),
-                        "First scrollback line in terminal buffer should be 'Line 1'")
+                #expect(
+                    text.trimmingCharacters(in: .whitespaces).contains("Line 1"),
+                    "First scrollback line in terminal buffer should be 'Line 1'"
+                )
             } else {
                 Issue.record("Terminal scrollback buffer is empty — LF scroll did not push content")
             }

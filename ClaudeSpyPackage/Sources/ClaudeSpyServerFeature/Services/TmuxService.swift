@@ -438,6 +438,8 @@ final public class TmuxService {
         // deletes lines via splice instead of pushing them to scrollback,
         // which destroys Part 1 content and creates a gap when scrolling up.
         if hasScrollback {
+            // When height == 1, count is 0 — intentional no-op since a
+            // single-row pane has no scrollback worth preserving.
             output += String(repeating: "\n", count: height - 1)
         }
 
