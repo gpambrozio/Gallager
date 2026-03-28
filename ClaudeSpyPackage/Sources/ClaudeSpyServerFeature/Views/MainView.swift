@@ -119,7 +119,7 @@ public struct MainView: View {
             markSelectedSessionsHandledIfActive()
         }
         .onChange(of: settings.alwaysAutoResize) {
-            // When global auto-resize is toggled on, trigger an immediate resize for the current pane
+            // When the global auto-resize setting changes, reset cached dimensions and re-evaluate resize for the current pane
             lastAutoResizeDimensions = nil
             handleAutoResize()
         }

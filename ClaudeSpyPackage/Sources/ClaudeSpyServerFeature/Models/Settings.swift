@@ -161,7 +161,7 @@ final public class AppSettings {
         didSet { preferences.setBool(autoCopyOnSelect, Keys.autoCopyOnSelect) }
     }
 
-    /// Whether to automatically enable auto-resize for all terminals
+    /// When true, all terminal panes are always resized to fit the mirror view when the window size changes
     public var alwaysAutoResize: Bool = Defaults.alwaysAutoResize {
         didSet { preferences.setBool(alwaysAutoResize, Keys.alwaysAutoResize) }
     }
