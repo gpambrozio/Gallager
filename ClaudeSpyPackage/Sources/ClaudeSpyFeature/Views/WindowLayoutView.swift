@@ -375,6 +375,58 @@
         }
     }
 
+    // MARK: - Session Info
+
+    struct SessionInfoView: View {
+        let session: ClaudeSession?
+        let paneId: String
+        let isPaneActive: Bool
+
+        var body: some View {
+            if let session {
+                List {
+                    Section("Recent Events") {
+                        if session.events.isEmpty {
+                            Text("No events yet")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(session.events) { event in
+                                EventRowView(event: event)
+                            }
+                        }
+                    }
+
+                    Section("Session Info") {
+                        LabeledContent("Pane ID", value: paneId)
+
+                        if let projectPath = session.events.first?.projectPath {
+                            LabeledContent("Project") {
+                                Text(projectPath)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+
+                        LabeledContent("Status") {
+                            HStack {
+                                Circle()
+                                    .fill(isPaneActive ? Color.green : Color.gray)
+                                    .frame(width: 8, height: 8)
+                                Text(isPaneActive ? "Active" : "Inactive")
+                            }
+                        }
+                    }
+                }
+            } else {
+                ContentUnavailableView(
+                    "Session Not Found",
+                    symbol: .exclamationmarkTriangle,
+                    description: "This session may have ended."
+                )
+            }
+        }
+    }
+
     // MARK: - Layout Helpers
 
     /// A positioned pane state within the layout

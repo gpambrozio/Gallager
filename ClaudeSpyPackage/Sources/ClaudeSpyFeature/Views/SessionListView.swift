@@ -6,13 +6,9 @@
     // MARK: - Navigation
 
     /// Navigation value for the session list
-    enum SessionNavigation: Hashable {
-        /// Navigate to live terminal for a Claude session
-        case claudeSession(paneId: String, hostId: String)
-        /// Navigate to live terminal for a plain terminal (no Claude session)
-        case plainTerminal(paneId: String, hostId: String)
-        /// Navigate to a multi-pane window layout view
-        case window(windowId: String, hostId: String)
+    struct SessionNavigation: Hashable {
+        let windowId: String
+        let hostId: String
     }
 
     /// View displaying a list of active Claude sessions and terminals from all paired hosts.
@@ -38,39 +34,15 @@
             .navigationTitle("Sessions")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: SessionNavigation.self) { destination in
-                switch destination {
-                case let .claudeSession(paneId, hostId):
-                    if let connection = connectionManager.connection(for: hostId) {
-                        ClaudeSessionTerminalView(
-                            paneId: paneId,
-                            sessionStore: sessionStore,
-                            relayClient: connection.relayClient,
-                            settings: settings
-                        )
-                    } else {
-                        hostDisconnectedView
-                    }
-                case let .plainTerminal(paneId, hostId):
-                    if let connection = connectionManager.connection(for: hostId) {
-                        PlainTerminalView(
-                            paneId: paneId,
-                            relayClient: connection.relayClient,
-                            settings: settings
-                        )
-                    } else {
-                        hostDisconnectedView
-                    }
-                case let .window(windowId, hostId):
-                    if let connection = connectionManager.connection(for: hostId) {
-                        WindowLayoutView(
-                            windowId: windowId,
-                            hostId: hostId,
-                            relayClient: connection.relayClient,
-                            settings: settings
-                        )
-                    } else {
-                        hostDisconnectedView
-                    }
+                if let connection = connectionManager.connection(for: destination.hostId) {
+                    WindowLayoutView(
+                        windowId: destination.windowId,
+                        hostId: destination.hostId,
+                        relayClient: connection.relayClient,
+                        settings: settings
+                    )
+                } else {
+                    hostDisconnectedView
                 }
             }
             .toolbar {
@@ -218,8 +190,10 @@
                 await connectionManager.requestSessionState(for: host.id)
 
                 // Navigate to the new terminal if we got a pane ID
-                if let paneId = response.paneId {
-                    navigationPath.append(SessionNavigation.plainTerminal(paneId: paneId, hostId: host.id))
+                if
+                    let paneId = response.paneId,
+                    let paneState = sessionStore.paneStates[paneId] {
+                    navigationPath.append(SessionNavigation(windowId: paneState.windowId, hostId: host.id))
                 }
             case let .failure(error):
                 // Include project name in error for context (sheet stays open)
@@ -292,26 +266,20 @@
         @ViewBuilder
         private func windowRow(_ window: TmuxWindow) -> some View {
             if window.isSinglePane, let pane = window.panes.first {
-                // Single-pane window: navigate directly to the pane (same as before)
-                singlePaneRow(pane: pane, window: window)
-            } else {
-                // Multi-pane window: navigate to window layout view
-                multiPaneRow(window: window)
-            }
-        }
-
-        @ViewBuilder
-        private func singlePaneRow(pane: PaneState, window: TmuxWindow) -> some View {
-            if let session = pane.claudeSession {
-                NavigationLink(value: SessionNavigation.claudeSession(paneId: pane.paneId, hostId: host.id)) {
-                    SessionRowView(
-                        paneId: pane.paneId,
-                        session: session,
-                        isActive: sessionStore.isPaneActive(pane.paneId),
-                        customDescription: pane.customDescription
-                    )
+                // Single-pane window: show session/terminal row but navigate to WindowLayoutView
+                NavigationLink(value: SessionNavigation(windowId: window.id, hostId: host.id)) {
+                    if let session = pane.claudeSession {
+                        SessionRowView(
+                            paneId: pane.paneId,
+                            session: session,
+                            isActive: sessionStore.isPaneActive(pane.paneId),
+                            customDescription: pane.customDescription
+                        )
+                    } else {
+                        TerminalRowView(pane: pane)
+                    }
                 }
-                .accessibilityValue(session.statusLabel)
+                .accessibilityValue(pane.claudeSession?.statusLabel ?? "")
                 .modifier(DescriptionEditingModifier(
                     windowId: window.id,
                     currentDescription: window.customDescription,
@@ -319,8 +287,9 @@
                     onSetDescription: onSetDescription
                 ))
             } else {
-                NavigationLink(value: SessionNavigation.plainTerminal(paneId: pane.paneId, hostId: host.id)) {
-                    TerminalRowView(pane: pane)
+                // Multi-pane window
+                NavigationLink(value: SessionNavigation(windowId: window.id, hostId: host.id)) {
+                    WindowRowView(window: window)
                 }
                 .modifier(DescriptionEditingModifier(
                     windowId: window.id,
@@ -329,18 +298,6 @@
                     onSetDescription: onSetDescription
                 ))
             }
-        }
-
-        private func multiPaneRow(window: TmuxWindow) -> some View {
-            NavigationLink(value: SessionNavigation.window(windowId: window.id, hostId: host.id)) {
-                WindowRowView(window: window)
-            }
-            .modifier(DescriptionEditingModifier(
-                windowId: window.id,
-                currentDescription: window.customDescription,
-                isDisabled: connection?.isHostConnected != true,
-                onSetDescription: onSetDescription
-            ))
         }
     }
 

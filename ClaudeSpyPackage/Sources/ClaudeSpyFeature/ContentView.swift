@@ -326,7 +326,9 @@
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(100))
                 sessionsNavigationPath = NavigationPath()
-                sessionsNavigationPath.append(SessionNavigation.claudeSession(paneId: deepLink.paneId, hostId: deepLink.hostId))
+                if let paneState = sessionStore.paneStates[deepLink.paneId] {
+                    sessionsNavigationPath.append(SessionNavigation(windowId: paneState.windowId, hostId: deepLink.hostId))
+                }
                 currentlyDisplayedPaneId = deepLink.paneId
             }
         }
