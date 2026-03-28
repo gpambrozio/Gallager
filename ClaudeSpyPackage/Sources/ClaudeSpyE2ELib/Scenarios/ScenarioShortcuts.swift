@@ -171,10 +171,8 @@ public enum Shortcut {
             "tmux Clear and Set Prompt",
             tags: ["shortcut"]
         ) {
-            TestStep.tmuxSendKeys(target: target, keys: #"export PS1='$ '"#, literal: true)
-            TestStep.tmuxSendKeys(target: target, keys: "Enter")
-            TestStep.tmuxSendKeys(target: target, keys: "clear", literal: true)
-            TestStep.tmuxSendKeys(target: target, keys: "Enter")
+            Shortcut.tmuxRunCommand(target: target, command: #"export PS1='$ '"#)
+            Shortcut.tmuxRunCommand(target: target, command: "clear")
             TestStep.wait(seconds: 1)
         }
     }
@@ -199,7 +197,6 @@ public enum Shortcut {
             TestStep.iosTap(.labelContains(sessionName))
             TestStep.wait(seconds: 3)
             TestStep.iosWaitForElementToDisappear(.labelContains("Connecting"), timeout: 15)
-            TestStep.wait(seconds: 3)
         }
     }
 
