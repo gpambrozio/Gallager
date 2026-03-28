@@ -96,12 +96,26 @@
 
             blockScrollChanges = false
 
-            // When the terminal has more rows than fit on screen, SwiftTerm's internal
-            // updateScroller positions for terminal.rows visible, but the view is shorter.
-            // Snap to the real bottom so new content is visible.
-            if isAtBottom, managedTerminalSize != nil {
-                let newMaxY = max(0, contentSize.height - bounds.height)
-                super.contentOffset.y = newMaxY
+            // When the terminal has more rows than fit on screen, SwiftTerm's
+            // updateScroller positions to show the top of the visible area.
+            // If the cursor is below the viewport, scroll down to include it.
+            // This is preferred over naively snapping to the absolute bottom,
+            // which would hide top-of-screen content (e.g. full-screen redraws
+            // that position the cursor partway down the terminal).
+            if isAtBottom, let size = managedTerminalSize {
+                let terminal = getTerminal()
+                let cursorRow = terminal.buffer.y // 0-based row in visible area
+                let totalLines = terminal.buffer.yDisp + size.rows
+                if totalLines > 0, contentSize.height > 0 {
+                    let cellHeight = contentSize.height / CGFloat(totalLines)
+                    let viewRows = Int(bounds.height / cellHeight)
+                    if cursorRow >= viewRows {
+                        let scrollRows = cursorRow - viewRows + 1
+                        let target = CGFloat(terminal.buffer.yDisp + scrollRows) * cellHeight
+                        let maxY = max(0, contentSize.height - bounds.height)
+                        super.contentOffset.y = min(target, maxY)
+                    }
+                }
             }
 
             setNeedsLayout()
@@ -124,6 +138,19 @@
                 }
             }
             updateURLUnderlines()
+        }
+
+        /// Suppress SwiftTerm's async `updateScroller` when dimensions are
+        /// externally managed. `terminal.resize()` triggers this callback,
+        /// which asynchronously sets `contentOffset` based on `terminal.rows`.
+        /// When the terminal has more rows than fit on screen (managed size),
+        /// that positions the view above the real bottom, breaking the
+        /// snap-to-bottom in `feedPreservingScroll` on subsequent updates.
+        /// The synchronous `updateScroller` in `processSizeChange` still
+        /// runs, keeping `contentSize` and `contentOffset` correct.
+        override func sizeChanged(source: Terminal) {
+            guard managedTerminalSize == nil else { return }
+            super.sizeChanged(source: source)
         }
 
         // MARK: - Focus Management
