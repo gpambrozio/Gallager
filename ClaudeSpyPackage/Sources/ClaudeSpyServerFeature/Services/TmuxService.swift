@@ -401,6 +401,7 @@ final public class TmuxService {
         let screenWasCleared = nonEmptyVisibleCount < max(1, height / 4)
 
         var hasScrollback = false
+        var scrollbackLineCount = 0
         if !screenWasCleared, let scrollbackContent = scrollbackOutput {
             var trimmed = scrollbackContent
             if trimmed.hasSuffix("\n") {
@@ -410,6 +411,7 @@ final public class TmuxService {
 
             if !scrollbackLinesList.isEmpty {
                 hasScrollback = true
+                scrollbackLineCount = scrollbackLinesList.count
                 for line in scrollbackLinesList {
                     // Strip any trailing CR (tmux may output \r\n line endings)
                     var lineStr = String(line)
@@ -425,31 +427,36 @@ final public class TmuxService {
             }
         }
 
-        // Part 2: Render visible area without explicit row positioning
-        // This allows the content to work correctly regardless of the mirror terminal's
-        // row count. Content flows naturally - if the mirror has fewer rows than tmux,
-        // excess lines scroll into scrollback and the bottom (most recent) content is visible.
+        // Part 2: Render visible area from the top of the screen.
+
+        // When scrollback was output (Part 1), explicitly scroll it into the
+        // terminal's scrollback buffer using SU (Scroll Up). Without this,
+        // Part 1 content remains visible at the top when the mirror terminal
+        // is taller than the source tmux pane (e.g. after a `clear` command,
+        // the "$ clear" text would linger at the top of the mirror).
+        // Cap at `height` to avoid pushing blank lines into the scrollback
+        // buffer when scrollbackLineCount exceeds the terminal height.
+        if hasScrollback {
+            let scrollAmount = min(scrollbackLineCount, height)
+            output += "\u{1b}[\(scrollAmount)S"
+        }
 
         // Determine how many lines to output. We must output at least:
         // - cursorY + 1: so the cursor can be positioned on the correct row
         // - visibleLines.count: to render all captured visible content
-        // - height (when scrollback exists): to fully overwrite any Part 1
-        //   visible-area lines that are still showing in the terminal. Without
-        //   this, when visibleLines.count < height, stale Part 1 content can
-        //   remain visible at the top of the screen.
+        // - height (when scrollback exists): to fully cover the visible area,
+        //   clearing any stale content from previous captures.
         let minForScrollback = hasScrollback ? height : 0
         let linesToOutput = max(cursorY + 1, visibleLines.count, minForScrollback)
 
-        // Move to home only when there's no scrollback. When scrollback exists,
-        // visible lines flow continuously after scrollback — the terminal's own
-        // scrolling pushes excess content into the scrollback buffer. Using \e[H]
-        // with scrollback would jump back to the top and overwrite scrollback lines.
-        if !hasScrollback {
-            output += "\u{1b}[H" // Cursor to home (row 1, col 1)
-        }
+        // Always position cursor at the top for Part 2. After the SU scroll
+        // above (when scrollback exists), the visible area is clear and ready
+        // for the visible content to be drawn from the top.
+        output += "\u{1b}[H" // Cursor to home (row 1, col 1)
 
-        // Output visible lines sequentially, clearing each line before writing
-        // This overwrites any Part 1 content that scrolled into visible area
+        // Output visible lines sequentially, clearing each line before writing.
+        // After the SU scroll above, Part 1 is in the scrollback buffer, so the
+        // visible area is empty — we clear each line defensively and draw Part 2.
         // Filter each line to keep only color codes (remove cursor positioning that could interfere)
         for index in 0..<linesToOutput {
             output += "\u{1b}[2K" // Clear current line
