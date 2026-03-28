@@ -688,16 +688,17 @@
         @Test("Scrollback content is included with SGR resets")
         func scrollbackIncluded() async {
             let service = TmuxService()
-            // Real tmux `capture-pane -S -N -E -1` includes both scrollback AND
-            // visible content, so scrollbackOutput must contain the visible lines too.
+            // Scrollback must have >= height lines to be included (otherwise
+            // it's treated as stale post-clear content and suppressed).
+            let scrollbackLines = (1...6).map { "scrollback line \($0)" }
             let result = service.processCapturePaneForStreaming(
-                scrollbackOutput: "scrollback line\nvisible line",
+                scrollbackOutput: scrollbackLines.joined(separator: "\n"),
                 visibleOutput: "visible line",
                 cursorOutput: "0,0,1",
                 height: 5
             )
             let str = String(data: result, encoding: .utf8)!
-            #expect(str.contains("scrollback line"))
+            #expect(str.contains("scrollback line 1"))
             #expect(str.contains("visible line"))
             // Scrollback should have SGR resets
             #expect(str.contains("\u{1b}[0m"))
@@ -1550,45 +1551,37 @@
             #expect(allContent.contains { $0.contains("user@host") }, "Prompt still present")
         }
 
-        @Test("After clear + screen re-fill, stale scrollback is suppressed via gap detection")
+        @Test("After clear + screen re-fill, stale scrollback is suppressed via line count")
         @MainActor
         func clearThenFillScreenSuppressesScrollback() {
             // Scenario: user runs `clear`, then a script that fills the screen
             // (e.g., python3 draw_table.py which also does \e[2J internally).
             // The visible area is full (screenWasCleared = false), but the
-            // scrollback capture contains stale pre-clear content separated
-            // by a block of empty lines from the cleared visible area.
+            // scrollback capture (-E -1) contains only a few stale pre-clear
+            // lines — tmux trims trailing blank lines from the pushed cleared
+            // area. Since the scrollback has fewer lines than the terminal
+            // height, it's suppressed.
             let service = TmuxService()
             let height = 24
 
-            // Build scrollback: pre-clear content + cleared-area blank lines +
-            // visible overlap (post-clear table content)
+            // Build scrollback: only pre-clear content (tmux -E -1 does NOT
+            // include the visible area, and trims trailing blank lines)
             var scrollbackLines: [String] = []
-            // Pre-clear content (old prompt and commands)
+            scrollbackLines.append("user@host ~")
             scrollbackLines.append("$ export PS1='$ '")
             scrollbackLines.append("$ clear")
-            // Blank lines from the cleared visible area pushed to scrollback
-            // (24 - 2 content lines = 22 blank lines)
-            for _ in 0..<(height - 2) {
-                scrollbackLines.append("")
-            }
-            // Post-clear visible overlap (table content that now fills screen)
+            scrollbackLines.append("") // tmux keeps ~1 blank after clear
             scrollbackLines.append("$ python3 /tmp/draw_table.py")
-            scrollbackLines.append("Box-Drawing Table Rendering Test")
-            for i in 1...10 {
-                scrollbackLines.append("Row \(i) data")
-            }
-            scrollbackLines.append("$ ")
+            // Total: 5 lines (< height=24) → suppressed
             let scrollbackOutput = scrollbackLines.joined(separator: "\n") + "\n"
 
-            // Visible: full screen with table content
-            var visibleLinesList = ["$ python3 /tmp/draw_table.py",
-                                    "Box-Drawing Table Rendering Test"]
-            for i in 1...10 {
+            // Visible: full screen with table content (drawn by script's \e[2J\e[H)
+            var visibleLinesList = ["Box-Drawing Table Rendering Test"]
+            for i in 1...15 {
                 visibleLinesList.append("Row \(i) data")
             }
+            visibleLinesList.append("All services operational.")
             visibleLinesList.append("$ ")
-            // Pad to full height
             while visibleLinesList.count < height {
                 visibleLinesList.append("")
             }
@@ -1597,7 +1590,7 @@
             let data = service.processCapturePaneForStreaming(
                 scrollbackOutput: scrollbackOutput,
                 visibleOutput: visibleOutput,
-                cursorOutput: "2,12,1",
+                cursorOutput: "2,17,1",
                 height: height
             )
 
@@ -1611,12 +1604,12 @@
                 if !text.isEmpty { allContent.append(text) }
             }
 
-            // Pre-clear content should NOT appear
+            // Pre-clear content should NOT appear (scrollback suppressed)
             #expect(!allContent.contains { $0.contains("export PS1") },
                     "Pre-clear content should be suppressed")
             #expect(!allContent.contains { $0.contains("clear") },
                     "$ clear should not appear")
-            // Post-clear visible content SHOULD appear
+            // Visible content SHOULD appear
             #expect(allContent.contains { $0.contains("Box-Drawing Table") },
                     "Table content should be present")
             #expect(allContent.contains { $0.contains("Row 1 data") },
