@@ -139,6 +139,9 @@ struct GeneralSettingsView: View {
                 Toggle("Auto-copy selected text", isOn: $settings.autoCopyOnSelect)
                     .help("Automatically copy selected text to the clipboard when the mouse is released")
 
+                Toggle("Always auto-resize terminals", isOn: $settings.alwaysAutoResize)
+                    .help("Automatically resize all terminal panes to fit the mirror view when the window size changes")
+
                 Toggle("Prevent sleep during active sessions", isOn: $settings.preventSleepDuringSessions)
                     .help("Keep host awake while Claude Code sessions are running")
 

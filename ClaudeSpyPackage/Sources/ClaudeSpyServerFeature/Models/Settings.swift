@@ -161,6 +161,11 @@ final public class AppSettings {
         didSet { preferences.setBool(autoCopyOnSelect, Keys.autoCopyOnSelect) }
     }
 
+    /// Whether to automatically enable auto-resize for all terminals
+    public var alwaysAutoResize: Bool = Defaults.alwaysAutoResize {
+        didSet { preferences.setBool(alwaysAutoResize, Keys.alwaysAutoResize) }
+    }
+
     /// Delay before attempting reconnection (in seconds)
     public var reconnectDelay: Int = Defaults.reconnectDelay {
         didSet { preferences.setInt(reconnectDelay, Keys.reconnectDelay) }
@@ -258,6 +263,7 @@ final public class AppSettings {
         self.preventSleepDuringSessions = preferences.optionalBool(Keys.preventSleepDuringSessions) ?? Defaults.preventSleepDuringSessions
         self.menuBarClickOpensPanesView = preferences.optionalBool(Keys.menuBarClickOpensPanesView) ?? Defaults.menuBarClickOpensPanesView
         self.autoCopyOnSelect = preferences.optionalBool(Keys.autoCopyOnSelect) ?? Defaults.autoCopyOnSelect
+        self.alwaysAutoResize = preferences.optionalBool(Keys.alwaysAutoResize) ?? Defaults.alwaysAutoResize
         self.reconnectDelay = preferences.optionalInt(Keys.reconnectDelay) ?? Defaults.reconnectDelay
         self.tmuxPath = preferences.string(Keys.tmuxPath) ?? Defaults.tmuxPath
         self.tmuxSocket = preferences.string(Keys.tmuxSocket) ?? Defaults.tmuxSocket
@@ -314,6 +320,7 @@ final public class AppSettings {
         case preventSleepDuringSessions
         case menuBarClickOpensPanesView
         case autoCopyOnSelect
+        case alwaysAutoResize
         case reconnectDelay
         case tmuxPath
         case tmuxSocket
@@ -349,6 +356,7 @@ final public class AppSettings {
         static let preventSleepDuringSessions = true
         static let menuBarClickOpensPanesView = false
         static let autoCopyOnSelect = false
+        static let alwaysAutoResize = false
         static let reconnectDelay = 5
         static let tmuxPath = "/opt/homebrew/bin/tmux"
         static let tmuxSocket = ""
