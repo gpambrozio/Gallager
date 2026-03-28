@@ -688,16 +688,17 @@
         @Test("Scrollback content is included with SGR resets")
         func scrollbackIncluded() async {
             let service = TmuxService()
-            // Real tmux `capture-pane -S -N -E -1` includes both scrollback AND
-            // visible content, so scrollbackOutput must contain the visible lines too.
+            // Scrollback must have >= height lines to be included (otherwise
+            // it's treated as stale post-clear content and suppressed).
+            let scrollbackLines = (1...6).map { "scrollback line \($0)" }
             let result = service.processCapturePaneForStreaming(
-                scrollbackOutput: "scrollback line\nvisible line",
+                scrollbackOutput: scrollbackLines.joined(separator: "\n"),
                 visibleOutput: "visible line",
                 cursorOutput: "0,0,1",
                 height: 5
             )
             let str = String(data: result, encoding: .utf8)!
-            #expect(str.contains("scrollback line"))
+            #expect(str.contains("scrollback line 1"))
             #expect(str.contains("visible line"))
             // Scrollback should have SGR resets
             #expect(str.contains("\u{1b}[0m"))
@@ -982,26 +983,25 @@
             )
         }
 
-        @Test("Scrollback pushed to buffer, visible area shows only Part 2 content")
+        @Test("Scrollback pushed to buffer via LF, no gap when scrolling up")
         @MainActor
         func scrollbackPushedToBuffer() {
             let service = TmuxService()
-            let tmuxRows = 50
+            let tmuxRows = 40
             let cols = 80
 
-            // Build 200 lines of scrollback (numbered for easy identification)
-            let scrollbackLines = (1...200).map { "Line \($0)" }
+            // Build scrollback content (simulating `seq 1 100` on a 40-row terminal)
+            // The scrollback capture (-E -1) includes only scrollback lines,
+            // NOT the visible area.
+            let scrollbackLines = (1...62).map { "Line \($0)" }
             let scrollbackOutput = scrollbackLines.joined(separator: "\n")
 
-            // Build visible content (bottom 50 lines of a terminal after `seq 1 200`)
+            // Build visible content (last 40 lines)
             var visibleLines: [String] = []
-            for i in 0..<tmuxRows {
-                if i < tmuxRows - 1 {
-                    visibleLines.append("Visible \(i + 1)")
-                } else {
-                    visibleLines.append("$ ") // shell prompt on last line
-                }
+            for i in 63...101 {
+                visibleLines.append("Line \(i)")
             }
+            visibleLines.append("$ ") // shell prompt on last line
             let visibleOutput = visibleLines.joined(separator: "\n")
 
             // Cursor at end of prompt
@@ -1014,52 +1014,61 @@
                 height: tmuxRows
             )
 
-            // Verify the raw output includes scrollback data (it's written before
-            // the SU scroll pushes it into the terminal's scrollback buffer)
-            let rawStr = String(data: initialData, encoding: .utf8)!
-            #expect(rawStr.contains("Line 1"), "Raw output should include scrollback content")
-
-            // Feed into an OVERSIZED terminal — scrollback content is pushed into
-            // the terminal's scrollback buffer by the SU escape, so the visible
-            // area should show ONLY Part 2 (visible) content.
-            let bigRows = 500
-            let (terminal, _) = makeTerminal(cols: cols, rows: bigRows)
+            // Feed into a correctly-sized terminal (matching tmux pane dimensions)
+            let (terminal, _) = makeTerminal(cols: cols, rows: tmuxRows)
             terminal.feed(byteArray: Array(initialData))
 
-            // Collect visible-area lines
-            var allLines: [String] = []
-            for row in 0..<bigRows {
-                allLines.append(getRowText(terminal, row: row))
+            // Verify visible area shows Part 2 content
+            let visibleRow0 = getRowText(terminal, row: 0)
+            #expect(visibleRow0.contains("Line 63"), "Visible row 0 should show Part 2 content, got '\(visibleRow0)'")
+
+            // Verify ALL scrollback content is in the terminal's scrollback buffer.
+            // Use getScrollInvariantLine to read both scrollback and visible area.
+            // Lines should be continuous from Line 1 through Line 101 with no gaps.
+            var allContent: [String] = []
+            // yDisp == yBase here (no user scrolling has occurred), giving us
+            // the total line count (scrollback + visible). yBase would be
+            // preferable but it's internal to SwiftTerm.
+            let totalLines = terminal.buffer.yDisp + terminal.rows
+            for row in 0..<totalLines {
+                guard let line = terminal.getScrollInvariantLine(row: row) else { continue }
+                let text = line.translateToString(trimRight: true)
+                if !text.isEmpty {
+                    allContent.append(text)
+                }
             }
 
-            // Find the first and last non-empty lines
-            let firstNonEmpty = allLines.firstIndex { !$0.isEmpty } ?? 0
-            let lastNonEmpty = allLines.lastIndex { !$0.isEmpty } ?? 0
-
-            // Between the first and last non-empty lines, there should be
-            // no blank lines (that would be a "gap")
-            var blankGapLines: [Int] = []
-            for i in firstNonEmpty...lastNonEmpty where allLines[i].isEmpty {
-                blankGapLines.append(i)
-            }
-
+            // Verify early scrollback is preserved (this is what SU was destroying)
             #expect(
-                blankGapLines.isEmpty,
-                """
-                Found \(blankGapLines.count) blank gap line(s) between \
-                content at rows \(firstNonEmpty) and \(lastNonEmpty). \
-                Blank rows: \(blankGapLines.prefix(10))
-                """
+                allContent.contains { $0.contains("Line 1") },
+                "First scrollback line should be preserved"
+            )
+            #expect(
+                allContent.contains { $0.contains("Line 30") },
+                "Middle scrollback line should be preserved (was destroyed by SU)"
+            )
+            #expect(
+                allContent.contains { $0.contains("Line 62") },
+                "Last scrollback-only line should be preserved"
+            )
+            #expect(
+                allContent.contains { $0.contains("Line 63") },
+                "First visible line should be present"
             )
 
-            // Visible area should contain Part 2 content but NOT scrollback.
-            // `blankGapLines` above guards general layout integrity (no holes in content).
-            // `scrollbackInVisible` below is the specific regression guard: Part 1
-            // lines must never leak into the visible area after the SU scroll.
-            let hasVisibleContent = allLines.contains { $0.hasPrefix("Visible ") || $0.hasPrefix("$") }
-            #expect(hasVisibleContent, "Visible area should contain Part 2 content")
-            let scrollbackInVisible = allLines.contains { $0.hasPrefix("Line ") }
-            #expect(!scrollbackInVisible, "Scrollback should NOT appear in the visible area")
+            // Verify no gap: find all "Line N" entries and check they are continuous
+            let lineNumbers = allContent.compactMap { line -> Int? in
+                guard line.hasPrefix("Line ") else { return nil }
+                return Int(line.dropFirst(5))
+            }
+            let sortedNumbers = lineNumbers.sorted()
+            #expect(!lineNumbers.isEmpty, "Should have found at least one 'Line N' entry in buffer")
+            for i in 1..<sortedNumbers.count {
+                #expect(
+                    sortedNumbers[i] == sortedNumbers[i - 1] + 1,
+                    "Gap in scrollback: Line \(sortedNumbers[i - 1]) → Line \(sortedNumbers[i])"
+                )
+            }
         }
     }
 
@@ -1542,14 +1551,79 @@
             #expect(allContent.contains { $0.contains("user@host") }, "Prompt still present")
         }
 
+        @Test("After clear + screen re-fill, stale scrollback is suppressed via line count")
+        @MainActor
+        func clearThenFillScreenSuppressesScrollback() {
+            // Scenario: user runs `clear`, then a script that fills the screen
+            // (e.g., python3 draw_table.py which also does \e[2J internally).
+            // The visible area is full (screenWasCleared = false), but the
+            // scrollback capture (-E -1) contains only a few stale pre-clear
+            // lines — tmux trims trailing blank lines from the pushed cleared
+            // area. Since the scrollback has fewer lines than the terminal
+            // height, it's suppressed.
+            let service = TmuxService()
+            let height = 24
+
+            // Build scrollback: only pre-clear content (tmux -E -1 does NOT
+            // include the visible area, and trims trailing blank lines)
+            var scrollbackLines: [String] = []
+            scrollbackLines.append("user@host ~")
+            scrollbackLines.append("$ export PS1='$ '")
+            scrollbackLines.append("$ clear")
+            scrollbackLines.append("") // tmux keeps ~1 blank after clear
+            scrollbackLines.append("$ python3 /tmp/draw_table.py")
+            // Total: 5 lines (< height=24) → suppressed
+            let scrollbackOutput = scrollbackLines.joined(separator: "\n") + "\n"
+
+            // Visible: full screen with table content (drawn by script's \e[2J\e[H)
+            var visibleLinesList = ["Box-Drawing Table Rendering Test"]
+            for i in 1...15 {
+                visibleLinesList.append("Row \(i) data")
+            }
+            visibleLinesList.append("All services operational.")
+            visibleLinesList.append("$ ")
+            while visibleLinesList.count < height {
+                visibleLinesList.append("")
+            }
+            let visibleOutput = visibleLinesList.joined(separator: "\n") + "\n"
+
+            let data = service.processCapturePaneForStreaming(
+                scrollbackOutput: scrollbackOutput,
+                visibleOutput: visibleOutput,
+                cursorOutput: "2,17,1",
+                height: height
+            )
+
+            let oversizedRows = 200
+            let (terminal, _) = makeTerminal(cols: 80, rows: oversizedRows)
+            terminal.feed(text: String(data: data, encoding: .utf8)!)
+
+            var allContent: [String] = []
+            for row in 0..<oversizedRows {
+                let text = getRowText(terminal, row: row).filter { $0 != "\0" }
+                if !text.isEmpty { allContent.append(text) }
+            }
+
+            // Pre-clear content should NOT appear (scrollback suppressed)
+            #expect(!allContent.contains { $0.contains("export PS1") },
+                    "Pre-clear content should be suppressed")
+            #expect(!allContent.contains { $0.contains("clear") },
+                    "$ clear should not appear")
+            // Visible content SHOULD appear
+            #expect(allContent.contains { $0.contains("Box-Drawing Table") },
+                    "Table content should be present")
+            #expect(allContent.contains { $0.contains("Row 1 data") },
+                    "Table rows should be present")
+        }
+
         @Test("Scrollback IS output when there is genuine scrollback content")
         @MainActor
         func scrollbackOutputWhenContentExceedsVisible() {
             // When scrollback capture has MORE lines than visible (typical for
             // `seq 1 200`), scrollback should be output normally (not suppressed
             // by the screenWasCleared heuristic). The scrollback data is written
-            // to the output stream before being pushed into the terminal's
-            // scrollback buffer by SU (Scroll Up).
+            // to the output stream and pushed into the terminal's scrollback
+            // buffer via LF scrolling.
             let service = TmuxService()
             let height = 24
 
@@ -1576,32 +1650,31 @@
                 height: height
             )
 
-            // Verify the raw output includes scrollback data (it's written
-            // before the SU scroll pushes it into the terminal's buffer)
+            // Verify the raw output includes scrollback data
             let rawStr = String(data: data, encoding: .utf8)!
             #expect(rawStr.contains("Line 1"), "Raw output should have early scrollback content")
             #expect(rawStr.contains("Line 100"), "Raw output should have deep scrollback content")
 
-            // When fed to a terminal, visible area should show Part 2 content
-            // and scrollback should be pushed into the terminal's scrollback buffer
-            // by the SU escape — verifying SwiftTerm actually processes the sequence.
+            // When fed to a correctly-sized terminal, visible area should show
+            // Part 2 content and scrollback should be in the scrollback buffer.
             let (terminal, _) = makeTerminal(cols: 80, rows: height)
             terminal.feed(text: rawStr)
             let visibleRow0 = getRowText(terminal, row: 0)
             #expect(visibleRow0.contains("Line 135"), "Visible row 0 should show Part 2 content")
 
-            // Verify scrollback was pushed into terminal's scrollback buffer (not just
-            // present in raw bytes). Row 0 of the scroll-invariant buffer is the first
-            // line of scrollback — if SU handling regressed, this would be nil/empty.
+            // Verify scrollback was pushed into terminal's scrollback buffer.
+            // Row 0 of the scroll-invariant buffer is the first line of scrollback.
             if let scrollbackLine = terminal.getScrollInvariantLine(row: 0) {
                 var text = ""
                 for col in 0..<terminal.cols {
                     text += String(scrollbackLine[col].getCharacter())
                 }
-                #expect(text.trimmingCharacters(in: .whitespaces).contains("Line 1"),
-                        "First scrollback line in terminal buffer should be 'Line 1'")
+                #expect(
+                    text.trimmingCharacters(in: .whitespaces).contains("Line 1"),
+                    "First scrollback line in terminal buffer should be 'Line 1'"
+                )
             } else {
-                Issue.record("Terminal scrollback buffer is empty — SU scroll did not push content")
+                Issue.record("Terminal scrollback buffer is empty — LF scroll did not push content")
             }
         }
     }
