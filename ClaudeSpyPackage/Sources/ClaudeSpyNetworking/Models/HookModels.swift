@@ -138,7 +138,12 @@ public struct HookEvent: Identifiable, Codable, Sendable, Equatable {
             return true
         case .stop, .stopFailure:
             return false
-        default:
+        case .sessionStart, .preToolUse, .postToolUse, .postToolUseFailure,
+             .sessionEnd, .permissionRequest, .notification, .subagentStart,
+             .subagentStop, .teammateIdle, .taskCompleted, .preCompact,
+             .postCompact, .instructionsLoaded, .configChange, .cwdChanged,
+             .fileChanged, .elicitation, .elicitationResult, .worktreeCreate,
+             .worktreeRemove, .taskCreated, .unknown:
             return nil
         }
     }

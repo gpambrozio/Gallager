@@ -6,12 +6,12 @@ import Foundation
 /// and synchronized across all three platforms:
 /// 1. SessionStart triggers "Attention" on host, iOS viewer, and Mac viewer
 /// 2. iOS viewer marks handled → state becomes "Idle" (SessionStart is clearable)
-/// 3. PreToolUse transitions to "Working" on all platforms
+/// 3. UserPromptSubmit transitions to "Working" on all platforms
 /// 4. Stop event transitions to "Attention" on all platforms (triggers notification)
 /// 5. Mac viewer selects session → marks handled → "Idle" (Stop is clearable)
 /// 6. PermissionRequest re-raises "Attention" on all platforms
 /// 7. iOS taps session → "Attention" persists (PermissionRequest is NOT clearable)
-/// 8. A subsequent working event (PreToolUse) naturally moves to "Working"
+/// 8. A subsequent working event (UserPromptSubmit) naturally moves to "Working"
 /// 9. Host selection marks handled on non-attention state → stays at current state
 public enum MarkHandledScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
@@ -92,16 +92,16 @@ public enum MarkHandledScenario {
         TestStep.macWaitForElement(titled: "Idle", timeout: 10, instance: 1)
         TestStep.macScreenshot(label: "viewer-idle-after-ios-handle", instance: 1)
 
-        // ── Phase 5: PreToolUse transitions to "Working" ──────────────────
+        // ── Phase 5: UserPromptSubmit transitions to "Working" ─────────────
 
-        TestStep.log("Sending PreToolUse event — transitions to Working")
+        TestStep.log("Sending UserPromptSubmit event — transitions to Working")
         TestStep.macSendHookEvent(
             json: """
             {
-                "hook_event_name": "PreToolUse",
+                "hook_event_name": "UserPromptSubmit",
                 "session_id": "e2e-state-session",
                 "timestamp": "2026-02-14T10:01:00.000000Z",
-                "tool_name": "Edit"
+                "prompt": "do something"
             }
             """,
             tmuxPane: "${paneId}",
@@ -109,7 +109,7 @@ public enum MarkHandledScenario {
         )
         TestStep.wait(seconds: 3)
 
-        // All platforms show "Working" (PreToolUse → isWorking = true)
+        // All platforms show "Working" (UserPromptSubmit → isWorking = true)
         TestStep.iosWaitForElement(.valueContains("Working"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-working")
 
@@ -232,17 +232,17 @@ public enum MarkHandledScenario {
 
         // ── Phase 11: Working event naturally clears attention ──────────
         //
-        // A PreToolUse event means Claude is processing again, which moves
+        // A UserPromptSubmit event means the user sent a new prompt, which moves
         // the session to "Working" — naturally superseding the attention state.
 
-        TestStep.log("Sending PreToolUse — naturally moves from Attention to Working")
+        TestStep.log("Sending UserPromptSubmit — naturally moves from Attention to Working")
         TestStep.macSendHookEvent(
             json: """
             {
-                "hook_event_name": "PreToolUse",
+                "hook_event_name": "UserPromptSubmit",
                 "session_id": "e2e-state-session",
                 "timestamp": "2026-02-14T10:04:00.000000Z",
-                "tool_name": "Bash"
+                "prompt": "continue"
             }
             """,
             tmuxPane: "${paneId}",
