@@ -84,9 +84,10 @@
 
         /// Feeds data while preserving scroll position if user has scrolled up.
         func feedPreservingScroll(_ bytes: ArraySlice<UInt8>) {
+            let maxScrollY = max(0, contentSize.height - bounds.height)
+            let isAtBottom = maxScrollY <= 0 || super.contentOffset.y >= maxScrollY - 5
+
             if preserveUserScroll {
-                let maxScrollY = max(0, contentSize.height - bounds.height)
-                let isAtBottom = maxScrollY <= 0 || super.contentOffset.y >= maxScrollY - 5
                 blockScrollChanges = !isAtBottom
             }
 
@@ -94,11 +95,34 @@
             extractAndClearPayloads()
 
             blockScrollChanges = false
+
+            // When the terminal has more rows than fit on screen, SwiftTerm's internal
+            // updateScroller positions for terminal.rows visible, but the view is shorter.
+            // Snap to the real bottom so new content is visible.
+            if isAtBottom, managedTerminalSize != nil {
+                let newMaxY = max(0, contentSize.height - bounds.height)
+                super.contentOffset.y = newMaxY
+            }
+
             setNeedsLayout()
         }
 
+        /// The externally-managed terminal dimensions. When set, `layoutSubviews` will
+        /// restore these dimensions after SwiftTerm's auto-resize shrinks the buffer to
+        /// match the view frame. This allows the terminal to have more rows than fit on
+        /// screen (e.g. 65-row host on ~40-row iPhone) without losing bottom rows.
+        var managedTerminalSize: (cols: Int, rows: Int)?
+
         override func layoutSubviews() {
             super.layoutSubviews()
+            // SwiftTerm's layoutSubviews may have resized the terminal buffer to match
+            // the view's frame height. Restore the externally-managed dimensions.
+            if let size = managedTerminalSize {
+                let terminal = getTerminal()
+                if terminal.cols != size.cols || terminal.rows != size.rows {
+                    terminal.resize(cols: size.cols, rows: size.rows)
+                }
+            }
             updateURLUnderlines()
         }
 
