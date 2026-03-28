@@ -982,9 +982,9 @@
             )
         }
 
-        @Test("No blank gap in scrollback when mirror is smaller than tmux pane")
+        @Test("Scrollback pushed to buffer, visible area shows only Part 2 content")
         @MainActor
-        func scrollbackGapWithSmallerMirror() {
+        func scrollbackPushedToBuffer() {
             let service = TmuxService()
             let tmuxRows = 50
             let cols = 80
@@ -1014,15 +1014,19 @@
                 height: tmuxRows
             )
 
-            // Feed into an OVERSIZED terminal so all content (scrollback + visible)
-            // fits on screen without any terminal scrollback. This lets us check
-            // every line via getLine(row:) (which is public) without needing
-            // internal SwiftTerm buffer APIs.
+            // Verify the raw output includes scrollback data (it's written before
+            // the SU scroll pushes it into the terminal's scrollback buffer)
+            let rawStr = String(data: initialData, encoding: .utf8)!
+            #expect(rawStr.contains("Line 1"), "Raw output should include scrollback content")
+
+            // Feed into an OVERSIZED terminal — scrollback content is pushed into
+            // the terminal's scrollback buffer by the SU escape, so the visible
+            // area should show ONLY Part 2 (visible) content.
             let bigRows = 500
             let (terminal, _) = makeTerminal(cols: cols, rows: bigRows)
             terminal.feed(byteArray: Array(initialData))
 
-            // Collect all line texts from the oversized terminal
+            // Collect visible-area lines
             var allLines: [String] = []
             for row in 0..<bigRows {
                 allLines.append(getRowText(terminal, row: row))
@@ -1033,7 +1037,7 @@
             let lastNonEmpty = allLines.lastIndex { !$0.isEmpty } ?? 0
 
             // Between the first and last non-empty lines, there should be
-            // no blank lines (that would be the "gap")
+            // no blank lines (that would be a "gap")
             var blankGapLines: [Int] = []
             for i in firstNonEmpty...lastNonEmpty where allLines[i].isEmpty {
                 blankGapLines.append(i)
@@ -1048,11 +1052,14 @@
                 """
             )
 
-            // Verify we have meaningful content — scrollback + visible should both appear
-            let hasScrollbackContent = allLines.contains { $0.hasPrefix("Line ") }
+            // Visible area should contain Part 2 content but NOT scrollback.
+            // `blankGapLines` above guards general layout integrity (no holes in content).
+            // `scrollbackInVisible` below is the specific regression guard: Part 1
+            // lines must never leak into the visible area after the SU scroll.
             let hasVisibleContent = allLines.contains { $0.hasPrefix("Visible ") || $0.hasPrefix("$") }
-            #expect(hasScrollbackContent, "Should contain scrollback lines")
-            #expect(hasVisibleContent, "Should contain visible lines")
+            #expect(hasVisibleContent, "Visible area should contain Part 2 content")
+            let scrollbackInVisible = allLines.contains { $0.hasPrefix("Line ") }
+            #expect(!scrollbackInVisible, "Scrollback should NOT appear in the visible area")
         }
     }
 
@@ -1539,7 +1546,10 @@
         @MainActor
         func scrollbackOutputWhenContentExceedsVisible() {
             // When scrollback capture has MORE lines than visible (typical for
-            // `seq 1 200`), scrollback should be output normally.
+            // `seq 1 200`), scrollback should be output normally (not suppressed
+            // by the screenWasCleared heuristic). The scrollback data is written
+            // to the output stream before being pushed into the terminal's
+            // scrollback buffer by SU (Scroll Up).
             let service = TmuxService()
             let height = 24
 
@@ -1566,19 +1576,33 @@
                 height: height
             )
 
-            let oversizedRows = 500
-            let (terminal, _) = makeTerminal(cols: 80, rows: oversizedRows)
-            terminal.feed(text: String(data: data, encoding: .utf8)!)
+            // Verify the raw output includes scrollback data (it's written
+            // before the SU scroll pushes it into the terminal's buffer)
+            let rawStr = String(data: data, encoding: .utf8)!
+            #expect(rawStr.contains("Line 1"), "Raw output should have early scrollback content")
+            #expect(rawStr.contains("Line 100"), "Raw output should have deep scrollback content")
 
-            var allContent: [String] = []
-            for row in 0..<oversizedRows {
-                let text = getRowText(terminal, row: row).filter { $0 != "\0" }
-                if !text.isEmpty { allContent.append(text) }
+            // When fed to a terminal, visible area should show Part 2 content
+            // and scrollback should be pushed into the terminal's scrollback buffer
+            // by the SU escape — verifying SwiftTerm actually processes the sequence.
+            let (terminal, _) = makeTerminal(cols: 80, rows: height)
+            terminal.feed(text: rawStr)
+            let visibleRow0 = getRowText(terminal, row: 0)
+            #expect(visibleRow0.contains("Line 135"), "Visible row 0 should show Part 2 content")
+
+            // Verify scrollback was pushed into terminal's scrollback buffer (not just
+            // present in raw bytes). Row 0 of the scroll-invariant buffer is the first
+            // line of scrollback — if SU handling regressed, this would be nil/empty.
+            if let scrollbackLine = terminal.getScrollInvariantLine(row: 0) {
+                var text = ""
+                for col in 0..<terminal.cols {
+                    text += String(scrollbackLine[col].getCharacter())
+                }
+                #expect(text.trimmingCharacters(in: .whitespaces).contains("Line 1"),
+                        "First scrollback line in terminal buffer should be 'Line 1'")
+            } else {
+                Issue.record("Terminal scrollback buffer is empty — SU scroll did not push content")
             }
-
-            // Should contain scrollback history
-            #expect(allContent.contains { $0.contains("Line 1") }, "Should have scrollback content")
-            #expect(allContent.contains { $0.contains("Line 100") }, "Should have deep scrollback content")
         }
     }
 #endif
