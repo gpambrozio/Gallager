@@ -103,8 +103,9 @@ public struct MainView: View {
                     selectedWindow = updated
                 }
             } else {
-                // Selected window was removed, clear selection
-                selectedWindow = nil
+                // Selected window was removed — try to select another window in the same session
+                let fallback = currentWindows.first(where: { $0.sessionName == selected.sessionName })
+                selectedWindow = fallback
             }
         }
         .onChange(of: selectedWindow) {
@@ -458,8 +459,9 @@ public struct MainView: View {
                                     workingDirectory: currentPath
                                 )
                                 // Select the newly created window
-                                if let paneId,
-                                   let newWindow = tmuxService.windows.first(where: { $0.panes.contains(where: { $0.paneId == paneId }) }) {
+                                if
+                                    let paneId,
+                                    let newWindow = tmuxService.windows.first(where: { $0.panes.contains(where: { $0.paneId == paneId }) }) {
                                     selectedWindow = newWindow
                                 }
                             }
