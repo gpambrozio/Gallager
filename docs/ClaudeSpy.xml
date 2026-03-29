@@ -6,6 +6,49 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.14</title>
+         <sparkle:version>14</sparkle:version>
+         <sparkle:shortVersionString>1.14</sparkle:shortVersionString>
+         <pubDate>Sat, 28 Mar 2026 22:12:39 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.14 Release Notes
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Better tmux integration</strong> — Send split, select, and prefix commands directly from ClaudeSpy, giving you more control over your tmux sessions without switching context.</li>
+<li><strong>Custom window descriptions with cross-device sync</strong> — Label your tmux windows with custom descriptions that sync between your Mac and iOS devices.</li>
+<li><strong>"Always auto-resize terminals" preference</strong> — New setting to automatically resize terminal mirrors to match pane dimensions, without needing to toggle it per session.</li>
+<li><strong>11 new hook event types</strong> — Support for additional Claude Code hook events, enabling richer monitoring of session activity.</li>
+<li><strong>Context menu on session sidebar</strong> — Right-click (or long-press on iOS) session rows in the sidebar for quick actions.</li>
+<li><strong>iOS pane grouping by tmux window</strong> — Panes on iOS are now grouped by their parent tmux window, matching the macOS sidebar layout.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Smarter notification handling</strong> — Notifications are automatically marked as handled when you view a session, and low-value notifications have been removed to reduce noise.</li>
+<li><strong>Event-driven session working status</strong> — The "working" indicator for Claude sessions now updates via events rather than polling, improving responsiveness and efficiency.</li>
+<li><strong>Kitty keyboard protocol support</strong> — Terminal input sequences from the Kitty keyboard protocol are now correctly stripped and parsed, improving compatibility with modern terminal emulators.</li>
+<li><strong>SwiftTerm updated to 1.13.0</strong> — Updated the embedded terminal engine for better rendering and compatibility.</li>
+<li><strong>Unit tests integrated into CI and release pipelines</strong> — Automated test coverage now runs on every build and release.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Fixed missing footer on iOS for tall terminals</strong> — The bottom toolbar no longer disappears when viewing sessions with tall terminal output on iOS.</li>
+<li><strong>Fixed scrollback gap after status updates</strong> — Resolved an issue where terminal status updates could destroy content, leaving gaps in the scrollback buffer.</li>
+<li><strong>Fixed "clear" text appearing at top of mirror terminal</strong> — The literal text "clear" no longer shows at the top of mirrored terminal output after a screen clear.</li>
+<li><strong>Fixed scrollback regression from SwiftTerm update</strong> — Restored correct scrollback behavior that was broken during the SwiftTerm 1.12.0 upgrade.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.14.dmg"
+                    sparkle:edSignature="EGcjvTLDrubfG/I8mV38coKBzvT06Kw4jWL1E5Quw0uju77SwZjb8qftmLx1Q/kfLFHhvGvcKp7pZxVV++vuBA=="
+                    length="20895785"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.13</title>
          <sparkle:version>13</sparkle:version>
          <sparkle:shortVersionString>1.13</sparkle:shortVersionString>
