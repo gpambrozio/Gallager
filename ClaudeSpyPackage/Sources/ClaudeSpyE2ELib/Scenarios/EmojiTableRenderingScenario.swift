@@ -36,12 +36,7 @@ public enum EmojiTableRenderingScenario {
         TestStep.tmuxCreateSession(name: "emoji-tbl", width: 80, height: 35)
         TestStep.tmuxCreateSession(name: "emoji-helper", width: 80, height: 24)
 
-        TestStep.tmuxSendKeys(
-            target: "emoji-tbl:0",
-            keys: #"export PS1='$ '"#,
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "emoji-tbl:0", keys: "Enter")
+        Shortcut.tmuxRunCommand(target: "emoji-tbl:0", command: #"export PS1='$ '"#)
         TestStep.wait(seconds: 0.5)
 
         // -- Create the Python script that draws all three tables ----------
@@ -197,21 +192,12 @@ public enum EmojiTableRenderingScenario {
         TestStep.wait(seconds: 3)
 
         TestStep.log("Opening terminal pane on iOS mirror")
-        TestStep.iosWaitForElement(.labelContains("emoji-tbl"), timeout: 15)
-        TestStep.iosTap(.labelContains("emoji-tbl"))
-        TestStep.wait(seconds: 3)
-        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting"), timeout: 15)
-        TestStep.wait(seconds: 2)
+        Shortcut.iosConnectToSession(sessionName: "emoji-tbl")
 
         // -- Run script while both platforms are streaming ----------------
 
         TestStep.log("Running emoji table script")
-        TestStep.tmuxSendKeys(
-            target: "emoji-tbl:0",
-            keys: "python3 $TMPDIR/emoji_tables.py",
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "emoji-tbl:0", keys: "Enter")
+        Shortcut.tmuxRunCommand(target: "emoji-tbl:0", command: "python3 $TMPDIR/emoji_tables.py")
         TestStep.wait(seconds: 3)
 
         // Screenshot: all three emoji tables rendered via streaming
@@ -242,12 +228,7 @@ public enum EmojiTableRenderingScenario {
 
         // -- Cleanup -------------------------------------------------------
 
-        TestStep.tmuxSendKeys(
-            target: "emoji-tbl:0",
-            keys: "rm $TMPDIR/emoji_tables.py",
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "emoji-tbl:0", keys: "Enter")
+        Shortcut.tmuxRunCommand(target: "emoji-tbl:0", command: "rm $TMPDIR/emoji_tables.py")
     }
 }
 

@@ -132,6 +132,76 @@ public enum Shortcut {
         TestStep.macWaitForElement(titled: "Connected", timeout: 15, instance: 1)
     }
 
+    // MARK: - tmux Commands
+
+    /// Run a command in a tmux pane (send keys + Enter).
+    ///
+    /// Combines the common two-step pattern of sending literal keys followed
+    /// by pressing Enter into a single shortcut.
+    ///
+    /// **Example:**
+    /// ```swift
+    /// Shortcut.tmuxRunCommand(target: "my-session:0", command: "echo hello")
+    /// ```
+    public static func tmuxRunCommand(
+        target: String,
+        command: String,
+        literal: Bool = true
+    ) -> TestScenario {
+        ClaudeSpyE2ELib.scenario(
+            "tmux Run Command",
+            tags: ["shortcut"]
+        ) {
+            TestStep.tmuxSendKeys(target: target, keys: command, literal: literal)
+            TestStep.tmuxSendKeys(target: target, keys: "Enter")
+        }
+    }
+
+    /// Set a plain prompt (`$ `) and clear the terminal screen.
+    ///
+    /// Useful when the test needs a clean screen without shell color codes
+    /// interfering with rendering assertions.
+    ///
+    /// **Example:**
+    /// ```swift
+    /// Shortcut.tmuxClearAndSetPrompt(target: "my-session:0")
+    /// ```
+    public static func tmuxClearAndSetPrompt(target: String) -> TestScenario {
+        ClaudeSpyE2ELib.scenario(
+            "tmux Clear and Set Prompt",
+            tags: ["shortcut"]
+        ) {
+            Shortcut.tmuxRunCommand(target: target, command: #"export PS1='$ '"#)
+            Shortcut.tmuxRunCommand(target: target, command: "clear")
+            TestStep.wait(seconds: 1)
+        }
+    }
+
+    // MARK: - iOS Navigation
+
+    /// Wait for an iOS session to appear, tap it, and wait for the terminal to connect.
+    ///
+    /// Encapsulates the common pattern of navigating to a terminal pane on iOS:
+    /// wait for the session row, tap it, then wait for "Connecting" to disappear.
+    ///
+    /// **Example:**
+    /// ```swift
+    /// Shortcut.iosConnectToSession(sessionName: "my-session")
+    /// ```
+    public static func iosConnectToSession(sessionName: String) -> TestScenario {
+        ClaudeSpyE2ELib.scenario(
+            "iOS Connect to Session",
+            tags: ["shortcut"]
+        ) {
+            TestStep.iosWaitForElement(.labelContains(sessionName), timeout: 15)
+            TestStep.iosTap(.labelContains(sessionName))
+            TestStep.wait(seconds: 3)
+            TestStep.iosWaitForElementToDisappear(.labelContains("Connecting"), timeout: 15)
+        }
+    }
+
+    // MARK: - Additional Pairing
+
     /// After `FreshPairingScenario`, add a Mac viewer as instance 1.
     ///
     /// Expects `FreshPairingScenario` already ran (server running, host + iOS paired,

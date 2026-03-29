@@ -57,12 +57,7 @@ public enum YoloModeAutoApproveScenario {
         // ══════════════════════════════════════════════════════════════
 
         // Type a marker in tmux so we can detect the auto-approve Enter
-        TestStep.tmuxSendKeys(
-            target: "session-1:0",
-            keys: "echo BEFORE_YOLO_APPROVE",
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "session-1:0", keys: "Enter")
+        Shortcut.tmuxRunCommand(target: "session-1:0", command: "echo BEFORE_YOLO_APPROVE")
         TestStep.wait(seconds: 1)
 
         // Send a Bash PermissionRequest (auto-approvable in yolo mode)

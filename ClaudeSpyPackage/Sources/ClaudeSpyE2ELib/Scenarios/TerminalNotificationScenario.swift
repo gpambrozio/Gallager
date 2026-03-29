@@ -32,12 +32,10 @@ public enum TerminalNotificationScenario {
         TestStep.wait(seconds: 12)
 
         // 4. Send OSC 9 notification — notification-only reader should detect it
-        TestStep.tmuxSendKeys(
+        Shortcut.tmuxRunCommand(
             target: "notif-test:0.0",
-            keys: "printf '\\e]9;E2E background notification\\a'",
-            literal: true
+            command: "printf '\\e]9;E2E background notification\\a'"
         )
-        TestStep.tmuxSendKeys(target: "notif-test:0.0", keys: "Enter")
         TestStep.wait(seconds: 3)
 
         // 5. Verify background notification was logged
@@ -70,12 +68,10 @@ public enum TerminalNotificationScenario {
         TestStep.wait(seconds: 2)
 
         // 8. Send notification while streaming — full stream should detect it
-        TestStep.tmuxSendKeys(
+        Shortcut.tmuxRunCommand(
             target: "notif-test:0.0",
-            keys: "printf '\\e]9;E2E streaming notification\\a'",
-            literal: true
+            command: "printf '\\e]9;E2E streaming notification\\a'"
         )
-        TestStep.tmuxSendKeys(target: "notif-test:0.0", keys: "Enter")
         TestStep.wait(seconds: 3)
 
         // 9. Verify streaming notification was logged
@@ -93,12 +89,10 @@ public enum TerminalNotificationScenario {
         TestStep.wait(seconds: 3)
 
         // 11. Send notification — restarted notification reader should detect it
-        TestStep.tmuxSendKeys(
+        Shortcut.tmuxRunCommand(
             target: "notif-test:0.0",
-            keys: "printf '\\e]9;E2E resumed notification\\a'",
-            literal: true
+            command: "printf '\\e]9;E2E resumed notification\\a'"
         )
-        TestStep.tmuxSendKeys(target: "notif-test:0.0", keys: "Enter")
         TestStep.wait(seconds: 3)
 
         // 12. Verify resumed notification was logged

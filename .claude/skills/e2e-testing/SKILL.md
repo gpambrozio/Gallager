@@ -134,6 +134,9 @@ The `Shortcut` enum in `ScenarioShortcuts.swift` provides pre-built scenario fra
 | `Shortcut.openPanesWindow(instance:)` | Opens and sizes the Panes window (expects app already running) |
 | `Shortcut.twoMacPairing` | Starts server, launches two Mac instances, pairs them, verifies "Connected" |
 | `Shortcut.addMacViewer` | After `FreshPairingScenario`, adds a Mac viewer as instance 1 |
+| `Shortcut.tmuxRunCommand(target:command:literal:)` | Sends a command to a tmux pane and presses Enter (`literal` defaults to `true`) |
+| `Shortcut.tmuxClearAndSetPrompt(target:)` | Sets a plain `$ ` prompt and clears the screen (for clean rendering tests) |
+| `Shortcut.iosConnectToSession(sessionName:)` | Waits for an iOS session, taps it, waits for "Connecting" to disappear |
 
 Usage:
 ```swift
@@ -202,6 +205,9 @@ Detailed patterns are in `references/patterns.md`. Key patterns:
 - **macOS-only scenario** - Tag with `"macos-only"`, use `Shortcut.macOnlySetup` or `tmuxCreateSession` instead of server/iOS
 - **Two-Mac pairing** - Use `Shortcut.twoMacPairing` for host + viewer setup
 - **Add viewer to existing pairing** - Use `Shortcut.addMacViewer` after `FreshPairingScenario`
+- **Run commands in tmux** - Use `Shortcut.tmuxRunCommand(target:command:)` instead of manual sendKeys + Enter
+- **Connect iOS to terminal** - Use `Shortcut.iosConnectToSession(sessionName:)` for the wait-tap-connect pattern
+- **Clean terminal for rendering** - Use `Shortcut.tmuxClearAndSetPrompt(target:)` for clean baselines
 - **Unpair verification** - Use `waitForNoPairings` + `verifyServerHasPairings(count: 0)`
 - **Reconnection testing** - Use `serverDisconnectDevice(.viewer)` or `serverDisconnectDevice(.host)`
 - **Assertion chains** - Store values with keys, then compare with `assertStoredEqual`/`assertStoredNotEqual`
