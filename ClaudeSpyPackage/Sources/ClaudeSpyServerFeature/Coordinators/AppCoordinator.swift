@@ -412,6 +412,27 @@
                     return response
                 }
 
+                // Handle select window (switch to a tmux window)
+                if case .selectTmuxWindow = command.command {
+                    let response = await executor.execute(command)
+                    if response.success {
+                        let allPanes = await tmux.refreshPanes()
+                        await winManager.updatePaneStates(from: allPanes)
+                    }
+                    return response
+                }
+
+                // Handle create window (new window in existing session)
+                if case let .createTmuxWindow(spec) = command.command {
+                    return await Self.handleCreateWindow(
+                        command: command,
+                        spec: spec,
+                        tmuxService: tmux,
+                        windowManager: winManager,
+                        connectionManager: connectionManager
+                    )
+                }
+
                 // Regular commands execute on the actor executor
                 return await executor.execute(command)
             }
@@ -577,6 +598,29 @@
                 )
 
                 try? await Task.sleep(for: .milliseconds(500))
+
+                return .success(for: command.id, paneId: paneId)
+            } catch {
+                return .failure(for: command.id, error: error.localizedDescription)
+            }
+        }
+
+        private static func handleCreateWindow(
+            command: CommandMessage,
+            spec: CreateTmuxWindow,
+            tmuxService: TmuxService,
+            windowManager: MirrorWindowManager,
+            connectionManager: ConnectedViewerManager?
+        ) async -> CommandResponseMessage {
+            do {
+                let paneId = try await tmuxService.newWindow(
+                    sessionName: spec.sessionName,
+                    workingDirectory: spec.workingDirectory
+                )
+
+                let allPanes = await tmuxService.refreshPanes()
+                await windowManager.updatePaneStates(from: allPanes)
+                await connectionManager?.pushSessionStateToAll()
 
                 return .success(for: command.id, paneId: paneId)
             } catch {

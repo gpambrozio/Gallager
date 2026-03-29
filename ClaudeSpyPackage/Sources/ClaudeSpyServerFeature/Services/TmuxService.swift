@@ -53,6 +53,11 @@ final public class TmuxService {
         LocalTmuxWindow.groupPanes(panes)
     }
 
+    /// Windows grouped by tmux session (derived from windows)
+    public var sessions: [LocalTmuxSession] {
+        LocalTmuxSession.groupWindows(windows)
+    }
+
     /// Handler called when the pane list changes (after refreshPanes detects a change)
     private var onPanesChanged: (@Sendable () async -> Void)?
 
@@ -1001,6 +1006,49 @@ final public class TmuxService {
         guard result.isSuccess else {
             throw TmuxError.commandFailed(message: result.stderrString)
         }
+    }
+
+    /// Selects (switches to) a tmux window
+    /// - Parameter target: The window target to select (e.g., "session:0")
+    public func selectWindow(_ target: String) async throws {
+        let result = try await runTmuxCommand([
+            "select-window",
+            "-t", target,
+        ])
+
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+    }
+
+    /// Creates a new tmux window in an existing session
+    /// - Parameters:
+    ///   - sessionName: The session to create the window in
+    ///   - workingDirectory: Optional working directory for the new window
+    /// - Returns: The pane ID of the new window's first pane
+    public func newWindow(sessionName: String, workingDirectory: String? = nil) async throws -> String {
+        var args = [
+            "new-window",
+            "-t", sessionName,
+            "-P", "-F", "#{pane_id}",
+        ]
+
+        if let workingDirectory {
+            args += ["-c", workingDirectory]
+        }
+
+        let result = try await runTmuxCommand(args)
+
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+
+        let paneId = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Refresh to pick up the new window
+        await refreshPanes()
+
+        return paneId
     }
 
     /// Sends Ctrl+C to cancel the current operation in a pane

@@ -50,9 +50,13 @@ public actor TmuxCommandExecutor {
             case .selectTmuxPane:
                 try await tmuxService.selectPane(command.paneId)
 
+            case .selectTmuxWindow:
+                try await tmuxService.selectWindow(command.paneId)
+
             case .startTerminalStream,
                  .stopTerminalStream,
                  .createTmuxSession,
+                 .createTmuxWindow,
                  .setYoloMode,
                  .markHandled,
                  .setWindowDescription:
