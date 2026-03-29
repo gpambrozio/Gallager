@@ -1097,7 +1097,9 @@
             let originY: CGFloat
             if lockedDimensions != nil {
                 height = size.height
-                originY = bounds.height - height
+                // Pin to top of container; clamp to 0 when terminal is taller than bounds
+                // so the top rows (prompt) stay visible instead of extending above the view
+                originY = max(0, bounds.height - height)
             } else {
                 height = bounds.height
                 originY = 0
