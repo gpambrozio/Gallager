@@ -61,8 +61,7 @@ public enum RapidKeystrokeOrderScenario {
         TestStep.log("Taking screenshots of both host and viewer panes")
 
         // Open the host's Panes window and select its pane so the screenshot shows the terminal
-        TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
+        Shortcut.openPanesWindow()
         TestStep.macWaitForElement(titled: "e2e-rapid-keys:0", timeout: 10)
         TestStep.macClickButton(titled: "e2e-rapid-keys:0")
         TestStep.wait(seconds: 2)

@@ -21,8 +21,8 @@ public enum NewTerminalScenario {
         TestStep.iosTap(.labelContains("New Terminal"))
         TestStep.wait(seconds: 2)
 
-        // 4. Verify the terminal view was pushed
-        TestStep.iosWaitForElement(.labelContains("Terminal"), timeout: 15)
+        // 4. Verify the terminal view was pushed (WindowLayoutView shows a keyboard toggle)
+        TestStep.iosWaitForElement(.labelContains("Show Keyboard"), timeout: 15)
 
         // 5. Verify the terminal connected (the "Connecting to terminal..." text should disappear)
         TestStep.iosWaitForElementToDisappear(.labelContains("Connecting to terminal"), timeout: 15)
