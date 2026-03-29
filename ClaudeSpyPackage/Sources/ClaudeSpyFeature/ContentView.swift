@@ -251,10 +251,11 @@
             case settings
         }
 
-        /// Whether to hide the tab bar (iPhone in landscape only).
-        /// iPad keeps the tab bar visible in all orientations since it has more screen space.
+        /// Whether to hide the tab bar.
+        /// Hidden when inside a session (navigation stack is non-empty) or on iPhone in landscape.
         private var hideTabBar: Bool {
-            UIDevice.current.userInterfaceIdiom == .phone && verticalSizeClass == .compact
+            !sessionsNavigationPath.isEmpty
+                || (UIDevice.current.userInterfaceIdiom == .phone && verticalSizeClass == .compact)
         }
 
         var body: some View {
@@ -326,8 +327,22 @@
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(100))
                 sessionsNavigationPath = NavigationPath()
-                sessionsNavigationPath.append(SessionNavigation.claudeSession(paneId: deepLink.paneId, hostId: deepLink.hostId))
-                currentlyDisplayedPaneId = deepLink.paneId
+
+                // Pane state may not be synced yet on cold start (e.g., launched via
+                // push notification). Retry briefly to allow the session store to populate.
+                var paneState = sessionStore.paneStates[deepLink.paneId]
+                if paneState == nil {
+                    for _ in 0..<5 {
+                        try? await Task.sleep(for: .milliseconds(500))
+                        paneState = sessionStore.paneStates[deepLink.paneId]
+                        if paneState != nil { break }
+                    }
+                }
+
+                if let paneState {
+                    sessionsNavigationPath.append(SessionNavigation(windowId: paneState.windowId, hostId: deepLink.hostId))
+                    currentlyDisplayedPaneId = deepLink.paneId
+                }
             }
         }
 

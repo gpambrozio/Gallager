@@ -40,6 +40,16 @@ public actor TmuxCommandExecutor {
             case let .resizeTmuxPane(spec):
                 try await tmuxService.resizePane(command.paneId, width: spec.width, height: spec.height)
 
+            case let .splitTmuxPane(spec):
+                let newPaneId = try await tmuxService.splitPane(
+                    command.paneId,
+                    horizontal: spec.direction == .horizontal
+                )
+                return .success(for: command.id, paneId: newPaneId)
+
+            case .selectTmuxPane:
+                try await tmuxService.selectPane(command.paneId)
+
             case .startTerminalStream,
                  .stopTerminalStream,
                  .createTmuxSession,

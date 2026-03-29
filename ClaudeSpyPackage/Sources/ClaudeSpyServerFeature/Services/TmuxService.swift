@@ -968,6 +968,41 @@ final public class TmuxService {
         }
     }
 
+    /// Splits a tmux pane in the given direction
+    /// - Parameters:
+    ///   - target: The pane target to split (e.g., "%5")
+    ///   - horizontal: If true, splits left-right (-h); if false, splits top-bottom (-v)
+    /// - Returns: The pane ID of the newly created pane
+    public func splitPane(_ target: String, horizontal: Bool) async throws -> String {
+        let flag = horizontal ? "-h" : "-v"
+        let result = try await runTmuxCommand([
+            "split-window",
+            flag,
+            "-t", target,
+            "-P", "-F", "#{pane_id}", // Print new pane ID
+        ])
+
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+
+        let paneId = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+        return paneId
+    }
+
+    /// Selects (focuses) a tmux pane
+    /// - Parameter target: The pane target to select (e.g., "%5")
+    public func selectPane(_ target: String) async throws {
+        let result = try await runTmuxCommand([
+            "select-pane",
+            "-t", target,
+        ])
+
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+    }
+
     /// Sends Ctrl+C to cancel the current operation in a pane
     public func sendInterrupt(_ target: String) async throws {
         _ = try await runTmuxCommand([
