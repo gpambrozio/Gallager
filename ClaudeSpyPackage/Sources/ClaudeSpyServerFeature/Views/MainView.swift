@@ -34,6 +34,8 @@ public struct MainView: View {
 
     /// Per-session auto-resize state (keyed by pane target for local, "remote-hostId-paneId" for remote)
     @State private var autoResizeEnabled: Set<String> = []
+    /// Per-session auto-resize opt-out when global setting is on
+    @State private var autoResizeDisabled: Set<String> = []
     /// Last dimensions sent via auto-resize, used to skip redundant calls during window drag
     @State private var lastAutoResizeDimensions: (columns: Int, rows: Int)?
     /// Debounce task for auto-resize (cancelled on each new geometry change)
@@ -119,7 +121,8 @@ public struct MainView: View {
             markSelectedSessionsHandledIfActive()
         }
         .onChange(of: settings.alwaysAutoResize) {
-            // When the global auto-resize setting changes, reset cached dimensions and re-evaluate resize for the current pane
+            // When the global auto-resize setting changes, clear per-session opt-outs, reset cached dimensions and re-evaluate resize
+            autoResizeDisabled.removeAll()
             lastAutoResizeDimensions = nil
             handleAutoResize()
         }
@@ -381,18 +384,20 @@ public struct MainView: View {
                         get: { isAutoResizeActive(for: activePane.paneId) },
                         set: { enabled in
                             if enabled {
+                                autoResizeDisabled.remove(activePane.paneId)
                                 autoResizeEnabled.insert(activePane.paneId)
                                 Task {
                                     await performResize(localTarget: activePane.target)
                                 }
                             } else {
+                                autoResizeDisabled.insert(activePane.paneId)
                                 autoResizeEnabled.remove(activePane.paneId)
                             }
                         }
                     )) {
                         Label("Auto-resize", symbol: .arrowDownRightAndArrowUpLeft)
                     }
-                    .disabled(isSessionAttached || settings.alwaysAutoResize)
+                    .disabled(isSessionAttached)
                 }
 
                 Divider()
@@ -688,11 +693,13 @@ public struct MainView: View {
             get: { autoResizeActive },
             set: { enabled in
                 if enabled {
+                    autoResizeDisabled.remove(resizeKey)
                     autoResizeEnabled.insert(resizeKey)
                     Task {
                         await performResize(localTarget: localTarget, remoteHostId: remoteHostId, remotePaneId: remotePaneId)
                     }
                 } else {
+                    autoResizeDisabled.insert(resizeKey)
                     autoResizeEnabled.remove(resizeKey)
                 }
             }
@@ -700,17 +707,16 @@ public struct MainView: View {
             Symbols.arrowDownRightAndArrowUpLeft.image
         }
         .toggleStyle(.button)
-        .help(isSessionAttached
-            ? attachedHelp
-            : settings.alwaysAutoResize
-                ? "Auto-resize is enabled globally in preferences"
-                : "Auto-resize tmux pane when mirror view changes size")
-        .disabled(isSessionAttached || settings.alwaysAutoResize)
+        .help(isSessionAttached ? attachedHelp : "Auto-resize tmux pane when mirror view changes size")
+        .disabled(isSessionAttached)
     }
 
     /// Whether auto-resize is active for the given pane key (either via global preference or per-session toggle)
     private func isAutoResizeActive(for key: String) -> Bool {
-        settings.alwaysAutoResize || autoResizeEnabled.contains(key)
+        if settings.alwaysAutoResize {
+            return !autoResizeDisabled.contains(key)
+        }
+        return autoResizeEnabled.contains(key)
     }
 
     private func handleAutoResize() {
