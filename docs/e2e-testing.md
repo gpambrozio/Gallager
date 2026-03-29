@@ -299,6 +299,9 @@ If the scenario fails, fix the issue and re-run until it passes. Never commit a 
 | `macContextMenuClick(elementTitle:menuItem:)` | Right-click an element and select an item from the context menu |
 | `macUnpair` | Trigger unpair on the first paired viewer via test HTTP endpoint |
 | `macWaitForElement(titled:timeout:)` | Wait for a text element to appear in the macOS app's accessibility tree |
+| `macWaitForElementQuery(_:timeout:)` | Wait for an element matching an `ElementQuery` (e.g., `.allOf([.help("..."), .valueContains("1")])`) |
+| `macWaitForElementQueryToDisappear(_:timeout:)` | Wait for an element matching an `ElementQuery` to disappear |
+| `macCloseWindow(titled:)` | Close a window by title via its AXCloseButton |
 | `macReadClipboard(storeAs:)` | Read clipboard contents into a variable |
 | `macResizeWindow(width:height:)` | Resize the app's frontmost window |
 | `macType(text:pressReturn:)` | Type text via AppleScript keystroke (supports `${variable}` interpolation) |

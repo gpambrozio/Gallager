@@ -372,6 +372,9 @@ public actor TestOrchestrator {
         case let .macOpenSettings(instance):
             try await macDriver(for: instance).openSettings()
 
+        case let .macCloseWindow(titled, instance):
+            try await macDriver(for: instance).closeWindow(titled: titled)
+
         case let .macWaitForWindow(titled, timeout, instance):
             try await macDriver(for: instance).waitForWindow(titled: titled, timeout: timeout)
 
@@ -412,6 +415,12 @@ public actor TestOrchestrator {
         case let .macWaitForElementToDisappear(titled, timeout, instance):
             let resolvedTitle = context.resolve(titled)
             try await macDriver(for: instance).waitForElementToDisappear(titled: resolvedTitle, timeout: timeout)
+
+        case let .macWaitForElementQuery(query, timeout, instance):
+            try await macDriver(for: instance).waitForElement(matching: query, timeout: timeout)
+
+        case let .macWaitForElementQueryToDisappear(query, timeout, instance):
+            try await macDriver(for: instance).waitForElementToDisappear(matching: query, timeout: timeout)
 
         case let .macOpenPanesWindow(instance):
             try await macDriver(for: instance).openPanesWindow()
