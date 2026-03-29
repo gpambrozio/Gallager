@@ -40,12 +40,10 @@ public enum ScrollbackGapScenario {
         // Page 4 (lines 121-160):">>>>" rows (this page is in the visible area)
 
         // Use printf to generate all 4 pages in a single command
-        TestStep.tmuxSendKeys(
+        Shortcut.tmuxRunCommand(
             target: "scrollback-gap-test:0",
-            keys: "for i in $(seq 1 40); do printf 'PAGE1 %03d AAAAAAAAAAAAAAAAAAAAAAAAAAAA\\n' $i; done; for i in $(seq 1 40); do printf 'PAGE2 %03d ############################\\n' $i; done; for i in $(seq 1 40); do printf 'PAGE3 %03d ~~~~~~~~~~~~~~~~~~~~~~~~~~~~\\n' $i; done; for i in $(seq 1 40); do printf 'PAGE4 %03d >>>>>>>>>>>>>>>>>>>>>>>>>>>>\\n' $i; done",
-            literal: true
+            command: "for i in $(seq 1 40); do printf 'PAGE1 %03d AAAAAAAAAAAAAAAAAAAAAAAAAAAA\\n' $i; done; for i in $(seq 1 40); do printf 'PAGE2 %03d ############################\\n' $i; done; for i in $(seq 1 40); do printf 'PAGE3 %03d ~~~~~~~~~~~~~~~~~~~~~~~~~~~~\\n' $i; done; for i in $(seq 1 40); do printf 'PAGE4 %03d >>>>>>>>>>>>>>>>>>>>>>>>>>>>\\n' $i; done"
         )
-        TestStep.tmuxSendKeys(target: "scrollback-gap-test:0", keys: "Enter")
         TestStep.wait(seconds: 3)
 
         // ── Launch macOS app ────────────────────────────────────────
