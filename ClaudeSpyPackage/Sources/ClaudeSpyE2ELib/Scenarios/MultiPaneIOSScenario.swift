@@ -22,19 +22,16 @@ public enum MultiPaneIOSScenario {
         TestStep.wait(seconds: 1)
 
         // Send identifiable content to the first pane
-        TestStep.tmuxSendKeys(target: "multi-ios:0.0", keys: "echo '=== PANE ONE ==='", literal: true)
-        TestStep.tmuxSendKeys(target: "multi-ios:0.0", keys: "Enter")
+        Shortcut.tmuxRunCommand(target: "multi-ios:0.0", command: "echo '=== PANE ONE ==='")
         TestStep.wait(seconds: 1)
 
         // Split vertically to create a second pane
         // Note: after split-window -h, the NEW pane (pane 1) becomes tmux-active
-        TestStep.tmuxSendKeys(target: "multi-ios:0.0", keys: "tmux split-window -h", literal: true)
-        TestStep.tmuxSendKeys(target: "multi-ios:0.0", keys: "Enter")
+        Shortcut.tmuxRunCommand(target: "multi-ios:0.0", command: "tmux split-window -h")
         TestStep.wait(seconds: 1)
 
         // Send content to the second pane
-        TestStep.tmuxSendKeys(target: "multi-ios:0.1", keys: "echo '=== PANE TWO ==='", literal: true)
-        TestStep.tmuxSendKeys(target: "multi-ios:0.1", keys: "Enter")
+        Shortcut.tmuxRunCommand(target: "multi-ios:0.1", command: "echo '=== PANE TWO ==='")
         TestStep.wait(seconds: 3)
 
         // Store pane IDs for hook events
