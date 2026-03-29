@@ -58,6 +58,31 @@ enum MacOSAccessibility {
         windows(appPID: appPID).contains { $0.title.contains(titled) }
     }
 
+    /// Close a window by title via its AXCloseButton attribute.
+    @discardableResult
+    static func closeWindow(appPID: pid_t, titled: String) -> Bool {
+        guard let window = windows(appPID: appPID).first(where: { $0.title.contains(titled) }) else {
+            logger.info("No window titled '\(titled)' found for close")
+            return false
+        }
+        var closeButton: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(
+            window.element, kAXCloseButtonAttribute as CFString, &closeButton
+        )
+        guard result == .success, let button = closeButton else {
+            logger.info("No close button found on window '\(titled)'")
+            return false
+        }
+        // swiftlint:disable:next force_cast
+        let pressResult = AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString)
+        if pressResult == .success {
+            logger.info("Closed window '\(titled)'")
+            return true
+        }
+        logger.info("AXPress on close button failed (\(pressResult.rawValue))")
+        return false
+    }
+
     // MARK: - Actions
 
     /// Find all raw AXUIElements matching a query.
