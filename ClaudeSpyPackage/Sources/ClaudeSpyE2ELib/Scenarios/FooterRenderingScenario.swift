@@ -26,22 +26,8 @@ public enum FooterRenderingScenario {
         TestStep.tmuxCreateSession(name: "footer-test", width: 106, height: 63)
         TestStep.tmuxCreateSession(name: "footer-helper", width: 80, height: 24)
 
-        TestStep.tmuxSendKeys(
-            target: "footer-helper:0",
-            keys: #"export PS1='$ '"#,
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "footer-helper:0", keys: "Enter")
-
-        TestStep.tmuxSendKeys(
-            target: "footer-test:0",
-            keys: #"export PS1='$ '"#,
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "footer-test:0", keys: "Enter")
-        TestStep.tmuxSendKeys(target: "footer-test:0", keys: "clear", literal: true)
-        TestStep.tmuxSendKeys(target: "footer-test:0", keys: "Enter")
-        TestStep.wait(seconds: 1)
+        Shortcut.tmuxClearAndSetPrompt(target: "footer-helper:0")
+        Shortcut.tmuxClearAndSetPrompt(target: "footer-test:0")
 
         // ── Write DECSTBM scroll region test script ──────────────────
         //
@@ -142,20 +128,11 @@ public enum FooterRenderingScenario {
 
         // ── Navigate to pane on iOS ─────────────────────────────────
         TestStep.log("Opening terminal pane on iOS mirror")
-        TestStep.iosWaitForElement(.labelContains("footer-test"), timeout: 15)
-        TestStep.iosTap(.labelContains("footer-test"))
-        TestStep.wait(seconds: 1)
-        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting"), timeout: 15)
-        TestStep.wait(seconds: 1)
+        Shortcut.iosConnectToSession(sessionName: "footer-test")
 
         // ── Run the script ───────────────────────────────────────────
         TestStep.log("Running DECSTBM scroll region test")
-        TestStep.tmuxSendKeys(
-            target: "footer-test:0",
-            keys: "python3 /tmp/footer_test.py",
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "footer-test:0", keys: "Enter")
+        Shortcut.tmuxRunCommand(target: "footer-test:0", command: "python3 /tmp/footer_test.py")
         // Wait for animation to complete (scroll_height + 20 lines × 20ms + buffer)
         TestStep.wait(seconds: 5)
 
