@@ -125,6 +125,7 @@ final public class SessionStore {
             windowIndex: first.windowIndex,
             windowName: first.windowName,
             windowLayout: first.windowLayout,
+            isWindowActive: first.isWindowActive,
             panes: windowPanes
         )
     }

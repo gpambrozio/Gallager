@@ -85,6 +85,9 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// The tmux window name for this pane's window
     public var windowName: String
 
+    /// Whether this pane's window is the active window in its session
+    public var isWindowActive: Bool
+
     // MARK: - Custom Description
 
     /// User-defined description for this window, shown prominently in the sidebar
@@ -125,6 +128,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         isActive: Bool = false,
         windowLayout: String = "",
         windowName: String = "",
+        isWindowActive: Bool = false,
         customDescription: String? = nil,
         terminalTitle: String? = nil,
         claudeSession: ClaudeSession? = nil,
@@ -142,6 +146,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         self.isActive = isActive
         self.windowLayout = windowLayout
         self.windowName = windowName
+        self.isWindowActive = isWindowActive
         self.customDescription = customDescription
         self.terminalTitle = terminalTitle
         self.claudeSession = claudeSession

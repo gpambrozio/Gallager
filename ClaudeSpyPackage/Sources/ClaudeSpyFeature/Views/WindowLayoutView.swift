@@ -52,7 +52,7 @@
                 return sessionStore.window(id: selectedWindowId, hostId: hostId)
             }
             // Default to the active window in the session
-            return sessionWindows.first(where: { $0.panes.contains(where: \.isActive) }) ?? sessionWindows.first
+            return sessionWindows.first(where: \.isWindowActive) ?? sessionWindows.first
         }
 
         /// Navigation title: prefer custom description, then active pane's terminal title, then session name
@@ -61,9 +61,9 @@
             // Use the locally-captured OSC title first (updates in real-time)
             if let activeId = activePaneId, let title = terminalTitles[activeId] { return title }
             // For single-pane windows, use that pane's title even if not "active" yet
-            if let panes = window?.panes, panes.count == 1,
-               let pane = panes.first
-            {
+            if
+                let panes = window?.panes, panes.count == 1,
+                let pane = panes.first {
                 if let title = terminalTitles[pane.paneId] { return title }
                 // Fall back to the relay-provided terminal title
                 if let title = sessionStore.paneStates[pane.paneId]?.terminalTitle { return title }

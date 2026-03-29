@@ -13,9 +13,9 @@ public struct LocalTmuxSession: Identifiable, Sendable, Hashable {
 
     public var id: String { sessionName }
 
-    /// The window containing the active pane, or the first window
+    /// The active window in the tmux session, or the first window
     public var activeWindow: LocalTmuxWindow? {
-        windows.first(where: { $0.panes.contains(where: \.isActive) }) ?? windows.first
+        windows.first(where: \.isWindowActive) ?? windows.first
     }
 
     /// Groups windows by session and returns sorted sessions

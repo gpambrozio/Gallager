@@ -16,6 +16,8 @@ public struct TmuxWindow: Identifiable, Sendable {
     public let windowName: String
     /// The tmux window layout string
     public let windowLayout: String
+    /// Whether this is the active window in its session
+    public let isWindowActive: Bool
     /// Pane states in this window, sorted by pane index
     public let panes: [PaneState]
 
@@ -50,6 +52,7 @@ public struct TmuxWindow: Identifiable, Sendable {
                 windowIndex: first.windowIndex,
                 windowName: first.windowName,
                 windowLayout: first.windowLayout,
+                isWindowActive: first.isWindowActive,
                 panes: sortedPanes
             )
         }
