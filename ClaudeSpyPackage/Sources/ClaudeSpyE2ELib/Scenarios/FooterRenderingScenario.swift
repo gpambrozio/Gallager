@@ -124,7 +124,7 @@ public enum FooterRenderingScenario {
         Shortcut.openPanesWindow()
         // Resize macOS window to fit the 100×65 terminal
         TestStep.macResizeWindow(width: 1_072, height: 1_040)
-        TestStep.macClickButton(titled: "footer-test:0")
+        TestStep.macClickButton(titled: "footer-test")
 
         // ── Navigate to pane on iOS ─────────────────────────────────
         TestStep.log("Opening terminal pane on iOS mirror")

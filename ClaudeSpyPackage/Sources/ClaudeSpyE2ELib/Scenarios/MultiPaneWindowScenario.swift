@@ -28,8 +28,8 @@ public enum MultiPaneWindowScenario {
 
         // Select the window and verify single-pane rendering
         TestStep.log("Verify sidebar shows 'multi-pane:0' and select it")
-        TestStep.macWaitForElement(titled: "multi-pane:0", timeout: 5)
-        TestStep.macClickButton(titled: "multi-pane:0")
+        TestStep.macWaitForElement(titled: "multi-pane", timeout: 5)
+        TestStep.macClickButton(titled: "multi-pane")
         TestStep.wait(seconds: 3)
         TestStep.macScreenshot(label: "single-pane")
 
@@ -92,15 +92,15 @@ public enum MultiPaneWindowScenario {
         TestStep.wait(seconds: 3)
 
         // The window entry should vanish from the sidebar
-        TestStep.macWaitForElementToDisappear(titled: "multi-pane:0", timeout: 10)
+        TestStep.macWaitForElementToDisappear(titled: "multi-pane", timeout: 10)
         // With no panes left, the app shows the "New Session" empty state
         TestStep.macWaitForElement(titled: "New Session", timeout: 5)
         TestStep.macScreenshot(label: "no-panes-empty-state")
 
         TestStep.macClickButton(titled: "New Terminal")
         TestStep.wait(seconds: 3)
-        TestStep.macWaitForElement(titled: "terminal:0", timeout: 5)
-        TestStep.macClickButton(titled: "terminal:0")
+        TestStep.macWaitForElement(titled: "terminal", timeout: 5)
+        TestStep.macClickButton(titled: "terminal")
         TestStep.wait(seconds: 3)
 
         // Use session-relative targets (not global %N pane IDs which auto-increment)

@@ -16,7 +16,7 @@ public enum ResizePaneScenario {
         Shortcut.macOnlySetup
 
         // Select first pane by clicking the sidebar row
-        TestStep.macClickButton(titled: "resize-test-1:0")
+        TestStep.macClickButton(titled: "resize-test-1")
         TestStep.wait(seconds: 1)
 
         // ── Phase 1: Manual Resize ─────────────────────────────────
@@ -91,7 +91,7 @@ public enum ResizePaneScenario {
         TestStep.log("Phase 3: Per-Session Independence")
 
         // Select second pane
-        TestStep.macClickButton(titled: "resize-test-2:0")
+        TestStep.macClickButton(titled: "resize-test-2")
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "80x24", timeout: 1)
         TestStep.macType(text: "printf '|%9d' $(seq 10 10 190) | tr ' ' -", pressReturn: true)
@@ -129,7 +129,7 @@ public enum ResizePaneScenario {
         TestStep.log("Phase 4: Auto-Resize on Pane Switch")
 
         // Select first pane again (should trigger auto-resize from our fix)
-        TestStep.macClickButton(titled: "resize-test-1:0")
+        TestStep.macClickButton(titled: "resize-test-1")
         // Wait for debounce
         TestStep.wait(seconds: 1)
 

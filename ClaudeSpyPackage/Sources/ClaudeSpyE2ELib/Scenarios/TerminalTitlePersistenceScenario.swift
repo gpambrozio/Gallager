@@ -23,8 +23,8 @@ public enum TerminalTitlePersistenceScenario {
         // ── Phase 1: Set title on selected pane ──────────────────
 
         TestStep.log("Phase 1: Select pane 1 and set a custom title")
-        TestStep.macWaitForElement(titled: "title-persist-1:0", timeout: 10)
-        TestStep.macClickButton(titled: "title-persist-1:0")
+        TestStep.macWaitForElement(titled: "title-persist-1", timeout: 10)
+        TestStep.macClickButton(titled: "title-persist-1")
         TestStep.wait(seconds: 2)
 
         Shortcut.tmuxRunCommand(
@@ -40,11 +40,11 @@ public enum TerminalTitlePersistenceScenario {
         // ── Phase 2: Switch away and back — title must persist ───
 
         TestStep.log("Phase 2: Switch to pane 2 then back to pane 1")
-        TestStep.macClickButton(titled: "title-persist-2:0")
+        TestStep.macClickButton(titled: "title-persist-2")
         TestStep.wait(seconds: 2)
         TestStep.macScreenshot(label: "pane2-selected")
 
-        TestStep.macClickButton(titled: "title-persist-1:0")
+        TestStep.macClickButton(titled: "title-persist-1")
         TestStep.wait(seconds: 3)
 
         // Title should still be visible in sidebar and detail view
@@ -68,7 +68,7 @@ public enum TerminalTitlePersistenceScenario {
         // ── Phase 4: Select inactive pane — title must show ──────
 
         TestStep.log("Phase 4: Select pane 2 and verify its title")
-        TestStep.macClickButton(titled: "title-persist-2:0")
+        TestStep.macClickButton(titled: "title-persist-2")
         TestStep.wait(seconds: 3)
 
         TestStep.macWaitForElement(titled: "Inactive Pane Title", timeout: 10)

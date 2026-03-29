@@ -26,7 +26,7 @@ public enum KittyKeyboardProtocolScenario {
 
         Shortcut.macOnlySetup
 
-        TestStep.macClickButton(titled: "e2e-kitty-kb:0")
+        TestStep.macClickButton(titled: "e2e-kitty-kb")
         TestStep.wait(seconds: 2)
 
         // Clear screen for clean baseline

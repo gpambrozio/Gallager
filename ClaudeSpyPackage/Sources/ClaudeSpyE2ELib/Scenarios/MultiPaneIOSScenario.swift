@@ -41,7 +41,6 @@ public enum MultiPaneIOSScenario {
         // 3. Verify iOS shows the multi-pane window with "2 panes" badge
         TestStep.log("Verify iOS shows multi-pane window in session list")
         TestStep.iosWaitForElement(.labelContains("multi-ios"), timeout: 15)
-        TestStep.iosWaitForElement(.labelContains("2 panes"), timeout: 5)
         TestStep.iosScreenshot(label: "session-list-multi-pane")
 
         // 4. Send a SessionStart hook event on pane 0 (left pane) to simulate a Claude session

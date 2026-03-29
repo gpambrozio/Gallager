@@ -188,7 +188,7 @@ public enum EmojiTableRenderingScenario {
         Shortcut.openPanesWindow()
         TestStep.macResizeWindow(width: 1_100, height: 700)
 
-        TestStep.macClickButton(titled: "emoji-tbl:0")
+        TestStep.macClickButton(titled: "emoji-tbl")
         TestStep.wait(seconds: 3)
 
         TestStep.log("Opening terminal pane on iOS mirror")
@@ -210,11 +210,11 @@ public enum EmojiTableRenderingScenario {
         // during re-capture (fresh capture path).
 
         TestStep.log("Forcing re-capture via pane re-selection")
-        TestStep.macClickButton(titled: "emoji-helper:0")
+        TestStep.macClickButton(titled: "emoji-helper")
         TestStep.wait(seconds: 1)
         TestStep.iosTap(.labelContains("Sessions"))
         TestStep.wait(seconds: 2)
-        TestStep.macClickButton(titled: "emoji-tbl:0")
+        TestStep.macClickButton(titled: "emoji-tbl")
         TestStep.wait(seconds: 3)
 
         // Screenshot: tables should still render correctly after re-capture

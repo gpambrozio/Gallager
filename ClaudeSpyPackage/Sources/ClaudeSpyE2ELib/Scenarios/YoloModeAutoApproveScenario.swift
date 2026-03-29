@@ -43,7 +43,7 @@ public enum YoloModeAutoApproveScenario {
         TestStep.macOpenPanesWindow()
         TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
         TestStep.wait(seconds: 2)
-        TestStep.macClickButton(titled: "session-1:0")
+        TestStep.macClickButton(titled: "session-1")
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(
             titled: "Yolo mode: auto-approving permissions (click to disable)",
