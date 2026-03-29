@@ -40,15 +40,7 @@ public enum TableRenderingScenario {
         TestStep.tmuxCreateSession(name: "table-helper", width: 80, height: 24)
 
         // Use a plain prompt so it doesn't interfere with table rendering
-        TestStep.tmuxSendKeys(
-            target: "table-test:0",
-            keys: #"export PS1='$ '"#,
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "table-test:0", keys: "Enter")
-        TestStep.tmuxSendKeys(target: "table-test:0", keys: "clear", literal: true)
-        TestStep.tmuxSendKeys(target: "table-test:0", keys: "Enter")
-        TestStep.wait(seconds: 1)
+        Shortcut.tmuxClearAndSetPrompt(target: "table-test:0")
 
         // ── Draw table using DEC line-drawing characters ──────────────
         //
@@ -125,21 +117,12 @@ public enum TableRenderingScenario {
         TestStep.wait(seconds: 3)
 
         TestStep.log("Opening terminal pane on iOS mirror")
-        TestStep.iosWaitForElement(.labelContains("table-test"), timeout: 15)
-        TestStep.iosTap(.labelContains("table-test"))
-        TestStep.wait(seconds: 3)
-        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting"), timeout: 15)
-        TestStep.wait(seconds: 2)
+        Shortcut.iosConnectToSession(sessionName: "table-test")
 
         // ── Draw table while both platforms are streaming ────────────
 
         TestStep.log("Drawing table with DEC line-drawing characters")
-        TestStep.tmuxSendKeys(
-            target: "table-test:0",
-            keys: "python3 /tmp/draw_table.py",
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "table-test:0", keys: "Enter")
+        Shortcut.tmuxRunCommand(target: "table-test:0", command: "python3 /tmp/draw_table.py")
         TestStep.wait(seconds: 3)
 
         // Screenshot: table should show Unicode box-drawing characters

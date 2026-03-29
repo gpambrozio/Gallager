@@ -27,12 +27,11 @@ public enum TerminalTitlePersistenceScenario {
         TestStep.macClickButton(titled: "title-persist-1:0")
         TestStep.wait(seconds: 2)
 
-        TestStep.tmuxSendKeys(
+        Shortcut.tmuxRunCommand(
             target: "title-persist-1:0",
-            keys: "printf '\\033]2;Persist Title One\\007'",
+            command: "printf '\\033]2;Persist Title One\\007'",
             literal: false
         )
-        TestStep.tmuxSendKeys(target: "title-persist-1:0", keys: "Enter", literal: false)
         TestStep.wait(seconds: 3)
 
         TestStep.macWaitForElement(titled: "Persist Title One", timeout: 10)
@@ -55,12 +54,11 @@ public enum TerminalTitlePersistenceScenario {
         // ── Phase 3: Set title on inactive pane ──────────────────
 
         TestStep.log("Phase 3: Set title on pane 2 while pane 1 is selected")
-        TestStep.tmuxSendKeys(
+        Shortcut.tmuxRunCommand(
             target: "title-persist-2:0",
-            keys: "printf '\\033]2;Inactive Pane Title\\007'",
+            command: "printf '\\033]2;Inactive Pane Title\\007'",
             literal: false
         )
-        TestStep.tmuxSendKeys(target: "title-persist-2:0", keys: "Enter", literal: false)
         TestStep.wait(seconds: 3)
 
         // Title should appear in sidebar even though pane 2 is not selected
