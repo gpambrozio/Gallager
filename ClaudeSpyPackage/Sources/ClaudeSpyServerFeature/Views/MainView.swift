@@ -34,6 +34,8 @@ public struct MainView: View {
 
     /// Per-session auto-resize state (keyed by pane target for local, "remote-hostId-paneId" for remote)
     @State private var autoResizeEnabled: Set<String> = []
+    /// Per-session auto-resize opt-out when global setting is on
+    @State private var autoResizeDisabled: Set<String> = []
     /// Last dimensions sent via auto-resize, used to skip redundant calls during window drag
     @State private var lastAutoResizeDimensions: (columns: Int, rows: Int)?
     /// Debounce task for auto-resize (cancelled on each new geometry change)
@@ -117,6 +119,12 @@ public struct MainView: View {
             handleAutoResize()
 
             markSelectedSessionsHandledIfActive()
+        }
+        .onChange(of: settings.alwaysAutoResize) {
+            // When the global auto-resize setting changes, clear per-session opt-outs, reset cached dimensions and re-evaluate resize
+            autoResizeDisabled.removeAll()
+            lastAutoResizeDimensions = nil
+            handleAutoResize()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             markSelectedSessionsHandledIfActive()
@@ -361,24 +369,28 @@ public struct MainView: View {
 
                     Divider()
 
-                    Button {
-                        Task {
-                            await performResize(localTarget: activePane.target)
+                    if !isAutoResizeActive(for: activePane.paneId) {
+                        Button {
+                            Task {
+                                await performResize(localTarget: activePane.target)
+                            }
+                        } label: {
+                            Label("Resize to Fit", symbol: .arrowUpLeftAndArrowDownRight)
                         }
-                    } label: {
-                        Label("Resize to Fit", symbol: .arrowUpLeftAndArrowDownRight)
+                        .disabled(isSessionAttached)
                     }
-                    .disabled(isSessionAttached)
 
                     Toggle(isOn: Binding(
-                        get: { autoResizeEnabled.contains(activePane.paneId) },
+                        get: { isAutoResizeActive(for: activePane.paneId) },
                         set: { enabled in
                             if enabled {
+                                autoResizeDisabled.remove(activePane.paneId)
                                 autoResizeEnabled.insert(activePane.paneId)
                                 Task {
                                     await performResize(localTarget: activePane.target)
                                 }
                             } else {
+                                autoResizeDisabled.insert(activePane.paneId)
                                 autoResizeEnabled.remove(activePane.paneId)
                             }
                         }
@@ -662,26 +674,32 @@ public struct MainView: View {
         isSessionAttached: Bool = false
     ) -> some View {
         let attachedHelp = "Cannot resize: session is attached to a terminal"
+        let autoResizeActive = isAutoResizeActive(for: resizeKey)
 
-        Button {
-            Task {
-                await performResize(localTarget: localTarget, remoteHostId: remoteHostId, remotePaneId: remotePaneId)
+        // Hide manual resize button when auto-resize is active
+        if !autoResizeActive {
+            Button {
+                Task {
+                    await performResize(localTarget: localTarget, remoteHostId: remoteHostId, remotePaneId: remotePaneId)
+                }
+            } label: {
+                Symbols.arrowUpLeftAndArrowDownRight.image
             }
-        } label: {
-            Symbols.arrowUpLeftAndArrowDownRight.image
+            .help(isSessionAttached ? attachedHelp : "Resize tmux pane to fit mirror view")
+            .disabled(isSessionAttached)
         }
-        .help(isSessionAttached ? attachedHelp : "Resize tmux pane to fit mirror view")
-        .disabled(isSessionAttached)
 
         Toggle(isOn: Binding(
-            get: { autoResizeEnabled.contains(resizeKey) },
+            get: { autoResizeActive },
             set: { enabled in
                 if enabled {
+                    autoResizeDisabled.remove(resizeKey)
                     autoResizeEnabled.insert(resizeKey)
                     Task {
                         await performResize(localTarget: localTarget, remoteHostId: remoteHostId, remotePaneId: remotePaneId)
                     }
                 } else {
+                    autoResizeDisabled.insert(resizeKey)
                     autoResizeEnabled.remove(resizeKey)
                 }
             }
@@ -691,6 +709,14 @@ public struct MainView: View {
         .toggleStyle(.button)
         .help(isSessionAttached ? attachedHelp : "Auto-resize tmux pane when mirror view changes size")
         .disabled(isSessionAttached)
+    }
+
+    /// Whether auto-resize is active for the given pane key (either via global preference or per-session toggle)
+    private func isAutoResizeActive(for key: String) -> Bool {
+        if settings.alwaysAutoResize {
+            return !autoResizeDisabled.contains(key)
+        }
+        return autoResizeEnabled.contains(key)
     }
 
     private func handleAutoResize() {
@@ -716,11 +742,11 @@ public struct MainView: View {
             }
 
             if let window = currentWindow, let activePane = window.activePane, currentRemote == nil {
-                guard autoResizeEnabled.contains(activePane.paneId) else { return }
+                guard isAutoResizeActive(for: activePane.paneId) else { return }
                 guard !tmuxService.attachedSessionNames.contains(window.sessionName) else { return }
                 await performResize(localTarget: activePane.target)
             } else if let remote = currentRemote {
-                guard autoResizeEnabled.contains(remote.resizeKey) else { return }
+                guard isAutoResizeActive(for: remote.resizeKey) else { return }
                 await performResize(remoteHostId: remote.hostId, remotePaneId: remote.paneId)
             }
         }
