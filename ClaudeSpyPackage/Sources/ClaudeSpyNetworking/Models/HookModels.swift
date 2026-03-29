@@ -46,6 +46,9 @@ public struct ClaudeSession: Codable, Sendable {
         if events.count > Self.maxEvents {
             events.removeLast()
         }
+        if let working = event.isWorking {
+            isWorking = working
+        }
     }
 
     /// The most recent event, if any
@@ -78,40 +81,8 @@ public struct ClaudeSession: Codable, Sendable {
     }
 
     /// Whether the session is actively working (Claude is processing, not waiting for input).
-    /// True when the latest event is a tool use, prompt submit, subagent activity, or similar active action.
-    public var isWorking: Bool {
-        guard let latest = latestEvent else { return false }
-        switch latest.action {
-        case .preToolUse,
-             .postToolUse,
-             .postToolUseFailure,
-             .userPromptSubmit,
-             .subagentStart,
-             .subagentStop,
-             .taskCreated,
-             .taskCompleted:
-            return true
-        case .sessionStart,
-             .stop,
-             .stopFailure,
-             .sessionEnd,
-             .permissionRequest,
-             .notification,
-             .teammateIdle,
-             .preCompact,
-             .postCompact,
-             .instructionsLoaded,
-             .configChange,
-             .cwdChanged,
-             .fileChanged,
-             .elicitation,
-             .elicitationResult,
-             .worktreeCreate,
-             .worktreeRemove,
-             .unknown:
-            return false
-        }
-    }
+    /// Updated when events with a definitive working state are received.
+    public private(set) var isWorking: Bool = false
 
     /// Human-readable status label for accessibility and testing.
     public var statusLabel: String {
@@ -156,6 +127,25 @@ public struct HookEvent: Identifiable, Codable, Sendable, Equatable {
         self.action = action
         self.projectPath = projectPath
         self.tmuxPane = tmuxPane
+    }
+
+    /// Whether this event indicates the session is actively working.
+    /// Returns `true` for events that enter the agent loop,
+    /// `false` for events that leave it, and `nil` otherwise.
+    public var isWorking: Bool? {
+        switch action {
+        case .userPromptSubmit:
+            return true
+        case .stop, .stopFailure:
+            return false
+        case .sessionStart, .preToolUse, .postToolUse, .postToolUseFailure,
+             .sessionEnd, .permissionRequest, .notification, .subagentStart,
+             .subagentStop, .teammateIdle, .taskCompleted, .preCompact,
+             .postCompact, .instructionsLoaded, .configChange, .cwdChanged,
+             .fileChanged, .elicitation, .elicitationResult, .worktreeCreate,
+             .worktreeRemove, .taskCreated, .unknown:
+            return nil
+        }
     }
 
     public static func == (lhs: HookEvent, rhs: HookEvent) -> Bool {
