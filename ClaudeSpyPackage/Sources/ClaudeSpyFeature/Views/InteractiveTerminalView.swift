@@ -84,10 +84,9 @@
 
         /// Feeds data while preserving scroll position if user has scrolled up.
         func feedPreservingScroll(_ bytes: ArraySlice<UInt8>) {
-            let maxScrollY = max(0, contentSize.height - bounds.height)
-            let isAtBottom = maxScrollY <= 0 || super.contentOffset.y >= maxScrollY - 5
-
             if preserveUserScroll {
+                let maxScrollY = max(0, contentSize.height - bounds.height)
+                let isAtBottom = maxScrollY <= 0 || super.contentOffset.y >= maxScrollY - 5
                 blockScrollChanges = !isAtBottom
             }
 
@@ -95,62 +94,18 @@
             extractAndClearPayloads()
 
             blockScrollChanges = false
-
-            // When the terminal has more rows than fit on screen, SwiftTerm's
-            // updateScroller positions to show the top of the visible area.
-            // If the cursor is below the viewport, scroll down to include it.
-            // This is preferred over naively snapping to the absolute bottom,
-            // which would hide top-of-screen content (e.g. full-screen redraws
-            // that position the cursor partway down the terminal).
-            if isAtBottom, let size = managedTerminalSize {
-                let terminal = getTerminal()
-                let cursorRow = terminal.buffer.y // 0-based row in visible area
-                let totalLines = terminal.buffer.yDisp + size.rows
-                if totalLines > 0, contentSize.height > 0 {
-                    let cellHeight = contentSize.height / CGFloat(totalLines)
-                    let viewRows = Int(bounds.height / cellHeight)
-                    if cursorRow >= viewRows {
-                        let scrollRows = cursorRow - viewRows + 1
-                        let target = CGFloat(terminal.buffer.yDisp + scrollRows) * cellHeight
-                        let maxY = max(0, contentSize.height - bounds.height)
-                        super.contentOffset.y = min(target, maxY)
-                    }
-                }
-            }
-
             setNeedsLayout()
         }
 
-        /// The externally-managed terminal dimensions. When set, `layoutSubviews` will
-        /// restore these dimensions after SwiftTerm's auto-resize shrinks the buffer to
-        /// match the view frame. This allows the terminal to have more rows than fit on
-        /// screen (e.g. 65-row host on ~40-row iPhone) without losing bottom rows.
-        var managedTerminalSize: (cols: Int, rows: Int)?
-
         override func layoutSubviews() {
             super.layoutSubviews()
-            // SwiftTerm's layoutSubviews may have resized the terminal buffer to match
-            // the view's frame height. Restore the externally-managed dimensions.
-            if let size = managedTerminalSize {
-                let terminal = getTerminal()
-                if terminal.cols != size.cols || terminal.rows != size.rows {
-                    terminal.resize(cols: size.cols, rows: size.rows)
-                }
-            }
             updateURLUnderlines()
         }
 
-        /// Suppress SwiftTerm's async `updateScroller` when dimensions are
-        /// externally managed. `terminal.resize()` triggers this callback,
-        /// which asynchronously sets `contentOffset` based on `terminal.rows`.
-        /// When the terminal has more rows than fit on screen (managed size),
-        /// that positions the view above the real bottom, breaking the
-        /// snap-to-bottom in `feedPreservingScroll` on subsequent updates.
-        /// The synchronous `updateScroller` in `processSizeChange` still
-        /// runs, keeping `contentSize` and `contentOffset` correct.
-        override func sizeChanged(source: Terminal) {
-            guard managedTerminalSize == nil else { return }
-            super.sizeChanged(source: source)
+        /// Scrolls the inner terminal (SwiftTerm's scrollback) to the bottom.
+        func scrollToBottom() {
+            let maxY = max(0, contentSize.height - bounds.height)
+            super.contentOffset = CGPoint(x: 0, y: maxY)
         }
 
         // MARK: - Focus Management

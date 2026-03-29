@@ -475,15 +475,12 @@
             // Wire up input callback
             terminalView.onInput = onInput
 
-            // Resize terminal buffer and lock the dimensions so SwiftTerm's layoutSubviews
-            // doesn't shrink the buffer to match the view frame. The terminal may have more
-            // rows than fit on screen (e.g. 65-row host on iPhone); without this, SwiftTerm
-            // would destroy bottom rows including DECSTBM footers.
-            terminalView.getTerminal().resize(cols: terminalState.width, rows: terminalState.height)
-            terminalView.managedTerminalSize = (cols: terminalState.width, rows: terminalState.height)
-
-            // Create scroll view for horizontal scrolling (wide terminals)
-            // Also scrolls vertically when terminal frame > available screen height
+            // Create scroll view for horizontal and vertical scrolling.
+            // The terminal view is sized to match the terminal content exactly.
+            // When the terminal has more rows than fit on screen, the outer scroll
+            // view provides vertical scrolling — SwiftTerm naturally maintains the
+            // correct buffer size via processSizeChange because the view frame
+            // matches the terminal dimensions.
             let scrollView = UIScrollView()
             scrollView.backgroundColor = .black
             scrollView.addSubview(terminalView)
@@ -493,11 +490,11 @@
             scrollView.alwaysBounceHorizontal = false
             context.coordinator.outerScrollView = scrollView
 
-            // Use Auto Layout to size the terminal view
-            // Width: exact terminal width + padding (for horizontal scrolling of wide terminals)
-            // Height: fits available space (terminal's internal scrolling handles scrollback)
             let widthConstraint = terminalView.widthAnchor.constraint(equalToConstant: exactWidth)
             widthConstraint.priority = .defaultHigh
+
+            let heightConstraint = terminalView.heightAnchor.constraint(equalToConstant: exactHeight)
+            heightConstraint.priority = .defaultHigh
 
             NSLayoutConstraint.activate([
                 terminalView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
@@ -507,14 +504,18 @@
                 // Width: at least screen width, prefers exact terminal width
                 terminalView.widthAnchor.constraint(greaterThanOrEqualTo: scrollView.frameLayoutGuide.widthAnchor),
                 widthConstraint,
-                // Height: exactly match available screen height (no vertical scrolling on outer view)
-                terminalView.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
+                // Height: at least screen height, prefers exact terminal height.
+                // Short terminals fill the screen; tall terminals expand and the
+                // outer scroll view provides vertical scrolling.
+                terminalView.heightAnchor.constraint(greaterThanOrEqualTo: scrollView.frameLayoutGuide.heightAnchor),
+                heightConstraint,
             ])
 
             // Store references
             context.coordinator.terminalView = terminalView
             context.coordinator.cellSize = cellSize
             context.coordinator.widthConstraint = widthConstraint
+            context.coordinator.heightConstraint = heightConstraint
 
             // Wire up data callbacks
             terminalState.onData = { [weak terminalView] data in
@@ -522,12 +523,17 @@
                 terminalView.feedPreservingScroll([UInt8](data)[...])
             }
 
-            // Set up scroll-to-bottom callback - only inner terminal needs scrolling
-            // (outer scroll view height = terminal height, so no vertical scrolling there)
-            terminalState.scrollToBottom = { [weak terminalView] in
+            // Scroll both the inner terminal (scrollback) and outer scroll view
+            // (tall terminal overflow) to the bottom.
+            terminalState.scrollToBottom = { [weak terminalView, weak scrollView] in
                 guard let terminalView else { return }
-                let maxY = terminalView.contentSize.height - terminalView.bounds.height
-                terminalView.setContentOffset(CGPoint(x: 0, y: max(0, maxY)), animated: false)
+                // Inner: scroll SwiftTerm's scrollback to bottom
+                terminalView.scrollToBottom()
+                // Outer: scroll to show the bottom of a tall terminal
+                if let scrollView {
+                    let maxY = max(0, scrollView.contentSize.height - scrollView.bounds.height)
+                    scrollView.contentOffset.y = maxY
+                }
             }
 
             terminalState.onInitialContentLoaded = { [weak terminalState, weak terminalView] in
@@ -576,18 +582,16 @@
             weak var outerScrollView: UIScrollView?
             var cellSize: CGSize = .zero
             var widthConstraint: NSLayoutConstraint?
+            var heightConstraint: NSLayoutConstraint?
 
             func handleResize(width: Int, height: Int) {
                 guard let terminalView else { return }
 
-                // Update width constraint for horizontal scrolling (with buffer for edge cases)
                 let newWidth = CGFloat(width) * cellSize.width + FontMetrics.horizontalBuffer
                 widthConstraint?.constant = newWidth
 
-                // Lock dimensions BEFORE resize — resize() may trigger layoutSubviews,
-                // which checks managedTerminalSize to restore the correct dimensions.
-                terminalView.managedTerminalSize = (cols: width, rows: height)
-                terminalView.getTerminal().resize(cols: width, rows: height)
+                let newHeight = CGFloat(height) * cellSize.height
+                heightConstraint?.constant = newHeight
             }
         }
     }
