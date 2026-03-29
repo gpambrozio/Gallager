@@ -64,6 +64,32 @@ public enum MultiWindowTabsScenario {
 
         TestStep.macScreenshot(label: "switched-to-window-1")
 
+        // ── Stage 4b: Re-selecting session opens tmux-active window ──
+
+        TestStep.log("Stage 4b: Verify sidebar click opens the tmux-active window")
+
+        // Create a temporary session to deselect tabtest
+        TestStep.tmuxCreateSession(name: "temp-deselect", width: 160, height: 50)
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "temp-deselect", timeout: 5)
+        TestStep.macClickButton(titled: "temp-deselect")
+        TestStep.wait(seconds: 2)
+
+        // Switch tmux to window 0 in tabtest (making it the tmux-active window)
+        Shortcut.tmuxRunCommand(target: "temp-deselect:0.0", command: "tmux select-window -t tabtest:0")
+        TestStep.wait(seconds: 2)
+
+        // Re-click tabtest — should open window 0 (the tmux-active window), not window 1
+        TestStep.macClickButton(titled: "tabtest")
+        TestStep.wait(seconds: 3)
+
+        TestStep.macScreenshot(label: "reselect-opens-active-window")
+
+        // Clean up temp session
+        Shortcut.tmuxRunCommand(target: "temp-deselect:0.0", command: "exit")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElementToDisappear(titled: "temp-deselect", timeout: 5)
+
         // ── Stage 5: Create third window ─────────────────────────
 
         TestStep.log("Stage 5: Create a third window")
