@@ -251,10 +251,11 @@
             case settings
         }
 
-        /// Whether to hide the tab bar (iPhone in landscape only).
-        /// iPad keeps the tab bar visible in all orientations since it has more screen space.
+        /// Whether to hide the tab bar.
+        /// Hidden when inside a session (navigation stack is non-empty) or on iPhone in landscape.
         private var hideTabBar: Bool {
-            UIDevice.current.userInterfaceIdiom == .phone && verticalSizeClass == .compact
+            !sessionsNavigationPath.isEmpty
+                || (UIDevice.current.userInterfaceIdiom == .phone && verticalSizeClass == .compact)
         }
 
         var body: some View {
