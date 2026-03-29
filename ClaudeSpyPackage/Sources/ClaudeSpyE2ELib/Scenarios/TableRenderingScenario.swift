@@ -11,14 +11,15 @@ import Foundation
 ///
 /// The scenario:
 /// 1. Pairs macOS and iOS devices via the relay
-/// 2. Creates a tmux session and draws a table using DEC line-drawing
-///    mode via a Python script
-/// 3. Launches the macOS app and selects the pane (triggering initial
-///    capture-pane which exercises the SO/SI translation)
-/// 4. Takes a screenshot of the rendered table on macOS
-/// 5. Opens the terminal pane on iOS and takes a screenshot there too
+/// 2. Creates a tmux session and writes the Python table-drawing script
+/// 3. Selects the pane on macOS and navigates to it on iOS (both are
+///    now streaming the terminal)
+/// 4. Runs the script so both platforms see the table drawn via
+///    live streaming data (exercises SO/SI translation in the stream)
+/// 5. Takes screenshots on both platforms (streaming result)
 /// 6. De-selects and re-selects the pane to force a re-capture, then
 ///    takes screenshots on both platforms to verify the table survives
+///    a fresh capture-pane cycle
 ///
 /// Box-drawing characters should render as: ┌─┬─┐ │ ├─┼─┤ └─┴─┘
 /// NOT as ASCII: lqwqk x tqnqu mqvqj
@@ -39,15 +40,7 @@ public enum TableRenderingScenario {
         TestStep.tmuxCreateSession(name: "table-helper", width: 80, height: 24)
 
         // Use a plain prompt so it doesn't interfere with table rendering
-        TestStep.tmuxSendKeys(
-            target: "table-test:0",
-            keys: #"export PS1='$ '"#,
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "table-test:0", keys: "Enter")
-        TestStep.tmuxSendKeys(target: "table-test:0", keys: "clear", literal: true)
-        TestStep.tmuxSendKeys(target: "table-test:0", keys: "Enter")
-        TestStep.wait(seconds: 1)
+        Shortcut.tmuxClearAndSetPrompt(target: "table-test:0")
 
         // ── Draw table using DEC line-drawing characters ──────────────
         //
@@ -114,51 +107,47 @@ public enum TableRenderingScenario {
         TestStep.tmuxSendKeys(target: "table-helper:0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
-        TestStep.log("Drawing table with DEC line-drawing characters")
-        TestStep.tmuxSendKeys(
-            target: "table-test:0",
-            keys: "python3 /tmp/draw_table.py",
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "table-test:0", keys: "Enter")
-        TestStep.wait(seconds: 2)
-
-        // ── Select the pane on macOS ─────────────────────────────────
+        // ── Select pane on macOS and iOS BEFORE running script ─────────
+        // Both platforms will be streaming the terminal when the table
+        // is drawn, exercising the live SO/SI → UTF-8 translation path.
 
         Shortcut.openPanesWindow()
 
-        // Selecting the pane triggers capture-pane which exercises
-        // the SO/SI → UTF-8 translation in filterToColorCodesOnly
         TestStep.macClickButton(titled: "table-test:0")
         TestStep.wait(seconds: 3)
 
-        // Screenshot: table should show Unicode box-drawing characters
-        // (┌─┬─┐ etc.) NOT ASCII (lqwqk etc.)
-        TestStep.macScreenshot(label: "table-initial-capture")
-
-        // ── Navigate to pane on iOS ─────────────────────────────────
-
         TestStep.log("Opening terminal pane on iOS mirror")
-        TestStep.iosWaitForElement(.labelContains("table-test"), timeout: 15)
-        TestStep.iosTap(.labelContains("table-test"))
-        TestStep.wait(seconds: 3)
-        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting"), timeout: 15)
+        Shortcut.iosConnectToSession(sessionName: "table-test")
+
+        // ── Draw table while both platforms are streaming ────────────
+
+        TestStep.log("Drawing table with DEC line-drawing characters")
+        Shortcut.tmuxRunCommand(target: "table-test:0", command: "python3 /tmp/draw_table.py")
         TestStep.wait(seconds: 3)
 
-        // Screenshot: table should render correctly on iOS too
-        TestStep.iosScreenshot(label: "table-initial-capture-ios")
+        // Screenshot: table should show Unicode box-drawing characters
+        // (┌─┬─┐ etc.) NOT ASCII (lqwqk etc.) — rendered via streaming
+        TestStep.macScreenshot(label: "table-streamed-mac")
+        TestStep.iosScreenshot(label: "table-streamed-ios")
 
         // ── Re-capture: de-select and re-select ───────────────────────
+        // Forces a new capture-pane cycle to test the fresh capture path.
 
         TestStep.log("Forcing re-capture via pane re-selection")
         TestStep.macClickButton(titled: "table-helper:0")
         TestStep.wait(seconds: 1)
+        TestStep.iosTap(.labelContains("Sessions"))
+        TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "table-test:0")
         TestStep.wait(seconds: 3)
 
         // Screenshot: table should still render correctly after re-capture
         TestStep.macScreenshot(label: "table-after-recapture")
-        TestStep.wait(seconds: 1)
+
+        TestStep.iosTap(.labelContains("table-test"))
+        TestStep.wait(seconds: 3)
+        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting"), timeout: 15)
+        TestStep.wait(seconds: 3)
         TestStep.iosScreenshot(label: "table-after-recapture-ios")
     }
 }

@@ -39,19 +39,16 @@ public enum DAResponseLeakScenario {
         TestStep.wait(seconds: 2)
 
         // Clear screen to have a clean baseline
-        TestStep.tmuxSendKeys(target: "e2e-da-leak:0", keys: "clear", literal: true)
-        TestStep.tmuxSendKeys(target: "e2e-da-leak:0", keys: "Enter")
+        Shortcut.tmuxRunCommand(target: "e2e-da-leak:0", command: "clear")
         TestStep.wait(seconds: 1)
 
         // ── Phase 4: Test Primary DA with macOS only ──────────────────
         // At this point only the macOS SwiftTerm is mirroring the pane.
         TestStep.log("Sending Primary DA query (ESC[c) — macOS mirror active")
-        TestStep.tmuxSendKeys(
+        Shortcut.tmuxRunCommand(
             target: "e2e-da-leak:0",
-            keys: #"printf '\e[c' && sleep 1 && echo MAC_DA1_DONE"#,
-            literal: true
+            command: #"printf '\e[c' && sleep 1 && echo MAC_DA1_DONE"#
         )
-        TestStep.tmuxSendKeys(target: "e2e-da-leak:0", keys: "Enter")
         TestStep.wait(seconds: 3)
 
         TestStep.tmuxCapturePaneContent(target: "e2e-da-leak:0", storeAs: "macDA1")
@@ -69,27 +66,20 @@ public enum DAResponseLeakScenario {
         // Now the iOS SwiftTerm will also mirror the pane, adding a second
         // source of potential DA response leakage via the relay WebSocket.
         TestStep.log("Opening pane on iOS viewer")
-        TestStep.iosWaitForElement(.labelContains("e2e-da-leak"), timeout: 15)
-        TestStep.iosTap(.labelContains("e2e-da-leak"))
-        TestStep.wait(seconds: 3)
-        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting"), timeout: 15)
-        TestStep.wait(seconds: 3)
+        Shortcut.iosConnectToSession(sessionName: "e2e-da-leak")
 
         // Clear screen before the combined test
-        TestStep.tmuxSendKeys(target: "e2e-da-leak:0", keys: "clear", literal: true)
-        TestStep.tmuxSendKeys(target: "e2e-da-leak:0", keys: "Enter")
+        Shortcut.tmuxRunCommand(target: "e2e-da-leak:0", command: "clear")
         TestStep.wait(seconds: 1)
 
         // ── Phase 6: Test Primary DA with both mirrors active ─────────
         // Both macOS and iOS SwiftTerm instances process the DA query.
         // If either leaks, we'll see response fragments in the pane.
         TestStep.log("Sending Primary DA query (ESC[c) — both mirrors active")
-        TestStep.tmuxSendKeys(
+        Shortcut.tmuxRunCommand(
             target: "e2e-da-leak:0",
-            keys: #"printf '\e[c' && sleep 1 && echo BOTH_DA1_DONE"#,
-            literal: true
+            command: #"printf '\e[c' && sleep 1 && echo BOTH_DA1_DONE"#
         )
-        TestStep.tmuxSendKeys(target: "e2e-da-leak:0", keys: "Enter")
         TestStep.wait(seconds: 3)
 
         TestStep.tmuxCapturePaneContent(target: "e2e-da-leak:0", storeAs: "bothDA1")

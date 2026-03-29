@@ -2,64 +2,85 @@ import Foundation
 
 /// E2E scenario: Scrollback gap when mirror terminal is smaller than tmux pane
 ///
-/// Regression test for the scrollback gap bug. When a mirror terminal has fewer
-/// rows than the tmux pane (e.g., 30-row mirror for a 50-row pane), scrolling up
-/// used to reveal a gap of blank lines between scrollback content and visible
-/// content. This was caused by `processCapturePaneForStreaming()` pushing
-/// `height - 1` blank newlines (where height = tmux pane height, not mirror height).
+/// Regression test for scrollback gap bugs:
+///
+/// 1. Original bug: `processCapturePaneForStreaming()` pushed `height - 1` blank
+///    newlines (where height = tmux pane height, not mirror height), causing gaps
+///    in scrollback when mirror is smaller than pane.
+///
+/// 2. SU regression: Using CSI n S (Scroll Up) to push Part 1 content into the
+///    scrollback buffer. SwiftTerm's cmdScrollUp deletes lines via splice instead
+///    of pushing to scrollback, destroying ~height lines of content.
 ///
 /// Setup:
-///   - Creates a tall tmux session (50 rows)
-///   - Generates 200 numbered lines of scrollback via `seq 1 200`
-///   - Launches macOS app with a SHORT window (~400px) so the mirror has ~20 rows
-///   - Mirrors the pane, waits for content, then scrolls up to reveal scrollback
+///   - Creates a 40-row tmux session
+///   - Generates 4 pages of visually distinct content (~160 lines total)
+///   - Launches macOS app, mirrors the pane
+///   - Scrolls up to reveal scrollback and checks for gaps
 ///
-/// Expected: Continuous numbered lines with no blank gap in scrollback.
+/// The 4 pages use very different content so that if ANY page is lost,
+/// the screenshot will be obviously different and the test will fail.
 public enum ScrollbackGapScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Scrollback Gap Small Mirror",
         tags: ["rendering", "macos-only"]
     ) {
-        // ── Setup: tall tmux pane ────────────────────────────────────
+        // ── Setup: tmux pane with 4 pages of distinct content ───────
 
-        TestStep.log("Creating 50-row tmux session for scrollback gap test")
-        TestStep.tmuxCreateSession(name: "scrollback-gap-test", width: 120, height: 50)
+        TestStep.log("Creating 40-row tmux session for scrollback gap test")
+        TestStep.tmuxCreateSession(name: "scrollback-gap-test", width: 120, height: 40)
 
-        // Generate numbered scrollback — 200 lines, only bottom ~50 visible
-        TestStep.tmuxSendKeys(
+        // Generate 4 pages of visually distinct content (~40 lines each = ~160 total).
+        // Each page has a unique pattern so missing pages are immediately obvious
+        // in screenshots.
+        //
+        // Page 1 (lines 1-40):   "AAAA..." rows
+        // Page 2 (lines 41-80):  "####..." rows
+        // Page 3 (lines 81-120): "~~~~..." rows
+        // Page 4 (lines 121-160):">>>>" rows (this page is in the visible area)
+
+        // Use printf to generate all 4 pages in a single command
+        Shortcut.tmuxRunCommand(
             target: "scrollback-gap-test:0",
-            keys: "seq 1 200",
-            literal: true
+            command: "for i in $(seq 1 40); do printf 'PAGE1 %03d AAAAAAAAAAAAAAAAAAAAAAAAAAAA\\n' $i; done; for i in $(seq 1 40); do printf 'PAGE2 %03d ############################\\n' $i; done; for i in $(seq 1 40); do printf 'PAGE3 %03d ~~~~~~~~~~~~~~~~~~~~~~~~~~~~\\n' $i; done; for i in $(seq 1 40); do printf 'PAGE4 %03d >>>>>>>>>>>>>>>>>>>>>>>>>>>>\\n' $i; done"
         )
-        TestStep.tmuxSendKeys(target: "scrollback-gap-test:0", keys: "Enter")
-        TestStep.wait(seconds: 2)
+        TestStep.wait(seconds: 3)
 
-        // ── Launch macOS app with SHORT window ──────────────────────
+        // ── Launch macOS app ────────────────────────────────────────
 
         Shortcut.macOnlySetup
-        // Short window: ~400px height gives ~20-25 terminal rows, well under 50
-        TestStep.macResizeWindow(width: 1_200, height: 400)
 
         // ── Start mirroring ─────────────────────────────────────────
 
         TestStep.macClickButton(titled: "scrollback-gap-test:0")
         TestStep.wait(seconds: 3)
 
-        // ── Capture: initial view (bottom of content) ───────────────
+        // ── Capture: initial view (bottom of content = PAGE4) ───────
 
         TestStep.macScreenshot(label: "initial-bottom-view")
 
-        // ── Scroll up to reveal scrollback ──────────────────────────
+        // ── Scroll up to reveal PAGE3 ───────────────────────────────
 
-        TestStep.macScrollUp(pages: 3)
+        TestStep.macScrollUp(pages: 1)
         TestStep.wait(seconds: 1)
 
-        // Continuous numbered lines with no gap
-        TestStep.macScreenshot(label: "scrolled-up-no-gap")
+        // Should show PAGE3 content (~~~~ pattern)
+        TestStep.macScreenshot(label: "scrolled-up-page3")
 
-        // Scroll up more to see deeper into scrollback
-        TestStep.macScrollUp(pages: 3)
+        // ── Scroll up more to reveal PAGE2 ──────────────────────────
+
+        TestStep.macScrollUp(pages: 1)
         TestStep.wait(seconds: 1)
-        TestStep.macScreenshot(label: "scrolled-up-deep")
+
+        // Should show PAGE2 content (#### pattern)
+        TestStep.macScreenshot(label: "scrolled-up-page2")
+
+        // ── Scroll up further to reveal PAGE1 ───────────────────────
+
+        TestStep.macScrollUp(pages: 1)
+        TestStep.wait(seconds: 1)
+
+        // Should show PAGE1 content (AAAA pattern)
+        TestStep.macScreenshot(label: "scrolled-up-page1")
     }
 }

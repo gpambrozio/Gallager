@@ -181,6 +181,59 @@ TestStep.macScreenshot(label: "settings-window", tolerance: 1.0)
 
 See `docs/e2e-testing.md` for baseline storage, diff images, and CLI options.
 
+
+## Pattern: Run tmux Commands
+
+Use `Shortcut.tmuxRunCommand` instead of the two-step `tmuxSendKeys` + Enter pattern:
+
+```swift
+// Instead of:
+// TestStep.tmuxSendKeys(target: "my-session:0", keys: "echo hello", literal: true)
+// TestStep.tmuxSendKeys(target: "my-session:0", keys: "Enter")
+
+// Use:
+Shortcut.tmuxRunCommand(target: "my-session:0", command: "echo hello")
+
+// For non-literal commands (e.g., OSC escape sequences):
+Shortcut.tmuxRunCommand(
+    target: "my-session:0",
+    command: "printf '\\033]2;My Title\\007'",
+    literal: false
+)
+```
+
+## Pattern: Connect iOS to Terminal Session
+
+Use `Shortcut.iosConnectToSession` to navigate to a terminal pane on iOS:
+
+```swift
+// Instead of:
+// TestStep.iosWaitForElement(.labelContains("my-session"), timeout: 15)
+// TestStep.iosTap(.labelContains("my-session"))
+// TestStep.wait(seconds: 3)
+// TestStep.iosWaitForElementToDisappear(.labelContains("Connecting"), timeout: 15)
+// TestStep.wait(seconds: 3)
+
+// Use:
+Shortcut.iosConnectToSession(sessionName: "my-session")
+```
+
+## Pattern: Clean Terminal for Rendering Tests
+
+Use `Shortcut.tmuxClearAndSetPrompt` to set a plain prompt and clear the screen:
+
+```swift
+// Instead of:
+// TestStep.tmuxSendKeys(target: "test:0", keys: #"export PS1='$ '"#, literal: true)
+// TestStep.tmuxSendKeys(target: "test:0", keys: "Enter")
+// TestStep.tmuxSendKeys(target: "test:0", keys: "clear", literal: true)
+// TestStep.tmuxSendKeys(target: "test:0", keys: "Enter")
+// TestStep.wait(seconds: 1)
+
+// Use:
+Shortcut.tmuxClearAndSetPrompt(target: "test:0")
+```
+
 ## Pattern: Waiting for UI Transitions
 
 After actions that trigger navigation or state changes, wait appropriately:

@@ -35,13 +35,11 @@ public enum TerminalTitleMacToMacScenario {
         // ── Phase 7: Set a custom terminal title via OSC escape seq ───
 
         TestStep.log("Setting custom terminal title via OSC 2 escape sequence")
-        TestStep.tmuxSendKeys(
+        Shortcut.tmuxRunCommand(
             target: "e2e-title:0",
-            keys: "printf '\\033]2;E2E Custom Title\\007'",
+            command: "printf '\\033]2;E2E Custom Title\\007'",
             literal: false
         )
-        // Press Enter to execute the printf command
-        TestStep.tmuxSendKeys(target: "e2e-title:0", keys: "Enter", literal: false)
         TestStep.wait(seconds: 3)
 
         // ── Phase 8: Verify title appears on host's sidebar ───────────
@@ -68,12 +66,11 @@ public enum TerminalTitleMacToMacScenario {
         // ── Phase 10: Change title again and verify it updates ────────
 
         TestStep.log("Changing title again to verify live updates")
-        TestStep.tmuxSendKeys(
+        Shortcut.tmuxRunCommand(
             target: "e2e-title:0",
-            keys: "printf '\\033]2;Updated Title\\007'",
+            command: "printf '\\033]2;Updated Title\\007'",
             literal: false
         )
-        TestStep.tmuxSendKeys(target: "e2e-title:0", keys: "Enter", literal: false)
         TestStep.wait(seconds: 3)
 
         // Verify updated title on both host and viewer

@@ -13,12 +13,13 @@ import Foundation
 ///
 /// The scenario:
 /// 1. Pairs macOS and iOS devices via the relay
-/// 2. Creates a tmux session (80×35) and renders three tables using a Python script:
-///    - Table 1: Simple emoji-only table (varying emoji counts per row)
-///    - Table 2: Mixed text and emoji with colored status indicators
-///    - Table 3: Dense emoji grid (4×4) to stress-test rendering
-/// 3. Takes screenshots on both macOS and iOS for each table
-/// 4. Forces a re-capture and takes final screenshots to verify
+/// 2. Creates a tmux session (80×35) and writes the Python table script
+/// 3. Selects the pane on macOS and navigates to it on iOS (both are
+///    now streaming the terminal)
+/// 4. Runs the script so both platforms see the tables drawn via
+///    live streaming data
+/// 5. Takes screenshots on both macOS and iOS (streaming result)
+/// 6. Forces a re-capture and takes final screenshots to verify
 ///    capture-pane correctly preserves emoji positioning
 public enum EmojiTableRenderingScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
@@ -35,12 +36,7 @@ public enum EmojiTableRenderingScenario {
         TestStep.tmuxCreateSession(name: "emoji-tbl", width: 80, height: 35)
         TestStep.tmuxCreateSession(name: "emoji-helper", width: 80, height: 24)
 
-        TestStep.tmuxSendKeys(
-            target: "emoji-tbl:0",
-            keys: #"export PS1='$ '"#,
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "emoji-tbl:0", keys: "Enter")
+        Shortcut.tmuxRunCommand(target: "emoji-tbl:0", command: #"export PS1='$ '"#)
         TestStep.wait(seconds: 0.5)
 
         // -- Create the Python script that draws all three tables ----------
@@ -185,18 +181,9 @@ public enum EmojiTableRenderingScenario {
         TestStep.tmuxSendKeys(target: "emoji-helper:0", keys: "Enter")
         TestStep.wait(seconds: 1)
 
-        // -- Run the script ------------------------------------------------
-
-        TestStep.log("Running emoji table script")
-        TestStep.tmuxSendKeys(
-            target: "emoji-tbl:0",
-            keys: "python3 $TMPDIR/emoji_tables.py",
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "emoji-tbl:0", keys: "Enter")
-        TestStep.wait(seconds: 3)
-
-        // -- Select the pane on macOS --------------------------------------
+        // -- Select pane on macOS and iOS BEFORE running script --------
+        // Both platforms will be streaming the terminal when the emoji
+        // tables are drawn, exercising the live wide-character rendering.
 
         Shortcut.openPanesWindow()
         TestStep.macResizeWindow(width: 1_100, height: 700)
@@ -204,26 +191,23 @@ public enum EmojiTableRenderingScenario {
         TestStep.macClickButton(titled: "emoji-tbl:0")
         TestStep.wait(seconds: 3)
 
-        // Screenshot: all three emoji tables on macOS
-        TestStep.macScreenshot(label: "emoji-tables-mac")
-
-        // -- Navigate to pane on iOS ---------------------------------------
-
         TestStep.log("Opening terminal pane on iOS mirror")
-        TestStep.iosWaitForElement(.labelContains("emoji-tbl"), timeout: 15)
-        TestStep.iosTap(.labelContains("emoji-tbl"))
-        TestStep.wait(seconds: 3)
-        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting"), timeout: 15)
+        Shortcut.iosConnectToSession(sessionName: "emoji-tbl")
+
+        // -- Run script while both platforms are streaming ----------------
+
+        TestStep.log("Running emoji table script")
+        Shortcut.tmuxRunCommand(target: "emoji-tbl:0", command: "python3 $TMPDIR/emoji_tables.py")
         TestStep.wait(seconds: 3)
 
-        // Screenshot: all three emoji tables on iOS
-        TestStep.iosScreenshot(label: "emoji-tables-ios")
+        // Screenshot: all three emoji tables rendered via streaming
+        TestStep.macScreenshot(label: "emoji-tables-streamed-mac")
+        TestStep.iosScreenshot(label: "emoji-tables-streamed-ios")
 
         // -- Re-capture: de-select and re-select ---------------------------
-        //
         // Forces a new capture-pane cycle to verify that extractActiveSGR
         // and filterToColorCodesOnly correctly handle wide characters
-        // during re-capture.
+        // during re-capture (fresh capture path).
 
         TestStep.log("Forcing re-capture via pane re-selection")
         TestStep.macClickButton(titled: "emoji-helper:0")
@@ -244,12 +228,7 @@ public enum EmojiTableRenderingScenario {
 
         // -- Cleanup -------------------------------------------------------
 
-        TestStep.tmuxSendKeys(
-            target: "emoji-tbl:0",
-            keys: "rm $TMPDIR/emoji_tables.py",
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "emoji-tbl:0", keys: "Enter")
+        Shortcut.tmuxRunCommand(target: "emoji-tbl:0", command: "rm $TMPDIR/emoji_tables.py")
     }
 }
 
