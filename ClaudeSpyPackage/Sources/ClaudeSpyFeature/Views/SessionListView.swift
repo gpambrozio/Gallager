@@ -267,13 +267,15 @@
         private func sessionRow(_ session: TmuxSession) -> some View {
             let activeWindow = session.activeWindow
             let activePaneInSession = activeWindow?.activePane ?? activeWindow?.panes.first
+            // Find the first pane with a Claude session (may differ from the active pane)
+            let claudePaneInSession = session.windows.flatMap(\.panes).first(where: { $0.claudeSession != nil })
 
             NavigationLink(value: SessionNavigation(sessionName: session.sessionName, hostId: host.id)) {
-                if session.hasClaude, let pane = activePaneInSession, let claudeSession = pane.claudeSession {
+                if let claudePane = claudePaneInSession, let claudeSession = claudePane.claudeSession {
                     SessionRowView(
-                        paneId: pane.paneId,
+                        paneId: claudePane.paneId,
                         session: claudeSession,
-                        isActive: sessionStore.isPaneActive(pane.paneId),
+                        isActive: sessionStore.isPaneActive(claudePane.paneId),
                         customDescription: session.customDescription,
                         windowCount: session.windows.count
                     )
@@ -281,7 +283,7 @@
                     TerminalRowView(pane: pane, windowCount: session.windows.count)
                 }
             }
-            .accessibilityValue(activePaneInSession?.claudeSession?.statusLabel ?? "")
+            .accessibilityValue(claudePaneInSession?.claudeSession?.statusLabel ?? "")
             .modifier(DescriptionEditingModifier(
                 windowId: activeWindow?.id ?? session.sessionName,
                 currentDescription: session.customDescription,
@@ -345,7 +347,7 @@
         let session: ClaudeSession
         let isActive: Bool
         var customDescription: String?
-        var windowCount: Int = 1
+        var windowCount = 1
 
         var body: some View {
             HStack(alignment: .top, spacing: 12) {
@@ -418,7 +420,7 @@
     /// Row view for plain terminals (no Claude session)
     struct TerminalRowView: View {
         let pane: PaneState
-        var windowCount: Int = 1
+        var windowCount = 1
 
         /// Display name derived from current path or pane ID
         private var displayName: String {
