@@ -106,6 +106,9 @@ struct GeneralSettingsView: View {
                     Text("lines")
                 }
 
+                Toggle("Always auto-resize terminals", isOn: $settings.alwaysAutoResize)
+                    .help("Automatically resize all terminal panes to fit the mirror view when the window size changes")
+
                 Picker("Theme", selection: $settings.theme) {
                     ForEach(TerminalTheme.allCases, id: \.self) { theme in
                         Text(theme.rawValue).tag(theme)

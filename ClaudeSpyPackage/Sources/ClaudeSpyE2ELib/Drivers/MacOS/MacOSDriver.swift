@@ -381,6 +381,15 @@ public actor MacOSDriver {
 
     // MARK: - Wait for Element
 
+    /// Close a window by title via its AXCloseButton.
+    public func closeWindow(titled: String) async throws {
+        let pid = try requirePID()
+        logger.info("Closing window: \(titled)")
+        if !MacOSAccessibility.closeWindow(appPID: pid, titled: titled) {
+            throw MacOSDriverError.windowNotFound(titled)
+        }
+    }
+
     /// Wait for an element with the given title to appear in the macOS app
     public func waitForElement(titled: String, timeout: TimeInterval = 10) async throws {
         let pid = try requirePID()
@@ -396,6 +405,31 @@ public actor MacOSDriver {
             pollInterval: 0.5
         ) {
             MacOSAccessibility.findElement(appPID: pid, titled: titled) == nil
+        }
+    }
+
+    /// Wait for an element matching an ElementQuery to appear in the macOS app
+    @discardableResult
+    public func waitForElement(matching query: ElementQuery, timeout: TimeInterval = 10) async throws -> UIElement {
+        let pid = try requirePID()
+        return try await Polling.waitFor(
+            description: "macOS UI element matching \(query)",
+            timeout: timeout,
+            pollInterval: 0.5
+        ) {
+            MacOSAccessibility.findElement(appPID: pid, matching: query)
+        }
+    }
+
+    /// Wait for an element matching an ElementQuery to disappear from the macOS app
+    public func waitForElementToDisappear(matching query: ElementQuery, timeout: TimeInterval = 10) async throws {
+        let pid = try requirePID()
+        try await Polling.waitUntil(
+            description: "macOS UI element matching \(query) to disappear",
+            timeout: timeout,
+            pollInterval: 0.5
+        ) {
+            MacOSAccessibility.findElement(appPID: pid, matching: query) == nil
         }
     }
 
@@ -519,10 +553,10 @@ public actor MacOSDriver {
             else { continue }
 
             // Skip tiny windows like tooltips and menu bar items
-            if let bounds = window[kCGWindowBounds as String] as? [String: CGFloat],
-               let width = bounds["Width"], let height = bounds["Height"],
-               width < minimumDimension || height < minimumDimension
-            {
+            if
+                let bounds = window[kCGWindowBounds as String] as? [String: CGFloat],
+                let width = bounds["Width"], let height = bounds["Height"],
+                width < minimumDimension || height < minimumDimension {
                 continue
             }
 

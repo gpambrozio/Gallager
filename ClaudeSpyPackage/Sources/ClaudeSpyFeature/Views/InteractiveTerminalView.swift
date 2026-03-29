@@ -102,6 +102,12 @@
             updateURLUnderlines()
         }
 
+        /// Scrolls the inner terminal (SwiftTerm's scrollback) to the bottom.
+        func scrollToBottom() {
+            let maxY = max(0, contentSize.height - bounds.height)
+            super.contentOffset = CGPoint(x: 0, y: maxY)
+        }
+
         // MARK: - Focus Management
 
         /// Call to enable input and show the keyboard

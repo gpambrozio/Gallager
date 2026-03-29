@@ -14,14 +14,13 @@ public enum FreshPairingScenario {
         TestStep.startServer
         TestStep.verifyServerHealth
 
-        // 3. Launch iOS in simulator
+        // 3. Launch macOS app (must be fresh launch for --e2e-test args to take effect)
+        TestStep.launchMacApp()
+
+        // 4. Launch iOS in simulator
         TestStep.launchIOSApp
         TestStep.iosWaitForElement(.labelContains("pairing code"), timeout: 15)
         TestStep.iosScreenshot(label: "ios-pairing-view")
-
-        // 4. Launch macOS app (must be fresh launch for --e2e-test args to take effect)
-        TestStep.launchMacApp()
-        TestStep.wait(seconds: 3)
 
         // 5. Generate pairing code on macOS
         TestStep.macOpenSettings()
@@ -29,16 +28,14 @@ public enum FreshPairingScenario {
         TestStep.macSelectSettingsTab("Remote Access")
         TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "Generate Pairing Code")
-        TestStep.wait(seconds: 3)
+        TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "Copy Code")
         TestStep.wait(seconds: 0.5)
         TestStep.macReadClipboard(storeAs: "pairingCode")
         TestStep.macScreenshot(label: "mac-code-generated", tolerance: 5)
 
         // 6. Enter code on iOS
-        TestStep.wait(seconds: 1)
         TestStep.iosType(text: "${pairingCode}")
-        TestStep.wait(seconds: 5)
 
         // 7. Verify iOS transitioned to main view
         TestStep.iosWaitForElement(.labelContains("Sessions"), timeout: 15)
@@ -50,9 +47,7 @@ public enum FreshPairingScenario {
         // 9. Wait for both host and viewer to connect to relay server
         TestStep.waitForHostConnected(timeout: 15)
         TestStep.waitForViewerConnected(timeout: 15)
-        TestStep.macScreenshot(label: "mac-connected", tolerance: 5)
-
-        // 10. Verify macOS shows "Connected" on settings page (not "Waiting for viewer")
         TestStep.macWaitForElement(titled: "Connected", timeout: 15)
+        TestStep.macScreenshot(label: "mac-connected", tolerance: 5)
     }
 }

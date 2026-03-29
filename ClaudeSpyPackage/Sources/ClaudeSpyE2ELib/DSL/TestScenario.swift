@@ -83,6 +83,8 @@ public enum TestStep: Sendable {
     case terminateMacApp(instance: Int = 0)
     /// Open Settings window
     case macOpenSettings(instance: Int = 0)
+    /// Close a window by title via its close button
+    case macCloseWindow(titled: String, instance: Int = 0)
     /// Wait for a macOS window
     case macWaitForWindow(titled: String, timeout: TimeInterval = 5, instance: Int = 0)
     /// Select a Settings tab
@@ -107,6 +109,10 @@ public enum TestStep: Sendable {
     case macWaitForElement(titled: String, timeout: TimeInterval = 10, instance: Int = 0)
     /// Wait for a text element to disappear from the macOS app's accessibility tree
     case macWaitForElementToDisappear(titled: String, timeout: TimeInterval = 10, instance: Int = 0)
+    /// Wait for an element matching an ElementQuery to appear in the macOS app's accessibility tree
+    case macWaitForElementQuery(ElementQuery, timeout: TimeInterval = 10, instance: Int = 0)
+    /// Wait for an element matching an ElementQuery to disappear from the macOS app's accessibility tree
+    case macWaitForElementQueryToDisappear(ElementQuery, timeout: TimeInterval = 10, instance: Int = 0)
     /// Open the Panes window via the status item menu
     case macOpenPanesWindow(instance: Int = 0)
     /// Move the macOS app window to a screen position

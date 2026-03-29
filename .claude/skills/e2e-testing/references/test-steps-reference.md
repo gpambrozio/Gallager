@@ -96,7 +96,16 @@ Trigger unpair on the first paired viewer via the test HTTP endpoint (port 18081
 Read the macOS clipboard contents and store them in the execution context under the given key. Use with `${key}` interpolation in subsequent steps.
 
 ### `macWaitForElement(titled: String, timeout: TimeInterval = 10)`
-Wait for a text element to appear in the macOS app's accessibility tree. Useful for verifying status text like "Connected" or dimension labels like "80x24".
+Wait for a text element to appear in the macOS app's accessibility tree. Matches by title, label, value (contains), or help (exact). Useful for verifying status text like "Connected" or dimension labels like "80x24".
+
+### `macWaitForElementQuery(ElementQuery, timeout: TimeInterval = 10)`
+Wait for an element matching an `ElementQuery` to appear in the macOS app's accessibility tree. Use for precise matching (e.g., a toggle with a specific help text AND value). Example: `.allOf([.help("Auto-resize tmux pane..."), .valueContains("1")])` to verify a toggle is checked.
+
+### `macWaitForElementQueryToDisappear(ElementQuery, timeout: TimeInterval = 10)`
+Wait for an element matching an `ElementQuery` to disappear from the macOS app's accessibility tree.
+
+### `macCloseWindow(titled: String)`
+Close a macOS window by title via its AXCloseButton. Useful for closing the Settings window after toggling a preference, to avoid it interfering with window-order-sensitive steps like `macResizeWindow`.
 
 ### `macOpenPanesWindow`
 Open the Panes window via the status item menu.
