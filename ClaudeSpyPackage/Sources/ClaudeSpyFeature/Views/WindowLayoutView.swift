@@ -34,9 +34,28 @@
         /// Guards against double-splits from rapid taps
         @State private var isSplitting = false
 
+        /// Terminal titles detected via OSC escape sequences, keyed by pane ID
+        @State private var terminalTitles: [String: String] = [:]
+
         /// The current window data from the session store
         private var window: TmuxWindow? {
             sessionStore.window(id: windowId, hostId: hostId)
+        }
+
+        /// Navigation title: prefer custom description, then active pane's terminal title, then window ID
+        private var navigationTitle: String {
+            if let desc = window?.customDescription { return desc }
+            // Use the locally-captured OSC title first (updates in real-time)
+            if let activeId = activePaneId, let title = terminalTitles[activeId] { return title }
+            // For single-pane windows, use that pane's title even if not "active" yet
+            if let panes = window?.panes, panes.count == 1,
+               let pane = panes.first
+            {
+                if let title = terminalTitles[pane.paneId] { return title }
+                // Fall back to the relay-provided terminal title
+                if let title = sessionStore.paneStates[pane.paneId]?.terminalTitle { return title }
+            }
+            return windowId
         }
 
         var body: some View {
@@ -51,7 +70,7 @@
                     )
                 }
             }
-            .navigationTitle(window?.customDescription ?? windowId)
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -100,15 +119,24 @@
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                 keyboardVisible = false
             }
-            .onAppear {
+            .task {
                 // Default to the active pane (or first pane) on appear
                 if activePaneId == nil, let window {
                     activePaneId = window.activePane?.paneId ?? window.panes.first?.paneId
                 }
                 updateActiveService()
+                // Mark session as handled when navigating into the view
+                await activeService?.markHandledIfNeeded()
+            }
+            .onChange(of: activeService?.session?.needsAttention) {
+                if activeService?.session?.needsAttention == true {
+                    Task { await activeService?.markHandledIfNeeded() }
+                }
             }
             .onChange(of: activePaneId) { oldValue, newValue in
                 updateActiveService()
+                // Mark session as handled when switching to a pane with attention
+                Task { await activeService?.markHandledIfNeeded() }
                 // Sync pane selection to the tmux session on the host.
                 // When oldValue is nil, it's the initial assignment from onAppear
                 // — skip it to avoid redirecting the host's tmux focus on load.
@@ -253,7 +281,10 @@
             LiveTerminalView(
                 paneId: pane.paneId,
                 responseState: .constant(nil),
-                terminalTitle: .constant(nil),
+                terminalTitle: Binding(
+                    get: { terminalTitles[pane.paneId] },
+                    set: { terminalTitles[pane.paneId] = $0 }
+                ),
                 isConnected: relayClient.isHostConnected,
                 hideNavigationBar: false,
                 showKeyboardButton: false,
