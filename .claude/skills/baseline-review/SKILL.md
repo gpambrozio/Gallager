@@ -4,6 +4,7 @@ disable-model-invocation: true
 model: sonnet
 allowed-tools:
   - Bash(./.claude/skills/baseline-review/scripts/compare-baselines.sh *)
+  - Bash(rm -rf /tmp/baseline-review)
   - Read(/E2ETests/**/*.png)
   - Read(//tmp/baseline-review/**/*.png)
 description: >
