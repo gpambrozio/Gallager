@@ -62,15 +62,48 @@ public enum MultiWindowTabsIOSScenario {
         // Take screenshot — should show WINDOW_ONE_CONTENT with prompt visible
         TestStep.iosScreenshot(label: "ios-switched-to-window-1")
 
-        // ── Stage 4: Go back and re-enter ────────────────────────
+        // ── Stage 4: Verify macOS also switched to window 1 ──────
 
-        TestStep.log("Stage 4: Go back to session list and re-enter")
+        TestStep.log("Stage 4: Open macOS panes window and verify window 1 is selected")
+        Shortcut.openPanesWindow()
+        TestStep.macResizeWindow(width: 1_200, height: 700)
+        TestStep.wait(seconds: 1)
+
+        // Click the session in the sidebar — should show window 1 (tmux-active after iOS switch)
+        TestStep.macWaitForElement(titled: "ios-tabs", timeout: 5)
+        TestStep.macClickButton(titled: "ios-tabs")
+        TestStep.wait(seconds: 3)
+
+        // Screenshot should show window 1 content on macOS (WINDOW_ONE_CONTENT)
+        TestStep.macScreenshot(label: "mac-shows-window-1-after-ios-switch")
+
+        // ── Stage 5: Go back on iOS, switch tmux to window 0, re-enter ──
+
+        TestStep.log("Stage 5: Go back to iOS session list, switch tmux to window 0, re-enter")
         TestStep.iosTap(.label("Sessions"))
         TestStep.wait(seconds: 2)
 
-        // Switch tmux to window 1 to make it the active window
-        Shortcut.tmuxRunCommand(target: "ios-tabs:0.0", command: "tmux select-window -t ios-tabs:1")
+        // Switch tmux to window 0
+        Shortcut.tmuxRunCommand(target: "ios-tabs:1.0", command: "tmux select-window -t ios-tabs:0")
         // Wait for pane refresh to propagate the active window change
+        TestStep.wait(seconds: 12)
+
+        // Re-enter the session on iOS
+        TestStep.iosTap(.labelContains("ios-tabs"))
+        TestStep.wait(seconds: 3)
+
+        // Should show window 0 (the tmux-active window), with WINDOW_ZERO_CONTENT and prompt visible
+        TestStep.iosScreenshot(label: "ios-reenter-active-window-0")
+
+        // ── Stage 6: Go back on iOS, switch tmux to window 1, re-enter ──
+
+        TestStep.log("Stage 6: Go back, switch tmux to window 1, re-enter")
+        TestStep.iosTap(.label("Sessions"))
+        TestStep.wait(seconds: 2)
+
+        // Switch tmux to window 1
+        Shortcut.tmuxRunCommand(target: "ios-tabs:0.0", command: "tmux select-window -t ios-tabs:1")
+        // Wait for pane refresh
         TestStep.wait(seconds: 12)
 
         // Re-enter the session
