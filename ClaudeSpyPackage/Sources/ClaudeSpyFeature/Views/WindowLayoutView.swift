@@ -85,59 +85,48 @@
             }
             .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                // Window switcher Menu (always visible)
-                ToolbarItem(placement: .topBarLeading) {
-                    let windows = sessionWindows
-                    if windows.count > 1 || relayClient.isHostConnected {
-                        Menu {
-                            ForEach(windows) { win in
-                                Button {
-                                    selectedWindowId = win.id
-                                    activePaneId = win.activePane?.paneId ?? win.panes.first?.paneId
-                                    // Switch tmux to this window on the host
-                                    Task {
-                                        await sendCommand(.selectTmuxWindow, paneId: win.id)
-                                    }
-                                } label: {
-                                    HStack {
-                                        let label = windowTabLabel(for: win)
-                                        Text(label)
-                                        if win.id == (selectedWindowId ?? window?.id) {
-                                            Symbols.checkmark.image
-                                        }
-                                    }
-                                }
-                            }
-
-                            Divider()
-
-                            Button {
-                                Task {
-                                    let workingDir = window?.activePane?.currentPath
-                                    let spec = CreateTmuxWindow(sessionName: sessionName, workingDirectory: workingDir)
-                                    let result = await relayClient.sendCommand(spec, paneId: "")
-                                    if case let .success(response) = result, let paneId = response.paneId {
-                                        // Wait briefly for state update then switch to new window
-                                        await relayClient.requestSessionState()
-                                        try? await Task.sleep(for: .milliseconds(500))
-                                        if let newWindow = sessionWindows.first(where: { $0.panes.contains(where: { $0.paneId == paneId }) }) {
-                                            selectedWindowId = newWindow.id
-                                            activePaneId = paneId
-                                        }
-                                    }
-                                }
-                            } label: {
-                                Label("New Window", symbol: .plus)
-                            }
-                            .disabled(!relayClient.isHostConnected)
-                        } label: {
-                            let currentWindowLabel = window.map { windowTabLabel(for: $0) } ?? sessionName
-                            Label(currentWindowLabel, symbol: .rectangleSplit2x1)
+            .toolbarTitleMenu {
+                let windows = sessionWindows
+                ForEach(windows) { win in
+                    Button {
+                        selectedWindowId = win.id
+                        activePaneId = win.activePane?.paneId ?? win.panes.first?.paneId
+                        // Switch tmux to this window on the host
+                        Task {
+                            await sendCommand(.selectTmuxWindow, paneId: win.id)
+                        }
+                    } label: {
+                        if win.id == (selectedWindowId ?? window?.id) {
+                            Label(windowTabLabel(for: win), symbol: .checkmark)
+                        } else {
+                            Text(windowTabLabel(for: win))
                         }
                     }
                 }
 
+                Divider()
+
+                Button {
+                    Task {
+                        let workingDir = window?.activePane?.currentPath
+                        let spec = CreateTmuxWindow(sessionName: sessionName, workingDirectory: workingDir)
+                        let result = await relayClient.sendCommand(spec, paneId: "")
+                        if case let .success(response) = result, let paneId = response.paneId {
+                            // Wait briefly for state update then switch to new window
+                            await relayClient.requestSessionState()
+                            try? await Task.sleep(for: .milliseconds(500))
+                            if let newWindow = sessionWindows.first(where: { $0.panes.contains(where: { $0.paneId == paneId }) }) {
+                                selectedWindowId = newWindow.id
+                                activePaneId = paneId
+                            }
+                        }
+                    }
+                } label: {
+                    Label("New Window", symbol: .plus)
+                }
+                .disabled(!relayClient.isHostConnected)
+            }
+            .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         isKeyboardActive.toggle()
