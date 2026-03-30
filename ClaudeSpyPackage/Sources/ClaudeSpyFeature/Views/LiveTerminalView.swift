@@ -527,12 +527,13 @@
             // (tall terminal overflow) to the bottom.
             terminalState.scrollToBottom = { [weak terminalView, weak scrollView] in
                 guard let terminalView else { return }
-                // Inner: scroll SwiftTerm's scrollback to bottom
+                // Inner: scroll SwiftTerm's scrollback to bottom (shows current terminal screen)
                 terminalView.scrollToBottom()
-                // Outer: scroll to show the bottom of a tall terminal
+                // Outer: scroll to top so the prompt (at the top of the terminal) is visible.
+                // When the terminal has more rows than the screen, scrolling to the bottom
+                // would hide the prompt behind empty rows at the bottom of the buffer.
                 if let scrollView {
-                    let maxY = max(0, scrollView.contentSize.height - scrollView.bounds.height)
-                    scrollView.contentOffset.y = maxY
+                    scrollView.contentOffset.y = 0
                 }
             }
 
