@@ -45,8 +45,9 @@ public enum MultiWindowTabsIOSScenario {
         Shortcut.iosConnectToSession(sessionName: "ios-tabs")
         TestStep.wait(seconds: 3)
 
-        // Take screenshot — should show WINDOW_ZERO_CONTENT with prompt visible
+        // Screenshot + verify the iOS app is showing window 0 (status bar shows pane target)
         TestStep.iosScreenshot(label: "ios-initial-active-window")
+        TestStep.iosWaitForElement(.labelContains("ios-tabs:0"), timeout: 5)
 
         // ── Stage 3: Switch to window 1 via title menu ───────────
 
@@ -59,8 +60,9 @@ public enum MultiWindowTabsIOSScenario {
         TestStep.iosTap(.labelContains("1"))
         TestStep.wait(seconds: 3)
 
-        // Take screenshot — should show WINDOW_ONE_CONTENT with prompt visible
+        // Screenshot + verify the iOS app switched to window 1
         TestStep.iosScreenshot(label: "ios-switched-to-window-1")
+        TestStep.iosWaitForElement(.labelContains("ios-tabs:1"), timeout: 5)
 
         // ── Stage 4: Verify macOS also switched to window 1 ──────
 
@@ -74,7 +76,7 @@ public enum MultiWindowTabsIOSScenario {
         TestStep.macClickButton(titled: "ios-tabs")
         TestStep.wait(seconds: 3)
 
-        // Screenshot should show window 1 content on macOS (WINDOW_ONE_CONTENT)
+        // Screenshot — macOS should show window 1 content
         TestStep.macScreenshot(label: "mac-shows-window-1-after-ios-switch")
 
         // ── Stage 5: Go back on iOS, switch tmux to window 0, re-enter ──
@@ -92,8 +94,9 @@ public enum MultiWindowTabsIOSScenario {
         TestStep.iosTap(.labelContains("ios-tabs"))
         TestStep.wait(seconds: 3)
 
-        // Should show window 0 (the tmux-active window), with WINDOW_ZERO_CONTENT and prompt visible
+        // Screenshot + verify the iOS app shows window 0
         TestStep.iosScreenshot(label: "ios-reenter-active-window-0")
+        TestStep.iosWaitForElement(.labelContains("ios-tabs:0"), timeout: 5)
 
         // ── Stage 6: Go back on iOS, switch tmux to window 1, re-enter ──
 
@@ -110,7 +113,8 @@ public enum MultiWindowTabsIOSScenario {
         TestStep.iosTap(.labelContains("ios-tabs"))
         TestStep.wait(seconds: 3)
 
-        // Should show window 1 (the tmux-active window), with WINDOW_ONE_CONTENT and prompt visible
+        // Screenshot + verify the iOS app shows window 1
         TestStep.iosScreenshot(label: "ios-reenter-active-window-1")
+        TestStep.iosWaitForElement(.labelContains("ios-tabs:1"), timeout: 5)
     }
 }
