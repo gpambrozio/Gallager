@@ -3,8 +3,9 @@ name: baseline-review
 disable-model-invocation: true
 model: sonnet
 allowed-tools:
-  - Bash(/.claude/skills/baseline-review/scripts/compare-baselines.sh *)
+  - Bash(./.claude/skills/baseline-review/scripts/compare-baselines.sh *)
   - Read(/E2ETests/**/*.png)
+  - Read(//tmp/baseline-review/**/*.png)
 description: >
   Review E2E baseline image changes in the current PR. Use this skill when the user wants to
   review, audit, or understand what changed in E2E screenshot baselines, compare baseline images
