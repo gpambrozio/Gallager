@@ -63,8 +63,9 @@ public enum MultiPaneIOSScenario {
         TestStep.iosScreenshot(label: "session-list-with-claude")
 
         // 5. Open the multi-pane window layout view
+        //    After SessionStart hook, the row shows the project name from projectPath
         TestStep.log("Tap the multi-pane window to open layout view")
-        TestStep.iosTap(.labelContains("multi-ios"))
+        TestStep.iosTap(.labelContains("MultiPaneProject"))
         TestStep.wait(seconds: 3)
 
         // 6. Verify all panes connected (no "Connecting to terminal..." stuck)
