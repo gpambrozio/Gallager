@@ -525,15 +525,22 @@
 
             // Scroll both the inner terminal (scrollback) and outer scroll view
             // (tall terminal overflow) to the bottom.
+            let capturedCellSize = cellSize
             terminalState.scrollToBottom = { [weak terminalView, weak scrollView] in
                 guard let terminalView else { return }
                 // Inner: scroll SwiftTerm's scrollback to bottom (shows current terminal screen)
                 terminalView.scrollToBottom()
-                // Outer: scroll to top so the prompt (at the top of the terminal) is visible.
-                // When the terminal has more rows than the screen, scrolling to the bottom
-                // would hide the prompt behind empty rows at the bottom of the buffer.
-                if let scrollView {
-                    scrollView.contentOffset.y = 0
+                // Outer: scroll to show the cursor row (not absolute top or bottom).
+                // For a terminal taller than the screen, this ensures the prompt is visible
+                // whether it's at the top (nearly empty) or bottom (full terminal).
+                if let scrollView, capturedCellSize.height > 0 {
+                    let terminal = terminalView.getTerminal()
+                    let cursorPixelY = CGFloat(terminal.buffer.y) * capturedCellSize.height
+                    let visibleHeight = scrollView.bounds.height
+                    // Scroll so the cursor row is near the bottom of the visible area
+                    let targetY = max(0, cursorPixelY - visibleHeight + capturedCellSize.height * 2)
+                    let maxY = max(0, scrollView.contentSize.height - visibleHeight)
+                    scrollView.contentOffset.y = min(targetY, maxY)
                 }
             }
 
