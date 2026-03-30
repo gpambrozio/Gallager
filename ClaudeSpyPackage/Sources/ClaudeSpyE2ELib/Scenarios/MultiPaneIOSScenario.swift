@@ -58,8 +58,8 @@ public enum MultiPaneIOSScenario {
         )
         TestStep.wait(seconds: 3)
 
-        // Verify the window row now shows "Claude session active"
-        TestStep.iosWaitForElement(.labelContains("Claude session active"), timeout: 10)
+        // Verify the session row shows the Claude session (SessionRowView with event info)
+        TestStep.iosWaitForElement(.labelContains("Session Started"), timeout: 10)
         TestStep.iosScreenshot(label: "session-list-with-claude")
 
         // 5. Open the multi-pane window layout view
