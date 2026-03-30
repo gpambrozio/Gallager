@@ -78,6 +78,8 @@ public enum MultiWindowTabsIOSScenario {
 
         // Screenshot — macOS should show window 1 content
         TestStep.macScreenshot(label: "mac-shows-window-1-after-ios-switch")
+        // Verify the window 1 tab is selected on macOS
+        TestStep.macWaitForElementQuery(.allOf([.labelContains("ios-tabs:1"), .valueContains("selected")]), timeout: 5)
 
         // ── Stage 5: Go back on iOS, switch tmux to window 0, re-enter ──
 

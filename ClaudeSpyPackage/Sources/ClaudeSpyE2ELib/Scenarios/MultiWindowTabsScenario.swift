@@ -33,8 +33,9 @@ public enum MultiWindowTabsScenario {
         TestStep.macClickButton(titled: "tabtest")
         TestStep.wait(seconds: 3)
 
-        // Tab bar should show window 0 tab
+        // Tab bar should show window 0 tab, selected
         TestStep.macScreenshot(label: "single-window-with-tab")
+        TestStep.macWaitForElementQuery(.allOf([.labelContains("tabtest:0"), .valueContains("selected")]), timeout: 5)
 
         // ── Stage 2: Create a second window ─────────────────────
 
@@ -55,6 +56,7 @@ public enum MultiWindowTabsScenario {
         TestStep.wait(seconds: 3)
 
         TestStep.macScreenshot(label: "switched-to-window-0")
+        TestStep.macWaitForElementQuery(.allOf([.labelContains("tabtest:0"), .valueContains("selected")]), timeout: 5)
 
         // ── Stage 4: Switch back to second window tab ────────────
 
@@ -63,6 +65,7 @@ public enum MultiWindowTabsScenario {
         TestStep.wait(seconds: 3)
 
         TestStep.macScreenshot(label: "switched-to-window-1")
+        TestStep.macWaitForElementQuery(.allOf([.labelContains("tabtest:1"), .valueContains("selected")]), timeout: 5)
 
         // ── Stage 4b: Re-selecting session opens tmux-active window ──
 
@@ -84,6 +87,7 @@ public enum MultiWindowTabsScenario {
         TestStep.wait(seconds: 3)
 
         TestStep.macScreenshot(label: "reselect-opens-active-window")
+        TestStep.macWaitForElementQuery(.allOf([.labelContains("tabtest:0"), .valueContains("selected")]), timeout: 5)
 
         // Clean up temp session
         Shortcut.tmuxRunCommand(target: "temp-deselect:0.0", command: "exit")

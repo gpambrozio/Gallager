@@ -1395,6 +1395,7 @@ private struct WindowTabBar: View {
         .buttonStyle(.plain)
         .foregroundStyle(isSelected ? .primary : .secondary)
         .accessibilityLabel(window.id)
+        .accessibilityValue(isSelected ? "selected" : "")
     }
 
     private func tabLabel(for window: LocalTmuxWindow) -> String {
