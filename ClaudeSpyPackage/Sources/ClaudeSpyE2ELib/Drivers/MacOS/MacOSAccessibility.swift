@@ -95,9 +95,8 @@ enum MacOSAccessibility {
     }
 
     /// Perform AXPress on an element matching the query.
-    /// Tries all matching elements in tree order, walking up parents for each.
-    /// This handles cases where the text matches a non-pressable body element
-    /// before the actual button (e.g. dialog body text vs the confirm button).
+    /// Prioritizes AXButton elements to avoid accidentally triggering actions on
+    /// non-interactive ancestors (e.g. outline view disclosure toggles on section headers).
     /// Falls back to CGEvent click at the first match with a frame.
     @discardableResult
     static func press(appPID: pid_t, matching query: ElementQuery) -> Bool {
@@ -107,8 +106,15 @@ enum MacOSAccessibility {
             return false
         }
 
+        // Partition matches: try buttons/checkboxes first, then other elements.
+        // This prevents substring matches on section header text (e.g. "Terminals")
+        // from triggering outline view disclosure collapse via pressOrWalkParents,
+        // when the intended target is a button further down the tree.
+        let (buttons, others) = partitionByRole(matches)
+        let orderedMatches = buttons + others
+
         // Try AXPress on each match and its ancestors
-        if matches.first(where: { pressOrWalkParents($0) }) != nil {
+        if orderedMatches.first(where: { pressOrWalkParents($0) }) != nil {
             logger.info("AXPress succeeded for \(query)")
             return true
         }
@@ -319,6 +325,38 @@ enum MacOSAccessibility {
         }
 
         return roots
+    }
+
+    // MARK: - Private: Role Partitioning
+
+    /// Interactive AX roles whose elements should be tried before static text/groups.
+    private static let interactiveRoles: Set<String> = [
+        "AXButton", "AXCheckBox", "AXRadioButton", "AXMenuItem",
+        "AXPopUpButton", "AXToggle", "AXLink", "AXCell",
+    ]
+
+    /// Partition raw AXUIElements into (interactive, other) based on their AX role.
+    /// Interactive elements (buttons, checkboxes, etc.) are more likely the intended target
+    /// than static text that happens to substring-match.
+    private static func partitionByRole(_ elements: [AXUIElement]) -> (interactive: [AXUIElement], other: [AXUIElement]) {
+        var interactive: [AXUIElement] = []
+        var other: [AXUIElement] = []
+        for element in elements {
+            if let role = roleOf(element), interactiveRoles.contains(role) {
+                interactive.append(element)
+            } else {
+                other.append(element)
+            }
+        }
+        return (interactive, other)
+    }
+
+    /// Get the AX role string of a raw AXUIElement.
+    private static func roleOf(_ element: AXUIElement) -> String? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &value)
+        guard result == .success, let str = value as? String else { return nil }
+        return str
     }
 
     // MARK: - Private: Parent Walking

@@ -99,9 +99,10 @@ public enum MultiPaneWindowScenario {
 
         TestStep.macClickButton(titled: "New Terminal")
         TestStep.wait(seconds: 3)
+        // The new session is auto-selected on creation — no need to click the sidebar entry.
+        // Explicitly clicking it would risk hitting the "Terminals" section header via
+        // substring matching, which can trigger outline disclosure collapse via AXPress.
         TestStep.macWaitForElement(titled: "terminal", timeout: 5)
-        TestStep.macClickButton(titled: "terminal")
-        TestStep.wait(seconds: 3)
 
         // Use session-relative targets (not global %N pane IDs which auto-increment)
         Shortcut.tmuxRunCommand(target: "terminal:0.0", command: "tmux split-window -h")
