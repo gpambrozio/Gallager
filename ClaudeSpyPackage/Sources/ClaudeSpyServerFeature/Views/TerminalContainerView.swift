@@ -311,9 +311,11 @@ struct TerminalContainerView: NSViewRepresentable {
             let bytes = [UInt8](data)[...]
 
             if !hasScrolledInitial {
-                // First data - feed, scroll to bottom, enable preservation
+                // First data - feed and enable scroll preservation.
+                // Don't scrollToBottom here: for terminals taller than the viewport,
+                // scrolling to bottom shows empty rows and hides the prompt at the top.
+                // SwiftTerm's natural rendering starts from the top which is correct.
                 terminalView.feed(byteArray: bytes)
-                scrollToBottom()
                 terminalView.preserveUserScroll = true
                 hasScrolledInitial = true
             } else {
