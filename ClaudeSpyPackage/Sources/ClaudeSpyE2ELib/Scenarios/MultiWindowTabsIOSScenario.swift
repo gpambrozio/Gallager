@@ -52,8 +52,8 @@ public enum MultiWindowTabsIOSScenario {
         // ── Stage 3: Switch to window 1 via title menu ───────────
 
         TestStep.log("Stage 3: Switch to window 1 via title menu")
-        // Tap the navigation title (which has the toolbarTitleMenu chevron)
-        TestStep.iosTap(.label("ios-tabs"))
+        // Tap the navigation title menu (principal toolbar item with chevron)
+        TestStep.iosTap(.labelContains("ios-tabs"))
         TestStep.wait(seconds: 1)
 
         // Tap window 1 in the menu

@@ -83,50 +83,58 @@
                     )
                 }
             }
-            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarTitleMenu {
-                let windows = sessionWindows
-                ForEach(windows) { win in
-                    Button {
-                        selectedWindowId = win.id
-                        activePaneId = win.activePane?.paneId ?? win.panes.first?.paneId
-                        // Switch tmux to this window on the host
-                        Task {
-                            await sendCommand(.selectTmuxWindow, paneId: win.id)
-                        }
-                    } label: {
-                        if win.id == (selectedWindowId ?? window?.id) {
-                            Label(windowTabLabel(for: win), symbol: .checkmark)
-                        } else {
-                            Text(windowTabLabel(for: win))
-                        }
-                    }
-                }
-
-                Divider()
-
-                Button {
-                    Task {
-                        let workingDir = window?.activePane?.currentPath
-                        let spec = CreateTmuxWindow(sessionName: sessionName, workingDirectory: workingDir)
-                        let result = await relayClient.sendCommand(spec, paneId: "")
-                        if case let .success(response) = result, let paneId = response.paneId {
-                            // Wait briefly for state update then switch to new window
-                            await relayClient.requestSessionState()
-                            try? await Task.sleep(for: .milliseconds(500))
-                            if let newWindow = sessionWindows.first(where: { $0.panes.contains(where: { $0.paneId == paneId }) }) {
-                                selectedWindowId = newWindow.id
-                                activePaneId = paneId
+            .toolbar {
+                // Window switcher as title menu (placement: .principal replaces the title)
+                ToolbarItem(placement: .principal) {
+                    Menu {
+                        let windows = sessionWindows
+                        ForEach(windows) { win in
+                            Button {
+                                selectedWindowId = win.id
+                                activePaneId = win.activePane?.paneId ?? win.panes.first?.paneId
+                                Task {
+                                    await sendCommand(.selectTmuxWindow, paneId: win.id)
+                                }
+                            } label: {
+                                if win.id == (selectedWindowId ?? window?.id) {
+                                    Label(windowTabLabel(for: win), symbol: .checkmark)
+                                } else {
+                                    Text(windowTabLabel(for: win))
+                                }
                             }
                         }
+
+                        Divider()
+
+                        Button {
+                            Task {
+                                let workingDir = window?.activePane?.currentPath
+                                let spec = CreateTmuxWindow(sessionName: sessionName, workingDirectory: workingDir)
+                                let result = await relayClient.sendCommand(spec, paneId: "")
+                                if case let .success(response) = result, let paneId = response.paneId {
+                                    await relayClient.requestSessionState()
+                                    try? await Task.sleep(for: .milliseconds(500))
+                                    if let newWindow = sessionWindows.first(where: { $0.panes.contains(where: { $0.paneId == paneId }) }) {
+                                        selectedWindowId = newWindow.id
+                                        activePaneId = paneId
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label("New Window", symbol: .plus)
+                        }
+                        .disabled(!relayClient.isHostConnected)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(navigationTitle)
+                                .fontWeight(.semibold)
+                            Symbols.chevronDown.image
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                } label: {
-                    Label("New Window", symbol: .plus)
                 }
-                .disabled(!relayClient.isHostConnected)
-            }
-            .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         isKeyboardActive.toggle()
