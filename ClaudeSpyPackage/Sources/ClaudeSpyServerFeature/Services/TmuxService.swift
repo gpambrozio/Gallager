@@ -40,9 +40,13 @@ private func isNoServerError(_ stderr: String) -> Bool {
 @Observable
 @MainActor
 final public class TmuxService {
-    /// Enables Claude Code's fullscreen rendering mode with mouse support and
-    /// flicker-free output. Set on all sessions/windows/panes created by the app.
-    private static let claudeCodeEnvVar = "CLAUDE_CODE_NO_FLICKER=1"
+    /// Environment variables set on all sessions/windows/panes created by the app.
+    /// Includes Claude Code rendering config and oh-my-zsh update suppression.
+    private static let terminalEnvironmentVars = [
+        "CLAUDE_CODE_NO_FLICKER=1",
+        "DISABLE_AUTO_UPDATE=true",
+        "DISABLE_UPDATE_PROMPT=true",
+    ]
 
     @ObservationIgnored
     @Dependency(ProcessRunner.self) private var processRunner
@@ -1002,8 +1006,7 @@ final public class TmuxService {
             flag,
             "-t", target,
             "-P", "-F", "#{pane_id}", // Print new pane ID
-            "-e", Self.claudeCodeEnvVar,
-        ])
+        ] + Self.terminalEnvironmentVars.flatMap { ["-e", $0] })
 
         guard result.isSuccess else {
             throw TmuxError.commandFailed(message: result.stderrString)
@@ -1049,8 +1052,7 @@ final public class TmuxService {
             "new-window",
             "-t", sessionName,
             "-P", "-F", "#{pane_id}",
-            "-e", Self.claudeCodeEnvVar,
-        ]
+        ] + Self.terminalEnvironmentVars.flatMap { ["-e", $0] }
 
         if let workingDirectory {
             args += ["-c", workingDirectory]
@@ -1141,10 +1143,7 @@ final public class TmuxService {
             "-s", sessionName,
             "-x", String(width),
             "-y", String(height),
-            "-e", "DISABLE_AUTO_UPDATE=true",
-            "-e", "DISABLE_UPDATE_PROMPT=true",
-            "-e", Self.claudeCodeEnvVar,
-        ]
+        ] + Self.terminalEnvironmentVars.flatMap { ["-e", $0] }
 
         // Add working directory if specified
         if let workingDirectory, !workingDirectory.isEmpty {
