@@ -24,13 +24,13 @@ public enum ProjectSearchMacOSScenario {
         TestStep.macWaitForElement(titled: "BetaProject", timeout: 5)
         TestStep.macWaitForElement(titled: "GammaService", timeout: 5)
         TestStep.macWaitForElement(titled: "DeltaApp", timeout: 5)
-        TestStep.macScreenshot(label: "all-projects-visible", compare: false)
+        TestStep.macScreenshot(label: "mac-all-projects-visible", compare: false)
 
         // ── Type fuzzy search to filter projects ────────────────
         TestStep.log("Typing 'alpr' to test fuzzy/subsequence matching")
         TestStep.macType(text: "alpr")
         TestStep.wait(seconds: 1)
-        TestStep.macScreenshot(label: "fuzzy-search-filtered", compare: false)
+        TestStep.macScreenshot(label: "mac-fuzzy-search-filtered", compare: false)
 
         // AlphaProject should still be visible, others should be filtered out
         TestStep.macWaitForElement(titled: "AlphaProject", timeout: 5)
@@ -46,7 +46,7 @@ public enum ProjectSearchMacOSScenario {
         // "AlphaProject" can't be used here because it appears in the sidebar
         // as the newly created session's project label.
         TestStep.macWaitForElementToDisappear(titled: "Search projects", timeout: 5)
-        TestStep.macScreenshot(label: "project-selected", compare: false)
+        TestStep.macScreenshot(label: "mac-project-selected", compare: false)
 
         // ── Teardown ─────────────────────────────────────────────
         TestStep.terminateMacApp()

@@ -60,7 +60,7 @@ public enum YoloModeContextCompactionScenario {
             titled: "Yolo mode: auto-approving permissions (click to disable)",
             timeout: 10
         )
-        TestStep.macScreenshot(label: "yolo-enabled-before-compaction")
+        TestStep.macScreenshot(label: "mac-yolo-enabled-before-compaction")
 
         // ── Phase 3: Simulate context compaction (SessionStart without SessionEnd) ──
 
@@ -83,7 +83,7 @@ public enum YoloModeContextCompactionScenario {
             titled: "Yolo mode: auto-approving permissions (click to disable)",
             timeout: 10
         )
-        TestStep.macScreenshot(label: "yolo-preserved-after-compaction")
+        TestStep.macScreenshot(label: "mac-yolo-preserved-after-compaction")
 
         // ── Phase 4: Normal session end clears yolo ─────────────
 
@@ -104,7 +104,7 @@ public enum YoloModeContextCompactionScenario {
 
         // Session ended — pane moves back to Terminals
         TestStep.macWaitForElementToDisappear(titled: "Claude Sessions", timeout: 10)
-        TestStep.macScreenshot(label: "session-ended-yolo-cleared")
+        TestStep.macScreenshot(label: "mac-session-ended-yolo-cleared")
 
         // ── Phase 5: New session starts without yolo leaked ─────
 
@@ -131,6 +131,6 @@ public enum YoloModeContextCompactionScenario {
             titled: "Enable yolo mode to auto-approve permissions",
             timeout: 10
         )
-        TestStep.macScreenshot(label: "new-session-yolo-off")
+        TestStep.macScreenshot(label: "mac-new-session-yolo-off")
     }
 }

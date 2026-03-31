@@ -31,7 +31,7 @@ public enum MultiPaneWindowScenario {
         TestStep.macWaitForElement(titled: "multi-pane", timeout: 5)
         TestStep.macClickButton(titled: "multi-pane")
         TestStep.wait(seconds: 3)
-        TestStep.macScreenshot(label: "single-pane")
+        TestStep.macScreenshot(label: "mac-single-pane")
 
         // ── Stage 2: Vertical split (left | right) ─────────────
 
@@ -44,7 +44,7 @@ public enum MultiPaneWindowScenario {
         Shortcut.tmuxRunCommand(target: "multi-pane:0.1", command: "echo 'Created by vertical split'")
         TestStep.wait(seconds: 3)
 
-        TestStep.macScreenshot(label: "two-panes-vertical-split")
+        TestStep.macScreenshot(label: "mac-two-panes-vertical-split")
 
         // ── Stage 3: Horizontal split (right splits into top/bottom) ──
 
@@ -57,7 +57,7 @@ public enum MultiPaneWindowScenario {
         Shortcut.tmuxRunCommand(target: "multi-pane:0.2", command: "echo 'Created by horizontal split of right pane'")
         TestStep.wait(seconds: 3)
 
-        TestStep.macScreenshot(label: "three-panes-final-layout")
+        TestStep.macScreenshot(label: "mac-three-panes-final-layout")
 
         // ── Stage 4: More content in all panes ──────────────────
 
@@ -67,7 +67,7 @@ public enum MultiPaneWindowScenario {
         Shortcut.tmuxRunCommand(target: "multi-pane:0.2", command: "echo 'Bottom-right reporting for duty'")
         TestStep.wait(seconds: 3)
 
-        TestStep.macScreenshot(label: "all-panes-with-extra-content")
+        TestStep.macScreenshot(label: "mac-all-panes-with-extra-content")
 
         // ── Stage 5: Exit left pane (original, 3 → 2 panes) ─────
 
@@ -75,7 +75,7 @@ public enum MultiPaneWindowScenario {
         Shortcut.tmuxRunCommand(target: "multi-pane:0.0", command: "exit")
         TestStep.wait(seconds: 3)
 
-        TestStep.macScreenshot(label: "two-panes-after-exit")
+        TestStep.macScreenshot(label: "mac-two-panes-after-exit")
 
         // ── Stage 6: Exit top-right pane (second created, 2 → 1 pane) ──
 
@@ -83,7 +83,7 @@ public enum MultiPaneWindowScenario {
         Shortcut.tmuxRunCommand(target: "multi-pane:0.0", command: "exit")
         TestStep.wait(seconds: 3)
 
-        TestStep.macScreenshot(label: "single-pane-after-exits")
+        TestStep.macScreenshot(label: "mac-single-pane-after-exits")
 
         // ── Stage 7: Exit last pane (third created) — window disappears ──
 
@@ -95,7 +95,7 @@ public enum MultiPaneWindowScenario {
         TestStep.macWaitForElementToDisappear(titled: "multi-pane", timeout: 10)
         // With no panes left, the app shows the "New Session" empty state
         TestStep.macWaitForElement(titled: "New Session", timeout: 5)
-        TestStep.macScreenshot(label: "no-panes-empty-state")
+        TestStep.macScreenshot(label: "mac-no-panes-empty-state")
 
         TestStep.macClickButton(titled: "New Terminal")
         TestStep.wait(seconds: 3)
@@ -110,7 +110,7 @@ public enum MultiPaneWindowScenario {
 
         Shortcut.tmuxRunCommand(target: "terminal:0.1", command: "tmux split-window -v")
         TestStep.wait(seconds: 3)
-        TestStep.macScreenshot(label: "three-panes-new-session")
+        TestStep.macScreenshot(label: "mac-three-panes-new-session")
 
         Shortcut.tmuxRunCommand(target: "terminal:0.2", command: "exit")
         TestStep.wait(seconds: 3)
@@ -120,6 +120,6 @@ public enum MultiPaneWindowScenario {
 
         Shortcut.tmuxRunCommand(target: "terminal:0.0", command: "echo 'Still here'")
         TestStep.wait(seconds: 3)
-        TestStep.macScreenshot(label: "last-should-have-echo")
+        TestStep.macScreenshot(label: "mac-last-should-have-echo")
     }
 }

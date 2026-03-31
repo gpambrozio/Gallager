@@ -114,45 +114,45 @@ public enum TruecolorRenderingScenario {
         TestStep.log("Variant 1/5: Standard Gradients")
         Shortcut.tmuxRunCommand(target: "truecolor-test:0", command: "V=0 python3 $TMPDIR/tc.py")
         TestStep.wait(seconds: 6)
-        TestStep.macScreenshot(label: "v1-standard-gradients")
+        TestStep.macScreenshot(label: "mac-v1-standard-gradients")
         TestStep.wait(seconds: 1)
-        TestStep.iosScreenshot(label: "v1-standard-gradients-ios")
+        TestStep.iosScreenshot(label: "ios-v1-standard-gradients")
 
         // ── Variant 2: Wide warm boxes (4 boxes, 55x7) ──────────────
 
         TestStep.log("Variant 2/5: Wide Warm Boxes")
         Shortcut.tmuxRunCommand(target: "truecolor-test:0", command: "V=1 python3 $TMPDIR/tc.py")
         TestStep.wait(seconds: 6)
-        TestStep.macScreenshot(label: "v2-wide-warm-boxes")
+        TestStep.macScreenshot(label: "mac-v2-wide-warm-boxes")
         TestStep.wait(seconds: 1)
-        TestStep.iosScreenshot(label: "v2-wide-warm-boxes-ios")
+        TestStep.iosScreenshot(label: "ios-v2-wide-warm-boxes")
 
         // ── Variant 3: Small cool grid (9 boxes, 25x3) ──────────────
 
         TestStep.log("Variant 3/5: Small Cool Grid")
         Shortcut.tmuxRunCommand(target: "truecolor-test:0", command: "V=2 python3 $TMPDIR/tc.py")
         TestStep.wait(seconds: 6)
-        TestStep.macScreenshot(label: "v3-small-cool-grid")
+        TestStep.macScreenshot(label: "mac-v3-small-cool-grid")
         TestStep.wait(seconds: 1)
-        TestStep.iosScreenshot(label: "v3-small-cool-grid-ios")
+        TestStep.iosScreenshot(label: "ios-v3-small-cool-grid")
 
         // ── Variant 4: Full-width bars (6 bars, 100x3) ──────────────
 
         TestStep.log("Variant 4/5: Full-Width Bars")
         Shortcut.tmuxRunCommand(target: "truecolor-test:0", command: "V=3 python3 $TMPDIR/tc.py")
         TestStep.wait(seconds: 6)
-        TestStep.macScreenshot(label: "v4-full-width-bars")
+        TestStep.macScreenshot(label: "mac-v4-full-width-bars")
         TestStep.wait(seconds: 1)
-        TestStep.iosScreenshot(label: "v4-full-width-bars-ios")
+        TestStep.iosScreenshot(label: "ios-v4-full-width-bars")
 
         // ── Variant 5: Dense rainbow grid (12 boxes, 20x4) ──────────
 
         TestStep.log("Variant 5/5: Dense Rainbow Grid")
         Shortcut.tmuxRunCommand(target: "truecolor-test:0", command: "V=4 python3 $TMPDIR/tc.py")
         TestStep.wait(seconds: 6)
-        TestStep.macScreenshot(label: "v5-dense-rainbow-grid")
+        TestStep.macScreenshot(label: "mac-v5-dense-rainbow-grid")
         TestStep.wait(seconds: 1)
-        TestStep.iosScreenshot(label: "v5-dense-rainbow-grid-ios")
+        TestStep.iosScreenshot(label: "ios-v5-dense-rainbow-grid")
 
         // ── Cleanup ──────────────────────────────────────────────────
 

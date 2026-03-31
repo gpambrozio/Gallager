@@ -122,7 +122,7 @@ public enum KittyKeyboardProtocolScenario {
 
         // Screenshot right after script execution — shows the actual
         // mirror output, useful for debugging failures.
-        TestStep.macScreenshot(label: "kitty-script-output")
+        TestStep.macScreenshot(label: "mac-kitty-script-output")
 
         // ── Capture and assert ─────────────────────────────────────────
 
@@ -151,7 +151,7 @@ public enum KittyKeyboardProtocolScenario {
         TestStep.assertStoredNotContains(key: "kittyOutput", substring: "5u")
         TestStep.assertStoredNotContains(key: "kittyOutput", substring: "^[")
 
-        TestStep.macScreenshot(label: "kitty-protocol-filtered")
+        TestStep.macScreenshot(label: "mac-kitty-protocol-filtered")
 
         // ── Cleanup ────────────────────────────────────────────────────
 
