@@ -220,6 +220,85 @@ struct StripKittyKeyboardProtocolTests {
     }
 }
 
+// MARK: - isMouseEscapeSequence
+
+@Suite("TerminalResponseFilter.isMouseEscapeSequence")
+struct IsMouseEscapeSequenceTests {
+    @Test("Detects SGR mouse press: ESC[<0;42;10M")
+    func detectsSGRMousePress() {
+        // ESC [ < 0 ; 4 2 ; 1 0 M
+        let data: [UInt8] = [0x1B, 0x5B, 0x3C, 0x30, 0x3B, 0x34, 0x32, 0x3B, 0x31, 0x30, 0x4D]
+        #expect(TerminalResponseFilter.isMouseEscapeSequence(data[...]))
+    }
+
+    @Test("Detects SGR mouse release: ESC[<0;42;10m")
+    func detectsSGRMouseRelease() {
+        // ESC [ < 0 ; 4 2 ; 1 0 m
+        let data: [UInt8] = [0x1B, 0x5B, 0x3C, 0x30, 0x3B, 0x34, 0x32, 0x3B, 0x31, 0x30, 0x6D]
+        #expect(TerminalResponseFilter.isMouseEscapeSequence(data[...]))
+    }
+
+    @Test("Detects SGR mouse motion: ESC[<32;200;100M")
+    func detectsSGRMouseMotion() {
+        // ESC [ < 3 2 ; 2 0 0 ; 1 0 0 M
+        let data: [UInt8] = [0x1B, 0x5B, 0x3C, 0x33, 0x32, 0x3B, 0x32, 0x30, 0x30, 0x3B, 0x31, 0x30, 0x30, 0x4D]
+        #expect(TerminalResponseFilter.isMouseEscapeSequence(data[...]))
+    }
+
+    @Test("Detects SGR scroll up: ESC[<64;1;1M")
+    func detectsSGRScrollUp() {
+        // ESC [ < 6 4 ; 1 ; 1 M
+        let data: [UInt8] = [0x1B, 0x5B, 0x3C, 0x36, 0x34, 0x3B, 0x31, 0x3B, 0x31, 0x4D]
+        #expect(TerminalResponseFilter.isMouseEscapeSequence(data[...]))
+    }
+
+    @Test("Detects X10 normal mouse: ESC[M followed by 3 bytes")
+    func detectsX10NormalMouse() {
+        // ESC [ M (button) (col) (row)
+        let data: [UInt8] = [0x1B, 0x5B, 0x4D, 0x20, 0x21, 0x22]
+        #expect(TerminalResponseFilter.isMouseEscapeSequence(data[...]))
+    }
+
+    @Test("Rejects SGR with wrong terminator: ESC[<0;1;1c")
+    func rejectsSGRWrongTerminator() {
+        // ESC [ < 0 ; 1 ; 1 c — 'c' is not 'M' or 'm'
+        let data: [UInt8] = [0x1B, 0x5B, 0x3C, 0x30, 0x3B, 0x31, 0x3B, 0x31, 0x63]
+        #expect(!TerminalResponseFilter.isMouseEscapeSequence(data[...]))
+    }
+
+    @Test("Rejects too-short SGR sequence")
+    func rejectsTooShortSGR() {
+        // ESC [ < 0 M — only 5 bytes, minimum is 10
+        let data: [UInt8] = [0x1B, 0x5B, 0x3C, 0x30, 0x4D]
+        #expect(!TerminalResponseFilter.isMouseEscapeSequence(data[...]))
+    }
+
+    @Test("Rejects too-short X10 sequence (5 bytes)")
+    func rejectsTooShortX10() {
+        // ESC [ M + only 2 bytes
+        let data: [UInt8] = [0x1B, 0x5B, 0x4D, 0x20, 0x21]
+        #expect(!TerminalResponseFilter.isMouseEscapeSequence(data[...]))
+    }
+
+    @Test("Rejects regular CSI cursor up: ESC[1A")
+    func rejectsRegularCSI() {
+        let data: [UInt8] = [0x1B, 0x5B, 0x31, 0x41]
+        #expect(!TerminalResponseFilter.isMouseEscapeSequence(data[...]))
+    }
+
+    @Test("Rejects data shorter than 3 bytes")
+    func rejectsShortData() {
+        let data: [UInt8] = [0x1B, 0x5B]
+        #expect(!TerminalResponseFilter.isMouseEscapeSequence(data[...]))
+    }
+
+    @Test("Rejects empty data")
+    func rejectsEmptyData() {
+        let data: [UInt8] = []
+        #expect(!TerminalResponseFilter.isMouseEscapeSequence(data[...]))
+    }
+}
+
 // MARK: - isTerminalResponse
 
 @Suite("TerminalResponseFilter.isTerminalResponse")

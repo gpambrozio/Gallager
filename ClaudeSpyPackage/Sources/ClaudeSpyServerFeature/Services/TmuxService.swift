@@ -40,6 +40,10 @@ private func isNoServerError(_ stderr: String) -> Bool {
 @Observable
 @MainActor
 final public class TmuxService {
+    /// Enables Claude Code's fullscreen rendering mode with mouse support and
+    /// flicker-free output. Set on all sessions/windows/panes created by the app.
+    private static let claudeCodeEnvVar = "CLAUDE_CODE_NO_FLICKER=1"
+
     @ObservationIgnored
     @Dependency(ProcessRunner.self) private var processRunner
     private var tmuxPath: String
@@ -998,7 +1002,7 @@ final public class TmuxService {
             flag,
             "-t", target,
             "-P", "-F", "#{pane_id}", // Print new pane ID
-            "-e", "CLAUDE_CODE_NO_FLICKER=1",
+            "-e", Self.claudeCodeEnvVar,
         ])
 
         guard result.isSuccess else {
@@ -1045,7 +1049,7 @@ final public class TmuxService {
             "new-window",
             "-t", sessionName,
             "-P", "-F", "#{pane_id}",
-            "-e", "CLAUDE_CODE_NO_FLICKER=1",
+            "-e", Self.claudeCodeEnvVar,
         ]
 
         if let workingDirectory {
@@ -1139,7 +1143,7 @@ final public class TmuxService {
             "-y", String(height),
             "-e", "DISABLE_AUTO_UPDATE=true",
             "-e", "DISABLE_UPDATE_PROMPT=true",
-            "-e", "CLAUDE_CODE_NO_FLICKER=1",
+            "-e", Self.claudeCodeEnvVar,
         ]
 
         // Add working directory if specified
