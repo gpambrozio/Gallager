@@ -15,9 +15,8 @@ struct TextFileContents: FileContents {
     }
 
     func data() throws -> Data {
-        guard let data = text.data(using: .utf8) else { throw CocoaError(.formatting) }
-        return data
+        return Data(text.utf8)
     }
 
-    mutating func flush() throws {}
+    mutating func flush() throws { }
 }
