@@ -252,6 +252,9 @@ struct TmuxPaneMirrorApp: App {
             MenuBarLabel(pendingCount: totalPendingSessionCount)
                 .task {
                     await coordinator.setupAllServices()
+                    if coordinator.settings.openPanesWindowOnLaunch {
+                        NotificationCenter.default.post(name: .openPanesWindow, object: nil)
+                    }
                 }
         }
     }

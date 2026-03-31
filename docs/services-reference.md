@@ -325,7 +325,7 @@ command, currentPath, width, height, isActive
 `@Observable @MainActor` with UserDefaults:
 
 - **Terminal:** fontName, fontSize, scrollbackLines, theme
-- **Behavior:** restoreWindowsOnLaunch, showStatusBar, autoConnectToServer, preventSleepDuringSessions
+- **Behavior:** openPanesWindowOnLaunch, showStatusBar, autoConnectToServer, preventSleepDuringSessions
 - **Tmux:** tmuxPath, tmuxSocket
 - **Remote Access:** externalServerURL, deviceId, pairedDevices
 - **Claude:** autoRunClaudeInProjects, claudeCommandPath
