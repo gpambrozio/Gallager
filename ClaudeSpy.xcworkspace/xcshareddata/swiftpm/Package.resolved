@@ -1,5 +1,5 @@
 {
-  "originHash" : "92b7b6e0dd69992db0d45e547c1b40015888c1756bc6a4adc7abaa5cde725a00",
+  "originHash" : "c8a948183b0f980d1e2661dbb1219a87a039739c168d73da1d252099942c9d1c",
   "pins" : [
     {
       "identity" : "apns",
@@ -71,6 +71,15 @@
       "state" : {
         "revision" : "3498e60218e6003894ff95192d756e238c01f44e",
         "version" : "4.7.1"
+      }
+    },
+    {
+      "identity" : "projectnavigator",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mchakravarty/ProjectNavigator",
+      "state" : {
+        "revision" : "c62003c4c79e92b8dea9efb8d08c55db1a2e9cce",
+        "version" : "1.7.0"
       }
     },
     {

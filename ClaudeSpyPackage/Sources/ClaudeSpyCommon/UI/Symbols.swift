@@ -32,6 +32,7 @@ public enum Symbols: String {
     case circle
     case docBadgeGearshapeFill = "doc.badge.gearshape.fill"
     case docOnClipboard = "doc.on.clipboard"
+    case docPlaintextFill = "doc.plaintext.fill"
     case docTextFill = "doc.text.fill"
     case ellipsisCircle = "ellipsis.circle"
     case exclamationmarkCircleFill = "exclamationmark.circle.fill"
@@ -39,6 +40,7 @@ public enum Symbols: String {
     case figureRun = "figure.run"
     case folder
     case folderBadgeGearshape = "folder.badge.gearshape"
+    case folderFill = "folder.fill"
     case folderBadgePlus = "folder.badge.plus"
     case gearshape
     case handsAndSparklesFill = "hands.and.sparkles.fill"

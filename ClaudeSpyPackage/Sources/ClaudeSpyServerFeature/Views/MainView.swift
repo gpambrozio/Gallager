@@ -41,6 +41,9 @@ public struct MainView: View {
     /// Debounce task for auto-resize (cancelled on each new geometry change)
     @State private var autoResizeTask: Task<Void, Never>?
 
+    /// Whether the file browser tab is selected (vs. a window tab)
+    @State private var showingFileBrowser = false
+
     public var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarContent
@@ -445,7 +448,9 @@ public struct MainView: View {
                     WindowTabBar(
                         session: session,
                         selectedWindow: window,
+                        isFileBrowserSelected: showingFileBrowser,
                         onSelectWindow: { newWindow in
+                            showingFileBrowser = false
                             selectedWindow = newWindow
                             Task {
                                 try? await tmuxService.selectWindow(newWindow.id)
@@ -465,11 +470,20 @@ public struct MainView: View {
                                     selectedWindow = newWindow
                                 }
                             }
+                        },
+                        onSelectFileBrowser: {
+                            showingFileBrowser = true
                         }
                     )
                 }
 
-                WindowPaneLayoutView(window: window)
+                if showingFileBrowser {
+                    FileBrowserView(
+                        directoryPath: window.activePane?.currentPath ?? NSHomeDirectory()
+                    )
+                } else {
+                    WindowPaneLayoutView(window: window)
+                }
             }
             .id(window.id)
         } else if tmuxService.panes.isEmpty && !settings.hasRemoteHosts {
@@ -1326,8 +1340,10 @@ private struct SessionSidebarRow: View {
 private struct WindowTabBar: View {
     let session: LocalTmuxSession
     let selectedWindow: LocalTmuxWindow
+    let isFileBrowserSelected: Bool
     let onSelectWindow: (LocalTmuxWindow) -> Void
     let onNewWindow: () -> Void
+    let onSelectFileBrowser: () -> Void
 
     @Environment(MirrorWindowManager.self) private var windowManager
 
@@ -1351,6 +1367,28 @@ private struct WindowTabBar: View {
                 .help("New window in \(session.sessionName)")
                 .accessibilityLabel("New Window")
 
+                // File browser tab
+                Button(action: onSelectFileBrowser) {
+                    Symbols.folderFill.image
+                        .font(.caption)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(isFileBrowserSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+                        .overlay(alignment: .bottom) {
+                            if isFileBrowserSelected {
+                                Rectangle()
+                                    .fill(Color.accentColor)
+                                    .frame(height: 2)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(isFileBrowserSelected ? .primary : .secondary)
+                .help("Browse files in \(session.sessionName)")
+                .accessibilityLabel("Files")
+                .accessibilityValue(isFileBrowserSelected ? "selected" : "")
+
                 Spacer()
             }
             .padding(.horizontal, 8)
@@ -1362,7 +1400,7 @@ private struct WindowTabBar: View {
     }
 
     private func windowTab(_ window: LocalTmuxWindow) -> some View {
-        let isSelected = window.id == selectedWindow.id
+        let isSelected = window.id == selectedWindow.id && !isFileBrowserSelected
         let hasClaude = window.panes.contains { windowManager.paneStates[$0.paneId]?.claudeSession != nil }
         let windowName = tabLabel(for: window)
 
