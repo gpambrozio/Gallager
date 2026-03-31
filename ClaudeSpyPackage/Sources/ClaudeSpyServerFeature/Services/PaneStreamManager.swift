@@ -106,7 +106,9 @@
             var defaults = Set<String>()
             defaults.insert(ProcessInfo.processInfo.hostName)
             var buffer = [CChar](repeating: 0, count: Int(MAXHOSTNAMELEN))
-            if gethostname(&buffer, buffer.count) == 0, let hostname = String(validatingCString: buffer) {
+            if
+                gethostname(&buffer, buffer.count) == 0,
+                let hostname = String(validating: buffer.prefix(while: { $0 != 0 }), as: UTF8.self) {
                 defaults.insert(hostname)
                 if let dotIndex = hostname.firstIndex(of: ".") {
                     defaults.insert(String(hostname[..<dotIndex]))

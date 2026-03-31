@@ -394,7 +394,7 @@
                     let response = await executor.execute(command)
                     if response.success {
                         let allPanes = await tmux.refreshPanes()
-                        await winManager.updatePaneStates(from: allPanes)
+                        winManager.updatePaneStates(from: allPanes)
                         await connectionManager?.pushSessionStateToAll()
                     }
                     return response
@@ -407,7 +407,7 @@
                     let response = await executor.execute(command)
                     if response.success {
                         let allPanes = await tmux.refreshPanes()
-                        await winManager.updatePaneStates(from: allPanes)
+                        winManager.updatePaneStates(from: allPanes)
                     }
                     return response
                 }
@@ -417,7 +417,7 @@
                     let response = await executor.execute(command)
                     if response.success {
                         let allPanes = await tmux.refreshPanes()
-                        await winManager.updatePaneStates(from: allPanes)
+                        winManager.updatePaneStates(from: allPanes)
                     }
                     return response
                 }
@@ -619,7 +619,7 @@
                 )
 
                 let allPanes = await tmuxService.refreshPanes()
-                await windowManager.updatePaneStates(from: allPanes)
+                windowManager.updatePaneStates(from: allPanes)
                 await connectionManager?.pushSessionStateToAll()
 
                 return .success(for: command.id, paneId: paneId)
