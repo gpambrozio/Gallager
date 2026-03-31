@@ -9,12 +9,15 @@
     /// `LiveTerminalView` instances in the correct split arrangement,
     /// matching the macOS `WindowPaneLayoutView`.
     struct WindowLayoutView: View {
-        let windowId: String
+        let sessionName: String
         let hostId: String
         let relayClient: ViewerRelayClient
         let settings: IOSSettings
 
         @Environment(SessionStore.self) private var sessionStore
+
+        /// The currently selected window within the session
+        @State private var selectedWindowId: String?
 
         /// The currently selected pane (receives keyboard input)
         @State private var activePaneId: String?
@@ -37,25 +40,35 @@
         /// Terminal titles detected via OSC escape sequences, keyed by pane ID
         @State private var terminalTitles: [String: String] = [:]
 
-        /// The current window data from the session store
-        private var window: TmuxWindow? {
-            sessionStore.window(id: windowId, hostId: hostId)
+        /// All windows in this session
+        private var sessionWindows: [TmuxWindow] {
+            sessionStore.windows(for: hostId).filter { $0.sessionName == sessionName }
+                .sorted { $0.windowIndex < $1.windowIndex }
         }
 
-        /// Navigation title: prefer custom description, then active pane's terminal title, then window ID
+        /// The current window data from the session store
+        private var window: TmuxWindow? {
+            if let selectedWindowId {
+                return sessionStore.window(id: selectedWindowId, hostId: hostId)
+            }
+            // Default to the active window in the session
+            return sessionWindows.first(where: \.isWindowActive) ?? sessionWindows.first
+        }
+
+        /// Navigation title: prefer custom description, then active pane's terminal title, then session name
         private var navigationTitle: String {
             if let desc = window?.customDescription { return desc }
             // Use the locally-captured OSC title first (updates in real-time)
             if let activeId = activePaneId, let title = terminalTitles[activeId] { return title }
             // For single-pane windows, use that pane's title even if not "active" yet
-            if let panes = window?.panes, panes.count == 1,
-               let pane = panes.first
-            {
+            if
+                let panes = window?.panes, panes.count == 1,
+                let pane = panes.first {
                 if let title = terminalTitles[pane.paneId] { return title }
                 // Fall back to the relay-provided terminal title
                 if let title = sessionStore.paneStates[pane.paneId]?.terminalTitle { return title }
             }
-            return windowId
+            return sessionName
         }
 
         var body: some View {
@@ -70,9 +83,58 @@
                     )
                 }
             }
-            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                // Window switcher as title menu (placement: .principal replaces the title)
+                ToolbarItem(placement: .principal) {
+                    Menu {
+                        let windows = sessionWindows
+                        ForEach(windows) { win in
+                            Button {
+                                selectedWindowId = win.id
+                                activePaneId = win.activePane?.paneId ?? win.panes.first?.paneId
+                                Task {
+                                    await sendCommand(.selectTmuxWindow, paneId: win.id)
+                                }
+                            } label: {
+                                if win.id == (selectedWindowId ?? window?.id) {
+                                    Label(windowTabLabel(for: win), symbol: .checkmark)
+                                } else {
+                                    Text(windowTabLabel(for: win))
+                                }
+                            }
+                        }
+
+                        Divider()
+
+                        Button {
+                            Task {
+                                let workingDir = window?.activePane?.currentPath
+                                let spec = CreateTmuxWindow(sessionName: sessionName, workingDirectory: workingDir)
+                                let result = await relayClient.sendCommand(spec, paneId: "")
+                                if case let .success(response) = result, let paneId = response.paneId {
+                                    await relayClient.requestSessionState()
+                                    try? await Task.sleep(for: .milliseconds(500))
+                                    if let newWindow = sessionWindows.first(where: { $0.panes.contains(where: { $0.paneId == paneId }) }) {
+                                        selectedWindowId = newWindow.id
+                                        activePaneId = paneId
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label("New Window", symbol: .plus)
+                        }
+                        .disabled(!relayClient.isHostConnected)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(navigationTitle)
+                                .fontWeight(.semibold)
+                            Symbols.chevronDown.image
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         isKeyboardActive.toggle()
@@ -120,6 +182,10 @@
                 keyboardVisible = false
             }
             .task {
+                // Default to the active window in the session
+                if selectedWindowId == nil {
+                    selectedWindowId = window?.id
+                }
                 // Default to the active pane (or first pane) on appear
                 if activePaneId == nil, let window {
                     activePaneId = window.activePane?.paneId ?? window.panes.first?.paneId
@@ -301,13 +367,15 @@
 
         private func statusBar(_ window: TmuxWindow) -> some View {
             HStack {
-                Text(window.id)
+                Text("\(window.sessionName):\(window.windowIndex)")
                     .font(.system(.caption, design: .monospaced))
 
-                Divider()
-                    .frame(height: 12)
+                if window.panes.count > 1 {
+                    Divider()
+                        .frame(height: 12)
 
-                Text("\(window.panes.count) panes")
+                    Text("\(window.panes.count) panes")
+                }
 
                 Spacer()
 
@@ -400,6 +468,15 @@
                     }
                 }
             }
+        }
+
+        // MARK: - Window Tab Label
+
+        private func windowTabLabel(for win: TmuxWindow) -> String {
+            if !win.windowName.isEmpty, Int(win.windowName) == nil {
+                return "\(win.windowIndex): \(win.windowName)"
+            }
+            return "Window \(win.windowIndex)"
         }
 
         // MARK: - Command Sending

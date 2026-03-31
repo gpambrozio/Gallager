@@ -44,7 +44,7 @@ public enum WindowDescriptionSyncScenario {
 
         // Host shows window ID in sidebar
         Shortcut.openPanesWindow()
-        TestStep.macWaitForElement(titled: "e2e-desc:0", timeout: 10)
+        TestStep.macWaitForElement(titled: "e2e-desc", timeout: 10)
         TestStep.macWaitForElement(titled: "DescProject", timeout: 10)
 
         // Viewer shows project name in sidebar (like iOS)
@@ -63,7 +63,7 @@ public enum WindowDescriptionSyncScenario {
 
         TestStep.log("Host adding description via context menu")
 
-        TestStep.macContextMenuClick(elementTitle: "e2e-desc:0", menuItem: "Add Description")
+        TestStep.macContextMenuClick(elementTitle: "e2e-desc", menuItem: "Add Description")
         TestStep.macWaitForElement(titled: "Window Description", timeout: 5)
         TestStep.macScreenshot(label: "host-alert-add")
         TestStep.wait(seconds: 0.5)
@@ -117,7 +117,7 @@ public enum WindowDescriptionSyncScenario {
 
         // Verify removed on all three platforms
         TestStep.macWaitForElementToDisappear(titled: "Viewer Updated", timeout: 5)
-        TestStep.macWaitForElement(titled: "e2e-desc:0", timeout: 5)
+        TestStep.macWaitForElement(titled: "e2e-desc", timeout: 5)
 
         TestStep.macWaitForElementToDisappear(titled: "Viewer Updated", timeout: 10, instance: 1)
         TestStep.macScreenshot(label: "viewer-after-remove", instance: 1)

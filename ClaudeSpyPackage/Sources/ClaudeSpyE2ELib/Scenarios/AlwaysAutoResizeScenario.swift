@@ -30,7 +30,7 @@ public enum AlwaysAutoResizeScenario {
         Shortcut.macOnlySetup
 
         // Select pane
-        TestStep.macClickButton(titled: "always-resize-1:0")
+        TestStep.macClickButton(titled: "always-resize-1")
         TestStep.wait(seconds: 1)
 
         // ── Phase 1: Global setting enables auto-resize ───────────
@@ -58,7 +58,7 @@ public enum AlwaysAutoResizeScenario {
         TestStep.wait(seconds: 1)
 
         // Re-select the pane (toolbar needs the pane focused after settings closes)
-        TestStep.macClickButton(titled: "always-resize-1:0")
+        TestStep.macClickButton(titled: "always-resize-1")
         TestStep.wait(seconds: 1)
 
         // Verify toggle is now checked and manual resize button is hidden
@@ -88,7 +88,7 @@ public enum AlwaysAutoResizeScenario {
         TestStep.wait(seconds: 2)
 
         // Select the new pane
-        TestStep.macClickButton(titled: "always-resize-2:0")
+        TestStep.macClickButton(titled: "always-resize-2")
         TestStep.wait(seconds: 1)
 
         // Verify toggle is checked (inherited from global) and manual resize hidden
@@ -144,7 +144,7 @@ public enum AlwaysAutoResizeScenario {
         TestStep.assertStoredEqual(key: "phase3AfterWidth", otherKey: "phase3BeforeWidth")
 
         // Switch to pane 1 — it should still auto-resize (global default, no opt-out)
-        TestStep.macClickButton(titled: "always-resize-1:0")
+        TestStep.macClickButton(titled: "always-resize-1")
         TestStep.wait(seconds: 1)
 
         // Verify toggle is checked for pane 1
@@ -173,7 +173,7 @@ public enum AlwaysAutoResizeScenario {
         TestStep.wait(seconds: 1)
 
         // Re-select pane (toolbar needs the pane focused)
-        TestStep.macClickButton(titled: "always-resize-1:0")
+        TestStep.macClickButton(titled: "always-resize-1")
         TestStep.wait(seconds: 1)
 
         // Verify toggle is unchecked for pane 1 (global off, opt-outs cleared)

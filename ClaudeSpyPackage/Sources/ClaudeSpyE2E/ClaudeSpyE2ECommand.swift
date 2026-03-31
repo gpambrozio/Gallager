@@ -258,6 +258,8 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         KittyKeyboardProtocolScenario.scenario,
         FooterRenderingScenario.scenario,
         AlwaysAutoResizeScenario.scenario,
+        MultiWindowTabsScenario.scenario,
+        MultiWindowTabsIOSScenario.scenario,
     ]
 
     private func runTests(orchestrator: TestOrchestrator) async throws {

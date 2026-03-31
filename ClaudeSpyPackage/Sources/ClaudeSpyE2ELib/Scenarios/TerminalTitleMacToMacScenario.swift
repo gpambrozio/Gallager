@@ -27,8 +27,8 @@ public enum TerminalTitleMacToMacScenario {
         TestStep.log("Opening Panes window on host")
         Shortcut.openPanesWindow()
 
-        TestStep.macWaitForElement(titled: "e2e-title:0", timeout: 10)
-        TestStep.macClickButton(titled: "e2e-title:0")
+        TestStep.macWaitForElement(titled: "e2e-title", timeout: 10)
+        TestStep.macClickButton(titled: "e2e-title")
         TestStep.wait(seconds: 2)
         TestStep.macScreenshot(label: "host-default-title")
 
@@ -55,8 +55,8 @@ public enum TerminalTitleMacToMacScenario {
         TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5, instance: 1)
         TestStep.wait(seconds: 3)
 
-        TestStep.macWaitForElement(titled: "e2e-title:0", timeout: 15, instance: 1)
-        TestStep.macClickButton(titled: "e2e-title:0", instance: 1)
+        TestStep.macWaitForElement(titled: "e2e-title", timeout: 15, instance: 1)
+        TestStep.macClickButton(titled: "e2e-title", instance: 1)
         TestStep.wait(seconds: 3)
 
         // Verify the title shows on the viewer's window

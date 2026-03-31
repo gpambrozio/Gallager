@@ -113,7 +113,7 @@ public enum TableRenderingScenario {
 
         Shortcut.openPanesWindow()
 
-        TestStep.macClickButton(titled: "table-test:0")
+        TestStep.macClickButton(titled: "table-test")
         TestStep.wait(seconds: 3)
 
         TestStep.log("Opening terminal pane on iOS mirror")
@@ -134,11 +134,11 @@ public enum TableRenderingScenario {
         // Forces a new capture-pane cycle to test the fresh capture path.
 
         TestStep.log("Forcing re-capture via pane re-selection")
-        TestStep.macClickButton(titled: "table-helper:0")
+        TestStep.macClickButton(titled: "table-helper")
         TestStep.wait(seconds: 1)
         TestStep.iosTap(.labelContains("Sessions"))
         TestStep.wait(seconds: 2)
-        TestStep.macClickButton(titled: "table-test:0")
+        TestStep.macClickButton(titled: "table-test")
         TestStep.wait(seconds: 3)
 
         // Screenshot: table should still render correctly after re-capture

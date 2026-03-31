@@ -63,7 +63,7 @@ public enum TerminalLinksScenario {
         TestStep.macResizeWindow(width: 1_200, height: 700)
 
         // Select the links-test pane
-        TestStep.macClickButton(titled: "links-test:0")
+        TestStep.macClickButton(titled: "links-test")
         TestStep.wait(seconds: 2)
 
         // Screenshot showing links rendered with underlines on macOS

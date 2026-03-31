@@ -31,13 +31,13 @@ public enum TwoMacPairingScenario {
         TestStep.wait(seconds: 3)
 
         // The remote pane should show in the sidebar with format "session:window.pane"
-        TestStep.macWaitForElement(titled: "e2e-mac-pair:0", timeout: 15, instance: 1)
+        TestStep.macWaitForElement(titled: "e2e-mac-pair", timeout: 15, instance: 1)
         TestStep.macScreenshot(label: "viewer-sees-remote-pane", instance: 1)
 
         // ── Phase 7: Select the pane on the viewer ──────────────────
 
         TestStep.log("Selecting remote pane on viewer")
-        TestStep.macClickButton(titled: "e2e-mac-pair:0", instance: 1)
+        TestStep.macClickButton(titled: "e2e-mac-pair", instance: 1)
         TestStep.wait(seconds: 3)
         TestStep.macScreenshot(label: "viewer-pane-selected", instance: 1)
 
@@ -56,8 +56,8 @@ public enum TwoMacPairingScenario {
         // Open the host's Panes window and select its session to visually verify
         TestStep.macOpenPanesWindow()
         TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
-        TestStep.macWaitForElement(titled: "e2e-mac-pair:0", timeout: 10)
-        TestStep.macClickButton(titled: "e2e-mac-pair:0")
+        TestStep.macWaitForElement(titled: "e2e-mac-pair", timeout: 10)
+        TestStep.macClickButton(titled: "e2e-mac-pair")
         TestStep.wait(seconds: 2)
         TestStep.macScreenshot(label: "host-shows-command")
     }

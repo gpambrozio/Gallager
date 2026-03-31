@@ -107,6 +107,11 @@ final public class SessionStore {
         return TmuxWindow.groupPanes(hostPanes)
     }
 
+    /// Get all pane states for a specific host grouped by tmux session
+    public func sessions(for hostId: String) -> [TmuxSession] {
+        TmuxSession.groupWindows(windows(for: hostId))
+    }
+
     /// Get a single window by ID for a specific host, without grouping all panes
     public func window(id windowId: String, hostId: String) -> TmuxWindow? {
         let windowPanes = paneStates
@@ -120,6 +125,7 @@ final public class SessionStore {
             windowIndex: first.windowIndex,
             windowName: first.windowName,
             windowLayout: first.windowLayout,
+            isWindowActive: first.isWindowActive,
             panes: windowPanes
         )
     }

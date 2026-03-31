@@ -340,7 +340,7 @@
                 }
 
                 if let paneState {
-                    sessionsNavigationPath.append(SessionNavigation(windowId: paneState.windowId, hostId: deepLink.hostId))
+                    sessionsNavigationPath.append(SessionNavigation(sessionName: paneState.sessionName, hostId: deepLink.hostId))
                     currentlyDisplayedPaneId = deepLink.paneId
                 }
             }

@@ -557,6 +557,40 @@ public struct SelectTmuxPane: CommandSpec, Equatable {
     }
 }
 
+/// Select (switch to) a tmux window. Returns success/failure.
+/// The window target is specified via the `paneId` field of the `CommandMessage`,
+/// using the format "sessionName:windowIndex".
+public struct SelectTmuxWindow: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    public init() { }
+
+    public var commandType: CommandType {
+        .selectTmuxWindow(self)
+    }
+}
+
+/// Create a new tmux window in an existing session. Returns success/failure.
+/// On success, the response's `paneId` field contains the new window's first pane ID.
+public struct CreateTmuxWindow: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// The session name to create the window in
+    public let sessionName: String
+
+    /// Optional working directory for the new window
+    public let workingDirectory: String?
+
+    public init(sessionName: String, workingDirectory: String? = nil) {
+        self.sessionName = sessionName
+        self.workingDirectory = workingDirectory
+    }
+
+    public var commandType: CommandType {
+        .createTmuxWindow(self)
+    }
+}
+
 // MARK: - Command Types
 
 /// Commands that can be sent from viewer to host, with their associated data.
@@ -585,6 +619,10 @@ public enum CommandType: Codable, Sendable, Equatable {
     case splitTmuxPane(SplitTmuxPane)
     /// Select (focus) a tmux pane
     case selectTmuxPane(SelectTmuxPane)
+    /// Select (switch to) a tmux window
+    case selectTmuxWindow(SelectTmuxWindow)
+    /// Create a new tmux window in a session
+    case createTmuxWindow(CreateTmuxWindow)
 
     // MARK: - Convenience Factory Methods
 
@@ -651,6 +689,16 @@ public enum CommandType: Codable, Sendable, Equatable {
     /// Create a selectTmuxPane command
     public static var selectTmuxPane: CommandType {
         .selectTmuxPane(SelectTmuxPane())
+    }
+
+    /// Create a selectTmuxWindow command
+    public static var selectTmuxWindow: CommandType {
+        .selectTmuxWindow(SelectTmuxWindow())
+    }
+
+    /// Create a createTmuxWindow command
+    public static func createTmuxWindow(sessionName: String, workingDirectory: String? = nil) -> CommandType {
+        .createTmuxWindow(CreateTmuxWindow(sessionName: sessionName, workingDirectory: workingDirectory))
     }
 }
 

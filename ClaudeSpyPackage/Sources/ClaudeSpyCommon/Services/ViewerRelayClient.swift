@@ -346,6 +346,10 @@ final public class ViewerRelayClient {
             return (try? await sendCommand(spec, paneId: paneId).get()) != nil
         case let .selectTmuxPane(spec):
             return (try? await sendCommand(spec, paneId: paneId).get()) != nil
+        case let .selectTmuxWindow(spec):
+            return (try? await sendCommand(spec, paneId: paneId).get()) != nil
+        case let .createTmuxWindow(spec):
+            return (try? await sendCommand(spec, paneId: "").get()) != nil
         }
     }
 

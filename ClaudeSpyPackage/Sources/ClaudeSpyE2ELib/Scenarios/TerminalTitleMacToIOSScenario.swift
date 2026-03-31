@@ -28,8 +28,8 @@ public enum TerminalTitleMacToIOSScenario {
         TestStep.log("Opening Panes window on host")
         Shortcut.openPanesWindow()
 
-        TestStep.macWaitForElement(titled: "e2e-title-ios:0", timeout: 10)
-        TestStep.macClickButton(titled: "e2e-title-ios:0")
+        TestStep.macWaitForElement(titled: "e2e-title-ios", timeout: 10)
+        TestStep.macClickButton(titled: "e2e-title-ios")
         TestStep.wait(seconds: 2)
         TestStep.macScreenshot(label: "host-default-title")
 
@@ -83,7 +83,7 @@ public enum TerminalTitleMacToIOSScenario {
         TestStep.tmuxCreateSession(name: "e2e-title-ios2", width: 80, height: 24)
 
         // Wait for the pane to be discovered by periodic refresh and appear in sidebar
-        TestStep.macWaitForElement(titled: "e2e-title-ios2:0", timeout: 15)
+        TestStep.macWaitForElement(titled: "e2e-title-ios2", timeout: 15)
 
         // Set a title on the new (inactive) pane — iOS is still viewing the first pane.
         Shortcut.tmuxRunCommand(

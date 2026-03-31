@@ -44,7 +44,7 @@ public enum TruecolorRenderingScenario {
         Shortcut.openPanesWindow()
         TestStep.macResizeWindow(width: 1_200, height: 700)
 
-        TestStep.macClickButton(titled: "truecolor-test:0")
+        TestStep.macClickButton(titled: "truecolor-test")
         TestStep.wait(seconds: 2)
 
         // ── Navigate to pane on iOS ─────────────────────────────────

@@ -3,16 +3,11 @@ name: baseline-review
 disable-model-invocation: true
 model: sonnet
 allowed-tools:
-  - Bash(/.claude/skills/baseline-review/scripts/compare-baselines.sh *)
+  - Bash(./.claude/skills/baseline-review/scripts/compare-baselines.sh *)
+  - Bash(rm -rf /tmp/baseline-review)
   - Read(/E2ETests/**/*.png)
-description: >
-  Review E2E baseline image changes in the current PR. Use this skill when the user wants to
-  review, audit, or understand what changed in E2E screenshot baselines, compare baseline images
-  between branches, check if baseline changes match the PR intent, or verify that screenshot
-  updates are expected. Trigger on phrases like "review baselines", "check baseline changes",
-  "compare screenshots", "are these baseline changes correct", "audit E2E images",
-  "what changed in the screenshots", or any request to validate visual changes in a PR.
-  Also use when the user runs /baseline-review explicitly.
+  - Read(//tmp/baseline-review/**/*.png)
+description: Review E2E baseline image changes in the current PR.
 ---
 
 # E2E Baseline Image Review

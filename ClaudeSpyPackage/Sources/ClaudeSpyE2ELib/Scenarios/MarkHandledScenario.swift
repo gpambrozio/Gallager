@@ -46,7 +46,7 @@ public enum MarkHandledScenario {
 
         // Open panes windows on host and viewer
         Shortcut.openPanesWindow()
-        TestStep.macWaitForElement(titled: "e2e-state:0", timeout: 10)
+        TestStep.macWaitForElement(titled: "e2e-state", timeout: 10)
 
         Shortcut.openPanesWindow(instance: 1)
         TestStep.macWaitForElement(titled: "StateProject", timeout: 30, instance: 1)
@@ -218,7 +218,7 @@ public enum MarkHandledScenario {
         // Even the host selecting the session should not clear PermissionRequest.
 
         TestStep.log("Host selecting session — PermissionRequest still NOT cleared")
-        TestStep.macClickButton(titled: "e2e-state:0")
+        TestStep.macClickButton(titled: "e2e-state")
         TestStep.wait(seconds: 3)
 
         TestStep.macWaitForElement(titled: "Attention", timeout: 10)

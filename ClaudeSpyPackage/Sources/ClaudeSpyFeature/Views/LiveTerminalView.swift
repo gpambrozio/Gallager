@@ -529,7 +529,7 @@
                 guard let terminalView else { return }
                 // Inner: scroll SwiftTerm's scrollback to bottom
                 terminalView.scrollToBottom()
-                // Outer: scroll to show the bottom of a tall terminal
+                // Outer: scroll to show the bottom of the terminal (where the cursor/prompt is)
                 if let scrollView {
                     let maxY = max(0, scrollView.contentSize.height - scrollView.bounds.height)
                     scrollView.contentOffset.y = maxY

@@ -24,7 +24,7 @@ public enum CursorStyleScenario {
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 900, height: 500)
 
-        TestStep.macClickButton(titled: "cursor-test:0")
+        TestStep.macClickButton(titled: "cursor-test")
         TestStep.wait(seconds: 2)
 
         // Clear screen and set a simple prompt

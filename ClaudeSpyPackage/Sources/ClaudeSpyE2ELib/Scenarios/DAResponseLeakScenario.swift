@@ -34,8 +34,8 @@ public enum DAResponseLeakScenario {
         Shortcut.openPanesWindow()
         TestStep.macResizeWindow(width: 900, height: 500)
 
-        TestStep.macWaitForElement(titled: "e2e-da-leak:0", timeout: 10)
-        TestStep.macClickButton(titled: "e2e-da-leak:0")
+        TestStep.macWaitForElement(titled: "e2e-da-leak", timeout: 10)
+        TestStep.macClickButton(titled: "e2e-da-leak")
         TestStep.wait(seconds: 2)
 
         // Clear screen to have a clean baseline

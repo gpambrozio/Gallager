@@ -52,7 +52,7 @@ public enum ScrollbackGapScenario {
 
         // ── Start mirroring ─────────────────────────────────────────
 
-        TestStep.macClickButton(titled: "scrollback-gap-test:0")
+        TestStep.macClickButton(titled: "scrollback-gap-test")
         TestStep.wait(seconds: 3)
 
         // ── Capture: initial view (bottom of content = PAGE4) ───────

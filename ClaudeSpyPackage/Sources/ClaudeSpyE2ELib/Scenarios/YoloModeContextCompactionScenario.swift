@@ -41,7 +41,7 @@ public enum YoloModeContextCompactionScenario {
         TestStep.wait(seconds: 3)
 
         // Select the pane in sidebar to see yolo button
-        TestStep.macClickButton(titled: "yolo-compact:0")
+        TestStep.macClickButton(titled: "yolo-compact")
         TestStep.wait(seconds: 1)
 
         // Verify yolo mode starts disabled
@@ -123,7 +123,7 @@ public enum YoloModeContextCompactionScenario {
         TestStep.wait(seconds: 3)
 
         // Select the pane again
-        TestStep.macClickButton(titled: "yolo-compact:0")
+        TestStep.macClickButton(titled: "yolo-compact")
         TestStep.wait(seconds: 1)
 
         // Yolo mode should be disabled on the fresh session

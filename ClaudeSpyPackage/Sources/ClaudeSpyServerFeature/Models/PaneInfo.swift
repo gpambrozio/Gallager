@@ -32,6 +32,8 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
     public let windowLayout: String
     /// The tmux window name
     public let windowName: String
+    /// Whether this pane's window is the active window in its session
+    public let isWindowActive: Bool
 
     /// Window identifier combining session name and window index (e.g., "mysession:0")
     public var windowId: String { "\(sessionName):\(windowIndex)" }
@@ -49,7 +51,8 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
         isActive: Bool,
         paneTitle: String = "",
         windowLayout: String = "",
-        windowName: String = ""
+        windowName: String = "",
+        isWindowActive: Bool = false
     ) {
         self.paneId = paneId
         self.target = target
@@ -64,12 +67,13 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
         self.paneTitle = paneTitle
         self.windowLayout = windowLayout
         self.windowName = windowName
+        self.isWindowActive = isWindowActive
     }
 }
 
 public extension PaneInfo {
     /// Creates a PaneInfo from tmux format output
-    /// Expected format: id|session|window|pane|command|path|width|height|active|title|layout|windowName
+    /// Expected format: id|session|window|pane|command|path|width|height|active|title|layout|windowName|windowActive
     init?(fromTmuxOutput line: String) {
         let components = line.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
         guard components.count >= 9 else { return nil }
@@ -93,6 +97,7 @@ public extension PaneInfo {
         self.paneTitle = components.count >= 10 ? components[9] : ""
         self.windowLayout = components.count >= 11 ? components[10] : ""
         self.windowName = components.count >= 12 ? components[11] : ""
+        self.isWindowActive = components.count >= 13 ? components[12] == "1" : false
         self.target = "\(sessionName):\(windowIndex).\(paneIndex)"
     }
 
@@ -111,7 +116,8 @@ public extension PaneInfo {
             height: height,
             isActive: isActive,
             windowLayout: windowLayout,
-            windowName: windowName
+            windowName: windowName,
+            isWindowActive: isWindowActive
         )
     }
 
@@ -129,5 +135,6 @@ public extension PaneInfo {
         state.isActive = isActive
         state.windowLayout = windowLayout
         state.windowName = windowName
+        state.isWindowActive = isWindowActive
     }
 }

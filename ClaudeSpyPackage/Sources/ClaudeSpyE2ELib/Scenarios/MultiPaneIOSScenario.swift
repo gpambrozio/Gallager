@@ -41,7 +41,6 @@ public enum MultiPaneIOSScenario {
         // 3. Verify iOS shows the multi-pane window with "2 panes" badge
         TestStep.log("Verify iOS shows multi-pane window in session list")
         TestStep.iosWaitForElement(.labelContains("multi-ios"), timeout: 15)
-        TestStep.iosWaitForElement(.labelContains("2 panes"), timeout: 5)
         TestStep.iosScreenshot(label: "session-list-multi-pane")
 
         // 4. Send a SessionStart hook event on pane 0 (left pane) to simulate a Claude session
@@ -59,13 +58,14 @@ public enum MultiPaneIOSScenario {
         )
         TestStep.wait(seconds: 3)
 
-        // Verify the window row now shows "Claude session active"
-        TestStep.iosWaitForElement(.labelContains("Claude session active"), timeout: 10)
+        // Verify the session row shows the Claude session (SessionRowView with event info)
+        TestStep.iosWaitForElement(.labelContains("Session Started"), timeout: 10)
         TestStep.iosScreenshot(label: "session-list-with-claude")
 
         // 5. Open the multi-pane window layout view
+        //    After SessionStart hook, the row shows the project name from projectPath
         TestStep.log("Tap the multi-pane window to open layout view")
-        TestStep.iosTap(.labelContains("multi-ios"))
+        TestStep.iosTap(.labelContains("MultiPaneProject"))
         TestStep.wait(seconds: 3)
 
         // 6. Verify all panes connected (no "Connecting to terminal..." stuck)

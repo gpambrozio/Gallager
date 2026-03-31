@@ -1,0 +1,33 @@
+import Foundation
+
+/// Groups local tmux windows (LocalTmuxWindow) that belong to the same session.
+///
+/// Used by the macOS app for local tmux session management. For the shared
+/// cross-platform session grouping (using TmuxWindow), see `TmuxSession` in ClaudeSpyCommon.
+public struct LocalTmuxSession: Identifiable, Sendable, Hashable {
+    /// Unique identifier: the session name
+    public let sessionName: String
+
+    /// Windows in this session, sorted by window index
+    public let windows: [LocalTmuxWindow]
+
+    public var id: String { sessionName }
+
+    /// The active window in the tmux session, or the first window
+    public var activeWindow: LocalTmuxWindow? {
+        windows.first(where: \.isWindowActive) ?? windows.first
+    }
+
+    /// Groups windows by session and returns sorted sessions
+    public static func groupWindows(_ windows: [LocalTmuxWindow]) -> [LocalTmuxSession] {
+        let grouped = Dictionary(grouping: windows) { $0.sessionName }
+
+        return grouped.map { name, sessionWindows in
+            LocalTmuxSession(
+                sessionName: name,
+                windows: sessionWindows.sorted { $0.windowIndex < $1.windowIndex }
+            )
+        }
+        .sorted { $0.sessionName < $1.sessionName }
+    }
+}

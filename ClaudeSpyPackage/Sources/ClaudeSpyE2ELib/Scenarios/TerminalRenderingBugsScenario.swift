@@ -45,7 +45,7 @@ public enum TerminalRenderingBugsScenario {
         TestStep.macResizeWindow(width: 1_200, height: 700)
 
         // Select the main pane
-        TestStep.macClickButton(titled: "render-bugs:0")
+        TestStep.macClickButton(titled: "render-bugs")
         TestStep.wait(seconds: 2)
 
         // ── Phase 1: H17 — SGR state divergence after re-capture ─────
@@ -69,9 +69,9 @@ public enum TerminalRenderingBugsScenario {
         // capturePaneWithScrollbackForStreaming adds ESC[0m resets at end of each
         // captured line, killing the active magenta SGR state. After re-capture,
         // the terminal's SGR state is reset to default.
-        TestStep.macClickButton(titled: "render-helper:0")
+        TestStep.macClickButton(titled: "render-helper")
         TestStep.wait(seconds: 1)
-        TestStep.macClickButton(titled: "render-bugs:0")
+        TestStep.macClickButton(titled: "render-bugs")
         TestStep.wait(seconds: 2)
 
         // Now echo more text — this arrives via live stream with no color codes,
@@ -127,9 +127,9 @@ public enum TerminalRenderingBugsScenario {
 
         // De-select / re-select to force re-capture, which replaces the mirror's
         // scrollback with tmux's captured content — this corrupts the scrollback.
-        TestStep.macClickButton(titled: "render-helper:0")
+        TestStep.macClickButton(titled: "render-helper")
         TestStep.wait(seconds: 1)
-        TestStep.macClickButton(titled: "render-bugs:0")
+        TestStep.macClickButton(titled: "render-bugs")
         TestStep.wait(seconds: 2)
 
         // Scroll up again to reveal the re-captured scrollback
