@@ -73,7 +73,13 @@
         }
 
         override func mouseMoved(with event: NSEvent) {
-            onMouseMoved?(event)
+            // When terminal app has mouse tracking enabled, forward move events
+            // to SwiftTerm so it can generate mouse escape sequences.
+            if interactiveView?.isMouseModeActive == true {
+                terminalView?.mouseMoved(with: event)
+            } else {
+                onMouseMoved?(event)
+            }
         }
 
         override func mouseExited(with event: NSEvent) {
@@ -85,6 +91,12 @@
         }
 
         override func scrollWheel(with event: NSEvent) {
+            // When mouse mode is active, always forward scroll events to SwiftTerm
+            // so it can generate mouse wheel escape sequences for the terminal app.
+            if interactiveView?.isMouseModeActive == true {
+                terminalView?.scrollWheel(with: event)
+                return
+            }
             if abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) {
                 onHorizontalScroll?(-event.scrollingDeltaX)
             } else {
@@ -102,6 +114,13 @@
         }
 
         override func mouseUp(with event: NSEvent) {
+            // When mouse mode is active, skip URL detection and auto-copy —
+            // the terminal app owns mouse interaction.
+            if interactiveView?.isMouseModeActive == true {
+                terminalView?.mouseUp(with: event)
+                return
+            }
+
             // Check for plain-text URL click before forwarding to SwiftTerm.
             if let interactive = interactiveView {
                 let point = interactive.convert(event.locationInWindow, from: nil)
@@ -117,6 +136,46 @@
                 interactive.autoCopyOnSelect,
                 interactive.getSelectedTextTrimmed() != nil {
                 interactive.copySelectionToClipboard()
+            }
+        }
+
+        override func rightMouseDown(with event: NSEvent) {
+            if interactiveView?.isMouseModeActive == true {
+                terminalView?.rightMouseDown(with: event)
+            } else {
+                super.rightMouseDown(with: event)
+            }
+        }
+
+        override func rightMouseUp(with event: NSEvent) {
+            if interactiveView?.isMouseModeActive == true {
+                terminalView?.rightMouseUp(with: event)
+            } else {
+                super.rightMouseUp(with: event)
+            }
+        }
+
+        override func rightMouseDragged(with event: NSEvent) {
+            if interactiveView?.isMouseModeActive == true {
+                terminalView?.rightMouseDragged(with: event)
+            }
+        }
+
+        override func otherMouseDown(with event: NSEvent) {
+            if interactiveView?.isMouseModeActive == true {
+                terminalView?.otherMouseDown(with: event)
+            }
+        }
+
+        override func otherMouseUp(with event: NSEvent) {
+            if interactiveView?.isMouseModeActive == true {
+                terminalView?.otherMouseUp(with: event)
+            }
+        }
+
+        override func otherMouseDragged(with event: NSEvent) {
+            if interactiveView?.isMouseModeActive == true {
+                terminalView?.otherMouseDragged(with: event)
             }
         }
     }
@@ -152,6 +211,10 @@
 
         /// Callback invoked when the user types. The keys are ready for relay transmission.
         var onInput: (@MainActor ([TmuxKey]) -> Void)?
+
+        /// Callback invoked for raw escape sequences (e.g., mouse events) that must be
+        /// sent to tmux as-is, bypassing TmuxKey conversion.
+        var onRawInput: (@MainActor (Data) -> Void)?
 
         /// Callback invoked when the terminal title changes (via OSC 0 or OSC 2 escape sequences).
         var onTitleChange: (@MainActor (String) -> Void)?
@@ -856,6 +919,13 @@
         }
 
         private func handleMouseMoved(_ event: NSEvent) {
+            // When mouse mode is active, the terminal app owns mouse interaction.
+            // Clear any stale highlights and skip URL detection.
+            if isMouseModeActive {
+                removeURLHighlight()
+                removeURLPreview()
+                return
+            }
             let point = convert(event.locationInWindow, from: nil)
             updateURLHighlight(at: point)
         }
@@ -967,10 +1037,17 @@
             urlPreviewField = nil
         }
 
+        /// Whether the terminal application has requested mouse event tracking.
+        var isMouseModeActive: Bool {
+            terminalView.getTerminal().mouseMode != .off
+        }
+
         /// Called by the system's cursor tracking when the cursor enters/moves within the view.
-        /// Sets the cursor based on whether the mouse is over a detected URL.
+        /// Sets the cursor based on mouse mode and whether the mouse is over a detected URL.
         private func updateCursor(for event: NSEvent) {
-            if isOverURL {
+            if isMouseModeActive {
+                NSCursor.arrow.set()
+            } else if isOverURL {
                 NSCursor.pointingHand.set()
             } else {
                 NSCursor.iBeam.set()
@@ -1212,10 +1289,46 @@
             // parameter reports) that SwiftTerm may still generate.
             if TerminalResponseFilter.isTerminalResponse(data) { return }
 
+            // Mouse escape sequences (SGR, X10) can't be parsed by TmuxKey.from(bytes:)
+            // because the CSI parser doesn't handle private-use parameter prefixes like '<'.
+            // Send them as raw bytes to tmux via send-keys -H.
+            if Self.isMouseEscapeSequence(data) {
+                onRawInput?(Data(data))
+                return
+            }
+
             // Convert raw bytes to TmuxKey representations
             let keys = TmuxKey.from(bytes: Data(data))
             guard !keys.isEmpty else { return }
             onInput?(keys)
+        }
+
+        /// Detects mouse escape sequences generated by SwiftTerm when mouse mode is active.
+        ///
+        /// Matched formats:
+        /// - SGR mouse:    `ESC [ < Cb ; Cx ; Cy M/m`  (press/motion or release)
+        /// - X10/normal:   `ESC [ M Cb Cx Cy`           (3 raw bytes after M)
+        static func isMouseEscapeSequence(_ data: ArraySlice<UInt8>) -> Bool {
+            guard
+                data.count >= 3,
+                data[data.startIndex] == 0x1B,      // ESC
+                data[data.startIndex + 1] == 0x5B   // [
+            else { return false }
+
+            let third = data[data.startIndex + 2]
+
+            // SGR mouse: ESC [ < ... M/m
+            if third == 0x3C { // '<'
+                guard let last = data.last else { return false }
+                return last == 0x4D || last == 0x6D // 'M' or 'm'
+            }
+
+            // X10/normal mouse: ESC [ M followed by 3 bytes
+            if third == 0x4D, data.count >= 6 { // 'M'
+                return true
+            }
+
+            return false
         }
 
         func scrolled(source: TerminalView, position: Double) {

@@ -172,6 +172,16 @@ struct TerminalContainerView: NSViewRepresentable {
                 }
             }
 
+            // Wire up raw input (mouse escape sequences) — same serialization chain
+            terminalView.onRawInput = { [weak self] data in
+                guard let self, let paneState = self.paneState else { return }
+                let previous = self.pendingKeyTask
+                self.pendingKeyTask = Task {
+                    _ = await previous?.value
+                    await self.sendRawBytesToTmux(data, target: paneState.target)
+                }
+            }
+
             // Wire up title change handling
             terminalView.onTitleChange = { [weak self] title in
                 self?.handleTitleChange(title)
@@ -207,6 +217,22 @@ struct TerminalContainerView: NSViewRepresentable {
                         updateState(.error("Failed to send keystrokes to tmux"))
                         break
                     }
+                }
+            }
+        }
+
+        private func sendRawBytesToTmux(_ data: Data, target: String) async {
+            guard let tmuxService else { return }
+
+            do {
+                try await tmuxService.sendRawBytes(target, data: data)
+                consecutiveKeyFailures = 0
+            } catch {
+                consecutiveKeyFailures += 1
+                print("Failed to send raw bytes to tmux: \(error)")
+
+                if consecutiveKeyFailures >= maxConsecutiveKeyFailures {
+                    updateState(.error("Failed to send mouse events to tmux"))
                 }
             }
         }

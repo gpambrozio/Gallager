@@ -930,6 +930,19 @@ final public class TmuxService {
         ])
     }
 
+    /// Sends raw bytes to a pane using hex encoding.
+    ///
+    /// Used for escape sequences (e.g., mouse events) that can't be represented
+    /// as TmuxKey values and must be forwarded to the terminal application as-is.
+    public func sendRawBytes(_ target: String, data: Data) async throws {
+        var args = ["send-keys", "-t", target, "-H"]
+        args.append(contentsOf: data.map { String(format: "%02x", $0) })
+        let result = try await runTmuxCommand(args)
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+    }
+
     /// Sends keys to a pane
     /// - Parameters:
     ///   - target: The pane target
@@ -985,6 +998,7 @@ final public class TmuxService {
             flag,
             "-t", target,
             "-P", "-F", "#{pane_id}", // Print new pane ID
+            "-e", "CLAUDE_CODE_NO_FLICKER=1",
         ])
 
         guard result.isSuccess else {
@@ -1031,6 +1045,7 @@ final public class TmuxService {
             "new-window",
             "-t", sessionName,
             "-P", "-F", "#{pane_id}",
+            "-e", "CLAUDE_CODE_NO_FLICKER=1",
         ]
 
         if let workingDirectory {
@@ -1124,6 +1139,7 @@ final public class TmuxService {
             "-y", String(height),
             "-e", "DISABLE_AUTO_UPDATE=true",
             "-e", "DISABLE_UPDATE_PROMPT=true",
+            "-e", "CLAUDE_CODE_NO_FLICKER=1",
         ]
 
         // Add working directory if specified
