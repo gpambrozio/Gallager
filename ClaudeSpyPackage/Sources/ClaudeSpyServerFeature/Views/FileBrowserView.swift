@@ -40,7 +40,7 @@ struct FileBrowserView: View {
         @Bindable var viewState = viewState
         let directoryName = URL(fileURLWithPath: directoryPath).lastPathComponent
 
-        NavigationSplitView {
+        HStack(spacing: 0) {
             List(selection: $viewState.selection) {
                 FileNavigator(
                     name: directoryName,
@@ -69,8 +69,13 @@ struct FileBrowserView: View {
                 .navigatorFilter { $0.first != "." }
             }
             .listStyle(.sidebar)
-        } detail: {
+            .scrollContentBackground(.hidden)
+            .frame(width: 250)
+
+            Divider()
+
             fileDetailView(fileTree: fileTree, viewState: viewState)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
