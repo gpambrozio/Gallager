@@ -79,9 +79,9 @@ struct FileBrowserView: View {
         fileTree: FileTree<TextFileContents>,
         viewState: FileNavigatorViewState<TextFileContents>
     ) -> some View {
-        if let uuid = viewState.selection,
-           let file = fileTree.proxy(for: uuid).file
-        {
+        if
+            let uuid = viewState.selection,
+            let file = fileTree.proxy(for: uuid).file {
             VStack(alignment: .leading, spacing: 0) {
                 // File path header
                 if let filePath = fileTree.filePath(of: uuid) {
@@ -98,9 +98,9 @@ struct FileBrowserView: View {
                     .font(.system(.body, design: .monospaced))
                     .scrollContentBackground(.hidden)
             }
-        } else if let uuid = viewState.selection,
-                  fileTree.proxy(for: uuid).file == nil
-        {
+        } else if
+            let uuid = viewState.selection,
+            fileTree.proxy(for: uuid).file == nil {
             // A folder is selected
             ContentUnavailableView(
                 "Folder Selected",
