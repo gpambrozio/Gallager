@@ -343,6 +343,7 @@ public struct MainView: View {
                 selectedWindow = activeWindow
             }
             selectedRemotePane = nil
+            showingFileBrowser = false
         } label: {
             SessionSidebarRow(session: session)
         }
@@ -861,6 +862,7 @@ public struct MainView: View {
             // Nothing selected and a single new session appeared - auto-select the containing window
             selectedWindow = window
             scrollToWindowId = window.sessionName
+            showingFileBrowser = false
         }
 
         trackedActiveSessionPaneIds = currentIds
@@ -910,6 +912,7 @@ public struct MainView: View {
             if let window = tmuxService.windows.first(where: { $0.panes.contains { $0.paneId == paneId } }) {
                 selectedWindow = window
                 selectedRemotePane = nil
+                showingFileBrowser = false
             }
         case let .remote(hostId, hostName, paneId):
             selectedRemotePane = RemotePaneSelection(
@@ -918,6 +921,7 @@ public struct MainView: View {
                 paneId: paneId
             )
             selectedWindow = nil
+            showingFileBrowser = false
         }
     }
 

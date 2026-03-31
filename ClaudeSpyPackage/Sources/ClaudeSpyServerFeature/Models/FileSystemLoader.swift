@@ -15,11 +15,14 @@ private let skippedDirectories: Set<String> = [
 ///
 /// - Parameter url: The URL of the directory to load.
 /// - Returns: A `FileTree<TextFileContents>` representing the directory contents.
-@MainActor
-func loadFileTree(at url: URL) -> FileTree<TextFileContents> {
-    let root = loadDirectory(at: url)
+func loadFileTree(at url: URL) async -> FileTree<TextFileContents> {
+    let root = await Task.detached {
+        loadDirectory(at: url)
+    }.value
     return FileTree(files: root)
 }
+
+extension FullFileOrFolder: @retroactive @unchecked Sendable {}
 
 /// Recursively loads a directory into a `FullFileOrFolder` hierarchy.
 private func loadDirectory(at url: URL) -> FullFileOrFolder<TextFileContents> {

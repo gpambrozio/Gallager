@@ -40,8 +40,8 @@ public enum Symbols: String {
     case figureRun = "figure.run"
     case folder
     case folderBadgeGearshape = "folder.badge.gearshape"
-    case folderFill = "folder.fill"
     case folderBadgePlus = "folder.badge.plus"
+    case folderFill = "folder.fill"
     case gearshape
     case handsAndSparklesFill = "hands.and.sparkles.fill"
     case infoCircle = "info.circle"

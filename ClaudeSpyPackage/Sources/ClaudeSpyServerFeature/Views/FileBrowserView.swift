@@ -57,7 +57,7 @@ struct FileBrowserView: View {
             ProgressView("Loading files...")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .task(id: directoryPath) {
-                    let tree = loadFileTree(at: URL(fileURLWithPath: directoryPath))
+                    let tree = await loadFileTree(at: URL(fileURLWithPath: directoryPath))
                     let state = FileNavigatorViewState<TextFileContents>(
                         fileTree: tree,
                         expansions: WrappedUUIDSet(),
@@ -76,11 +76,11 @@ struct FileBrowserView: View {
         fileTree: FileTree<TextFileContents>,
         viewState: FileNavigatorViewState<TextFileContents>
     ) -> some View {
-        @Bindable var viewState = viewState
+        @Bindable var bindableState = viewState
         let directoryName = URL(fileURLWithPath: directoryPath).lastPathComponent
 
         HStack(spacing: 0) {
-            List(selection: $viewState.selection) {
+            List(selection: $bindableState.selection) {
                 FileNavigator(
                     name: directoryName,
                     item: .constant(fileTree.root),
