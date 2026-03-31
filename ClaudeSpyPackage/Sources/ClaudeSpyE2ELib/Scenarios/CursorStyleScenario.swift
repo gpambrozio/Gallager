@@ -40,7 +40,7 @@ public enum CursorStyleScenario {
         )
         TestStep.wait(seconds: 1)
 
-        TestStep.macScreenshot(label: "cursor-steady-block")
+        TestStep.macScreenshot(label: "mac-cursor-steady-block")
 
         // ── Steady Underline (DECSCUSR 4) ─────────────────────────────
 
@@ -51,7 +51,7 @@ public enum CursorStyleScenario {
         )
         TestStep.wait(seconds: 1)
 
-        TestStep.macScreenshot(label: "cursor-steady-underline")
+        TestStep.macScreenshot(label: "mac-cursor-steady-underline")
 
         // ── Steady Bar (DECSCUSR 6) ───────────────────────────────────
 
@@ -62,7 +62,7 @@ public enum CursorStyleScenario {
         )
         TestStep.wait(seconds: 1)
 
-        TestStep.macScreenshot(label: "cursor-steady-bar")
+        TestStep.macScreenshot(label: "mac-cursor-steady-bar")
 
         // ── Reset to default style ───────────────────────────────────
 
@@ -81,7 +81,7 @@ public enum CursorStyleScenario {
         )
         TestStep.wait(seconds: 1)
 
-        TestStep.macScreenshot(label: "cursor-hidden")
+        TestStep.macScreenshot(label: "mac-cursor-hidden")
 
         // ── Cursor Shown (DECTCEM ?25h) ──────────────────────────────
 
@@ -92,6 +92,6 @@ public enum CursorStyleScenario {
         )
         TestStep.wait(seconds: 1)
 
-        TestStep.macScreenshot(label: "cursor-visible")
+        TestStep.macScreenshot(label: "mac-cursor-visible")
     }
 }

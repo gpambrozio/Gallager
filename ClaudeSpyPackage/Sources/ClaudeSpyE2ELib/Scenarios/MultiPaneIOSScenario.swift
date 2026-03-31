@@ -41,7 +41,7 @@ public enum MultiPaneIOSScenario {
         // 3. Verify iOS shows the multi-pane window with "2 panes" badge
         TestStep.log("Verify iOS shows multi-pane window in session list")
         TestStep.iosWaitForElement(.labelContains("multi-ios"), timeout: 15)
-        TestStep.iosScreenshot(label: "session-list-multi-pane")
+        TestStep.iosScreenshot(label: "ios-session-list-multi-pane")
 
         // 4. Send a SessionStart hook event on pane 0 (left pane) to simulate a Claude session
         TestStep.log("Send SessionStart hook to pane 0")
@@ -60,7 +60,7 @@ public enum MultiPaneIOSScenario {
 
         // Verify the session row shows the Claude session (SessionRowView with event info)
         TestStep.iosWaitForElement(.labelContains("Session Started"), timeout: 10)
-        TestStep.iosScreenshot(label: "session-list-with-claude")
+        TestStep.iosScreenshot(label: "ios-session-list-with-claude")
 
         // 5. Open the multi-pane window layout view
         //    After SessionStart hook, the row shows the project name from projectPath
@@ -70,13 +70,13 @@ public enum MultiPaneIOSScenario {
 
         // 6. Verify all panes connected (no "Connecting to terminal..." stuck)
         TestStep.iosWaitForElementToDisappear(.labelContains("Connecting to terminal"), timeout: 15)
-        TestStep.iosScreenshot(label: "multi-pane-layout-connected")
+        TestStep.iosScreenshot(label: "ios-multi-pane-layout-connected")
 
         // 7. The default active pane is pane 1 (tmux-active after split).
         //    Pane 1 is a plain terminal — Claude UI should NOT be visible initially.
         TestStep.log("Verify plain terminal pane is initially selected (no Claude UI)")
         TestStep.iosWaitForElement(.labelContains("Show Keyboard"), timeout: 5)
-        TestStep.iosScreenshot(label: "initial-plain-pane-selected")
+        TestStep.iosScreenshot(label: "ios-initial-plain-pane-selected")
 
         // 8. Tap on the Claude pane (pane 0, left side) to select it
         //    iPhone 17 Pro: 393x852 pt. Left pane center ≈ x:100, mid-screen y:400
@@ -93,7 +93,7 @@ public enum MultiPaneIOSScenario {
 
         // The prompt text field should be visible (full width above the layout)
         TestStep.iosWaitForElement(.labelContains("Send a message to Claude"), timeout: 5)
-        TestStep.iosScreenshot(label: "claude-ui-active-pane")
+        TestStep.iosScreenshot(label: "ios-claude-ui-active-pane")
 
         // 10. Tap on the plain terminal pane (pane 1, right side) to switch back
         //     Right pane center ≈ x:290, mid-screen y:400
@@ -108,7 +108,7 @@ public enum MultiPaneIOSScenario {
 
         // The keyboard button should still be visible (always present)
         TestStep.iosWaitForElement(.labelContains("Show Keyboard"), timeout: 5)
-        TestStep.iosScreenshot(label: "plain-pane-selected")
+        TestStep.iosScreenshot(label: "ios-plain-pane-selected")
 
         // 12. Tap back on the Claude pane to confirm UI restores
         TestStep.log("Tap on pane 0 again to confirm Claude UI restores")
@@ -117,6 +117,6 @@ public enum MultiPaneIOSScenario {
 
         TestStep.iosWaitForElement(.labelContains("Yolo Mode"), timeout: 5)
         TestStep.iosWaitForElement(.labelContains("Send a message to Claude"), timeout: 5)
-        TestStep.iosScreenshot(label: "claude-ui-restored")
+        TestStep.iosScreenshot(label: "ios-claude-ui-restored")
     }
 }

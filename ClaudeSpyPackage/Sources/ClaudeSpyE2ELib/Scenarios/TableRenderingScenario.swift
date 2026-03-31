@@ -127,8 +127,8 @@ public enum TableRenderingScenario {
 
         // Screenshot: table should show Unicode box-drawing characters
         // (┌─┬─┐ etc.) NOT ASCII (lqwqk etc.) — rendered via streaming
-        TestStep.macScreenshot(label: "table-streamed-mac")
-        TestStep.iosScreenshot(label: "table-streamed-ios")
+        TestStep.macScreenshot(label: "mac-table-streamed")
+        TestStep.iosScreenshot(label: "ios-table-streamed")
 
         // ── Re-capture: de-select and re-select ───────────────────────
         // Forces a new capture-pane cycle to test the fresh capture path.
@@ -142,12 +142,12 @@ public enum TableRenderingScenario {
         TestStep.wait(seconds: 3)
 
         // Screenshot: table should still render correctly after re-capture
-        TestStep.macScreenshot(label: "table-after-recapture")
+        TestStep.macScreenshot(label: "mac-table-after-recapture")
 
         TestStep.iosTap(.labelContains("table-test"))
         TestStep.wait(seconds: 3)
         TestStep.iosWaitForElementToDisappear(.labelContains("Connecting"), timeout: 15)
         TestStep.wait(seconds: 3)
-        TestStep.iosScreenshot(label: "table-after-recapture-ios")
+        TestStep.iosScreenshot(label: "ios-table-after-recapture")
     }
 }

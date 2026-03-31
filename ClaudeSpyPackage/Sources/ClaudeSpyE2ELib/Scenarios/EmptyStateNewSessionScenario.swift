@@ -14,7 +14,7 @@ public enum EmptyStateNewSessionScenario {
 
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 800)
-        TestStep.macScreenshot(label: "empty-state-start")
+        TestStep.macScreenshot(label: "mac-empty-state-start")
 
         // ── Verify empty state with new session options in detail ──
         TestStep.log("Verifying empty state shows No Panes Available in sidebar")
@@ -26,7 +26,7 @@ public enum EmptyStateNewSessionScenario {
         TestStep.log("Verifying Claude Projects section is shown")
         TestStep.macWaitForElement(titled: "Claude Projects", timeout: 5)
 
-        TestStep.macScreenshot(label: "empty-state")
+        TestStep.macScreenshot(label: "mac-empty-state")
 
         // ── Click New Terminal and verify sidebar updates ────────
         TestStep.log("Clicking New Terminal to create a session")
@@ -39,7 +39,7 @@ public enum EmptyStateNewSessionScenario {
         TestStep.log("Verifying Terminals section appeared in sidebar")
         TestStep.macWaitForElement(titled: "Terminals", timeout: 10)
 
-        TestStep.macScreenshot(label: "terminal-created")
+        TestStep.macScreenshot(label: "mac-terminal-created")
 
         // ── Close session and verify empty state returns ─────
         TestStep.log("Clicking Close session toolbar button")
@@ -56,6 +56,6 @@ public enum EmptyStateNewSessionScenario {
         TestStep.log("Verifying New Session options returned in detail area")
         TestStep.macWaitForElement(titled: "New Terminal", timeout: 5)
 
-        TestStep.macScreenshot(label: "empty-state-after-close")
+        TestStep.macScreenshot(label: "mac-empty-state-after-close")
     }
 }

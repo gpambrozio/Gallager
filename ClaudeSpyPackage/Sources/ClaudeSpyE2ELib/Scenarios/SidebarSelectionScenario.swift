@@ -32,14 +32,14 @@ public enum SidebarSelectionScenario {
         TestStep.macWaitForElement(titled: "Terminals", timeout: 5)
         TestStep.macWaitForElement(titled: "sidebar-1", timeout: 5)
         TestStep.macWaitForElement(titled: "sidebar-2", timeout: 5)
-        TestStep.macScreenshot(label: "both-in-terminals")
+        TestStep.macScreenshot(label: "mac-both-in-terminals")
 
         // ── Phase 2: Select pane 1, then start Claude session ───
 
         TestStep.log("Phase 2: Select pane 1 and start a Claude session on it")
         TestStep.macClickButton(titled: "sidebar-1")
         TestStep.wait(seconds: 1)
-        TestStep.macScreenshot(label: "pane1-selected")
+        TestStep.macScreenshot(label: "mac-pane1-selected")
 
         // Send SessionStart hook for pane 1
         TestStep.macSendHookEvent(
@@ -62,19 +62,19 @@ public enum SidebarSelectionScenario {
         // Pane 2 should still be in "Terminals"
         TestStep.macWaitForElement(titled: "Terminals", timeout: 5)
         TestStep.macWaitForElement(titled: "sidebar-2", timeout: 5)
-        TestStep.macScreenshot(label: "pane1-moved-to-claude-sessions")
+        TestStep.macScreenshot(label: "mac-pane1-moved-to-claude-sessions")
 
         // ── Phase 3: Verify selection is preserved ──────────────
 
         TestStep.log("Phase 3: Click pane 2, verify selection switches correctly")
         TestStep.macClickButton(titled: "sidebar-2")
         TestStep.wait(seconds: 1)
-        TestStep.macScreenshot(label: "pane2-selected")
+        TestStep.macScreenshot(label: "mac-pane2-selected")
 
         // Click pane 1 back (now in Claude Sessions section)
         TestStep.macClickButton(titled: "sidebar-1")
         TestStep.wait(seconds: 1)
-        TestStep.macScreenshot(label: "pane1-reselected-in-claude-sessions")
+        TestStep.macScreenshot(label: "mac-pane1-reselected-in-claude-sessions")
 
         // ── Phase 4: End session, pane moves back to Terminals ──
 
@@ -99,7 +99,7 @@ public enum SidebarSelectionScenario {
         TestStep.macWaitForElement(titled: "Terminals", timeout: 5)
         TestStep.macWaitForElement(titled: "sidebar-1", timeout: 5)
         TestStep.macWaitForElement(titled: "sidebar-2", timeout: 5)
-        TestStep.macScreenshot(label: "pane1-back-in-terminals")
+        TestStep.macScreenshot(label: "mac-pane1-back-in-terminals")
 
         // ── Phase 5: Session end keeps all elements visible ───
         // Regression test for issue #174: when a Claude session exits,
@@ -148,7 +148,7 @@ public enum SidebarSelectionScenario {
         TestStep.macWaitForElement(titled: "Terminals", timeout: 5)
         TestStep.macWaitForElement(titled: "sidebar-1", timeout: 5)
         TestStep.macWaitForElement(titled: "sidebar-2", timeout: 5)
-        TestStep.macScreenshot(label: "all-visible-after-session-end")
+        TestStep.macScreenshot(label: "mac-all-visible-after-session-end")
 
         // ── Phase 6: Auto-select when no selection ──────────────
 
@@ -190,6 +190,6 @@ public enum SidebarSelectionScenario {
         TestStep.macWaitForElement(titled: "sidebar-3", timeout: 5)
         // Pane 1 should still be visible in Terminals (not auto-switched)
         TestStep.macWaitForElement(titled: "sidebar-1", timeout: 5)
-        TestStep.macScreenshot(label: "new-session-no-steal")
+        TestStep.macScreenshot(label: "mac-new-session-no-steal")
     }
 }

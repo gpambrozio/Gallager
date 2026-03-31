@@ -88,7 +88,7 @@ public enum DAResponseLeakScenario {
         TestStep.assertStoredNotContains(key: "bothDA1", substring: ";22;17")
         TestStep.assertStoredNotContains(key: "bothDA1", substring: "?65;")
 
-        TestStep.macScreenshot(label: "both-after-da1", compare: false)
+        TestStep.macScreenshot(label: "mac-both-after-da1", compare: false)
         TestStep.iosScreenshot(label: "ios-after-da1", compare: false)
     }
 }

@@ -77,7 +77,7 @@ public enum AlwaysAutoResizeScenario {
         )
         TestStep.log("Phase 1 dimensions: ${phase1Width}x${phase1Height}")
         TestStep.assertStoredNotEqual(key: "phase1Width", otherKey: "initialWidth")
-        TestStep.macScreenshot(label: "global-auto-resize-on")
+        TestStep.macScreenshot(label: "mac-global-auto-resize-on")
 
         // ── Phase 2: New session inherits global default ──────────
 
@@ -109,7 +109,7 @@ public enum AlwaysAutoResizeScenario {
         // Should not be the original 80 anymore
         TestStep.storeValue(key: "original80", value: "80")
         TestStep.assertStoredNotEqual(key: "phase2Width", otherKey: "original80")
-        TestStep.macScreenshot(label: "new-session-inherits")
+        TestStep.macScreenshot(label: "mac-new-session-inherits")
 
         // ── Phase 3: Per-session opt-out ──────────────────────────
 
@@ -158,7 +158,7 @@ public enum AlwaysAutoResizeScenario {
         TestStep.log("Phase 3 pane 1: ${phase3Pane1Width}x${phase3Pane1Height}")
         // Pane 1 should have resized to the new window size (different from phase 1)
         TestStep.assertStoredNotEqual(key: "phase3Pane1Width", otherKey: "phase1Width")
-        TestStep.macScreenshot(label: "per-session-opt-out")
+        TestStep.macScreenshot(label: "mac-per-session-opt-out")
 
         // ── Phase 4: Global off restores normal behavior ──────────
 
@@ -199,6 +199,6 @@ public enum AlwaysAutoResizeScenario {
         )
         TestStep.log("Phase 4 pane 1: ${phase4BeforeWidth}→${phase4AfterWidth}")
         TestStep.assertStoredEqual(key: "phase4AfterWidth", otherKey: "phase4BeforeWidth")
-        TestStep.macScreenshot(label: "global-off-no-resize")
+        TestStep.macScreenshot(label: "mac-global-off-no-resize")
     }
 }
