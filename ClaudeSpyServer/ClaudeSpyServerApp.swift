@@ -253,6 +253,8 @@ struct TmuxPaneMirrorApp: App {
                 .task {
                     await coordinator.setupAllServices()
                     if coordinator.settings.openPanesWindowOnLaunch {
+                        // openWindow is only available inside View bodies;
+                        // use the notification bridge so MenuBarLabel can trigger it.
                         NotificationCenter.default.post(name: .openPanesWindow, object: nil)
                     }
                 }
