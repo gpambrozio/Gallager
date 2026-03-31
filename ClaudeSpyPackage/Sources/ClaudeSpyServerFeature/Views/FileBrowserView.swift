@@ -3,6 +3,44 @@ import Files
 import ProjectNavigator
 import SwiftUI
 
+/// A draggable vertical divider for resizing adjacent views.
+private struct ResizableDivider: View {
+    @Binding var dimension: CGFloat
+    let minDimension: CGFloat
+    let maxDimension: CGFloat
+
+    @State private var isDragging = false
+    @State private var initialDimension: CGFloat = 0
+
+    var body: some View {
+        Rectangle()
+            .fill(isDragging ? Color.accentColor : Color.gray.opacity(0.3))
+            .frame(width: 4)
+            .contentShape(Rectangle().inset(by: -3))
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.resizeLeftRight.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+            .gesture(
+                DragGesture(coordinateSpace: .global)
+                    .onChanged { value in
+                        if !isDragging {
+                            isDragging = true
+                            initialDimension = dimension
+                        }
+                        let newWidth = initialDimension + value.translation.width
+                        dimension = min(max(newWidth, minDimension), maxDimension)
+                    }
+                    .onEnded { _ in
+                        isDragging = false
+                    }
+            )
+    }
+}
+
 /// Displays a file tree navigator for a directory with an editor pane for the selected file.
 /// Modeled after the NavigatorDemo in the ProjectNavigator package.
 struct FileBrowserView: View {
@@ -10,6 +48,7 @@ struct FileBrowserView: View {
 
     @State private var fileTree: FileTree<TextFileContents>?
     @State private var viewState: FileNavigatorViewState<TextFileContents>?
+    @State private var sidebarWidth: CGFloat = 250
 
     var body: some View {
         if let fileTree, let viewState {
@@ -70,9 +109,9 @@ struct FileBrowserView: View {
             }
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)
-            .frame(width: 250)
+            .frame(width: sidebarWidth)
 
-            Divider()
+            ResizableDivider(dimension: $sidebarWidth, minDimension: 150, maxDimension: 400)
 
             fileDetailView(fileTree: fileTree, viewState: viewState)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
