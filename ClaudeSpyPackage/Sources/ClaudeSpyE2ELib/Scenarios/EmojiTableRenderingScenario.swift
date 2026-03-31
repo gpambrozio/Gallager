@@ -201,8 +201,8 @@ public enum EmojiTableRenderingScenario {
         TestStep.wait(seconds: 3)
 
         // Screenshot: all three emoji tables rendered via streaming
-        TestStep.macScreenshot(label: "emoji-tables-streamed-mac")
-        TestStep.iosScreenshot(label: "emoji-tables-streamed-ios")
+        TestStep.macScreenshot(label: "mac-emoji-tables-streamed")
+        TestStep.iosScreenshot(label: "ios-emoji-tables-streamed")
 
         // -- Re-capture: de-select and re-select ---------------------------
         // Forces a new capture-pane cycle to verify that extractActiveSGR
@@ -218,13 +218,13 @@ public enum EmojiTableRenderingScenario {
         TestStep.wait(seconds: 3)
 
         // Screenshot: tables should still render correctly after re-capture
-        TestStep.macScreenshot(label: "emoji-tables-recapture-mac")
+        TestStep.macScreenshot(label: "mac-emoji-tables-recapture")
 
         TestStep.iosTap(.labelContains("emoji-tbl"))
         TestStep.wait(seconds: 3)
         TestStep.iosWaitForElementToDisappear(.labelContains("Connecting"), timeout: 15)
         TestStep.wait(seconds: 3)
-        TestStep.iosScreenshot(label: "emoji-tables-recapture-ios")
+        TestStep.iosScreenshot(label: "ios-emoji-tables-recapture")
 
         // -- Cleanup -------------------------------------------------------
 

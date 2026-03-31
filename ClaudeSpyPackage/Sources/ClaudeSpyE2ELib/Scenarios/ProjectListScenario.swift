@@ -28,7 +28,7 @@ public enum ProjectListScenario {
         TestStep.macWaitForElement(titled: "BetaProject", timeout: 5)
         TestStep.macWaitForElement(titled: "GammaService", timeout: 5)
         TestStep.macWaitForElement(titled: "DeltaApp", timeout: 5)
-        TestStep.macScreenshot(label: "project-list-mock-projects", compare: false)
+        TestStep.macScreenshot(label: "mac-project-list-mock-projects", compare: false)
 
         // ── Teardown ─────────────────────────────────────────────
 

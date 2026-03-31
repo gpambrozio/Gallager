@@ -57,7 +57,7 @@ public enum ScrollbackGapScenario {
 
         // ── Capture: initial view (bottom of content = PAGE4) ───────
 
-        TestStep.macScreenshot(label: "initial-bottom-view")
+        TestStep.macScreenshot(label: "mac-initial-bottom-view")
 
         // ── Scroll up to reveal PAGE3 ───────────────────────────────
 
@@ -65,7 +65,7 @@ public enum ScrollbackGapScenario {
         TestStep.wait(seconds: 1)
 
         // Should show PAGE3 content (~~~~ pattern)
-        TestStep.macScreenshot(label: "scrolled-up-page3")
+        TestStep.macScreenshot(label: "mac-scrolled-up-page3")
 
         // ── Scroll up more to reveal PAGE2 ──────────────────────────
 
@@ -73,7 +73,7 @@ public enum ScrollbackGapScenario {
         TestStep.wait(seconds: 1)
 
         // Should show PAGE2 content (#### pattern)
-        TestStep.macScreenshot(label: "scrolled-up-page2")
+        TestStep.macScreenshot(label: "mac-scrolled-up-page2")
 
         // ── Scroll up further to reveal PAGE1 ───────────────────────
 
@@ -81,6 +81,6 @@ public enum ScrollbackGapScenario {
         TestStep.wait(seconds: 1)
 
         // Should show PAGE1 content (AAAA pattern)
-        TestStep.macScreenshot(label: "scrolled-up-page1")
+        TestStep.macScreenshot(label: "mac-scrolled-up-page1")
     }
 }

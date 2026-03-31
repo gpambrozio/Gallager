@@ -145,13 +145,13 @@ public enum FooterRenderingScenario {
 
         // ── Select the pane on macOS ─────────────────────────────────
         // Screenshot: should show header and footer on macOS
-        TestStep.macScreenshot(label: "footer-mac-full-terminal")
+        TestStep.macScreenshot(label: "mac-footer-full-terminal")
 
         // Screenshot: should show the terminal content on iOS
         // Before the fix, the footer is missing because SwiftTerm auto-resizes
         // the buffer to fit the screen, destroying bottom rows.
         // After the fix, the terminal expands and the outer scroll view allows
         // scrolling to see the footer.
-        TestStep.iosScreenshot(label: "footer-ios-terminal")
+        TestStep.iosScreenshot(label: "ios-footer-terminal")
     }
 }

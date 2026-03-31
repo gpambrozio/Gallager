@@ -35,21 +35,21 @@ public enum TerminalTitlePersistenceScenario {
         TestStep.wait(seconds: 3)
 
         TestStep.macWaitForElement(titled: "Persist Title One", timeout: 10)
-        TestStep.macScreenshot(label: "pane1-title-set")
+        TestStep.macScreenshot(label: "mac-pane1-title-set")
 
         // ── Phase 2: Switch away and back — title must persist ───
 
         TestStep.log("Phase 2: Switch to pane 2 then back to pane 1")
         TestStep.macClickButton(titled: "title-persist-2")
         TestStep.wait(seconds: 2)
-        TestStep.macScreenshot(label: "pane2-selected")
+        TestStep.macScreenshot(label: "mac-pane2-selected")
 
         TestStep.macClickButton(titled: "title-persist-1")
         TestStep.wait(seconds: 3)
 
         // Title should still be visible in sidebar and detail view
         TestStep.macWaitForElement(titled: "Persist Title One", timeout: 10)
-        TestStep.macScreenshot(label: "pane1-title-persisted")
+        TestStep.macScreenshot(label: "mac-pane1-title-persisted")
 
         // ── Phase 3: Set title on inactive pane ──────────────────
 
@@ -63,7 +63,7 @@ public enum TerminalTitlePersistenceScenario {
 
         // Title should appear in sidebar even though pane 2 is not selected
         TestStep.macWaitForElement(titled: "Inactive Pane Title", timeout: 10)
-        TestStep.macScreenshot(label: "pane2-title-in-sidebar")
+        TestStep.macScreenshot(label: "mac-pane2-title-in-sidebar")
 
         // ── Phase 4: Select inactive pane — title must show ──────
 
@@ -72,6 +72,6 @@ public enum TerminalTitlePersistenceScenario {
         TestStep.wait(seconds: 3)
 
         TestStep.macWaitForElement(titled: "Inactive Pane Title", timeout: 10)
-        TestStep.macScreenshot(label: "pane2-title-displayed")
+        TestStep.macScreenshot(label: "mac-pane2-title-displayed")
     }
 }
