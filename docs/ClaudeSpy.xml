@@ -6,6 +6,44 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.15</title>
+         <sparkle:version>15</sparkle:version>
+         <sparkle:shortVersionString>1.15</sparkle:shortVersionString>
+         <pubDate>Mon, 30 Mar 2026 15:43:49 -1000</pubDate>
+         <description><![CDATA[
+I have enough context now. Here are the release notes:
+
+# ClaudeSpy 1.15
+
+<h2>Features</h2>
+
+<h3>Window Tabs for Multi-Window Sessions</h3>
+
+Sessions with multiple tmux windows now display horizontal tabs above the terminal view, making it easy to switch between windows without navigating back to the sidebar.
+
+<ul>
+<li><strong>macOS:</strong> A tab bar appears above the terminal with clickable tabs for each window, plus a "+" button to create new windows directly from the app.</li>
+<li><strong>iOS:</strong> Tap the navigation title to open a menu listing all windows in the session, with an option to create new windows.</li>
+<li>The sidebar now groups windows by session, showing one entry per session instead of individual window entries.</li>
+</ul>
+
+When selecting a session, the app now correctly opens the tmux-active window rather than always defaulting to the first window.
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Smarter window close handling:</strong> Closing a tab automatically selects another window in the same session instead of showing an empty state.</li>
+<li><strong>iOS Claude status accuracy:</strong> The session list now correctly shows Claude activity status even when Claude is running on a non-active pane.</li>
+<li><strong>Tall terminal scroll fix:</strong> Terminals with more rows than the screen now scroll to the top on both macOS and iOS, keeping the prompt visible instead of hiding it above the viewport.</li>
+<li><strong>Cross-platform window sync:</strong> Switching windows on iOS is reflected on macOS, and vice versa.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.15.dmg"
+                    sparkle:edSignature="eavr58F7OdsvjUh/fdZElg1Ywpu/n1rZ/3e0VOVmHmT3ROf4pTiyUIlGAzDl/H70yzQmPCxtvcDfTefzlgMtCA=="
+                    length="20954980"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.14</title>
          <sparkle:version>14</sparkle:version>
          <sparkle:shortVersionString>1.14</sparkle:shortVersionString>
