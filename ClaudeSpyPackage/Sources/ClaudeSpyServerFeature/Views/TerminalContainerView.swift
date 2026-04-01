@@ -310,6 +310,11 @@ struct TerminalContainerView: NSViewRepresentable {
                 if !result.initialContent.isEmpty {
                     handleData(result.initialContent)
                 }
+
+                // capture-pane doesn't include DEC private mode state (mouse
+                // tracking). Query tmux for the pane's mouse flags and inject
+                // the enable sequences so SwiftTerm enters the correct mode.
+                await syncMouseMode(target: target, tmuxService: tmuxService)
             } catch {
                 updateState(.error(error.localizedDescription))
             }
@@ -347,6 +352,39 @@ struct TerminalContainerView: NSViewRepresentable {
             } else {
                 // Subsequent data - preserve user's scroll position
                 terminalView.feedPreservingScroll(bytes)
+            }
+        }
+
+        // MARK: Mouse Mode Sync
+
+        /// Queries the tmux pane's mouse tracking flags and injects the
+        /// corresponding DEC private mode sequences into SwiftTerm.
+        /// `capture-pane` only captures text + SGR attributes, not terminal
+        /// state like mouse mode, so the mirror must sync this separately.
+        private func syncMouseMode(target: String, tmuxService: TmuxService) async {
+            do {
+                let result = try await tmuxService.getPaneMouseMode(target)
+                guard result != .off else { return }
+
+                var sequences = ""
+                switch result {
+                case .standard:
+                    sequences += "\u{1b}[?1000h"
+                case .button:
+                    sequences += "\u{1b}[?1002h"
+                case .any:
+                    sequences += "\u{1b}[?1003h"
+                case .off:
+                    break
+                }
+                // SGR encoding (almost always paired with mouse tracking)
+                if result != .off {
+                    sequences += "\u{1b}[?1006h"
+                }
+
+                terminalView.feed(byteArray: Array(sequences.utf8)[...])
+            } catch {
+                // Non-fatal — mouse just won't work until the app redraws
             }
         }
 

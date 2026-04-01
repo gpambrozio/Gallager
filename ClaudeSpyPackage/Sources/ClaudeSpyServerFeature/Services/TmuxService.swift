@@ -257,6 +257,35 @@ final public class TmuxService {
         return (width, height)
     }
 
+    /// The mouse tracking mode active in a tmux pane.
+    public enum PaneMouseMode {
+        case off
+        case standard
+        case button
+        case any
+    }
+
+    /// Queries the mouse tracking mode of a tmux pane.
+    public func getPaneMouseMode(_ target: String) async throws -> PaneMouseMode {
+        let result = try await runTmuxCommand([
+            "display-message",
+            "-t", target,
+            "-p", "#{mouse_any_flag} #{mouse_button_flag} #{mouse_standard_flag}",
+        ])
+
+        guard result.isSuccess else {
+            throw TmuxError.invalidPane(target: target)
+        }
+
+        let parts = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: " ")
+        guard parts.count == 3 else { return .off }
+
+        if parts[0] == "1" { return .any }
+        if parts[1] == "1" { return .button }
+        if parts[2] == "1" { return .standard }
+        return .off
+    }
+
     /// Captures the current pane content with escape sequences
     /// - Parameters:
     ///   - target: The pane target
