@@ -118,6 +118,12 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator)
                 .environment(coordinator.pluginService)
                 .environment(\.e2eeService, coordinator.e2eeService)
+                .onAppear {
+                    if coordinator.settings.openPanesWindowOnLaunch {
+                        NSApp.setActivationPolicy(.regular)
+                        MenuBarExtraView.bringAppToFront()
+                    }
+                }
                 .task {
                     // Check if we should show the plugin setup on first launch
                     if !coordinator.settings.hasCompletedPluginSetup {
