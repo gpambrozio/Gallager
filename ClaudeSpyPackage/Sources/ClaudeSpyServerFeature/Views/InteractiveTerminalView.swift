@@ -51,10 +51,6 @@
 
         private var trackingArea: NSTrackingArea?
 
-        /// Throttle mouse-move forwarding to ~60fps to avoid spawning a tmux
-        /// subprocess for every display-refresh mouse event.
-        private var lastMouseMoveForwardTime: TimeInterval = 0
-
         /// Accumulated scroll delta for smooth mouse-wheel event generation.
         /// Trackpad events deliver fractional deltas; we accumulate them and
         /// emit one scroll event per line crossed.
@@ -82,16 +78,11 @@
         }
 
         override func mouseMoved(with event: NSEvent) {
-            // When terminal app has mouse tracking enabled, forward move events
-            // to SwiftTerm so it can generate mouse escape sequences.
-            // Throttle to ~60fps — each forwarded event spawns a tmux subprocess,
-            // so unthrottled display-refresh-rate events would cause a backlog.
-            if interactiveView?.isMouseModeActive == true {
-                let now = ProcessInfo.processInfo.systemUptime
-                guard now - lastMouseMoveForwardTime >= 0.016 else { return }
-                lastMouseMoveForwardTime = now
-                terminalView?.mouseMoved(with: event)
-            } else {
+            // Don't forward motion events when mouse mode is active. SwiftTerm
+            // generates motion escape sequences (ESC[<32;col;rowm) that some
+            // apps misinterpret as button release events, triggering click actions.
+            // Terminal apps primarily need clicks and scrolls, not hover tracking.
+            if interactiveView?.isMouseModeActive != true {
                 onMouseMoved?(event)
             }
         }
@@ -1342,7 +1333,11 @@
             // Mouse escape sequences (SGR, X10) can't be parsed by TmuxKey.from(bytes:)
             // because the CSI parser doesn't handle private-use parameter prefixes like '<'.
             // Send them as raw bytes to tmux via send-keys -H.
+            // Drop motion events (bit 5 set) — SwiftTerm's own tracking areas generate
+            // these even though the overlay doesn't forward mouseMoved, and some apps
+            // misinterpret them as click events.
             if TerminalResponseFilter.isMouseEscapeSequence(data) {
+                if TerminalResponseFilter.isMouseMotionEvent(data) { return }
                 onRawInput?(Data(data))
                 return
             }
