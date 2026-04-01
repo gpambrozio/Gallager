@@ -150,7 +150,7 @@ struct TmuxPaneMirrorApp: App {
                         .environment(coordinator.settings)
                 }
         }
-        .defaultLaunchBehavior(.suppressed)
+        .defaultLaunchBehavior(coordinator.settings.openPanesWindowOnLaunch ? .presented : .suppressed)
         .onChange(of: totalPendingSessionCount, initial: true) { _, newValue in
             NSApp.dockTile.badgeLabel = newValue > 0 ? "\(newValue)" : nil
         }
@@ -252,11 +252,6 @@ struct TmuxPaneMirrorApp: App {
             MenuBarLabel(pendingCount: totalPendingSessionCount)
                 .task {
                     await coordinator.setupAllServices()
-                    if coordinator.settings.openPanesWindowOnLaunch {
-                        // openWindow is only available inside View bodies;
-                        // use the notification bridge so MenuBarLabel can trigger it.
-                        NotificationCenter.default.post(name: .openPanesWindow, object: nil)
-                    }
                 }
         }
     }
