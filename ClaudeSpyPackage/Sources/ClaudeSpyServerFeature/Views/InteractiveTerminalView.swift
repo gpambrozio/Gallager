@@ -55,6 +55,11 @@
         /// subprocess for every display-refresh mouse event.
         private var lastMouseMoveForwardTime: TimeInterval = 0
 
+        /// Accumulated scroll delta for smooth mouse-wheel event generation.
+        /// Trackpad events deliver fractional deltas; we accumulate them and
+        /// emit one scroll event per line crossed.
+        private var scrollAccumulator: CGFloat = 0
+
         override var acceptsFirstResponder: Bool { false }
 
         override func hitTest(_ point: NSPoint) -> NSView? {
@@ -100,10 +105,46 @@
         }
 
         override func scrollWheel(with event: NSEvent) {
-            // When mouse mode is active, always forward scroll events to SwiftTerm
-            // so it can generate mouse wheel escape sequences for the terminal app.
-            if interactiveView?.isMouseModeActive == true {
-                terminalView?.scrollWheel(with: event)
+            // When mouse mode is active, synthesize SGR mouse wheel escape sequences
+            // and batch them into a single onRawInput call. This is critical because
+            // each onRawInput spawns one tmux subprocess — batching N scroll lines
+            // into one call avoids N separate process forks.
+            if
+                let interactive = interactiveView,
+                interactive.isMouseModeActive,
+                let tv = terminalView {
+                let deltaY = event.scrollingDeltaY
+                guard deltaY != 0 else { return }
+
+                // Reset accumulator on direction change for responsive reversal.
+                if (scrollAccumulator > 0) != (deltaY > 0) {
+                    scrollAccumulator = 0
+                }
+
+                scrollAccumulator += deltaY
+
+                let point = tv.convert(event.locationInWindow, from: nil)
+                let terminal = tv.getTerminal()
+                let col = min(max(0, Int(point.x / interactive.cellSize.width)), terminal.cols - 1)
+                let row = min(max(0, Int((tv.frame.height - point.y) / interactive.cellSize.height)), terminal.rows - 1)
+
+                // Build batched SGR mouse scroll sequences. Each line crossed
+                // produces one ESC[<button;col;rowM sequence. They're concatenated
+                // into a single Data and sent as one tmux send-keys -H call.
+                let lineThreshold: CGFloat = 1
+                var lines = 0
+                while abs(scrollAccumulator) >= lineThreshold {
+                    lines += 1
+                    scrollAccumulator -= scrollAccumulator > 0 ? lineThreshold : -lineThreshold
+                }
+                guard lines > 0 else { return }
+
+                // Button 64 = scroll up, 65 = scroll down (SGR encoding)
+                let button = deltaY > 0 ? 64 : 65
+                // SGR format: ESC [ < Cb ; Cx ; Cy M  (1-indexed coordinates)
+                let singleEvent = "\u{1b}[<\(button);\(col + 1);\(row + 1)M"
+                let batch = String(repeating: singleEvent, count: lines)
+                interactive.onRawInput?(Data(batch.utf8))
                 return
             }
             if abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) {
@@ -346,7 +387,7 @@
         }
 
         /// Returns cached cell size, recalculating only when the font changes.
-        private var cellSize: CGSize {
+        var cellSize: CGSize {
             if let cached = cachedCellSize { return cached }
             let size = FontMetrics.calculateCellSize(font: terminalView.font as CTFont)
             cachedCellSize = size
