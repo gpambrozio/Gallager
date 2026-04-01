@@ -126,9 +126,9 @@ final public class AppSettings {
 
     // MARK: - Behavior Settings
 
-    /// Whether to restore windows on launch
-    public var restoreWindowsOnLaunch: Bool = Defaults.restoreWindowsOnLaunch {
-        didSet { preferences.setBool(restoreWindowsOnLaunch, Keys.restoreWindowsOnLaunch) }
+    /// Whether to open the panes window when the app launches
+    public var openPanesWindowOnLaunch: Bool = Defaults.openPanesWindowOnLaunch {
+        didSet { preferences.setBool(openPanesWindowOnLaunch, Keys.openPanesWindowOnLaunch) }
     }
 
     /// Whether to show the status bar in mirror windows
@@ -256,7 +256,7 @@ final public class AppSettings {
         self.fontSize = preferences.optionalDouble(Keys.fontSize) ?? Defaults.fontSize
         self.scrollbackLines = preferences.optionalInt(Keys.scrollbackLines) ?? Defaults.scrollbackLines
         self.theme = TerminalTheme(rawValue: preferences.string(Keys.theme) ?? "") ?? Defaults.theme
-        self.restoreWindowsOnLaunch = preferences.optionalBool(Keys.restoreWindowsOnLaunch) ?? Defaults.restoreWindowsOnLaunch
+        self.openPanesWindowOnLaunch = preferences.optionalBool(Keys.openPanesWindowOnLaunch) ?? Defaults.openPanesWindowOnLaunch
         self.showStatusBar = preferences.optionalBool(Keys.showStatusBar) ?? Defaults.showStatusBar
         self.autoReconnect = preferences.optionalBool(Keys.autoReconnect) ?? Defaults.autoReconnect
         self.autoOpenMirrorOnSession = preferences.optionalBool(Keys.autoOpenMirrorOnSession) ?? Defaults.autoOpenMirrorOnSession
@@ -313,7 +313,7 @@ final public class AppSettings {
         case fontSize
         case scrollbackLines
         case theme
-        case restoreWindowsOnLaunch
+        case openPanesWindowOnLaunch
         case showStatusBar
         case autoReconnect
         case autoOpenMirrorOnSession
@@ -349,7 +349,7 @@ final public class AppSettings {
         static let fontSize = 12.0
         static let scrollbackLines = 10_000
         static let theme = TerminalTheme.defaultDark
-        static let restoreWindowsOnLaunch = true
+        static let openPanesWindowOnLaunch = false
         static let showStatusBar = true
         static let autoReconnect = false
         static let autoOpenMirrorOnSession = false

@@ -86,7 +86,7 @@ public struct MenuBarExtraView: View {
     /// Activates the app and forces all visible windows to the front.
     /// SwiftUI's openWindow/openSettings defer window creation, so we
     /// schedule a delayed force-front to catch windows after they appear.
-    static func bringAppToFront() {
+    public static func bringAppToFront() {
         NSApp.activate()
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(200))
