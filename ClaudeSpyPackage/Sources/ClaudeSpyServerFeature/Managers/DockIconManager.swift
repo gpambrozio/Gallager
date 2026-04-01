@@ -189,10 +189,8 @@ final private class LiveDockIconManager {
                 NSApp.setActivationPolicy(.regular)
                 NSApp.activate(ignoringOtherApps: false)
             }
-        } else {
-            if currentPolicy != .accessory {
-                NSApp.setActivationPolicy(.accessory)
-            }
+        } else if currentPolicy != .accessory {
+            NSApp.setActivationPolicy(.accessory)
         }
     }
 }
