@@ -372,11 +372,6 @@ struct ToolInputView: View {
                 detailRow("File:", params.filePath)
                 detailRow("Content length:", "\(params.content.count) characters")
 
-            case let .multiEdit(params):
-                headerRow("Multi-Edit File")
-                detailRow("File:", params.filePath)
-                detailRow("Number of edits:", "\(params.edits.count)")
-
             case let .grep(params):
                 headerRow("Search with Grep")
                 detailRow("Pattern:", params.pattern)
@@ -404,21 +399,15 @@ struct ToolInputView: View {
                     detailRow("Description:", desc, maxLines: 3)
                 }
 
-            case let .bashOutput(params):
-                headerRow("Read Command Output")
-                detailRow("Bash ID:", params.bashId)
-                if let filter = params.filter {
-                    detailRow("Filter:", filter)
+            case let .agent(params):
+                headerRow("Run Agent")
+                if let subagentType = params.subagentType {
+                    detailRow("Type:", subagentType)
                 }
-
-            case let .killShell(params):
-                headerRow("Kill Shell")
-                detailRow("Shell ID:", params.shellId)
-
-            case let .task(params):
-                headerRow("Run Subagent Task")
-                detailRow("Subagent:", params.subagentType.rawValue)
                 detailRow("Task:", params.description)
+                if let model = params.model {
+                    detailRow("Model:", model)
+                }
 
             case let .todoWrite(params):
                 headerRow("Manage Todo List")
@@ -461,9 +450,19 @@ struct ToolInputView: View {
                     detailRow("Mode:", mode.rawValue)
                 }
 
-            case let .slashCommand(params):
-                headerRow("Run Slash Command")
-                detailRow("Command:", params.command)
+            case let .skill(params):
+                headerRow("Run Skill")
+                detailRow("Skill:", params.skill)
+                if let args = params.args {
+                    detailRow("Arguments:", args)
+                }
+
+            case let .toolSearch(params):
+                headerRow("Search Tools")
+                detailRow("Query:", params.query)
+                if let maxResults = params.maxResults {
+                    detailRow("Max results:", "\(maxResults)")
+                }
 
             case let .askUserQuestion(params):
                 headerRow("Ask User Questions")
