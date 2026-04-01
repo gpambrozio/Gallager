@@ -7,7 +7,6 @@ public enum ClaudeCodeTool: Sendable, Equatable {
     case read(ReadParameters)
     case edit(EditParameters)
     case write(WriteParameters)
-    case multiEdit(MultiEditParameters)
 
     // Search Tools
     case grep(GrepParameters)
@@ -15,11 +14,9 @@ public enum ClaudeCodeTool: Sendable, Equatable {
 
     // Execution
     case bash(BashParameters)
-    case bashOutput(BashOutputParameters)
-    case killShell(KillShellParameters)
 
     // Subagents & Planning
-    case task(TaskParameters)
+    case agent(AgentParameters)
     case todoWrite(TodoWriteParameters)
     case exitPlanMode(ExitPlanModeParameters)
 
@@ -30,8 +27,11 @@ public enum ClaudeCodeTool: Sendable, Equatable {
     // Jupyter Notebooks
     case notebookEdit(NotebookEditParameters)
 
-    // Slash Commands
-    case slashCommand(SlashCommandParameters)
+    // Skills (formerly Slash Commands)
+    case skill(SkillParameters)
+
+    // Tool Discovery
+    case toolSearch(ToolSearchParameters)
 
     // User Interaction
     case askUserQuestion(AskUserQuestionParameters)
@@ -47,19 +47,17 @@ public enum ClaudeCodeTool: Sendable, Equatable {
         case .read: "Read"
         case .edit: "Edit"
         case .write: "Write"
-        case .multiEdit: "MultiEdit"
         case .grep: "Grep"
         case .glob: "Glob"
         case .bash: "Bash"
-        case .bashOutput: "BashOutput"
-        case .killShell: "KillShell"
-        case .task: "Task"
+        case .agent: "Agent"
         case .todoWrite: "TodoWrite"
         case .exitPlanMode: "ExitPlanMode"
         case .webFetch: "WebFetch"
         case .webSearch: "WebSearch"
         case .notebookEdit: "NotebookEdit"
-        case .slashCommand: "SlashCommand"
+        case .skill: "Skill"
+        case .toolSearch: "ToolSearch"
         case .askUserQuestion: "AskUserQuestion"
         case let .mcp(params): params.fullToolName
         case let .other(name, _): name
@@ -75,19 +73,13 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             params.filePath
         case let .write(params):
             params.filePath
-        case let .multiEdit(params):
-            params.filePath
         case let .grep(params):
             params.pattern
         case let .glob(params):
             params.pattern
         case let .bash(params):
             params.command
-        case let .bashOutput(params):
-            params.bashId
-        case let .killShell(params):
-            params.shellId
-        case let .task(params):
+        case let .agent(params):
             params.description
         case .todoWrite:
             nil
@@ -99,8 +91,10 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             params.query
         case let .notebookEdit(params):
             params.notebookPath
-        case let .slashCommand(params):
-            params.command
+        case let .skill(params):
+            params.skill
+        case let .toolSearch(params):
+            params.query
         case let .askUserQuestion(params):
             params.questions.first?.question
         case let .mcp(params):
@@ -124,20 +118,14 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             return try .edit(container.decode(EditParameters.self))
         case "Write":
             return try .write(container.decode(WriteParameters.self))
-        case "MultiEdit":
-            return try .multiEdit(container.decode(MultiEditParameters.self))
         case "Grep":
             return try .grep(container.decode(GrepParameters.self))
         case "Glob":
             return try .glob(container.decode(GlobParameters.self))
         case "Bash":
             return try .bash(container.decode(BashParameters.self))
-        case "BashOutput":
-            return try .bashOutput(container.decode(BashOutputParameters.self))
-        case "KillShell":
-            return try .killShell(container.decode(KillShellParameters.self))
-        case "Task":
-            return try .task(container.decode(TaskParameters.self))
+        case "Agent":
+            return try .agent(container.decode(AgentParameters.self))
         case "TodoWrite":
             return try .todoWrite(container.decode(TodoWriteParameters.self))
         case "ExitPlanMode":
@@ -148,8 +136,10 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             return try .webSearch(container.decode(WebSearchParameters.self))
         case "NotebookEdit":
             return try .notebookEdit(container.decode(NotebookEditParameters.self))
-        case "SlashCommand":
-            return try .slashCommand(container.decode(SlashCommandParameters.self))
+        case "Skill":
+            return try .skill(container.decode(SkillParameters.self))
+        case "ToolSearch":
+            return try .toolSearch(container.decode(ToolSearchParameters.self))
         case "AskUserQuestion":
             return try .askUserQuestion(container.decode(AskUserQuestionParameters.self))
         default:
@@ -168,11 +158,13 @@ public struct ReadParameters: Codable, Sendable, Equatable {
     public let filePath: String
     public let offset: Int?
     public let limit: Int?
+    public let pages: String?
 
     enum CodingKeys: String, CodingKey {
         case filePath = "file_path"
         case offset
         case limit
+        case pages
     }
 }
 
@@ -200,26 +192,6 @@ public struct WriteParameters: Codable, Sendable, Equatable {
     }
 }
 
-public struct MultiEditParameters: Codable, Sendable, Equatable {
-    public let filePath: String
-    public let edits: [EditOperation]
-
-    public struct EditOperation: Codable, Sendable, Equatable {
-        public let oldString: String
-        public let newString: String
-
-        enum CodingKeys: String, CodingKey {
-            case oldString = "old_string"
-            case newString = "new_string"
-        }
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case filePath = "file_path"
-        case edits
-    }
-}
-
 public struct GrepParameters: Codable, Sendable, Equatable {
     public let pattern: String
     public let path: String?
@@ -229,10 +201,12 @@ public struct GrepParameters: Codable, Sendable, Equatable {
     public let linesAfter: Int?
     public let linesBefore: Int?
     public let linesContext: Int?
+    public let context: Int?
     public let caseInsensitive: Bool?
     public let showLineNumbers: Bool?
     public let multiline: Bool?
     public let headLimit: Int?
+    public let offset: Int?
 
     public enum OutputMode: String, Codable, Sendable, Equatable {
         case content
@@ -249,10 +223,12 @@ public struct GrepParameters: Codable, Sendable, Equatable {
         case linesAfter = "-A"
         case linesBefore = "-B"
         case linesContext = "-C"
+        case context
         case caseInsensitive = "-i"
         case showLineNumbers = "-n"
         case multiline
         case headLimit = "head_limit"
+        case offset
     }
 }
 
@@ -267,64 +243,42 @@ public struct BashParameters: Codable, Sendable, Equatable {
     /// Timeout in milliseconds (default: 120000, max: 600000)
     public let timeout: Int?
     public let runInBackground: Bool?
-    public let dangerouslyDisableSandbox: Bool?
 
     enum CodingKeys: String, CodingKey {
         case command
         case description
         case timeout
         case runInBackground = "run_in_background"
-        case dangerouslyDisableSandbox
     }
 
     public init(
         command: String,
         description: String? = nil,
         timeout: Int? = nil,
-        runInBackground: Bool? = nil,
-        dangerouslyDisableSandbox: Bool? = nil
+        runInBackground: Bool? = nil
     ) {
         self.command = command
         self.description = description
         self.timeout = timeout
         self.runInBackground = runInBackground
-        self.dangerouslyDisableSandbox = dangerouslyDisableSandbox
     }
 }
 
-public struct BashOutputParameters: Codable, Sendable, Equatable {
-    public let bashId: String
-    public let filter: String?
-
-    enum CodingKeys: String, CodingKey {
-        case bashId = "bash_id"
-        case filter
-    }
-}
-
-public struct KillShellParameters: Codable, Sendable, Equatable {
-    public let shellId: String
-
-    enum CodingKeys: String, CodingKey {
-        case shellId = "shell_id"
-    }
-}
-
-public struct TaskParameters: Codable, Sendable, Equatable {
-    public let subagentType: SubagentType
+public struct AgentParameters: Codable, Sendable, Equatable {
     public let prompt: String
     public let description: String
-
-    public enum SubagentType: String, Codable, Sendable, Equatable {
-        case generalPurpose = "general-purpose"
-        case statusLineSetup = "statusline-setup"
-        case outputStyleSetup = "output-style-setup"
-    }
+    public let subagentType: String?
+    public let model: String?
+    public let isolation: String?
+    public let runInBackground: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case subagentType = "subagent_type"
         case prompt
         case description
+        case subagentType = "subagent_type"
+        case model
+        case isolation
+        case runInBackground = "run_in_background"
     }
 }
 
@@ -420,8 +374,19 @@ public struct NotebookEditParameters: Codable, Sendable, Equatable {
     }
 }
 
-public struct SlashCommandParameters: Codable, Sendable, Equatable {
-    public let command: String
+public struct SkillParameters: Codable, Sendable, Equatable {
+    public let skill: String
+    public let args: String?
+}
+
+public struct ToolSearchParameters: Codable, Sendable, Equatable {
+    public let query: String
+    public let maxResults: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case query
+        case maxResults = "max_results"
+    }
 }
 
 public struct AskUserQuestionParameters: Codable, Sendable, Equatable {
@@ -487,19 +452,13 @@ extension ClaudeCodeTool: Codable {
             try container.encode(params)
         case let .write(params):
             try container.encode(params)
-        case let .multiEdit(params):
-            try container.encode(params)
         case let .grep(params):
             try container.encode(params)
         case let .glob(params):
             try container.encode(params)
         case let .bash(params):
             try container.encode(params)
-        case let .bashOutput(params):
-            try container.encode(params)
-        case let .killShell(params):
-            try container.encode(params)
-        case let .task(params):
+        case let .agent(params):
             try container.encode(params)
         case let .todoWrite(params):
             try container.encode(params)
@@ -511,7 +470,9 @@ extension ClaudeCodeTool: Codable {
             try container.encode(params)
         case let .notebookEdit(params):
             try container.encode(params)
-        case let .slashCommand(params):
+        case let .skill(params):
+            try container.encode(params)
+        case let .toolSearch(params):
             try container.encode(params)
         case let .askUserQuestion(params):
             try container.encode(params)
