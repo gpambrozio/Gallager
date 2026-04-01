@@ -118,6 +118,12 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator)
                 .environment(coordinator.pluginService)
                 .environment(\.e2eeService, coordinator.e2eeService)
+                .onAppear {
+                    if coordinator.settings.openPanesWindowOnLaunch {
+                        NSApp.setActivationPolicy(.regular)
+                        MenuBarExtraView.bringAppToFront()
+                    }
+                }
                 .task {
                     // Check if we should show the plugin setup on first launch
                     if !coordinator.settings.hasCompletedPluginSetup {
@@ -150,7 +156,7 @@ struct TmuxPaneMirrorApp: App {
                         .environment(coordinator.settings)
                 }
         }
-        .defaultLaunchBehavior(.suppressed)
+        .defaultLaunchBehavior(coordinator.settings.openPanesWindowOnLaunch ? .presented : .suppressed)
         .onChange(of: totalPendingSessionCount, initial: true) { _, newValue in
             NSApp.dockTile.badgeLabel = newValue > 0 ? "\(newValue)" : nil
         }
