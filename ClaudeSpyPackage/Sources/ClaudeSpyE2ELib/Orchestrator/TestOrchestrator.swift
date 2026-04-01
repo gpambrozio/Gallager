@@ -115,6 +115,8 @@ public actor TestOrchestrator {
         context.set("scenarioName", value: scenarioDirName)
 
         var stepResults: [StepResult] = []
+        var firstFailedStep: Int?
+        var firstError: String?
 
         for (index, step) in scenario.steps.enumerated() {
             let stepNumber = index + 1
@@ -132,7 +134,6 @@ public actor TestOrchestrator {
                 ))
                 await reporter?.stepCompleted(stepNumber, screenshot: screenshotResult)
             } catch {
-                let duration = ContinuousClock.now - startTime
                 logger.error("  FAILED at step \(stepNumber): \(error)")
                 // Extract screenshot result from mismatch errors
                 let screenshotResult: ScreenshotResult?
@@ -149,11 +150,24 @@ public actor TestOrchestrator {
                     screenshot: screenshotResult
                 ))
                 await reporter?.stepFailed(stepNumber, error: error.localizedDescription, screenshot: screenshotResult)
+
+                if firstFailedStep == nil {
+                    firstFailedStep = stepNumber
+                    firstError = error.localizedDescription
+                }
+
+                // Screenshot mismatches are non-fatal — continue executing remaining steps
+                if case OrchestratorError.screenshotMismatch = error {
+                    continue
+                }
+
+                // All other errors are fatal — stop the scenario
+                let duration = ContinuousClock.now - startTime
                 let result = ScenarioResult(
                     scenarioName: scenario.name,
                     success: false,
-                    failedStep: stepNumber,
-                    error: error.localizedDescription,
+                    failedStep: firstFailedStep,
+                    error: firstError,
                     duration: Double(duration.components.seconds),
                     steps: stepResults
                 )
@@ -163,12 +177,17 @@ public actor TestOrchestrator {
         }
 
         let duration = ContinuousClock.now - startTime
-        logger.info("=== Scenario PASSED: \(scenario.name) (\(duration)) ===")
+        let success = firstFailedStep == nil
+        if success {
+            logger.info("=== Scenario PASSED: \(scenario.name) (\(duration)) ===")
+        } else {
+            logger.info("=== Scenario FAILED: \(scenario.name) (\(duration)) ===")
+        }
         let result = ScenarioResult(
             scenarioName: scenario.name,
-            success: true,
-            failedStep: nil,
-            error: nil,
+            success: success,
+            failedStep: firstFailedStep,
+            error: firstError,
             duration: Double(duration.components.seconds),
             steps: stepResults
         )
