@@ -349,6 +349,63 @@ public actor MacOSDriver {
         try await runAppleScript(script)
     }
 
+    /// Send scroll wheel events to the center of the app's main window via CGEvent.
+    /// - Parameters:
+    ///   - deltaY: Scroll amount in lines (positive = up, negative = down)
+    ///   - count: Number of individual scroll events to send
+    public func scrollWheel(deltaY: Int32, count: Int = 1) async throws {
+        let pid = try requirePID()
+        logger.info("Scroll wheel: deltaY=\(deltaY), count=\(count)")
+
+        MacOSAccessibility.focusApp(appPID: pid)
+        try await Task.sleep(for: .milliseconds(200))
+
+        guard let center = windowCenter(appPID: pid) else {
+            throw MacOSDriverError.windowNotFound(appName)
+        }
+
+        for _ in 0..<count {
+            MacOSAccessibility.scrollWheel(at: center, deltaY: deltaY)
+            try await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
+    /// Click at a specific screen coordinate after focusing the app.
+    public func clickAtScreenPoint(x: Double, y: Double) async throws {
+        let pid = try requirePID()
+        logger.info("Click at screen point (\(x), \(y))")
+
+        MacOSAccessibility.focusApp(appPID: pid)
+        try await Task.sleep(for: .milliseconds(200))
+
+        MacOSAccessibility.clickAtPoint(CGPoint(x: x, y: y))
+    }
+
+    /// Get the center point of the app's first visible window.
+    private func windowCenter(appPID: pid_t) -> CGPoint? {
+        let allWindows = MacOSAccessibility.windows(appPID: appPID)
+        guard let window = allWindows.first else { return nil }
+
+        var positionValue: CFTypeRef?
+        var sizeValue: CFTypeRef?
+        let posResult = AXUIElementCopyAttributeValue(
+            window.element, kAXPositionAttribute as CFString, &positionValue
+        )
+        let sizeResult = AXUIElementCopyAttributeValue(
+            window.element, kAXSizeAttribute as CFString, &sizeValue
+        )
+        guard posResult == .success, sizeResult == .success else { return nil }
+
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        // swiftlint:disable:next force_cast
+        AXValueGetValue(positionValue as! AXValue, .cgPoint, &position)
+        // swiftlint:disable:next force_cast
+        AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
+
+        return CGPoint(x: position.x + size.width / 2, y: position.y + size.height / 2)
+    }
+
     // MARK: - Unpair
 
     /// Trigger unpair via the macOS app's test HTTP endpoint.

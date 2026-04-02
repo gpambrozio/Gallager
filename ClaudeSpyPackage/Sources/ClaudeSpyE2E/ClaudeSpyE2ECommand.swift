@@ -260,6 +260,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         AlwaysAutoResizeScenario.scenario,
         MultiWindowTabsScenario.scenario,
         MultiWindowTabsIOSScenario.scenario,
+        MouseSupportScenario.scenario,
     ]
 
     private func runTests(orchestrator: TestOrchestrator) async throws {

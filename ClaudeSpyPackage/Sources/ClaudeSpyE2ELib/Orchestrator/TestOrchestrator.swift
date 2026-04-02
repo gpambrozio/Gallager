@@ -463,6 +463,12 @@ public actor TestOrchestrator {
         case let .macScrollUp(pages, instance):
             try await macDriver(for: instance).scrollUp(pages: pages)
 
+        case let .macScrollWheel(deltaY, count, instance):
+            try await macDriver(for: instance).scrollWheel(deltaY: deltaY, count: count)
+
+        case let .macClickAtPoint(x, y, instance):
+            try await macDriver(for: instance).clickAtScreenPoint(x: x, y: y)
+
         case let .macScreenshot(label, compare, tolerance, perPixelThreshold, instance):
             let numberedLabel = nextScreenshotLabel(label)
             let actualPath = screenshotPath(for: numberedLabel)
@@ -550,6 +556,19 @@ public actor TestOrchestrator {
             let runner = processRunner
             let resolvedArgs = arguments.map { context.resolve($0) }
             _ = try await runner.runOrThrow("tmux", arguments: ["-f", "/dev/null", "-S", socket] + resolvedArgs)
+
+        case let .tmuxStoreDisplayMessage(target, format, storeAs):
+            let socket = context.resolve("${tmuxSocket}")
+            let resolvedTarget = context.resolve(target)
+            let resolvedFormat = context.resolve(format)
+            let runner = processRunner
+            let result = try await runner.runOrThrow(
+                "tmux",
+                arguments: ["-S", socket, "display-message", "-t", resolvedTarget, "-p", resolvedFormat]
+            )
+            let output = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+            context.set(storeAs, value: output)
+            logger.info("  tmux display-message → '\(output)' stored as ${\(storeAs)}")
 
         // Hook Events
         case let .macSendHookEvent(json, tmuxPane, projectPath, instance):

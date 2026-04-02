@@ -40,6 +40,14 @@ private func isNoServerError(_ stderr: String) -> Bool {
 @Observable
 @MainActor
 final public class TmuxService {
+    /// Environment variables set on all sessions/windows/panes created by the app.
+    /// Includes Claude Code rendering config and oh-my-zsh update suppression.
+    private static let terminalEnvironmentVars = [
+        "CLAUDE_CODE_NO_FLICKER=1",
+        "DISABLE_AUTO_UPDATE=true",
+        "DISABLE_UPDATE_PROMPT=true",
+    ]
+
     @ObservationIgnored
     @Dependency(ProcessRunner.self) private var processRunner
     private var tmuxPath: String
@@ -247,6 +255,35 @@ final public class TmuxService {
         }
 
         return (width, height)
+    }
+
+    /// The mouse tracking mode active in a tmux pane.
+    public enum PaneMouseMode {
+        case off
+        case standard
+        case button
+        case any
+    }
+
+    /// Queries the mouse tracking mode of a tmux pane.
+    public func getPaneMouseMode(_ target: String) async throws -> PaneMouseMode {
+        let result = try await runTmuxCommand([
+            "display-message",
+            "-t", target,
+            "-p", "#{mouse_any_flag} #{mouse_button_flag} #{mouse_standard_flag}",
+        ])
+
+        guard result.isSuccess else {
+            throw TmuxError.invalidPane(target: target)
+        }
+
+        let parts = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: " ")
+        guard parts.count == 3 else { return .off }
+
+        if parts[0] == "1" { return .any }
+        if parts[1] == "1" { return .button }
+        if parts[2] == "1" { return .standard }
+        return .off
     }
 
     /// Captures the current pane content with escape sequences
@@ -930,6 +967,19 @@ final public class TmuxService {
         ])
     }
 
+    /// Sends raw bytes to a pane using hex encoding.
+    ///
+    /// Used for escape sequences (e.g., mouse events) that can't be represented
+    /// as TmuxKey values and must be forwarded to the terminal application as-is.
+    public func sendRawBytes(_ target: String, data: Data) async throws {
+        var args = ["send-keys", "-t", target, "-H"]
+        args.append(contentsOf: data.map { String(format: "%02x", $0) })
+        let result = try await runTmuxCommand(args)
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+    }
+
     /// Sends keys to a pane
     /// - Parameters:
     ///   - target: The pane target
@@ -985,7 +1035,7 @@ final public class TmuxService {
             flag,
             "-t", target,
             "-P", "-F", "#{pane_id}", // Print new pane ID
-        ])
+        ] + Self.terminalEnvironmentVars.flatMap { ["-e", $0] })
 
         guard result.isSuccess else {
             throw TmuxError.commandFailed(message: result.stderrString)
@@ -1031,7 +1081,7 @@ final public class TmuxService {
             "new-window",
             "-t", sessionName,
             "-P", "-F", "#{pane_id}",
-        ]
+        ] + Self.terminalEnvironmentVars.flatMap { ["-e", $0] }
 
         if let workingDirectory {
             args += ["-c", workingDirectory]
@@ -1122,9 +1172,7 @@ final public class TmuxService {
             "-s", sessionName,
             "-x", String(width),
             "-y", String(height),
-            "-e", "DISABLE_AUTO_UPDATE=true",
-            "-e", "DISABLE_UPDATE_PROMPT=true",
-        ]
+        ] + Self.terminalEnvironmentVars.flatMap { ["-e", $0] }
 
         // Add working directory if specified
         if let workingDirectory, !workingDirectory.isEmpty {
