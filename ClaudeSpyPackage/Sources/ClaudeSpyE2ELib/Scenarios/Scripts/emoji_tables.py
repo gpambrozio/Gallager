@@ -1,6 +1,8 @@
+import re
 import sys
-E="\033";C=E+"["
 import time
+
+E="\033";C=E+"["
 def o(s):sys.stdout.write(s);sys.stdout.flush()
 
 def dw(s):
@@ -68,8 +70,7 @@ def table2():
             # enough spaces (terminal will handle alignment)
             o(f" {val}")
             # Calculate visible width
-            import re
-            vis=re.sub(r'\033\[[0-9;]*m','',val)
+            vis = re.sub(r'\033\[[0-9;]*m', '', val)
             vw=dw(vis)
             pad=w-vw+1
             if pad>0:o(" "*pad)

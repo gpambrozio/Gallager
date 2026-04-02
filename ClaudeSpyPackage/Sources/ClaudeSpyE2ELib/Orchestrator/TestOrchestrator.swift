@@ -640,6 +640,10 @@ public actor TestOrchestrator {
 
         // Scripts
         case let .injectScript(name):
+            // NOTE: The script is copied to NSTemporaryDirectory() and later executed inside
+            // tmux via `$TMPDIR/<name>`. This works because the tmux server inherits the test
+            // runner's environment, so `$TMPDIR` resolves to the same directory. If the tmux
+            // server were started independently (different env), this assumption would break.
             let destPath = NSTemporaryDirectory() + name
             guard let sourceURL = Bundle.module.url(
                 forResource: name,
