@@ -486,7 +486,11 @@ public struct MainView: View {
                                 // Poll for the new window to appear in the session store,
                                 // with a timeout to avoid waiting forever.
                                 for _ in 0..<20 {
-                                    try? await Task.sleep(for: .milliseconds(100))
+                                    do {
+                                        try await Task.sleep(for: .milliseconds(100))
+                                    } catch {
+                                        return
+                                    }
                                     let refreshedWindows = selectedRemoteSessionWindows
                                     if let newWindow = refreshedWindows.first(where: { $0.panes.contains(where: { $0.paneId == paneId }) }) {
                                         selectedRemoteWindowId = newWindow.id
