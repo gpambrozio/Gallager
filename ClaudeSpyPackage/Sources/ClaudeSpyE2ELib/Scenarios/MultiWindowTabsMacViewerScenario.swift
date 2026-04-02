@@ -53,6 +53,8 @@ public enum MultiWindowTabsMacViewerScenario {
             timeout: 5,
             instance: 1
         )
+        // Wait for terminal to render window 0 content (pane %0)
+        TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%0"), .valueContains("WINDOW_ZERO")]), timeout: 10, instance: 1)
         TestStep.macScreenshot(label: "viewer-window0-selected", instance: 1)
 
         // ── Phase 3: Switch to window 1 via tab bar ─────────────
@@ -66,6 +68,8 @@ public enum MultiWindowTabsMacViewerScenario {
             timeout: 5,
             instance: 1
         )
+        // Wait for terminal to render window 1 content (pane %1)
+        TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%1"), .valueContains("WINDOW_ONE")]), timeout: 10, instance: 1)
         TestStep.macScreenshot(label: "viewer-window1-selected", instance: 1)
 
         // ── Phase 4: Create 3rd window via "+" button ───────────
@@ -79,6 +83,10 @@ public enum MultiWindowTabsMacViewerScenario {
             timeout: 10,
             instance: 1
         )
+        // Produce identifiable content in window 2
+        Shortcut.tmuxRunCommand(target: "e2e-mw-mac:2.0", command: "echo 'WINDOW_TWO'")
+        // Wait for terminal to render window 2 content (pane %2)
+        TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%2"), .valueContains("WINDOW_TWO")]), timeout: 10, instance: 1)
         TestStep.macScreenshot(label: "viewer-window2-created", instance: 1)
 
         // ── Phase 5: Switch back to window 1 ────────────────────
@@ -86,9 +94,10 @@ public enum MultiWindowTabsMacViewerScenario {
         TestStep.macClickButton(titled: "e2e-mw-mac:1", instance: 1)
         TestStep.wait(seconds: 3)
 
-        // Verify content in window 1
+        // Verify content in window 1 (both via tmux and terminal view)
         TestStep.tmuxCapturePaneContent(target: "e2e-mw-mac:1", storeAs: "paneContent")
         TestStep.assertStoredContains(key: "paneContent", substring: "WINDOW_ONE")
+        TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%1"), .valueContains("WINDOW_ONE")]), timeout: 10, instance: 1)
         TestStep.macScreenshot(label: "viewer-back-to-window1", instance: 1)
 
         // ── Phase 6: Verify host reflects viewer's selection ────
@@ -106,6 +115,8 @@ public enum MultiWindowTabsMacViewerScenario {
             .allOf([.labelContains("e2e-mw-mac:1"), .valueContains("selected")]),
             timeout: 5
         )
+        // Wait for host terminal to render window 1 content
+        TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%1"), .valueContains("WINDOW_ONE")]), timeout: 10)
         TestStep.macScreenshot(label: "host-reflects-window1")
 
         // ── Phase 7: Close window 1 via tmux (not "exit"), verify 2 tabs ───
@@ -113,20 +124,21 @@ public enum MultiWindowTabsMacViewerScenario {
         TestStep.tmuxCommand(arguments: ["kill-window", "-t", "e2e-mw-mac:1"])
         TestStep.wait(seconds: 5)
 
-        // Verify window 1 tab is gone on host
+        // Verify window 1 tab is gone on host and terminal renders content
         TestStep.macWaitForElementQueryToDisappear(
             .labelContains("e2e-mw-mac:1"),
             timeout: 10
         )
+        TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%0"), .valueContains("WINDOW_ZERO")]), timeout: 30)
         TestStep.macScreenshot(label: "host-after-window-close")
 
-        // Verify window 1 tab is gone on viewer too
+        // Verify window 1 tab is gone on viewer too and terminal renders content
         TestStep.macWaitForElementQueryToDisappear(
             .labelContains("e2e-mw-mac:1"),
             timeout: 10,
             instance: 1
         )
-        TestStep.wait(seconds: 3)
+        TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%0"), .valueContains("WINDOW_ZERO")]), timeout: 30, instance: 1)
         TestStep.macScreenshot(label: "viewer-after-window-close", instance: 1)
     }
 }

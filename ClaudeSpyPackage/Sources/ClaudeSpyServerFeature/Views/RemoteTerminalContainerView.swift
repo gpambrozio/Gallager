@@ -202,6 +202,8 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             self.paneId = paneId
             self.connection = connection
             self.onStateChange = onStateChange
+
+            terminalView.terminalAccessibilityIdentifier = "terminal-\(paneId)"
             self.onTitleChange = onTitleChange
 
             updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
