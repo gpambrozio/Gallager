@@ -57,7 +57,7 @@ struct RemoteWindowPaneLayoutView: View {
             ForEach(positioned) { pane in
                 RemoteTerminalContainerView(
                     paneId: pane.paneState.paneId,
-                    hostName: "",
+                    hostName: connection.hostName,
                     connection: connection,
                     settings: settings,
                     showStatusBar: false
@@ -114,7 +114,7 @@ struct RemoteWindowPaneLayoutView: View {
     private func singlePaneView(pane: PaneState) -> some View {
         RemoteTerminalContainerView(
             paneId: pane.paneId,
-            hostName: "",
+            hostName: connection.hostName,
             connection: connection,
             settings: settings,
             showStatusBar: false

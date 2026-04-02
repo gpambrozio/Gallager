@@ -464,10 +464,15 @@ public struct MainView: View {
                             let result = await connection.relayClient.sendCommand(spec, paneId: "")
                             if case let .success(response) = result, let paneId = response.paneId {
                                 await connection.relayClient.requestSessionState()
-                                try? await Task.sleep(for: .milliseconds(500))
-                                let refreshedWindows = selectedRemoteSessionWindows
-                                if let newWindow = refreshedWindows.first(where: { $0.panes.contains(where: { $0.paneId == paneId }) }) {
-                                    selectedRemoteWindowId = newWindow.id
+                                // Poll for the new window to appear in the session store,
+                                // with a timeout to avoid waiting forever.
+                                for _ in 0..<20 {
+                                    try? await Task.sleep(for: .milliseconds(100))
+                                    let refreshedWindows = selectedRemoteSessionWindows
+                                    if let newWindow = refreshedWindows.first(where: { $0.panes.contains(where: { $0.paneId == paneId }) }) {
+                                        selectedRemoteWindowId = newWindow.id
+                                        return
+                                    }
                                 }
                             }
                         }
@@ -1386,6 +1391,17 @@ private struct SessionSidebarRow: View {
     }
 }
 
+// MARK: - Window Tab Label
+
+/// Returns the display label for a tmux window tab.
+/// Shared between `WindowTabBar` (local) and `RemoteWindowTabBar` (remote).
+private func windowTabLabel(windowName: String, windowIndex: Int) -> String {
+    if !windowName.isEmpty, Int(windowName) == nil {
+        return windowName
+    }
+    return "\(windowIndex)"
+}
+
 // MARK: - Window Tab Bar
 
 /// Horizontal tab bar showing windows in a tmux session.
@@ -1466,10 +1482,7 @@ private struct WindowTabBar: View {
     }
 
     private func tabLabel(for window: LocalTmuxWindow) -> String {
-        if !window.windowName.isEmpty, Int(window.windowName) == nil {
-            return window.windowName
-        }
-        return "\(window.windowIndex)"
+        windowTabLabel(windowName: window.windowName, windowIndex: window.windowIndex)
     }
 }
 
@@ -1550,10 +1563,7 @@ private struct RemoteWindowTabBar: View {
     }
 
     private func tabLabel(for window: TmuxWindow) -> String {
-        if !window.windowName.isEmpty, Int(window.windowName) == nil {
-            return window.windowName
-        }
-        return "\(window.windowIndex)"
+        windowTabLabel(windowName: window.windowName, windowIndex: window.windowIndex)
     }
 }
 
