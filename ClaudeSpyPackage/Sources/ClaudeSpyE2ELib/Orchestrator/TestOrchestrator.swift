@@ -28,6 +28,8 @@ public actor TestOrchestrator {
     private let skipComparison: Bool
     private let reporter: (any TestProgressReporter)?
     private var screenshotCounter = 0
+    /// Paths of scripts copied to TMPDIR via `injectScript`, cleaned up after each scenario.
+    private var injectedScriptPaths: [String] = []
 
     /// Result of a single step
     public struct StepResult: Sendable, Codable {
@@ -107,6 +109,7 @@ public actor TestOrchestrator {
 
         context.clear()
         screenshotCounter = 0
+        injectedScriptPaths.removeAll()
 
         // Pre-populate context with orchestrator configuration
         context.set("tmuxSocket", value: tmuxSocket ?? NSTemporaryDirectory() + "claudespy-e2e.sock")
@@ -162,6 +165,7 @@ public actor TestOrchestrator {
                 }
 
                 // All other errors are fatal — stop the scenario
+                cleanupInjectedScripts()
                 let duration = ContinuousClock.now - startTime
                 let result = ScenarioResult(
                     scenarioName: scenario.name,
@@ -175,6 +179,8 @@ public actor TestOrchestrator {
                 return result
             }
         }
+
+        cleanupInjectedScripts()
 
         let duration = ContinuousClock.now - startTime
         let success = firstFailedStep == nil
@@ -224,6 +230,7 @@ public actor TestOrchestrator {
     /// Tear down all running processes regardless of scenario outcome
     public func cleanup() async {
         logger.info("=== Cleaning up ===")
+        cleanupInjectedScripts()
         await simulatorDriver.resetStatusBar()
         await simulatorDriver.stopE2ERunner()
         try? await simulatorDriver.terminateApp()
@@ -631,6 +638,30 @@ public actor TestOrchestrator {
                 )
             }
 
+        // Scripts
+        case let .injectScript(name):
+            // NOTE: The script is copied to NSTemporaryDirectory() and later executed inside
+            // tmux via `$TMPDIR/<name>`. This works because the tmux server inherits the test
+            // runner's environment, so `$TMPDIR` resolves to the same directory. If the tmux
+            // server were started independently (different env), this assumption would break.
+            let destPath = NSTemporaryDirectory() + name
+            guard let sourceURL = Bundle.module.url(
+                forResource: name,
+                withExtension: nil,
+                subdirectory: "Scripts"
+            ) else {
+                throw OrchestratorError.configurationError(
+                    "Script '\(name)' not found in bundled Scripts directory"
+                )
+            }
+            let fm = FileManager.default
+            if fm.fileExists(atPath: destPath) {
+                try fm.removeItem(atPath: destPath)
+            }
+            try fm.copyItem(atPath: sourceURL.path, toPath: destPath)
+            injectedScriptPaths.append(destPath)
+            logger.info("  Injected script '\(name)' → \(destPath)")
+
         // General
         case let .wait(seconds):
             try await Task.sleep(for: .seconds(seconds))
@@ -695,6 +726,23 @@ public actor TestOrchestrator {
     private func pushLogPath(for instance: Int) -> String {
         let base = NSTemporaryDirectory() + "claudespy-e2e-push.log"
         return instance == 0 ? base : "\(base)-\(instance)"
+    }
+
+    // MARK: - Script Cleanup
+
+    /// Remove all scripts that were injected via `injectScript` during this scenario.
+    private func cleanupInjectedScripts() {
+        guard !injectedScriptPaths.isEmpty else { return }
+        let fm = FileManager.default
+        for path in injectedScriptPaths {
+            do {
+                try fm.removeItem(atPath: path)
+                logger.info("  Removed injected script: \(path)")
+            } catch {
+                logger.warning("  Failed to remove injected script \(path): \(error)")
+            }
+        }
+        injectedScriptPaths.removeAll()
     }
 
     // MARK: - Helpers

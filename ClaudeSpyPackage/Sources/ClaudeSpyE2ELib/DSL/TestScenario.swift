@@ -174,6 +174,13 @@ public enum TestStep: Sendable {
     /// Assert a stored context value does NOT contain a substring
     case assertStoredNotContains(key: String, substring: String)
 
+    // MARK: - Scripts
+
+    /// Copy a bundled script from the `Scripts` resource directory to `$TMPDIR`.
+    /// The script is automatically removed when the scenario ends, even on failure.
+    /// Reference the script in tmux commands as `$TMPDIR/<name>`.
+    case injectScript(name: String)
+
     // MARK: - General
 
     /// Wait for a duration
