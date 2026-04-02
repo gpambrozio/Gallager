@@ -119,9 +119,9 @@ public enum MultiWindowTabsMacViewerScenario {
         TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%1"), .valueContains("WINDOW_ONE")]), timeout: 10)
         TestStep.macScreenshot(label: "host-reflects-window1")
 
-        // ── Phase 7: Close window 1 via tmux (not "exit"), verify 2 tabs ───
-        TestStep.log("Phase 7: Kill window 1 from tmux and verify tab removal")
-        TestStep.tmuxCommand(arguments: ["kill-window", "-t", "e2e-mw-mac:1"])
+        // ── Phase 7: Close window 1 via "exit", verify 2 tabs ───
+        TestStep.log("Phase 7: Exit window 1 shell and verify tab removal")
+        Shortcut.tmuxRunCommand(target: "e2e-mw-mac:1.0", command: "exit")
         TestStep.wait(seconds: 5)
 
         // Verify window 1 tab is gone on host and terminal renders content
