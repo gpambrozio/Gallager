@@ -99,8 +99,14 @@ public struct MainView: View {
             guard let selected = selectedWindow else { return }
             let currentWindows = tmuxService.windows
             if let updated = currentWindows.first(where: { $0.id == selected.id }) {
-                // Keep selection in sync with refreshed window data
-                if updated != selected {
+                // Follow the tmux-active window if it changed to a different window
+                // (e.g., a remote viewer switched tabs via select-window)
+                let sessionWindows = currentWindows.filter { $0.sessionName == selected.sessionName }
+                if !updated.isWindowActive,
+                   let activeWindow = sessionWindows.first(where: \.isWindowActive) {
+                    selectedWindow = activeWindow
+                } else if updated != selected {
+                    // Keep selection in sync with refreshed window data
                     selectedWindow = updated
                 }
             } else {
