@@ -129,7 +129,7 @@ public enum MultiWindowTabsMacViewerScenario {
             .labelContains("e2e-mw-mac:1"),
             timeout: 10
         )
-        TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%0"), .valueContains("WINDOW_ZERO")]), timeout: 30)
+        TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%2"), .valueContains("WINDOW_TWO")]), timeout: 30)
         TestStep.macScreenshot(label: "host-after-window-close")
 
         // Verify window 1 tab is gone on viewer too and terminal renders content
@@ -138,7 +138,7 @@ public enum MultiWindowTabsMacViewerScenario {
             timeout: 10,
             instance: 1
         )
-        TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%0"), .valueContains("WINDOW_ZERO")]), timeout: 30, instance: 1)
+        TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%2"), .valueContains("WINDOW_TWO")]), timeout: 30, instance: 1)
         TestStep.macScreenshot(label: "viewer-after-window-close", instance: 1)
     }
 }
