@@ -168,10 +168,15 @@ public enum TerminalResponseFilter {
 
         let third = data[data.startIndex + 2]
 
-        // SGR mouse: ESC [ < ... M/m  (minimum 10 bytes: \x1b[<0;1;1M)
+        // SGR mouse: ESC [ < Cb ; Cx ; Cy M/m  (minimum 10 bytes: \x1b[<0;1;1M)
         if third == 0x3C, data.count >= 10 { // '<'
-            guard let last = data.last else { return false }
-            return last == 0x4D || last == 0x6D // 'M' or 'm'
+            guard let last = data.last, last == 0x4D || last == 0x6D else { return false }
+            // Validate body contains only digits and semicolons (Cb;Cx;Cy)
+            for i in (data.startIndex + 3)..<(data.endIndex - 1) {
+                let b = data[i]
+                guard (b >= 0x30 && b <= 0x39) || b == 0x3B else { return false }
+            }
+            return true
         }
 
         // X10/normal mouse: ESC [ M followed by 3 bytes

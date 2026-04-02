@@ -259,10 +259,10 @@ struct IsMouseEscapeSequenceTests {
         #expect(TerminalResponseFilter.isMouseEscapeSequence(data[...]))
     }
 
-    @Test("Rejects SGR with wrong terminator: ESC[<0;1;1c")
+    @Test("Rejects SGR with wrong terminator: ESC[<0;42;10c")
     func rejectsSGRWrongTerminator() {
-        // ESC [ < 0 ; 1 ; 1 c — 'c' is not 'M' or 'm'
-        let data: [UInt8] = [0x1B, 0x5B, 0x3C, 0x30, 0x3B, 0x31, 0x3B, 0x31, 0x63]
+        // ESC [ < 0 ; 4 2 ; 1 0 c — 'c' is not 'M' or 'm', 10+ bytes
+        let data: [UInt8] = [0x1B, 0x5B, 0x3C, 0x30, 0x3B, 0x34, 0x32, 0x3B, 0x31, 0x30, 0x63]
         #expect(!TerminalResponseFilter.isMouseEscapeSequence(data[...]))
     }
 
@@ -296,6 +296,59 @@ struct IsMouseEscapeSequenceTests {
     func rejectsEmptyData() {
         let data: [UInt8] = []
         #expect(!TerminalResponseFilter.isMouseEscapeSequence(data[...]))
+    }
+}
+
+// MARK: - isMouseMotionEvent
+
+@Suite("TerminalResponseFilter.isMouseMotionEvent")
+struct IsMouseMotionEventTests {
+    @Test("Detects motion-only event (button=32)")
+    func detectsMotionOnly() {
+        // ESC [ < 32 ; 10 ; 5 m — motion, no button, release terminator
+        let data: [UInt8] = [0x1B, 0x5B, 0x3C, 0x33, 0x32, 0x3B, 0x31, 0x30, 0x3B, 0x35, 0x6D]
+        #expect(TerminalResponseFilter.isMouseMotionEvent(data[...]))
+    }
+
+    @Test("Detects motion+button event (button=34)")
+    func detectsMotionWithButton() {
+        // ESC [ < 34 ; 10 ; 5 M — motion + right button (32+2), press terminator
+        let data: [UInt8] = [0x1B, 0x5B, 0x3C, 0x33, 0x34, 0x3B, 0x31, 0x30, 0x3B, 0x35, 0x4D]
+        #expect(TerminalResponseFilter.isMouseMotionEvent(data[...]))
+    }
+
+    @Test("Rejects plain click (button=0)")
+    func rejectsPlainClick() {
+        // ESC [ < 0 ; 10 ; 5 M — left click, no motion bit
+        let data: [UInt8] = [0x1B, 0x5B, 0x3C, 0x30, 0x3B, 0x31, 0x30, 0x3B, 0x35, 0x4D]
+        #expect(!TerminalResponseFilter.isMouseMotionEvent(data[...]))
+    }
+
+    @Test("Rejects scroll up (button=64)")
+    func rejectsScrollUp() {
+        // ESC [ < 64 ; 10 ; 5 M — scroll up, no motion bit
+        let data: [UInt8] = [0x1B, 0x5B, 0x3C, 0x36, 0x34, 0x3B, 0x31, 0x30, 0x3B, 0x35, 0x4D]
+        #expect(!TerminalResponseFilter.isMouseMotionEvent(data[...]))
+    }
+
+    @Test("Rejects scroll down (button=65)")
+    func rejectsScrollDown() {
+        // ESC [ < 65 ; 10 ; 5 M — scroll down, no motion bit
+        let data: [UInt8] = [0x1B, 0x5B, 0x3C, 0x36, 0x35, 0x3B, 0x31, 0x30, 0x3B, 0x35, 0x4D]
+        #expect(!TerminalResponseFilter.isMouseMotionEvent(data[...]))
+    }
+
+    @Test("Rejects non-SGR input")
+    func rejectsNonSGR() {
+        // Regular CSI sequence, not mouse
+        let data: [UInt8] = [0x1B, 0x5B, 0x41] // ESC [ A (cursor up)
+        #expect(!TerminalResponseFilter.isMouseMotionEvent(data[...]))
+    }
+
+    @Test("Rejects empty data")
+    func rejectsEmptyData() {
+        let data: [UInt8] = []
+        #expect(!TerminalResponseFilter.isMouseMotionEvent(data[...]))
     }
 }
 
