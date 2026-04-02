@@ -96,8 +96,8 @@ final public class ViewerRelayClient {
     /// Current reconnection attempt
     private var reconnectionAttempt = 0
 
-    /// Maximum reconnection attempts before giving up
-    private let maxReconnectionAttempts = 10
+    /// Maximum backoff delay in seconds
+    private let maxBackoffDelay = 60
 
     /// Task for receiving messages
     private var receiveTask: Task<Void, Never>?
@@ -714,28 +714,31 @@ final public class ViewerRelayClient {
 
         await cleanupConnection()
 
-        if shouldReconnect, reconnectionAttempt < maxReconnectionAttempts {
-            reconnectionAttempt += 1
-            let currentAttempt = reconnectionAttempt
-            setState(.reconnecting(attempt: currentAttempt))
+        guard shouldReconnect else { return }
 
-            let delay = min(60, Int(pow(2, Double(currentAttempt - 1))))
-            logger.info("Reconnecting in \(delay) seconds (attempt \(currentAttempt))")
+        reconnectionAttempt += 1
+        // Exponential backoff: 1s, 2s, 4s, 8s, ... capped at maxBackoffDelay
+        let exponent = min(reconnectionAttempt - 1, 20)
+        let delay = min(maxBackoffDelay, Int(pow(2, Double(exponent))))
+        setState(.reconnecting(attempt: reconnectionAttempt))
+        if reconnectionAttempt <= 10 {
+            logger.info("Reconnecting in \(delay) seconds (attempt \(reconnectionAttempt))")
+        } else {
+            logger.debug("Reconnecting in \(delay) seconds (attempt \(reconnectionAttempt))")
+        }
 
-            reconnectionTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(delay))
+        reconnectionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
 
-                guard
-                    !Task.isCancelled,
-                    let self,
-                    self.shouldReconnect
-                else { return }
-
-                await self.performConnect()
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
             }
-        } else if shouldReconnect {
-            logger.error("Max reconnection attempts reached")
-            setState(.error("Connection lost after \(maxReconnectionAttempts) attempts"))
+
+            guard !Task.isCancelled, self.shouldReconnect else { return }
+
+            await self.performConnect()
         }
     }
 
