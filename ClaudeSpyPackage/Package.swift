@@ -191,6 +191,9 @@ let package = Package(
                 .claudeSpyExternalServerLib,
                 .vapor,
                 .logging,
+            ],
+            resources: [
+                .copy("Scenarios/Scripts"),
             ]
         ),
         // E2E test coordinator executable

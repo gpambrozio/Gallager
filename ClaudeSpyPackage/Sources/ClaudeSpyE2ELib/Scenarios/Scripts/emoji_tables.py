@@ -1,0 +1,124 @@
+import sys
+E="\033";C=E+"["
+import time
+def o(s):sys.stdout.write(s);sys.stdout.flush()
+
+def dw(s):
+    """Display width of a string (emoji=2 cols, others=1)."""
+    v=0
+    for ch in s:
+        if ord(ch)>=0x1f000 or ord(ch) in (0x26bd,0x26be):v+=2
+        else:v+=1
+    return v
+
+def table1():
+    """Simple emoji table with varying counts per row."""
+    o(f"{C}1;36mTable 1: Emoji counts{C}0m\n\n")
+    rows=[
+        ("1","\U0001f355"),
+        ("2","\U0001f389 \U0001f31f"),
+        ("3","\U0001f436 \U0001f98a \U0001f438"),
+        ("4","\U0001f34e \U0001f34b \U0001f347 \U0001f353"),
+    ]
+    w1,w2=5,20
+    H="\u2500"
+    h1=H*w1;h2=H*w2
+    o(f"\u250c\u2500{h1}\u252c\u2500{h2}\u2510\n")
+    o(f"\u2502 {'#':<{w1}}\u2502 {'Item':<{w2}}\u2502\n")
+    o(f"\u251c\u2500{h1}\u253c\u2500{h2}\u2524\n")
+    for n,emojis in rows:
+        pad=w2-dw(emojis)
+        o(f"\u2502 {n:<{w1}}\u2502 {emojis}{' '*pad}\u2502\n")
+    o(f"\u2514\u2500{h1}\u2534\u2500{h2}\u2518\n")
+
+def table2():
+    """Mixed text and emoji with colored headers."""
+    o(f"\n{C}1;33mTable 2: Status board{C}0m\n\n")
+    hdr=[("ID",4),("Name",10),("Status",12),("Notes",16)]
+    # top border
+    o("\u250c")
+    for i,(h,w) in enumerate(hdr):
+        o("\u2500"*(w+2))
+        o("\u252c" if i<len(hdr)-1 else "\u2510")
+    o("\n")
+    # header row
+    o("\u2502")
+    for h,w in hdr:
+        o(f" {C}1;37m{h:<{w}}{C}0m \u2502")
+    o("\n")
+    # separator
+    o("\u251c")
+    for i,(h,w) in enumerate(hdr):
+        o("\u2500"*(w+2))
+        o("\u253c" if i<len(hdr)-1 else "\u2524")
+    o("\n")
+    # data rows
+    data=[
+        ("1","Alice",f"Active {C}32m\U0001f7e2{C}0m","Top performer"),
+        ("2","Bob",f"Away {C}31m\U0001f534{C}0m","On vacation"),
+        ("3","Charlie",f"Active {C}32m\U0001f7e2{C}0m","New hire"),
+        ("4","Diana",f"Busy {C}33m\U0001f7e1{C}0m",f"Team lead \U0001f451"),
+    ]
+    for row in data:
+        o("\u2502")
+        for (val,(_,w)) in zip(row,hdr):
+            # Pad with spaces — emoji take 2 columns so we need to
+            # account for that in the padding.
+            # For simplicity, just write the value and pad with
+            # enough spaces (terminal will handle alignment)
+            o(f" {val}")
+            # Calculate visible width
+            import re
+            vis=re.sub(r'\033\[[0-9;]*m','',val)
+            vw=dw(vis)
+            pad=w-vw+1
+            if pad>0:o(" "*pad)
+            else:o(" ")
+            o("\u2502")
+        o("\n")
+    # bottom border
+    o("\u2514")
+    for i,(h,w) in enumerate(hdr):
+        o("\u2500"*(w+2))
+        o("\u2534" if i<len(hdr)-1 else "\u2518")
+    o("\n")
+
+def table3():
+    """Dense emoji grid to stress-test rendering."""
+    o(f"\n{C}1;35mTable 3: Emoji grid{C}0m\n\n")
+    grid=[
+        ["\U0001f600","\U0001f60e","\U0001f914","\U0001f631"],
+        ["\U0001f525","\U0001f4a7","\U0001f338","\U0001f340"],
+        ["\U0001f680","\U0001f682","\U0001f681","\U0001f6f8"],
+        ["\u26bd","\U0001f3c0","\U0001f3be","\U0001f3c8"],
+    ]
+    w=4
+    ncols=len(grid[0])
+    # top
+    o("\u250c")
+    for i in range(ncols):
+        o("\u2500"*(w+2))
+        o("\u252c" if i<ncols-1 else "\u2510")
+    o("\n")
+    for row in grid:
+        o("\u2502")
+        for em in row:
+            ew=dw(em)
+            # cell content = w+2 display cols (matching border)
+            # 1 leading space + emoji(ew) + remaining spaces
+            pad=w+2-1-ew
+            o(f" {em}{' '*pad}\u2502")
+        o("\n")
+    # bottom
+    o("\u2514")
+    for i in range(ncols):
+        o("\u2500"*(w+2))
+        o("\u2534" if i<ncols-1 else "\u2518")
+    o("\n")
+
+time.sleep(0.5)
+o(f"{C}2J{C}H")
+table1()
+table2()
+table3()
+o(f"\n{C}1;32mDone.{C}0m\n")

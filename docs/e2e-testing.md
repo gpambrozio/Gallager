@@ -321,6 +321,14 @@ If the scenario fails, fix the issue and re-run until it passes. Never commit a 
 | `assertStoredEqual(key:otherKey:)` | Assert two stored context values are equal |
 | `assertStoredNotEqual(key:otherKey:)` | Assert two stored context values differ |
 
+### Scripts
+
+| Step | Description |
+|------|-------------|
+| `injectScript(name:)` | Copy a bundled script from `Scenarios/Scripts/` to `$TMPDIR`. Auto-cleaned after the scenario ends. |
+
+Scripts live in `ClaudeSpyE2ELib/Scenarios/Scripts/` as plain files (Python, shell, etc.). They are bundled as SPM resources and copied to `$TMPDIR` at runtime. Reference them in tmux commands as `$TMPDIR/<name>`. Cleanup is automatic, even on test failure.
+
 ### General
 
 | Step | Description |
