@@ -18,6 +18,8 @@ struct RemoteTerminalContainerView: View {
     /// The stable window key used by MirrorWindowManager to track this window
     var windowKey: String?
     var onStreamEnd: (() -> Void)?
+    /// Whether to show the per-pane status bar (defaults to using the app setting)
+    var showStatusBar: Bool?
 
     @State private var streamState: RemoteStreamState = .connecting
     @State private var streamWidth = 80
@@ -48,7 +50,7 @@ struct RemoteTerminalContainerView: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if settings.showStatusBar {
+            if showStatusBar ?? settings.showStatusBar {
                 statusBar
             }
         }
