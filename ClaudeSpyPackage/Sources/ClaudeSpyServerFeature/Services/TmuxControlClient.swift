@@ -476,11 +476,12 @@ actor TmuxControlClient {
             return
         }
 
-        // Pop the front of the FIFO queue — tmux responds in the same order
-        // we wrote commands to stdin. Every %begin/%end after the initial attach
-        // corresponds 1:1 with a sendCommand() call.
-        if !pendingCommandQueue.isEmpty {
-            let entry = pendingCommandQueue.removeFirst()
+        // Match the response to the correct queue entry by command number.
+        // Normally tmux responds in FIFO order, but if a timeout removed an entry
+        // from the queue, a blind removeFirst() would pop the wrong entry and
+        // desynchronize all subsequent responses.
+        if let idx = pendingCommandQueue.firstIndex(where: { $0.id == response.commandNumber }) {
+            let entry = pendingCommandQueue.remove(at: idx)
             entry.continuation.resume(returning: response)
         }
 
