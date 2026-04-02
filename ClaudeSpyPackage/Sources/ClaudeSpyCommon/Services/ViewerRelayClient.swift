@@ -448,6 +448,7 @@ final public class ViewerRelayClient {
         // silently consumed by the default no-op handler. We retry below
         // to handle this.
         setState(.connected)
+        reconnectionAttempt = 0
 
         // Retry registration after a delay to handle server-side race condition.
         // Vapor calls onUpgrade from a Swift Concurrency Task, not directly on
@@ -736,7 +737,7 @@ final public class ViewerRelayClient {
                 return
             }
 
-            guard !Task.isCancelled, self.shouldReconnect else { return }
+            guard self.shouldReconnect else { return }
 
             await self.performConnect()
         }
