@@ -104,8 +104,9 @@ public struct MainView: View {
                     selectedWindow = updated
                 }
             } else {
-                // Selected window was removed — try to select another window in the same session
-                let fallback = currentWindows.first(where: { $0.sessionName == selected.sessionName })
+                // Selected window was removed — prefer the tmux-active window in the same session
+                let sessionWindows = currentWindows.filter { $0.sessionName == selected.sessionName }
+                let fallback = sessionWindows.first(where: \.isWindowActive) ?? sessionWindows.first
                 selectedWindow = fallback
             }
         }
