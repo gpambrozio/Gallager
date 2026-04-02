@@ -1,57 +1,69 @@
-import sys,time
-def w(s):
-    sys.stdout.buffer.write(s.encode() if isinstance(s,str) else s)
+"""
+kitty_keyboard_test.py — Kitty keyboard protocol test.
+
+Tests that the terminal mirror correctly strips Kitty keyboard protocol
+escape sequences while preserving surrounding visible text output.
+"""
+
+import sys
+import time
+
+
+def write(text):
+    """Write text to stdout and flush immediately."""
+    sys.stdout.buffer.write(text.encode() if isinstance(text, str) else text)
     sys.stdout.buffer.flush()
+
 
 # Phase 1: Individual protocol negotiation sequences
 # Each should be completely invisible to the mirror
-w("PHASE1_START\n")
+write("PHASE1_START\n")
 
-w("push1_before ")
-w("\x1b[>1u")       # Push mode: enable disambiguate-escape-codes
+write("push1_before ")
+write("\x1b[>1u")       # Push mode: enable disambiguate-escape-codes
 time.sleep(0.1)
-w("push1_after\n")
+write("push1_after\n")
 
-w("push5_before ")
-w("\x1b[>5u")       # Push mode: flags=5
+write("push5_before ")
+write("\x1b[>5u")       # Push mode: flags=5
 time.sleep(0.1)
-w("push5_after\n")
+write("push5_after\n")
 
-w("query_before ")
-w("\x1b[?u")        # Query current mode
+write("query_before ")
+write("\x1b[?u")        # Query current mode
 time.sleep(0.1)
-w("query_after\n")
+write("query_after\n")
 
-w("setflags_before ")
-w("\x1b[=1;2u")     # Set specific flags
+write("setflags_before ")
+write("\x1b[=1;2u")     # Set specific flags
 time.sleep(0.1)
-w("setflags_after\n")
+write("setflags_after\n")
 
-w("pop_before ")
-w("\x1b[<u")        # Pop mode
+write("pop_before ")
+write("\x1b[<u")        # Pop mode
 time.sleep(0.1)
-w("pop_after\n")
+write("pop_after\n")
 
-w("\x1b[<u")        # Pop remaining
+write("\x1b[<u")        # Pop remaining
 time.sleep(0.1)
 
-w("PHASE1_DONE\n")
+write("PHASE1_DONE\n")
 
 # Phase 2: Interleaved with normal output (no gaps)
-w("PHASE2_START\n")
-w("before")
-w("\x1b[>1u")       # Should be stripped completely
-w("-after")
-w("\x1b[<u")        # Should be stripped completely
-w("-end\n")
-w("PHASE2_DONE\n")
+write("PHASE2_START\n")
+write("before")
+write("\x1b[>1u")       # Should be stripped completely
+write("-after")
+write("\x1b[<u")        # Should be stripped completely
+write("-end\n")
+write("PHASE2_DONE\n")
 
 # Phase 3: Rapid push/pop cycling
-w("PHASE3_START\n")
+write("PHASE3_START\n")
 for i in range(10):
-    w("\x1b[>1u")   # Push
-    w(f"[{i}]")
-    w("\x1b[<u")    # Pop
+    write("\x1b[>1u")   # Push
+    write(f"[{i}]")
+    write("\x1b[<u")    # Pop
     time.sleep(0.02)
-w("\n")
-w("PHASE3_DONE\n")
+write("\n")
+write("PHASE3_DONE\n")

@@ -1,37 +1,116 @@
-import sys,math,time,os
-V=int(os.environ.get("V","0"))
-def o(s):
- sys.stdout.buffer.write(s.encode());sys.stdout.buffer.flush()
-E="\033";C=E+"["
-def cup(r,c):o(f"{C}{r};{c}H")
-def bg(r,g,b):return f"{C}48;2;{r};{g};{b}m"
-PI=math.pi
-CFG=[(50,5,2,3,30,0),(55,7,2,2,20,60),(25,3,3,3,40,120),(100,3,1,6,25,180),(20,4,4,3,15,240)]
-TT=["Standard Gradients","Wide Warm Boxes","Small Cool Grid","Full-Width Bars","Dense Rainbow Grid"]
-bw,bh,nc,nr,ms,cs=CFG[V]
-nb=nc*nr
-def grad(idx,t):
- ph=(idx*360/nb+cs)*PI/180
- return (int(128+127*math.sin(t*PI*2+ph)),int(128+127*math.sin(t*PI*2+ph+PI*2/3)),int(128+127*math.sin(t*PI*2+ph+PI*4/3)))
-bx=[]
-for ri in range(nr):
- for ci in range(nc):
-  bx.append((3+ri*(bh+3),3+ci*(bw+3)))
-o(f"{C}?25l{C}2J{C}H")
-cup(1,3);o(f"{C}38;2;255;255;100m{TT[V]} (variant {V+1}/5){C}0m")
-for i,(tr,tc) in enumerate(bx):
- cup(tr,tc);o(f"{C}38;2;180;180;180m#{i+1}{C}0m")
-for fr in range(41):
- o(f"{C}?2026h")
- for i,(tr,tc) in enumerate(bx):
-  for r in range(bh):
-   cup(tr+1+r,tc);s=""
-   for c in range(bw):
-    t=((c+(0 if fr==40 else fr)*2)%bw)/bw
-    t=(t+math.sin(r*.6+fr*.12)*.15)%1
-    cr,cg,cb=grad(i,t);s+=bg(cr,cg,cb)+" "
-   o(s+f"{C}0m")
- o(f"{C}?2026l")
- if fr<40:time.sleep(ms/1000)
-y=3+nr*(bh+3)+1
-cup(y,1);o(f"{C}?25h{C}0mDone.\n")
+"""
+truecolor.py — True-color gradient animation test.
+
+Renders animated gradient boxes using 24-bit RGB color sequences,
+exercising terminal true-color support and synchronized update protocol.
+"""
+
+import sys
+import math
+import time
+import os
+
+VARIANT = int(os.environ.get("V", "0"))
+
+ESC = "\033"
+CSI = ESC + "["
+
+
+def write(text):
+    """Write text to stdout and flush immediately."""
+    sys.stdout.buffer.write(text.encode())
+    sys.stdout.buffer.flush()
+
+
+def move_cursor(row, col):
+    """Move cursor to the given row and column."""
+    write(f"{CSI}{row};{col}H")
+
+
+def background_color(red, green, blue):
+    """Return an SGR sequence setting 24-bit background color."""
+    return f"{CSI}48;2;{red};{green};{blue}m"
+
+
+PI = math.pi
+
+# Configuration per variant: (box_width, box_height, num_cols, num_rows, delay_ms, color_shift)
+CONFIGS = [
+    (50, 5, 2, 3, 30, 0),
+    (55, 7, 2, 2, 20, 60),
+    (25, 3, 3, 3, 40, 120),
+    (100, 3, 1, 6, 25, 180),
+    (20, 4, 4, 3, 15, 240),
+]
+
+TITLES = [
+    "Standard Gradients",
+    "Wide Warm Boxes",
+    "Small Cool Grid",
+    "Full-Width Bars",
+    "Dense Rainbow Grid",
+]
+
+box_width, box_height, num_cols, num_rows, delay_ms, color_shift = CONFIGS[VARIANT]
+num_boxes = num_cols * num_rows
+
+
+def gradient_color(box_index, t):
+    """Compute an RGB color for a gradient animation frame.
+
+    Uses phase-shifted sine waves to produce smoothly cycling colors.
+    """
+    phase = (box_index * 360 / num_boxes + color_shift) * PI / 180
+    red = int(128 + 127 * math.sin(t * PI * 2 + phase))
+    green = int(128 + 127 * math.sin(t * PI * 2 + phase + PI * 2 / 3))
+    blue = int(128 + 127 * math.sin(t * PI * 2 + phase + PI * 4 / 3))
+    return (red, green, blue)
+
+
+# Compute box positions (top-left corners)
+box_positions = []
+for row_idx in range(num_rows):
+    for col_idx in range(num_cols):
+        top = 3 + row_idx * (box_height + 3)
+        left = 3 + col_idx * (box_width + 3)
+        box_positions.append((top, left))
+
+# Hide cursor and clear screen
+write(f"{CSI}?25l{CSI}2J{CSI}H")
+
+# Draw title
+move_cursor(1, 3)
+write(f"{CSI}38;2;255;255;100m{TITLES[VARIANT]} (variant {VARIANT + 1}/5){CSI}0m")
+
+# Draw box labels
+for i, (box_top, box_left) in enumerate(box_positions):
+    move_cursor(box_top, box_left)
+    write(f"{CSI}38;2;180;180;180m#{i + 1}{CSI}0m")
+
+# Animate gradient frames
+for frame in range(41):
+    # Begin synchronized update
+    write(f"{CSI}?2026h")
+
+    for i, (box_top, box_left) in enumerate(box_positions):
+        for row in range(box_height):
+            move_cursor(box_top + 1 + row, box_left)
+            line = ""
+            for col in range(box_width):
+                # Calculate gradient position with wave distortion
+                t = ((col + (0 if frame == 40 else frame) * 2) % box_width) / box_width
+                t = (t + math.sin(row * 0.6 + frame * 0.12) * 0.15) % 1
+                red, green, blue = gradient_color(i, t)
+                line += background_color(red, green, blue) + " "
+            write(line + f"{CSI}0m")
+
+    # End synchronized update
+    write(f"{CSI}?2026l")
+
+    if frame < 40:
+        time.sleep(delay_ms / 1000)
+
+# Position cursor below all boxes and show it again
+final_row = 3 + num_rows * (box_height + 3) + 1
+move_cursor(final_row, 1)
+write(f"{CSI}?25h{CSI}0mDone.\n")
