@@ -37,10 +37,9 @@ public enum MultiWindowTabsMacViewerScenario {
 
         // Switch tmux back to window 0
         Shortcut.tmuxRunCommand(target: "e2e-mw-mac:1.0", command: "tmux select-window -t e2e-mw-mac:0")
-        // Wait for periodic pane refresh (every 10s) to detect both windows
-        TestStep.wait(seconds: 12)
 
         // ── Phase 2: Open host panes window and select session ──
+        // Opening the panes window triggers a pane refresh, no need to wait for periodic refresh
         TestStep.log("Phase 2: Open host panes window and select session")
         Shortcut.openPanesWindow()
 
@@ -143,7 +142,7 @@ public enum MultiWindowTabsMacViewerScenario {
             .labelContains("e2e-mw-mac:1"),
             timeout: 10
         )
-        TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%2"), .valueContains("WINDOW_TWO")]), timeout: 30)
+        TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%2"), .valueContains("WINDOW_TWO")]), timeout: 5)
         TestStep.macScreenshot(label: "host-after-window-close")
 
         // Verify window 1 tab is gone on viewer too and terminal renders content
@@ -152,7 +151,7 @@ public enum MultiWindowTabsMacViewerScenario {
             timeout: 10,
             instance: 1
         )
-        TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%2"), .valueContains("WINDOW_TWO")]), timeout: 30, instance: 1)
+        TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%2"), .valueContains("WINDOW_TWO")]), timeout: 10, instance: 1)
         TestStep.macScreenshot(label: "viewer-after-window-close", instance: 1)
     }
 }

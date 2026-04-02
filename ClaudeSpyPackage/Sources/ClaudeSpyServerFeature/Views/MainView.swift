@@ -135,6 +135,14 @@ public struct MainView: View {
 
             markSelectedSessionsHandledIfActive()
         }
+        .onChange(of: selectedRemoteWindow?.id) {
+            // Keep selectedRemoteWindowId in sync when the computed property
+            // resolves to a different window (e.g., selected window removed,
+            // or tmux-active window changed by the host).
+            if let resolvedId = selectedRemoteWindow?.id, resolvedId != selectedRemoteWindowId {
+                selectedRemoteWindowId = resolvedId
+            }
+        }
         .onChange(of: settings.alwaysAutoResize) {
             // When the global auto-resize setting changes, clear per-session opt-outs, reset cached dimensions and re-evaluate resize
             autoResizeDisabled.removeAll()
@@ -429,6 +437,10 @@ public struct MainView: View {
             .sorted { $0.windowIndex < $1.windowIndex }
         if let windowId = selectedRemoteWindowId,
            let window = windows.first(where: { $0.id == windowId }) {
+            // Follow the tmux-active window if it changed (e.g., host switched tabs)
+            if !window.isWindowActive, let activeWindow = windows.first(where: \.isWindowActive) {
+                return activeWindow
+            }
             return window
         }
         return windows.first(where: \.isWindowActive) ?? windows.first
