@@ -215,6 +215,26 @@ enum MacOSAccessibility {
         mouseUp?.post(tap: .cghidEventTap)
     }
 
+    /// Post a CGEvent scroll wheel event at the given screen coordinates.
+    /// Positive `deltaY` scrolls up; negative scrolls down.
+    static func scrollWheel(at point: CGPoint, deltaY: Int32) {
+        logger.info("CGEvent scroll wheel at (\(point.x), \(point.y)), deltaY=\(deltaY)")
+        guard
+            let event = CGEvent(
+                scrollWheelEvent2Source: nil,
+                units: .line,
+                wheelCount: 1,
+                wheel1: deltaY,
+                wheel2: 0,
+                wheel3: 0
+            ) else {
+            logger.warning("Failed to create scroll wheel event")
+            return
+        }
+        event.location = point
+        event.post(tap: .cghidEventTap)
+    }
+
     /// Right-click on an element matching the query to open its context menu.
     /// Returns true if the element was found and right-clicked.
     @discardableResult
