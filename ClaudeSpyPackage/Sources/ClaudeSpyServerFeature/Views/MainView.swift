@@ -104,9 +104,9 @@ public struct MainView: View {
                     selectedWindow = updated
                 }
             } else {
-                // Selected window was removed — prefer the tmux-active window in the same session
-                let sameSession = currentWindows.filter { $0.sessionName == selected.sessionName }
-                selectedWindow = sameSession.first(where: \.isWindowActive) ?? sameSession.first
+                // Selected window was removed — try to select another window in the same session
+                let fallback = currentWindows.first(where: { $0.sessionName == selected.sessionName })
+                selectedWindow = fallback
             }
         }
         .onChange(of: selectedWindow) {
@@ -127,16 +127,6 @@ public struct MainView: View {
             handleAutoResize()
 
             markSelectedSessionsHandledIfActive()
-        }
-        .onChange(of: selectedRemoteSessionWindowIds) { _, newIds in
-            // If the selected remote window was removed (e.g. closed on host),
-            // fall back to the tmux-active window — mirroring the local .onChange(of: tmuxService.panes) logic.
-            guard
-                let windowId = selectedRemoteWindowId,
-                !newIds.contains(windowId) else { return }
-            let windows = selectedRemoteSessionWindows
-            selectedRemoteWindowId = windows.first(where: \.isWindowActive)?.id
-                ?? windows.first?.id
         }
         .onChange(of: settings.alwaysAutoResize) {
             // When the global auto-resize setting changes, clear per-session opt-outs, reset cached dimensions and re-evaluate resize
@@ -425,15 +415,13 @@ public struct MainView: View {
 
     /// The currently selected remote window, resolved from session store
     private var selectedRemoteWindow: TmuxWindow? {
-        guard
-            let remote = selectedRemoteSession,
-            let sessionStore = coordinator.remoteSessionStore else { return nil }
+        guard let remote = selectedRemoteSession,
+              let sessionStore = coordinator.remoteSessionStore else { return nil }
         let windows = sessionStore.windows(for: remote.hostId)
             .filter { $0.sessionName == remote.sessionName }
             .sorted { $0.windowIndex < $1.windowIndex }
-        if
-            let windowId = selectedRemoteWindowId,
-            let window = windows.first(where: { $0.id == windowId }) {
+        if let windowId = selectedRemoteWindowId,
+           let window = windows.first(where: { $0.id == windowId }) {
             return window
         }
         return windows.first(where: \.isWindowActive) ?? windows.first
@@ -441,17 +429,11 @@ public struct MainView: View {
 
     /// All windows in the selected remote session
     private var selectedRemoteSessionWindows: [TmuxWindow] {
-        guard
-            let remote = selectedRemoteSession,
-            let sessionStore = coordinator.remoteSessionStore else { return [] }
+        guard let remote = selectedRemoteSession,
+              let sessionStore = coordinator.remoteSessionStore else { return [] }
         return sessionStore.windows(for: remote.hostId)
             .filter { $0.sessionName == remote.sessionName }
             .sorted { $0.windowIndex < $1.windowIndex }
-    }
-
-    /// Window IDs for the selected remote session (Equatable for .onChange tracking)
-    private var selectedRemoteSessionWindowIds: [String] {
-        selectedRemoteSessionWindows.map(\.id)
     }
 
     @ViewBuilder
@@ -1168,9 +1150,8 @@ public struct MainView: View {
             await manager.requestSessionState(for: host.id)
 
             // Select the new remote session if we got a pane ID
-            if
-                let paneId = response.paneId,
-                let paneState = coordinator.remoteSessionStore?.paneState(for: paneId) {
+            if let paneId = response.paneId,
+               let paneState = coordinator.remoteSessionStore?.paneState(for: paneId) {
                 selectedRemoteSession = RemoteSessionSelection(
                     hostId: host.id,
                     hostName: host.displayName,
