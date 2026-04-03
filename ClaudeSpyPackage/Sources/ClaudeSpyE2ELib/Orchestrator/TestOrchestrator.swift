@@ -28,6 +28,8 @@ public actor TestOrchestrator {
     private let skipComparison: Bool
     private let reporter: (any TestProgressReporter)?
     private var screenshotCounter = 0
+    /// Paths of scripts copied to TMPDIR via `injectScript`, cleaned up after each scenario.
+    private var injectedScriptPaths: [String] = []
 
     /// Result of a single step
     public struct StepResult: Sendable, Codable {
@@ -107,6 +109,7 @@ public actor TestOrchestrator {
 
         context.clear()
         screenshotCounter = 0
+        injectedScriptPaths.removeAll()
 
         // Pre-populate context with orchestrator configuration
         context.set("tmuxSocket", value: tmuxSocket ?? NSTemporaryDirectory() + "claudespy-e2e.sock")
@@ -115,6 +118,8 @@ public actor TestOrchestrator {
         context.set("scenarioName", value: scenarioDirName)
 
         var stepResults: [StepResult] = []
+        var firstFailedStep: Int?
+        var firstError: String?
 
         for (index, step) in scenario.steps.enumerated() {
             let stepNumber = index + 1
@@ -132,7 +137,6 @@ public actor TestOrchestrator {
                 ))
                 await reporter?.stepCompleted(stepNumber, screenshot: screenshotResult)
             } catch {
-                let duration = ContinuousClock.now - startTime
                 logger.error("  FAILED at step \(stepNumber): \(error)")
                 // Extract screenshot result from mismatch errors
                 let screenshotResult: ScreenshotResult?
@@ -149,11 +153,25 @@ public actor TestOrchestrator {
                     screenshot: screenshotResult
                 ))
                 await reporter?.stepFailed(stepNumber, error: error.localizedDescription, screenshot: screenshotResult)
+
+                if firstFailedStep == nil {
+                    firstFailedStep = stepNumber
+                    firstError = error.localizedDescription
+                }
+
+                // Screenshot mismatches are non-fatal — continue executing remaining steps
+                if case OrchestratorError.screenshotMismatch = error {
+                    continue
+                }
+
+                // All other errors are fatal — stop the scenario
+                cleanupInjectedScripts()
+                let duration = ContinuousClock.now - startTime
                 let result = ScenarioResult(
                     scenarioName: scenario.name,
                     success: false,
-                    failedStep: stepNumber,
-                    error: error.localizedDescription,
+                    failedStep: firstFailedStep,
+                    error: firstError,
                     duration: Double(duration.components.seconds),
                     steps: stepResults
                 )
@@ -162,13 +180,20 @@ public actor TestOrchestrator {
             }
         }
 
+        cleanupInjectedScripts()
+
         let duration = ContinuousClock.now - startTime
-        logger.info("=== Scenario PASSED: \(scenario.name) (\(duration)) ===")
+        let success = firstFailedStep == nil
+        if success {
+            logger.info("=== Scenario PASSED: \(scenario.name) (\(duration)) ===")
+        } else {
+            logger.info("=== Scenario FAILED: \(scenario.name) (\(duration)) ===")
+        }
         let result = ScenarioResult(
             scenarioName: scenario.name,
-            success: true,
-            failedStep: nil,
-            error: nil,
+            success: success,
+            failedStep: firstFailedStep,
+            error: firstError,
             duration: Double(duration.components.seconds),
             steps: stepResults
         )
@@ -205,6 +230,7 @@ public actor TestOrchestrator {
     /// Tear down all running processes regardless of scenario outcome
     public func cleanup() async {
         logger.info("=== Cleaning up ===")
+        cleanupInjectedScripts()
         await simulatorDriver.resetStatusBar()
         await simulatorDriver.stopE2ERunner()
         try? await simulatorDriver.terminateApp()
@@ -444,6 +470,12 @@ public actor TestOrchestrator {
         case let .macScrollUp(pages, instance):
             try await macDriver(for: instance).scrollUp(pages: pages)
 
+        case let .macScrollWheel(deltaY, count, instance):
+            try await macDriver(for: instance).scrollWheel(deltaY: deltaY, count: count)
+
+        case let .macClickAtPoint(x, y, instance):
+            try await macDriver(for: instance).clickAtScreenPoint(x: x, y: y)
+
         case let .macScreenshot(label, compare, tolerance, perPixelThreshold, instance):
             let numberedLabel = nextScreenshotLabel(label)
             let actualPath = screenshotPath(for: numberedLabel)
@@ -532,6 +564,19 @@ public actor TestOrchestrator {
             let resolvedArgs = arguments.map { context.resolve($0) }
             _ = try await runner.runOrThrow("tmux", arguments: ["-f", "/dev/null", "-S", socket] + resolvedArgs)
 
+        case let .tmuxStoreDisplayMessage(target, format, storeAs):
+            let socket = context.resolve("${tmuxSocket}")
+            let resolvedTarget = context.resolve(target)
+            let resolvedFormat = context.resolve(format)
+            let runner = processRunner
+            let result = try await runner.runOrThrow(
+                "tmux",
+                arguments: ["-S", socket, "display-message", "-t", resolvedTarget, "-p", resolvedFormat]
+            )
+            let output = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+            context.set(storeAs, value: output)
+            logger.info("  tmux display-message → '\(output)' stored as ${\(storeAs)}")
+
         // Hook Events
         case let .macSendHookEvent(json, tmuxPane, projectPath, instance):
             let resolvedJson = context.resolve(json)
@@ -592,6 +637,30 @@ public actor TestOrchestrator {
                     "\(key) should NOT contain '\(resolvedSubstring)'. Value: '\(value.prefix(200))'"
                 )
             }
+
+        // Scripts
+        case let .injectScript(name):
+            // NOTE: The script is copied to NSTemporaryDirectory() and later executed inside
+            // tmux via `$TMPDIR/<name>`. This works because the tmux server inherits the test
+            // runner's environment, so `$TMPDIR` resolves to the same directory. If the tmux
+            // server were started independently (different env), this assumption would break.
+            let destPath = NSTemporaryDirectory() + name
+            guard let sourceURL = Bundle.module.url(
+                forResource: name,
+                withExtension: nil,
+                subdirectory: "Scripts"
+            ) else {
+                throw OrchestratorError.configurationError(
+                    "Script '\(name)' not found in bundled Scripts directory"
+                )
+            }
+            let fm = FileManager.default
+            if fm.fileExists(atPath: destPath) {
+                try fm.removeItem(atPath: destPath)
+            }
+            try fm.copyItem(atPath: sourceURL.path, toPath: destPath)
+            injectedScriptPaths.append(destPath)
+            logger.info("  Injected script '\(name)' → \(destPath)")
 
         // General
         case let .wait(seconds):
@@ -657,6 +726,23 @@ public actor TestOrchestrator {
     private func pushLogPath(for instance: Int) -> String {
         let base = NSTemporaryDirectory() + "claudespy-e2e-push.log"
         return instance == 0 ? base : "\(base)-\(instance)"
+    }
+
+    // MARK: - Script Cleanup
+
+    /// Remove all scripts that were injected via `injectScript` during this scenario.
+    private func cleanupInjectedScripts() {
+        guard !injectedScriptPaths.isEmpty else { return }
+        let fm = FileManager.default
+        for path in injectedScriptPaths {
+            do {
+                try fm.removeItem(atPath: path)
+                logger.info("  Removed injected script: \(path)")
+            } catch {
+                logger.warning("  Failed to remove injected script \(path): \(error)")
+            }
+        }
+        injectedScriptPaths.removeAll()
     }
 
     // MARK: - Helpers

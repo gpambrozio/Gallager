@@ -31,6 +31,9 @@ public struct ClaudeSession: Codable, Sendable {
     /// Recent hook events, newest first, limited to last 5
     public private(set) var events: [HookEvent] = []
 
+    /// The most recent event (including events not sent to the server).
+    public private(set) var latestEvent: HookEvent?
+
     /// The event ID up to which the user has handled/seen this session.
     /// When this matches the latest event's ID, `needsAttention` returns false.
     public private(set) var handledUpToEventId: UUID?
@@ -41,19 +44,15 @@ public struct ClaudeSession: Codable, Sendable {
 
     /// Adds an event to the session, keeping only the last 5
     public mutating func addEvent(_ event: HookEvent) {
+        latestEvent = event
+        if let working = event.isWorking {
+            isWorking = working
+        }
         guard event.action.body.shouldSendToServer else { return }
         events.insert(event, at: 0)
         if events.count > Self.maxEvents {
             events.removeLast()
         }
-        if let working = event.isWorking {
-            isWorking = working
-        }
-    }
-
-    /// The most recent event, if any
-    public var latestEvent: HookEvent? {
-        events.first
     }
 
     /// The project folder name extracted from the first event that has a projectPath.
@@ -82,7 +81,7 @@ public struct ClaudeSession: Codable, Sendable {
 
     /// Whether the session is actively working (Claude is processing, not waiting for input).
     /// Updated when events with a definitive working state are received.
-    public private(set) var isWorking: Bool = false
+    public private(set) var isWorking = false
 
     /// Human-readable status label for accessibility and testing.
     public var statusLabel: String {
@@ -134,16 +133,34 @@ public struct HookEvent: Identifiable, Codable, Sendable, Equatable {
     /// `false` for events that leave it, and `nil` otherwise.
     public var isWorking: Bool? {
         switch action {
-        case .userPromptSubmit:
+        case .userPromptSubmit,
+             .preToolUse,
+             .permissionRequest,
+             .postToolUse,
+             .postToolUseFailure,
+             .subagentStart,
+             .subagentStop,
+             .taskCreated,
+             .taskCompleted:
             return true
-        case .stop, .stopFailure:
+        case .stop,
+             .stopFailure:
             return false
-        case .sessionStart, .preToolUse, .postToolUse, .postToolUseFailure,
-             .sessionEnd, .permissionRequest, .notification, .subagentStart,
-             .subagentStop, .teammateIdle, .taskCompleted, .preCompact,
-             .postCompact, .instructionsLoaded, .configChange, .cwdChanged,
-             .fileChanged, .elicitation, .elicitationResult, .worktreeCreate,
-             .worktreeRemove, .taskCreated, .unknown:
+        case .sessionStart,
+             .sessionEnd,
+             .notification,
+             .teammateIdle,
+             .preCompact,
+             .postCompact,
+             .instructionsLoaded,
+             .configChange,
+             .cwdChanged,
+             .fileChanged,
+             .elicitation,
+             .elicitationResult,
+             .worktreeCreate,
+             .worktreeRemove,
+             .unknown:
             return nil
         }
     }
@@ -391,7 +408,7 @@ public struct PostToolUseBody: HookBodyProtocol {
     public let toolInput: ClaudeCodeTool?
     public let toolResponse: AnyCodable?
     public let toolUseId: String?
-    public var shouldSendToServer: Bool { false }
+    public var shouldSendToServer: Bool { true }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"

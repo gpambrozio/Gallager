@@ -55,57 +55,15 @@ public enum TableRenderingScenario {
         // The table uses the full 80-column terminal width and includes
         // multi-line rows to stress-test rendering.
 
-        // Write the table-drawing Python script to a temp file via the helper
-        // pane, then run it from the test pane. This avoids command echo in
-        // scrollback, making the screenshot deterministic.
+        // Inject the table-drawing Python script, then run it from the test
+        // pane. This avoids command echo in scrollback, making the screenshot
+        // deterministic.
         //
         // The script uses ESC(0 / ESC(B to switch DEC Special Graphics mode.
         // It draws a full-width (80-col) table with 3 columns and multi-line
         // rows, exercising all box-drawing junction types.
-        TestStep.log("Writing table-drawing script to temp file")
-        TestStep.tmuxSendKeys(
-            target: "table-helper:0",
-            keys: #"""
-            cat > /tmp/draw_table.py << 'PYEOF'
-            import sys
-            E='\033'
-            ON=E+'(0'    # Switch to DEC Special Graphics
-            OFF=E+'(B'   # Switch back to ASCII
-            C=E+'['      # CSI
-            # DEC chars: l=┌ k=┐ m=└ j=┘ q=─ x=│ w=┬ v=┴ t=├ u=┤ n=┼
-            # 3 columns: 24 + 26 + 24 = 74 content + 6 junctions/borders = 80
-            W1=24; W2=26; W3=24
-            def hline(left, mid, right):
-                sys.stdout.write(ON+left+'q'*W1+mid+'q'*W2+mid+'q'*W3+right+OFF+'\n')
-            def row(c1, c2, c3):
-                sys.stdout.write(ON+'x'+OFF+c1.ljust(W1)+ON+'x'+OFF+c2.ljust(W2)+ON+'x'+OFF+c3.ljust(W3)+ON+'x'+OFF+'\n')
-            sys.stdout.write(C+'2J'+C+'H')
-            sys.stdout.write(C+'1;33m  Box-Drawing Table Rendering Test'+C+'0m\n\n')
-            hline('l','w','k')
-            row(' Name',' Description',' Status')
-            hline('t','n','u')
-            row(' Authentication',' User login and token',' Active')
-            row('   Service',' management system','')
-            hline('t','n','u')
-            row(' Database Pool',' Connection pooling for',' Warning: 85%')
-            row('   Manager',' PostgreSQL with auto-',' capacity')
-            row('',' scaling and failover','')
-            hline('t','n','u')
-            row(' WebSocket Relay',' Real-time bidirectional',' Active')
-            row('',' message routing between','')
-            row('',' paired devices','')
-            hline('t','n','u')
-            row(' E2E Test Runner',' Automated scenario',' 32/33 passed')
-            row('',' execution framework','')
-            hline('m','v','j')
-            sys.stdout.write('\n'+C+'1;32m  All services operational.'+C+'0m\n')
-            sys.stdout.flush()
-            PYEOF
-            """#,
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "table-helper:0", keys: "Enter")
-        TestStep.wait(seconds: 1)
+        TestStep.log("Injecting table-drawing script")
+        TestStep.injectScript(name: "draw_table.py")
 
         // ── Select pane on macOS and iOS BEFORE running script ─────────
         // Both platforms will be streaming the terminal when the table
@@ -122,7 +80,7 @@ public enum TableRenderingScenario {
         // ── Draw table while both platforms are streaming ────────────
 
         TestStep.log("Drawing table with DEC line-drawing characters")
-        Shortcut.tmuxRunCommand(target: "table-test:0", command: "python3 /tmp/draw_table.py")
+        Shortcut.tmuxRunCommand(target: "table-test:0", command: "python3 $TMPDIR/draw_table.py")
         TestStep.wait(seconds: 3)
 
         // Screenshot: table should show Unicode box-drawing characters

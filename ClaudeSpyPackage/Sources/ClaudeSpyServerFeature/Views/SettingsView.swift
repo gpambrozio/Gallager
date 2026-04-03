@@ -130,7 +130,8 @@ struct GeneralSettingsView: View {
                         }
                     }
 
-                Toggle("Restore windows on launch", isOn: $settings.restoreWindowsOnLaunch)
+                Toggle("Open panes window on launch", isOn: $settings.openPanesWindowOnLaunch)
+                    .help("Automatically open the panes window when the app starts")
 
                 Toggle("Show status bar", isOn: $settings.showStatusBar)
 

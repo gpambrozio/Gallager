@@ -128,6 +128,11 @@ public enum TestStep: Sendable {
     case macType(text: String, pressReturn: Bool = false, charDelay: TimeInterval = 0, instance: Int = 0)
     /// Scroll the macOS terminal view up by the given number of pages (Page Up key)
     case macScrollUp(pages: Int = 1, instance: Int = 0)
+    /// Send scroll wheel events to the macOS app window via CGEvent.
+    /// `deltaY` > 0 scrolls up, < 0 scrolls down. `count` is how many events to send.
+    case macScrollWheel(deltaY: Int32, count: Int = 3, instance: Int = 0)
+    /// Click at a specific screen coordinate in the macOS app.
+    case macClickAtPoint(x: Double, y: Double, instance: Int = 0)
     /// Take a macOS screenshot, optionally comparing against a stored baseline
     /// Default tolerance of 2% because sometimes the image needs to be normalized
     /// and in this case some pixels will differ.
@@ -147,6 +152,8 @@ public enum TestStep: Sendable {
     case tmuxSendKeys(target: String, keys: String, literal: Bool = false)
     /// Run an arbitrary tmux command on the test socket (e.g., "split-window -h -t session:0")
     case tmuxCommand(arguments: [String])
+    /// Query a tmux format string via `display-message -p` and store the output in context.
+    case tmuxStoreDisplayMessage(target: String, format: String, storeAs: String)
 
     // MARK: - Hook Events
 
@@ -166,6 +173,13 @@ public enum TestStep: Sendable {
     case assertStoredContains(key: String, substring: String)
     /// Assert a stored context value does NOT contain a substring
     case assertStoredNotContains(key: String, substring: String)
+
+    // MARK: - Scripts
+
+    /// Copy a bundled script from the `Scripts` resource directory to `$TMPDIR`.
+    /// The script is automatically removed when the scenario ends, even on failure.
+    /// Reference the script in tmux commands as `$TMPDIR/<name>`.
+    case injectScript(name: String)
 
     // MARK: - General
 

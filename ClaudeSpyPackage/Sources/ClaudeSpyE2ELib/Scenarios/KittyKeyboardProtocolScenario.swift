@@ -1,7 +1,5 @@
 import Foundation
 
-// swiftlint:disable function_body_length
-
 /// E2E scenario: Verify that kitty keyboard protocol sequences are stripped from
 /// the terminal data feed and do not corrupt the mirror display.
 ///
@@ -33,81 +31,15 @@ public enum KittyKeyboardProtocolScenario {
         Shortcut.tmuxRunCommand(target: "e2e-kitty-kb:0", command: "clear")
         TestStep.wait(seconds: 1)
 
-        // ── Create inline test script ──────────────────────────────────
+        // ── Inject test script ──────────────────────────────────────────
         //
         // This Python script emits the same kitty keyboard protocol sequences
         // that Claude Code sends, interleaved with marker text. If the mirror
         // fails to strip the protocol sequences, the markers will be corrupted
         // with leaked escape fragments (e.g., "^[sent" or "5usent").
 
-        TestStep.log("Creating kitty keyboard protocol test script")
-        TestStep.tmuxSendKeys(
-            target: "e2e-kitty-kb:0",
-            keys: #"""
-            cat > $TMPDIR/kitty-kb-test.py << 'PYEOF'
-            import sys,time
-            def w(s):
-                sys.stdout.buffer.write(s.encode() if isinstance(s,str) else s)
-                sys.stdout.buffer.flush()
-
-            # Phase 1: Individual protocol negotiation sequences
-            # Each should be completely invisible to the mirror
-            w("PHASE1_START\n")
-
-            w("push1_before ")
-            w("\x1b[>1u")       # Push mode: enable disambiguate-escape-codes
-            time.sleep(0.1)
-            w("push1_after\n")
-
-            w("push5_before ")
-            w("\x1b[>5u")       # Push mode: flags=5
-            time.sleep(0.1)
-            w("push5_after\n")
-
-            w("query_before ")
-            w("\x1b[?u")        # Query current mode
-            time.sleep(0.1)
-            w("query_after\n")
-
-            w("setflags_before ")
-            w("\x1b[=1;2u")     # Set specific flags
-            time.sleep(0.1)
-            w("setflags_after\n")
-
-            w("pop_before ")
-            w("\x1b[<u")        # Pop mode
-            time.sleep(0.1)
-            w("pop_after\n")
-
-            w("\x1b[<u")        # Pop remaining
-            time.sleep(0.1)
-
-            w("PHASE1_DONE\n")
-
-            # Phase 2: Interleaved with normal output (no gaps)
-            w("PHASE2_START\n")
-            w("before")
-            w("\x1b[>1u")       # Should be stripped completely
-            w("-after")
-            w("\x1b[<u")        # Should be stripped completely
-            w("-end\n")
-            w("PHASE2_DONE\n")
-
-            # Phase 3: Rapid push/pop cycling
-            w("PHASE3_START\n")
-            for i in range(10):
-                w("\x1b[>1u")   # Push
-                w(f"[{i}]")
-                w("\x1b[<u")    # Pop
-                time.sleep(0.02)
-            w("\n")
-            w("PHASE3_DONE\n")
-            PYEOF
-            """#,
-            literal: true
-        )
-        TestStep.tmuxSendKeys(target: "e2e-kitty-kb:0", keys: "Enter")
-        TestStep.wait(seconds: 1)
+        TestStep.log("Injecting kitty keyboard protocol test script")
+        TestStep.injectScript(name: "kitty_keyboard_test.py")
 
         // ── Run the test script ────────────────────────────────────────
 
@@ -117,7 +49,7 @@ public enum KittyKeyboardProtocolScenario {
         TestStep.wait(seconds: 1)
 
         TestStep.log("Running kitty keyboard protocol test script")
-        Shortcut.tmuxRunCommand(target: "e2e-kitty-kb:0", command: "python3 $TMPDIR/kitty-kb-test.py")
+        Shortcut.tmuxRunCommand(target: "e2e-kitty-kb:0", command: "python3 $TMPDIR/kitty_keyboard_test.py")
         TestStep.wait(seconds: 3)
 
         // Screenshot right after script execution — shows the actual
@@ -153,10 +85,5 @@ public enum KittyKeyboardProtocolScenario {
 
         TestStep.macScreenshot(label: "mac-kitty-protocol-filtered")
 
-        // ── Cleanup ────────────────────────────────────────────────────
-
-        Shortcut.tmuxRunCommand(target: "e2e-kitty-kb:0", command: "rm $TMPDIR/kitty-kb-test.py")
     }
 }
-
-// swiftlint:enable function_body_length
