@@ -101,6 +101,12 @@ public enum YoloModeAutoApproveScenario {
         TestStep.tmuxCapturePaneContent(target: "session-1:0", storeAs: "paneAfterApprove")
         TestStep.assertStoredContains(key: "paneAfterApprove", substring: "BEFORE_YOLO_APPROVE")
 
+        // Verify the terminal UI also shows the marker
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("BEFORE_YOLO_APPROVE")]),
+            timeout: 10
+        )
+
         // Take screenshots to visually confirm the Enter keypress result
         TestStep.macScreenshot(label: "mac-yolo-auto-approved")
         TestStep.iosScreenshot(label: "ios-yolo-auto-approved-terminal")

@@ -60,6 +60,12 @@ public enum DAResponseLeakScenario {
         TestStep.assertStoredNotContains(key: "macDA1", substring: ";22;17")
         TestStep.assertStoredNotContains(key: "macDA1", substring: "?65;")
 
+        // Verify the terminal UI also shows the completion marker
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("MAC_DA1_DONE")]),
+            timeout: 10
+        )
+
         TestStep.macScreenshot(label: "mac-after-da1", compare: false)
 
         // ── Phase 5: Open pane on iOS ─────────────────────────────────
@@ -87,6 +93,12 @@ public enum DAResponseLeakScenario {
         TestStep.assertStoredNotContains(key: "bothDA1", substring: ";28c")
         TestStep.assertStoredNotContains(key: "bothDA1", substring: ";22;17")
         TestStep.assertStoredNotContains(key: "bothDA1", substring: "?65;")
+
+        // Verify the terminal UI also shows the completion marker
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("BOTH_DA1_DONE")]),
+            timeout: 10
+        )
 
         TestStep.macScreenshot(label: "mac-both-after-da1", compare: false)
         TestStep.iosScreenshot(label: "ios-after-da1", compare: false)

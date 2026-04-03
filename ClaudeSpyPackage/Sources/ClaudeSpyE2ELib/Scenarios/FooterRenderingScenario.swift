@@ -60,6 +60,16 @@ public enum FooterRenderingScenario {
         TestStep.assertStoredContains(key: "pane-content", substring: "FIXED HEADER")
         TestStep.assertStoredContains(key: "pane-content", substring: "Scrolling line  76")
 
+        // Verify the macOS terminal UI also renders footer and header
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("FIXED FOOTER")]),
+            timeout: 10
+        )
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("FIXED HEADER")]),
+            timeout: 10
+        )
+
         // ── Select the pane on macOS ─────────────────────────────────
         // Screenshot: should show header and footer on macOS
         TestStep.macScreenshot(label: "mac-footer-full-terminal")

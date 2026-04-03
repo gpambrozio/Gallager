@@ -35,6 +35,11 @@ public enum RapidKeystrokeOrderScenario {
         TestStep.wait(seconds: 3)
         TestStep.tmuxCapturePaneContent(target: "e2e-rapid-keys:0", storeAs: "round1")
         TestStep.assertStoredContains(key: "round1", substring: "round1-abcdefghij")
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("round1-abcdefghij")]),
+            timeout: 10,
+            instance: 1
+        )
 
         // Round 2: A longer string to increase likelihood of reordering
         TestStep.log("Round 2: Rapid typing 'the-quick-brown-fox'")
@@ -42,6 +47,11 @@ public enum RapidKeystrokeOrderScenario {
         TestStep.wait(seconds: 3)
         TestStep.tmuxCapturePaneContent(target: "e2e-rapid-keys:0", storeAs: "round2")
         TestStep.assertStoredContains(key: "round2", substring: "round2-the-quick-brown-fox")
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("round2-the-quick-brown-fox")]),
+            timeout: 10,
+            instance: 1
+        )
 
         // Round 3: Numbers and special chars
         TestStep.log("Round 3: Rapid typing '1234567890'")
@@ -49,6 +59,11 @@ public enum RapidKeystrokeOrderScenario {
         TestStep.wait(seconds: 3)
         TestStep.tmuxCapturePaneContent(target: "e2e-rapid-keys:0", storeAs: "round3")
         TestStep.assertStoredContains(key: "round3", substring: "round3-1234567890")
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("round3-1234567890")]),
+            timeout: 10,
+            instance: 1
+        )
 
         // Round 4: Mixed case to catch case-sensitive ordering bugs
         TestStep.log("Round 4: Rapid typing mixed case")
@@ -56,6 +71,11 @@ public enum RapidKeystrokeOrderScenario {
         TestStep.wait(seconds: 3)
         TestStep.tmuxCapturePaneContent(target: "e2e-rapid-keys:0", storeAs: "round4")
         TestStep.assertStoredContains(key: "round4", substring: "round4-AaBbCcDdEe")
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("round4-AaBbCcDdEe")]),
+            timeout: 10,
+            instance: 1
+        )
 
         // ── Phase 8: Screenshot both panes for visual verification ────
         TestStep.log("Taking screenshots of both host and viewer panes")
@@ -65,6 +85,12 @@ public enum RapidKeystrokeOrderScenario {
         TestStep.macWaitForElement(titled: "e2e-rapid-keys", timeout: 10)
         TestStep.macClickButton(titled: "e2e-rapid-keys")
         TestStep.wait(seconds: 2)
+
+        // Verify the host terminal UI shows the final round output
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("round4-AaBbCcDdEe")]),
+            timeout: 10
+        )
         TestStep.macScreenshot(label: "host-after-keystrokes")
         TestStep.macScreenshot(label: "viewer-after-keystrokes", instance: 1)
     }

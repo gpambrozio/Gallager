@@ -74,6 +74,16 @@ public enum KittyKeyboardProtocolScenario {
         // Phase 3: All 10 iterations present
         TestStep.assertStoredContains(key: "kittyOutput", substring: "[0][1][2][3][4][5][6][7][8][9]")
 
+        // Verify the terminal UI also shows the script output without corruption
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("PHASE1_DONE")]),
+            timeout: 10
+        )
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("[0][1][2][3][4][5][6][7][8][9]")]),
+            timeout: 10
+        )
+
         // Negative assertions: none of these escape sequence fragments should appear
         // as visible text. These are the garbage patterns seen before the fix:
         // - "1u" from ESC[>1u leaking

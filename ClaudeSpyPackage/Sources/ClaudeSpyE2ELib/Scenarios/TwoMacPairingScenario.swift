@@ -53,12 +53,25 @@ public enum TwoMacPairingScenario {
         TestStep.tmuxCapturePaneContent(target: "e2e-mac-pair:0", storeAs: "paneContent")
         TestStep.assertStoredContains(key: "paneContent", substring: "e2e-test-hello")
 
+        // Verify the viewer's terminal UI also shows the command
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("e2e-test-hello")]),
+            timeout: 10,
+            instance: 1
+        )
+
         // Open the host's Panes window and select its session to visually verify
         TestStep.macOpenPanesWindow()
         TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
         TestStep.macWaitForElement(titled: "e2e-mac-pair", timeout: 10)
         TestStep.macClickButton(titled: "e2e-mac-pair")
         TestStep.wait(seconds: 2)
+
+        // Verify the host's terminal UI shows the command
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("e2e-test-hello")]),
+            timeout: 10
+        )
         TestStep.macScreenshot(label: "host-shows-command")
     }
 }

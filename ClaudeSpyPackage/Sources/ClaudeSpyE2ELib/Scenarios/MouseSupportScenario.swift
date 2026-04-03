@@ -53,6 +53,10 @@ public enum MouseSupportScenario {
         TestStep.tmuxCapturePaneContent(target: "mouse-test:0", storeAs: "after-scroll-down")
         TestStep.log("After scroll down: ${after-scroll-down}")
         TestStep.assertStoredContains(key: "after-scroll-down", substring: "SCROLL:-")
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("SCROLL:-")]),
+            timeout: 10
+        )
 
         // ── Test scroll up ───────────────────────────────────────
         TestStep.log("Sending scroll-up events")
@@ -81,6 +85,10 @@ public enum MouseSupportScenario {
         // Position should be non-zero (proves coordinates were decoded)
         TestStep.assertStoredNotContains(key: "after-click-1", substring: "CLICK-COL:0")
         TestStep.assertStoredNotContains(key: "after-click-1", substring: "CLICK-ROW:0")
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("CLICK:1")]),
+            timeout: 10
+        )
 
         // ── Test second click at different position ──────────────
         TestStep.log("Sending second click at different position")
@@ -90,6 +98,10 @@ public enum MouseSupportScenario {
         TestStep.tmuxCapturePaneContent(target: "mouse-test:0", storeAs: "after-click-2")
         TestStep.log("After second click: ${after-click-2}")
         TestStep.assertStoredContains(key: "after-click-2", substring: "CLICK:2")
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("CLICK:2")]),
+            timeout: 10
+        )
         TestStep.macScreenshot(label: "after-clicks")
 
         // ── Verify motion doesn't cause clicks ──────────────────
