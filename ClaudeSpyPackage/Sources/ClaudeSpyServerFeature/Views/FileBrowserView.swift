@@ -3,6 +3,17 @@ import Files
 import ProjectNavigator
 import SwiftUI
 
+/// Cached state for a file browser, keyed by window ID.
+/// Stored in MainView so it survives tab/session switches.
+@Observable
+@MainActor
+final class FileBrowserState {
+    var viewState: FileNavigatorViewState<TextFileContents>?
+    var sidebarWidth: CGFloat = 250
+    /// The directory path this state was loaded for; used to detect stale caches.
+    var loadedPath: String?
+}
+
 /// A draggable vertical divider for resizing adjacent views.
 private struct ResizableDivider: View {
     @Binding var dimension: CGFloat
@@ -45,35 +56,39 @@ private struct ResizableDivider: View {
 /// Modeled after the NavigatorDemo in the ProjectNavigator package.
 struct FileBrowserView: View {
     let directoryPath: String
-
-    @State private var fileTree: FileTree<TextFileContents>?
-    @State private var viewState: FileNavigatorViewState<TextFileContents>?
-    @State private var sidebarWidth: CGFloat = 250
+    @Bindable var state: FileBrowserState
 
     var body: some View {
-        if let fileTree, let viewState {
-            fileBrowserContent(fileTree: fileTree, viewState: viewState)
+        if let viewState = state.viewState {
+            fileBrowserContent(viewState: viewState)
+                .task(id: directoryPath) {
+                    guard state.loadedPath != directoryPath else { return }
+                    await loadTree()
+                }
         } else {
             ProgressView("Loading files...")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .task(id: directoryPath) {
-                    let tree = await loadFileTree(at: URL(fileURLWithPath: directoryPath))
-                    let state = FileNavigatorViewState<TextFileContents>(
-                        fileTree: tree,
-                        expansions: WrappedUUIDSet(),
-                        selection: nil
-                    )
-                    // Expand the root folder by default
-                    state.expansions[tree.root.id] = true
-                    self.fileTree = tree
-                    self.viewState = state
+                    await loadTree()
                 }
         }
     }
 
+    private func loadTree() async {
+        let tree = await loadFileTree(at: URL(fileURLWithPath: directoryPath))
+        let viewState = FileNavigatorViewState<TextFileContents>(
+            fileTree: tree,
+            expansions: WrappedUUIDSet(),
+            selection: nil
+        )
+        // Expand the root folder by default
+        viewState.expansions[tree.root.id] = true
+        state.viewState = viewState
+        state.loadedPath = directoryPath
+    }
+
     @ViewBuilder
     private func fileBrowserContent(
-        fileTree: FileTree<TextFileContents>,
         viewState: FileNavigatorViewState<TextFileContents>
     ) -> some View {
         @Bindable var bindableState = viewState
@@ -83,7 +98,7 @@ struct FileBrowserView: View {
             List(selection: $bindableState.selection) {
                 FileNavigator(
                     name: directoryName,
-                    item: .constant(fileTree.root),
+                    item: .constant(viewState.fileTree.root),
                     parent: .constant(nil),
                     viewState: viewState,
                     fileLabel: { cursor, _, _ in
@@ -109,26 +124,25 @@ struct FileBrowserView: View {
             }
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)
-            .frame(width: sidebarWidth)
+            .frame(width: state.sidebarWidth)
 
-            ResizableDivider(dimension: $sidebarWidth, minDimension: 150, maxDimension: 400)
+            ResizableDivider(dimension: $state.sidebarWidth, minDimension: 150, maxDimension: 400)
 
-            fileDetailView(fileTree: fileTree, viewState: viewState)
+            fileDetailView(viewState: viewState)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
     @ViewBuilder
     private func fileDetailView(
-        fileTree: FileTree<TextFileContents>,
         viewState: FileNavigatorViewState<TextFileContents>
     ) -> some View {
         if
             let uuid = viewState.selection,
-            let file = fileTree.proxy(for: uuid).file {
+            let file = viewState.fileTree.proxy(for: uuid).file {
             VStack(alignment: .leading, spacing: 0) {
                 // File path header
-                if let filePath = fileTree.filePath(of: uuid) {
+                if let filePath = viewState.fileTree.filePath(of: uuid) {
                     let directoryName = URL(fileURLWithPath: directoryPath).lastPathComponent
                     Text(directoryName + "/" + filePath.string)
                         .font(.system(.caption, design: .monospaced))
@@ -144,7 +158,7 @@ struct FileBrowserView: View {
             }
         } else if
             let uuid = viewState.selection,
-            fileTree.proxy(for: uuid).file == nil {
+            viewState.fileTree.proxy(for: uuid).file == nil {
             // A folder is selected
             ContentUnavailableView(
                 "Folder Selected",

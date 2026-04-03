@@ -42,8 +42,10 @@ public struct MainView: View {
     /// Debounce task for auto-resize (cancelled on each new geometry change)
     @State private var autoResizeTask: Task<Void, Never>?
 
-    /// Whether the file browser tab is selected (vs. a window tab)
-    @State private var showingFileBrowser = false
+    /// Window IDs that have the file browser tab active (persists across tab/session switches)
+    @State private var fileBrowserActiveWindowIds: Set<String> = []
+    /// Cached file browser state per window ID (tree, selection, sidebar width)
+    @State private var fileBrowserStates: [String: FileBrowserState] = [:]
 
     public var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -355,7 +357,6 @@ public struct MainView: View {
             }
             selectedRemoteSession = nil
             selectedRemoteWindowId = nil
-            showingFileBrowser = false
         } label: {
             SessionSidebarRow(session: session)
         }
@@ -539,9 +540,9 @@ public struct MainView: View {
                     WindowTabBar(
                         session: session,
                         selectedWindow: window,
-                        isFileBrowserSelected: showingFileBrowser,
+                        isFileBrowserSelected: fileBrowserActiveWindowIds.contains(window.id),
                         onSelectWindow: { newWindow in
-                            showingFileBrowser = false
+                            fileBrowserActiveWindowIds.remove(window.id)
                             selectedWindow = newWindow
                             Task {
                                 try? await tmuxService.selectWindow(newWindow.id)
@@ -563,14 +564,20 @@ public struct MainView: View {
                             }
                         },
                         onSelectFileBrowser: {
-                            showingFileBrowser = true
+                            fileBrowserActiveWindowIds.insert(window.id)
+                            if fileBrowserStates[window.id] == nil {
+                                fileBrowserStates[window.id] = FileBrowserState()
+                            }
                         }
                     )
                 }
 
-                if showingFileBrowser {
+                if
+                    fileBrowserActiveWindowIds.contains(window.id),
+                    let browserState = fileBrowserStates[window.id] {
                     FileBrowserView(
-                        directoryPath: window.activePane?.currentPath ?? NSHomeDirectory()
+                        directoryPath: window.activePane?.currentPath ?? NSHomeDirectory(),
+                        state: browserState
                     )
                 } else {
                     WindowPaneLayoutView(window: window)
@@ -959,7 +966,6 @@ public struct MainView: View {
             // Nothing selected and a single new session appeared - auto-select the containing window
             selectedWindow = window
             scrollToWindowId = window.sessionName
-            showingFileBrowser = false
         }
 
         trackedActiveSessionPaneIds = currentIds
@@ -1012,7 +1018,7 @@ public struct MainView: View {
                 selectedWindow = window
                 selectedRemoteSession = nil
                 selectedRemoteWindowId = nil
-                showingFileBrowser = false
+                fileBrowserActiveWindowIds.remove(window.id)
             }
         case let .remote(hostId, hostName, paneId):
             // Find the session name for this pane from the session store
@@ -1025,7 +1031,6 @@ public struct MainView: View {
                 selectedRemoteWindowId = paneState.windowId
             }
             selectedWindow = nil
-            showingFileBrowser = false
         }
     }
 
