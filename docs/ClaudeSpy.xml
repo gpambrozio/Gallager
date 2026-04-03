@@ -6,6 +6,29 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.17</title>
+         <sparkle:version>17</sparkle:version>
+         <sparkle:shortVersionString>1.17</sparkle:shortVersionString>
+         <pubDate>Thu, 02 Apr 2026 20:44:46 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.17 Release Notes
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Fixed stuck "needs attention" indicator on sessions.</strong> Previously, the attention badge on a session could remain visible even after viewing the session, if the most recent event was a notification, stop failure, or elicitation. The indicator now correctly clears for all event types.</li>
+</ul>
+
+<ul>
+<li><strong>Attention indicator now auto-clears on macOS when viewing the active session.</strong> If you already have a session selected and a new event arrives for that session, the attention state is automatically dismissed without requiring you to navigate away and back.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.17.dmg"
+                    sparkle:edSignature="ZBCBG/eDG44EWI0nw7SiJedPlsJ7L6Ey1w9zKryMVb8N9gFv3qG+9eY2E7WOgqfleLTF5vGz1fCuHOUufvbVBw=="
+                    length="21079024"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.16</title>
          <sparkle:version>16</sparkle:version>
          <sparkle:shortVersionString>1.16</sparkle:shortVersionString>
