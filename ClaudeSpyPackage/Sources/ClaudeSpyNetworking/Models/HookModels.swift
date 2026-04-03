@@ -91,13 +91,16 @@ public struct ClaudeSession: Codable, Sendable {
     }
 
     /// Marks the current latest event as handled, clearing the `needsAttention` flag.
-    /// Only clears for `sessionStart` and `stop` events — permission requests and notifications
-    /// require explicit user action and should not be auto-dismissed by viewing the session.
+    /// Clears for most notification-triggering events. Permission requests require explicit
+    /// user action (approve/deny) and should not be auto-dismissed by viewing the session.
     public mutating func markHandled() {
         guard let latest = latestEvent else { return }
         switch latest.action {
         case .sessionStart,
-             .stop:
+             .stop,
+             .notification,
+             .stopFailure,
+             .elicitation:
             handledUpToEventId = latest.id
         default:
             break
