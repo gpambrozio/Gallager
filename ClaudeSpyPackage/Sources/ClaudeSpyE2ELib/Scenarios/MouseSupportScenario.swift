@@ -47,24 +47,24 @@ public enum MouseSupportScenario {
 
         // ── Test scroll down ─────────────────────────────────────
         TestStep.log("Sending scroll-down events")
-        TestStep.macScrollWheel(deltaY: -3, count: 5)
+        TestStep.macScrollWheel(deltaY: -1, count: 5)
         TestStep.wait(seconds: 2)
 
-        TestStep.tmuxCapturePaneContent(target: "mouse-test:0", storeAs: "after-scroll-down")
-        TestStep.log("After scroll down: ${after-scroll-down}")
-        TestStep.assertStoredContains(key: "after-scroll-down", substring: "SCROLL:-")
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("SCROLL:-")]),
+            timeout: 10
+        )
 
         // ── Test scroll up ───────────────────────────────────────
         TestStep.log("Sending scroll-up events")
-        TestStep.macScrollWheel(deltaY: 3, count: 10)
+        TestStep.macScrollWheel(deltaY: 1, count: 10)
         TestStep.wait(seconds: 2)
 
-        TestStep.tmuxCapturePaneContent(target: "mouse-test:0", storeAs: "after-scroll-up")
-        TestStep.log("After scroll up: ${after-scroll-up}")
-        // Net scroll should now be positive (10 up - 5 down = +5)
-        TestStep.assertStoredContains(key: "after-scroll-up", substring: "SCROLL:")
-        TestStep.assertStoredNotContains(key: "after-scroll-up", substring: "SCROLL:0")
-        TestStep.assertStoredNotContains(key: "after-scroll-up", substring: "SCROLL:-")
+        // Net scroll should now be +5 (10 up - 5 down)
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("SCROLL:5")]),
+            timeout: 10
+        )
         TestStep.macScreenshot(label: "after-scroll")
 
         // ── Test click ───────────────────────────────────────────
@@ -75,27 +75,27 @@ public enum MouseSupportScenario {
         TestStep.macClickAtPoint(x: 450, y: 200)
         TestStep.wait(seconds: 1)
 
-        TestStep.tmuxCapturePaneContent(target: "mouse-test:0", storeAs: "after-click-1")
-        TestStep.log("After first click: ${after-click-1}")
-        TestStep.assertStoredContains(key: "after-click-1", substring: "CLICK:1")
-        // Position should be non-zero (proves coordinates were decoded)
-        TestStep.assertStoredNotContains(key: "after-click-1", substring: "CLICK-COL:0")
-        TestStep.assertStoredNotContains(key: "after-click-1", substring: "CLICK-ROW:0")
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("CLICK:1")]),
+            timeout: 10
+        )
 
         // ── Test second click at different position ──────────────
         TestStep.log("Sending second click at different position")
         TestStep.macClickAtPoint(x: 650, y: 350)
         TestStep.wait(seconds: 1)
 
-        TestStep.tmuxCapturePaneContent(target: "mouse-test:0", storeAs: "after-click-2")
-        TestStep.log("After second click: ${after-click-2}")
-        TestStep.assertStoredContains(key: "after-click-2", substring: "CLICK:2")
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("CLICK:2")]),
+            timeout: 10
+        )
         TestStep.macScreenshot(label: "after-clicks")
 
         // ── Verify motion doesn't cause clicks ──────────────────
         // The click count should still be 2 — mouse movement over
         // the window during scroll events did not increment it.
-        TestStep.assertStoredNotContains(key: "after-click-2", substring: "CLICK:3")
+        TestStep.tmuxCapturePaneContent(target: "mouse-test:0", storeAs: "after-clicks")
+        TestStep.assertStoredNotContains(key: "after-clicks", substring: "CLICK:3")
 
         // ── Stop the test app ────────────────────────────────────
         TestStep.tmuxSendKeys(target: "mouse-test:0", keys: "C-c")

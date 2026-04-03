@@ -52,13 +52,18 @@ public enum DAResponseLeakScenario {
         TestStep.wait(seconds: 3)
 
         TestStep.tmuxCapturePaneContent(target: "e2e-da-leak:0", storeAs: "macDA1")
-        TestStep.assertStoredContains(key: "macDA1", substring: "MAC_DA1_DONE")
         // SwiftTerm DA response: ESC[?65;1;2;6;21;22;17;28c
         // These fragments are unique to SwiftTerm and won't match tmux's own
         // shorter DA response (ESC[?1;2;4c).
         TestStep.assertStoredNotContains(key: "macDA1", substring: ";28c")
         TestStep.assertStoredNotContains(key: "macDA1", substring: ";22;17")
         TestStep.assertStoredNotContains(key: "macDA1", substring: "?65;")
+
+        // Verify the terminal UI also shows the completion marker
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("MAC_DA1_DONE")]),
+            timeout: 10
+        )
 
         TestStep.macScreenshot(label: "mac-after-da1", compare: false)
 
@@ -83,10 +88,15 @@ public enum DAResponseLeakScenario {
         TestStep.wait(seconds: 3)
 
         TestStep.tmuxCapturePaneContent(target: "e2e-da-leak:0", storeAs: "bothDA1")
-        TestStep.assertStoredContains(key: "bothDA1", substring: "BOTH_DA1_DONE")
         TestStep.assertStoredNotContains(key: "bothDA1", substring: ";28c")
         TestStep.assertStoredNotContains(key: "bothDA1", substring: ";22;17")
         TestStep.assertStoredNotContains(key: "bothDA1", substring: "?65;")
+
+        // Verify the terminal UI also shows the completion marker
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("BOTH_DA1_DONE")]),
+            timeout: 10
+        )
 
         TestStep.macScreenshot(label: "mac-both-after-da1", compare: false)
         TestStep.iosScreenshot(label: "ios-after-da1", compare: false)
