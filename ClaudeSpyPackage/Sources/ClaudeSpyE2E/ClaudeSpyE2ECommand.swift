@@ -260,6 +260,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         AlwaysAutoResizeScenario.scenario,
         MultiWindowTabsScenario.scenario,
         MultiWindowTabsIOSScenario.scenario,
+        MultiWindowTabsMacViewerScenario.scenario,
         MouseSupportScenario.scenario,
     ]
 

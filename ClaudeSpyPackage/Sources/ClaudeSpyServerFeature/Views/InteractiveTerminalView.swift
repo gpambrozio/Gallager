@@ -267,6 +267,9 @@
         var preserveUserScroll = false
         var onResize: ((NSSize) -> Void)?
 
+        /// Accessibility identifier exposed to the AX tree (e.g., "terminal-%5")
+        var terminalAccessibilityIdentifier: String?
+
         /// When set, the terminal dimensions are locked to these values.
         /// SwiftTerm's async processSizeChange (triggered by frame updates)
         /// will be overridden to maintain the locked dimensions.
@@ -1281,6 +1284,30 @@
 
         func getTerminal() -> Terminal {
             terminalView.getTerminal()
+        }
+
+        // MARK: - Accessibility
+
+        override func accessibilityValue() -> Any? {
+            let terminal = terminalView.getTerminal()
+            var lines: [String] = []
+            for row in 0..<terminal.rows {
+                guard let line = terminal.getLine(row: row) else { continue }
+                lines.append(line.translateToString(trimRight: true))
+            }
+            return lines.joined(separator: "\n")
+        }
+
+        override func accessibilityRole() -> NSAccessibility.Role? {
+            .textArea
+        }
+
+        override func isAccessibilityElement() -> Bool {
+            true
+        }
+
+        override func accessibilityIdentifier() -> String {
+            terminalAccessibilityIdentifier ?? "terminal"
         }
 
         func feed(byteArray: ArraySlice<UInt8>) {
