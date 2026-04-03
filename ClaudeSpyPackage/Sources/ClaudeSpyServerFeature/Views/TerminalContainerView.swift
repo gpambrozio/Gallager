@@ -158,6 +158,8 @@ struct TerminalContainerView: NSViewRepresentable {
             self.onTitleChange = onTitleChange
             lastExternalWidth = paneState.width
 
+            terminalView.terminalAccessibilityIdentifier = "terminal-\(paneState.paneId)"
+
             // Apply initial settings
             updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
             applyTheme(settings.theme)
