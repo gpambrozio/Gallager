@@ -5,6 +5,7 @@ import Files
 import PDFKit
 import ProjectNavigator
 import SwiftUI
+import WebKit
 
 private let imageExtensions: Set<String> = [
     "png", "jpg", "jpeg", "gif", "bmp", "tiff", "tif", "webp", "heic", "heif", "ico", "svg",
@@ -244,6 +245,7 @@ private enum FileContentKind {
     case image
     case pdf
     case video
+    case html
     case text
     case unsupported
 }
@@ -287,6 +289,10 @@ private struct LiveFileContentView: View {
             case .video:
                 AVPlayerViewRepresentable(url: URL(fileURLWithPath: filePath))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .html:
+                if #available(macOS 26, *) {
+                    WebView(url: URL(fileURLWithPath: filePath))
+                }
             case .text:
                 if let text {
                     TextEditor(text: .constant(text))
@@ -323,7 +329,8 @@ private struct LiveFileContentView: View {
             text = try? String(contentsOfFile: filePath, encoding: .utf8)
             if text == nil { kind = .unsupported }
         case .pdf,
-             .video:
+             .video,
+             .html:
             break // Handled natively by their views
         case .unsupported:
             break
@@ -335,6 +342,7 @@ private struct LiveFileContentView: View {
         if imageExtensions.contains(ext) { return .image }
         if ext == "pdf" { return .pdf }
         if videoExtensions.contains(ext) { return .video }
+        if ext == "html" || ext == "htm" { return .html }
         if (try? String(contentsOfFile: path, encoding: .utf8)) != nil { return .text }
         return .unsupported
     }
