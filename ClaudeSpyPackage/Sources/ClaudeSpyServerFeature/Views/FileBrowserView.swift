@@ -1,11 +1,17 @@
 import AppKit
+import AVKit
 import ClaudeSpyCommon
 import Files
+import PDFKit
 import ProjectNavigator
 import SwiftUI
 
 private let imageExtensions: Set<String> = [
     "png", "jpg", "jpeg", "gif", "bmp", "tiff", "tif", "webp", "heic", "heif", "ico", "svg",
+]
+
+private let videoExtensions: Set<String> = [
+    "mp4", "mov", "m4v", "avi", "mkv", "mp3", "wav", "aac", "m4a", "flac", "ogg", "aiff",
 ]
 
 /// Cached state for a file browser, keyed by window ID.
@@ -233,41 +239,61 @@ struct FileBrowserView: View {
 
 // MARK: - Live File Content View
 
+/// The type of content to display for a file.
+private enum FileContentKind {
+    case image
+    case pdf
+    case video
+    case text
+    case unsupported
+}
+
 /// Displays a file's contents and monitors it for changes on disk.
-/// Text files are shown in a text editor, images are shown scaled to fit.
 private struct LiveFileContentView: View {
     let filePath: String
 
-    @State private var isImage: Bool
+    @State private var kind: FileContentKind
     @State private var text: String?
     @State private var nsImage: NSImage?
 
     init(filePath: String) {
         self.filePath = filePath
-        let ext = URL(fileURLWithPath: filePath).pathExtension.lowercased()
-        let imageFile = imageExtensions.contains(ext)
-        _isImage = State(initialValue: imageFile)
+        let detectedKind = Self.detectKind(filePath)
+        _kind = State(initialValue: detectedKind)
         // Load content synchronously so the first frame is never empty
-        if imageFile {
+        switch detectedKind {
+        case .image:
             _nsImage = State(initialValue: NSImage(contentsOfFile: filePath))
-        } else {
+        case .text:
             _text = State(initialValue: try? String(contentsOfFile: filePath, encoding: .utf8))
+        default:
+            break
         }
     }
 
     var body: some View {
         Group {
-            if isImage, let nsImage {
-                Image(nsImage: nsImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
+            switch kind {
+            case .image:
+                if let nsImage {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding()
+                }
+            case .pdf:
+                PDFViewRepresentable(url: URL(fileURLWithPath: filePath))
+            case .video:
+                AVPlayerViewRepresentable(url: URL(fileURLWithPath: filePath))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding()
-            } else if let text {
-                TextEditor(text: .constant(text))
-                    .font(.system(.body, design: .monospaced))
-                    .scrollContentBackground(.hidden)
-            } else {
+            case .text:
+                if let text {
+                    TextEditor(text: .constant(text))
+                        .font(.system(.body, design: .monospaced))
+                        .scrollContentBackground(.hidden)
+                }
+            case .unsupported:
                 ContentUnavailableView(
                     "Unable to Read File",
                     symbol: .docPlaintextFill,
@@ -285,15 +311,73 @@ private struct LiveFileContentView: View {
     }
 
     private func loadContent() {
-        let ext = URL(fileURLWithPath: filePath).pathExtension.lowercased()
-        isImage = imageExtensions.contains(ext)
-        if isImage {
+        kind = Self.detectKind(filePath)
+        // Clear all state first
+        text = nil
+        nsImage = nil
+
+        switch kind {
+        case .image:
             nsImage = NSImage(contentsOfFile: filePath)
-            text = nil
-        } else {
+        case .text:
             text = try? String(contentsOfFile: filePath, encoding: .utf8)
-            nsImage = nil
+            if text == nil { kind = .unsupported }
+        case .pdf,
+             .video:
+            break // Handled natively by their views
+        case .unsupported:
+            break
         }
+    }
+
+    private static func detectKind(_ path: String) -> FileContentKind {
+        let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
+        if imageExtensions.contains(ext) { return .image }
+        if ext == "pdf" { return .pdf }
+        if videoExtensions.contains(ext) { return .video }
+        if (try? String(contentsOfFile: path, encoding: .utf8)) != nil { return .text }
+        return .unsupported
+    }
+}
+
+/// Wraps PDFKit's PDFView for use in SwiftUI.
+private struct PDFViewRepresentable: NSViewRepresentable {
+    let url: URL
+
+    func makeNSView(context: Context) -> PDFView {
+        let view = PDFView()
+        view.autoScales = true
+        view.document = PDFDocument(url: url)
+        return view
+    }
+
+    func updateNSView(_ nsView: PDFView, context: Context) {
+        if nsView.document?.documentURL != url {
+            nsView.document = PDFDocument(url: url)
+        }
+    }
+}
+
+/// Wraps AVKit's AVPlayerView for use in SwiftUI.
+private struct AVPlayerViewRepresentable: NSViewRepresentable {
+    let url: URL
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.player = AVPlayer(url: url)
+        view.controlsStyle = .inline
+        return view
+    }
+
+    func updateNSView(_ nsView: AVPlayerView, context: Context) {
+        if (nsView.player?.currentItem?.asset as? AVURLAsset)?.url != url {
+            nsView.player = AVPlayer(url: url)
+        }
+    }
+
+    static func dismantleNSView(_ nsView: AVPlayerView, coordinator: ()) {
+        nsView.player?.pause()
+        nsView.player = nil
     }
 }
 
