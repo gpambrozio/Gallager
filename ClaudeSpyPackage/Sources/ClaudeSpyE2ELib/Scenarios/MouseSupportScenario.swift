@@ -47,7 +47,7 @@ public enum MouseSupportScenario {
 
         // ── Test scroll down ─────────────────────────────────────
         TestStep.log("Sending scroll-down events")
-        TestStep.macScrollWheel(deltaY: -3, count: 5)
+        TestStep.macScrollWheel(deltaY: -1, count: 5)
         TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElementQuery(
@@ -57,7 +57,7 @@ public enum MouseSupportScenario {
 
         // ── Test scroll up ───────────────────────────────────────
         TestStep.log("Sending scroll-up events")
-        TestStep.macScrollWheel(deltaY: 3, count: 10)
+        TestStep.macScrollWheel(deltaY: 1, count: 10)
         TestStep.wait(seconds: 2)
 
         // Net scroll should now be +5 (10 up - 5 down)
