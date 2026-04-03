@@ -2,9 +2,6 @@ import Files
 import Foundation
 import OrderedCollections
 
-/// Maximum file size to load content for (256 KB).
-private let maxFileSize: UInt64 = 256 * 1_024
-
 /// Directories to skip when building the file tree.
 private let skippedDirectories: Set<String> = [
     ".git", ".build", ".swiftpm", "node_modules", ".DS_Store",
@@ -72,7 +69,7 @@ private func loadDirectory(
     guard
         let items = try? fm.contentsOfDirectory(
             at: url,
-            includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey],
+            includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
         ) else {
         return .folder(FullFolder<TextFileContents>(children: [:], persistentID: folderUUID))
@@ -93,8 +90,7 @@ private func loadDirectory(
 
         if skippedDirectories.contains(name) { continue }
 
-        let resourceValues = try? item.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
-        let isDirectory = resourceValues?.isDirectory == true
+        let isDirectory = (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
         let childPath = item.path
 
         if isDirectory {
@@ -113,14 +109,8 @@ private func loadDirectory(
                 return id
             }()
 
-            let fileSize = UInt64(resourceValues?.fileSize ?? 0)
-            let contents: TextFileContents
-            if fileSize <= maxFileSize, let data = try? Data(contentsOf: item) {
-                contents = (try? TextFileContents(name: name, data: data)) ?? TextFileContents(text: "[Error reading file]")
-            } else {
-                contents = TextFileContents(text: "[File too large to display]")
-            }
-            children[name] = .file(File(contents: contents, persistentID: fileUUID))
+            // Contents are loaded on-demand in the detail view, not during tree building.
+            children[name] = .file(File(contents: TextFileContents(text: ""), persistentID: fileUUID))
         }
     }
 

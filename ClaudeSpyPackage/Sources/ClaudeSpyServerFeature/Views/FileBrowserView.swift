@@ -187,9 +187,9 @@ struct FileBrowserView: View {
     ) -> some View {
         if
             let uuid = viewState.selection,
-            let file = viewState.fileTree.proxy(for: uuid).file {
+            viewState.fileTree.proxy(for: uuid).file != nil {
             let filePath = viewState.fileTree.filePath(of: uuid)
-            let isImage = filePath.map { imageExtensions.contains(URL(fileURLWithPath: $0.string).pathExtension.lowercased()) } ?? false
+            let fullFilePath = filePath.map { directoryPath + "/" + $0.string }
 
             VStack(alignment: .leading, spacing: 0) {
                 // File path header
@@ -202,19 +202,14 @@ struct FileBrowserView: View {
                     Divider()
                 }
 
-                if
-                    isImage, let filePath,
-                    let nsImage = NSImage(contentsOfFile: directoryPath + "/" + filePath.string) {
-                    Image(nsImage: nsImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding()
+                if let fullFilePath {
+                    LiveFileContentView(filePath: fullFilePath)
                 } else {
-                    // File content editor
-                    TextEditor(text: .constant(file.contents.text))
-                        .font(.system(.body, design: .monospaced))
-                        .scrollContentBackground(.hidden)
+                    ContentUnavailableView(
+                        "Unable to Read File",
+                        symbol: .docPlaintextFill,
+                        description: "This file could not be read as text."
+                    )
                 }
             }
         } else if
@@ -233,5 +228,102 @@ struct FileBrowserView: View {
                 description: "Choose a file from the navigator to view its contents."
             )
         }
+    }
+}
+
+// MARK: - Live File Content View
+
+/// Displays a file's contents and monitors it for changes on disk.
+/// Text files are shown in a text editor, images are shown scaled to fit.
+private struct LiveFileContentView: View {
+    let filePath: String
+
+    @State private var isImage: Bool
+    @State private var text: String?
+    @State private var nsImage: NSImage?
+
+    init(filePath: String) {
+        self.filePath = filePath
+        let ext = URL(fileURLWithPath: filePath).pathExtension.lowercased()
+        let imageFile = imageExtensions.contains(ext)
+        _isImage = State(initialValue: imageFile)
+        // Load content synchronously so the first frame is never empty
+        if imageFile {
+            _nsImage = State(initialValue: NSImage(contentsOfFile: filePath))
+        } else {
+            _text = State(initialValue: try? String(contentsOfFile: filePath, encoding: .utf8))
+        }
+    }
+
+    var body: some View {
+        Group {
+            if isImage, let nsImage {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
+            } else if let text {
+                TextEditor(text: .constant(text))
+                    .font(.system(.body, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+            } else {
+                ContentUnavailableView(
+                    "Unable to Read File",
+                    symbol: .docPlaintextFill,
+                    description: "This file could not be read as text."
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .task(id: filePath) {
+            loadContent()
+            for await _ in fileChanges(at: filePath) {
+                loadContent()
+            }
+        }
+    }
+
+    private func loadContent() {
+        let ext = URL(fileURLWithPath: filePath).pathExtension.lowercased()
+        isImage = imageExtensions.contains(ext)
+        if isImage {
+            nsImage = NSImage(contentsOfFile: filePath)
+            text = nil
+        } else {
+            text = try? String(contentsOfFile: filePath, encoding: .utf8)
+            nsImage = nil
+        }
+    }
+}
+
+/// Returns an `AsyncStream` that yields a value each time the file at `path` is modified.
+private func fileChanges(at path: String) -> AsyncStream<Void> {
+    AsyncStream { continuation in
+        let fd = open(path, O_EVTONLY)
+        guard fd >= 0 else {
+            continuation.finish()
+            return
+        }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .delete, .rename],
+            queue: .global(qos: .utility)
+        )
+
+        source.setEventHandler {
+            continuation.yield()
+        }
+
+        source.setCancelHandler {
+            close(fd)
+        }
+
+        continuation.onTermination = { _ in
+            source.cancel()
+        }
+
+        source.resume()
     }
 }
