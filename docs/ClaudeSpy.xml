@@ -6,6 +6,53 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.16</title>
+         <sparkle:version>16</sparkle:version>
+         <sparkle:shortVersionString>1.16</sparkle:shortVersionString>
+         <pubDate>Thu, 02 Apr 2026 16:10:49 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.16 Release Notes
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Horizontal window tabs in remote sessions</strong> — Remote viewer sessions now display tmux window tabs along the top of the terminal, matching the local session experience. Switch between windows or create new ones directly from the tab bar. (#274)</li>
+</ul>
+
+<ul>
+<li><strong>Mouse support in terminal</strong> — Terminal views now support mouse input including clicks, scrolling, and tracking. Applications running in fullscreen mode within Claude Code can now receive full mouse interactivity. (#269)</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Persistent viewer reconnection</strong> — The Mac viewer now retries reconnection indefinitely with intelligent backoff when a remote host goes offline, instead of entering a permanent error state. (#277)</li>
+</ul>
+
+<ul>
+<li><strong>Simplified launch behavior</strong> — The "restore windows on launch" setting has been replaced with a more reliable "open panes window on launch" option, giving you direct control over whether the panes window appears at startup. (#268)</li>
+</ul>
+
+<ul>
+<li><strong>Updated tool definitions</strong> — Internal tool models have been updated to match the current Claude Code hooks API, including new tools like ToolSearch and Skill, and removal of deprecated ones. (#265)</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Fixed crash during process launch</strong> — Resolved a SIGABRT crash caused by an unhandled Objective-C exception when launching terminal processes with invalid paths or other failure conditions. (#279)</li>
+</ul>
+
+<ul>
+<li><strong>Fixed stuck "needs attention" indicator</strong> — The attention badge now correctly clears after approving a permission request, for both local and remote viewers. (#272)</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.16.dmg"
+                    sparkle:edSignature="Po2sSpVjoHaqa7ODL75kZ2iNgpa6NosVV8pxaEoR1stZuXIg9qYbz+hHMq0gQmwcwq2oAg+4FkoRlB47Yr4eAQ=="
+                    length="21077051"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.15</title>
          <sparkle:version>15</sparkle:version>
          <sparkle:shortVersionString>1.15</sparkle:shortVersionString>

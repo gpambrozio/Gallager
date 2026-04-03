@@ -102,8 +102,9 @@ public struct MainView: View {
                 // Follow the tmux-active window if it changed to a different window
                 // (e.g., a remote viewer switched tabs via select-window)
                 let sessionWindows = currentWindows.filter { $0.sessionName == selected.sessionName }
-                if !updated.isWindowActive,
-                   let activeWindow = sessionWindows.first(where: \.isWindowActive) {
+                if
+                    !updated.isWindowActive,
+                    let activeWindow = sessionWindows.first(where: \.isWindowActive) {
                     selectedWindow = activeWindow
                 } else if updated != selected {
                     // Keep selection in sync with refreshed window data
@@ -150,6 +151,12 @@ public struct MainView: View {
             handleAutoResize()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            markSelectedSessionsHandledIfActive()
+        }
+        .onChange(of: windowManager.pendingSessionCount) {
+            // When an event arrives on the already-selected session, no selection
+            // change fires. Watch the pending count so we can auto-clear attention
+            // for sessions the user is already viewing.
             markSelectedSessionsHandledIfActive()
         }
         .onChange(of: coordinator.pendingMenuBarSelection) {
@@ -430,13 +437,15 @@ public struct MainView: View {
 
     /// The currently selected remote window, resolved from session store
     private var selectedRemoteWindow: TmuxWindow? {
-        guard let remote = selectedRemoteSession,
-              let sessionStore = coordinator.remoteSessionStore else { return nil }
+        guard
+            let remote = selectedRemoteSession,
+            let sessionStore = coordinator.remoteSessionStore else { return nil }
         let windows = sessionStore.windows(for: remote.hostId)
             .filter { $0.sessionName == remote.sessionName }
             .sorted { $0.windowIndex < $1.windowIndex }
-        if let windowId = selectedRemoteWindowId,
-           let window = windows.first(where: { $0.id == windowId }) {
+        if
+            let windowId = selectedRemoteWindowId,
+            let window = windows.first(where: { $0.id == windowId }) {
             // Follow the tmux-active window if it changed (e.g., host switched tabs)
             if !window.isWindowActive, let activeWindow = windows.first(where: \.isWindowActive) {
                 return activeWindow
@@ -448,8 +457,9 @@ public struct MainView: View {
 
     /// All windows in the selected remote session
     private var selectedRemoteSessionWindows: [TmuxWindow] {
-        guard let remote = selectedRemoteSession,
-              let sessionStore = coordinator.remoteSessionStore else { return [] }
+        guard
+            let remote = selectedRemoteSession,
+            let sessionStore = coordinator.remoteSessionStore else { return [] }
         return sessionStore.windows(for: remote.hostId)
             .filter { $0.sessionName == remote.sessionName }
             .sorted { $0.windowIndex < $1.windowIndex }
@@ -1173,8 +1183,9 @@ public struct MainView: View {
             await manager.requestSessionState(for: host.id)
 
             // Select the new remote session if we got a pane ID
-            if let paneId = response.paneId,
-               let paneState = coordinator.remoteSessionStore?.paneState(for: paneId) {
+            if
+                let paneId = response.paneId,
+                let paneState = coordinator.remoteSessionStore?.paneState(for: paneId) {
                 selectedRemoteSession = RemoteSessionSelection(
                     hostId: host.id,
                     hostName: host.displayName,
