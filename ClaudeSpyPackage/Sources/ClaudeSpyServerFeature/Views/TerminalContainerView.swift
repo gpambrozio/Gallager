@@ -247,6 +247,11 @@ struct TerminalContainerView: NSViewRepresentable {
         }
 
         func stop() {
+            // Disconnect input handlers first so no new tmux commands fire
+            // after the pane is destroyed (prevents SIGABRT from NSTask).
+            terminalView.onInput = nil
+            terminalView.onRawInput = nil
+
             pendingKeyTask?.cancel()
             pendingKeyTask = nil
             rowsLockedToTmux = false
