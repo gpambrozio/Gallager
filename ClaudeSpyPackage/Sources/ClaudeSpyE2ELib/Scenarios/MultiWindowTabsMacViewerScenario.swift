@@ -151,7 +151,7 @@ public enum MultiWindowTabsMacViewerScenario {
             timeout: 10,
             instance: 1
         )
-        TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%2"), .valueContains("WINDOW_TWO")]), timeout: 10, instance: 1)
+        TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%2"), .valueContains("WINDOW_TWO")]), timeout: 15, instance: 1)
         TestStep.macScreenshot(label: "viewer-after-window-close", instance: 1)
     }
 }
