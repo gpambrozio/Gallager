@@ -121,24 +121,38 @@ extension ProcessRunner: DependencyKey {
                 process.standardOutput = stdoutPipe
                 process.standardError = stderrPipe
 
-                // Run the process
-                return try await withCheckedThrowingContinuation { continuation in
-                    let outputCollector = OutputCollector()
+                // Launch before entering the continuation so that ObjC exceptions
+                // from NSTask (e.g. invalid launch path, already-launched task) are
+                // caught by Swift's do/try/catch instead of crashing with SIGABRT.
+                let outputCollector = OutputCollector()
 
-                    stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
-                        let data = handle.availableData
-                        if !data.isEmpty {
-                            outputCollector.appendStdout(data)
+                stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+                    let data = handle.availableData
+                    if !data.isEmpty {
+                        outputCollector.appendStdout(data)
+                    }
+                }
+
+                stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+                    let data = handle.availableData
+                    if !data.isEmpty {
+                        outputCollector.appendStderr(data)
+                    }
+                }
+
+                try process.run()
+
+                // Set up timeout if specified
+                if let timeout {
+                    Task {
+                        try? await Task.sleep(for: .seconds(timeout))
+                        if process.isRunning {
+                            process.terminate()
                         }
                     }
+                }
 
-                    stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-                        let data = handle.availableData
-                        if !data.isEmpty {
-                            outputCollector.appendStderr(data)
-                        }
-                    }
-
+                return await withCheckedContinuation { continuation in
                     process.terminationHandler = { [outputCollector] _ in
                         // Clean up handlers
                         stdoutPipe.fileHandleForReading.readabilityHandler = nil
@@ -161,22 +175,6 @@ extension ProcessRunner: DependencyKey {
                             stderr: outputCollector.stderr
                         )
                         continuation.resume(returning: result)
-                    }
-
-                    do {
-                        try process.run()
-
-                        // Set up timeout if specified
-                        if let timeout {
-                            Task {
-                                try? await Task.sleep(for: .seconds(timeout))
-                                if process.isRunning {
-                                    process.terminate()
-                                }
-                            }
-                        }
-                    } catch {
-                        continuation.resume(throwing: error)
                     }
                 }
             }
