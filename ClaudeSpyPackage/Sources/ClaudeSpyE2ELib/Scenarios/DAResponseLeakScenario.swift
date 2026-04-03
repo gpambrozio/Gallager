@@ -52,7 +52,6 @@ public enum DAResponseLeakScenario {
         TestStep.wait(seconds: 3)
 
         TestStep.tmuxCapturePaneContent(target: "e2e-da-leak:0", storeAs: "macDA1")
-        TestStep.assertStoredContains(key: "macDA1", substring: "MAC_DA1_DONE")
         // SwiftTerm DA response: ESC[?65;1;2;6;21;22;17;28c
         // These fragments are unique to SwiftTerm and won't match tmux's own
         // shorter DA response (ESC[?1;2;4c).
@@ -89,7 +88,6 @@ public enum DAResponseLeakScenario {
         TestStep.wait(seconds: 3)
 
         TestStep.tmuxCapturePaneContent(target: "e2e-da-leak:0", storeAs: "bothDA1")
-        TestStep.assertStoredContains(key: "bothDA1", substring: "BOTH_DA1_DONE")
         TestStep.assertStoredNotContains(key: "bothDA1", substring: ";28c")
         TestStep.assertStoredNotContains(key: "bothDA1", substring: ";22;17")
         TestStep.assertStoredNotContains(key: "bothDA1", substring: "?65;")

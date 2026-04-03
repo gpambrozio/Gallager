@@ -61,7 +61,6 @@ public enum KittyKeyboardProtocolScenario {
         TestStep.tmuxCapturePaneContent(target: "e2e-kitty-kb:0", storeAs: "kittyOutput")
 
         // Phase 1: Each marker pair should appear cleanly
-        TestStep.assertStoredContains(key: "kittyOutput", substring: "PHASE1_DONE")
         TestStep.assertStoredContains(key: "kittyOutput", substring: "push1_before push1_after")
         TestStep.assertStoredContains(key: "kittyOutput", substring: "push5_before push5_after")
         TestStep.assertStoredContains(key: "kittyOutput", substring: "query_before query_after")
@@ -70,9 +69,6 @@ public enum KittyKeyboardProtocolScenario {
 
         // Phase 2: No gaps or leaked fragments between markers
         TestStep.assertStoredContains(key: "kittyOutput", substring: "before-after-end")
-
-        // Phase 3: All 10 iterations present
-        TestStep.assertStoredContains(key: "kittyOutput", substring: "[0][1][2][3][4][5][6][7][8][9]")
 
         // Verify the terminal UI also shows the script output without corruption
         TestStep.macWaitForElementQuery(

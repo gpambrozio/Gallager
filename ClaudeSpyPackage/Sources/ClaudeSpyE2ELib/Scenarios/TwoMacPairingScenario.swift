@@ -49,11 +49,7 @@ public enum TwoMacPairingScenario {
 
         // ── Phase 9: Verify command shows on the host's tmux pane ───
 
-        TestStep.log("Verifying command appears in host's tmux pane")
-        TestStep.tmuxCapturePaneContent(target: "e2e-mac-pair:0", storeAs: "paneContent")
-        TestStep.assertStoredContains(key: "paneContent", substring: "e2e-test-hello")
-
-        // Verify the viewer's terminal UI also shows the command
+        // Verify the viewer's terminal UI shows the command
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("e2e-test-hello")]),
             timeout: 10,

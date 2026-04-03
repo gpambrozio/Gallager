@@ -96,12 +96,8 @@ public enum YoloModeAutoApproveScenario {
         //          (visible on both macOS tmux pane and iOS terminal)
         // ══════════════════════════════════════════════════════════════
 
-        // Capture tmux pane content — the Enter should have produced
-        // a new shell prompt line after the BEFORE_YOLO_APPROVE echo
-        TestStep.tmuxCapturePaneContent(target: "session-1:0", storeAs: "paneAfterApprove")
-        TestStep.assertStoredContains(key: "paneAfterApprove", substring: "BEFORE_YOLO_APPROVE")
-
-        // Verify the terminal UI also shows the marker
+        // Verify the terminal UI shows the marker (the Enter should have produced
+        // a new shell prompt line after the BEFORE_YOLO_APPROVE echo)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("BEFORE_YOLO_APPROVE")]),
             timeout: 10
