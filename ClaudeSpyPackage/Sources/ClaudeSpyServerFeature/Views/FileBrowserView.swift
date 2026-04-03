@@ -1,7 +1,12 @@
+import AppKit
 import ClaudeSpyCommon
 import Files
 import ProjectNavigator
 import SwiftUI
+
+private let imageExtensions: Set<String> = [
+    "png", "jpg", "jpeg", "gif", "bmp", "tiff", "tif", "webp", "heic", "heif", "ico", "svg",
+]
 
 /// Cached state for a file browser, keyed by window ID.
 /// Stored in MainView so it survives tab/session switches.
@@ -183,9 +188,12 @@ struct FileBrowserView: View {
         if
             let uuid = viewState.selection,
             let file = viewState.fileTree.proxy(for: uuid).file {
+            let filePath = viewState.fileTree.filePath(of: uuid)
+            let isImage = filePath.map { imageExtensions.contains(URL(fileURLWithPath: $0.string).pathExtension.lowercased()) } ?? false
+
             VStack(alignment: .leading, spacing: 0) {
                 // File path header
-                if let filePath = viewState.fileTree.filePath(of: uuid) {
+                if let filePath {
                     let directoryName = URL(fileURLWithPath: directoryPath).lastPathComponent
                     Text(directoryName + "/" + filePath.string)
                         .font(.system(.caption, design: .monospaced))
@@ -194,10 +202,20 @@ struct FileBrowserView: View {
                     Divider()
                 }
 
-                // File content editor
-                TextEditor(text: .constant(file.contents.text))
-                    .font(.system(.body, design: .monospaced))
-                    .scrollContentBackground(.hidden)
+                if
+                    isImage, let filePath,
+                    let nsImage = NSImage(contentsOfFile: directoryPath + "/" + filePath.string) {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding()
+                } else {
+                    // File content editor
+                    TextEditor(text: .constant(file.contents.text))
+                        .font(.system(.body, design: .monospaced))
+                        .scrollContentBackground(.hidden)
+                }
             }
         } else if
             let uuid = viewState.selection,
