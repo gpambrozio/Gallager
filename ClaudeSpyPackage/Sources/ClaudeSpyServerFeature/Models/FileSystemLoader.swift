@@ -3,7 +3,7 @@ import Foundation
 import OrderedCollections
 
 /// Maximum file size to load content for (256 KB).
-private let maxFileSize: UInt64 = 256 * 1024
+private let maxFileSize: UInt64 = 256 * 1_024
 
 /// Directories to skip when building the file tree.
 private let skippedDirectories: Set<String> = [
@@ -11,29 +11,80 @@ private let skippedDirectories: Set<String> = [
     "DerivedData", "Pods", ".Trash", "xcuserdata",
 ]
 
-/// Loads a directory from the filesystem into a ProjectNavigator `FileTree`.
-///
-/// - Parameter url: The URL of the directory to load.
-/// - Returns: A `FileTree<TextFileContents>` representing the directory contents.
-func loadFileTree(at url: URL) async -> FileTree<TextFileContents> {
-    let root = await Task.detached {
-        loadDirectory(at: url)
-    }.value
-    return FileTree(files: root)
+/// Result of loading a file tree, including stable ID mappings for lazy loading.
+struct FileTreeLoadResult: Sendable {
+    let root: FullFileOrFolder<TextFileContents>
+    /// Maps filesystem path strings to stable UUIDs, enabling tree rebuilds
+    /// that preserve expansion and selection state.
+    let stableIds: [String: UUID]
+    /// Filesystem paths of folders whose children have been loaded.
+    let loadedFolderPaths: Set<String>
 }
 
-extension FullFileOrFolder: @retroactive @unchecked Sendable {}
+/// Loads a directory from the filesystem into a ProjectNavigator `FileTree`,
+/// loading only the specified depth. Folders beyond the depth limit are empty
+/// placeholders that get populated when the user expands them.
+///
+/// - Parameters:
+///   - url: The URL of the directory to load.
+///   - expandedPaths: Folder paths that should have their children loaded regardless of depth.
+///   - stableIds: Previous path→UUID mapping to preserve tree identity across rebuilds.
+/// - Returns: A `FileTreeLoadResult` with the tree, stable IDs, and loaded folder paths.
+func loadFileTree(
+    at url: URL,
+    expandedPaths: Set<String>,
+    stableIds: [String: UUID]
+) async -> FileTreeLoadResult {
+    await Task.detached {
+        var ids = stableIds
+        var loadedPaths = Set<String>()
+        let root = loadDirectory(
+            at: url,
+            path: url.path,
+            depth: 1,
+            expandedPaths: expandedPaths,
+            stableIds: &ids,
+            loadedPaths: &loadedPaths
+        )
+        return FileTreeLoadResult(root: root, stableIds: ids, loadedFolderPaths: loadedPaths)
+    }.value
+}
 
-/// Recursively loads a directory into a `FullFileOrFolder` hierarchy.
-private func loadDirectory(at url: URL) -> FullFileOrFolder<TextFileContents> {
+extension FullFileOrFolder: @retroactive @unchecked Sendable { }
+
+/// Recursively loads a directory into a `FullFileOrFolder` hierarchy,
+/// respecting the depth limit and expanded paths.
+private func loadDirectory(
+    at url: URL,
+    path: String,
+    depth: Int,
+    expandedPaths: Set<String>,
+    stableIds: inout [String: UUID],
+    loadedPaths: inout Set<String>
+) -> FullFileOrFolder<TextFileContents> {
+    let folderUUID = stableIds[path] ?? {
+        let id = UUID()
+        stableIds[path] = id
+        return id
+    }()
+
     let fm = FileManager.default
-    guard let items = try? fm.contentsOfDirectory(
-        at: url,
-        includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey],
-        options: [.skipsHiddenFiles]
-    ) else {
-        return .folder(FullFolder<TextFileContents>(children: [:]))
+    guard
+        let items = try? fm.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+        return .folder(FullFolder<TextFileContents>(children: [:], persistentID: folderUUID))
     }
+
+    // Only load children if we're within depth or this folder is explicitly expanded
+    let shouldLoadChildren = depth > 0 || expandedPaths.contains(path)
+    guard shouldLoadChildren else {
+        return .folder(FullFolder<TextFileContents>(children: [:], persistentID: folderUUID))
+    }
+
+    loadedPaths.insert(path)
 
     var children = OrderedDictionary<String, FullFileOrFolder<TextFileContents>>()
 
@@ -44,10 +95,24 @@ private func loadDirectory(at url: URL) -> FullFileOrFolder<TextFileContents> {
 
         let resourceValues = try? item.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
         let isDirectory = resourceValues?.isDirectory == true
+        let childPath = item.path
 
         if isDirectory {
-            children[name] = loadDirectory(at: item)
+            children[name] = loadDirectory(
+                at: item,
+                path: childPath,
+                depth: depth - 1,
+                expandedPaths: expandedPaths,
+                stableIds: &stableIds,
+                loadedPaths: &loadedPaths
+            )
         } else {
+            let fileUUID = stableIds[childPath] ?? {
+                let id = UUID()
+                stableIds[childPath] = id
+                return id
+            }()
+
             let fileSize = UInt64(resourceValues?.fileSize ?? 0)
             let contents: TextFileContents
             if fileSize <= maxFileSize, let data = try? Data(contentsOf: item) {
@@ -55,9 +120,9 @@ private func loadDirectory(at url: URL) -> FullFileOrFolder<TextFileContents> {
             } else {
                 contents = TextFileContents(text: "[File too large to display]")
             }
-            children[name] = .file(File(contents: contents))
+            children[name] = .file(File(contents: contents, persistentID: fileUUID))
         }
     }
 
-    return .folder(FullFolder<TextFileContents>(children: children))
+    return .folder(FullFolder<TextFileContents>(children: children, persistentID: folderUUID))
 }

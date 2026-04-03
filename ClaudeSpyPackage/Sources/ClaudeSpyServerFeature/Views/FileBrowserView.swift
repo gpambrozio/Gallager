@@ -12,6 +12,10 @@ final class FileBrowserState {
     var sidebarWidth: CGFloat = 250
     /// The directory path this state was loaded for; used to detect stale caches.
     var loadedPath: String?
+    /// Maps filesystem paths to stable UUIDs so tree rebuilds preserve expansion/selection.
+    var stableIds: [String: UUID] = [:]
+    /// Folder paths whose children have been loaded.
+    var loadedFolderPaths: Set<String> = []
 }
 
 /// A draggable vertical divider for resizing adjacent views.
@@ -65,6 +69,9 @@ struct FileBrowserView: View {
                     guard state.loadedPath != directoryPath else { return }
                     await loadTree()
                 }
+                .onChange(of: viewState.expansions) {
+                    handleExpansionChange(viewState: viewState)
+                }
         } else {
             ProgressView("Loading files...")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -75,16 +82,52 @@ struct FileBrowserView: View {
     }
 
     private func loadTree() async {
-        let tree = await loadFileTree(at: URL(fileURLWithPath: directoryPath))
+        let result = await loadFileTree(
+            at: URL(fileURLWithPath: directoryPath),
+            expandedPaths: state.loadedFolderPaths,
+            stableIds: state.stableIds
+        )
+        let tree = FileTree(files: result.root)
+        let expansions: WrappedUUIDSet
+        let selection: FileOrFolder.ID?
+        if let existing = state.viewState {
+            // Preserve expansion and selection state across rebuilds
+            expansions = existing.expansions
+            selection = existing.selection
+        } else {
+            expansions = WrappedUUIDSet()
+            selection = nil
+        }
         let viewState = FileNavigatorViewState<TextFileContents>(
             fileTree: tree,
-            expansions: WrappedUUIDSet(),
-            selection: nil
+            expansions: expansions,
+            selection: selection
         )
         // Expand the root folder by default
         viewState.expansions[tree.root.id] = true
         state.viewState = viewState
         state.loadedPath = directoryPath
+        state.stableIds = result.stableIds
+        state.loadedFolderPaths = result.loadedFolderPaths
+    }
+
+    /// Detects when the user expands a folder whose children haven't been loaded yet,
+    /// and triggers a tree rebuild with that folder's contents.
+    private func handleExpansionChange(viewState: FileNavigatorViewState<TextFileContents>) {
+        // Find expanded folder UUIDs that aren't loaded yet
+        let reverseIds = Dictionary(state.stableIds.map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+
+        for expandedId in viewState.expansions.ids {
+            guard let path = reverseIds[expandedId] else { continue }
+            guard !state.loadedFolderPaths.contains(path) else { continue }
+
+            // This folder needs its children loaded
+            state.loadedFolderPaths.insert(path)
+            Task {
+                await loadTree()
+            }
+            return
+        }
     }
 
     @ViewBuilder
