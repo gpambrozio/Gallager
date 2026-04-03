@@ -5,6 +5,7 @@ import Files
 import PDFKit
 import ProjectNavigator
 import SwiftUI
+import Textual
 import WebKit
 
 private let imageExtensions: Set<String> = [
@@ -300,9 +301,12 @@ private enum FileContentKind {
     case pdf
     case video
     case html
+    case markdown
     case text
     case unsupported
 }
+
+private let markdownExtensions: Set<String> = ["md", "markdown"]
 
 /// Displays a file's contents and monitors it for changes on disk.
 private struct LiveFileContentView: View {
@@ -320,7 +324,8 @@ private struct LiveFileContentView: View {
         switch detectedKind {
         case .image:
             _nsImage = State(initialValue: NSImage(contentsOfFile: filePath))
-        case .text:
+        case .markdown,
+             .text:
             _text = State(initialValue: try? String(contentsOfFile: filePath, encoding: .utf8))
         default:
             break
@@ -346,6 +351,15 @@ private struct LiveFileContentView: View {
             case .html:
                 if #available(macOS 26, *) {
                     WebView(url: URL(fileURLWithPath: filePath))
+                }
+            case .markdown:
+                if let text {
+                    ScrollView {
+                        StructuredText(markdown: text)
+                            .textSelection(.enabled)
+                            .padding()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             case .text:
                 if let text {
@@ -379,7 +393,8 @@ private struct LiveFileContentView: View {
         switch kind {
         case .image:
             nsImage = NSImage(contentsOfFile: filePath)
-        case .text:
+        case .markdown,
+             .text:
             text = try? String(contentsOfFile: filePath, encoding: .utf8)
             if text == nil { kind = .unsupported }
         case .pdf,
@@ -396,6 +411,7 @@ private struct LiveFileContentView: View {
         if imageExtensions.contains(ext) { return .image }
         if ext == "pdf" { return .pdf }
         if videoExtensions.contains(ext) { return .video }
+        if markdownExtensions.contains(ext) { return .markdown }
         if ext == "html" || ext == "htm" { return .html }
         if (try? String(contentsOfFile: path, encoding: .utf8)) != nil { return .text }
         return .unsupported
