@@ -156,7 +156,7 @@ struct FileBrowserView: View {
                     item: .constant(viewState.fileTree.root),
                     parent: .constant(nil),
                     viewState: viewState,
-                    fileLabel: { cursor, _, _ in
+                    fileLabel: { cursor, _, proxy in
                         Label {
                             Text(cursor.name)
                                 .font(.callout)
@@ -164,8 +164,13 @@ struct FileBrowserView: View {
                             Symbols.docPlaintextFill.image
                                 .foregroundStyle(.secondary)
                         }
+                        .fileTreeContextMenu(
+                            itemId: proxy.id,
+                            directoryPath: directoryPath,
+                            stableIds: state.stableIds
+                        )
                     },
-                    folderLabel: { cursor, _, _ in
+                    folderLabel: { cursor, _, folder in
                         Label {
                             Text(cursor.name)
                                 .font(.callout)
@@ -173,6 +178,11 @@ struct FileBrowserView: View {
                             Symbols.folderFill.image
                                 .foregroundStyle(.blue)
                         }
+                        .fileTreeContextMenu(
+                            itemId: folder.wrappedValue.id,
+                            directoryPath: directoryPath,
+                            stableIds: state.stableIds
+                        )
                     }
                 )
                 .navigatorFilter { $0.first != "." }
@@ -234,6 +244,50 @@ struct FileBrowserView: View {
                 symbol: .docPlaintextFill,
                 description: "Choose a file from the navigator to view its contents."
             )
+        }
+    }
+}
+
+// MARK: - File Tree Context Menu
+
+private extension View {
+    func fileTreeContextMenu(
+        itemId: UUID,
+        directoryPath: String,
+        stableIds: [String: UUID]
+    ) -> some View {
+        let reverseIds = Dictionary(stableIds.map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        let fullPath = reverseIds[itemId]
+        let relativePath = fullPath.map { String($0.dropFirst(directoryPath.count + 1)) }
+
+        return contextMenu {
+            if let fullPath {
+                Button("Open") {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: fullPath))
+                }
+                Button("Open in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: fullPath)])
+                }
+                Divider()
+                Button("Copy Path") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(fullPath, forType: .string)
+                }
+                if let relativePath {
+                    Button("Copy Relative Path") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(relativePath, forType: .string)
+                    }
+                }
+                let isDirectory = (try? URL(fileURLWithPath: fullPath)
+                    .resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+                if !isDirectory {
+                    Button("Copy") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.writeObjects([URL(fileURLWithPath: fullPath) as NSURL])
+                    }
+                }
+            }
         }
     }
 }
