@@ -156,6 +156,12 @@ public struct MainView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             markSelectedSessionsHandledIfActive()
         }
+        .onChange(of: windowManager.pendingSessionCount) {
+            // When an event arrives on the already-selected session, no selection
+            // change fires. Watch the pending count so we can auto-clear attention
+            // for sessions the user is already viewing.
+            markSelectedSessionsHandledIfActive()
+        }
         .onChange(of: coordinator.pendingMenuBarSelection) {
             applyPendingMenuBarSelection()
         }

@@ -53,12 +53,20 @@ public enum FooterRenderingScenario {
         // Wait for animation to complete (scroll_height + 20 lines × 20ms + buffer)
         TestStep.wait(seconds: 5)
 
-        // ── Verify tmux has the footer ──────────────────────────────
-        TestStep.log("Verifying tmux pane contains footer text")
-        TestStep.tmuxCapturePaneContent(target: "footer-test:0", storeAs: "pane-content")
-        TestStep.assertStoredContains(key: "pane-content", substring: "FIXED FOOTER")
-        TestStep.assertStoredContains(key: "pane-content", substring: "FIXED HEADER")
-        TestStep.assertStoredContains(key: "pane-content", substring: "Scrolling line  76")
+        // ── Verify the macOS terminal UI renders footer, header, and scroll content ──
+        TestStep.log("Verifying macOS terminal UI contains footer, header, and scroll content")
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("FIXED FOOTER")]),
+            timeout: 10
+        )
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("FIXED HEADER")]),
+            timeout: 10
+        )
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("Scrolling line  76")]),
+            timeout: 10
+        )
 
         // ── Select the pane on macOS ─────────────────────────────────
         // Screenshot: should show header and footer on macOS

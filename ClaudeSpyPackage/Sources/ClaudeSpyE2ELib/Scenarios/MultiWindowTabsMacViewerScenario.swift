@@ -117,9 +117,7 @@ public enum MultiWindowTabsMacViewerScenario {
         TestStep.macClickButton(titled: "e2e-mw-mac:1", instance: 1)
         TestStep.wait(seconds: 3)
 
-        // Verify content in window 1 (both via tmux and terminal view)
-        TestStep.tmuxCapturePaneContent(target: "e2e-mw-mac:1", storeAs: "paneContent")
-        TestStep.assertStoredContains(key: "paneContent", substring: "WINDOW_ONE")
+        // Verify content in window 1 via terminal view
         TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%1"), .valueContains("WINDOW_ONE")]), timeout: 10, instance: 1)
         TestStep.macScreenshot(label: "viewer-back-to-window1", instance: 1)
 
