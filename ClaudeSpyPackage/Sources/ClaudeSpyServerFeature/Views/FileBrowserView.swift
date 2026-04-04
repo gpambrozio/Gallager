@@ -37,6 +37,7 @@ private struct ResizableDivider: View {
 
     @State private var isDragging = false
     @State private var initialDimension: CGFloat = 0
+    @State private var isCursorPushed = false
 
     var body: some View {
         Rectangle()
@@ -46,8 +47,16 @@ private struct ResizableDivider: View {
             .onHover { hovering in
                 if hovering {
                     NSCursor.resizeLeftRight.push()
+                    isCursorPushed = true
                 } else {
                     NSCursor.pop()
+                    isCursorPushed = false
+                }
+            }
+            .onDisappear {
+                if isCursorPushed {
+                    NSCursor.pop()
+                    isCursorPushed = false
                 }
             }
             .gesture(
@@ -297,25 +306,9 @@ private struct LiveFileContentView: View {
 
     @Dependency(FileSystemLoadingService.self) private var fileSystemService
 
-    @State private var kind: FileContentKind
+    @State private var kind: FileContentKind = .unsupported
     @State private var text: String?
     @State private var nsImage: NSImage?
-
-    init(filePath: String) {
-        self.filePath = filePath
-        @Dependency(FileSystemLoadingService.self) var service
-        let detectedKind = service.detectFileKind(filePath)
-        _kind = State(initialValue: detectedKind)
-        switch detectedKind {
-        case .image:
-            _nsImage = State(initialValue: service.readImageFile(filePath))
-        case .markdown,
-             .text:
-            _text = State(initialValue: service.readTextFile(filePath))
-        default:
-            break
-        }
-    }
 
     var body: some View {
         Group {
@@ -362,14 +355,14 @@ private struct LiveFileContentView: View {
             }
         }
         .task(id: filePath) {
-            loadContent()
+            await loadContent()
             for await _ in fileSystemService.fileChanges(filePath) {
-                loadContent()
+                await loadContent()
             }
         }
     }
 
-    private func loadContent() {
+    private func loadContent() async {
         kind = fileSystemService.detectFileKind(filePath)
         // Clear all state first
         text = nil
@@ -377,10 +370,10 @@ private struct LiveFileContentView: View {
 
         switch kind {
         case .image:
-            nsImage = fileSystemService.readImageFile(filePath)
+            nsImage = await fileSystemService.readImageFile(filePath)
         case .markdown,
              .text:
-            text = fileSystemService.readTextFile(filePath)
+            text = await fileSystemService.readTextFile(filePath)
             if text == nil { kind = .unsupported }
         case .pdf,
              .video,

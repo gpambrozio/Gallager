@@ -69,10 +69,10 @@ public struct FileSystemLoadingService: Sendable {
     public var detectFileKind: @Sendable (_ path: String) -> FileContentKind = { _ in .unsupported }
 
     /// Reads a text file and returns its contents, or nil if not readable as UTF-8.
-    public var readTextFile: @Sendable (_ path: String) -> String? = { _ in nil }
+    public var readTextFile: @Sendable (_ path: String) async -> String? = { _ in nil }
 
     /// Reads an image file and returns an NSImage, or nil if not a valid image.
-    public var readImageFile: @Sendable (_ path: String) -> NSImage? = { _ in nil }
+    public var readImageFile: @Sendable (_ path: String) async -> NSImage? = { _ in nil }
 
     /// Returns a URL that native viewers (PDFView, AVPlayer, WebView) can load directly.
     /// For live mode, returns the file's path as a URL.
@@ -118,10 +118,14 @@ extension FileSystemLoadingService: DependencyKey {
                 return .unsupported
             },
             readTextFile: { path in
-                try? String(contentsOfFile: path, encoding: .utf8)
+                await Task.detached {
+                    try? String(contentsOfFile: path, encoding: .utf8)
+                }.value
             },
             readImageFile: { path in
-                NSImage(contentsOfFile: path)
+                await Task.detached {
+                    NSImage(contentsOfFile: path)
+                }.value
             },
             resolveFileURL: { path in
                 URL(fileURLWithPath: path)
@@ -142,6 +146,11 @@ extension FileSystemLoadingService: DependencyKey {
                     )
 
                     source.setEventHandler {
+                        let flags = source.data
+                        if flags.contains(.delete) || flags.contains(.rename) {
+                            continuation.finish()
+                            return
+                        }
                         continuation.yield()
                     }
 
@@ -401,7 +410,7 @@ private func loadDirectory(
 private func looksLikeText(at path: String) -> Bool {
     guard let handle = FileHandle(forReadingAtPath: path) else { return false }
     defer { try? handle.close() }
-    let prefix = handle.readData(ofLength: 8_192)
+    let prefix = handle.readData(ofLength: 512)
     guard !prefix.isEmpty else { return true }
     return !prefix.contains(0)
 }

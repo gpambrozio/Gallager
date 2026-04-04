@@ -101,6 +101,13 @@ public struct MainView: View {
             // for the periodic validation timer).
             windowManager.updatePaneStates(from: newPanes)
 
+            // Clean up file browser state for windows that no longer exist
+            let currentWindowIds = Set(tmuxService.windows.map(\.id))
+            for key in fileBrowserStates.keys where !currentWindowIds.contains(key) {
+                fileBrowserStates.removeValue(forKey: key)
+                fileBrowserActiveWindowIds.remove(key)
+            }
+
             guard let selected = selectedWindow else { return }
             let currentWindows = tmuxService.windows
             if let updated = currentWindows.first(where: { $0.id == selected.id }) {
