@@ -4,6 +4,7 @@ import DependenciesMacros
 import Files
 import Foundation
 import OrderedCollections
+import os
 
 // MARK: - File Content Kind
 
@@ -81,6 +82,12 @@ public struct FileSystemLoadingService: Sendable {
         URL(fileURLWithPath: path)
     }
 
+    /// Returns an async stream that yields whenever any of the given directories change
+    /// (file created, deleted, or renamed within them).
+    public var directoryChanges: @Sendable (_ paths: Set<String>) -> AsyncStream<Void> = { _ in
+        AsyncStream { $0.finish() }
+    }
+
     /// Returns an async stream that yields whenever the file at the given path changes on disk.
     public var fileChanges: @Sendable (_ path: String) -> AsyncStream<Void> = { _ in
         AsyncStream { $0.finish() }
@@ -130,6 +137,38 @@ extension FileSystemLoadingService: DependencyKey {
             resolveFileURL: { path in
                 URL(fileURLWithPath: path)
             },
+            directoryChanges: { paths in
+                AsyncStream { continuation in
+                    let queue = DispatchQueue(label: "directory-watcher", qos: .utility)
+                    var sources: [DispatchSourceFileSystemObject] = []
+
+                    for path in paths {
+                        let fd = open(path, O_EVTONLY)
+                        guard fd >= 0 else { continue }
+
+                        let source = DispatchSource.makeFileSystemObjectSource(
+                            fileDescriptor: fd,
+                            eventMask: [.write, .link, .rename],
+                            queue: queue
+                        )
+                        source.setEventHandler {
+                            continuation.yield()
+                        }
+                        source.setCancelHandler {
+                            close(fd)
+                        }
+                        source.resume()
+                        sources.append(source)
+                    }
+
+                    let capturedSources = sources
+                    continuation.onTermination = { _ in
+                        for source in capturedSources {
+                            source.cancel()
+                        }
+                    }
+                }
+            },
             fileChanges: { path in
                 // DispatchSource required: no Swift Concurrency API for kqueue file monitoring.
                 AsyncStream { continuation in
@@ -178,33 +217,42 @@ public struct FakeFile: Sendable {
     public let textContent: String?
     /// Path to a real file on disk to serve for binary types (loaded from test bundle).
     public let bundlePath: String?
+    /// When true, first read hangs indefinitely (cancelled by task); second read succeeds.
+    public let isPending: Bool
 
     public static func text(_ content: String) -> FakeFile {
-        FakeFile(kind: .text, textContent: content, bundlePath: nil)
+        FakeFile(kind: .text, textContent: content, bundlePath: nil, isPending: false)
+    }
+
+    /// A text file that hangs on first read, succeeds on subsequent reads.
+    /// Use with `dynamicEntries` on `inMemory()` to test loading indicators
+    /// and directory change detection together.
+    public static func pendingText(_ content: String) -> FakeFile {
+        FakeFile(kind: .text, textContent: content, bundlePath: nil, isPending: true)
     }
 
     public static func markdown(_ content: String) -> FakeFile {
-        FakeFile(kind: .markdown, textContent: content, bundlePath: nil)
+        FakeFile(kind: .markdown, textContent: content, bundlePath: nil, isPending: false)
     }
 
     public static func html(_ content: String) -> FakeFile {
-        FakeFile(kind: .html, textContent: content, bundlePath: nil)
+        FakeFile(kind: .html, textContent: content, bundlePath: nil, isPending: false)
     }
 
     public static func image(bundlePath: String) -> FakeFile {
-        FakeFile(kind: .image, textContent: nil, bundlePath: bundlePath)
+        FakeFile(kind: .image, textContent: nil, bundlePath: bundlePath, isPending: false)
     }
 
     public static func pdf(bundlePath: String) -> FakeFile {
-        FakeFile(kind: .pdf, textContent: nil, bundlePath: bundlePath)
+        FakeFile(kind: .pdf, textContent: nil, bundlePath: bundlePath, isPending: false)
     }
 
     public static func video(bundlePath: String) -> FakeFile {
-        FakeFile(kind: .video, textContent: nil, bundlePath: bundlePath)
+        FakeFile(kind: .video, textContent: nil, bundlePath: bundlePath, isPending: false)
     }
 
     public static func unsupported() -> FakeFile {
-        FakeFile(kind: .unsupported, textContent: nil, bundlePath: nil)
+        FakeFile(kind: .unsupported, textContent: nil, bundlePath: nil, isPending: false)
     }
 }
 
@@ -220,8 +268,14 @@ public extension FileSystemLoadingService {
     /// The tree is built using the actual URL passed to `loadFileTree`, so paths in
     /// `stableIds` and `reverseIds` match the real directory path. Content lookups
     /// use relative path matching so they work regardless of the root directory.
+    ///
+    /// - Parameters:
+    ///   - tree: The initial fake filesystem tree.
+    ///   - dynamicEntries: Entries added to the root after a `.pendingText` file is successfully loaded.
+    ///     Use together with `.pendingText` to test loading indicators and directory change detection.
     static func inMemory(
-        tree: [String: FakeEntry]
+        tree: [String: FakeEntry],
+        dynamicEntries: [String: FakeEntry] = [:]
     ) -> FileSystemLoadingService {
         // Index files by relative path for flexible content lookup
         var relativeFiles: [String: FakeFile] = [:]
@@ -237,7 +291,16 @@ public extension FileSystemLoadingService {
             }
         }
         collectFiles(tree, prefix: "")
+        // Also index dynamic entries so their content is readable
+        collectFiles(dynamicEntries, prefix: "")
         let capturedRelFiles = relativeFiles
+
+        // Shared state: tracks which pending files have had their first read attempt.
+        // After a pending file's second read succeeds, dynamic entries are activated
+        // and a directory change is signalled.
+        let pendingAttempted = OSAllocatedUnfairLock<Set<String>>(initialState: [])
+        let dynamicActivated = OSAllocatedUnfairLock(initialState: false)
+        let dirContinuation = OSAllocatedUnfairLock<AsyncStream<Void>.Continuation?>(initialState: nil)
 
         /// Finds the fake file for a full filesystem path by matching its suffix
         /// against the relative path index.
@@ -259,6 +322,14 @@ public extension FileSystemLoadingService {
                 }
 
                 var loadedPaths = Set<String>()
+
+                // Merge dynamic entries into tree when activated
+                let effectiveTree: [String: FakeEntry]
+                if dynamicActivated.withLock({ $0 }) {
+                    effectiveTree = tree.merging(dynamicEntries) { _, new in new }
+                } else {
+                    effectiveTree = tree
+                }
 
                 func buildFolder(
                     _ entries: [String: FakeEntry],
@@ -285,7 +356,7 @@ public extension FileSystemLoadingService {
                     return .folder(FullFolder<TextFileContents>(children: children, persistentID: folderUUID))
                 }
 
-                let root = buildFolder(tree, path: rootPath, depth: 1)
+                let root = buildFolder(effectiveTree, path: rootPath, depth: 1)
                 return FileTreeLoadResult(root: root, stableIds: ids, loadedFolderPaths: loadedPaths)
             },
             detectFileKind: { path in
@@ -293,6 +364,36 @@ public extension FileSystemLoadingService {
             },
             readTextFile: { path in
                 guard let fake = findFile(for: path) else { return nil }
+
+                // Pending file: first read hangs, second read succeeds
+                if fake.isPending {
+                    let isFirstAttempt = pendingAttempted.withLock { attempted in
+                        if attempted.contains(path) { return false }
+                        attempted.insert(path)
+                        return true
+                    }
+                    if isFirstAttempt {
+                        // Hang until the task is cancelled (user navigates away)
+                        do {
+                            try await Task.sleep(for: .seconds(3_600))
+                        } catch {
+                            // CancellationError — expected when user selects a different file
+                        }
+                        return nil
+                    }
+                    // Second+ read: activate dynamic entries and signal directory change
+                    if !dynamicEntries.isEmpty {
+                        let wasAlreadyActive = dynamicActivated.withLock { activated in
+                            let was = activated
+                            activated = true
+                            return was
+                        }
+                        if !wasAlreadyActive {
+                            dirContinuation.withLock { $0?.yield() }
+                        }
+                    }
+                }
+
                 if let text = fake.textContent { return text }
                 if let bundlePath = fake.bundlePath {
                     return try? String(contentsOfFile: bundlePath, encoding: .utf8)
@@ -316,6 +417,14 @@ public extension FileSystemLoadingService {
                     return tempURL
                 }
                 return nil
+            },
+            directoryChanges: { _ in
+                AsyncStream { continuation in
+                    dirContinuation.withLock { $0 = continuation }
+                    continuation.onTermination = { _ in
+                        dirContinuation.withLock { $0 = nil }
+                    }
+                }
             },
             fileChanges: { _ in
                 AsyncStream { $0.finish() }

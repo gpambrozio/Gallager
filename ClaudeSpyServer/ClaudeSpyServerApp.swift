@@ -143,7 +143,15 @@ struct TmuxPaneMirrorApp: App {
                     fakeTree["document.pdf"] = .file(.pdf(bundlePath: sampleDir + "/test_pdf.pdf"))
                     fakeTree["clip.mp4"] = .file(.video(bundlePath: sampleDir + "/test_video.mp4"))
                 }
-                $0[FileSystemLoadingService.self] = .inMemory(tree: fakeTree)
+                // Pending file: hangs on first load, succeeds on second.
+                // Dynamic entries appear in the tree after the pending file loads.
+                fakeTree["loading.txt"] = .file(.pendingText("This file loaded successfully!\n"))
+                let dynamicEntries: [String: FakeEntry] = [
+                    "generated": .folder([
+                        "output.txt": .file(.text("Generated content.\n")),
+                    ]),
+                ]
+                $0[FileSystemLoadingService.self] = .inMemory(tree: fakeTree, dynamicEntries: dynamicEntries)
                 $0[LoginItemService.self] = LoginItemService(
                     isEnabled: { false },
                     setEnabled: { _ in }

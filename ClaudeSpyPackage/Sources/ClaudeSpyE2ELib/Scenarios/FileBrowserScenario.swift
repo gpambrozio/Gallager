@@ -93,15 +93,36 @@ public enum FileBrowserScenario {
         TestStep.macWaitForElement(titled: "Unable to Read File", timeout: 5)
         TestStep.macScreenshot(label: "mac-unsupported-file")
 
-        // ── Phase 8: Markdown Viewer ─────────────────────────────
+        // ── Phase 8: Loading Indicator (pending file) ────────────
+        // loading.txt hangs on first read — the spinner should show.
+        TestStep.log("Phase 8: Loading indicator on pending file")
+        TestStep.macCGClick(titled: "loading.txt")
+        TestStep.wait(seconds: 2)
+        // The spinner should be visible (first read hangs)
+        TestStep.macScreenshot(label: "mac-loading-indicator")
+
+        // Select a different file to cancel the hanging read
+        TestStep.macCGClick(titled: "hello.txt")
+        TestStep.wait(seconds: 1)
+
+        // ── Phase 9: Pending file loads + dynamic folder appears ──
+        // Second read of loading.txt succeeds and triggers "generated" folder.
+        TestStep.log("Phase 9: Pending file second load + dynamic folder")
+        TestStep.macCGClick(titled: "loading.txt")
+        TestStep.wait(seconds: 2)
+        // Content loads AND the dynamic "generated" folder appears in the tree
+        TestStep.macWaitForElement(titled: "generated", timeout: 10)
+        TestStep.macScreenshot(label: "mac-pending-file-loaded")
+
+        // ── Phase 10: Markdown Viewer ────────────────────────────
         // Rendered markdown with Textual StructuredText
-        TestStep.log("Phase 8: Markdown viewer (Textual StructuredText)")
+        TestStep.log("Phase 10: Markdown viewer (Textual StructuredText)")
         TestStep.macCGClick(titled: "README.md")
         TestStep.wait(seconds: 2)
         TestStep.macScreenshot(label: "mac-markdown-viewer")
 
-        // ── Phase 9: Folder Expansion & Lazy Loading ─────────────
-        TestStep.log("Phase 9: Lazy folder expansion — src → utils → helper.swift")
+        // ── Phase 11: Folder Expansion & Lazy Loading ────────────
+        TestStep.log("Phase 11: Lazy folder expansion — src → utils → helper.swift")
 
         // Expand "src" folder — macClickButton triggers AX disclosure toggle
         TestStep.macClickButton(titled: "src")
@@ -119,8 +140,8 @@ public enum FileBrowserScenario {
         TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "mac-deep-nested-file")
 
-        // ── Phase 10: Expand docs folder and view nested markdown ──
-        TestStep.log("Phase 10: Expand docs and view guide.md")
+        // ── Phase 12: Expand docs folder and view nested markdown ──
+        TestStep.log("Phase 12: Expand docs and view guide.md")
         TestStep.macClickButton(titled: "docs")
         TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "guide.md", timeout: 5)
@@ -128,8 +149,8 @@ public enum FileBrowserScenario {
         TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "mac-docs-nested-markdown")
 
-        // ── Phase 11: Context Menu ───────────────────────────────
-        TestStep.log("Phase 11: Context menu — Copy Path and Copy Relative Path")
+        // ── Phase 13: Context Menu ───────────────────────────────
+        TestStep.log("Phase 13: Context menu — Copy Path and Copy Relative Path")
 
         // Copy Path on a file
         TestStep.macContextMenuClick(elementTitle: "hello.txt", menuItem: "Copy Path")
@@ -151,9 +172,9 @@ public enum FileBrowserScenario {
         TestStep.macReadClipboard(storeAs: "copiedFolderPath")
         TestStep.assertStoredContains(key: "copiedFolderPath", substring: "/src")
 
-        // ── Phase 12: State Persistence — Tab Toggle ─────────────
-        // guide.md should still be selected from Phase 10
-        TestStep.log("Phase 12: State persistence across tab toggle")
+        // ── Phase 14: State Persistence — Tab Toggle ─────────────
+        // guide.md should still be selected from Phase 12
+        TestStep.log("Phase 14: State persistence across tab toggle")
 
         // Switch back to terminal
         TestStep.macClickButton(titled: "filebrowse:0")
@@ -168,8 +189,8 @@ public enum FileBrowserScenario {
         TestStep.macWaitForElement(titled: "guide.md", timeout: 5)
         TestStep.macScreenshot(label: "mac-file-browser-state-preserved")
 
-        // ── Phase 13: State Reset on Window Switch ───────────────
-        TestStep.log("Phase 13: File browser resets on window switch")
+        // ── Phase 15: State Reset on Window Switch ───────────────
+        TestStep.log("Phase 15: File browser resets on window switch")
 
         // Create a second tmux window
         Shortcut.tmuxRunCommand(target: "filebrowse:0.0", command: "tmux new-window -t filebrowse")

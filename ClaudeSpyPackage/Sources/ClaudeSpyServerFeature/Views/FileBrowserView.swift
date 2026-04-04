@@ -91,6 +91,13 @@ struct FileBrowserView: View {
                     guard state.loadedPath != directoryPath else { return }
                     await loadTree()
                 }
+                .task(id: state.loadedFolderPaths) {
+                    var watchedPaths = state.loadedFolderPaths
+                    watchedPaths.insert(directoryPath)
+                    for await _ in fileSystemService.directoryChanges(watchedPaths) {
+                        await loadTree()
+                    }
+                }
                 .onChange(of: viewState.expansions) {
                     handleExpansionChange(viewState: viewState)
                 }
