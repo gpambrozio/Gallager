@@ -1,20 +1,13 @@
 import AppKit
 import AVKit
 import ClaudeSpyCommon
+import Dependencies
 import Files
 import PDFKit
 import ProjectNavigator
 import SwiftUI
 import Textual
 import WebKit
-
-private let imageExtensions: Set<String> = [
-    "png", "jpg", "jpeg", "gif", "bmp", "tiff", "tif", "webp", "heic", "heif", "ico", "svg",
-]
-
-private let videoExtensions: Set<String> = [
-    "mp4", "mov", "m4v", "avi", "mkv", "mp3", "wav", "aac", "m4a", "flac", "ogg", "aiff",
-]
 
 /// Cached state for a file browser, keyed by window ID.
 /// Stored in MainView so it survives tab/session switches.
@@ -80,6 +73,8 @@ struct FileBrowserView: View {
     let directoryPath: String
     @Bindable var state: FileBrowserState
 
+    @Dependency(FileSystemLoadingService.self) private var fileSystemService
+
     var body: some View {
         if let viewState = state.viewState {
             fileBrowserContent(viewState: viewState)
@@ -100,10 +95,10 @@ struct FileBrowserView: View {
     }
 
     private func loadTree() async {
-        let result = await loadFileTree(
-            at: URL(fileURLWithPath: directoryPath),
-            expandedPaths: state.loadedFolderPaths,
-            stableIds: state.stableIds
+        let result = await fileSystemService.loadFileTree(
+            URL(fileURLWithPath: directoryPath),
+            state.loadedFolderPaths,
+            state.stableIds
         )
         let tree = FileTree(files: result.root)
         let expansions: WrappedUUIDSet
@@ -296,22 +291,11 @@ private extension View {
 
 // MARK: - Live File Content View
 
-/// The type of content to display for a file.
-private enum FileContentKind {
-    case image
-    case pdf
-    case video
-    case html
-    case markdown
-    case text
-    case unsupported
-}
-
-private let markdownExtensions: Set<String> = ["md", "markdown"]
-
 /// Displays a file's contents and monitors it for changes on disk.
 private struct LiveFileContentView: View {
     let filePath: String
+
+    @Dependency(FileSystemLoadingService.self) private var fileSystemService
 
     @State private var kind: FileContentKind
     @State private var text: String?
@@ -319,7 +303,18 @@ private struct LiveFileContentView: View {
 
     init(filePath: String) {
         self.filePath = filePath
-        _kind = State(initialValue: Self.detectKind(filePath))
+        @Dependency(FileSystemLoadingService.self) var service
+        let detectedKind = service.detectFileKind(filePath)
+        _kind = State(initialValue: detectedKind)
+        switch detectedKind {
+        case .image:
+            _nsImage = State(initialValue: service.readImageFile(filePath))
+        case .markdown,
+             .text:
+            _text = State(initialValue: service.readTextFile(filePath))
+        default:
+            break
+        }
     }
 
     var body: some View {
@@ -368,24 +363,24 @@ private struct LiveFileContentView: View {
         }
         .task(id: filePath) {
             loadContent()
-            for await _ in fileChanges(at: filePath) {
+            for await _ in fileSystemService.fileChanges(filePath) {
                 loadContent()
             }
         }
     }
 
     private func loadContent() {
-        kind = Self.detectKind(filePath)
+        kind = fileSystemService.detectFileKind(filePath)
         // Clear all state first
         text = nil
         nsImage = nil
 
         switch kind {
         case .image:
-            nsImage = NSImage(contentsOfFile: filePath)
+            nsImage = fileSystemService.readImageFile(filePath)
         case .markdown,
              .text:
-            text = try? String(contentsOfFile: filePath, encoding: .utf8)
+            text = fileSystemService.readTextFile(filePath)
             if text == nil { kind = .unsupported }
         case .pdf,
              .video,
@@ -394,27 +389,6 @@ private struct LiveFileContentView: View {
         case .unsupported:
             break
         }
-    }
-
-    private static func detectKind(_ path: String) -> FileContentKind {
-        let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
-        if imageExtensions.contains(ext) { return .image }
-        if ext == "pdf" { return .pdf }
-        if videoExtensions.contains(ext) { return .video }
-        if markdownExtensions.contains(ext) { return .markdown }
-        if ext == "html" || ext == "htm" { return .html }
-        if looksLikeText(at: path) { return .text }
-        return .unsupported
-    }
-
-    /// Checks if a file is likely text by reading a small prefix and looking for null bytes.
-    /// Avoids loading the entire file into memory (which would spike for large binaries).
-    private static func looksLikeText(at path: String) -> Bool {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return false }
-        defer { try? handle.close() }
-        let prefix = handle.readData(ofLength: 8_192)
-        guard !prefix.isEmpty else { return true } // empty file counts as text
-        return !prefix.contains(0)
     }
 }
 
@@ -456,37 +430,5 @@ private struct AVPlayerViewRepresentable: NSViewRepresentable {
     static func dismantleNSView(_ nsView: AVPlayerView, coordinator: ()) {
         nsView.player?.pause()
         nsView.player = nil
-    }
-}
-
-/// Returns an `AsyncStream` that yields a value each time the file at `path` is modified.
-/// DispatchSource required: no Swift Concurrency API for kqueue file monitoring.
-private func fileChanges(at path: String) -> AsyncStream<Void> {
-    AsyncStream { continuation in
-        let fd = open(path, O_EVTONLY)
-        guard fd >= 0 else {
-            continuation.finish()
-            return
-        }
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename],
-            queue: .global(qos: .utility)
-        )
-
-        source.setEventHandler {
-            continuation.yield()
-        }
-
-        source.setCancelHandler {
-            close(fd)
-        }
-
-        continuation.onTermination = { _ in
-            source.cancel()
-        }
-
-        source.resume()
     }
 }
