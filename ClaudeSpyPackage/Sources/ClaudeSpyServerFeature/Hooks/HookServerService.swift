@@ -221,6 +221,16 @@ private actor LiveHookServer {
 
         let bodyData = Data(bodyString.utf8)
 
+        // Ignore hooks from subagents — they have a non-nil agent_id field
+        if let agentCheck = try? JSONDecoder().decode(AgentIdCheck.self, from: bodyData),
+            agentCheck.agentId != nil
+        {
+            logger.info("Ignoring hook from subagent", metadata: [
+                "agentId": "\(agentCheck.agentId!)",
+            ])
+            return emptyResponse()
+        }
+
         let hookAction: HookAction
         do {
             hookAction = try HookAction.from(jsonData: bodyData)
@@ -249,5 +259,14 @@ private actor LiveHookServer {
 
     private func emptyResponse() -> Response {
         Response(status: .ok, body: .init(string: ""))
+    }
+}
+
+/// Lightweight struct to check for agent_id in hook JSON without full parsing.
+private struct AgentIdCheck: Decodable {
+    let agentId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case agentId = "agent_id"
     }
 }

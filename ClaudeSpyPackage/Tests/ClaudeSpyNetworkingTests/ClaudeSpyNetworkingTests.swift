@@ -468,3 +468,45 @@ struct TerminalStreamMessageTests {
         #expect(n1 != n3)
     }
 }
+
+@Suite("HookAction Parsing Tests")
+struct HookActionParsingTests {
+    @Test("Parses hook with agent_id field present")
+    func parsesHookWithAgentId() throws {
+        let json = """
+        {
+            "session_id": "sess-123",
+            "hook_event_name": "Notification",
+            "message": "Task completed",
+            "notification_type": "info",
+            "agent_id": "agent-abc"
+        }
+        """
+        let action = try HookAction.from(jsonData: Data(json.utf8))
+        if case let .notification(body) = action {
+            #expect(body.sessionId == "sess-123")
+            #expect(body.message == "Task completed")
+        } else {
+            Issue.record("Expected notification action")
+        }
+    }
+
+    @Test("Parses hook without agent_id field")
+    func parsesHookWithoutAgentId() throws {
+        let json = """
+        {
+            "session_id": "sess-456",
+            "hook_event_name": "SessionStart",
+            "transcript_path": "/tmp/transcript",
+            "cwd": "/home/user",
+            "source": "claude"
+        }
+        """
+        let action = try HookAction.from(jsonData: Data(json.utf8))
+        if case let .sessionStart(body) = action {
+            #expect(body.sessionId == "sess-456")
+        } else {
+            Issue.record("Expected sessionStart action")
+        }
+    }
+}
