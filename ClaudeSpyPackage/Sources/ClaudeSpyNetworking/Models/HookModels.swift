@@ -191,6 +191,8 @@ public struct CommonHookFields: HookBodyProtocol {
     public let cwd: String?
     public let hookEventName: String
     public let timestamp: String?
+    public let agentId: String?
+    public let agentType: String?
     public var shouldSendToServer: Bool { true }
 
     enum CodingKeys: String, CodingKey {
@@ -199,6 +201,8 @@ public struct CommonHookFields: HookBodyProtocol {
         case cwd
         case hookEventName = "hook_event_name"
         case timestamp
+        case agentId = "agent_id"
+        case agentType = "agent_type"
     }
 }
 
@@ -1479,7 +1483,7 @@ public enum HookAction: Codable, Sendable {
         }
     }
 
-    /// Parse hook action from JSON data by reading hook_event_name
+    /// Parse hook action from JSON data by reading hook_event_name.
     public static func from(jsonData: Data) throws -> HookAction {
         let decoder = JSONDecoder()
 

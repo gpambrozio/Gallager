@@ -20,11 +20,10 @@ public extension HookEventMessage {
                 body = "\(projectName): Claude Code is waiting for your input"
             }
         case let .notification(notifBody):
-            if let message = notifBody.message {
-                body = "\(projectName): \(message)"
-            } else {
+            guard notifBody.shouldSendToServer, let message = notifBody.message else {
                 return nil
             }
+            body = "\(projectName): \(message)"
         case let .stopFailure(failureBody):
             body = "\(projectName): Error — \(failureBody.errorType ?? "unknown failure")"
         default:
