@@ -75,13 +75,75 @@ struct TmuxPaneMirrorApp: App {
                 $0[PreferencesService.self] = prefs
                 $0[SecretsService.self] = .inMemory()
                 $0[ClaudeProjectScanner.self] = .inMemory()
-                $0[FileSystemLoadingService.self] = .inMemory(tree: [
-                    "README.md": .file(.markdown("# E2E Test Project\n\nThis is a fake project for testing.")),
-                    "hello.txt": .file(.text("Hello from E2E test.\n")),
+                // Build fake filesystem tree for the file browser.
+                // Binary sample files (image, PDF, video) come from the E2E bundle
+                // via --sample-files-dir passed by the test orchestrator.
+                let sampleDir: String? = {
+                    guard let idx = CommandLine.arguments.firstIndex(of: "--sample-files-dir"),
+                          idx + 1 < CommandLine.arguments.count
+                    else { return nil }
+                    return CommandLine.arguments[idx + 1]
+                }()
+                var fakeTree: [String: FakeEntry] = [
+                    "README.md": .file(.markdown("""
+                    # Fake Project
+
+                    This is a **test project** for the file browser.
+
+                    ## Features
+                    - Folder recursion
+                    - Multiple file types
+                    - Markdown rendering
+                    """)),
+                    "hello.txt": .file(.text("Hello, world!\nThis is a plain text file.\n")),
+                    "page.html": .file(.html("""
+                    <!DOCTYPE html>
+                    <html>
+                    <head><title>Test Page</title></head>
+                    <body>
+                        <h1>Hello from HTML</h1>
+                        <p>This is a test HTML page rendered in the file browser.</p>
+                    </body>
+                    </html>
+                    """)),
+                    "binary.dat": .file(.unsupported()),
                     "src": .folder([
-                        "main.swift": .file(.text("import Foundation\nprint(\"Hello\")\n")),
+                        "main.swift": .file(.text("""
+                        import Foundation
+
+                        @main
+                        struct App {
+                            static func main() {
+                                print("Hello, world!")
+                            }
+                        }
+                        """)),
+                        "utils": .folder([
+                            "helper.swift": .file(.text("""
+                            /// A helper function for testing folder recursion.
+                            func greet(_ name: String) -> String {
+                                "Hello, \\(name)!"
+                            }
+                            """)),
+                        ]),
                     ]),
-                ])
+                    "docs": .folder([
+                        "guide.md": .file(.markdown("""
+                        # User Guide
+
+                        ## Getting Started
+                        1. Open the app
+                        2. Select a session
+                        3. Browse files
+                        """)),
+                    ]),
+                ]
+                if let sampleDir {
+                    fakeTree["photo.png"] = .file(.image(bundlePath: sampleDir + "/test_image.png"))
+                    fakeTree["document.pdf"] = .file(.pdf(bundlePath: sampleDir + "/test_pdf.pdf"))
+                    fakeTree["clip.mp4"] = .file(.video(bundlePath: sampleDir + "/test_video.mp4"))
+                }
+                $0[FileSystemLoadingService.self] = .inMemory(tree: fakeTree)
                 $0[LoginItemService.self] = LoginItemService(
                     isEnabled: { false },
                     setEnabled: { _ in }

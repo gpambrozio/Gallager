@@ -74,6 +74,13 @@ public struct FileSystemLoadingService: Sendable {
     /// Reads an image file and returns an NSImage, or nil if not a valid image.
     public var readImageFile: @Sendable (_ path: String) -> NSImage? = { _ in nil }
 
+    /// Returns a URL that native viewers (PDFView, AVPlayer, WebView) can load directly.
+    /// For live mode, returns the file's path as a URL.
+    /// For in-memory mode, returns the bundle path or a temp file URL.
+    public var resolveFileURL: @Sendable (_ path: String) -> URL? = { path in
+        URL(fileURLWithPath: path)
+    }
+
     /// Returns an async stream that yields whenever the file at the given path changes on disk.
     public var fileChanges: @Sendable (_ path: String) -> AsyncStream<Void> = { _ in
         AsyncStream { $0.finish() }
@@ -115,6 +122,9 @@ extension FileSystemLoadingService: DependencyKey {
             },
             readImageFile: { path in
                 NSImage(contentsOfFile: path)
+            },
+            resolveFileURL: { path in
+                URL(fileURLWithPath: path)
             },
             fileChanges: { path in
                 // DispatchSource required: no Swift Concurrency API for kqueue file monitoring.
@@ -197,57 +207,67 @@ public enum FakeEntry: Sendable {
 
 public extension FileSystemLoadingService {
     /// Creates an in-memory service backed by a fake filesystem tree.
+    ///
+    /// The tree is built using the actual URL passed to `loadFileTree`, so paths in
+    /// `stableIds` and `reverseIds` match the real directory path. Content lookups
+    /// use relative path matching so they work regardless of the root directory.
     static func inMemory(
-        rootPath: String = "/FakeRoot",
         tree: [String: FakeEntry]
     ) -> FileSystemLoadingService {
-        var files: [String: FakeFile] = [:]
-        var stableIds: [String: UUID] = [:]
-        var folderPaths: Set<String> = []
-
-        func walk(_ entries: [String: FakeEntry], parentPath: String) {
-            stableIds[parentPath] = stableIds[parentPath] ?? UUID()
-            folderPaths.insert(parentPath)
+        // Index files by relative path for flexible content lookup
+        var relativeFiles: [String: FakeFile] = [:]
+        func collectFiles(_ entries: [String: FakeEntry], prefix: String) {
             for (name, entry) in entries {
-                let path = parentPath + "/" + name
-                stableIds[path] = stableIds[path] ?? UUID()
+                let path = prefix.isEmpty ? name : prefix + "/" + name
                 switch entry {
                 case let .file(fake):
-                    files[path] = fake
+                    relativeFiles[path] = fake
                 case let .folder(children):
-                    walk(children, parentPath: path)
+                    collectFiles(children, prefix: path)
                 }
             }
         }
-        walk(tree, parentPath: rootPath)
+        collectFiles(tree, prefix: "")
+        let capturedRelFiles = relativeFiles
 
-        let capturedFiles = files
-        let capturedStableIds = stableIds
-        let capturedFolderPaths = folderPaths
+        /// Finds the fake file for a full filesystem path by matching its suffix
+        /// against the relative path index.
+        @Sendable
+        func findFile(for path: String) -> FakeFile? {
+            capturedRelFiles.first(where: { path.hasSuffix("/" + $0.key) })?.value
+        }
 
         return FileSystemLoadingService(
-            loadFileTree: { _, expandedPaths, existingIds in
-                var ids = capturedStableIds
-                for (k, v) in existingIds {
-                    ids[k] = v
+            loadFileTree: { url, expandedPaths, existingIds in
+                let rootPath = url.path
+                var ids = existingIds
+
+                func stableId(for path: String) -> UUID {
+                    if let existing = ids[path] { return existing }
+                    let id = UUID()
+                    ids[path] = id
+                    return id
                 }
+
+                var loadedPaths = Set<String>()
 
                 func buildFolder(
                     _ entries: [String: FakeEntry],
                     path: String,
                     depth: Int
                 ) -> FullFileOrFolder<TextFileContents> {
-                    let folderUUID = ids[path]!
+                    let folderUUID = stableId(for: path)
                     guard depth > 0 || expandedPaths.contains(path) else {
                         return .folder(FullFolder<TextFileContents>(children: [:], persistentID: folderUUID))
                     }
+                    loadedPaths.insert(path)
                     var children = OrderedDictionary<String, FullFileOrFolder<TextFileContents>>()
                     for (name, entry) in entries.sorted(by: { $0.key < $1.key }) {
                         let childPath = path + "/" + name
                         switch entry {
                         case .file:
                             children[name] = .file(
-                                File(contents: TextFileContents(text: ""), persistentID: ids[childPath]!)
+                                File(contents: TextFileContents(text: ""), persistentID: stableId(for: childPath))
                             )
                         case let .folder(subEntries):
                             children[name] = buildFolder(subEntries, path: childPath, depth: depth - 1)
@@ -257,23 +277,36 @@ public extension FileSystemLoadingService {
                 }
 
                 let root = buildFolder(tree, path: rootPath, depth: 1)
-                return FileTreeLoadResult(root: root, stableIds: ids, loadedFolderPaths: capturedFolderPaths)
+                return FileTreeLoadResult(root: root, stableIds: ids, loadedFolderPaths: loadedPaths)
             },
             detectFileKind: { path in
-                capturedFiles[path]?.kind ?? .unsupported
+                findFile(for: path)?.kind ?? .unsupported
             },
             readTextFile: { path in
-                if let fake = capturedFiles[path] {
-                    if let text = fake.textContent { return text }
-                    if let bundlePath = fake.bundlePath {
-                        return try? String(contentsOfFile: bundlePath, encoding: .utf8)
-                    }
+                guard let fake = findFile(for: path) else { return nil }
+                if let text = fake.textContent { return text }
+                if let bundlePath = fake.bundlePath {
+                    return try? String(contentsOfFile: bundlePath, encoding: .utf8)
                 }
                 return nil
             },
             readImageFile: { path in
-                guard let bundlePath = capturedFiles[path]?.bundlePath else { return nil }
+                guard let bundlePath = findFile(for: path)?.bundlePath else { return nil }
                 return NSImage(contentsOfFile: bundlePath)
+            },
+            resolveFileURL: { path in
+                guard let fake = findFile(for: path) else { return nil }
+                if let bundlePath = fake.bundlePath {
+                    return URL(fileURLWithPath: bundlePath)
+                }
+                if let text = fake.textContent {
+                    let filename = URL(fileURLWithPath: path).lastPathComponent
+                    let tempURL = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("claudespy-e2e-\(filename)")
+                    try? text.write(to: tempURL, atomically: true, encoding: .utf8)
+                    return tempURL
+                }
+                return nil
             },
             fileChanges: { _ in
                 AsyncStream { $0.finish() }

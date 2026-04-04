@@ -175,6 +175,19 @@ public actor MacOSDriver {
         try await Task.sleep(for: .milliseconds(200))
     }
 
+    // MARK: - CGEvent Click
+
+    /// CGEvent left-click on an element (bypasses AXPress, uses real mouse click).
+    /// Use for selecting items in SwiftUI List/OutlineGroup.
+    public func cgClick(titled: String) async throws {
+        let pid = try requirePID()
+        logger.info("CGEvent clicking: \(titled)")
+        try await waitForAXElement(pid: pid, titled: titled, timeout: 5)
+        if !MacOSAccessibility.cgClick(appPID: pid, titled: titled) {
+            throw MacOSDriverError.elementNotFound(titled)
+        }
+    }
+
     // MARK: - Right-Click / Context Menu
 
     /// Right-click on an element to open its context menu.

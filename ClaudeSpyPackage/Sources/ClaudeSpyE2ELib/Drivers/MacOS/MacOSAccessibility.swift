@@ -235,6 +235,29 @@ enum MacOSAccessibility {
         event.post(tap: .cghidEventTap)
     }
 
+    /// CGEvent left-click on an element matching the query.
+    /// Unlike `press`, this always uses a real mouse click (no AXPress / parent walking).
+    /// Useful for selecting items in SwiftUI List/OutlineGroup where AXPress
+    /// on ancestor elements toggles disclosure instead of selecting.
+    @discardableResult
+    static func cgClick(appPID: pid_t, matching query: ElementQuery) -> Bool {
+        let matches = findAllRawElements(appPID: appPID, matching: query)
+        guard let center = matches.lazy.compactMap({ centerOfElement($0) }).first else {
+            logger.info("cgClick: element not found for \(query)")
+            return false
+        }
+        focusApp(appPID: appPID)
+        usleep(200_000) // 200ms for focus
+        clickAtPoint(center)
+        return true
+    }
+
+    /// CGEvent left-click on an element matching by "titled" text.
+    @discardableResult
+    static func cgClick(appPID: pid_t, titled: String) -> Bool {
+        cgClick(appPID: appPID, matching: .anyTextMatches(titled))
+    }
+
     /// Right-click on an element matching the query to open its context menu.
     /// Returns true if the element was found and right-clicked.
     @discardableResult

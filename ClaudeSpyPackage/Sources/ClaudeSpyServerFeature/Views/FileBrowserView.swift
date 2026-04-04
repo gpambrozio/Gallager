@@ -329,13 +329,13 @@ private struct LiveFileContentView: View {
                         .padding()
                 }
             case .pdf:
-                PDFViewRepresentable(url: URL(fileURLWithPath: filePath))
+                PDFViewRepresentable(url: fileSystemService.resolveFileURL(filePath) ?? URL(fileURLWithPath: filePath))
             case .video:
-                AVPlayerViewRepresentable(url: URL(fileURLWithPath: filePath))
+                AVPlayerViewRepresentable(url: fileSystemService.resolveFileURL(filePath) ?? URL(fileURLWithPath: filePath))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .html:
                 if #available(macOS 26, *) {
-                    WebView(url: URL(fileURLWithPath: filePath))
+                    WebView(url: fileSystemService.resolveFileURL(filePath) ?? URL(fileURLWithPath: filePath))
                 }
             case .markdown:
                 if let text {

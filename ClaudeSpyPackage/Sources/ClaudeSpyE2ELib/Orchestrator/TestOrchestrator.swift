@@ -381,7 +381,7 @@ public actor TestOrchestrator {
         case let .launchMacApp(instance):
             let driver = macDriver(for: instance)
             let instanceSocket = tmuxSocketPath(for: instance)
-            let arguments = [
+            var arguments = [
                 "--e2e-test",
                 "--server-url", "ws://127.0.0.1:\(serverPort)",
                 "--tmux-socket", instanceSocket,
@@ -390,6 +390,11 @@ public actor TestOrchestrator {
                 "--notification-log", notificationLogPath(for: instance),
                 "--push-log", pushLogPath(for: instance),
             ]
+            if
+                let sampleDir = Bundle.module.resourcePath.map({ $0 + "/SampleFiles" }),
+                FileManager.default.fileExists(atPath: sampleDir) {
+                arguments += ["--sample-files-dir", sampleDir]
+            }
             try await driver.launchApp(path: macOSAppPath, arguments: arguments)
 
         case let .terminateMacApp(instance):
@@ -418,6 +423,9 @@ public actor TestOrchestrator {
 
         case let .macSelectAll(instance):
             try await macDriver(for: instance).selectAll()
+
+        case let .macCGClick(titled, instance):
+            try await macDriver(for: instance).cgClick(titled: titled)
 
         case let .macRightClick(titled, instance):
             try await macDriver(for: instance).rightClick(titled: titled)
@@ -645,11 +653,12 @@ public actor TestOrchestrator {
             // runner's environment, so `$TMPDIR` resolves to the same directory. If the tmux
             // server were started independently (different env), this assumption would break.
             let destPath = NSTemporaryDirectory() + name
-            guard let sourceURL = Bundle.module.url(
-                forResource: name,
-                withExtension: nil,
-                subdirectory: "Scripts"
-            ) else {
+            guard
+                let sourceURL = Bundle.module.url(
+                    forResource: name,
+                    withExtension: nil,
+                    subdirectory: "Scripts"
+                ) else {
                 throw OrchestratorError.configurationError(
                     "Script '\(name)' not found in bundled Scripts directory"
                 )
