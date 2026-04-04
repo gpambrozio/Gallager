@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Dependencies
 import DependenciesMacros
 import Foundation
@@ -220,6 +221,23 @@ private actor LiveHookServer {
         ])
 
         let bodyData = Data(bodyString.utf8)
+
+        // Pre-decode common fields to check for subagent events
+        let common: CommonHookFields
+        do {
+            common = try JSONDecoder().decode(CommonHookFields.self, from: bodyData)
+        } catch {
+            logger.error("Failed to parse hook common fields: \(error)")
+            return emptyResponse()
+        }
+
+        if common.agentId != nil {
+            logger.info("Ignoring subagent hook event", metadata: [
+                "agentId": "\(common.agentId ?? "?")",
+                "event": "\(common.hookEventName)",
+            ])
+            return emptyResponse()
+        }
 
         let hookAction: HookAction
         do {
