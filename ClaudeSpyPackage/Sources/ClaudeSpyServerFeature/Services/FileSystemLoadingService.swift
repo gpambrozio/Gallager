@@ -467,7 +467,7 @@ private func loadDirectory(
         let items = try? fm.contentsOfDirectory(
             at: url,
             includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
+            options: []
         )
     else {
         return .folder(FullFolder<TextFileContents>(children: [:], persistentID: folderUUID))

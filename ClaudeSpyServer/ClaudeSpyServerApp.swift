@@ -143,6 +143,11 @@ struct TmuxPaneMirrorApp: App {
                     fakeTree["document.pdf"] = .file(.pdf(bundlePath: sampleDir + "/test_pdf.pdf"))
                     fakeTree["clip.mp4"] = .file(.video(bundlePath: sampleDir + "/test_video.mp4"))
                 }
+                // Dot entries: .claude should show, .DS_Store should be filtered
+                fakeTree[".claude"] = .folder([
+                    "settings.json": .file(.text("{ \"model\": \"opus\" }\n")),
+                ])
+                fakeTree[".DS_Store"] = .file(.unsupported())
                 // Pending file: hangs on first load, succeeds on second.
                 // Dynamic entries appear in the tree after the pending file loads.
                 fakeTree["loading.txt"] = .file(.pendingText("This file loaded successfully!\n"))

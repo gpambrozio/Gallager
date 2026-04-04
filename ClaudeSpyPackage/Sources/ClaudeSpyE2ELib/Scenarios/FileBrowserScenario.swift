@@ -53,6 +53,10 @@ public enum FileBrowserScenario {
         TestStep.macWaitForElement(titled: "README.md", timeout: 10)
         // Detail pane should show "Select a File" placeholder
         TestStep.macWaitForElement(titled: "Select a File", timeout: 5)
+        // Dot folders like .claude should be visible
+        TestStep.macWaitForElement(titled: ".claude", timeout: 5)
+        // OS-level dot files like .DS_Store should be filtered out
+        TestStep.macWaitForElementToDisappear(titled: ".DS_Store", timeout: 2)
         TestStep.macScreenshot(label: "mac-file-browser-empty-selection")
 
         // ── Phase 2: Text File Viewer ────────────────────────────

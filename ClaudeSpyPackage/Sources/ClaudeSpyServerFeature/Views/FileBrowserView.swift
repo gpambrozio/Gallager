@@ -9,6 +9,12 @@ import SwiftUI
 import Textual
 import WebKit
 
+/// OS-level entries to hide in the file navigator (same as skippedEntries in the service).
+private let skippedNavigatorEntries: Set<String> = [
+    ".DS_Store", ".Trash", ".Spotlight-V100", ".fseventsd",
+    ".TemporaryItems", ".DocumentRevisions-V100",
+]
+
 /// Cached state for a file browser, keyed by window ID.
 /// Stored in MainView so it survives tab/session switches.
 @Observable
@@ -199,7 +205,7 @@ struct FileBrowserView: View {
                         )
                     }
                 )
-                .navigatorFilter { $0.first != "." }
+                .navigatorFilter { !skippedNavigatorEntries.contains($0) }
             }
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)
