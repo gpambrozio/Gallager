@@ -223,7 +223,11 @@ private actor LiveHookServer {
 
         let hookAction: HookAction
         do {
-            hookAction = try HookAction.from(jsonData: bodyData)
+            guard let parsed = try HookAction.from(jsonData: bodyData) else {
+                logger.info("Ignoring subagent hook event")
+                return emptyResponse()
+            }
+            hookAction = parsed
         } catch {
             logger.error("Failed to parse hook body: \(error)")
             return emptyResponse()

@@ -180,6 +180,15 @@ public protocol HookBodyProtocol: Codable, Sendable {
     var hookEventName: String { get }
     var timestamp: String? { get }
     var shouldSendToServer: Bool { get }
+    /// Unique identifier for the subagent. Present only when the hook fires inside a subagent call.
+    var agentId: String? { get }
+    /// Agent name (e.g., "Explore" or "security-reviewer"). Present when the hook fires inside a subagent.
+    var agentType: String? { get }
+}
+
+public extension HookBodyProtocol {
+    var agentId: String? { nil }
+    var agentType: String? { nil }
 }
 
 // MARK: - Common Hook Fields
@@ -191,6 +200,8 @@ public struct CommonHookFields: HookBodyProtocol {
     public let cwd: String?
     public let hookEventName: String
     public let timestamp: String?
+    public let agentId: String?
+    public let agentType: String?
     public var shouldSendToServer: Bool { true }
 
     enum CodingKeys: String, CodingKey {
@@ -199,6 +210,8 @@ public struct CommonHookFields: HookBodyProtocol {
         case cwd
         case hookEventName = "hook_event_name"
         case timestamp
+        case agentId = "agent_id"
+        case agentType = "agent_type"
     }
 }
 
@@ -1479,12 +1492,18 @@ public enum HookAction: Codable, Sendable {
         }
     }
 
-    /// Parse hook action from JSON data by reading hook_event_name
-    public static func from(jsonData: Data) throws -> HookAction {
+    /// Parse hook action from JSON data by reading hook_event_name.
+    /// Returns nil if the hook fired inside a subagent (agent_id is present).
+    public static func from(jsonData: Data) throws -> HookAction? {
         let decoder = JSONDecoder()
 
         // First, extract common fields to determine the type
         let common = try decoder.decode(CommonHookFields.self, from: jsonData)
+
+        // Ignore hooks that fire inside a subagent
+        if common.agentId != nil {
+            return nil
+        }
 
         switch common.hookEventName {
         case "SessionStart":
