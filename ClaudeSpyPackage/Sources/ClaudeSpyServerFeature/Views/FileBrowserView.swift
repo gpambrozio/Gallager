@@ -26,7 +26,12 @@ final class FileBrowserState {
     /// The directory path this state was loaded for; used to detect stale caches.
     var loadedPath: String?
     /// Maps filesystem paths to stable UUIDs so tree rebuilds preserve expansion/selection.
-    var stableIds: [String: UUID] = [:]
+    var stableIds: [String: UUID] = [:] {
+        didSet { reverseIds = Dictionary(stableIds.map { ($1, $0) }, uniquingKeysWith: { first, _ in first }) }
+    }
+
+    /// Cached reverse mapping from UUID to filesystem path, updated when `stableIds` changes.
+    private(set) var reverseIds: [UUID: String] = [:]
     /// Folder paths whose children have been loaded.
     var loadedFolderPaths: Set<String> = []
 }
@@ -127,11 +132,8 @@ struct FileBrowserView: View {
     /// Detects when the user expands a folder whose children haven't been loaded yet,
     /// and triggers a tree rebuild with that folder's contents.
     private func handleExpansionChange(viewState: FileNavigatorViewState<TextFileContents>) {
-        // Find expanded folder UUIDs that aren't loaded yet
-        let reverseIds = Dictionary(state.stableIds.map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
-
         for expandedId in viewState.expansions.ids {
-            guard let path = reverseIds[expandedId] else { continue }
+            guard let path = state.reverseIds[expandedId] else { continue }
             guard !state.loadedFolderPaths.contains(path) else { continue }
 
             // This folder needs its children loaded
@@ -168,7 +170,7 @@ struct FileBrowserView: View {
                         .fileTreeContextMenu(
                             itemId: proxy.id,
                             directoryPath: directoryPath,
-                            stableIds: state.stableIds
+                            reverseIds: state.reverseIds
                         )
                     },
                     folderLabel: { cursor, _, folder in
@@ -182,7 +184,7 @@ struct FileBrowserView: View {
                         .fileTreeContextMenu(
                             itemId: folder.wrappedValue.id,
                             directoryPath: directoryPath,
-                            stableIds: state.stableIds
+                            reverseIds: state.reverseIds
                         )
                     }
                 )
@@ -255,9 +257,8 @@ private extension View {
     func fileTreeContextMenu(
         itemId: UUID,
         directoryPath: String,
-        stableIds: [String: UUID]
+        reverseIds: [UUID: String]
     ) -> some View {
-        let reverseIds = Dictionary(stableIds.map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         let fullPath = reverseIds[itemId]
         let relativePath = fullPath.map { String($0.dropFirst(directoryPath.count + 1)) }
 
@@ -318,18 +319,7 @@ private struct LiveFileContentView: View {
 
     init(filePath: String) {
         self.filePath = filePath
-        let detectedKind = Self.detectKind(filePath)
-        _kind = State(initialValue: detectedKind)
-        // Load content synchronously so the first frame is never empty
-        switch detectedKind {
-        case .image:
-            _nsImage = State(initialValue: NSImage(contentsOfFile: filePath))
-        case .markdown,
-             .text:
-            _text = State(initialValue: try? String(contentsOfFile: filePath, encoding: .utf8))
-        default:
-            break
-        }
+        _kind = State(initialValue: Self.detectKind(filePath))
     }
 
     var body: some View {
@@ -413,8 +403,18 @@ private struct LiveFileContentView: View {
         if videoExtensions.contains(ext) { return .video }
         if markdownExtensions.contains(ext) { return .markdown }
         if ext == "html" || ext == "htm" { return .html }
-        if (try? String(contentsOfFile: path, encoding: .utf8)) != nil { return .text }
+        if looksLikeText(at: path) { return .text }
         return .unsupported
+    }
+
+    /// Checks if a file is likely text by reading a small prefix and looking for null bytes.
+    /// Avoids loading the entire file into memory (which would spike for large binaries).
+    private static func looksLikeText(at path: String) -> Bool {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return false }
+        defer { try? handle.close() }
+        let prefix = handle.readData(ofLength: 8_192)
+        guard !prefix.isEmpty else { return true } // empty file counts as text
+        return !prefix.contains(0)
     }
 }
 
@@ -460,6 +460,7 @@ private struct AVPlayerViewRepresentable: NSViewRepresentable {
 }
 
 /// Returns an `AsyncStream` that yields a value each time the file at `path` is modified.
+/// DispatchSource required: no Swift Concurrency API for kqueue file monitoring.
 private func fileChanges(at path: String) -> AsyncStream<Void> {
     AsyncStream { continuation in
         let fd = open(path, O_EVTONLY)

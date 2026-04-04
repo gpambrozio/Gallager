@@ -2,10 +2,10 @@ import Files
 import Foundation
 import OrderedCollections
 
-/// Directories to skip when building the file tree.
-private let skippedDirectories: Set<String> = [
-    ".git", ".build", ".swiftpm", "node_modules", ".DS_Store",
-    "DerivedData", "Pods", ".Trash", "xcuserdata",
+/// OS-level files and directories to skip when building the file tree.
+private let skippedEntries: Set<String> = [
+    ".DS_Store", ".Trash", ".Spotlight-V100", ".fseventsd",
+    ".TemporaryItems", ".DocumentRevisions-V100",
 ]
 
 /// Result of loading a file tree, including stable ID mappings for lazy loading.
@@ -47,6 +47,9 @@ func loadFileTree(
     }.value
 }
 
+// FullFileOrFolder contains File which wraps FileWrapper (not Sendable).
+// Safe here because we only transfer the tree once from Task.detached back to MainActor,
+// and TextFileContents holds only a String with no shared mutable state.
 extension FullFileOrFolder: @retroactive @unchecked Sendable { }
 
 /// Recursively loads a directory into a `FullFileOrFolder` hierarchy,
@@ -88,7 +91,7 @@ private func loadDirectory(
     for item in items.sorted(by: { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }) {
         let name = item.lastPathComponent
 
-        if skippedDirectories.contains(name) { continue }
+        if skippedEntries.contains(name) { continue }
 
         let isDirectory = (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
         let childPath = item.path
