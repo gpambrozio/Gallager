@@ -150,6 +150,138 @@ extension FileSystemLoadingService: DependencyKey {
     }
 }
 
+// MARK: - In-Memory (Tests / E2E)
+
+/// Describes a fake file in the in-memory filesystem.
+public struct FakeFile: Sendable {
+    public let kind: FileContentKind
+    /// Text content for text/markdown/html files. Nil for binary types.
+    public let textContent: String?
+    /// Path to a real file on disk to serve for binary types (loaded from test bundle).
+    public let bundlePath: String?
+
+    public static func text(_ content: String) -> FakeFile {
+        FakeFile(kind: .text, textContent: content, bundlePath: nil)
+    }
+
+    public static func markdown(_ content: String) -> FakeFile {
+        FakeFile(kind: .markdown, textContent: content, bundlePath: nil)
+    }
+
+    public static func html(_ content: String) -> FakeFile {
+        FakeFile(kind: .html, textContent: content, bundlePath: nil)
+    }
+
+    public static func image(bundlePath: String) -> FakeFile {
+        FakeFile(kind: .image, textContent: nil, bundlePath: bundlePath)
+    }
+
+    public static func pdf(bundlePath: String) -> FakeFile {
+        FakeFile(kind: .pdf, textContent: nil, bundlePath: bundlePath)
+    }
+
+    public static func video(bundlePath: String) -> FakeFile {
+        FakeFile(kind: .video, textContent: nil, bundlePath: bundlePath)
+    }
+
+    public static func unsupported() -> FakeFile {
+        FakeFile(kind: .unsupported, textContent: nil, bundlePath: nil)
+    }
+}
+
+/// Describes a fake directory tree for the in-memory filesystem.
+public enum FakeEntry: Sendable {
+    case file(FakeFile)
+    case folder([String: FakeEntry])
+}
+
+public extension FileSystemLoadingService {
+    /// Creates an in-memory service backed by a fake filesystem tree.
+    static func inMemory(
+        rootPath: String = "/FakeRoot",
+        tree: [String: FakeEntry]
+    ) -> FileSystemLoadingService {
+        var files: [String: FakeFile] = [:]
+        var stableIds: [String: UUID] = [:]
+        var folderPaths: Set<String> = []
+
+        func walk(_ entries: [String: FakeEntry], parentPath: String) {
+            stableIds[parentPath] = stableIds[parentPath] ?? UUID()
+            folderPaths.insert(parentPath)
+            for (name, entry) in entries {
+                let path = parentPath + "/" + name
+                stableIds[path] = stableIds[path] ?? UUID()
+                switch entry {
+                case let .file(fake):
+                    files[path] = fake
+                case let .folder(children):
+                    walk(children, parentPath: path)
+                }
+            }
+        }
+        walk(tree, parentPath: rootPath)
+
+        let capturedFiles = files
+        let capturedStableIds = stableIds
+        let capturedFolderPaths = folderPaths
+
+        return FileSystemLoadingService(
+            loadFileTree: { _, expandedPaths, existingIds in
+                var ids = capturedStableIds
+                for (k, v) in existingIds {
+                    ids[k] = v
+                }
+
+                func buildFolder(
+                    _ entries: [String: FakeEntry],
+                    path: String,
+                    depth: Int
+                ) -> FullFileOrFolder<TextFileContents> {
+                    let folderUUID = ids[path]!
+                    guard depth > 0 || expandedPaths.contains(path) else {
+                        return .folder(FullFolder<TextFileContents>(children: [:], persistentID: folderUUID))
+                    }
+                    var children = OrderedDictionary<String, FullFileOrFolder<TextFileContents>>()
+                    for (name, entry) in entries.sorted(by: { $0.key < $1.key }) {
+                        let childPath = path + "/" + name
+                        switch entry {
+                        case .file:
+                            children[name] = .file(
+                                File(contents: TextFileContents(text: ""), persistentID: ids[childPath]!)
+                            )
+                        case let .folder(subEntries):
+                            children[name] = buildFolder(subEntries, path: childPath, depth: depth - 1)
+                        }
+                    }
+                    return .folder(FullFolder<TextFileContents>(children: children, persistentID: folderUUID))
+                }
+
+                let root = buildFolder(tree, path: rootPath, depth: 1)
+                return FileTreeLoadResult(root: root, stableIds: ids, loadedFolderPaths: capturedFolderPaths)
+            },
+            detectFileKind: { path in
+                capturedFiles[path]?.kind ?? .unsupported
+            },
+            readTextFile: { path in
+                if let fake = capturedFiles[path] {
+                    if let text = fake.textContent { return text }
+                    if let bundlePath = fake.bundlePath {
+                        return try? String(contentsOfFile: bundlePath, encoding: .utf8)
+                    }
+                }
+                return nil
+            },
+            readImageFile: { path in
+                guard let bundlePath = capturedFiles[path]?.bundlePath else { return nil }
+                return NSImage(contentsOfFile: bundlePath)
+            },
+            fileChanges: { _ in
+                AsyncStream { $0.finish() }
+            }
+        )
+    }
+}
+
 // MARK: - Private Helpers
 
 /// OS-level files and directories to skip when building the file tree.

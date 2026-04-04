@@ -75,6 +75,13 @@ struct TmuxPaneMirrorApp: App {
                 $0[PreferencesService.self] = prefs
                 $0[SecretsService.self] = .inMemory()
                 $0[ClaudeProjectScanner.self] = .inMemory()
+                $0[FileSystemLoadingService.self] = .inMemory(tree: [
+                    "README.md": .file(.markdown("# E2E Test Project\n\nThis is a fake project for testing.")),
+                    "hello.txt": .file(.text("Hello from E2E test.\n")),
+                    "src": .folder([
+                        "main.swift": .file(.text("import Foundation\nprint(\"Hello\")\n")),
+                    ]),
+                ])
                 $0[LoginItemService.self] = LoginItemService(
                     isEnabled: { false },
                     setEnabled: { _ in }
