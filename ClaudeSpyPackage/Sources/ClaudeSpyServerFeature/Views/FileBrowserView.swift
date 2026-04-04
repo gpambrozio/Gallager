@@ -309,53 +309,61 @@ private struct LiveFileContentView: View {
     @State private var kind: FileContentKind = .unsupported
     @State private var text: String?
     @State private var nsImage: NSImage?
+    @State private var isLoading = true
 
     var body: some View {
         Group {
-            switch kind {
-            case .image:
-                if let nsImage {
-                    Image(nsImage: nsImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding()
-                }
-            case .pdf:
-                PDFViewRepresentable(url: fileSystemService.resolveFileURL(filePath) ?? URL(fileURLWithPath: filePath))
-            case .video:
-                AVPlayerViewRepresentable(url: fileSystemService.resolveFileURL(filePath) ?? URL(fileURLWithPath: filePath))
+            if isLoading {
+                ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .html:
-                if #available(macOS 26, *) {
-                    WebView(url: fileSystemService.resolveFileURL(filePath) ?? URL(fileURLWithPath: filePath))
-                }
-            case .markdown:
-                if let text {
-                    ScrollView {
-                        StructuredText(markdown: text)
-                            .textSelection(.enabled)
+            } else {
+                switch kind {
+                case .image:
+                    if let nsImage {
+                        Image(nsImage: nsImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .padding()
-                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                case .pdf:
+                    PDFViewRepresentable(url: fileSystemService.resolveFileURL(filePath) ?? URL(fileURLWithPath: filePath))
+                case .video:
+                    AVPlayerViewRepresentable(url: fileSystemService.resolveFileURL(filePath) ?? URL(fileURLWithPath: filePath))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                case .html:
+                    if #available(macOS 26, *) {
+                        WebView(url: fileSystemService.resolveFileURL(filePath) ?? URL(fileURLWithPath: filePath))
+                    }
+                case .markdown:
+                    if let text {
+                        ScrollView {
+                            StructuredText(markdown: text)
+                                .textSelection(.enabled)
+                                .padding()
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                case .text:
+                    if let text {
+                        TextEditor(text: .constant(text))
+                            .font(.system(.body, design: .monospaced))
+                            .scrollContentBackground(.hidden)
+                    }
+                case .unsupported:
+                    ContentUnavailableView(
+                        "Unable to Read File",
+                        symbol: .docPlaintextFill,
+                        description: "This file could not be read as text."
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-            case .text:
-                if let text {
-                    TextEditor(text: .constant(text))
-                        .font(.system(.body, design: .monospaced))
-                        .scrollContentBackground(.hidden)
-                }
-            case .unsupported:
-                ContentUnavailableView(
-                    "Unable to Read File",
-                    symbol: .docPlaintextFill,
-                    description: "This file could not be read as text."
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .task(id: filePath) {
+            isLoading = true
             await loadContent()
+            isLoading = false
             for await _ in fileSystemService.fileChanges(filePath) {
                 await loadContent()
             }
