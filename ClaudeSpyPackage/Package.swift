@@ -205,12 +205,14 @@ let package = Package(
             name: "ClaudeSpyE2ELib",
             dependencies: [
                 .claudeSpyNetworking,
+                .claudeSpyServerFeature,
                 .claudeSpyExternalServerLib,
                 .vapor,
                 .logging,
             ],
             resources: [
                 .copy("Scenarios/Scripts"),
+                .copy("Scenarios/SampleFiles"),
             ]
         ),
         // E2E test coordinator executable

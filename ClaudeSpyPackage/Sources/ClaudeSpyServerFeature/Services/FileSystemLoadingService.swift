@@ -8,7 +8,7 @@ import OrderedCollections
 // MARK: - File Content Kind
 
 /// The type of content a file represents, used to select the appropriate viewer.
-enum FileContentKind: Sendable {
+public enum FileContentKind: Sendable {
     case image
     case pdf
     case video
@@ -31,13 +31,23 @@ let markdownExtensions: Set<String> = ["md", "markdown"]
 // MARK: - File Tree Load Result
 
 /// Result of loading a file tree, including stable ID mappings for lazy loading.
-struct FileTreeLoadResult: Sendable {
-    let root: FullFileOrFolder<TextFileContents>
+public struct FileTreeLoadResult: Sendable {
+    public let root: FullFileOrFolder<TextFileContents>
     /// Maps filesystem path strings to stable UUIDs, enabling tree rebuilds
     /// that preserve expansion and selection state.
-    let stableIds: [String: UUID]
+    public let stableIds: [String: UUID]
     /// Filesystem paths of folders whose children have been loaded.
-    let loadedFolderPaths: Set<String>
+    public let loadedFolderPaths: Set<String>
+
+    public init(
+        root: FullFileOrFolder<TextFileContents>,
+        stableIds: [String: UUID],
+        loadedFolderPaths: Set<String>
+    ) {
+        self.root = root
+        self.stableIds = stableIds
+        self.loadedFolderPaths = loadedFolderPaths
+    }
 }
 
 // MARK: - Dependency Client
@@ -45,9 +55,9 @@ struct FileTreeLoadResult: Sendable {
 /// Service for all file system operations used by the file browser.
 /// Wraps directory scanning, file type detection, content reading, and file monitoring.
 @DependencyClient
-struct FileSystemLoadingService: Sendable {
+public struct FileSystemLoadingService: Sendable {
     /// Loads a directory tree one level deep, with expanded paths loaded on demand.
-    var loadFileTree: @Sendable (
+    public var loadFileTree: @Sendable (
         _ url: URL,
         _ expandedPaths: Set<String>,
         _ stableIds: [String: UUID]
@@ -56,16 +66,16 @@ struct FileSystemLoadingService: Sendable {
     }
 
     /// Detects the content kind of a file at the given path.
-    var detectFileKind: @Sendable (_ path: String) -> FileContentKind = { _ in .unsupported }
+    public var detectFileKind: @Sendable (_ path: String) -> FileContentKind = { _ in .unsupported }
 
     /// Reads a text file and returns its contents, or nil if not readable as UTF-8.
-    var readTextFile: @Sendable (_ path: String) -> String? = { _ in nil }
+    public var readTextFile: @Sendable (_ path: String) -> String? = { _ in nil }
 
     /// Reads an image file and returns an NSImage, or nil if not a valid image.
-    var readImageFile: @Sendable (_ path: String) -> NSImage? = { _ in nil }
+    public var readImageFile: @Sendable (_ path: String) -> NSImage? = { _ in nil }
 
     /// Returns an async stream that yields whenever the file at the given path changes on disk.
-    var fileChanges: @Sendable (_ path: String) -> AsyncStream<Void> = { _ in
+    public var fileChanges: @Sendable (_ path: String) -> AsyncStream<Void> = { _ in
         AsyncStream { $0.finish() }
     }
 }
@@ -73,7 +83,7 @@ struct FileSystemLoadingService: Sendable {
 // MARK: - DependencyKey
 
 extension FileSystemLoadingService: DependencyKey {
-    static var liveValue: FileSystemLoadingService {
+    public static var liveValue: FileSystemLoadingService {
         FileSystemLoadingService(
             loadFileTree: { url, expandedPaths, stableIds in
                 await Task.detached {
