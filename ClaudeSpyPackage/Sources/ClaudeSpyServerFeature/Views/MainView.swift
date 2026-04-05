@@ -222,11 +222,13 @@ public struct MainView: View {
     }
 
     private var windowList: some View {
-        let allSessions = tmuxService.sessions
+        let sortedSessions = settings.sidebarSortMode.sorted(tmuxService.sessions) { session in
+            localSessionSortData(session)
+        }
 
         return ScrollViewReader { proxy in
             List {
-                localSessionsSection(sessions: allSessions)
+                localSessionsSection(sessions: sortedSessions)
                 remoteHostSections
             }
             .listStyle(.sidebar)
@@ -264,6 +266,35 @@ public struct MainView: View {
                 localNewSessionPopover
             }
         }
+    }
+
+    private func localSessionSortData(_ session: LocalTmuxSession) -> SessionSortData {
+        let claudeSession: ClaudeSession? = session.windows.lazy
+            .flatMap(\.panes)
+            .compactMap { windowManager.paneStates[$0.paneId]?.claudeSession }
+            .first
+
+        let primaryPane = session.activeWindow?.activePane
+        let paneState = primaryPane.flatMap { windowManager.paneStates[$0.paneId] }
+
+        let primaryLabel = SessionFieldsView(
+            fields: settings.sidebarFields,
+            customDescription: paneState?.customDescription,
+            projectName: claudeSession?.displayName,
+            sessionName: session.sessionName,
+            terminalTitle: paneState?.terminalTitle,
+            command: primaryPane?.command,
+            currentPath: primaryPane?.currentPath,
+            latestEvent: nil
+        ).primaryLabel
+
+        return SessionSortData(
+            sessionName: session.sessionName,
+            primaryLabel: primaryLabel,
+            hasClaude: claudeSession != nil,
+            statusPriority: SessionSortData.statusPriority(for: claudeSession),
+            latestEventTimestamp: claudeSession?.latestEvent?.timestamp
+        )
     }
 
     @ViewBuilder
@@ -1762,24 +1793,39 @@ private struct RemoteHostSidebarSection: View {
         !tmuxSessions.isEmpty
     }
 
-    /// Sessions that contain at least one Claude session
-    private var claudeSessions: [TmuxSession] {
-        tmuxSessions.filter(\.hasClaude)
-    }
+    private var sortedSessions: [TmuxSession] {
+        settings.sidebarSortMode.sorted(tmuxSessions) { session in
+            let claudeSession = session.windows
+                .flatMap(\.panes)
+                .compactMap(\.claudeSession)
+                .first
+            let activePane = session.activeWindow?.activePane
 
-    /// Sessions without any Claude sessions (plain terminals)
-    private var terminalSessions: [TmuxSession] {
-        tmuxSessions.filter { !$0.hasClaude }
+            let primaryLabel = SessionFieldsView(
+                fields: settings.sidebarFields,
+                customDescription: session.customDescription,
+                projectName: claudeSession?.displayName,
+                sessionName: session.sessionName,
+                terminalTitle: activePane?.terminalTitle,
+                command: activePane?.command,
+                currentPath: activePane?.currentPath,
+                latestEvent: nil
+            ).primaryLabel
+
+            return SessionSortData(
+                sessionName: session.sessionName,
+                primaryLabel: primaryLabel,
+                hasClaude: claudeSession != nil,
+                statusPriority: SessionSortData.statusPriority(for: claudeSession),
+                latestEventTimestamp: claudeSession?.latestEvent?.timestamp
+            )
+        }
     }
 
     var body: some View {
         Section {
             if hasContent {
-                ForEach(claudeSessions) { session in
-                    remoteSessionButton(session)
-                }
-
-                ForEach(terminalSessions) { session in
+                ForEach(sortedSessions) { session in
                     remoteSessionButton(session)
                 }
             } else if connection?.isHostConnected == true {

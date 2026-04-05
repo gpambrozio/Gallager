@@ -238,6 +238,11 @@ final public class AppSettings {
         didSet { saveSidebarFields() }
     }
 
+    /// How sessions are sorted in the sidebar
+    public var sidebarSortMode: SidebarSortMode = .recentActivity {
+        didSet { preferences.setString(sidebarSortMode.rawValue, Keys.sidebarSortMode) }
+    }
+
     // MARK: - Plugin Settings
 
     /// Whether the user has completed the plugin setup (or dismissed it)
@@ -311,6 +316,9 @@ final public class AppSettings {
         if sidebarFields.isEmpty {
             self.sidebarFields = SidebarField.defaultFields
         }
+        self.sidebarSortMode = SidebarSortMode(
+            rawValue: preferences.string(Keys.sidebarSortMode) ?? ""
+        ) ?? .recentActivity
 
         // Plugin
         self.hasCompletedPluginSetup = preferences.optionalBool(Keys.hasCompletedPluginSetup) ?? Defaults.hasCompletedPluginSetup
@@ -350,6 +358,7 @@ final public class AppSettings {
         case deviceId
         // Sidebar Layout
         case sidebarFields
+        case sidebarSortMode
         // Plugin
         case hasCompletedPluginSetup
         // Launch at Login

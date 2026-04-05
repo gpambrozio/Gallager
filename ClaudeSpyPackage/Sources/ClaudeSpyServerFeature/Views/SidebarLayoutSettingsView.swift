@@ -35,8 +35,25 @@ struct SidebarLayoutSettingsView: View {
 
             Divider()
 
-            SidebarPreview(fields: settings.sidebarFields)
-                .padding()
+            HStack {
+                SidebarPreview(fields: settings.sidebarFields)
+
+                Spacer()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Sort Order")
+                        .font(.headline)
+
+                    Picker("Sort Order", selection: $settings.sidebarSortMode) {
+                        ForEach(SidebarSortMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.radioGroup)
+                    .labelsHidden()
+                }
+            }
+            .padding()
         }
     }
 

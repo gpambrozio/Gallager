@@ -1,4 +1,5 @@
 import ClaudeSpyCommon
+import ClaudeSpyNetworking
 import SwiftUI
 
 /// Renders sidebar session fields in the order configured by the user.
@@ -40,6 +41,16 @@ struct SessionFieldsView: View {
         }
     }
 
+    /// The first non-empty field value, used for alphabetical sorting
+    var primaryLabel: String {
+        for field in fields {
+            if let value = value(for: field), !value.isEmpty {
+                return value
+            }
+        }
+        return sessionName
+    }
+
     private func value(for field: SidebarField) -> String? {
         switch field {
         case .customDescription: customDescription
@@ -49,6 +60,52 @@ struct SessionFieldsView: View {
         case .command: command
         case .currentPath: currentPath?.abbreviatedPath(home: homeDirectory)
         case .latestEvent: latestEvent
+        }
+    }
+}
+
+// MARK: - Session Sort Data
+
+/// Data needed to sort a session, extracted uniformly from local or remote sessions.
+struct SessionSortData {
+    let sessionName: String
+    let primaryLabel: String
+    let hasClaude: Bool
+    let statusPriority: Int // 0 = attention, 1 = working, 2 = idle, 3 = no claude
+    let latestEventTimestamp: Date?
+
+    /// Status priority: lower = higher priority
+    static func statusPriority(for claudeSession: ClaudeSession?) -> Int {
+        guard let session = claudeSession else { return 3 }
+        if session.needsAttention { return 0 }
+        if session.isWorking { return 1 }
+        return 2
+    }
+}
+
+extension SidebarSortMode {
+    /// Sort an array of items using the given sort mode and a closure to extract sort data.
+    func sorted<T>(_ items: [T], by data: (T) -> SessionSortData) -> [T] {
+        items.sorted { lhs, rhs in
+            let a = data(lhs)
+            let b = data(rhs)
+            switch self {
+            case .alphabetical:
+                return a.primaryLabel.localizedCaseInsensitiveCompare(b.primaryLabel) == .orderedAscending
+            case .claudeFirst:
+                if a.hasClaude != b.hasClaude { return a.hasClaude }
+                return a.sessionName.localizedCaseInsensitiveCompare(b.sessionName) == .orderedAscending
+            case .statusPriority:
+                if a.statusPriority != b.statusPriority { return a.statusPriority < b.statusPriority }
+                return a.sessionName.localizedCaseInsensitiveCompare(b.sessionName) == .orderedAscending
+            case .recentActivity:
+                let aTime = a.latestEventTimestamp ?? .distantPast
+                let bTime = b.latestEventTimestamp ?? .distantPast
+                if aTime != bTime { return aTime > bTime }
+                return a.sessionName.localizedCaseInsensitiveCompare(b.sessionName) == .orderedAscending
+            case .sessionName:
+                return a.sessionName.localizedCaseInsensitiveCompare(b.sessionName) == .orderedAscending
+            }
         }
     }
 }
