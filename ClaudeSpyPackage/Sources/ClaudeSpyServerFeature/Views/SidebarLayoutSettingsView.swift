@@ -12,13 +12,6 @@ struct SidebarLayoutSettingsView: View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 16) {
                 FieldList(
-                    title: "Visible Fields",
-                    fields: $settings.sidebarFields,
-                    allFields: settings.sidebarFields,
-                    isSource: true
-                )
-
-                FieldList(
                     title: "Available Fields",
                     fields: .init(
                         get: { availableFields },
@@ -29,6 +22,13 @@ struct SidebarLayoutSettingsView: View {
                     onAdd: { field in
                         settings.sidebarFields.append(field)
                     }
+                )
+
+                FieldList(
+                    title: "Visible Fields",
+                    fields: $settings.sidebarFields,
+                    allFields: settings.sidebarFields,
+                    isSource: true
                 )
             }
             .padding()
