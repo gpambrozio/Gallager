@@ -1,5 +1,6 @@
 import AppKit
 import ClaudeSpyCommon
+import ClaudeSpyEncryption
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -49,7 +50,7 @@ public struct SettingsView: View {
                 }
                 .tag(SettingsTab.about)
         }
-        .frame(minWidth: 500, minHeight: 500)
+        .frame(minWidth: 900, minHeight: 500)
     }
 }
 
@@ -292,11 +293,15 @@ private func browseForClaude(settings: AppSettings) {
     }
 }
 
-// Preview disabled - E2EEService requires async initialization
-// #Preview {
-//     let settings = AppSettings()
-//     SettingsView()
-//         .environment(settings)
-//         .environment(PairingManager(settings: settings, e2eeService: ...))
-//         .environment(ExternalServerClient())
-// }
+#Preview {
+    let settings = AppSettings()
+    let e2eeService = E2EEService(keyPair: .generateNew())
+
+    SettingsView()
+        .environment(settings)
+        .environment(AppCoordinator(settings: settings))
+        .environment(PairingManager(settings: settings, e2eeService: e2eeService))
+        .environment(UpdaterController(startUpdater: false))
+        .environment(PluginService())
+        .e2eeService(e2eeService)
+}
