@@ -260,7 +260,7 @@ public struct MainView: View {
                 }
             }
         } header: {
-            SectionHeader(title: "Local", symbol: .terminal) {
+            SectionHeader(title: "Local", symbol: .house) {
                 localNewSessionPopover
             }
         }
