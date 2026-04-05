@@ -41,9 +41,9 @@ public enum SidebarField: String, Codable, Sendable, CaseIterable, Identifiable 
         switch self {
         case .customDescription: "Custom Description"
         case .projectName: "Project Name"
-        case .sessionName: "Session Name"
+        case .sessionName: "Tmux Session Name"
         case .terminalTitle: "Terminal Title"
-        case .command: "Command"
+        case .command: "Current Command"
         case .currentPath: "Current Path"
         case .latestEvent: "Latest Event"
         }

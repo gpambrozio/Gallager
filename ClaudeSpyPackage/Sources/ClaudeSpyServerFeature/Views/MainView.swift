@@ -1351,6 +1351,18 @@ private struct SessionSidebarRow: View {
         return nil
     }
 
+    /// The first non-empty terminal title found across all windows
+    private var terminalTitle: String? {
+        for window in session.windows {
+            for pane in window.panes {
+                if let title = windowManager.paneStates[pane.paneId]?.terminalTitle, !title.isEmpty {
+                    return title
+                }
+            }
+        }
+        return nil
+    }
+
     /// The latest event subtitle from the first pane with a Claude session
     private var sessionSubtitle: String? {
         for window in session.windows {
@@ -1381,7 +1393,7 @@ private struct SessionSidebarRow: View {
                 customDescription: primaryPaneState?.customDescription,
                 projectName: claudeSession?.displayName,
                 sessionName: session.sessionName,
-                terminalTitle: primaryPaneState?.terminalTitle,
+                terminalTitle: terminalTitle,
                 command: primaryPane?.command,
                 currentPath: primaryPane?.currentPath,
                 latestEvent: sessionSubtitle

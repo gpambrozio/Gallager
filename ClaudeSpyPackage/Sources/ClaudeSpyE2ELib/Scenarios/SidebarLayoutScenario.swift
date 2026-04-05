@@ -150,10 +150,10 @@ public enum SidebarLayoutScenario {
         TestStep.macClickButton(titled: "Remove Latest Event")
         TestStep.wait(seconds: 0.5)
 
-        // Add Session Name and Command
-        TestStep.macClickButton(titled: "Add Session Name")
+        // Add Tmux Session Name and Command
+        TestStep.macClickButton(titled: "Add Tmux Session Name")
         TestStep.wait(seconds: 0.5)
-        TestStep.macClickButton(titled: "Add Command")
+        TestStep.macClickButton(titled: "Add Current Command")
         TestStep.wait(seconds: 0.5)
 
         TestStep.macScreenshot(label: "sidebar-settings-session-command", compare: false)
@@ -175,15 +175,15 @@ public enum SidebarLayoutScenario {
         TestStep.macWaitForWindow(titled: "Sidebar", timeout: 5)
 
         // Remove current fields
-        TestStep.macClickButton(titled: "Remove Session Name")
+        TestStep.macClickButton(titled: "Remove Tmux Session Name")
         TestStep.wait(seconds: 0.5)
-        TestStep.macClickButton(titled: "Remove Command")
+        TestStep.macClickButton(titled: "Remove Current Command")
         TestStep.wait(seconds: 0.5)
 
         // Add Project Name + Session Name
         TestStep.macClickButton(titled: "Add Project Name")
         TestStep.wait(seconds: 0.5)
-        TestStep.macClickButton(titled: "Add Session Name")
+        TestStep.macClickButton(titled: "Add Tmux Session Name")
         TestStep.wait(seconds: 0.5)
 
         TestStep.macScreenshot(label: "sidebar-settings-project-session", compare: false)
