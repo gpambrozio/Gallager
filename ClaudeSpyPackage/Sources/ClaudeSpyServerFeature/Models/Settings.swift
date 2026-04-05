@@ -24,6 +24,7 @@ public enum SettingsTab: String, Sendable {
     case general
     case remoteAccess
     case remoteHosts
+    case sidebarLayout
     case plugin
     case about
 }
@@ -230,6 +231,13 @@ final public class AppSettings {
         didSet { preferences.setString(deviceId, Keys.deviceId) }
     }
 
+    // MARK: - Sidebar Layout Settings
+
+    /// Ordered list of fields to display in sidebar session rows
+    public var sidebarFields: [SidebarField] = SidebarField.defaultFields {
+        didSet { saveSidebarFields() }
+    }
+
     // MARK: - Plugin Settings
 
     /// Whether the user has completed the plugin setup (or dismissed it)
@@ -298,6 +306,12 @@ final public class AppSettings {
             preferences.setString(newDeviceId, Keys.deviceId)
         }
 
+        // Sidebar Layout
+        self.sidebarFields = Self.loadCodable(from: preferences, key: Keys.sidebarFields)
+        if sidebarFields.isEmpty {
+            self.sidebarFields = SidebarField.defaultFields
+        }
+
         // Plugin
         self.hasCompletedPluginSetup = preferences.optionalBool(Keys.hasCompletedPluginSetup) ?? Defaults.hasCompletedPluginSetup
 
@@ -334,6 +348,8 @@ final public class AppSettings {
         case pairedHosts
         case autoConnectToServer
         case deviceId
+        // Sidebar Layout
+        case sidebarFields
         // Plugin
         case hasCompletedPluginSetup
         // Launch at Login
@@ -407,6 +423,13 @@ final public class AppSettings {
             return
         }
         preferences.setData(data, Keys.pairedHosts)
+    }
+
+    private func saveSidebarFields() {
+        guard let data = try? JSONEncoder().encode(sidebarFields) else {
+            return
+        }
+        preferences.setData(data, Keys.sidebarFields)
     }
 
     // MARK: - Pairing Management

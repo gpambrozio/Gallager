@@ -1334,6 +1334,7 @@ extension SectionHeader {
 /// A row displaying a tmux session in the sidebar
 private struct SessionSidebarRow: View {
     @Environment(MirrorWindowManager.self) private var windowManager
+    @Environment(AppSettings.self) private var settings
 
     let session: LocalTmuxSession
 
@@ -1372,71 +1373,24 @@ private struct SessionSidebarRow: View {
         return nil
     }
 
-    /// Terminal title detected via OSC escape sequences (from primary pane)
-    private var terminalTitle: String? {
-        primaryPaneState?.terminalTitle
-    }
-
-    /// Custom description for this session (from the active window's primary pane)
-    private var customDescription: String? {
-        primaryPaneState?.customDescription
-    }
-
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            if let session = claudeSession {
-                SessionStatusIndicator(session: session)
+            if let claudeSession {
+                SessionStatusIndicator(session: claudeSession)
                     .font(.system(size: 16))
                     .frame(width: 20)
             }
 
-            VStack(alignment: .leading, spacing: 2) {
-                // Custom description shown prominently if set
-                if let customDescription {
-                    Text(customDescription)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                }
-
-                HStack(spacing: 6) {
-                    Text(session.sessionName)
-                        .font(.system(customDescription != nil ? .caption : .body, design: .monospaced))
-                        .foregroundStyle(customDescription != nil ? .secondary : .primary)
-
-                    if session.windows.count > 1 {
-                        Text("\(session.windows.count) windows")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                if let terminalTitle, !terminalTitle.isEmpty {
-                    Text(terminalTitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                if let pane = primaryPane {
-                    Text(pane.command)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-
-                    Text(pane.currentPath.abbreviatedPath)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                }
-
-                if let sessionSubtitle {
-                    Text(sessionSubtitle)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(2)
-                }
-            }
+            SessionFieldsView(
+                fields: settings.sidebarFields,
+                customDescription: primaryPaneState?.customDescription,
+                projectName: claudeSession?.displayName,
+                sessionName: session.sessionName,
+                terminalTitle: primaryPaneState?.terminalTitle,
+                command: primaryPane?.command,
+                currentPath: primaryPane?.currentPath,
+                latestEvent: sessionSubtitle
+            )
 
             Spacer()
         }
@@ -1950,22 +1904,17 @@ private struct RemoteHostSidebarSection: View {
 
 /// Sidebar row displaying a remote tmux session, grouped by session name
 private struct RemoteSessionSidebarRow: View {
+    @Environment(AppSettings.self) private var settings
+
     let session: TmuxSession
     let claudeSession: ClaudeSession?
 
-    /// Display name derived from Claude session, custom description, or session name
-    private var displayName: String {
-        if let customDescription = session.customDescription {
-            return customDescription
-        }
-        if let claudeSession {
-            return claudeSession.displayName
-        }
-        // For plain terminals, use the active pane's current path
-        if let path = session.activeWindow?.activePane?.currentPath, !path.isEmpty {
-            return URL(fileURLWithPath: path).lastPathComponent
-        }
-        return session.sessionName
+    /// The latest event subtitle from the Claude session's pane
+    private var latestEventSubtitle: String? {
+        session.windows
+            .flatMap(\.panes)
+            .compactMap(\.claudeSession?.latestEvent?.action.subtitle)
+            .first
     }
 
     var body: some View {
@@ -1976,35 +1925,16 @@ private struct RemoteSessionSidebarRow: View {
                     .frame(width: 20)
             }
 
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    Text(displayName)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-
-                    if session.windows.count > 1 {
-                        Text("\(session.windows.count) windows")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(.fill.tertiary, in: Capsule())
-                    }
-                }
-
-                if session.customDescription != nil, let claudeSession {
-                    Text(claudeSession.displayName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                Text(session.sessionName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+            SessionFieldsView(
+                fields: settings.sidebarFields,
+                customDescription: session.customDescription,
+                projectName: claudeSession?.displayName,
+                sessionName: session.sessionName,
+                terminalTitle: session.activeWindow?.activePane?.terminalTitle,
+                command: session.activeWindow?.activePane?.command,
+                currentPath: session.activeWindow?.activePane?.currentPath,
+                latestEvent: latestEventSubtitle
+            )
 
             Spacer()
         }

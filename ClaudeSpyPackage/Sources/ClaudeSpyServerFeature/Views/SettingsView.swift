@@ -19,6 +19,12 @@ public struct SettingsView: View {
                 }
                 .tag(SettingsTab.general)
 
+            SidebarLayoutSettingsView()
+                .tabItem {
+                    Label("Sidebar", symbol: .listBulletClipboard)
+                }
+                .tag(SettingsTab.sidebarLayout)
+
             RemoteAccessSettingsView()
                 .tabItem {
                     Label("Remote Access", symbol: .iphone)
