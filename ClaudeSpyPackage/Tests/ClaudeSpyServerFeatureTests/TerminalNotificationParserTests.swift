@@ -414,6 +414,7 @@
             #expect(result.notifications.count == 1)
             #expect(result.notifications[0].body == "Hello")
         }
+
         // MARK: - Idle prompt filtering
 
         @Test("Discards Claude Code idle prompt OSC 9 notification")
