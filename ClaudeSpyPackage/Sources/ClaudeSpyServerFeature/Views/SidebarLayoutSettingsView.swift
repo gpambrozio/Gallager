@@ -26,7 +26,6 @@ struct SidebarLayoutSettingsView: View {
                 FieldList(
                     title: "Visible Fields",
                     fields: $settings.sidebarFields,
-
                     isSource: true
                 )
             }
