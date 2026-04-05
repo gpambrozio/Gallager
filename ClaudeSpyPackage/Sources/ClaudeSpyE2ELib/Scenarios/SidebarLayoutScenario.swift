@@ -200,16 +200,28 @@ public enum SidebarLayoutScenario {
         // ── Phase 4: Test all sort modes ──────────────────────────
         // Current states: Alpha=Attention, Beta=Working, Gamma=Idle, Delta=plain terminal
         // Session names alphabetically: alpha < beta < delta < gamma
+        // Status priority (idle first): Attention(0) < Idle(1) < Working(2) < NoSession(3)
         // Status priority: Attention(0) < Working(1) < Idle(2) < NoSession(3)
         // Recent activity: Gamma(10:02) > Beta(10:01:01) > Alpha(10:00:02) > Delta(none)
 
-        // Sort mode 1: Status Priority (default)
-        TestStep.log("Phase 4a: Sort by Status Priority")
-        // Already default — verify order: alpha(attention), beta(working), gamma(idle), delta(terminal)
+        // Sort mode 1: Status Priority Idle First (default)
+        TestStep.log("Phase 4a: Sort by Status Priority (idle first, default)")
+        // Already default — order: alpha(attention), gamma(idle), beta(working), delta(terminal)
+        TestStep.macScreenshot(label: "sort-status-priority-idle-first")
+
+        // Sort mode 2: Status Priority (working first)
+        TestStep.log("Phase 4b: Sort by Status Priority (working first)")
+        TestStep.macOpenSettings()
+        TestStep.macWaitForWindow(titled: "Sidebar", timeout: 5)
+        TestStep.macClickButton(titled: "Status priority (attention > working > idle)")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macCloseWindow(titled: "Sidebar")
+        TestStep.wait(seconds: 1)
+        // Order: alpha(attention), beta(working), gamma(idle), delta(terminal)
         TestStep.macScreenshot(label: "sort-status-priority")
 
-        // Sort mode 2: Alphabetical
-        TestStep.log("Phase 4b: Sort Alphabetically")
+        // Sort mode 3: Alphabetical
+        TestStep.log("Phase 4c: Sort Alphabetically")
         TestStep.macOpenSettings()
         TestStep.macWaitForWindow(titled: "Sidebar", timeout: 5)
         TestStep.macClickButton(titled: "Alphabetical (by primary label)")
@@ -219,8 +231,8 @@ public enum SidebarLayoutScenario {
         // Order: AlphaProject, BetaProject, delta-terminal, GammaProject
         TestStep.macScreenshot(label: "sort-alphabetical")
 
-        // Sort mode 3: Claude first
-        TestStep.log("Phase 4c: Sort Claude First")
+        // Sort mode 4: Claude first
+        TestStep.log("Phase 4d: Sort Claude First")
         TestStep.macOpenSettings()
         TestStep.macWaitForWindow(titled: "Sidebar", timeout: 5)
         TestStep.macClickButton(titled: "Claude sessions first")
@@ -230,8 +242,8 @@ public enum SidebarLayoutScenario {
         // Order: alpha, beta, gamma (Claude, alphabetical), then delta (terminal)
         TestStep.macScreenshot(label: "sort-claude-first")
 
-        // Sort mode 4: Recent activity
-        TestStep.log("Phase 4d: Sort by Recent Activity")
+        // Sort mode 5: Recent activity
+        TestStep.log("Phase 4e: Sort by Recent Activity")
         TestStep.macOpenSettings()
         TestStep.macWaitForWindow(titled: "Sidebar", timeout: 5)
         TestStep.macClickButton(titled: "Most recent activity")
@@ -241,8 +253,8 @@ public enum SidebarLayoutScenario {
         // Order: gamma(10:02), beta(10:01:01), alpha(10:00:02), delta(no timestamp)
         TestStep.macScreenshot(label: "sort-recent-activity")
 
-        // Sort mode 5: Session name
-        TestStep.log("Phase 4e: Sort by Session Name")
+        // Sort mode 6: Session name
+        TestStep.log("Phase 4f: Sort by Session Name")
         TestStep.macOpenSettings()
         TestStep.macWaitForWindow(titled: "Sidebar", timeout: 5)
         TestStep.macClickButton(titled: "Session name")

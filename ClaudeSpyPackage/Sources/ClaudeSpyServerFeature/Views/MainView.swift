@@ -298,6 +298,7 @@ public struct MainView: View {
             primaryLabel: primaryLabel,
             hasClaude: claudeSession != nil,
             statusPriority: SessionSortData.statusPriority(for: claudeSession),
+            statusPriorityIdleFirst: SessionSortData.statusPriorityIdleFirst(for: claudeSession),
             latestEventTimestamp: claudeSession?.latestEvent?.timestamp
         )
     }
@@ -1840,6 +1841,7 @@ private struct RemoteHostSidebarSection: View {
                 primaryLabel: primaryLabel,
                 hasClaude: claudeSession != nil,
                 statusPriority: SessionSortData.statusPriority(for: claudeSession),
+                statusPriorityIdleFirst: SessionSortData.statusPriorityIdleFirst(for: claudeSession),
                 latestEventTimestamp: claudeSession?.latestEvent?.timestamp
             )
         }

@@ -84,13 +84,22 @@ struct SessionSortData {
     let primaryLabel: String
     let hasClaude: Bool
     let statusPriority: Int // 0 = attention, 1 = working, 2 = idle, 3 = no claude
+    let statusPriorityIdleFirst: Int // 0 = attention, 1 = idle, 2 = working, 3 = no claude
     let latestEventTimestamp: Date?
 
-    /// Status priority: lower = higher priority
+    /// Status priority: lower = higher priority (attention > working > idle)
     static func statusPriority(for claudeSession: ClaudeSession?) -> Int {
         guard let session = claudeSession else { return 3 }
         if session.needsAttention { return 0 }
         if session.isWorking { return 1 }
+        return 2
+    }
+
+    /// Status priority with idle before working (attention > idle > working)
+    static func statusPriorityIdleFirst(for claudeSession: ClaudeSession?) -> Int {
+        guard let session = claudeSession else { return 3 }
+        if session.needsAttention { return 0 }
+        if !session.isWorking { return 1 }
         return 2
     }
 
@@ -138,6 +147,9 @@ extension SidebarSortMode {
                 return a.sessionName.localizedCaseInsensitiveCompare(b.sessionName) == .orderedAscending
             case .statusPriority:
                 if a.statusPriority != b.statusPriority { return a.statusPriority < b.statusPriority }
+                return a.sessionName.localizedCaseInsensitiveCompare(b.sessionName) == .orderedAscending
+            case .statusPriorityIdleFirst:
+                if a.statusPriorityIdleFirst != b.statusPriorityIdleFirst { return a.statusPriorityIdleFirst < b.statusPriorityIdleFirst }
                 return a.sessionName.localizedCaseInsensitiveCompare(b.sessionName) == .orderedAscending
             case .recentActivity:
                 let aTime = a.latestEventTimestamp ?? .distantPast

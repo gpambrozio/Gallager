@@ -5,6 +5,7 @@ public enum SidebarSortMode: String, Codable, Sendable, CaseIterable, Identifiab
     case alphabetical
     case claudeFirst
     case statusPriority
+    case statusPriorityIdleFirst
     case recentActivity
     case sessionName
 
@@ -15,6 +16,7 @@ public enum SidebarSortMode: String, Codable, Sendable, CaseIterable, Identifiab
         case .alphabetical: "Alphabetical (by primary label)"
         case .claudeFirst: "Claude sessions first"
         case .statusPriority: "Status priority (attention > working > idle)"
+        case .statusPriorityIdleFirst: "Status priority (attention > idle > working)"
         case .recentActivity: "Most recent activity"
         case .sessionName: "Session name"
         }

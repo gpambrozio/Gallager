@@ -239,7 +239,7 @@ final public class AppSettings {
     }
 
     /// How sessions are sorted in the sidebar
-    public var sidebarSortMode: SidebarSortMode = .statusPriority {
+    public var sidebarSortMode: SidebarSortMode = .statusPriorityIdleFirst {
         didSet { preferences.setString(sidebarSortMode.rawValue, Keys.sidebarSortMode) }
     }
 
@@ -318,7 +318,7 @@ final public class AppSettings {
         }
         self.sidebarSortMode = SidebarSortMode(
             rawValue: preferences.string(Keys.sidebarSortMode) ?? ""
-        ) ?? .statusPriority
+        ) ?? .statusPriorityIdleFirst
 
         // Plugin
         self.hasCompletedPluginSetup = preferences.optionalBool(Keys.hasCompletedPluginSetup) ?? Defaults.hasCompletedPluginSetup
