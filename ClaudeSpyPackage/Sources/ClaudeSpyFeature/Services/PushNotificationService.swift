@@ -195,8 +195,7 @@
 
             if
                 let paneId = userInfo["paneId"] as? String,
-                let hostId = userInfo["pairId"] as? String
-            {
+                let hostId = userInfo["pairId"] as? String {
                 pendingDeepLink = DeepLinkInfo(paneId: paneId, hostId: hostId)
             }
         }
