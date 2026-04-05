@@ -25,17 +25,25 @@ struct SessionFieldsView: View {
         }
 
         VStack(alignment: .leading, spacing: 2) {
-            ForEach(Array(visibleFields.enumerated()), id: \.element.0) { index, entry in
-                if index == 0 {
-                    Text(entry.1)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                } else {
-                    Text(entry.1)
-                        .font(entry.0 == .latestEvent ? .caption2 : .caption)
-                        .foregroundStyle(entry.0 == .latestEvent ? .tertiary : .secondary)
-                        .lineLimit(entry.0 == .latestEvent ? 2 : 1)
+            if visibleFields.isEmpty {
+                // Fallback: always show session name when no configured fields have values
+                Text(sessionName)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            } else {
+                ForEach(Array(visibleFields.enumerated()), id: \.element.0) { index, entry in
+                    if index == 0 {
+                        Text(entry.1)
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                    } else {
+                        Text(entry.1)
+                            .font(entry.0 == .latestEvent ? .caption2 : .caption)
+                            .foregroundStyle(entry.0 == .latestEvent ? .tertiary : .secondary)
+                            .lineLimit(entry.0 == .latestEvent ? 2 : 1)
+                    }
                 }
             }
         }

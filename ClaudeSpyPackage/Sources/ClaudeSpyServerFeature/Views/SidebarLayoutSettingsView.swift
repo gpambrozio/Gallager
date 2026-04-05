@@ -137,6 +137,7 @@ private struct FieldRow: View {
                     .foregroundStyle(isSource ? .red : .green)
             }
             .buttonStyle(.borderless)
+            .accessibilityLabel("\(isSource ? "Remove" : "Add") \(field.displayName)")
         }
         .contentShape(Rectangle())
     }
