@@ -40,6 +40,18 @@ extension Target.Dependency {
         .product(name: "DependenciesMacros", package: "swift-dependencies")
     }
 
+    static var projectNavigator: Self {
+        .product(name: "ProjectNavigator", package: "ProjectNavigator")
+    }
+
+    static var textual: Self {
+        .product(name: "Textual", package: "textual")
+    }
+
+    static var files: Self {
+        .product(name: "Files", package: "ProjectNavigator")
+    }
+
     static var dependenciesTestSupport: Self {
         .product(name: "DependenciesTestSupport", package: "swift-dependencies")
     }
@@ -107,6 +119,8 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
         .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.0.0"),
+        .package(url: "https://github.com/mchakravarty/ProjectNavigator", from: "1.0.0"),
+        .package(url: "https://github.com/gonzalezreal/textual", from: "0.3.1"),
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -159,6 +173,9 @@ let package = Package(
                 .sparkle,
                 .dependencies,
                 .dependenciesMacros,
+                .projectNavigator,
+                .files,
+                .textual,
             ]
         ),
         // External server library (all business logic, importable by tests and E2E)
@@ -188,12 +205,14 @@ let package = Package(
             name: "ClaudeSpyE2ELib",
             dependencies: [
                 .claudeSpyNetworking,
+                .claudeSpyServerFeature,
                 .claudeSpyExternalServerLib,
                 .vapor,
                 .logging,
             ],
             resources: [
                 .copy("Scenarios/Scripts"),
+                .copy("Scenarios/SampleFiles"),
             ]
         ),
         // E2E test coordinator executable

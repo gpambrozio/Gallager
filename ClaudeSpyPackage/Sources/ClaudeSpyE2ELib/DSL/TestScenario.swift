@@ -97,6 +97,9 @@ public enum TestStep: Sendable {
     case macPressTab(instance: Int = 0)
     /// Press Cmd+A to select all text in the focused field
     case macSelectAll(instance: Int = 0)
+    /// CGEvent left-click on an element (bypasses AXPress, uses real mouse click).
+    /// Use for selecting items in SwiftUI List/OutlineGroup.
+    case macCGClick(titled: String, instance: Int = 0)
     /// Right-click an element to open its context menu
     case macRightClick(titled: String, instance: Int = 0)
     /// Right-click an element and then click a menu item from the context menu
