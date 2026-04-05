@@ -14,6 +14,8 @@ struct SessionFieldsView: View {
     let command: String?
     let currentPath: String?
     let latestEvent: String?
+    /// Remote host's home directory for proper path abbreviation (nil for local sessions)
+    var homeDirectory: String?
 
     var body: some View {
         let visibleFields = fields.compactMap { field -> (SidebarField, String)? in
@@ -45,7 +47,7 @@ struct SessionFieldsView: View {
         case .sessionName: sessionName
         case .terminalTitle: terminalTitle
         case .command: command
-        case .currentPath: currentPath?.abbreviatedPath
+        case .currentPath: currentPath?.abbreviatedPath(home: homeDirectory)
         case .latestEvent: latestEvent
         }
     }

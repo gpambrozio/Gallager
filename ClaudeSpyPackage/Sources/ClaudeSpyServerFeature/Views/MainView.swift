@@ -1866,7 +1866,8 @@ private struct RemoteHostSidebarSection: View {
         } label: {
             RemoteSessionSidebarRow(
                 session: session,
-                claudeSession: claudePane?.claudeSession
+                claudeSession: claudePane?.claudeSession,
+                homeDirectory: sessionStore.homeDirectoryByHost[host.id]
             )
         }
         .buttonStyle(.plain)
@@ -1908,6 +1909,7 @@ private struct RemoteSessionSidebarRow: View {
 
     let session: TmuxSession
     let claudeSession: ClaudeSession?
+    var homeDirectory: String?
 
     /// The latest event subtitle from the Claude session's pane
     private var latestEventSubtitle: String? {
@@ -1933,7 +1935,8 @@ private struct RemoteSessionSidebarRow: View {
                 terminalTitle: session.activeWindow?.activePane?.terminalTitle,
                 command: session.activeWindow?.activePane?.command,
                 currentPath: session.activeWindow?.activePane?.currentPath,
-                latestEvent: latestEventSubtitle
+                latestEvent: latestEventSubtitle,
+                homeDirectory: homeDirectory
             )
 
             Spacer()

@@ -32,7 +32,6 @@ public enum SidebarField: String, Codable, Sendable, CaseIterable, Identifiable 
     public static let defaultFields: [SidebarField] = [
         .customDescription,
         .projectName,
-        .sessionName,
         .currentPath,
         .latestEvent,
     ]
