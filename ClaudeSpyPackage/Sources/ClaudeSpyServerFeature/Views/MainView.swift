@@ -221,23 +221,12 @@ public struct MainView: View {
         )
     }
 
-    /// Whether a session has any pane with an active Claude session
-    private func sessionHasClaude(_ session: LocalTmuxSession) -> Bool {
-        session.windows.contains { window in
-            window.panes.contains { windowManager.paneStates[$0.paneId]?.claudeSession != nil }
-        }
-    }
-
     private var windowList: some View {
         let allSessions = tmuxService.sessions
-        let sessionsWithClaude = allSessions.filter { sessionHasClaude($0) }
-        let sessionsWithoutClaude = allSessions.filter { !sessionHasClaude($0) }
 
         return ScrollViewReader { proxy in
             List {
-                claudeSessionsSection(sessions: sessionsWithClaude)
-                terminalsSection(sessions: sessionsWithoutClaude, hasClaudeSessions: !sessionsWithClaude.isEmpty)
-                emptyLocalSection(hasAnyWindows: !sessionsWithClaude.isEmpty || !sessionsWithoutClaude.isEmpty)
+                localSessionsSection(sessions: allSessions)
                 remoteHostSections
             }
             .listStyle(.sidebar)
@@ -259,50 +248,20 @@ public struct MainView: View {
     }
 
     @ViewBuilder
-    private func claudeSessionsSection(sessions: [LocalTmuxSession]) -> some View {
-        if !sessions.isEmpty {
-            Section {
-                ForEach(sessions) { session in
-                    sessionButton(session: session, help: "Claude Code session active")
-                }
-            } header: {
-                SectionHeader(title: "Claude Sessions", symbol: .sparkles) {
-                    localNewSessionPopover
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func terminalsSection(sessions: [LocalTmuxSession], hasClaudeSessions: Bool) -> some View {
-        if !sessions.isEmpty {
-            Section {
-                ForEach(sessions) { session in
-                    sessionButton(session: session)
-                }
-            } header: {
-                if !hasClaudeSessions {
-                    SectionHeader(title: "Terminals", symbol: .terminal) {
-                        localNewSessionPopover
-                    }
-                } else {
-                    SectionHeader(title: "Terminals", symbol: .terminal)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func emptyLocalSection(hasAnyWindows: Bool) -> some View {
-        if !hasAnyWindows && settings.hasRemoteHosts {
-            Section {
+    private func localSessionsSection(sessions: [LocalTmuxSession]) -> some View {
+        Section {
+            if sessions.isEmpty && settings.hasRemoteHosts {
                 Text("No local sessions")
                     .foregroundStyle(.secondary)
                     .font(.caption)
-            } header: {
-                SectionHeader(title: "Local", symbol: .terminal) {
-                    localNewSessionPopover
+            } else {
+                ForEach(sessions) { session in
+                    sessionButton(session: session)
                 }
+            }
+        } header: {
+            SectionHeader(title: "Local", symbol: .terminal) {
+                localNewSessionPopover
             }
         }
     }
@@ -1379,6 +1338,11 @@ private struct SessionSidebarRow: View {
                 SessionStatusIndicator(session: claudeSession)
                     .font(.system(size: 16))
                     .frame(width: 20)
+            } else {
+                Symbols.terminal.image
+                    .font(.system(size: 16))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20)
             }
 
             SessionFieldsView(
@@ -1924,6 +1888,11 @@ private struct RemoteSessionSidebarRow: View {
             if let claudeSession {
                 SessionStatusIndicator(session: claudeSession)
                     .font(.system(size: 16))
+                    .frame(width: 20)
+            } else {
+                Symbols.terminal.image
+                    .font(.system(size: 16))
+                    .foregroundStyle(.secondary)
                     .frame(width: 20)
             }
 
