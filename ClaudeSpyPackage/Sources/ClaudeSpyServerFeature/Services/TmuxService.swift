@@ -1002,6 +1002,27 @@ final public class TmuxService {
         }
     }
 
+    /// Sends multiple non-literal key names to a pane in a single tmux command.
+    ///
+    /// This batches keys like `Enter`, `Up`, `C-c` into one `send-keys` invocation
+    /// instead of spawning a separate process per keystroke.
+    /// - Parameters:
+    ///   - target: The pane target
+    ///   - keys: Array of tmux key names (e.g., ["Enter", "Up", "C-c"])
+    public func sendBatchKeys(_ target: String, keys: [String]) async throws {
+        guard !keys.isEmpty else { return }
+        var args = ["send-keys", "-t", target]
+        for key in keys {
+            // Tmux treats standalone ";" as a command separator in any argument position.
+            let escaped = key.hasSuffix(";") ? String(key.dropLast()) + "\\;" : key
+            args.append(escaped)
+        }
+        let result = try await runTmuxCommand(args)
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+    }
+
     /// Resizes a tmux pane to the specified dimensions
     /// - Parameters:
     ///   - target: The pane target (e.g., "%5" or "session:0.1")

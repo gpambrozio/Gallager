@@ -291,6 +291,12 @@
         @ObservationIgnored
         private var pendingKeyTask: Task<Void, Never>?
 
+        // Debounce buffer: accumulates rapid keystrokes and flushes after a short delay
+        @ObservationIgnored
+        private var keyBuffer: [TmuxKey] = []
+        @ObservationIgnored
+        private var flushTask: Task<Void, Never>?
+
         init(paneId: String, fontName: String, fontSize: CGFloat) {
             self.paneId = paneId
             self.fontName = fontName
@@ -299,19 +305,35 @@
 
         /// Cancel any in-flight key-send chain.
         func cancelPendingKeys() {
+            flushTask?.cancel()
+            flushTask = nil
+            keyBuffer.removeAll()
             pendingKeyTask?.cancel()
             pendingKeyTask = nil
         }
 
-        /// Enqueue a keystroke send, chaining on any pending send to preserve ordering.
+        /// Accumulates rapid keystrokes and flushes them as a single command after a short delay.
+        /// This reduces the number of WebSocket messages when typing fast.
         func enqueueKeySend(keys: [TmuxKey], relayClient: ViewerRelayClient) {
-            let previous = pendingKeyTask
-            pendingKeyTask = Task {
-                _ = await previous?.value
-                _ = await relayClient.sendCommand(
-                    SendKeystroke(keys),
-                    paneId: paneId
-                )
+            keyBuffer.append(contentsOf: keys)
+
+            // Reset the flush timer — if more keys arrive within 8ms, they'll be batched together
+            flushTask?.cancel()
+            flushTask = Task {
+                try? await Task.sleep(for: .milliseconds(8))
+                guard !Task.isCancelled else { return }
+
+                let keysToSend = keyBuffer
+                keyBuffer.removeAll()
+
+                let previous = pendingKeyTask
+                pendingKeyTask = Task {
+                    _ = await previous?.value
+                    _ = await relayClient.sendCommand(
+                        SendKeystroke(keysToSend),
+                        paneId: paneId
+                    )
+                }
             }
         }
 

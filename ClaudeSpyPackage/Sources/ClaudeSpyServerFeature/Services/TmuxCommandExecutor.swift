@@ -79,19 +79,45 @@ public actor TmuxCommandExecutor {
     // MARK: - Private Command Handlers
 
     private func executeSendKeystroke(paneId: String, keys: [TmuxKey]) async throws {
+        // Batch consecutive keys by literal mode to minimize tmux process spawns.
+        // Literal text keys are concatenated into one `send-keys -l` call.
+        // Special keys are sent as multiple arguments in one `send-keys` call.
+        // Delays flush the current batch and insert a sleep.
+
+        var batch: [TmuxKey] = []
+        var batchIsLiteral = false
+
         for key in keys {
-            // Handle delay specially - sleep instead of sending to tmux
             if case let .delay(milliseconds) = key {
+                try await flushBatch(paneId: paneId, keys: &batch, literal: batchIsLiteral)
                 try await Task.sleep(for: .milliseconds(milliseconds))
                 continue
             }
 
-            try await tmuxService.sendKeys(
-                paneId,
-                keys: key.tmuxKeyName,
-                literal: key.requiresLiteralMode
-            )
+            let isLiteral = key.requiresLiteralMode
+
+            if !batch.isEmpty && isLiteral != batchIsLiteral {
+                try await flushBatch(paneId: paneId, keys: &batch, literal: batchIsLiteral)
+            }
+
+            batchIsLiteral = isLiteral
+            batch.append(key)
         }
+
+        try await flushBatch(paneId: paneId, keys: &batch, literal: batchIsLiteral)
+    }
+
+    private func flushBatch(paneId: String, keys: inout [TmuxKey], literal: Bool) async throws {
+        guard !keys.isEmpty else { return }
+
+        if literal {
+            let text = keys.map(\.tmuxKeyName).joined()
+            try await tmuxService.sendKeys(paneId, keys: text, literal: true)
+        } else {
+            try await tmuxService.sendBatchKeys(paneId, keys: keys.map(\.tmuxKeyName))
+        }
+
+        keys.removeAll()
     }
 }
 
