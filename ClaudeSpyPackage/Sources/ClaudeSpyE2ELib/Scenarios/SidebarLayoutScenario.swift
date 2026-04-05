@@ -128,7 +128,7 @@ public enum SidebarLayoutScenario {
         // Just verify 4 sessions are visible via the Local section
         TestStep.macWaitForElement(titled: "Local", timeout: 5)
 
-        TestStep.macScreenshot(label: "default-layout", compare: false)
+        TestStep.macScreenshot(label: "default-layout")
 
         // ── Phase 2: Change fields to show Session Name + Command ─
 
@@ -137,7 +137,7 @@ public enum SidebarLayoutScenario {
         TestStep.macWaitForWindow(titled: "General", timeout: 5)
         TestStep.macSelectSettingsTab("Sidebar")
         TestStep.wait(seconds: 1)
-        TestStep.macScreenshot(label: "sidebar-settings-default", compare: false)
+        TestStep.macScreenshot(label: "sidebar-settings-default")
 
         // Remove all default fields (Custom Description, Project Name, Current Path, Latest Event)
         // Click minus buttons 4 times to clear visible fields
@@ -156,7 +156,7 @@ public enum SidebarLayoutScenario {
         TestStep.macClickButton(titled: "Add Current Command")
         TestStep.wait(seconds: 0.5)
 
-        TestStep.macScreenshot(label: "sidebar-settings-session-command", compare: false)
+        TestStep.macScreenshot(label: "sidebar-settings-session-command")
         TestStep.macCloseWindow(titled: "Sidebar")
         TestStep.wait(seconds: 1)
 
@@ -166,7 +166,7 @@ public enum SidebarLayoutScenario {
         TestStep.macWaitForElement(titled: "gamma-project", timeout: 5)
         TestStep.macWaitForElement(titled: "delta-terminal", timeout: 5)
 
-        TestStep.macScreenshot(label: "layout-session-command", compare: false)
+        TestStep.macScreenshot(label: "layout-session-command")
 
         // ── Phase 3: Restore to Project Name + Session Name ──────
 
@@ -186,7 +186,7 @@ public enum SidebarLayoutScenario {
         TestStep.macClickButton(titled: "Add Tmux Session Name")
         TestStep.wait(seconds: 0.5)
 
-        TestStep.macScreenshot(label: "sidebar-settings-project-session", compare: false)
+        TestStep.macScreenshot(label: "sidebar-settings-project-session")
         TestStep.macCloseWindow(titled: "Sidebar")
         TestStep.wait(seconds: 1)
 
@@ -195,7 +195,7 @@ public enum SidebarLayoutScenario {
         TestStep.macWaitForElement(titled: "BetaProject", timeout: 5)
         TestStep.macWaitForElement(titled: "GammaProject", timeout: 5)
 
-        TestStep.macScreenshot(label: "layout-project-session", compare: false)
+        TestStep.macScreenshot(label: "layout-project-session")
 
         // ── Phase 4: Test all sort modes ──────────────────────────
         // Current states: Alpha=Attention, Beta=Working, Gamma=Idle, Delta=plain terminal
@@ -206,7 +206,7 @@ public enum SidebarLayoutScenario {
         // Sort mode 1: Status Priority (default)
         TestStep.log("Phase 4a: Sort by Status Priority")
         // Already default — verify order: alpha(attention), beta(working), gamma(idle), delta(terminal)
-        TestStep.macScreenshot(label: "sort-status-priority", compare: false)
+        TestStep.macScreenshot(label: "sort-status-priority")
 
         // Sort mode 2: Alphabetical
         TestStep.log("Phase 4b: Sort Alphabetically")
@@ -217,7 +217,7 @@ public enum SidebarLayoutScenario {
         TestStep.macCloseWindow(titled: "Sidebar")
         TestStep.wait(seconds: 1)
         // Order: AlphaProject, BetaProject, delta-terminal, GammaProject
-        TestStep.macScreenshot(label: "sort-alphabetical", compare: false)
+        TestStep.macScreenshot(label: "sort-alphabetical")
 
         // Sort mode 3: Claude first
         TestStep.log("Phase 4c: Sort Claude First")
@@ -228,7 +228,7 @@ public enum SidebarLayoutScenario {
         TestStep.macCloseWindow(titled: "Sidebar")
         TestStep.wait(seconds: 1)
         // Order: alpha, beta, gamma (Claude, alphabetical), then delta (terminal)
-        TestStep.macScreenshot(label: "sort-claude-first", compare: false)
+        TestStep.macScreenshot(label: "sort-claude-first")
 
         // Sort mode 4: Recent activity
         TestStep.log("Phase 4d: Sort by Recent Activity")
@@ -239,7 +239,7 @@ public enum SidebarLayoutScenario {
         TestStep.macCloseWindow(titled: "Sidebar")
         TestStep.wait(seconds: 1)
         // Order: gamma(10:02), beta(10:01:01), alpha(10:00:02), delta(no timestamp)
-        TestStep.macScreenshot(label: "sort-recent-activity", compare: false)
+        TestStep.macScreenshot(label: "sort-recent-activity")
 
         // Sort mode 5: Session name
         TestStep.log("Phase 4e: Sort by Session Name")
@@ -250,6 +250,6 @@ public enum SidebarLayoutScenario {
         TestStep.macCloseWindow(titled: "Sidebar")
         TestStep.wait(seconds: 1)
         // Order: alpha-project, beta-project, delta-terminal, gamma-project
-        TestStep.macScreenshot(label: "sort-session-name", compare: false)
+        TestStep.macScreenshot(label: "sort-session-name")
     }
 }
