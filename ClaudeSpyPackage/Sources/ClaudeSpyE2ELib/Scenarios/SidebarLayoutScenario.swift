@@ -157,10 +157,30 @@ public enum SidebarLayoutScenario {
         TestStep.wait(seconds: 0.5)
 
         TestStep.macScreenshot(label: "sidebar-settings-session-command")
+
+        // Also set terminal fields to Session Name + Command
+        TestStep.macClickButton(titled: "Terminals")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Remove Custom Description")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Remove Terminal Title")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Remove Current Path")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Remove Current Command")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Add Tmux Session Name")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Add Current Command")
+        TestStep.wait(seconds: 0.5)
+        // Switch back to Claude Sessions tab
+        TestStep.macClickButton(titled: "Claude Sessions")
+        TestStep.wait(seconds: 0.5)
+
         TestStep.macCloseWindow(titled: "Sidebar")
         TestStep.wait(seconds: 1)
 
-        // Verify sidebar now shows session names as primary
+        // Verify sidebar now shows session names as primary for all
         TestStep.macWaitForElement(titled: "alpha-project", timeout: 5)
         TestStep.macWaitForElement(titled: "beta-project", timeout: 5)
         TestStep.macWaitForElement(titled: "gamma-project", timeout: 5)
@@ -187,6 +207,25 @@ public enum SidebarLayoutScenario {
         TestStep.wait(seconds: 0.5)
 
         TestStep.macScreenshot(label: "sidebar-settings-project-session")
+
+        // Restore terminal fields to defaults
+        TestStep.macClickButton(titled: "Terminals")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Remove Tmux Session Name")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Remove Current Command")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Add Custom Description")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Add Terminal Title")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Add Current Path")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Add Current Command")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Claude Sessions")
+        TestStep.wait(seconds: 0.5)
+
         TestStep.macCloseWindow(titled: "Sidebar")
         TestStep.wait(seconds: 1)
 
@@ -197,7 +236,59 @@ public enum SidebarLayoutScenario {
 
         TestStep.macScreenshot(label: "layout-project-session")
 
-        // ── Phase 4: Test all sort modes ──────────────────────────
+        // ── Phase 4: Customize terminal fields separately ────────
+
+        TestStep.log("Phase 4: Change terminal fields to Session Name only")
+        TestStep.macOpenSettings()
+        TestStep.macWaitForWindow(titled: "Sidebar", timeout: 5)
+
+        // Switch to Terminals tab
+        TestStep.macClickButton(titled: "Terminals")
+        TestStep.wait(seconds: 1)
+        TestStep.macScreenshot(label: "sidebar-settings-terminal-default")
+
+        // Remove default terminal fields (Custom Description, Terminal Title, Current Path, Current Command)
+        TestStep.macClickButton(titled: "Remove Custom Description")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Remove Terminal Title")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Remove Current Path")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Remove Current Command")
+        TestStep.wait(seconds: 0.5)
+
+        // Add Session Name only
+        TestStep.macClickButton(titled: "Add Tmux Session Name")
+        TestStep.wait(seconds: 0.5)
+
+        TestStep.macScreenshot(label: "sidebar-settings-terminal-session-only")
+        TestStep.macCloseWindow(titled: "Sidebar")
+        TestStep.wait(seconds: 1)
+
+        // Verify terminal shows session name, Claude sessions still show project name
+        TestStep.macWaitForElement(titled: "delta-terminal", timeout: 5)
+        TestStep.macWaitForElement(titled: "AlphaProject", timeout: 5)
+        TestStep.macScreenshot(label: "layout-split-claude-terminal")
+
+        // Restore terminal defaults for sort tests
+        TestStep.macOpenSettings()
+        TestStep.macWaitForWindow(titled: "Sidebar", timeout: 5)
+        TestStep.macClickButton(titled: "Terminals")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Remove Tmux Session Name")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Add Custom Description")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Add Terminal Title")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Add Current Path")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Add Current Command")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macCloseWindow(titled: "Sidebar")
+        TestStep.wait(seconds: 1)
+
+        // ── Phase 5: Test all sort modes ──────────────────────────
         // Current states: Alpha=Attention, Beta=Working, Gamma=Idle, Delta=plain terminal
         // Session names alphabetically: alpha < beta < delta < gamma
         // Status priority (idle first): Attention(0) < Idle(1) < Working(2) < NoSession(3)
@@ -205,12 +296,12 @@ public enum SidebarLayoutScenario {
         // Recent activity: Gamma(10:02) > Beta(10:01:01) > Alpha(10:00:02) > Delta(none)
 
         // Sort mode 1: Status Priority Idle First (default)
-        TestStep.log("Phase 4a: Sort by Status Priority (idle first, default)")
+        TestStep.log("Phase 5a: Sort by Status Priority (idle first, default)")
         // Already default — order: alpha(attention), gamma(idle), beta(working), delta(terminal)
         TestStep.macScreenshot(label: "sort-status-priority-idle-first")
 
         // Sort mode 2: Status Priority (working first)
-        TestStep.log("Phase 4b: Sort by Status Priority (working first)")
+        TestStep.log("Phase 5b: Sort by Status Priority (working first)")
         TestStep.macOpenSettings()
         TestStep.macWaitForWindow(titled: "Sidebar", timeout: 5)
         TestStep.macClickButton(titled: "Status priority (attention > working > idle)")
@@ -221,7 +312,7 @@ public enum SidebarLayoutScenario {
         TestStep.macScreenshot(label: "sort-status-priority")
 
         // Sort mode 3: Alphabetical
-        TestStep.log("Phase 4c: Sort Alphabetically")
+        TestStep.log("Phase 5c: Sort Alphabetically")
         TestStep.macOpenSettings()
         TestStep.macWaitForWindow(titled: "Sidebar", timeout: 5)
         TestStep.macClickButton(titled: "Alphabetical (by primary label)")
@@ -232,7 +323,7 @@ public enum SidebarLayoutScenario {
         TestStep.macScreenshot(label: "sort-alphabetical")
 
         // Sort mode 4: Claude first
-        TestStep.log("Phase 4d: Sort Claude First")
+        TestStep.log("Phase 5d: Sort Claude First")
         TestStep.macOpenSettings()
         TestStep.macWaitForWindow(titled: "Sidebar", timeout: 5)
         TestStep.macClickButton(titled: "Claude sessions first")
@@ -243,7 +334,7 @@ public enum SidebarLayoutScenario {
         TestStep.macScreenshot(label: "sort-claude-first")
 
         // Sort mode 5: Recent activity
-        TestStep.log("Phase 4e: Sort by Recent Activity")
+        TestStep.log("Phase 5e: Sort by Recent Activity")
         TestStep.macOpenSettings()
         TestStep.macWaitForWindow(titled: "Sidebar", timeout: 5)
         TestStep.macClickButton(titled: "Most recent activity")
@@ -254,7 +345,7 @@ public enum SidebarLayoutScenario {
         TestStep.macScreenshot(label: "sort-recent-activity")
 
         // Sort mode 6: Session name
-        TestStep.log("Phase 4f: Sort by Session Name")
+        TestStep.log("Phase 5f: Sort by Session Name")
         TestStep.macOpenSettings()
         TestStep.macWaitForWindow(titled: "Sidebar", timeout: 5)
         TestStep.macClickButton(titled: "Session name")
