@@ -277,16 +277,21 @@ public struct MainView: View {
         let primaryPane = session.activeWindow?.activePane
         let paneState = primaryPane.flatMap { windowManager.paneStates[$0.paneId] }
 
-        let primaryLabel = SessionFieldsView(
+        // Scan all windows for terminal title (matches SessionSidebarRow.terminalTitle)
+        let terminalTitle: String? = session.windows.lazy
+            .flatMap(\.panes)
+            .compactMap { windowManager.paneStates[$0.paneId]?.terminalTitle }
+            .first { !$0.isEmpty }
+
+        let primaryLabel = SessionSortData.primaryLabel(
             fields: settings.sidebarFields,
             customDescription: paneState?.customDescription,
             projectName: claudeSession?.displayName,
             sessionName: session.sessionName,
-            terminalTitle: paneState?.terminalTitle,
+            terminalTitle: terminalTitle,
             command: primaryPane?.command,
-            currentPath: primaryPane?.currentPath,
-            latestEvent: nil
-        ).primaryLabel
+            currentPath: primaryPane?.currentPath
+        )
 
         return SessionSortData(
             sessionName: session.sessionName,
@@ -1813,16 +1818,22 @@ private struct RemoteHostSidebarSection: View {
                 .first
             let activePane = session.activeWindow?.activePane
 
-            let primaryLabel = SessionFieldsView(
+            // Scan all windows for terminal title (matches RemoteSessionSidebarRow)
+            let terminalTitle = session.windows
+                .flatMap(\.panes)
+                .compactMap(\.terminalTitle)
+                .first { !$0.isEmpty }
+
+            let primaryLabel = SessionSortData.primaryLabel(
                 fields: settings.sidebarFields,
                 customDescription: session.customDescription,
                 projectName: claudeSession?.displayName,
                 sessionName: session.sessionName,
-                terminalTitle: activePane?.terminalTitle,
+                terminalTitle: terminalTitle,
                 command: activePane?.command,
                 currentPath: activePane?.currentPath,
-                latestEvent: nil
-            ).primaryLabel
+                homeDirectory: sessionStore.homeDirectoryByHost[host.id]
+            )
 
             return SessionSortData(
                 sessionName: session.sessionName,

@@ -1,6 +1,5 @@
 import ClaudeSpyCommon
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// Preferences tab for customizing which fields appear in sidebar session rows and their order.
 struct SidebarLayoutSettingsView: View {
@@ -17,7 +16,7 @@ struct SidebarLayoutSettingsView: View {
                         get: { availableFields },
                         set: { _ in }
                     ),
-                    allFields: settings.sidebarFields,
+
                     isSource: false,
                     onAdd: { field in
                         settings.sidebarFields.append(field)
@@ -27,7 +26,7 @@ struct SidebarLayoutSettingsView: View {
                 FieldList(
                     title: "Visible Fields",
                     fields: $settings.sidebarFields,
-                    allFields: settings.sidebarFields,
+
                     isSource: true
                 )
             }
@@ -67,7 +66,6 @@ struct SidebarLayoutSettingsView: View {
 private struct FieldList: View {
     let title: String
     @Binding var fields: [SidebarField]
-    let allFields: [SidebarField]
     let isSource: Bool
     var onAdd: ((SidebarField) -> Void)?
 

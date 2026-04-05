@@ -51,12 +51,16 @@ struct SessionFieldsView: View {
 
     /// The first non-empty field value, used for alphabetical sorting
     var primaryLabel: String {
-        for field in fields {
-            if let value = value(for: field), !value.isEmpty {
-                return value
-            }
-        }
-        return sessionName
+        SessionSortData.primaryLabel(
+            fields: fields,
+            customDescription: customDescription,
+            projectName: projectName,
+            sessionName: sessionName,
+            terminalTitle: terminalTitle,
+            command: command,
+            currentPath: currentPath,
+            homeDirectory: homeDirectory
+        )
     }
 
     private func value(for field: SidebarField) -> String? {
@@ -88,6 +92,35 @@ struct SessionSortData {
         if session.needsAttention { return 0 }
         if session.isWorking { return 1 }
         return 2
+    }
+
+    /// Resolves the primary label from configured fields and session values.
+    /// Returns the first non-empty field value, falling back to sessionName.
+    static func primaryLabel(
+        fields: [SidebarField],
+        customDescription: String?,
+        projectName: String?,
+        sessionName: String,
+        terminalTitle: String?,
+        command: String?,
+        currentPath: String?,
+        homeDirectory: String? = nil
+    ) -> String {
+        for field in fields {
+            let value: String? = switch field {
+            case .customDescription: customDescription
+            case .projectName: projectName
+            case .sessionName: sessionName
+            case .terminalTitle: terminalTitle
+            case .command: command
+            case .currentPath: currentPath?.abbreviatedPath(home: homeDirectory)
+            case .latestEvent: nil // excluded from primary label computation
+            }
+            if let value, !value.isEmpty {
+                return value
+            }
+        }
+        return sessionName
     }
 }
 
