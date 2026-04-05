@@ -5,10 +5,28 @@ import SwiftUI
 struct SidebarLayoutSettingsView: View {
     @Environment(AppSettings.self) private var settings
 
+    @State private var selectedSessionType: SessionType = .claude
+
+    enum SessionType: String, CaseIterable, Identifiable {
+        case claude = "Claude Sessions"
+        case terminal = "Terminals"
+
+        var id: String { rawValue }
+    }
+
     var body: some View {
         @Bindable var settings = settings
 
         VStack(spacing: 0) {
+            Picker("Session Type", selection: $selectedSessionType) {
+                ForEach(SessionType.allCases) { type in
+                    Text(type.rawValue).tag(type)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.top)
+
             HStack(alignment: .top, spacing: 16) {
                 FieldList(
                     title: "Available Fields",
@@ -16,16 +34,20 @@ struct SidebarLayoutSettingsView: View {
                         get: { availableFields },
                         set: { _ in }
                     ),
-
                     isSource: false,
                     onAdd: { field in
-                        settings.sidebarFields.append(field)
+                        switch selectedSessionType {
+                        case .claude: settings.sidebarFields.append(field)
+                        case .terminal: settings.sidebarTerminalFields.append(field)
+                        }
                     }
                 )
 
                 FieldList(
                     title: "Visible Fields",
-                    fields: $settings.sidebarFields,
+                    fields: selectedSessionType == .claude
+                        ? $settings.sidebarFields
+                        : $settings.sidebarTerminalFields,
                     isSource: true
                 )
             }
@@ -34,7 +56,10 @@ struct SidebarLayoutSettingsView: View {
             Divider()
 
             HStack {
-                SidebarPreview(fields: settings.sidebarFields)
+                SidebarPreview(
+                    fields: activeFields,
+                    isTerminal: selectedSessionType == .terminal
+                )
 
                 Spacer()
 
@@ -55,8 +80,22 @@ struct SidebarLayoutSettingsView: View {
         }
     }
 
+    private var activeFields: [SidebarField] {
+        switch selectedSessionType {
+        case .claude: settings.sidebarFields
+        case .terminal: settings.sidebarTerminalFields
+        }
+    }
+
+    private var allFieldsForType: [SidebarField] {
+        switch selectedSessionType {
+        case .claude: SidebarField.allCases
+        case .terminal: SidebarField.terminalFields
+        }
+    }
+
     private var availableFields: [SidebarField] {
-        SidebarField.allCases.filter { !settings.sidebarFields.contains($0) }
+        allFieldsForType.filter { !activeFields.contains($0) }
     }
 }
 
@@ -144,6 +183,7 @@ private struct FieldRow: View {
 
 private struct SidebarPreview: View {
     let fields: [SidebarField]
+    var isTerminal = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -151,24 +191,38 @@ private struct SidebarPreview: View {
                 .font(.headline)
 
             HStack(alignment: .top, spacing: 8) {
-                Circle()
-                    .fill(.green)
-                    .frame(width: 10, height: 10)
-                    .padding(.top, 4)
+                if isTerminal {
+                    Symbols.terminal.image
+                        .font(.system(size: 16))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20)
+                        .padding(.top, 2)
+                } else {
+                    Circle()
+                        .fill(.green)
+                        .frame(width: 10, height: 10)
+                        .padding(.top, 4)
+                }
 
                 SessionFieldsView(
                     fields: fields,
                     customDescription: "My Feature Branch",
-                    projectName: "Gallager",
+                    projectName: isTerminal ? nil : "Gallager",
                     sessionName: "dev",
-                    terminalTitle: "claude",
-                    command: "claude",
+                    terminalTitle: isTerminal ? nil : "claude",
+                    command: isTerminal ? "zsh" : "claude",
                     currentPath: "~/Development/Gallager",
-                    latestEvent: "Reading file Package.swift"
+                    latestEvent: isTerminal ? nil : "Reading file Package.swift"
                 )
             }
             .padding(12)
             .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 8))
         }
     }
+}
+
+#Preview {
+    SidebarLayoutSettingsView()
+        .environment(AppSettings())
+        .frame(width: 600, height: 500)
 }

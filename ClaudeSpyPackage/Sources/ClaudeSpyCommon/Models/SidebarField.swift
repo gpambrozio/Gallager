@@ -51,11 +51,31 @@ public enum SidebarField: String, Codable, Sendable, CaseIterable, Identifiable 
         }
     }
 
-    /// Default field order for new installations
+    /// Whether this field is available for plain terminal sessions (no Claude session)
+    public var availableForTerminals: Bool {
+        switch self {
+        case .projectName,
+             .latestEvent: false
+        default: true
+        }
+    }
+
+    /// All fields available for terminal sessions
+    public static let terminalFields: [SidebarField] = allCases.filter(\.availableForTerminals)
+
+    /// Default field order for Claude sessions
     public static let defaultFields: [SidebarField] = [
         .customDescription,
         .projectName,
         .currentPath,
         .latestEvent,
+    ]
+
+    /// Default field order for plain terminal sessions
+    public static let defaultTerminalFields: [SidebarField] = [
+        .customDescription,
+        .terminalTitle,
+        .currentPath,
+        .command,
     ]
 }

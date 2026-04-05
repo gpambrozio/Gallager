@@ -49,7 +49,7 @@ public struct SettingsView: View {
                 }
                 .tag(SettingsTab.about)
         }
-        .frame(minWidth: 500, minHeight: 400)
+        .frame(minWidth: 500, minHeight: 500)
     }
 }
 

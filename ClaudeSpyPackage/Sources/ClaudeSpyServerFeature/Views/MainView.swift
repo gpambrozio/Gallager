@@ -283,8 +283,10 @@ public struct MainView: View {
             .compactMap { windowManager.paneStates[$0.paneId]?.terminalTitle }
             .first { !$0.isEmpty }
 
+        let fields = claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields
+
         let primaryLabel = SessionSortData.primaryLabel(
-            fields: settings.sidebarFields,
+            fields: fields,
             customDescription: paneState?.customDescription,
             projectName: claudeSession?.displayName,
             sessionName: session.sessionName,
@@ -1395,7 +1397,7 @@ private struct SessionSidebarRow: View {
             }
 
             SessionFieldsView(
-                fields: settings.sidebarFields,
+                fields: claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields,
                 customDescription: primaryPaneState?.customDescription,
                 projectName: claudeSession?.displayName,
                 sessionName: session.sessionName,
@@ -1825,8 +1827,10 @@ private struct RemoteHostSidebarSection: View {
                 .compactMap(\.terminalTitle)
                 .first { !$0.isEmpty }
 
+            let fields = claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields
+
             let primaryLabel = SessionSortData.primaryLabel(
-                fields: settings.sidebarFields,
+                fields: fields,
                 customDescription: session.customDescription,
                 projectName: claudeSession?.displayName,
                 sessionName: session.sessionName,
@@ -1968,7 +1972,7 @@ private struct RemoteSessionSidebarRow: View {
             }
 
             SessionFieldsView(
-                fields: settings.sidebarFields,
+                fields: claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields,
                 customDescription: session.customDescription,
                 projectName: claudeSession?.displayName,
                 sessionName: session.sessionName,

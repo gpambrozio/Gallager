@@ -238,6 +238,11 @@ final public class AppSettings {
         didSet { saveSidebarFields() }
     }
 
+    /// Ordered list of fields to display in sidebar terminal rows (no Claude session)
+    public var sidebarTerminalFields: [SidebarField] = SidebarField.defaultTerminalFields {
+        didSet { saveSidebarTerminalFields() }
+    }
+
     /// How sessions are sorted in the sidebar
     public var sidebarSortMode: SidebarSortMode = .statusPriorityIdleFirst {
         didSet { preferences.setString(sidebarSortMode.rawValue, Keys.sidebarSortMode) }
@@ -316,6 +321,10 @@ final public class AppSettings {
         if sidebarFields.isEmpty {
             self.sidebarFields = SidebarField.defaultFields
         }
+        self.sidebarTerminalFields = Self.loadCodable(from: preferences, key: Keys.sidebarTerminalFields)
+        if sidebarTerminalFields.isEmpty {
+            self.sidebarTerminalFields = SidebarField.defaultTerminalFields
+        }
         self.sidebarSortMode = SidebarSortMode(
             rawValue: preferences.string(Keys.sidebarSortMode) ?? ""
         ) ?? .statusPriorityIdleFirst
@@ -358,6 +367,7 @@ final public class AppSettings {
         case deviceId
         // Sidebar Layout
         case sidebarFields
+        case sidebarTerminalFields
         case sidebarSortMode
         // Plugin
         case hasCompletedPluginSetup
@@ -439,6 +449,13 @@ final public class AppSettings {
             return
         }
         preferences.setData(data, Keys.sidebarFields)
+    }
+
+    private func saveSidebarTerminalFields() {
+        guard let data = try? JSONEncoder().encode(sidebarTerminalFields) else {
+            return
+        }
+        preferences.setData(data, Keys.sidebarTerminalFields)
     }
 
     // MARK: - Pairing Management
