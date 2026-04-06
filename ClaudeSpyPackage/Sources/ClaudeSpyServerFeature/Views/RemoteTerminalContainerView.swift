@@ -180,9 +180,6 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         private var onStateChange: (@MainActor (RemoteStreamState, Int, Int) -> Void)?
         private var onTitleChange: (@MainActor (String) -> Void)?
 
-        // Serializes key sends so concurrent onInput callbacks don't race
-        private var pendingKeyTask: Task<Void, Never>?
-
         // Debounce buffer: accumulates rapid keystrokes and flushes after a short delay
         private var keyBuffer: [TmuxKey] = []
         private var flushTask: Task<Void, Never>?
@@ -246,8 +243,6 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             flushTask?.cancel()
             flushTask = nil
             keyBuffer.removeAll()
-            pendingKeyTask?.cancel()
-            pendingKeyTask = nil
 
             streamTask?.cancel()
             streamTask = nil
@@ -289,9 +284,10 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
                 let keysToSend = keyBuffer
                 keyBuffer.removeAll()
 
-                let previous = pendingKeyTask
-                pendingKeyTask = Task {
-                    _ = await previous?.value
+                // Fire-and-forget: WebSocket/TCP guarantees ordering, so we don't
+                // need to chain on the previous send's response. Chaining would
+                // serialize batches by the full network round-trip latency.
+                Task {
                     _ = await connection.relayClient.sendCommand(
                         SendKeystroke(keysToSend),
                         paneId: paneId

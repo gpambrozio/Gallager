@@ -287,10 +287,6 @@
         /// Prevents race conditions where old callbacks process messages meant for new sessions.
         var streamSessionId: UUID?
 
-        // Serializes key sends so concurrent onInput callbacks don't race
-        @ObservationIgnored
-        private var pendingKeyTask: Task<Void, Never>?
-
         // Debounce buffer: accumulates rapid keystrokes and flushes after a short delay
         @ObservationIgnored
         private var keyBuffer: [TmuxKey] = []
@@ -308,8 +304,6 @@
             flushTask?.cancel()
             flushTask = nil
             keyBuffer.removeAll()
-            pendingKeyTask?.cancel()
-            pendingKeyTask = nil
         }
 
         /// Accumulates rapid keystrokes and flushes them as a single command after a short delay.
@@ -330,9 +324,10 @@
                 let keysToSend = keyBuffer
                 keyBuffer.removeAll()
 
-                let previous = pendingKeyTask
-                pendingKeyTask = Task {
-                    _ = await previous?.value
+                // Fire-and-forget: WebSocket/TCP guarantees ordering, so we don't
+                // need to chain on the previous send's response. Chaining would
+                // serialize batches by the full network round-trip latency.
+                Task {
                     _ = await relayClient.sendCommand(
                         SendKeystroke(keysToSend),
                         paneId: paneId
