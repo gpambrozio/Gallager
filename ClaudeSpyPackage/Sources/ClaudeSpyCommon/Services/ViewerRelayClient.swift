@@ -287,6 +287,17 @@ final public class ViewerRelayClient {
 
         let commandMessage = CommandMessage(paneId: paneId, command: command.commandType)
 
+        // Fire-and-forget: just write to the WebSocket and return a synthetic success.
+        // The command type declares it doesn't need a response, so no handler or timeout.
+        guard command.commandType.requiresResponse else {
+            await sendEncrypted(.command(commandMessage))
+            // All fire-and-forget commands currently use CommandResponseMessage as Response
+            if let response = CommandResponseMessage.success(for: commandMessage.id) as? C.Response {
+                return .success(response)
+            }
+            return .failure(ViewerRelayClientError.commandFailed("Unexpected response type"))
+        }
+
         return await withCheckedContinuation { (continuation: CheckedContinuation<Result<C.Response, Error>, Never>) in
             pendingCommands[commandMessage.id] = { result in
                 switch result {

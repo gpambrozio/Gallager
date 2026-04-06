@@ -287,9 +287,8 @@
         /// Prevents race conditions where old callbacks process messages meant for new sessions.
         var streamSessionId: UUID?
 
-        // Serializes key sends so concurrent onInput callbacks don't race
         @ObservationIgnored
-        private var pendingKeyTask: Task<Void, Never>?
+        private var keystrokeDebouncer: KeystrokeDebouncer?
 
         init(paneId: String, fontName: String, fontSize: CGFloat) {
             self.paneId = paneId
@@ -299,20 +298,15 @@
 
         /// Cancel any in-flight key-send chain.
         func cancelPendingKeys() {
-            pendingKeyTask?.cancel()
-            pendingKeyTask = nil
+            keystrokeDebouncer?.cancelAll()
         }
 
-        /// Enqueue a keystroke send, chaining on any pending send to preserve ordering.
+        /// Accumulates rapid keystrokes and flushes them as a single command after a short delay.
         func enqueueKeySend(keys: [TmuxKey], relayClient: ViewerRelayClient) {
-            let previous = pendingKeyTask
-            pendingKeyTask = Task {
-                _ = await previous?.value
-                _ = await relayClient.sendCommand(
-                    SendKeystroke(keys),
-                    paneId: paneId
-                )
+            if keystrokeDebouncer == nil {
+                keystrokeDebouncer = KeystrokeDebouncer(paneId: paneId, relayClient: relayClient)
             }
+            keystrokeDebouncer?.enqueue(keys)
         }
 
         func handleStreamMessage(_ message: TerminalStreamMessage) {
