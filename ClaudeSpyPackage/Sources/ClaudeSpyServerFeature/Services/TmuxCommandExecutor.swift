@@ -90,6 +90,7 @@ public actor TmuxCommandExecutor {
         for key in keys {
             if case let .delay(milliseconds) = key {
                 try await flushBatch(paneId: paneId, keys: &batch, literal: batchIsLiteral)
+                batchIsLiteral = false
                 try await Task.sleep(for: .milliseconds(milliseconds))
                 continue
             }

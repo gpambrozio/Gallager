@@ -317,11 +317,15 @@
         func enqueueKeySend(keys: [TmuxKey], relayClient: ViewerRelayClient) {
             keyBuffer.append(contentsOf: keys)
 
-            // Reset the flush timer — if more keys arrive within 8ms, they'll be batched together
+            // Reset the flush timer — if more keys arrive within the debounce window, they'll be batched together
             flushTask?.cancel()
+            let keystrokeDebounceInterval: Duration = .milliseconds(8)
             flushTask = Task {
-                try? await Task.sleep(for: .milliseconds(8))
-                guard !Task.isCancelled else { return }
+                do {
+                    try await Task.sleep(for: keystrokeDebounceInterval)
+                } catch {
+                    return
+                }
 
                 let keysToSend = keyBuffer
                 keyBuffer.removeAll()
