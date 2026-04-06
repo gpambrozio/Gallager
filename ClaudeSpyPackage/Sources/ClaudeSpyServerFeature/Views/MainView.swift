@@ -221,23 +221,14 @@ public struct MainView: View {
         )
     }
 
-    /// Whether a session has any pane with an active Claude session
-    private func sessionHasClaude(_ session: LocalTmuxSession) -> Bool {
-        session.windows.contains { window in
-            window.panes.contains { windowManager.paneStates[$0.paneId]?.claudeSession != nil }
-        }
-    }
-
     private var windowList: some View {
-        let allSessions = tmuxService.sessions
-        let sessionsWithClaude = allSessions.filter { sessionHasClaude($0) }
-        let sessionsWithoutClaude = allSessions.filter { !sessionHasClaude($0) }
+        let sortedSessions = settings.sidebarSortMode.sorted(tmuxService.sessions) { session in
+            localSessionSortData(session)
+        }
 
         return ScrollViewReader { proxy in
             List {
-                claudeSessionsSection(sessions: sessionsWithClaude)
-                terminalsSection(sessions: sessionsWithoutClaude, hasClaudeSessions: !sessionsWithClaude.isEmpty)
-                emptyLocalSection(hasAnyWindows: !sessionsWithClaude.isEmpty || !sessionsWithoutClaude.isEmpty)
+                localSessionsSection(sessions: sortedSessions)
                 remoteHostSections
             }
             .listStyle(.sidebar)
@@ -259,52 +250,59 @@ public struct MainView: View {
     }
 
     @ViewBuilder
-    private func claudeSessionsSection(sessions: [LocalTmuxSession]) -> some View {
-        if !sessions.isEmpty {
-            Section {
-                ForEach(sessions) { session in
-                    sessionButton(session: session, help: "Claude Code session active")
-                }
-            } header: {
-                SectionHeader(title: "Claude Sessions", symbol: .sparkles) {
-                    localNewSessionPopover
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func terminalsSection(sessions: [LocalTmuxSession], hasClaudeSessions: Bool) -> some View {
-        if !sessions.isEmpty {
-            Section {
-                ForEach(sessions) { session in
-                    sessionButton(session: session)
-                }
-            } header: {
-                if !hasClaudeSessions {
-                    SectionHeader(title: "Terminals", symbol: .terminal) {
-                        localNewSessionPopover
-                    }
-                } else {
-                    SectionHeader(title: "Terminals", symbol: .terminal)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func emptyLocalSection(hasAnyWindows: Bool) -> some View {
-        if !hasAnyWindows && settings.hasRemoteHosts {
-            Section {
+    private func localSessionsSection(sessions: [LocalTmuxSession]) -> some View {
+        Section {
+            if sessions.isEmpty && settings.hasRemoteHosts {
                 Text("No local sessions")
                     .foregroundStyle(.secondary)
                     .font(.caption)
-            } header: {
-                SectionHeader(title: "Local", symbol: .terminal) {
-                    localNewSessionPopover
+            } else {
+                ForEach(sessions) { session in
+                    sessionButton(session: session)
                 }
             }
+        } header: {
+            SectionHeader(title: "Local", symbol: .house) {
+                localNewSessionPopover
+            }
         }
+    }
+
+    private func localSessionSortData(_ session: LocalTmuxSession) -> SessionSortData {
+        let claudeSession: ClaudeSession? = session.windows.lazy
+            .flatMap(\.panes)
+            .compactMap { windowManager.paneStates[$0.paneId]?.claudeSession }
+            .first
+
+        let primaryPane = session.activeWindow?.activePane
+        let paneState = primaryPane.flatMap { windowManager.paneStates[$0.paneId] }
+
+        // Scan all windows for terminal title (matches SessionSidebarRow.terminalTitle)
+        let terminalTitle: String? = session.windows.lazy
+            .flatMap(\.panes)
+            .compactMap { windowManager.paneStates[$0.paneId]?.terminalTitle }
+            .first { !$0.isEmpty }
+
+        let fields = claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields
+
+        let primaryLabel = SessionSortData.primaryLabel(
+            fields: fields,
+            customDescription: paneState?.customDescription,
+            projectName: claudeSession?.displayName,
+            sessionName: session.sessionName,
+            terminalTitle: terminalTitle,
+            command: primaryPane?.command,
+            currentPath: primaryPane?.currentPath
+        )
+
+        return SessionSortData(
+            sessionName: session.sessionName,
+            primaryLabel: primaryLabel,
+            hasClaude: claudeSession != nil,
+            statusPriority: SessionSortData.statusPriority(for: claudeSession),
+            statusPriorityIdleFirst: SessionSortData.statusPriorityIdleFirst(for: claudeSession),
+            latestEventTimestamp: claudeSession?.latestEvent?.timestamp
+        )
     }
 
     @ViewBuilder
@@ -1334,6 +1332,7 @@ extension SectionHeader {
 /// A row displaying a tmux session in the sidebar
 private struct SessionSidebarRow: View {
     @Environment(MirrorWindowManager.self) private var windowManager
+    @Environment(AppSettings.self) private var settings
 
     let session: LocalTmuxSession
 
@@ -1360,6 +1359,18 @@ private struct SessionSidebarRow: View {
         return nil
     }
 
+    /// The first non-empty terminal title found across all windows
+    private var terminalTitle: String? {
+        for window in session.windows {
+            for pane in window.panes {
+                if let title = windowManager.paneStates[pane.paneId]?.terminalTitle, !title.isEmpty {
+                    return title
+                }
+            }
+        }
+        return nil
+    }
+
     /// The latest event subtitle from the first pane with a Claude session
     private var sessionSubtitle: String? {
         for window in session.windows {
@@ -1372,76 +1383,37 @@ private struct SessionSidebarRow: View {
         return nil
     }
 
-    /// Terminal title detected via OSC escape sequences (from primary pane)
-    private var terminalTitle: String? {
-        primaryPaneState?.terminalTitle
-    }
-
-    /// Custom description for this session (from the active window's primary pane)
-    private var customDescription: String? {
-        primaryPaneState?.customDescription
-    }
-
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            if let session = claudeSession {
-                SessionStatusIndicator(session: session)
+            if let claudeSession {
+                SessionStatusIndicator(session: claudeSession)
                     .font(.system(size: 16))
+                    .frame(width: 20)
+            } else {
+                Symbols.terminal.image
+                    .font(.system(size: 16))
+                    .foregroundStyle(.secondary)
                     .frame(width: 20)
             }
 
-            VStack(alignment: .leading, spacing: 2) {
-                // Custom description shown prominently if set
-                if let customDescription {
-                    Text(customDescription)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                }
-
-                HStack(spacing: 6) {
-                    Text(session.sessionName)
-                        .font(.system(customDescription != nil ? .caption : .body, design: .monospaced))
-                        .foregroundStyle(customDescription != nil ? .secondary : .primary)
-
-                    if session.windows.count > 1 {
-                        Text("\(session.windows.count) windows")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                if let terminalTitle, !terminalTitle.isEmpty {
-                    Text(terminalTitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                if let pane = primaryPane {
-                    Text(pane.command)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-
-                    Text(pane.currentPath.abbreviatedPath)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                }
-
-                if let sessionSubtitle {
-                    Text(sessionSubtitle)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(2)
-                }
-            }
+            SessionFieldsView(
+                fields: claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields,
+                customDescription: primaryPaneState?.customDescription,
+                projectName: claudeSession?.displayName,
+                sessionName: session.sessionName,
+                terminalTitle: terminalTitle,
+                command: primaryPane?.command,
+                currentPath: primaryPane?.currentPath,
+                latestEvent: sessionSubtitle
+            )
 
             Spacer()
         }
-        // Invisible text exposing session status to macOS accessibility tree for e2e tests.
-        // ProgressView (working state) prevents AX from reading .accessibilityValue directly.
+        // Expose session name to macOS accessibility tree so e2e tests can find sessions
+        // regardless of which sidebar fields are configured (session name may not appear as
+        // visible Text). Also expose status since ProgressView (working state) prevents AX
+        // from reading .accessibilityValue directly on the indicator.
+        .accessibilityValue(session.sessionName)
         .overlay {
             if let status = claudeSession?.statusLabel {
                 Text(status)
@@ -1844,24 +1816,48 @@ private struct RemoteHostSidebarSection: View {
         !tmuxSessions.isEmpty
     }
 
-    /// Sessions that contain at least one Claude session
-    private var claudeSessions: [TmuxSession] {
-        tmuxSessions.filter(\.hasClaude)
-    }
+    private var sortedSessions: [TmuxSession] {
+        settings.sidebarSortMode.sorted(tmuxSessions) { session in
+            let claudeSession = session.windows
+                .flatMap(\.panes)
+                .compactMap(\.claudeSession)
+                .first
+            let activePane = session.activeWindow?.activePane
 
-    /// Sessions without any Claude sessions (plain terminals)
-    private var terminalSessions: [TmuxSession] {
-        tmuxSessions.filter { !$0.hasClaude }
+            // Scan all windows for terminal title (matches RemoteSessionSidebarRow)
+            let terminalTitle = session.windows
+                .flatMap(\.panes)
+                .compactMap(\.terminalTitle)
+                .first { !$0.isEmpty }
+
+            let fields = claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields
+
+            let primaryLabel = SessionSortData.primaryLabel(
+                fields: fields,
+                customDescription: session.customDescription,
+                projectName: claudeSession?.displayName,
+                sessionName: session.sessionName,
+                terminalTitle: terminalTitle,
+                command: activePane?.command,
+                currentPath: activePane?.currentPath,
+                homeDirectory: sessionStore.homeDirectoryByHost[host.id]
+            )
+
+            return SessionSortData(
+                sessionName: session.sessionName,
+                primaryLabel: primaryLabel,
+                hasClaude: claudeSession != nil,
+                statusPriority: SessionSortData.statusPriority(for: claudeSession),
+                statusPriorityIdleFirst: SessionSortData.statusPriorityIdleFirst(for: claudeSession),
+                latestEventTimestamp: claudeSession?.latestEvent?.timestamp
+            )
+        }
     }
 
     var body: some View {
         Section {
             if hasContent {
-                ForEach(claudeSessions) { session in
-                    remoteSessionButton(session)
-                }
-
-                ForEach(terminalSessions) { session in
+                ForEach(sortedSessions) { session in
                     remoteSessionButton(session)
                 }
             } else if connection?.isHostConnected == true {
@@ -1912,7 +1908,8 @@ private struct RemoteHostSidebarSection: View {
         } label: {
             RemoteSessionSidebarRow(
                 session: session,
-                claudeSession: claudePane?.claudeSession
+                claudeSession: claudePane?.claudeSession,
+                homeDirectory: sessionStore.homeDirectoryByHost[host.id]
             )
         }
         .buttonStyle(.plain)
@@ -1950,22 +1947,18 @@ private struct RemoteHostSidebarSection: View {
 
 /// Sidebar row displaying a remote tmux session, grouped by session name
 private struct RemoteSessionSidebarRow: View {
+    @Environment(AppSettings.self) private var settings
+
     let session: TmuxSession
     let claudeSession: ClaudeSession?
+    var homeDirectory: String?
 
-    /// Display name derived from Claude session, custom description, or session name
-    private var displayName: String {
-        if let customDescription = session.customDescription {
-            return customDescription
-        }
-        if let claudeSession {
-            return claudeSession.displayName
-        }
-        // For plain terminals, use the active pane's current path
-        if let path = session.activeWindow?.activePane?.currentPath, !path.isEmpty {
-            return URL(fileURLWithPath: path).lastPathComponent
-        }
-        return session.sessionName
+    /// The latest event subtitle from the Claude session's pane
+    private var latestEventSubtitle: String? {
+        session.windows
+            .flatMap(\.panes)
+            .compactMap(\.claudeSession?.latestEvent?.action.subtitle)
+            .first
     }
 
     var body: some View {
@@ -1974,40 +1967,30 @@ private struct RemoteSessionSidebarRow: View {
                 SessionStatusIndicator(session: claudeSession)
                     .font(.system(size: 16))
                     .frame(width: 20)
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    Text(displayName)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-
-                    if session.windows.count > 1 {
-                        Text("\(session.windows.count) windows")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(.fill.tertiary, in: Capsule())
-                    }
-                }
-
-                if session.customDescription != nil, let claudeSession {
-                    Text(claudeSession.displayName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                Text(session.sessionName)
-                    .font(.caption)
+            } else {
+                Symbols.terminal.image
+                    .font(.system(size: 16))
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .frame(width: 20)
             }
+
+            SessionFieldsView(
+                fields: claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields,
+                customDescription: session.customDescription,
+                projectName: claudeSession?.displayName,
+                sessionName: session.sessionName,
+                terminalTitle: session.activeWindow?.activePane?.terminalTitle,
+                command: session.activeWindow?.activePane?.command,
+                currentPath: session.activeWindow?.activePane?.currentPath,
+                latestEvent: latestEventSubtitle,
+                homeDirectory: homeDirectory
+            )
 
             Spacer()
         }
+        // Expose session name to macOS accessibility tree so e2e tests can find sessions
+        // regardless of which sidebar fields are configured.
+        .accessibilityValue(session.sessionName)
         // Invisible text exposing session status to macOS accessibility tree for e2e tests.
         .overlay {
             if let status = claudeSession?.statusLabel {

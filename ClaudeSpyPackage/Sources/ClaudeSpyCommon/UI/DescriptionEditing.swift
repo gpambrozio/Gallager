@@ -104,8 +104,8 @@ public struct DescriptionEditingModifier<AdditionalMenu: View>: ViewModifier {
     }
 }
 
-extension DescriptionEditingModifier where AdditionalMenu == EmptyView {
-    public init(
+public extension DescriptionEditingModifier where AdditionalMenu == EmptyView {
+    init(
         windowId: String,
         currentDescription: String?,
         isDisabled: Bool = false,

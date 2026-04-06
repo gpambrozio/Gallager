@@ -44,11 +44,13 @@ public enum Symbols: String {
     case folderFill = "folder.fill"
     case gearshape
     case handsAndSparklesFill = "hands.and.sparkles.fill"
+    case house
     case infoCircle = "info.circle"
     case iphone
     case keyboard
     case keyboardChevronCompactDown = "keyboard.chevron.compact.down"
     case laptopcomputer
+    case line3Horizontal = "line.3.horizontal"
     case linkCircle = "link.circle"
     case linkCircleFill = "link.circle.fill"
     case listBulletClipboard = "list.bullet.clipboard"
@@ -57,6 +59,7 @@ public enum Symbols: String {
     case macwindow
     case macwindowBadgePlus = "macwindow.badge.plus"
     case magnifyingglass
+    case minusCircleFill = "minus.circle.fill"
     case moonFill = "moon.fill"
     case pause
     case pauseCircleFill = "pause.circle.fill"
@@ -65,6 +68,7 @@ public enum Symbols: String {
     case play
     case playFill = "play.fill"
     case plus
+    case plusCircleFill = "plus.circle.fill"
     case puzzlepiece
     case qrcode
     case questionmark

@@ -14,7 +14,6 @@ import Foundation
 /// **Note:** Shortcuts use `tags: ["shortcut"]` but are **not** registered in
 /// `allScenarios`, so the test runner will never execute them standalone.
 public enum Shortcut {
-
     // MARK: - macOS Setup
 
     /// Open the Panes window and configure it with standard sizing.
