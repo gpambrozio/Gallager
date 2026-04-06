@@ -296,7 +296,8 @@
             // Configure terminal stream service with connection manager
             terminalStreamService.configureWithConnectionManager(
                 connectionManager: connectionManager,
-                paneStreamManager: paneStreamManager
+                paneStreamManager: paneStreamManager,
+                tmuxService: tmuxService
             )
 
             // Wire terminal notification display (fires for any monitored pane, regardless of streaming)

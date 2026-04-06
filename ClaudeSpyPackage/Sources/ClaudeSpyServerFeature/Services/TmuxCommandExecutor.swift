@@ -47,6 +47,12 @@ public actor TmuxCommandExecutor {
                 )
                 return .success(for: command.id, paneId: newPaneId)
 
+            case let .sendRawBytes(spec):
+                guard let data = Data(base64Encoded: spec.dataBase64) else {
+                    return .failure(for: command.id, error: "Invalid base64 data")
+                }
+                try await tmuxService.sendRawBytes(command.paneId, data: data)
+
             case .selectTmuxPane:
                 try await tmuxService.selectPane(command.paneId)
 

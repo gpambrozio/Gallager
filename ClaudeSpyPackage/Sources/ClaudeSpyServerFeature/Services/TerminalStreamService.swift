@@ -27,6 +27,9 @@ final public class TerminalStreamService {
     /// Reference to the pane stream manager
     private weak var paneStreamManager: PaneStreamManager?
 
+    /// Reference to the tmux service for querying pane state (e.g., mouse mode)
+    private weak var tmuxService: TmuxService?
+
     /// Active streams keyed by pane ID
     private var activeStreams: [String: StreamContext] = [:]
 
@@ -55,12 +58,15 @@ final public class TerminalStreamService {
     /// - Parameters:
     ///   - connectionManager: The ConnectedViewerManager to use for sending stream data to all viewers
     ///   - paneStreamManager: The PaneStreamManager to subscribe to for data
+    ///   - tmuxService: The TmuxService for querying pane state (e.g., mouse mode)
     public func configureWithConnectionManager(
         connectionManager: ConnectedViewerManager,
-        paneStreamManager: PaneStreamManager
+        paneStreamManager: PaneStreamManager,
+        tmuxService: TmuxService? = nil
     ) {
         self.connectionManager = connectionManager
         self.paneStreamManager = paneStreamManager
+        self.tmuxService = tmuxService
     }
 
     // MARK: - Public API
@@ -127,6 +133,9 @@ final public class TerminalStreamService {
                 content: current.content
             )
             await connectionManager.sendTerminalStreamToAll(initialMessage)
+
+            // Sync mouse mode for the new viewer
+            await sendMouseModeSyncIfNeeded(paneId: paneId, target: target)
 
             return
         }
@@ -215,6 +224,11 @@ final public class TerminalStreamService {
             content: result.initialContent
         )
         await connectionManager.sendTerminalStreamToAll(initialMessage)
+
+        // capture-pane doesn't include DEC private mode state (mouse tracking).
+        // Query tmux for the pane's mouse flags and send enable sequences as a
+        // data chunk so remote viewers' SwiftTerm enters the correct mouse mode.
+        await sendMouseModeSyncIfNeeded(paneId: paneId, target: target)
     }
 
     /// Errors that can occur during streaming
@@ -369,6 +383,39 @@ final public class TerminalStreamService {
 
         let message = TerminalStreamMessage.titleChange(paneId: paneId, title: title)
         await connectionManager.sendTerminalStreamToAll(message)
+    }
+
+    /// Queries the tmux pane's mouse tracking flags and sends enable sequences
+    /// as a data chunk so remote viewers' SwiftTerm enters the correct mouse mode.
+    /// `capture-pane` only captures text + SGR attributes, not DEC private mode state.
+    private func sendMouseModeSyncIfNeeded(paneId: String, target: String) async {
+        guard let tmuxService, let connectionManager else { return }
+        do {
+            let mode = try await tmuxService.getPaneMouseMode(target)
+            guard mode != .off else { return }
+
+            var sequences = ""
+            switch mode {
+            case .standard:
+                sequences += "\u{1b}[?1000h"
+            case .button:
+                sequences += "\u{1b}[?1002h"
+            case .any:
+                sequences += "\u{1b}[?1003h"
+            case .off:
+                break
+            }
+            // SGR encoding (almost always paired with mouse tracking)
+            sequences += "\u{1b}[?1006h"
+
+            let message = TerminalStreamMessage.dataChunk(
+                paneId: paneId,
+                data: Data(sequences.utf8)
+            )
+            await connectionManager.sendTerminalStreamToAll(message)
+        } catch {
+            // Non-fatal — mouse mode will sync when the app next sends enable sequences
+        }
     }
 
     /// Handle terminal notification (OSC 9/777) — forward to connected iOS viewers

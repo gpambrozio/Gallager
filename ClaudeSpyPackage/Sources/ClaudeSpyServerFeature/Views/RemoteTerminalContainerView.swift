@@ -215,6 +215,12 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
                 self.enqueueKeySend(keys: keys, connection: connection)
             }
 
+            // Wire raw input (mouse escape sequences) forwarding via relay
+            terminalView.onRawInput = { [weak self] data in
+                guard let self, let connection = self.connection else { return }
+                self.enqueueRawSend(data: data, connection: connection)
+            }
+
             // Subscribe to terminal stream for this specific pane
             let subscriptionId = connection.subscribeToTerminalStream(paneId: paneId) { [weak self] message in
                 self?.handleStreamMessage(message)
@@ -239,6 +245,9 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         }
 
         func stop() {
+            terminalView.onInput = nil
+            terminalView.onRawInput = nil
+
             pendingKeyTask?.cancel()
             pendingKeyTask = nil
 
@@ -271,6 +280,19 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
                 _ = await previous?.value
                 _ = await connection.relayClient.sendCommand(
                     SendKeystroke(keys),
+                    paneId: paneId
+                )
+            }
+        }
+
+        /// Enqueue a raw bytes send (mouse escape sequences), chaining on pending sends.
+        private func enqueueRawSend(data: Data, connection: ViewerConnection) {
+            guard let paneId else { return }
+            let previous = pendingKeyTask
+            pendingKeyTask = Task {
+                _ = await previous?.value
+                _ = await connection.relayClient.sendCommand(
+                    SendRawBytes(data: data),
                     paneId: paneId
                 )
             }

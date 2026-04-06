@@ -570,6 +570,23 @@ public struct SelectTmuxWindow: CommandSpec, Equatable {
     }
 }
 
+/// Send raw bytes (e.g., mouse escape sequences) to a tmux pane. Returns success/failure.
+/// Used for forwarding SGR mouse events that can't be represented as `TmuxKey` values.
+public struct SendRawBytes: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// Raw terminal data as Base64-encoded string
+    public let dataBase64: String
+
+    public init(data: Data) {
+        self.dataBase64 = data.base64EncodedString()
+    }
+
+    public var commandType: CommandType {
+        .sendRawBytes(self)
+    }
+}
+
 /// Create a new tmux window in an existing session. Returns success/failure.
 /// On success, the response's `paneId` field contains the new window's first pane ID.
 public struct CreateTmuxWindow: CommandSpec, Equatable {
@@ -623,6 +640,8 @@ public enum CommandType: Codable, Sendable, Equatable {
     case selectTmuxWindow(SelectTmuxWindow)
     /// Create a new tmux window in a session
     case createTmuxWindow(CreateTmuxWindow)
+    /// Send raw bytes (mouse escape sequences) to a tmux pane
+    case sendRawBytes(SendRawBytes)
 
     // MARK: - Convenience Factory Methods
 
@@ -699,6 +718,11 @@ public enum CommandType: Codable, Sendable, Equatable {
     /// Create a createTmuxWindow command
     public static func createTmuxWindow(sessionName: String, workingDirectory: String? = nil) -> CommandType {
         .createTmuxWindow(CreateTmuxWindow(sessionName: sessionName, workingDirectory: workingDirectory))
+    }
+
+    /// Create a sendRawBytes command
+    public static func sendRawBytes(data: Data) -> CommandType {
+        .sendRawBytes(SendRawBytes(data: data))
     }
 }
 
