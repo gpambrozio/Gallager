@@ -144,9 +144,7 @@
             }
 
             connectionManager.onHostDisconnected = { [sessionStore] hostId in
-                Task { @MainActor in
-                    sessionStore.clearSessions(for: hostId)
-                }
+                sessionStore.clearSessions(for: hostId)
             }
 
             connectionManager.onUnpaired = { [settings] hostId in

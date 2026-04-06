@@ -727,6 +727,7 @@ final public class ViewerRelayClient {
     private func handleDisconnection() async {
         isHostConnected = false
         connectedHostName = nil
+        await onHostDisconnected?()
 
         await cleanupConnection()
 
