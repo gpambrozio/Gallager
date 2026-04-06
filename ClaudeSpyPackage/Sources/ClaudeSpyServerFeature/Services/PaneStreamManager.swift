@@ -238,6 +238,9 @@
                 stream.onNotification = { [weak self] notification in
                     self?.forwardNotification(paneId: paneId, notification: notification)
                 }
+                stream.onTitleChange = { [weak self] title in
+                    self?.handleStreamTitleChange(paneId: paneId, title: title)
+                }
 
                 // Seed with title detected by notification reader (if any)
                 let savedTitle = notificationReaderTitles.removeValue(forKey: paneId)
@@ -534,6 +537,27 @@
             guard let context = streams[paneId] else { return }
 
             for subscriberId in context.subscriberIds where subscriberId != excludingSubscription {
+                if
+                    let subscription = subscriptions[subscriberId],
+                    let callback = subscription.onTitleChange {
+                    callback(title)
+                }
+            }
+        }
+
+        /// Handle title change detected by PaneStream's PipePaneReader (from raw pipe-pane data).
+        /// Updates the stream context and forwards to all subscribers and the global handler.
+        private func handleStreamTitleChange(paneId: String, title: String) {
+            guard var context = streams[paneId] else { return }
+            guard !title.isEmpty, context.terminalTitle != title else { return }
+            context.terminalTitle = title
+            streams[paneId] = context
+
+            // Notify global handler (MirrorWindowManager)
+            onTitleChange?(paneId, context.target, title)
+
+            // Forward to all subscribers
+            for subscriberId in context.subscriberIds {
                 if
                     let subscription = subscriptions[subscriberId],
                     let callback = subscription.onTitleChange {
