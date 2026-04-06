@@ -316,6 +316,21 @@ final public class ViewerRelayClient {
         }
     }
 
+    /// Sends a command to the host without waiting for a response.
+    ///
+    /// Returns once the encrypted message has been written to the WebSocket.
+    /// Use this for high-frequency commands (e.g. keystrokes) where round-trip
+    /// latency would cause unacceptable serialization. The host will still send
+    /// a response, but it will be discarded when received.
+    public func sendCommandWithoutResponse<C: CommandSpec>(
+        _ command: C,
+        paneId: String
+    ) async {
+        guard state.isConnected else { return }
+        let commandMessage = CommandMessage(paneId: paneId, command: command.commandType)
+        await sendEncrypted(.command(commandMessage))
+    }
+
     /// Send a `CommandType` to the host, discarding the typed response.
     ///
     /// This is a convenience wrapper around `sendCommand(_:paneId:)` that dispatches
