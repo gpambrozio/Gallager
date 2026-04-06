@@ -287,6 +287,17 @@ final public class ViewerRelayClient {
 
         let commandMessage = CommandMessage(paneId: paneId, command: command.commandType)
 
+        // Fire-and-forget: just write to the WebSocket and return a synthetic success.
+        // The command type declares it doesn't need a response, so no handler or timeout.
+        guard command.commandType.requiresResponse else {
+            await sendEncrypted(.command(commandMessage))
+            // All fire-and-forget commands currently use CommandResponseMessage as Response
+            if let response = CommandResponseMessage.success(for: commandMessage.id) as? C.Response {
+                return .success(response)
+            }
+            return .failure(ViewerRelayClientError.commandFailed("Unexpected response type"))
+        }
+
         return await withCheckedContinuation { (continuation: CheckedContinuation<Result<C.Response, Error>, Never>) in
             pendingCommands[commandMessage.id] = { result in
                 switch result {
@@ -314,21 +325,6 @@ final public class ViewerRelayClient {
                 }
             }
         }
-    }
-
-    /// Sends a command to the host without waiting for a response.
-    ///
-    /// Returns once the encrypted message has been written to the WebSocket.
-    /// Use this for high-frequency commands (e.g. keystrokes) where round-trip
-    /// latency would cause unacceptable serialization. The host will still send
-    /// a response, but it will be discarded when received.
-    public func sendCommandWithoutResponse<C: CommandSpec>(
-        _ command: C,
-        paneId: String
-    ) async {
-        guard state.isConnected else { return }
-        let commandMessage = CommandMessage(paneId: paneId, command: command.commandType)
-        await sendEncrypted(.command(commandMessage))
     }
 
     /// Send a `CommandType` to the host, discarding the typed response.

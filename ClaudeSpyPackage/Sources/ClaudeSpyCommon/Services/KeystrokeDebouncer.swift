@@ -41,10 +41,11 @@ final public class KeystrokeDebouncer {
 
             // Chain on the WebSocket write (not response) to preserve ordering
             // without serializing on the full network round-trip.
+            // sendCommand returns immediately for commands where requiresResponse is false.
             let previous = pendingKeyTask
             pendingKeyTask = Task {
                 _ = await previous?.value
-                await relayClient.sendCommandWithoutResponse(
+                _ = await relayClient.sendCommand(
                     SendKeystroke(keysToSend),
                     paneId: paneId
                 )
