@@ -259,13 +259,6 @@ struct TmuxPaneMirrorApp: App {
                     // Open pane picker or bring main window to front
                 }
                 .keyboardShortcut("n", modifiers: .command)
-
-                Divider()
-
-                Button("Close All Mirrors") {
-                    coordinator.windowManager.closeAll()
-                }
-                .keyboardShortcut("w", modifiers: [.command, .shift])
             }
 
             // Edit menu - Copy as Rich Text / Copy with Control Sequences
@@ -297,19 +290,7 @@ struct TmuxPaneMirrorApp: App {
             }
 
             // Window menu additions
-            CommandGroup(after: .windowList) {
-                Divider()
-
-                ForEach(coordinator.windowManager.mirroredPaneIds, id: \.self) { paneId in
-                    Button(
-                        coordinator.windowManager.paneStates[paneId]?.terminalTitle
-                            ?? coordinator.windowManager.paneStates[paneId]?.target
-                            ?? paneId
-                    ) {
-                        coordinator.windowManager.bringToFront(paneId: paneId)
-                    }
-                }
-            }
+            CommandGroup(after: .windowList) { }
         }
 
         // About window - custom About panel with Gallager explanation

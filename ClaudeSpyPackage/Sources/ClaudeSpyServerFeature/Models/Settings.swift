@@ -142,19 +142,9 @@ final public class AppSettings {
         didSet { preferences.setBool(autoReconnect, Keys.autoReconnect) }
     }
 
-    /// Whether to automatically open mirror window when Claude session starts
-    public var autoOpenMirrorOnSession: Bool = Defaults.autoOpenMirrorOnSession {
-        didSet { preferences.setBool(autoOpenMirrorOnSession, Keys.autoOpenMirrorOnSession) }
-    }
-
     /// Whether to prevent host from sleeping while Claude sessions are active
     public var preventSleepDuringSessions: Bool = Defaults.preventSleepDuringSessions {
         didSet { preferences.setBool(preventSleepDuringSessions, Keys.preventSleepDuringSessions) }
-    }
-
-    /// Whether clicking a session in the menu bar opens the panes view instead of a new mirror window
-    public var menuBarClickOpensPanesView: Bool = Defaults.menuBarClickOpensPanesView {
-        didSet { preferences.setBool(menuBarClickOpensPanesView, Keys.menuBarClickOpensPanesView) }
     }
 
     /// Whether to automatically copy selected text to the clipboard when the mouse is released
@@ -277,9 +267,7 @@ final public class AppSettings {
         self.openPanesWindowOnLaunch = preferences.optionalBool(Keys.openPanesWindowOnLaunch) ?? Defaults.openPanesWindowOnLaunch
         self.showStatusBar = preferences.optionalBool(Keys.showStatusBar) ?? Defaults.showStatusBar
         self.autoReconnect = preferences.optionalBool(Keys.autoReconnect) ?? Defaults.autoReconnect
-        self.autoOpenMirrorOnSession = preferences.optionalBool(Keys.autoOpenMirrorOnSession) ?? Defaults.autoOpenMirrorOnSession
         self.preventSleepDuringSessions = preferences.optionalBool(Keys.preventSleepDuringSessions) ?? Defaults.preventSleepDuringSessions
-        self.menuBarClickOpensPanesView = preferences.optionalBool(Keys.menuBarClickOpensPanesView) ?? Defaults.menuBarClickOpensPanesView
         self.autoCopyOnSelect = preferences.optionalBool(Keys.autoCopyOnSelect) ?? Defaults.autoCopyOnSelect
         self.alwaysAutoResize = preferences.optionalBool(Keys.alwaysAutoResize) ?? Defaults.alwaysAutoResize
         self.reconnectDelay = preferences.optionalInt(Keys.reconnectDelay) ?? Defaults.reconnectDelay
@@ -347,9 +335,7 @@ final public class AppSettings {
         case openPanesWindowOnLaunch
         case showStatusBar
         case autoReconnect
-        case autoOpenMirrorOnSession
         case preventSleepDuringSessions
-        case menuBarClickOpensPanesView
         case autoCopyOnSelect
         case alwaysAutoResize
         case reconnectDelay
@@ -387,9 +373,7 @@ final public class AppSettings {
         static let openPanesWindowOnLaunch = false
         static let showStatusBar = true
         static let autoReconnect = false
-        static let autoOpenMirrorOnSession = false
         static let preventSleepDuringSessions = true
-        static let menuBarClickOpensPanesView = false
         static let autoCopyOnSelect = false
         static let alwaysAutoResize = false
         static let reconnectDelay = 5

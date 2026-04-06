@@ -514,24 +514,17 @@
         }
 
         /// Wires the notification tap handler on the delegate directly.
-        /// Respects the `menuBarClickOpensPanesView` setting.
+        /// Always opens the panes view with the tapped session selected.
         private func setupNotificationTapHandler() {
             ForegroundNotificationDelegate.shared.onTapped = { [weak self] paneId in
                 guard let self else { return }
 
                 NSApp.setActivationPolicy(.regular)
-
-                if self.settings.menuBarClickOpensPanesView {
-                    self.pendingMenuBarSelection = .local(paneId: paneId)
-                    NotificationCenter.default.post(
-                        name: .openPanesWindow,
-                        object: nil
-                    )
-                } else {
-                    Task {
-                        await self.windowManager.openMirrorForPane(paneId)
-                    }
-                }
+                self.pendingMenuBarSelection = .local(paneId: paneId)
+                NotificationCenter.default.post(
+                    name: .openPanesWindow,
+                    object: nil
+                )
 
                 Self.forceActivate()
             }

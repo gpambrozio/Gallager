@@ -50,7 +50,6 @@ struct TerminalContainerView: NSViewRepresentable {
             paneState: paneState,
             tmuxService: tmuxService,
             paneStreamManager: paneStreamManager,
-            windowManager: windowManager,
             settings: settings,
             onStateChange: onStateChange,
             onTitleChange: onTitleChange
@@ -94,7 +93,6 @@ struct TerminalContainerView: NSViewRepresentable {
         // MARK: Services (held for lifetime)
 
         private weak var paneStreamManager: PaneStreamManager?
-        private weak var windowManager: MirrorWindowManager?
         private weak var tmuxService: TmuxService?
 
         // MARK: State
@@ -145,14 +143,12 @@ struct TerminalContainerView: NSViewRepresentable {
             paneState: PaneState,
             tmuxService: TmuxService,
             paneStreamManager: PaneStreamManager,
-            windowManager: MirrorWindowManager,
             settings: AppSettings,
             onStateChange: TerminalStateChangeHandler?,
             onTitleChange: TerminalTitleChangeHandler?
         ) {
             self.paneState = paneState
             self.paneStreamManager = paneStreamManager
-            self.windowManager = windowManager
             self.tmuxService = tmuxService
             self.onStateChange = onStateChange
             self.onTitleChange = onTitleChange
@@ -301,9 +297,8 @@ struct TerminalContainerView: NSViewRepresentable {
                     onData: { [weak self] data in
                         self?.handleData(data)
                     },
-                    onDimensionChange: { [weak self, weak windowManager] newWidth, newHeight in
+                    onDimensionChange: { [weak self] newWidth, newHeight in
                         self?.updateTerminalDimensions(cols: newWidth, rows: newHeight)
-                        windowManager?.resizeWindow(paneId: paneId, columns: newWidth, rows: newHeight)
                     }
                 )
 

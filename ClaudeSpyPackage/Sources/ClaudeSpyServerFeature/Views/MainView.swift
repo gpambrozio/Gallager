@@ -391,12 +391,6 @@ public struct MainView: View {
                         Label("Open in Terminal", symbol: .macwindow)
                     }
 
-                    Button {
-                        windowManager.openMirror(for: activePane)
-                    } label: {
-                        Label("Open in New Window", symbol: .macwindowBadgePlus)
-                    }
-
                     Divider()
 
                     if !isAutoResizeActive(for: activePane.paneId) {
@@ -650,13 +644,6 @@ public struct MainView: View {
                         Symbols.macwindow.image
                     }
                     .help("Open session in terminal app")
-
-                    Button {
-                        windowManager.openMirror(for: activePane)
-                    } label: {
-                        Symbols.macwindowBadgePlus.image
-                    }
-                    .help("Open mirror in new window")
 
                     resizeToolbarGroup(
                         resizeKey: activePane.paneId,
