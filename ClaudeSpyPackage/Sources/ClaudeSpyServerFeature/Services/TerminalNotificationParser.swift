@@ -210,9 +210,9 @@
                 // Skip ConEmu-style OSC 9 sub-commands (e.g. "4;0;" for progress state,
                 // "1;filename" for tab title). These have a numeric prefix before the first
                 // semicolon, while real notifications start with readable text.
-                if let semicolonIndex = message.firstIndex(of: ";"),
-                    message[message.startIndex..<semicolonIndex].allSatisfy(\.isNumber)
-                {
+                if
+                    let semicolonIndex = message.firstIndex(of: ";"),
+                    message[message.startIndex..<semicolonIndex].allSatisfy(\.isNumber) {
                     return (true, nil)
                 }
 

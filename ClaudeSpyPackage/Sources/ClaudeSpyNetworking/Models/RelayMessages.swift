@@ -30,15 +30,19 @@ public struct SessionStateMessage: Codable, Sendable {
     public let paneStates: [String: PaneState]
     /// Discovered Claude projects on the host
     public let claudeProjects: [ClaudeProjectInfo]?
+    /// The host's home directory path (e.g., "/Users/gustavo" or "/home/gustavo")
+    public let homeDirectory: String
 
     public init(
         pairId: String,
         paneStates: [String: PaneState],
-        claudeProjects: [ClaudeProjectInfo]? = nil
+        claudeProjects: [ClaudeProjectInfo]? = nil,
+        homeDirectory: String = ""
     ) {
         self.pairId = pairId
         self.paneStates = paneStates
         self.claudeProjects = claudeProjects
+        self.homeDirectory = homeDirectory
     }
 }
 
