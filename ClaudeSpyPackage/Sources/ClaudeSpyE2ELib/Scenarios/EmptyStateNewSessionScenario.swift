@@ -36,8 +36,8 @@ public enum EmptyStateNewSessionScenario {
         TestStep.log("Verifying empty state disappeared")
         TestStep.macWaitForElementToDisappear(titled: "No Panes Available", timeout: 10)
 
-        TestStep.log("Verifying Terminals section appeared in sidebar")
-        TestStep.macWaitForElement(titled: "Terminals", timeout: 10)
+        TestStep.log("Verifying Local section appeared in sidebar")
+        TestStep.macWaitForElement(titled: "Local", timeout: 10)
 
         TestStep.macScreenshot(label: "mac-terminal-created")
 

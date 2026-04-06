@@ -461,7 +461,8 @@
                 return SessionStateMessage(
                     pairId: "",
                     paneStates: paneStates,
-                    claudeProjects: claudeProjects
+                    claudeProjects: claudeProjects,
+                    homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path
                 )
             }
 

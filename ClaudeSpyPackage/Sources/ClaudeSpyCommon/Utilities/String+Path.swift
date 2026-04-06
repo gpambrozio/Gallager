@@ -15,4 +15,13 @@ public extension String {
             return self
         #endif
     }
+
+    /// Replaces a specific home directory prefix with ~ for display purposes.
+    /// Used for remote paths where the home directory differs from the local user's.
+    func abbreviatedPath(home: String?) -> String {
+        if let home, hasPrefix(home) {
+            return "~" + dropFirst(home.count)
+        }
+        return abbreviatedPath
+    }
 }

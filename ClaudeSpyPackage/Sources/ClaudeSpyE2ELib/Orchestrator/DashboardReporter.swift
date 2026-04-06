@@ -5,11 +5,11 @@ import Foundation
 /// Reporter methods return immediately — events are placed on an internal
 /// async queue and drained serially by a background task. The drain task
 /// is fully fire-and-forget: network errors are silently ignored.
-public final class DashboardReporter: TestProgressReporter, @unchecked Sendable {
+final public class DashboardReporter: TestProgressReporter, @unchecked Sendable {
     private let dashboardURL: URL
     private let prNumber: Int?
     private let prTitle: String?
-    private var currentScenarioName: String = ""
+    private var currentScenarioName = ""
 
     private let continuation: AsyncStream<[String: Any]>.Continuation
     private let drainTask: Task<Void, Never>
@@ -56,7 +56,7 @@ public final class DashboardReporter: TestProgressReporter, @unchecked Sendable 
             "type": "e2e", "event": "step-started",
             "scenario": currentScenarioName,
             "stepNumber": stepNumber, "totalSteps": totalSteps,
-            "description": description
+            "description": description,
         ])
     }
 
@@ -73,7 +73,7 @@ public final class DashboardReporter: TestProgressReporter, @unchecked Sendable 
             "type": "e2e", "event": "scenario-completed",
             "scenario": result.scenarioName,
             "status": result.success ? "passed" : "failed",
-            "error": result.error ?? ""
+            "error": result.error ?? "",
         ])
     }
 

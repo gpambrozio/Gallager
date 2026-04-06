@@ -231,7 +231,6 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         ProjectSearchMacOSScenario.scenario,
         ProjectSearchIOSScenario.scenario,
         EmptyStateNewSessionScenario.scenario,
-        SidebarSelectionScenario.scenario,
         TwoMacPairingScenario.scenario,
         TerminalRenderingBugsScenario.scenario,
         RapidKeystrokeOrderScenario.scenario,
@@ -263,6 +262,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         MultiWindowTabsMacViewerScenario.scenario,
         MouseSupportScenario.scenario,
         FileBrowserScenario.scenario,
+        SidebarLayoutScenario.scenario,
     ]
 
     private func runTests(orchestrator: TestOrchestrator) async throws {

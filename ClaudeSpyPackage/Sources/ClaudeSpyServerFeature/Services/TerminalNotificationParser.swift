@@ -210,13 +210,14 @@
                 // Skip ConEmu-style OSC 9 sub-commands (e.g. "4;0;" for progress state,
                 // "1;filename" for tab title). These have a numeric prefix before the first
                 // semicolon, while real notifications start with readable text.
-                if let semicolonIndex = message.firstIndex(of: ";"),
-                    message[message.startIndex..<semicolonIndex].allSatisfy(\.isNumber)
-                {
+                if
+                    let semicolonIndex = message.firstIndex(of: ";"),
+                    message[message.startIndex..<semicolonIndex].allSatisfy(\.isNumber) {
                     return (true, nil)
                 }
 
                 guard let sanitized = sanitizeNotificationText(message) else { return (true, nil) }
+                if isIdlePromptNotification(body: sanitized) { return (true, nil) }
                 return (true, TerminalStreamMessage.TerminalNotification(body: sanitized))
             }
 
@@ -227,16 +228,27 @@
                 guard parts.count == 2 else {
                     // Malformed — treat entire payload as body
                     guard let sanitized = sanitizeNotificationText(payload) else { return (true, nil) }
+                    if isIdlePromptNotification(body: sanitized) { return (true, nil) }
                     return (true, TerminalStreamMessage.TerminalNotification(body: sanitized))
                 }
                 let title = sanitizeNotificationText(String(parts[0]))
                 let body = sanitizeNotificationText(String(parts[1]))
                 guard let body else { return (true, nil) }
+                if isIdlePromptNotification(body: body) { return (true, nil) }
                 return (true, TerminalStreamMessage.TerminalNotification(title: title, body: body))
             }
 
             // Not a notification sequence
             return (false, nil)
+        }
+
+        /// Checks if a notification body matches a known idle prompt pattern.
+        ///
+        /// Claude Code sends an OSC 9 notification when idle (e.g., "Claude is waiting
+        /// for your input"). These are noise — the idle state is already tracked via
+        /// hook events — so we strip the sequence without emitting a notification.
+        private func isIdlePromptNotification(body: String) -> Bool {
+            body == "Claude is waiting for your input"
         }
 
         /// Sanitizes notification text by stripping control characters and escape sequences.
