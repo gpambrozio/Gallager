@@ -384,20 +384,20 @@ final public class AppSettings {
         static let fontSize = 12.0
         static let scrollbackLines = 10_000
         static let theme = TerminalTheme.defaultDark
-        static let openPanesWindowOnLaunch = false
+        static let openPanesWindowOnLaunch = true
         static let showStatusBar = true
-        static let autoReconnect = false
+        static let autoReconnect = true
         static let autoOpenMirrorOnSession = false
         static let preventSleepDuringSessions = true
-        static let menuBarClickOpensPanesView = false
-        static let autoCopyOnSelect = false
-        static let alwaysAutoResize = false
-        static let reconnectDelay = 5
+        static let menuBarClickOpensPanesView = true
+        static let autoCopyOnSelect = true
+        static let alwaysAutoResize = true
+        static let reconnectDelay = 2
         static let tmuxPath = "/opt/homebrew/bin/tmux"
         static let tmuxSocket = ""
         static let autoRunClaudeInProjects = true
         static let claudeCommandPath = "claude"
-        static let terminalApp = TerminalApp.terminalApp
+        static let terminalApp = TerminalApp.iterm2
         static let customTerminalPath = ""
         // Remote Access
         static let externalServerURL = "wss://claudespy.gustavo.eng.br"
@@ -405,7 +405,7 @@ final public class AppSettings {
         // Plugin
         static let hasCompletedPluginSetup = false
         // Launch at Login
-        static let launchAtLogin = false
+        static let launchAtLogin = true
         static let hasAskedAboutLaunchAtLogin = false
     }
 
