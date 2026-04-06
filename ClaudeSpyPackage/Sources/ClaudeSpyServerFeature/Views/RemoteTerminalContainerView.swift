@@ -180,12 +180,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         private var onStateChange: (@MainActor (RemoteStreamState, Int, Int) -> Void)?
         private var onTitleChange: (@MainActor (String) -> Void)?
 
-        // Serializes keystroke sends so concurrent flushes don't reorder on the wire
-        private var pendingKeyTask: Task<Void, Never>?
-
-        // Debounce buffer: accumulates rapid keystrokes and flushes after a short delay
-        private var keyBuffer: [TmuxKey] = []
-        private var flushTask: Task<Void, Never>?
+        private var keystrokeDebouncer: KeystrokeDebouncer?
 
         init() {
             self.terminalView = InteractiveTerminalView(
@@ -243,11 +238,8 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         }
 
         func stop() {
-            flushTask?.cancel()
-            flushTask = nil
-            keyBuffer.removeAll()
-            pendingKeyTask?.cancel()
-            pendingKeyTask = nil
+            keystrokeDebouncer?.cancelAll()
+            keystrokeDebouncer = nil
 
             streamTask?.cancel()
             streamTask = nil
@@ -271,35 +263,12 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         // MARK: - Key Sends
 
         /// Accumulates rapid keystrokes and flushes them as a single command after a short delay.
-        /// This reduces the number of WebSocket messages when typing fast.
         private func enqueueKeySend(keys: [TmuxKey], connection: ViewerConnection) {
             guard let paneId else { return }
-            keyBuffer.append(contentsOf: keys)
-
-            // Reset the flush timer — if more keys arrive within the debounce window, they'll be batched together
-            flushTask?.cancel()
-            let keystrokeDebounceInterval: Duration = .milliseconds(8)
-            flushTask = Task {
-                do {
-                    try await Task.sleep(for: keystrokeDebounceInterval)
-                } catch {
-                    return
-                }
-
-                let keysToSend = keyBuffer
-                keyBuffer.removeAll()
-
-                // Chain on the WebSocket write (not response) to preserve ordering
-                // without serializing on the full network round-trip.
-                let previous = pendingKeyTask
-                pendingKeyTask = Task {
-                    _ = await previous?.value
-                    await connection.relayClient.sendCommandWithoutResponse(
-                        SendKeystroke(keysToSend),
-                        paneId: paneId
-                    )
-                }
+            if keystrokeDebouncer == nil {
+                keystrokeDebouncer = KeystrokeDebouncer(paneId: paneId, relayClient: connection.relayClient)
             }
+            keystrokeDebouncer?.enqueue(keys)
         }
 
         // MARK: - Stream Message Handling

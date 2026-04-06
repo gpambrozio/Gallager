@@ -327,7 +327,7 @@ final public class ViewerRelayClient {
         paneId: String
     ) async {
         guard state.isConnected else { return }
-        let commandMessage = CommandMessage(paneId: paneId, command: command.commandType)
+        let commandMessage = CommandMessage(paneId: paneId, command: command.commandType, responseExpected: false)
         await sendEncrypted(.command(commandMessage))
     }
 

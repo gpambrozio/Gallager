@@ -287,15 +287,8 @@
         /// Prevents race conditions where old callbacks process messages meant for new sessions.
         var streamSessionId: UUID?
 
-        // Serializes keystroke sends so concurrent flushes don't reorder on the wire
         @ObservationIgnored
-        private var pendingKeyTask: Task<Void, Never>?
-
-        // Debounce buffer: accumulates rapid keystrokes and flushes after a short delay
-        @ObservationIgnored
-        private var keyBuffer: [TmuxKey] = []
-        @ObservationIgnored
-        private var flushTask: Task<Void, Never>?
+        private var keystrokeDebouncer: KeystrokeDebouncer?
 
         init(paneId: String, fontName: String, fontSize: CGFloat) {
             self.paneId = paneId
@@ -305,42 +298,15 @@
 
         /// Cancel any in-flight key-send chain.
         func cancelPendingKeys() {
-            flushTask?.cancel()
-            flushTask = nil
-            keyBuffer.removeAll()
-            pendingKeyTask?.cancel()
-            pendingKeyTask = nil
+            keystrokeDebouncer?.cancelAll()
         }
 
         /// Accumulates rapid keystrokes and flushes them as a single command after a short delay.
-        /// This reduces the number of WebSocket messages when typing fast.
         func enqueueKeySend(keys: [TmuxKey], relayClient: ViewerRelayClient) {
-            keyBuffer.append(contentsOf: keys)
-
-            // Reset the flush timer — if more keys arrive within the debounce window, they'll be batched together
-            flushTask?.cancel()
-            let keystrokeDebounceInterval: Duration = .milliseconds(8)
-            flushTask = Task {
-                do {
-                    try await Task.sleep(for: keystrokeDebounceInterval)
-                } catch {
-                    return
-                }
-
-                let keysToSend = keyBuffer
-                keyBuffer.removeAll()
-
-                // Chain on the WebSocket write (not response) to preserve ordering
-                // without serializing on the full network round-trip.
-                let previous = pendingKeyTask
-                pendingKeyTask = Task {
-                    _ = await previous?.value
-                    await relayClient.sendCommandWithoutResponse(
-                        SendKeystroke(keysToSend),
-                        paneId: paneId
-                    )
-                }
+            if keystrokeDebouncer == nil {
+                keystrokeDebouncer = KeystrokeDebouncer(paneId: paneId, relayClient: relayClient)
             }
+            keystrokeDebouncer?.enqueue(keys)
         }
 
         func handleStreamMessage(_ message: TerminalStreamMessage) {

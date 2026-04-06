@@ -435,7 +435,7 @@ final public class ConnectedViewer: Identifiable {
 
         case let .command(command):
             logger.info("Received command from viewer", metadata: ["type": "\(command.command)"])
-            if let onCommand, let response = await onCommand(command) {
+            if let onCommand, let response = await onCommand(command), command.responseExpected {
                 await sendEncrypted(.commandResponse(response))
             }
 

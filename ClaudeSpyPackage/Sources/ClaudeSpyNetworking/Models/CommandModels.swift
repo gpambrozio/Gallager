@@ -710,17 +710,23 @@ public struct CommandMessage: Codable, Sendable, Identifiable {
     public let paneId: String
     public let command: CommandType
     public let timestamp: Date
+    /// When `false`, the host should skip sending a `CommandResponseMessage`.
+    /// Used for high-frequency commands (e.g. keystrokes) where the viewer
+    /// doesn't wait for a response and the bandwidth would be wasted.
+    public let responseExpected: Bool
 
     public init(
         id: UUID = UUID(),
         paneId: String,
         command: CommandType,
-        timestamp: Date = Date()
+        timestamp: Date = Date(),
+        responseExpected: Bool = true
     ) {
         self.id = id
         self.paneId = paneId
         self.command = command
         self.timestamp = timestamp
+        self.responseExpected = responseExpected
     }
 }
 
