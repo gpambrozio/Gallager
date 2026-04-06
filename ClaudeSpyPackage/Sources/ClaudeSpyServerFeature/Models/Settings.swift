@@ -397,7 +397,7 @@ final public class AppSettings {
         static let tmuxSocket = ""
         static let autoRunClaudeInProjects = true
         static let claudeCommandPath = "claude"
-        static let terminalApp = TerminalApp.iterm2
+        static let terminalApp = TerminalApp.terminalApp
         static let customTerminalPath = ""
         // Remote Access
         static let externalServerURL = "wss://claudespy.gustavo.eng.br"
@@ -405,7 +405,7 @@ final public class AppSettings {
         // Plugin
         static let hasCompletedPluginSetup = false
         // Launch at Login
-        static let launchAtLogin = true
+        static let launchAtLogin = false
         static let hasAskedAboutLaunchAtLogin = false
     }
 
