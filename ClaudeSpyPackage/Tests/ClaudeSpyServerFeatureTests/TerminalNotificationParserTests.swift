@@ -414,5 +414,47 @@
             #expect(result.notifications.count == 1)
             #expect(result.notifications[0].body == "Hello")
         }
+
+        // MARK: - Idle prompt filtering
+
+        @Test("Discards Claude Code idle prompt OSC 9 notification")
+        func osc9IdlePromptFiltered() {
+            var parser = TerminalNotificationParser()
+            let data = Data("\u{1b}]9;Claude is waiting for your input\u{07}".utf8)
+            let result = parser.parse(data)
+
+            #expect(result.notifications.isEmpty)
+            #expect(result.filteredData.isEmpty)
+        }
+
+        @Test("Discards Claude Code idle prompt OSC 777 notification")
+        func osc777IdlePromptFiltered() {
+            var parser = TerminalNotificationParser()
+            let data = Data("\u{1b}]777;notify;Claude Code;Claude is waiting for your input\u{07}".utf8)
+            let result = parser.parse(data)
+
+            #expect(result.notifications.isEmpty)
+            #expect(result.filteredData.isEmpty)
+        }
+
+        @Test("Strips idle prompt from mixed content without affecting surrounding data")
+        func idlePromptStrippedFromMixedContent() {
+            var parser = TerminalNotificationParser()
+            let data = Data("before\u{1b}]9;Claude is waiting for your input\u{07}after".utf8)
+            let result = parser.parse(data)
+
+            #expect(result.notifications.isEmpty)
+            #expect(String(data: result.filteredData, encoding: .utf8) == "beforeafter")
+        }
+
+        @Test("Does not filter non-idle notifications with similar text")
+        func nonIdleNotificationNotFiltered() {
+            var parser = TerminalNotificationParser()
+            let data = Data("\u{1b}]9;Task completed successfully\u{07}".utf8)
+            let result = parser.parse(data)
+
+            #expect(result.notifications.count == 1)
+            #expect(result.notifications[0].body == "Task completed successfully")
+        }
     }
 #endif

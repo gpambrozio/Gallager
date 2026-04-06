@@ -156,6 +156,17 @@ sys.exit(1)
 # PERMISSION CHECKS (macOS)
 # =====================================================
 
+# GUI Session: needed for screencapture and window management.
+# When logged in as a different user on the CI machine, the WindowServer
+# is inaccessible and all screenshot/UI automation silently fails.
+check_gui_session() {
+    # /dev/console is owned by the user with the active GUI session.
+    # When fast-user-switched away, it belongs to the other user.
+    local console_user
+    console_user=$(stat -f%Su /dev/console 2>/dev/null)
+    [ "$console_user" = "$(whoami)" ]
+}
+
 # Accessibility: needed for AppleScript UI automation of the macOS app.
 # The test must actually send a keystroke — reading process names succeeds
 # with a weaker grant that doesn't cover keystroke injection (error 1002).
@@ -228,6 +239,18 @@ print('Unknown')
 }
 
 if [ "$LIST_SCENARIOS" != true ]; then
+    step "Checking GUI session"
+
+    if check_gui_session; then
+        ok "GUI session active (current user owns the console)"
+    else
+        fail "No GUI session available."
+        echo "  The current user is not logged into the macOS console session."
+        echo "  Screenshots and UI automation require an active desktop."
+        echo "  Switch to the CI user's desktop session and try again."
+        exit 1
+    fi
+
     step "Checking required permissions"
 
     missing=false
@@ -460,5 +483,14 @@ fi
 if [ -n "$DASHBOARD_PR_TITLE" ]; then
     E2E_ARGS+=(--dashboard-pr-title "$DASHBOARD_PR_TITLE")
 fi
+
+# Prevent screensaver and sleep while tests run.
+# -d prevents display sleep, -i prevents idle sleep, -s prevents system sleep.
+caffeinate -dis &
+CAFFEINATE_PID=$!
+cleanup_caffeinate() {
+    kill "$CAFFEINATE_PID" 2>/dev/null || true
+}
+trap cleanup_caffeinate EXIT
 
 DYLD_FRAMEWORK_PATH="$PRODUCTS_DEBUG" "$E2E_BIN" "${E2E_ARGS[@]}"
