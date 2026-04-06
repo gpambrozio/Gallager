@@ -1409,8 +1409,11 @@ private struct SessionSidebarRow: View {
 
             Spacer()
         }
-        // Invisible text exposing session status to macOS accessibility tree for e2e tests.
-        // ProgressView (working state) prevents AX from reading .accessibilityValue directly.
+        // Expose session name to macOS accessibility tree so e2e tests can find sessions
+        // regardless of which sidebar fields are configured (session name may not appear as
+        // visible Text). Also expose status since ProgressView (working state) prevents AX
+        // from reading .accessibilityValue directly on the indicator.
+        .accessibilityValue(session.sessionName)
         .overlay {
             if let status = claudeSession?.statusLabel {
                 Text(status)
@@ -1985,6 +1988,9 @@ private struct RemoteSessionSidebarRow: View {
 
             Spacer()
         }
+        // Expose session name to macOS accessibility tree so e2e tests can find sessions
+        // regardless of which sidebar fields are configured.
+        .accessibilityValue(session.sessionName)
         // Invisible text exposing session status to macOS accessibility tree for e2e tests.
         .overlay {
             if let status = claudeSession?.statusLabel {

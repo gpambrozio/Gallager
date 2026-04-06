@@ -102,8 +102,8 @@ public enum YoloModeContextCompactionScenario {
         )
         TestStep.wait(seconds: 3)
 
-        // Session ended — pane moves back to Terminals
-        TestStep.macWaitForElementToDisappear(titled: "Claude Sessions", timeout: 10)
+        // Session ended — Claude status indicator should disappear
+        TestStep.macWaitForElementToDisappear(titled: "Idle", timeout: 10)
         TestStep.macScreenshot(label: "mac-session-ended-yolo-cleared")
 
         // ── Phase 5: New session starts without yolo leaked ─────
