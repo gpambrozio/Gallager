@@ -214,6 +214,12 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
                 self.enqueueKeySend(keys: keys, connection: connection)
             }
 
+            // Wire raw input (mouse escape sequences) forwarding via relay
+            terminalView.onRawInput = { [weak self] data in
+                guard let self, let connection = self.connection else { return }
+                self.enqueueRawInput(data: data, connection: connection)
+            }
+
             // Subscribe to terminal stream for this specific pane
             let subscriptionId = connection.subscribeToTerminalStream(paneId: paneId) { [weak self] message in
                 self?.handleStreamMessage(message)
@@ -269,6 +275,15 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
                 keystrokeDebouncer = KeystrokeDebouncer(paneId: paneId, relayClient: connection.relayClient)
             }
             keystrokeDebouncer?.enqueue(keys)
+        }
+
+        /// Forwards raw bytes (mouse escape sequences) to the host via the relay.
+        private func enqueueRawInput(data: Data, connection: ViewerConnection) {
+            guard let paneId else { return }
+            if keystrokeDebouncer == nil {
+                keystrokeDebouncer = KeystrokeDebouncer(paneId: paneId, relayClient: connection.relayClient)
+            }
+            keystrokeDebouncer?.enqueueRawInput(data)
         }
 
         // MARK: - Stream Message Handling
