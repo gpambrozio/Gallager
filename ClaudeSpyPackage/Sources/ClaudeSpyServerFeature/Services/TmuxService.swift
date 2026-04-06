@@ -990,16 +990,38 @@ final public class TmuxService {
         if literal {
             args.append("-l") // Disable key name lookup
         }
-        // Tmux strips a trailing ";" from the last argv entry, treating it
-        // as a command separator. Escaping it as "\;" prevents this.
-        // This affects standalone ";" and any string ending in ";" (e.g. ";;;;;").
-        let escapedKeys = keys.hasSuffix(";") ? String(keys.dropLast()) + "\\;" : keys
-        args.append(escapedKeys)
+        args.append(escapeTmuxSemicolon(keys))
 
         let result = try await runTmuxCommand(args)
         guard result.isSuccess else {
             throw TmuxError.commandFailed(message: result.stderrString)
         }
+    }
+
+    /// Sends multiple non-literal key names to a pane in a single tmux command.
+    ///
+    /// This batches keys like `Enter`, `Up`, `C-c` into one `send-keys` invocation
+    /// instead of spawning a separate process per keystroke.
+    /// - Parameters:
+    ///   - target: The pane target
+    ///   - keys: Array of tmux key names (e.g., ["Enter", "Up", "C-c"])
+    public func sendBatchKeys(_ target: String, keys: [String]) async throws {
+        guard !keys.isEmpty else { return }
+        var args = ["send-keys", "-t", target]
+        for key in keys {
+            args.append(escapeTmuxSemicolon(key))
+        }
+        let result = try await runTmuxCommand(args)
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+    }
+
+    /// Tmux strips a trailing ";" from the last argv entry, treating it
+    /// as a command separator. Escaping it as "\;" prevents this.
+    /// This affects standalone ";" and any string ending in ";" (e.g. ";;;;;").
+    private func escapeTmuxSemicolon(_ key: String) -> String {
+        key.hasSuffix(";") ? String(key.dropLast()) + "\\;" : key
     }
 
     /// Resizes a tmux pane to the specified dimensions
