@@ -90,6 +90,5 @@ public enum KittyKeyboardProtocolScenario {
         TestStep.assertStoredNotContains(key: "kittyOutput", substring: "^[")
 
         TestStep.macScreenshot(label: "mac-kitty-protocol-filtered")
-
     }
 }

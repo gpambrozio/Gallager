@@ -23,10 +23,10 @@
                 guard CommandLine.arguments.contains("--e2e-test") else { return }
 
                 var port: UInt16 = 18_081
-                if let idx = CommandLine.arguments.firstIndex(of: "--test-accessibility-port"),
-                   idx + 1 < CommandLine.arguments.count,
-                   let parsed = UInt16(CommandLine.arguments[idx + 1])
-                {
+                if
+                    let idx = CommandLine.arguments.firstIndex(of: "--test-accessibility-port"),
+                    idx + 1 < CommandLine.arguments.count,
+                    let parsed = UInt16(CommandLine.arguments[idx + 1]) {
                     port = parsed
                 }
 

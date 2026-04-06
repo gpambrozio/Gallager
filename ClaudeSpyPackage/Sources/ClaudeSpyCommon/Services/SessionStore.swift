@@ -21,6 +21,9 @@ final public class SessionStore {
     /// Claude projects grouped by source host's pairId
     public private(set) var claudeProjectsByHost: [String: [ClaudeProjectInfo]] = [:]
 
+    /// Home directory path for each host, keyed by pairId
+    public private(set) var homeDirectoryByHost: [String: String] = [:]
+
     /// Hosts that have sent at least one full state update
     private var hostsWithReceivedState: Set<String> = []
 
@@ -220,6 +223,7 @@ final public class SessionStore {
         paneStates = newPaneStates
         paneToHostMap = newPaneToHostMap
         claudeProjectsByHost[hostId] = state.claudeProjects ?? []
+        homeDirectoryByHost[hostId] = state.homeDirectory
         hostsWithReceivedState.insert(hostId)
     }
 

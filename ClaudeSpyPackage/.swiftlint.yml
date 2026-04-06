@@ -27,6 +27,8 @@ disabled_rules:
     - notification_center_detachment
 
 excluded:
+    - .build
+    - "**/.build"
 
 included:
     - Sources

@@ -24,6 +24,7 @@ public enum SettingsTab: String, Sendable {
     case general
     case remoteAccess
     case remoteHosts
+    case sidebarLayout
     case plugin
     case about
 }
@@ -230,6 +231,23 @@ final public class AppSettings {
         didSet { preferences.setString(deviceId, Keys.deviceId) }
     }
 
+    // MARK: - Sidebar Layout Settings
+
+    /// Ordered list of fields to display in sidebar session rows
+    public var sidebarFields: [SidebarField] = SidebarField.defaultFields {
+        didSet { saveSidebarFields() }
+    }
+
+    /// Ordered list of fields to display in sidebar terminal rows (no Claude session)
+    public var sidebarTerminalFields: [SidebarField] = SidebarField.defaultTerminalFields {
+        didSet { saveSidebarTerminalFields() }
+    }
+
+    /// How sessions are sorted in the sidebar
+    public var sidebarSortMode: SidebarSortMode = .statusPriorityIdleFirst {
+        didSet { preferences.setString(sidebarSortMode.rawValue, Keys.sidebarSortMode) }
+    }
+
     // MARK: - Plugin Settings
 
     /// Whether the user has completed the plugin setup (or dismissed it)
@@ -298,6 +316,19 @@ final public class AppSettings {
             preferences.setString(newDeviceId, Keys.deviceId)
         }
 
+        // Sidebar Layout
+        self.sidebarFields = Self.loadCodable(from: preferences, key: Keys.sidebarFields)
+        if sidebarFields.isEmpty {
+            self.sidebarFields = SidebarField.defaultFields
+        }
+        self.sidebarTerminalFields = Self.loadCodable(from: preferences, key: Keys.sidebarTerminalFields)
+        if sidebarTerminalFields.isEmpty {
+            self.sidebarTerminalFields = SidebarField.defaultTerminalFields
+        }
+        self.sidebarSortMode = SidebarSortMode(
+            rawValue: preferences.string(Keys.sidebarSortMode) ?? ""
+        ) ?? .statusPriorityIdleFirst
+
         // Plugin
         self.hasCompletedPluginSetup = preferences.optionalBool(Keys.hasCompletedPluginSetup) ?? Defaults.hasCompletedPluginSetup
 
@@ -334,6 +365,10 @@ final public class AppSettings {
         case pairedHosts
         case autoConnectToServer
         case deviceId
+        // Sidebar Layout
+        case sidebarFields
+        case sidebarTerminalFields
+        case sidebarSortMode
         // Plugin
         case hasCompletedPluginSetup
         // Launch at Login
@@ -407,6 +442,20 @@ final public class AppSettings {
             return
         }
         preferences.setData(data, Keys.pairedHosts)
+    }
+
+    private func saveSidebarFields() {
+        guard let data = try? JSONEncoder().encode(sidebarFields) else {
+            return
+        }
+        preferences.setData(data, Keys.sidebarFields)
+    }
+
+    private func saveSidebarTerminalFields() {
+        guard let data = try? JSONEncoder().encode(sidebarTerminalFields) else {
+            return
+        }
+        preferences.setData(data, Keys.sidebarTerminalFields)
     }
 
     // MARK: - Pairing Management

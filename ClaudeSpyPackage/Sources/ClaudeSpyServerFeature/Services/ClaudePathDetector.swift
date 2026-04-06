@@ -55,8 +55,7 @@
                             let data = pipe.fileHandleForReading.readDataToEndOfFile()
                             if
                                 let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                                !path.isEmpty
-                            {
+                                !path.isEmpty {
                                 return path
                             }
                         }
