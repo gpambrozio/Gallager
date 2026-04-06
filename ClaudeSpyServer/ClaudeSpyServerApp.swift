@@ -253,13 +253,8 @@ struct TmuxPaneMirrorApp: App {
                 CheckForUpdatesView(updaterController: updaterController)
             }
 
-            // File menu
-            CommandGroup(replacing: .newItem) {
-                Button("New Mirror") {
-                    // Open pane picker or bring main window to front
-                }
-                .keyboardShortcut("n", modifiers: .command)
-            }
+            // Hide File menu (no file-based actions in this app)
+            CommandGroup(replacing: .newItem) { }
 
             // Edit menu - Copy as Rich Text / Copy with Control Sequences
             CommandGroup(after: .pasteboard) {
@@ -289,8 +284,6 @@ struct TmuxPaneMirrorApp: App {
                     .keyboardShortcut("s", modifiers: [.command, .shift])
             }
 
-            // Window menu additions
-            CommandGroup(after: .windowList) { }
         }
 
         // About window - custom About panel with Gallager explanation
