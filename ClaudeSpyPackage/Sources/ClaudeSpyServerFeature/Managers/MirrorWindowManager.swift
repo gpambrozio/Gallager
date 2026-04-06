@@ -1,6 +1,7 @@
 import AppKit
 import ClaudeSpyCommon
 import ClaudeSpyNetworking
+import Dependencies
 import SwiftUI
 
 /// Manages multiple mirror windows and handles hook events
@@ -28,6 +29,9 @@ final public class MirrorWindowManager {
 
     /// Interval between session validation checks (in seconds)
     private let validationInterval: TimeInterval = 5
+
+    @ObservationIgnored
+    @Dependency(ProcessRunner.self) private var processRunner
 
     private let settings: AppSettings
     private let tmuxService: TmuxService
@@ -70,6 +74,61 @@ final public class MirrorWindowManager {
         }
     }
 
+    /// Resolves git branch names for all panes that have a current working directory.
+    /// Runs `git rev-parse` for each unique path and updates the pane states.
+    public func resolveGitBranches() async {
+        // Collect unique paths and which pane IDs map to them
+        var paneIdsByPath: [String: [String]] = [:]
+        for (paneId, state) in paneStates {
+            guard let path = state.currentPath, !path.isEmpty else { continue }
+            paneIdsByPath[path, default: []].append(paneId)
+        }
+
+        guard !paneIdsByPath.isEmpty else { return }
+
+        // Resolve branches off the main actor
+        let branchesByPath = await withTaskGroup(
+            of: (String, String?).self,
+            returning: [String: String?].self
+        ) { group in
+            for path in paneIdsByPath.keys {
+                group.addTask { [processRunner] in
+                    let branch = await Self.gitBranch(at: path, using: processRunner)
+                    return (path, branch)
+                }
+            }
+
+            var results: [String: String?] = [:]
+            for await (path, branch) in group {
+                results[path] = branch
+            }
+            return results
+        }
+
+        // Update pane states with resolved branches
+        for (path, paneIds) in paneIdsByPath {
+            guard let branch = branchesByPath[path] else { continue }
+            for paneId in paneIds {
+                paneStates[paneId]?.gitBranch = branch
+            }
+        }
+    }
+
+    /// Returns the current git branch name for the given directory, or nil if not a git repo.
+    @Sendable
+    private static func gitBranch(at path: String, using processRunner: ProcessRunner) async -> String? {
+        guard let result = try? await processRunner.run(
+            "/usr/bin/git",
+            ["-C", path, "rev-parse", "--abbrev-ref", "HEAD"],
+            nil,
+            5
+        ), result.isSuccess else {
+            return nil
+        }
+        let branch = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+        return branch.isEmpty ? nil : branch
+    }
+
     // MARK: - Periodic Session Validation
 
     /// Starts a background task that periodically validates sessions against actual tmux panes.
@@ -87,6 +146,7 @@ final public class MirrorWindowManager {
                 // Refresh panes and update state
                 let panes = await self.tmuxService.refreshPanes()
                 self.updatePaneStates(from: panes)
+                await self.resolveGitBranches()
             }
         }
     }

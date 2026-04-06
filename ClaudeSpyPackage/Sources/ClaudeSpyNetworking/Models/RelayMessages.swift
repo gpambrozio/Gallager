@@ -107,6 +107,11 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// The Claude Code session running in this pane, if any
     public var claudeSession: ClaudeSession?
 
+    // MARK: - Git Info
+
+    /// The git branch name for this pane's current working directory, if it's a git repository
+    public var gitBranch: String?
+
     // MARK: - Behavior Flags
 
     /// Whether yolo mode is enabled (auto-approve permissions)
@@ -136,6 +141,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         customDescription: String? = nil,
         terminalTitle: String? = nil,
         claudeSession: ClaudeSession? = nil,
+        gitBranch: String? = nil,
         yoloMode: Bool = false
     ) {
         self.paneId = paneId
@@ -154,6 +160,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         self.customDescription = customDescription
         self.terminalTitle = terminalTitle
         self.claudeSession = claudeSession
+        self.gitBranch = gitBranch
         self.yoloMode = yoloMode
     }
 }

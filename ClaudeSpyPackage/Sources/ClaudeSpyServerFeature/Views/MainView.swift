@@ -292,7 +292,8 @@ public struct MainView: View {
             sessionName: session.sessionName,
             terminalTitle: terminalTitle,
             command: primaryPane?.command,
-            currentPath: primaryPane?.currentPath
+            currentPath: primaryPane?.currentPath,
+            gitBranch: paneState?.gitBranch
         )
 
         return SessionSortData(
@@ -1404,6 +1405,7 @@ private struct SessionSidebarRow: View {
                 terminalTitle: terminalTitle,
                 command: primaryPane?.command,
                 currentPath: primaryPane?.currentPath,
+                gitBranch: primaryPaneState?.gitBranch,
                 latestEvent: sessionSubtitle
             )
 
@@ -1840,6 +1842,7 @@ private struct RemoteHostSidebarSection: View {
                 terminalTitle: terminalTitle,
                 command: activePane?.command,
                 currentPath: activePane?.currentPath,
+                gitBranch: activePane?.gitBranch,
                 homeDirectory: sessionStore.homeDirectoryByHost[host.id]
             )
 
@@ -1982,6 +1985,7 @@ private struct RemoteSessionSidebarRow: View {
                 terminalTitle: session.activeWindow?.activePane?.terminalTitle,
                 command: session.activeWindow?.activePane?.command,
                 currentPath: session.activeWindow?.activePane?.currentPath,
+                gitBranch: session.activeWindow?.activePane?.gitBranch,
                 latestEvent: latestEventSubtitle,
                 homeDirectory: homeDirectory
             )

@@ -34,6 +34,7 @@ public enum SidebarField: String, Codable, Sendable, CaseIterable, Identifiable 
     case terminalTitle
     case command
     case currentPath
+    case gitBranch
     case latestEvent
 
     public var id: String { rawValue }
@@ -47,6 +48,7 @@ public enum SidebarField: String, Codable, Sendable, CaseIterable, Identifiable 
         case .terminalTitle: "Terminal Title"
         case .command: "Current Command"
         case .currentPath: "Current Path"
+        case .gitBranch: "Git Branch"
         case .latestEvent: "Latest Event"
         }
     }

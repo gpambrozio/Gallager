@@ -446,6 +446,7 @@
                 // Refresh panes to ensure metadata is current
                 let allPanes = await tmuxService.refreshPanes()
                 await windowManager.updatePaneStates(from: allPanes)
+                await windowManager.resolveGitBranches()
                 let paneStates = await windowManager.paneStates
                 let claudeProjects = await scanner.scanProjects()
 
