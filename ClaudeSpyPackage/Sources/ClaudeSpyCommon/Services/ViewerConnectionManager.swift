@@ -42,6 +42,10 @@ final public class ViewerConnectionManager {
     /// Parameters are: hostId, publicKey (base64), keyId
     public var onPartnerKeyReceived: ((_ hostId: String, _ publicKey: String, _ keyId: String) async -> Void)?
 
+    /// Called when a host device disconnects (but pairing is still active).
+    /// Parameter is the pairId of the disconnected host.
+    public var onHostDisconnected: ((_ hostId: String) async -> Void)?
+
     /// Called when a pairing was removed by the other side.
     /// Parameter is the pairId that was unpaired.
     public var onUnpaired: ((_ hostId: String) async -> Void)?
@@ -313,6 +317,10 @@ final public class ViewerConnectionManager {
             onPartnerKeyReceived: { [weak self] publicKey, keyId in
                 guard let self else { return }
                 await self.onPartnerKeyReceived?(hostId, publicKey, keyId)
+            },
+            onHostDisconnected: { [weak self] in
+                guard let self else { return }
+                await self.onHostDisconnected?(hostId)
             },
             onUnpaired: { [weak self] in
                 guard let self else { return }

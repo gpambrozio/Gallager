@@ -670,6 +670,11 @@
                     settings.updateHostPairing(updatedHost)
                 }
 
+                // Clear sessions when a remote host disconnects
+                manager.onHostDisconnected = { [weak store] hostId in
+                    store?.clearSessions(for: hostId)
+                }
+
                 // Handle unpair notifications from remote hosts
                 manager.onUnpaired = { [weak self] hostId in
                     guard let self else { return }

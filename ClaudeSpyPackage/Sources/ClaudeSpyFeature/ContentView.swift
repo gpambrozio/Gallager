@@ -143,6 +143,12 @@
                 }
             }
 
+            connectionManager.onHostDisconnected = { [sessionStore] hostId in
+                Task { @MainActor in
+                    sessionStore.clearSessions(for: hostId)
+                }
+            }
+
             connectionManager.onUnpaired = { [settings] hostId in
                 settings.removePairing(id: hostId)
             }
