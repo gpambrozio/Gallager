@@ -313,8 +313,16 @@
 
             // Start notification-only readers for all discovered panes
             let initialPanes = await tmuxService.refreshPanes()
+            windowManager.updatePaneStates(from: initialPanes)
             await paneStreamManager.startNotificationMonitoring(panes: initialPanes)
             paneStreamManager.startPeriodicPaneRefresh(tmuxService: tmuxService)
+
+            // Detect Claude Code instances already running in tmux panes
+            let claudePaneIds = await tmuxService.detectClaudePanes()
+            if !claudePaneIds.isEmpty {
+                windowManager.markDetectedClaudeSessions(claudePaneIds)
+                logger.info("Detected running Claude Code in panes: \(claudePaneIds.sorted())")
+            }
 
             // Connect pane stream manager to window manager for view injection
             windowManager.paneStreamManager = paneStreamManager
