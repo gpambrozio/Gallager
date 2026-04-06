@@ -702,6 +702,22 @@ public enum CommandType: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - Response Requirements
+
+public extension CommandType {
+    /// Whether the host should send a `CommandResponseMessage` after executing.
+    /// Most commands require a response; high-frequency fire-and-forget commands
+    /// (e.g. keystrokes) return `false` to avoid wasting bandwidth.
+    var requiresResponse: Bool {
+        switch self {
+        case .sendKeystroke:
+            false
+        default:
+            true
+        }
+    }
+}
+
 // MARK: - Command Message
 
 /// A command sent from viewer to host via the relay server
@@ -710,23 +726,17 @@ public struct CommandMessage: Codable, Sendable, Identifiable {
     public let paneId: String
     public let command: CommandType
     public let timestamp: Date
-    /// When `false`, the host should skip sending a `CommandResponseMessage`.
-    /// Used for high-frequency commands (e.g. keystrokes) where the viewer
-    /// doesn't wait for a response and the bandwidth would be wasted.
-    public let responseExpected: Bool
 
     public init(
         id: UUID = UUID(),
         paneId: String,
         command: CommandType,
-        timestamp: Date = Date(),
-        responseExpected: Bool = true
+        timestamp: Date = Date()
     ) {
         self.id = id
         self.paneId = paneId
         self.command = command
         self.timestamp = timestamp
-        self.responseExpected = responseExpected
     }
 }
 

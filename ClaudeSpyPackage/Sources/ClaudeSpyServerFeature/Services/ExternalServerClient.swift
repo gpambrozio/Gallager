@@ -582,7 +582,7 @@ final public class ExternalServerClient {
 
         case let .command(command):
             logger.info("Received command from viewer", metadata: ["type": "\(command.command)"])
-            if let onCommand, let response = await onCommand(command), command.responseExpected {
+            if let onCommand, let response = await onCommand(command), command.command.requiresResponse {
                 await sendEncrypted(.commandResponse(response))
             }
 
