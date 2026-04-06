@@ -180,8 +180,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         private var onStateChange: (@MainActor (RemoteStreamState, Int, Int) -> Void)?
         private var onTitleChange: (@MainActor (String) -> Void)?
 
-        // Serializes key sends so concurrent onInput callbacks don't race
-        private var pendingKeyTask: Task<Void, Never>?
+        private var keystrokeDebouncer: KeystrokeDebouncer?
 
         init() {
             self.terminalView = InteractiveTerminalView(
@@ -239,8 +238,8 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         }
 
         func stop() {
-            pendingKeyTask?.cancel()
-            pendingKeyTask = nil
+            keystrokeDebouncer?.cancelAll()
+            keystrokeDebouncer = nil
 
             streamTask?.cancel()
             streamTask = nil
@@ -263,17 +262,13 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
 
         // MARK: - Key Sends
 
-        /// Enqueue a keystroke send, chaining on any pending send to preserve ordering.
+        /// Accumulates rapid keystrokes and flushes them as a single command after a short delay.
         private func enqueueKeySend(keys: [TmuxKey], connection: ViewerConnection) {
             guard let paneId else { return }
-            let previous = pendingKeyTask
-            pendingKeyTask = Task {
-                _ = await previous?.value
-                _ = await connection.relayClient.sendCommand(
-                    SendKeystroke(keys),
-                    paneId: paneId
-                )
+            if keystrokeDebouncer == nil {
+                keystrokeDebouncer = KeystrokeDebouncer(paneId: paneId, relayClient: connection.relayClient)
             }
+            keystrokeDebouncer?.enqueue(keys)
         }
 
         // MARK: - Stream Message Handling
