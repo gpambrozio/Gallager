@@ -76,6 +76,13 @@ public enum PromptEditorScenario {
         TestStep.macWaitForElement(titled: "Edit Prompt", timeout: 10)
         TestStep.macScreenshot(label: "mac-editor-overlay-submit-ready")
 
+        // Edit the content: select all and replace with new text
+        TestStep.macSelectAll()
+        TestStep.wait(seconds: 0.5)
+        TestStep.macType(text: "Edited prompt: please refactor this function")
+        TestStep.wait(seconds: 1)
+        TestStep.macScreenshot(label: "mac-editor-overlay-edited")
+
         // Submit the editor (using the help text on the Submit button)
         TestStep.macClickButton(titled: "Submit Edited Prompt")
         TestStep.wait(seconds: 2)
@@ -83,5 +90,9 @@ public enum PromptEditorScenario {
         // Verify overlay dismissed after submit
         TestStep.macWaitForElementToDisappear(titled: "Edit Prompt", timeout: 5)
         TestStep.macScreenshot(label: "mac-editor-after-submit")
+
+        // 8. Verify the file was updated with the edited content
+        TestStep.readFile(path: "/tmp/e2e-editor-test2.txt", storeAs: "editedContent")
+        TestStep.assertStoredContains(key: "editedContent", substring: "Edited prompt: please refactor this function")
     }
 }
