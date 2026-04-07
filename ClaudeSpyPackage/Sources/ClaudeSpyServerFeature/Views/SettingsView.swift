@@ -142,11 +142,6 @@ struct GeneralSettingsView: View {
 
                 Toggle("Show status bar", isOn: $settings.showStatusBar)
 
-                Toggle("Auto-open mirror on session start", isOn: $settings.autoOpenMirrorOnSession)
-
-                Toggle("Open sessions in panes view from menu bar", isOn: $settings.menuBarClickOpensPanesView)
-                    .help("When enabled, clicking a session in the menu bar selects it in the panes view instead of opening a new mirror window")
-
                 Toggle("Auto-copy selected text", isOn: $settings.autoCopyOnSelect)
                     .help("Automatically copy selected text to the clipboard when the mouse is released")
 
