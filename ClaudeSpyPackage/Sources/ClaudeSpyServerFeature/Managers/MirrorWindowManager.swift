@@ -105,6 +105,18 @@ final public class MirrorWindowManager {
         }
     }
 
+    /// Marks panes as Claude sessions based on process detection at startup.
+    /// Only creates sessions for panes that don't already have one (hook-based
+    /// detection takes precedence).
+    /// - Parameter panes: Mapping of pane ID to the pane's current working directory
+    public func markDetectedClaudeSessions(_ panes: [String: String]) {
+        for (paneId, path) in panes where paneStates[paneId] != nil && paneStates[paneId]?.claudeSession == nil {
+            updateSession(paneId: paneId) { session in
+                session.detectedProjectPath = path
+            }
+        }
+    }
+
     // MARK: - Hook Event Handling
 
     /// Handles incoming hook events - tracks active sessions

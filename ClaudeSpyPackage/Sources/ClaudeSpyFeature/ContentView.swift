@@ -143,6 +143,10 @@
                 }
             }
 
+            connectionManager.onHostDisconnected = { [sessionStore] hostId in
+                sessionStore.clearSessions(for: hostId)
+            }
+
             connectionManager.onUnpaired = { [settings] hostId in
                 settings.removePairing(id: hostId)
             }

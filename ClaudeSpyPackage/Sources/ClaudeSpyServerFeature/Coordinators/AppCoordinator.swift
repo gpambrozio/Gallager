@@ -313,8 +313,16 @@
 
             // Start notification-only readers for all discovered panes
             let initialPanes = await tmuxService.refreshPanes()
+            windowManager.updatePaneStates(from: initialPanes)
             await paneStreamManager.startNotificationMonitoring(panes: initialPanes)
             paneStreamManager.startPeriodicPaneRefresh(tmuxService: tmuxService)
+
+            // Detect Claude Code instances already running in tmux panes
+            let claudePanes = await tmuxService.detectClaudePanes()
+            if !claudePanes.isEmpty {
+                windowManager.markDetectedClaudeSessions(claudePanes)
+                logger.info("Detected running Claude Code in panes: \(claudePanes.keys.sorted())")
+            }
 
             // Connect pane stream manager to window manager for view injection
             windowManager.paneStreamManager = paneStreamManager
@@ -661,6 +669,11 @@
                         customName: host.customName
                     )
                     settings.updateHostPairing(updatedHost)
+                }
+
+                // Clear sessions when a remote host disconnects
+                manager.onHostDisconnected = { [weak store] hostId in
+                    store?.clearSessions(for: hostId)
                 }
 
                 // Handle unpair notifications from remote hosts

@@ -261,8 +261,10 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         MultiWindowTabsIOSScenario.scenario,
         MultiWindowTabsMacViewerScenario.scenario,
         MouseSupportScenario.scenario,
+        RemoteMouseSupportScenario.scenario,
         FileBrowserScenario.scenario,
         SidebarLayoutScenario.scenario,
+        HostDisconnectClearsSessionsScenario.scenario,
     ]
 
     private func runTests(orchestrator: TestOrchestrator) async throws {

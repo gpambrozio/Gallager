@@ -159,6 +159,9 @@ final public class ViewerRelayClient {
     /// Called when partner's public key is received (for persisting to settings)
     public var onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)?
 
+    /// Called when the host device disconnects (but pairing is still active)
+    public var onHostDisconnected: (@MainActor @Sendable () async -> Void)?
+
     /// Called when the server notifies that this pairing was removed by the other side
     public var onUnpaired: (@MainActor @Sendable () async -> Void)?
 
@@ -361,6 +364,8 @@ final public class ViewerRelayClient {
             return (try? await sendCommand(spec, paneId: paneId).get()) != nil
         case let .createTmuxWindow(spec):
             return (try? await sendCommand(spec, paneId: "").get()) != nil
+        case let .sendRawInput(spec):
+            return (try? await sendCommand(spec, paneId: paneId).get()) != nil
         }
     }
 
@@ -638,6 +643,7 @@ final public class ViewerRelayClient {
             logger.info("Host device disconnected")
             isHostConnected = false
             connectedHostName = nil
+            await onHostDisconnected?()
 
         case .unpaired:
             logger.info("Pairing removed by the other side")
@@ -723,6 +729,7 @@ final public class ViewerRelayClient {
     private func handleDisconnection() async {
         isHostConnected = false
         connectedHostName = nil
+        await onHostDisconnected?()
 
         await cleanupConnection()
 

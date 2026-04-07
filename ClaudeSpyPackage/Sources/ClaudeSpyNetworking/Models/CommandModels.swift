@@ -570,6 +570,26 @@ public struct SelectTmuxWindow: CommandSpec, Equatable {
     }
 }
 
+/// Send raw bytes (e.g., mouse escape sequences) to a tmux pane. Fire-and-forget.
+public struct SendRawInput: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// Base64-encoded raw bytes to send directly to tmux via `send-keys -H`
+    public let dataBase64: String
+
+    public init(data: Data) {
+        self.dataBase64 = data.base64EncodedString()
+    }
+
+    public var data: Data? {
+        Data(base64Encoded: dataBase64)
+    }
+
+    public var commandType: CommandType {
+        .sendRawInput(self)
+    }
+}
+
 /// Create a new tmux window in an existing session. Returns success/failure.
 /// On success, the response's `paneId` field contains the new window's first pane ID.
 public struct CreateTmuxWindow: CommandSpec, Equatable {
@@ -623,6 +643,8 @@ public enum CommandType: Codable, Sendable, Equatable {
     case selectTmuxWindow(SelectTmuxWindow)
     /// Create a new tmux window in a session
     case createTmuxWindow(CreateTmuxWindow)
+    /// Send raw bytes (mouse escape sequences) to a tmux pane
+    case sendRawInput(SendRawInput)
 
     // MARK: - Convenience Factory Methods
 
@@ -700,6 +722,11 @@ public enum CommandType: Codable, Sendable, Equatable {
     public static func createTmuxWindow(sessionName: String, workingDirectory: String? = nil) -> CommandType {
         .createTmuxWindow(CreateTmuxWindow(sessionName: sessionName, workingDirectory: workingDirectory))
     }
+
+    /// Create a sendRawInput command
+    public static func sendRawInput(data: Data) -> CommandType {
+        .sendRawInput(SendRawInput(data: data))
+    }
 }
 
 // MARK: - Response Requirements
@@ -710,7 +737,7 @@ public extension CommandType {
     /// (e.g. keystrokes) return `false` to avoid wasting bandwidth.
     var requiresResponse: Bool {
         switch self {
-        case .sendKeystroke:
+        case .sendKeystroke, .sendRawInput:
             false
         default:
             true

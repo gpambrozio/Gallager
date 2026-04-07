@@ -412,10 +412,10 @@ fi
 # CLEANUP STALE TEST PROCESSES
 # =====================================================
 # Kill any leftover Gallager processes from previous E2E runs.
-# Only kills test builds (launched from the build directory), not production
-# instances from /Applications. A stale test process holding port 18081
+# Only kills E2E instances (launched with --e2e-test flag), not the user's
+# regular app. A stale test process holding port 18081
 # causes all macSetSidebarWidth calls to fail.
-stale_pids=$(ps -eo pid,command | grep "[G]allager" | grep -v "/Applications/" | grep "e2e-test\|derived-data\|build/" | awk '{print $1}' || true)
+stale_pids=$(ps -eo pid,command | grep "[G]allager" | grep "\-\-e2e-test" | awk '{print $1}' || true)
 if [ -n "$stale_pids" ]; then
     step "Killing stale test Gallager processes"
     for pid in $stale_pids; do
