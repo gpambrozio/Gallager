@@ -12,8 +12,8 @@
 		81581B5B2F11B9DC005EA7FD /* ClaudeSpyNetworking in Frameworks */ = {isa = PBXBuildFile; productRef = 81581B5A2F11B9DC005EA7FD /* ClaudeSpyNetworking */; };
 		817BF9BA2F09C7CC00BD1D53 /* ClaudeSpyServerFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 817BF9B92F09C7CC00BD1D53 /* ClaudeSpyServerFeature */; };
 		819180922F467B82001A43BE /* ClaudeSpyFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 819180912F467B82001A43BE /* ClaudeSpyFeature */; };
-		819180942F467B82001A43BE /* ClaudeSpyServerFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 819180932F467B82001A43BE /* ClaudeSpyServerFeature */; };
 		819180962F467EEF001A43BE /* ClaudeSpyNetworking in Frameworks */ = {isa = PBXBuildFile; productRef = 819180952F467EEF001A43BE /* ClaudeSpyNetworking */; };
+		81E2E1D52F8573260057AA49 /* GallagerEditor in Frameworks */ = {isa = PBXBuildFile; productRef = 81E2E1D42F8573260057AA49 /* GallagerEditor */; };
 		8B41F6832DEDD23B001A66F9 /* ClaudeSpyFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6822DEDD23B001A66F9 /* ClaudeSpyFeature */; };
 		8B41F6852DEDD25C001A66F9 /* ClaudeSpyFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6842DEDD25C001A66F9 /* ClaudeSpyFeature */; };
 		AABBCC112F2A00000063PLGN /* plugin in Resources */ = {isa = PBXBuildFile; fileRef = AABBCC102F2A00000063PLGN /* plugin */; };
@@ -207,7 +207,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				817BF9BA2F09C7CC00BD1D53 /* ClaudeSpyServerFeature in Frameworks */,
-				819180942F467B82001A43BE /* ClaudeSpyServerFeature in Frameworks */,
+				81E2E1D52F8573260057AA49 /* GallagerEditor in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -355,6 +355,7 @@
 			buildConfigurationList = 815F9E812F09BFF9003791F7 /* Build configuration list for PBXNativeTarget "ClaudeSpyServer" */;
 			buildPhases = (
 				815F9E592F09BFF8003791F7 /* Sources */,
+				81E2E2332F8576310057AA49 /* ShellScript */,
 				815F9E5A2F09BFF8003791F7 /* Frameworks */,
 				815F9E5B2F09BFF8003791F7 /* Resources */,
 				817BF9C02F0ED00000BD1D53 /* SwiftLint */,
@@ -362,6 +363,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				81E2E2322F8574740057AA49 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				815F9E5E2F09BFF8003791F7 /* ClaudeSpyServer */,
@@ -370,6 +372,7 @@
 			packageProductDependencies = (
 				817BF9B92F09C7CC00BD1D53 /* ClaudeSpyServerFeature */,
 				819180932F467B82001A43BE /* ClaudeSpyServerFeature */,
+				81E2E1D42F8573260057AA49 /* GallagerEditor */,
 			);
 			productName = ClaudeSpyServer;
 			productReference = 815F9E5D2F09BFF8003791F7 /* Gallager.app */;
@@ -669,6 +672,23 @@
 			shellScript = "\"${SRCROOT}/scripts/swiftlint.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
+		81E2E2332F8576310057AA49 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Build GallagerEditor and copy into app bundle\nEDITOR_PATH=\"${BUILD_DIR}/${CONFIGURATION}/GallagerEditor\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/MacOS/\"\n\nif [ -f \"$EDITOR_PATH\" ]; then\n    cp \"$EDITOR_PATH\" \"$DEST\"\n    codesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" --timestamp=none \"${DEST}/GallagerEditor\"\nelse\n    echo \"warning: GallagerEditor not found at $EDITOR_PATH — build the ClaudeSpyPackage scheme first\"\nfi\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -745,6 +765,10 @@
 			isa = PBXTargetDependency;
 			target = 815F9E5C2F09BFF8003791F7 /* ClaudeSpyServer */;
 			targetProxy = 815F9E742F09BFF9003791F7 /* PBXContainerItemProxy */;
+		};
+		81E2E2322F8574740057AA49 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			productRef = 81E2E2312F8574740057AA49 /* GallagerEditor */;
 		};
 		8B41F65E2DEDD0D6001A66F9 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -1452,6 +1476,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 819180902F467B82001A43BE /* XCLocalSwiftPackageReference "ClaudeSpyPackage" */;
 			productName = ClaudeSpyNetworking;
+		};
+		81E2E1D42F8573260057AA49 /* GallagerEditor */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 819180902F467B82001A43BE /* XCLocalSwiftPackageReference "ClaudeSpyPackage" */;
+			productName = GallagerEditor;
+		};
+		81E2E2312F8574740057AA49 /* GallagerEditor */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 819180902F467B82001A43BE /* XCLocalSwiftPackageReference "ClaudeSpyPackage" */;
+			productName = GallagerEditor;
 		};
 		8B41F6822DEDD23B001A66F9 /* ClaudeSpyFeature */ = {
 			isa = XCSwiftPackageProductDependency;
