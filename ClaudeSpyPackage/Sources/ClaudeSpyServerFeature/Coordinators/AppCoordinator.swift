@@ -318,10 +318,10 @@
             paneStreamManager.startPeriodicPaneRefresh(tmuxService: tmuxService)
 
             // Detect Claude Code instances already running in tmux panes
-            let claudePaneIds = await tmuxService.detectClaudePanes()
-            if !claudePaneIds.isEmpty {
-                windowManager.markDetectedClaudeSessions(claudePaneIds)
-                logger.info("Detected running Claude Code in panes: \(claudePaneIds.sorted())")
+            let claudePanes = await tmuxService.detectClaudePanes()
+            if !claudePanes.isEmpty {
+                windowManager.markDetectedClaudeSessions(claudePanes)
+                logger.info("Detected running Claude Code in panes: \(claudePanes.keys.sorted())")
             }
 
             // Connect pane stream manager to window manager for view injection

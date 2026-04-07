@@ -204,28 +204,30 @@ final public class TmuxService {
 
     /// Detects tmux panes that have a running Claude Code process as a descendant.
     ///
-    /// Gets each pane's shell PID via tmux, then walks the process tree from `ps` output
-    /// to find any descendant process named `claude`. This handles cases where Claude Code
-    /// is launched through shell wrappers or scripts (not a direct child of the pane shell).
+    /// Gets each pane's shell PID and current path via tmux, then walks the process tree
+    /// from `ps` output to find any descendant process named `claude`. This handles cases
+    /// where Claude Code is launched through shell wrappers or scripts (not a direct child
+    /// of the pane shell).
     ///
-    /// Returns the set of pane IDs (e.g., `%0`, `%5`) where Claude Code is running.
-    public func detectClaudePanes() async -> Set<String> {
+    /// Returns a mapping of pane ID (e.g., `%0`) to the pane's current working directory
+    /// for each pane where Claude Code is running.
+    public func detectClaudePanes() async -> [String: String] {
         do {
-            // Get pane IDs and their shell PIDs in one tmux call
+            // Get pane IDs, shell PIDs, and current paths in one tmux call
             let result = try await runTmuxCommand([
-                "list-panes", "-a", "-F", "#{pane_id}|#{pane_pid}",
+                "list-panes", "-a", "-F", "#{pane_id}|#{pane_pid}|#{pane_current_path}",
             ])
-            guard result.isSuccess else { return [] }
+            guard result.isSuccess else { return [:] }
 
-            // Build paneId -> panePid mapping
-            var panePids: [String: String] = [:]
+            // Build paneId -> (panePid, currentPath) mapping
+            var paneInfo: [String: (pid: String, path: String)] = [:]
             for line in result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n") {
-                let parts = line.split(separator: "|", maxSplits: 1)
-                guard parts.count == 2 else { continue }
-                panePids[String(parts[0])] = String(parts[1])
+                let parts = line.split(separator: "|", maxSplits: 2)
+                guard parts.count == 3 else { continue }
+                paneInfo[String(parts[0])] = (pid: String(parts[1]), path: String(parts[2]))
             }
 
-            guard !panePids.isEmpty else { return [] }
+            guard !paneInfo.isEmpty else { return [:] }
 
             // Get full process tree from ps (pid, ppid, command name)
             let psResult = try await processRunner.run(
@@ -234,7 +236,7 @@ final public class TmuxService {
                 environment: nil,
                 timeout: 5
             )
-            guard psResult.isSuccess else { return [] }
+            guard psResult.isSuccess else { return [:] }
 
             // Build parent -> children mapping and track process names
             var childrenOf: [String: [String]] = [:]
@@ -251,23 +253,23 @@ final public class TmuxService {
             }
 
             // Walk the subtree of each pane shell, looking for a "claude" descendant
-            var claudePaneIds: Set<String> = []
-            for (paneId, panePid) in panePids {
-                var stack = [panePid]
+            var claudePanes: [String: String] = [:]
+            for (paneId, info) in paneInfo {
+                var stack = [info.pid]
                 while let pid = stack.popLast() {
                     for child in childrenOf[pid, default: []] {
                         if processNames[child] == "claude" {
-                            claudePaneIds.insert(paneId)
+                            claudePanes[paneId] = info.path
                         }
                         stack.append(child)
                     }
                 }
             }
 
-            return claudePaneIds
+            return claudePanes
         } catch {
             logger.warning("detectClaudePanes failed: \(error)")
-            return []
+            return [:]
         }
     }
 

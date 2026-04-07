@@ -38,8 +38,12 @@ public struct ClaudeSession: Codable, Sendable {
     /// When this matches the latest event's ID, `needsAttention` returns false.
     public private(set) var handledUpToEventId: UUID?
 
-    public init(paneId: String) {
+    /// Project path detected via process scanning at startup (before any hook events arrive).
+    public var detectedProjectPath: String?
+
+    public init(paneId: String, detectedProjectPath: String? = nil) {
         self.paneId = paneId
+        self.detectedProjectPath = detectedProjectPath
     }
 
     /// Adds an event to the session, keeping only the last 5
@@ -61,13 +65,17 @@ public struct ClaudeSession: Codable, Sendable {
         }
     }
 
-    /// The project folder name extracted from the first event that has a projectPath.
+    /// The project folder name extracted from the first event that has a projectPath,
+    /// falling back to the detected project path from process scanning at startup.
     /// Returns the last path component (e.g., "ClaudeSpy" from "/Users/user/Dev/ClaudeSpy").
     public var projectFolderName: String? {
         for event in events {
             if let projectPath = event.projectPath, !projectPath.isEmpty {
                 return URL(fileURLWithPath: projectPath).lastPathComponent
             }
+        }
+        if let detectedProjectPath, !detectedProjectPath.isEmpty {
+            return URL(fileURLWithPath: detectedProjectPath).lastPathComponent
         }
         return nil
     }
