@@ -33,7 +33,6 @@ struct TerminalContainerView: NSViewRepresentable {
     @Environment(AppSettings.self) private var settings
     @Environment(TmuxService.self) private var tmuxService
     @Environment(PaneStreamManager.self) private var paneStreamManager
-    @Environment(MirrorWindowManager.self) private var windowManager
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -73,9 +72,7 @@ struct TerminalContainerView: NSViewRepresentable {
         coordinator.updateContainerSize(nsView.frame.size)
 
         // Check for dimension changes from pane state (updated after %layout-change)
-        if let currentState = windowManager.paneStates[paneState.paneId] {
-            coordinator.handleExternalDimensionChange(width: currentState.width, height: currentState.height)
-        }
+        coordinator.handleExternalDimensionChange(width: paneState.width, height: paneState.height)
     }
 
     static func dismantleNSView(_ nsView: InteractiveTerminalView, coordinator: Coordinator) {

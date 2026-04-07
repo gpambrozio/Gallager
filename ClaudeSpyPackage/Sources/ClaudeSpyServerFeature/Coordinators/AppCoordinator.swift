@@ -32,7 +32,7 @@
         /// Tmux interaction service
         public let tmuxService: TmuxService
 
-        /// Window manager for pane mirroring
+        /// Pane state and session tracking manager
         public let windowManager: MirrorWindowManager
 
         /// Connected viewer manager for multiple viewer connections
