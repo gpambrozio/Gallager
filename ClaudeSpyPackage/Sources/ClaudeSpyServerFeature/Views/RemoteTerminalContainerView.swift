@@ -244,6 +244,9 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         }
 
         func stop() {
+            terminalView.onRawInput = nil
+            terminalView.onInput = nil
+
             keystrokeDebouncer?.cancelAll()
             keystrokeDebouncer = nil
 
