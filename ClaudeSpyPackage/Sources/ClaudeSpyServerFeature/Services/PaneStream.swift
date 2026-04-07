@@ -44,6 +44,9 @@
         /// Callback for terminal notifications (OSC 9/777)
         var onNotification: (@MainActor (TerminalStreamMessage.TerminalNotification) -> Void)?
 
+        /// Callback for terminal title changes (OSC 0/2)
+        var onTitleChange: (@MainActor (String) -> Void)?
+
         /// Number of lines in scrollback
         private(set) var scrollbackLines = 0
 
@@ -112,6 +115,13 @@
                 await reader.setNotificationHandler { [weak self] notification in
                     Task { @MainActor [weak self] in
                         self?.onNotification?(notification)
+                    }
+                }
+
+                // Set up title change handler for OSC 0/2 sequences
+                await reader.setTitleChangeHandler { [weak self] title in
+                    Task { @MainActor [weak self] in
+                        self?.onTitleChange?(title)
                     }
                 }
 
