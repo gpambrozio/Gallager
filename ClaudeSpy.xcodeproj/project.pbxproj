@@ -355,7 +355,7 @@
 			buildConfigurationList = 815F9E812F09BFF9003791F7 /* Build configuration list for PBXNativeTarget "ClaudeSpyServer" */;
 			buildPhases = (
 				815F9E592F09BFF8003791F7 /* Sources */,
-				81E2E2332F8576310057AA49 /* ShellScript */,
+				81E2E2332F8576310057AA49 /* Copy GallagerEditor to bundle */,
 				815F9E5A2F09BFF8003791F7 /* Frameworks */,
 				815F9E5B2F09BFF8003791F7 /* Resources */,
 				817BF9C02F0ED00000BD1D53 /* SwiftLint */,
@@ -672,7 +672,7 @@
 			shellScript = "\"${SRCROOT}/scripts/swiftlint.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
-		81E2E2332F8576310057AA49 /* ShellScript */ = {
+		81E2E2332F8576310057AA49 /* Copy GallagerEditor to bundle */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -681,6 +681,7 @@
 			);
 			inputPaths = (
 			);
+			name = "Copy GallagerEditor to bundle";
 			outputFileListPaths = (
 			);
 			outputPaths = (
