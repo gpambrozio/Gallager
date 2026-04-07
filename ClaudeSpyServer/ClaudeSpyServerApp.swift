@@ -27,6 +27,10 @@ struct TmuxPaneMirrorApp: App {
             prefs.setBool(true, AppSettings.Keys.hasCompletedPluginSetup.rawValue)
             prefs.setBool(true, AppSettings.Keys.hasAskedAboutLaunchAtLogin.rawValue)
 
+            // E2E tests expect manual resize by default; disable auto-resize so scenarios
+            // that test it can toggle it explicitly.
+            prefs.setBool(false, AppSettings.Keys.alwaysAutoResize.rawValue)
+
             // E2E test support: override server URL via launch argument
             if let idx = CommandLine.arguments.firstIndex(of: "--server-url"),
                idx + 1 < CommandLine.arguments.count

@@ -702,6 +702,22 @@ public enum CommandType: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - Response Requirements
+
+public extension CommandType {
+    /// Whether the host should send a `CommandResponseMessage` after executing.
+    /// Most commands require a response; high-frequency fire-and-forget commands
+    /// (e.g. keystrokes) return `false` to avoid wasting bandwidth.
+    var requiresResponse: Bool {
+        switch self {
+        case .sendKeystroke:
+            false
+        default:
+            true
+        }
+    }
+}
+
 // MARK: - Command Message
 
 /// A command sent from viewer to host via the relay server

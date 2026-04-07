@@ -157,6 +157,10 @@ public enum TestStep: Sendable {
     case tmuxCommand(arguments: [String])
     /// Query a tmux format string via `display-message -p` and store the output in context.
     case tmuxStoreDisplayMessage(target: String, format: String, storeAs: String)
+    /// Poll a tmux format string via `display-message -p` until the result contains a substring.
+    case waitForTmuxDisplayMessage(
+        target: String, format: String, contains: String, timeout: TimeInterval = 20
+    )
 
     // MARK: - Hook Events
 
@@ -192,6 +196,10 @@ public enum TestStep: Sendable {
     case storeValue(key: String, value: String)
     /// Read a file's contents and store in the execution context (supports `${var}` interpolation in path)
     case readFile(path: String, storeAs: String)
+    /// Poll a file until it contains a substring, then store its contents (supports `${var}` interpolation)
+    case waitForFileContains(
+        path: String, substring: String, storeAs: String, timeout: TimeInterval = 20, pollInterval: TimeInterval = 1
+    )
     /// Log a message
     case log(String)
 }
