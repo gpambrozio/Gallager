@@ -1,5 +1,6 @@
 import Dependencies
 import Foundation
+import Logging
 
 /// Errors that can occur when interacting with tmux
 enum TmuxError: Error, LocalizedError {
@@ -50,6 +51,7 @@ final public class TmuxService {
 
     @ObservationIgnored
     @Dependency(ProcessRunner.self) private var processRunner
+    private let logger = Logger(label: "com.claudespy.tmuxservice")
     private var tmuxPath: String
     private var socketPath: String?
 
@@ -198,6 +200,77 @@ final public class TmuxService {
         }
 
         return panes
+    }
+
+    /// Detects tmux panes that have a running Claude Code process as a descendant.
+    ///
+    /// Gets each pane's shell PID and current path via tmux, then walks the process tree
+    /// from `ps` output to find any descendant process named `claude`. This handles cases
+    /// where Claude Code is launched through shell wrappers or scripts (not a direct child
+    /// of the pane shell).
+    ///
+    /// Returns a mapping of pane ID (e.g., `%0`) to the pane's current working directory
+    /// for each pane where Claude Code is running.
+    public func detectClaudePanes() async -> [String: String] {
+        do {
+            // Get pane IDs, shell PIDs, and current paths in one tmux call
+            let result = try await runTmuxCommand([
+                "list-panes", "-a", "-F", "#{pane_id}|#{pane_pid}|#{pane_current_path}",
+            ])
+            guard result.isSuccess else { return [:] }
+
+            // Build paneId -> (panePid, currentPath) mapping
+            var paneInfo: [String: (pid: String, path: String)] = [:]
+            for line in result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n") {
+                let parts = line.split(separator: "|", maxSplits: 2)
+                guard parts.count == 3 else { continue }
+                paneInfo[String(parts[0])] = (pid: String(parts[1]), path: String(parts[2]))
+            }
+
+            guard !paneInfo.isEmpty else { return [:] }
+
+            // Get full process tree from ps (pid, ppid, command name)
+            let psResult = try await processRunner.run(
+                executable: "/bin/ps",
+                arguments: ["-eo", "pid,ppid,comm"],
+                environment: nil,
+                timeout: 5
+            )
+            guard psResult.isSuccess else { return [:] }
+
+            // Build parent -> children mapping and track process names
+            var childrenOf: [String: [String]] = [:]
+            var processNames: [String: String] = [:]
+
+            for line in psResult.stdoutString.split(separator: "\n") {
+                let cols = line.split(whereSeparator: \.isWhitespace)
+                guard cols.count >= 3 else { continue }
+                let pid = String(cols[0])
+                let ppid = String(cols[1])
+                let comm = String(cols[cols.count - 1])
+                childrenOf[ppid, default: []].append(pid)
+                processNames[pid] = comm
+            }
+
+            // Walk the subtree of each pane shell, looking for a "claude" descendant
+            var claudePanes: [String: String] = [:]
+            for (paneId, info) in paneInfo {
+                var stack = [info.pid]
+                while let pid = stack.popLast() {
+                    for child in childrenOf[pid, default: []] {
+                        if processNames[child] == "claude" {
+                            claudePanes[paneId] = info.path
+                        }
+                        stack.append(child)
+                    }
+                }
+            }
+
+            return claudePanes
+        } catch {
+            logger.warning("detectClaudePanes failed: \(error)")
+            return [:]
+        }
     }
 
     /// Gets the names of sessions that have real terminal clients attached (excludes control-mode clients used by this app)
