@@ -36,4 +36,10 @@ except Exception:
     pass
 
 sock.close()
-print("Editor session complete")
+
+# Print the final file contents so the terminal shows the edit result
+try:
+    with open(file_path, "r") as f:
+        print(f"Editor result: {f.read().strip()}")
+except Exception:
+    print("Editor session complete")
