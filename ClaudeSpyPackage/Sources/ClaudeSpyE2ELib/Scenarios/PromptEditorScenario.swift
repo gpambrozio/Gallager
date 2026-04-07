@@ -1,16 +1,12 @@
 import Foundation
 
-/// E2E scenario: Ctrl-G prompt editor overlay
+/// E2E scenario: Ctrl-G prompt editor overlay (host only)
 ///
-/// Verifies the prompt editor feature that triggers when the GallagerEditor CLI
-/// connects to the app's Unix domain socket. The scenario:
+/// Verifies the prompt editor feature on the host:
 /// 1. Creates a tmux session and selects the pane
-/// 2. Creates a temp file with prompt text
-/// 3. Simulates the CLI connecting to the editor socket via a Python script
-/// 4. Verifies the prompt editor overlay appears with the correct content
-/// 5. Cancels the editor and verifies the overlay dismisses
-/// 6. Re-triggers the editor and submits with modified content
-/// 7. Verifies the file was updated with the submitted content
+/// 2. Triggers the editor overlay, verifies it appears
+/// 3. Cancels the editor and verifies the overlay dismisses
+/// 4. Re-triggers, edits text, submits, verifies file content
 public enum PromptEditorScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Prompt Editor",
@@ -32,15 +28,13 @@ public enum PromptEditorScenario {
         // 3. Inject the editor trigger script and create a temp file with prompt content
         TestStep.injectScript(name: "editor_trigger.py")
 
-        // Create a temp file with prompt content via tmux
         Shortcut.tmuxRunCommand(
             target: "editor-test:0",
             command: "echo 'Help me write a function that sorts a list of integers' > /tmp/e2e-editor-test.txt"
         )
         TestStep.wait(seconds: 1)
 
-        // 4. Trigger the editor overlay by running the Python script in the background
-        //    The pane ID for the first pane is %0
+        // 4. Trigger the editor overlay
         Shortcut.tmuxRunCommand(
             target: "editor-test:0",
             command: "python3 $TMPDIR/editor_trigger.py %0 /tmp/e2e-editor-test.txt &"
@@ -55,7 +49,6 @@ public enum PromptEditorScenario {
         TestStep.macClickButton(titled: "Cancel Editing")
         TestStep.wait(seconds: 2)
 
-        // Verify overlay dismissed
         TestStep.macWaitForElementToDisappear(titled: "Edit Prompt", timeout: 5)
         TestStep.macScreenshot(label: "mac-editor-overlay-dismissed")
 
@@ -72,22 +65,22 @@ public enum PromptEditorScenario {
         )
         TestStep.wait(seconds: 3)
 
-        // Verify the overlay appeared again
         TestStep.macWaitForElement(titled: "Edit Prompt", timeout: 10)
         TestStep.macScreenshot(label: "mac-editor-overlay-submit-ready")
 
-        // Edit the content: select all and replace with new text
+        // Edit the content: focus the editor, select all, replace with new text
+        TestStep.macFocusElement(titled: "Original prompt content for submit test")
+        TestStep.wait(seconds: 0.5)
         TestStep.macSelectAll()
         TestStep.wait(seconds: 0.5)
         TestStep.macType(text: "Edited prompt: please refactor this function")
         TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "mac-editor-overlay-edited")
 
-        // Submit the editor (using the help text on the Submit button)
+        // Submit the editor
         TestStep.macClickButton(titled: "Submit Edited Prompt")
         TestStep.wait(seconds: 2)
 
-        // Verify overlay dismissed after submit
         TestStep.macWaitForElementToDisappear(titled: "Edit Prompt", timeout: 5)
         TestStep.macScreenshot(label: "mac-editor-after-submit")
 

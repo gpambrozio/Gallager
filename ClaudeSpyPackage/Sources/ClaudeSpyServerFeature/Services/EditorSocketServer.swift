@@ -43,7 +43,12 @@
         func start() throws {
             guard !isRunning else { return }
 
-            // Remove stale socket from previous run
+            // Only remove the socket file if it's stale (no active listener).
+            // If another instance already owns the socket, leave it alone and skip starting.
+            if Self.isSocketActive() {
+                logger.info("Another instance already owns the editor socket, skipping")
+                return
+            }
             unlink(Self.socketPath)
 
             serverFd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -128,6 +133,31 @@
         }
 
         // MARK: - Private
+
+        /// Checks whether an active listener exists on the socket path.
+        /// Attempts a connect — if it succeeds, another instance owns the socket.
+        private static func isSocketActive() -> Bool {
+            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+            guard fd >= 0 else { return false }
+            defer { close(fd) }
+
+            var addr = sockaddr_un()
+            addr.sun_family = sa_family_t(AF_UNIX)
+            socketPath.withCString { ptr in
+                withUnsafeMutablePointer(to: &addr.sun_path) { sunPath in
+                    let raw = UnsafeMutableRawPointer(sunPath)
+                    raw.copyMemory(from: ptr, byteCount: socketPath.utf8.count + 1)
+                }
+            }
+
+            let addrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+            let connected = withUnsafePointer(to: &addr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
+                    connect(fd, sockPtr, addrLen)
+                }
+            }
+            return connected == 0
+        }
 
         private func acceptLoop() async {
             while !Task.isCancelled && isRunning {
