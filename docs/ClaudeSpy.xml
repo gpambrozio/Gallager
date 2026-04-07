@@ -6,6 +6,49 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.18</title>
+         <sparkle:version>18</sparkle:version>
+         <sparkle:shortVersionString>1.18</sparkle:shortVersionString>
+         <pubDate>Mon, 06 Apr 2026 06:58:01 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.18 Release Notes
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Customizable sidebar cell layout</strong> — You can now configure how session cells appear in the sidebar, tailoring the layout to show the information most relevant to you. (#287)</li>
+</ul>
+
+<ul>
+<li><strong>File browser tab</strong> — A new file browser is available as a horizontal tab alongside the terminal view, letting you browse project files directly within the app. (#263)</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Async plugin hooks</strong> — All plugin hooks now run asynchronously, preventing them from blocking Claude Code while processing events. This results in a smoother experience when hooks fire during active sessions. (#288)</li>
+</ul>
+
+<ul>
+<li><strong>Subagent hook filtering</strong> — Hook events that fire inside Claude Code subagents are now ignored, reducing noise and ensuring only top-level session events are tracked. (#286)</li>
+</ul>
+
+<ul>
+<li><strong>Idle prompt notification filtering</strong> — The idle prompt terminal notification from Claude Code is now filtered out, keeping your terminal view clean of transient system messages. (#292)</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Incorrect "needs attention" state</strong> — Fixed an issue where idle prompt notifications would incorrectly trigger the "needs attention" indicator on sessions, causing false alerts. (#283)</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.18.dmg"
+                    sparkle:edSignature="/Y+FB7OFB/9mJWcXw4fgYv98eHmr3oSqoNo+GbyNBbu7t/UvOJ8fy8wR63rAgdFw4Fw1XWYz8S2FDCCSDUzoAw=="
+                    length="27092358"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.17</title>
          <sparkle:version>17</sparkle:version>
          <sparkle:shortVersionString>1.17</sparkle:shortVersionString>
