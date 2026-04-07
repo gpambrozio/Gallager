@@ -120,7 +120,7 @@ final public class MirrorWindowManager {
     /// detection takes precedence).
     /// - Parameter paneIds: Set of pane IDs where a Claude Code process was detected
     public func markDetectedClaudeSessions(_ paneIds: Set<String>) {
-        for paneId in paneIds where paneStates[paneId]?.claudeSession == nil {
+        for paneId in paneIds where paneStates[paneId] != nil && paneStates[paneId]?.claudeSession == nil {
             updateSession(paneId: paneId) { _ in }
         }
     }

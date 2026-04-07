@@ -1,5 +1,6 @@
 import Dependencies
 import Foundation
+import Logging
 
 /// Errors that can occur when interacting with tmux
 enum TmuxError: Error, LocalizedError {
@@ -50,6 +51,7 @@ final public class TmuxService {
 
     @ObservationIgnored
     @Dependency(ProcessRunner.self) private var processRunner
+    private let logger = Logger(label: "com.claudespy.tmuxservice")
     private var tmuxPath: String
     private var socketPath: String?
 
@@ -230,7 +232,7 @@ final public class TmuxService {
                 executable: "/bin/ps",
                 arguments: ["-eo", "pid,ppid,comm"],
                 environment: nil,
-                timeout: nil
+                timeout: 5
             )
             guard psResult.isSuccess else { return [] }
 
@@ -245,7 +247,7 @@ final public class TmuxService {
                 let ppid = String(cols[1])
                 let comm = String(cols[cols.count - 1])
                 childrenOf[ppid, default: []].append(pid)
-                processNames[pid] = (comm as NSString).lastPathComponent
+                processNames[pid] = comm
             }
 
             // Walk the subtree of each pane shell, looking for a "claude" descendant
@@ -264,6 +266,7 @@ final public class TmuxService {
 
             return claudePaneIds
         } catch {
+            logger.warning("detectClaudePanes failed: \(error)")
             return []
         }
     }
