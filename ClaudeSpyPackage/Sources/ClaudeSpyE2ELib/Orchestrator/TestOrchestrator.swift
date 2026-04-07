@@ -585,6 +585,25 @@ public actor TestOrchestrator {
             context.set(storeAs, value: output)
             logger.info("  tmux display-message → '\(output)' stored as ${\(storeAs)}")
 
+        case let .waitForTmuxDisplayMessage(target, format, contains, timeout):
+            let socket = context.resolve("${tmuxSocket}")
+            let resolvedTarget = context.resolve(target)
+            let resolvedFormat = context.resolve(format)
+            let resolvedContains = context.resolve(contains)
+            let runner = processRunner
+            try await Polling.waitUntil(
+                description: "tmux display-message '\(resolvedFormat)' contains '\(resolvedContains)'",
+                timeout: timeout,
+                pollInterval: 1
+            ) {
+                let result = try? await runner.runOrThrow(
+                    "tmux",
+                    arguments: ["-S", socket, "display-message", "-t", resolvedTarget, "-p", resolvedFormat]
+                )
+                let value = result?.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return value.contains(resolvedContains)
+            }
+
         // Hook Events
         case let .macSendHookEvent(json, tmuxPane, projectPath, instance):
             let resolvedJson = context.resolve(json)
@@ -683,6 +702,23 @@ public actor TestOrchestrator {
             let content = (try? String(contentsOfFile: resolvedPath, encoding: .utf8)) ?? ""
             context.set(storeAs, value: content)
             logger.info("  Read file (\(content.count) chars) → stored as ${\(storeAs)}")
+
+        case let .waitForFileContains(path, substring, storeAs, timeout, pollInterval):
+            let resolvedPath = context.resolve(path)
+            let resolvedSubstring = context.resolve(substring)
+            try await Polling.waitUntil(
+                description: "file '\(resolvedPath)' contains '\(resolvedSubstring)'",
+                timeout: timeout,
+                pollInterval: pollInterval
+            ) {
+                guard let content = try? String(contentsOfFile: resolvedPath, encoding: .utf8) else {
+                    return false
+                }
+                return content.contains(resolvedSubstring)
+            }
+            let content = (try? String(contentsOfFile: resolvedPath, encoding: .utf8)) ?? ""
+            context.set(storeAs, value: content)
+            logger.info("  File contains '\(resolvedSubstring)' (\(content.count) chars) → stored as ${\(storeAs)}")
 
         case let .log(message):
             logger.info("  LOG: \(context.resolve(message))")
