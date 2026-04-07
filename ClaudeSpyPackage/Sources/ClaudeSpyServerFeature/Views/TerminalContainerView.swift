@@ -33,7 +33,6 @@ struct TerminalContainerView: NSViewRepresentable {
     @Environment(AppSettings.self) private var settings
     @Environment(TmuxService.self) private var tmuxService
     @Environment(PaneStreamManager.self) private var paneStreamManager
-    @Environment(MirrorWindowManager.self) private var windowManager
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -50,7 +49,6 @@ struct TerminalContainerView: NSViewRepresentable {
             paneState: paneState,
             tmuxService: tmuxService,
             paneStreamManager: paneStreamManager,
-            windowManager: windowManager,
             settings: settings,
             onStateChange: onStateChange,
             onTitleChange: onTitleChange
@@ -74,9 +72,7 @@ struct TerminalContainerView: NSViewRepresentable {
         coordinator.updateContainerSize(nsView.frame.size)
 
         // Check for dimension changes from pane state (updated after %layout-change)
-        if let currentState = windowManager.paneStates[paneState.paneId] {
-            coordinator.handleExternalDimensionChange(width: currentState.width, height: currentState.height)
-        }
+        coordinator.handleExternalDimensionChange(width: paneState.width, height: paneState.height)
     }
 
     static func dismantleNSView(_ nsView: InteractiveTerminalView, coordinator: Coordinator) {
@@ -94,7 +90,6 @@ struct TerminalContainerView: NSViewRepresentable {
         // MARK: Services (held for lifetime)
 
         private weak var paneStreamManager: PaneStreamManager?
-        private weak var windowManager: MirrorWindowManager?
         private weak var tmuxService: TmuxService?
 
         // MARK: State
@@ -145,14 +140,12 @@ struct TerminalContainerView: NSViewRepresentable {
             paneState: PaneState,
             tmuxService: TmuxService,
             paneStreamManager: PaneStreamManager,
-            windowManager: MirrorWindowManager,
             settings: AppSettings,
             onStateChange: TerminalStateChangeHandler?,
             onTitleChange: TerminalTitleChangeHandler?
         ) {
             self.paneState = paneState
             self.paneStreamManager = paneStreamManager
-            self.windowManager = windowManager
             self.tmuxService = tmuxService
             self.onStateChange = onStateChange
             self.onTitleChange = onTitleChange
@@ -301,9 +294,8 @@ struct TerminalContainerView: NSViewRepresentable {
                     onData: { [weak self] data in
                         self?.handleData(data)
                     },
-                    onDimensionChange: { [weak self, weak windowManager] newWidth, newHeight in
+                    onDimensionChange: { [weak self] newWidth, newHeight in
                         self?.updateTerminalDimensions(cols: newWidth, rows: newHeight)
-                        windowManager?.resizeWindow(paneId: paneId, columns: newWidth, rows: newHeight)
                     }
                 )
 

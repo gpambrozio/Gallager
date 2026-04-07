@@ -32,7 +32,7 @@
         /// Tmux interaction service
         public let tmuxService: TmuxService
 
-        /// Window manager for pane mirroring
+        /// Pane state and session tracking manager
         public let windowManager: MirrorWindowManager
 
         /// Connected viewer manager for multiple viewer connections
@@ -313,8 +313,16 @@
 
             // Start notification-only readers for all discovered panes
             let initialPanes = await tmuxService.refreshPanes()
+            windowManager.updatePaneStates(from: initialPanes)
             await paneStreamManager.startNotificationMonitoring(panes: initialPanes)
             paneStreamManager.startPeriodicPaneRefresh(tmuxService: tmuxService)
+
+            // Detect Claude Code instances already running in tmux panes
+            let claudePanes = await tmuxService.detectClaudePanes()
+            if !claudePanes.isEmpty {
+                windowManager.markDetectedClaudeSessions(claudePanes)
+                logger.info("Detected running Claude Code in panes: \(claudePanes.keys.sorted())")
+            }
 
             // Connect pane stream manager to window manager for view injection
             windowManager.paneStreamManager = paneStreamManager
@@ -514,24 +522,17 @@
         }
 
         /// Wires the notification tap handler on the delegate directly.
-        /// Respects the `menuBarClickOpensPanesView` setting.
+        /// Always opens the panes view with the tapped session selected.
         private func setupNotificationTapHandler() {
             ForegroundNotificationDelegate.shared.onTapped = { [weak self] paneId in
                 guard let self else { return }
 
                 NSApp.setActivationPolicy(.regular)
-
-                if self.settings.menuBarClickOpensPanesView {
-                    self.pendingMenuBarSelection = .local(paneId: paneId)
-                    NotificationCenter.default.post(
-                        name: .openPanesWindow,
-                        object: nil
-                    )
-                } else {
-                    Task {
-                        await self.windowManager.openMirrorForPane(paneId)
-                    }
-                }
+                self.pendingMenuBarSelection = .local(paneId: paneId)
+                NotificationCenter.default.post(
+                    name: .openPanesWindow,
+                    object: nil
+                )
 
                 Self.forceActivate()
             }
@@ -668,6 +669,11 @@
                         customName: host.customName
                     )
                     settings.updateHostPairing(updatedHost)
+                }
+
+                // Clear sessions when a remote host disconnects
+                manager.onHostDisconnected = { [weak store] hostId in
+                    store?.clearSessions(for: hostId)
                 }
 
                 // Handle unpair notifications from remote hosts
