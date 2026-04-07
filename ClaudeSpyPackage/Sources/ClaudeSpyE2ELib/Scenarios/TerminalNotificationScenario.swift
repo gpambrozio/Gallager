@@ -27,20 +27,31 @@ public enum TerminalNotificationScenario {
         // ═══════════════════════════════════════════════════════════════════
 
         // 3. Wait for the periodic pane refresh to discover the new pane and
-        //    start a notification-only reader (refresh interval is 10s)
+        //    start a notification-only reader. The refresh interval is 10s, and
+        //    startNotificationReader is async (creates control client + pipe-pane).
+        //    Instead of a fixed wait, poll tmux's pane_pipe flag — it becomes 1
+        //    once pipe-pane is attached, proving the reader is ready.
         TestStep.log("Phase 1: Testing background notification (no mirror, no streaming)")
-        TestStep.wait(seconds: 12)
+        TestStep.waitForTmuxDisplayMessage(
+            target: "notif-test:0.0",
+            format: "#{pane_pipe}",
+            contains: "1",
+            timeout: 25
+        )
 
-        // 4. Send OSC 9 notification — notification-only reader should detect it
+        // 4. Send OSC 9 notification — notification-only reader is confirmed active
         Shortcut.tmuxRunCommand(
             target: "notif-test:0.0",
             command: "printf '\\e]9;E2E background notification\\a'"
         )
-        TestStep.wait(seconds: 3)
 
-        // 5. Verify background notification was logged
-        TestStep.readFile(path: "${notificationLogPath}", storeAs: "notificationLog")
-        TestStep.assertStoredContains(key: "notificationLog", substring: "E2E background notification")
+        // 5. Poll log file until the notification appears (handles async write delay)
+        TestStep.waitForFileContains(
+            path: "${notificationLogPath}",
+            substring: "E2E background notification",
+            storeAs: "notificationLog",
+            timeout: 10
+        )
 
         // ═══════════════════════════════════════════════════════════════════
         // Phase 2: Notification during active streaming
@@ -72,31 +83,44 @@ public enum TerminalNotificationScenario {
             target: "notif-test:0.0",
             command: "printf '\\e]9;E2E streaming notification\\a'"
         )
-        TestStep.wait(seconds: 3)
 
-        // 9. Verify streaming notification was logged
-        TestStep.readFile(path: "${notificationLogPath}", storeAs: "notificationLog2")
-        TestStep.assertStoredContains(key: "notificationLog2", substring: "E2E streaming notification")
+        // 9. Poll log file until the streaming notification appears
+        TestStep.waitForFileContains(
+            path: "${notificationLogPath}",
+            substring: "E2E streaming notification",
+            storeAs: "notificationLog2",
+            timeout: 10
+        )
 
         // ═══════════════════════════════════════════════════════════════════
         // Phase 3: Notification after deselecting (reader restarts)
         // ═══════════════════════════════════════════════════════════════════
 
         // 10. Navigate back to sessions list — iOS sends stopTerminalStream,
-        //     PaneStreamManager.unsubscribe() restarts the notification reader
+        //     PaneStreamManager.unsubscribe() restarts the notification reader.
+        //     Wait for pipe-pane to reattach before sending the notification.
         TestStep.log("Phase 3: Testing notification after deselecting (reader restarts)")
         TestStep.iosTap(.labelContains("Sessions"))
-        TestStep.wait(seconds: 3)
+        TestStep.wait(seconds: 1)
+        TestStep.waitForTmuxDisplayMessage(
+            target: "notif-test:0.0",
+            format: "#{pane_pipe}",
+            contains: "1",
+            timeout: 15
+        )
 
-        // 11. Send notification — restarted notification reader should detect it
+        // 11. Send notification — restarted notification reader is confirmed active
         Shortcut.tmuxRunCommand(
             target: "notif-test:0.0",
             command: "printf '\\e]9;E2E resumed notification\\a'"
         )
-        TestStep.wait(seconds: 3)
 
-        // 12. Verify resumed notification was logged
-        TestStep.readFile(path: "${notificationLogPath}", storeAs: "notificationLog3")
-        TestStep.assertStoredContains(key: "notificationLog3", substring: "E2E resumed notification")
+        // 12. Poll log file until the resumed notification appears
+        TestStep.waitForFileContains(
+            path: "${notificationLogPath}",
+            substring: "E2E resumed notification",
+            storeAs: "notificationLog3",
+            timeout: 10
+        )
     }
 }

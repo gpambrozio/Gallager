@@ -44,7 +44,13 @@ public struct ClaudeSession: Codable, Sendable {
 
     /// Adds an event to the session, keeping only the last 5
     public mutating func addEvent(_ event: HookEvent) {
-        latestEvent = event
+        // Only update latestEvent for events that carry meaningful state:
+        // either they affect working status or would trigger a notification.
+        // Background events (e.g., notification with "permission_prompt" type)
+        // should not override a significant event like permissionRequest.
+        if event.isWorking != nil || event.wouldTriggerNotification {
+            latestEvent = event
+        }
         if let working = event.isWorking {
             isWorking = working
         }
