@@ -368,6 +368,8 @@ final public class ViewerRelayClient {
             return (try? await sendCommand(spec, paneId: paneId).get()) != nil
         case let .cancelEditorSession(spec):
             return (try? await sendCommand(spec, paneId: paneId).get()) != nil
+        case let .sendRawInput(spec):
+            return (try? await sendCommand(spec, paneId: paneId).get()) != nil
         }
     }
 

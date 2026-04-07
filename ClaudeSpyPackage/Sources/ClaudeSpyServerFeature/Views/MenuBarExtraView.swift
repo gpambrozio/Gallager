@@ -102,16 +102,10 @@ public struct MenuBarExtraView: View {
     @ViewBuilder
     private func localSessionButton(for session: ClaudeSession) -> some View {
         Button {
-            if settings.menuBarClickOpensPanesView {
-                coordinator.pendingMenuBarSelection = .local(paneId: session.paneId)
-                NSApp.setActivationPolicy(.regular)
-                openWindow(id: "panes")
-                Self.bringAppToFront()
-            } else {
-                Task {
-                    await windowManager.openMirrorForPane(session.paneId)
-                }
-            }
+            coordinator.pendingMenuBarSelection = .local(paneId: session.paneId)
+            NSApp.setActivationPolicy(.regular)
+            openWindow(id: "panes")
+            Self.bringAppToFront()
         } label: {
             sessionLabel(for: session)
         }
@@ -120,26 +114,14 @@ public struct MenuBarExtraView: View {
     @ViewBuilder
     private func remoteSessionButton(for session: ClaudeSession, host: PairedHost) -> some View {
         Button {
-            if settings.menuBarClickOpensPanesView {
-                coordinator.pendingMenuBarSelection = .remote(
-                    hostId: host.id,
-                    hostName: host.displayName,
-                    paneId: session.paneId
-                )
-                NSApp.setActivationPolicy(.regular)
-                openWindow(id: "panes")
-                Self.bringAppToFront()
-            } else if let connection = coordinator.viewerConnectionManager?.connection(for: host.id) {
-                let remotePaneState = coordinator.remoteSessionStore?.paneState(for: session.paneId)
-                windowManager.openRemoteMirror(
-                    paneId: session.paneId,
-                    hostId: host.id,
-                    hostName: host.displayName,
-                    terminalColumns: remotePaneState?.width ?? 120,
-                    terminalRows: remotePaneState?.height ?? 40,
-                    connection: connection
-                )
-            }
+            coordinator.pendingMenuBarSelection = .remote(
+                hostId: host.id,
+                hostName: host.displayName,
+                paneId: session.paneId
+            )
+            NSApp.setActivationPolicy(.regular)
+            openWindow(id: "panes")
+            Self.bringAppToFront()
         } label: {
             sessionLabel(for: session)
         }

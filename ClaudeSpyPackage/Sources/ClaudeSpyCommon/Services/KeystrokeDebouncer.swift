@@ -53,6 +53,31 @@ final public class KeystrokeDebouncer {
         }
     }
 
+    /// Immediately flush any buffered keystrokes, then send raw bytes (e.g., mouse escape sequences).
+    /// Raw input is not debounced — it's already batched by the scroll event overlay —
+    /// but it chains on the pending task to preserve ordering with keystrokes.
+    public func enqueueRawInput(_ data: Data) {
+        // Flush any buffered keystrokes first so ordering is preserved
+        flushTask?.cancel()
+        let pendingKeys = keyBuffer
+        keyBuffer.removeAll()
+
+        let previous = pendingKeyTask
+        pendingKeyTask = Task {
+            _ = await previous?.value
+            if !pendingKeys.isEmpty {
+                _ = await relayClient.sendCommand(
+                    SendKeystroke(pendingKeys),
+                    paneId: paneId
+                )
+            }
+            _ = await relayClient.sendCommand(
+                SendRawInput(data: data),
+                paneId: paneId
+            )
+        }
+    }
+
     /// Cancel any pending debounce and in-flight sends.
     public func cancelAll() {
         flushTask?.cancel()
