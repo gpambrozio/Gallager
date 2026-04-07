@@ -57,12 +57,22 @@ final public class MirrorWindowManager {
     public func updatePaneStates(from panes: [PaneInfo]) {
         let currentPaneIds = Set(panes.map(\.paneId))
 
+        // Track path changes to invalidate git branch cache
+        var changedPaths = false
+
         // Update or create entries for current panes
         for pane in panes {
             if var state = paneStates[pane.paneId] {
+                let oldPath = state.currentPath
                 pane.updateMetadata(of: &state)
+                if state.currentPath != oldPath {
+                    changedPaths = true
+                    // Clear stale branch for this pane
+                    state.gitBranch = nil
+                }
                 paneStates[pane.paneId] = state
             } else {
+                changedPaths = true
                 paneStates[pane.paneId] = pane.makePaneState()
             }
         }
@@ -71,11 +81,21 @@ final public class MirrorWindowManager {
         let stalePaneIds = paneStates.keys.filter { !currentPaneIds.contains($0) }
         for paneId in stalePaneIds {
             removeStaleState(paneId: paneId)
+            changedPaths = true
+        }
+
+        // Invalidate cached branches for paths no longer in use
+        if changedPaths {
+            let activePaths = Set(paneStates.values.compactMap(\.currentPath).filter { !$0.isEmpty })
+            invalidateGitBranchCache(currentPaths: activePaths)
         }
     }
 
+    /// Cache of resolved git branches keyed by path, invalidated when pane paths change.
+    private var gitBranchCache: [String: String] = [:]
+
     /// Resolves git branch names for all panes that have a current working directory.
-    /// Runs `git rev-parse` for each unique path and updates the pane states.
+    /// Runs `git rev-parse` only for paths not already in the cache.
     public func resolveGitBranches() async {
         // Collect unique paths and which pane IDs map to them
         var paneIdsByPath: [String: [String]] = [:]
@@ -86,12 +106,26 @@ final public class MirrorWindowManager {
 
         guard !paneIdsByPath.isEmpty else { return }
 
+        // Apply cached branches immediately, collect uncached paths
+        var uncachedPaths: Set<String> = []
+        for (path, paneIds) in paneIdsByPath {
+            if let cached = gitBranchCache[path] {
+                for paneId in paneIds {
+                    paneStates[paneId]?.gitBranch = cached
+                }
+            } else {
+                uncachedPaths.insert(path)
+            }
+        }
+
+        guard !uncachedPaths.isEmpty else { return }
+
         // Resolve branches off the main actor
         let branchesByPath = await withTaskGroup(
             of: (String, String?).self,
             returning: [String: String?].self
         ) { group in
-            for path in paneIdsByPath.keys {
+            for path in uncachedPaths {
                 group.addTask { [processRunner] in
                     let branch = await Self.gitBranch(at: path, using: processRunner)
                     return (path, branch)
@@ -105,17 +139,27 @@ final public class MirrorWindowManager {
             return results
         }
 
-        // Update pane states with resolved branches
-        for (path, paneIds) in paneIdsByPath {
+        // Update pane states with resolved branches, guarding on path identity
+        for (path, paneIds) in paneIdsByPath where uncachedPaths.contains(path) {
             guard let branch = branchesByPath[path] else { continue }
+            if let branch {
+                gitBranchCache[path] = branch
+            }
             for paneId in paneIds {
+                guard paneStates[paneId]?.currentPath == path else { continue }
                 paneStates[paneId]?.gitBranch = branch
             }
         }
     }
 
+    /// Invalidates the git branch cache for paths that are no longer in use or have changed.
+    private func invalidateGitBranchCache(currentPaths: Set<String>) {
+        for cachedPath in gitBranchCache.keys where !currentPaths.contains(cachedPath) {
+            gitBranchCache.removeValue(forKey: cachedPath)
+        }
+    }
+
     /// Returns the current git branch name for the given directory, or nil if not a git repo.
-    @Sendable
     private static func gitBranch(at path: String, using processRunner: ProcessRunner) async -> String? {
         guard let result = try? await processRunner.run(
             "/usr/bin/git",
@@ -126,7 +170,8 @@ final public class MirrorWindowManager {
             return nil
         }
         let branch = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
-        return branch.isEmpty ? nil : branch
+        if branch.isEmpty { return nil }
+        return branch == "HEAD" ? "(detached)" : branch
     }
 
     // MARK: - Periodic Session Validation
