@@ -71,7 +71,6 @@ struct RemoteWindowPaneLayoutView: View {
                 .overlay {
                     if let editorInfo = pane.paneState.editorSession {
                         PromptEditorOverlay(
-                            paneId: pane.paneState.paneId,
                             originalContent: editorInfo.content,
                             onSubmit: { content in
                                 Task {
@@ -146,7 +145,6 @@ struct RemoteWindowPaneLayoutView: View {
         .overlay {
             if let editorInfo = pane.editorSession {
                 PromptEditorOverlay(
-                    paneId: pane.paneId,
                     originalContent: editorInfo.content,
                     onSubmit: { content in
                         Task {

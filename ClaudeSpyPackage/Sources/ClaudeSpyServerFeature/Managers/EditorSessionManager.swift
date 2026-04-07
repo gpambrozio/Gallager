@@ -28,7 +28,7 @@
     /// 3. Removes the session from active sessions
     @Observable
     @MainActor
-    public final class EditorSessionManager {
+    final public class EditorSessionManager {
         /// Active editor sessions keyed by pane ID.
         /// Only one editor session per pane is supported.
         public private(set) var activeSessions: [String: EditorSession] = [:]
@@ -47,21 +47,30 @@
 
         /// Handles an incoming edit request from the socket server.
         public func handleEditRequest(_ request: EditorRequest) {
-            // Read the file content
-            let content: String
-            do {
-                content = try String(contentsOfFile: request.filePath, encoding: .utf8)
-            } catch {
-                logger.error("Failed to read editor file: \(error)")
-                // Signal the CLI to exit immediately so Claude Code doesn't hang
-                Task { await socketServer.completeSession(request.sessionId) }
-                return
-            }
+            Task {
+                // Read file content off the main actor
+                let content: String
+                do {
+                    content = try await Task.detached {
+                        try String(contentsOfFile: request.filePath, encoding: .utf8)
+                    }.value
+                } catch {
+                    logger.error("Failed to read editor file: \(error)")
+                    // Signal the CLI to exit immediately so Claude Code doesn't hang
+                    await socketServer.completeSession(request.sessionId)
+                    return
+                }
 
+                await registerSession(request, content: content)
+            }
+        }
+
+        /// Registers a new editor session after file content has been read.
+        private func registerSession(_ request: EditorRequest, content: String) async {
             // If there's already a session for this pane, complete the old one first
             if let existing = activeSessions[request.paneId] {
                 logger.warning("Replacing existing editor session for pane \(request.paneId)")
-                Task { await socketServer.completeSession(existing.id) }
+                await socketServer.completeSession(existing.id)
             }
 
             let session = EditorSession(
@@ -78,7 +87,7 @@
             NSApplication.shared.activate(ignoringOtherApps: true)
 
             // Notify viewers
-            Task { await onSessionChanged?() }
+            await onSessionChanged?()
         }
 
         /// Submits edited content, writes it to the file, and signals the CLI to exit.

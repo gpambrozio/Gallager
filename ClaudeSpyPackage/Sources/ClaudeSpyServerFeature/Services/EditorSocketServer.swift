@@ -82,8 +82,8 @@
             logger.info("Editor socket server listening at \(Self.socketPath)")
 
             // Accept connections in a background task
-            acceptTask = Task { [weak self] in
-                await self?.acceptLoop()
+            acceptTask = Task {
+                await self.acceptLoop()
             }
         }
 
@@ -151,12 +151,18 @@
         }
 
         private func handleConnection(_ fd: Int32) async {
-            // Read the message (paneId\tfilePath\n)
-            var data = Data()
-            var byte: UInt8 = 0
-            while Darwin.read(fd, &byte, 1) == 1 {
-                if byte == UInt8(ascii: "\n") { break }
-                data.append(byte)
+            // Read the message (paneId\tfilePath\n) on a background thread
+            // to avoid blocking the cooperative thread pool
+            let data = await withCheckedContinuation { continuation in
+                DispatchQueue.global().async {
+                    var data = Data()
+                    var byte: UInt8 = 0
+                    while Darwin.read(fd, &byte, 1) == 1 {
+                        if byte == UInt8(ascii: "\n") { break }
+                        data.append(byte)
+                    }
+                    continuation.resume(returning: data)
+                }
             }
 
             guard let message = String(data: data, encoding: .utf8) else {
@@ -186,13 +192,6 @@
             if let handler = onEditRequest {
                 await handler(request)
             }
-        }
-
-        deinit {
-            if serverFd >= 0 {
-                close(serverFd)
-            }
-            unlink(Self.socketPath)
         }
     }
 

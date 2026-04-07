@@ -190,7 +190,8 @@ private struct PaneListPreview: View {
                 paneStreamManager: .init(
                     tmuxService: tmuxService,
                     controlClientManager: controlClientManager
-                )
+                ),
+                editorSessionManager: EditorSessionManager(socketServer: EditorSocketServer())
             )
         }
     }

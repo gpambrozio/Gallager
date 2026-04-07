@@ -8,7 +8,6 @@ struct MirrorWindowView: View {
 
     @Environment(AppSettings.self) private var settings
     @Environment(MirrorWindowManager.self) private var windowManager
-    @Environment(EditorSessionManager.self) private var editorSessionManager
 
     @State private var streamState: StreamState = .disconnected
     @State private var streamWidth: Int?
@@ -38,18 +37,7 @@ struct MirrorWindowView: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay {
-                if let session = editorSessionManager.session(for: paneState.paneId) {
-                    PromptEditorOverlay(
-                        paneId: paneState.paneId,
-                        originalContent: session.originalContent,
-                        onSubmit: { content in
-                            editorSessionManager.submitSession(paneId: paneState.paneId, content: content)
-                        },
-                        onCancel: {
-                            editorSessionManager.cancelSession(paneId: paneState.paneId)
-                        }
-                    )
-                }
+                PaneEditorOverlay(paneId: paneState.paneId)
             }
 
             if settings.showStatusBar {

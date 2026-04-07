@@ -25,17 +25,19 @@ final public class MirrorWindowManager {
     /// Pane stream manager for sharing streams
     public var paneStreamManager: PaneStreamManager
 
-    /// Editor session manager for prompt editing (injected after init, before any windows open)
-    public var editorSessionManager: EditorSessionManager!
+    /// Editor session manager for prompt editing
+    public let editorSessionManager: EditorSessionManager
 
     public init(
         settings: AppSettings,
         tmuxService: TmuxService,
-        paneStreamManager: PaneStreamManager
+        paneStreamManager: PaneStreamManager,
+        editorSessionManager: EditorSessionManager
     ) {
         self.settings = settings
         self.tmuxService = tmuxService
         self.paneStreamManager = paneStreamManager
+        self.editorSessionManager = editorSessionManager
     }
 
     // MARK: - Pane State Management

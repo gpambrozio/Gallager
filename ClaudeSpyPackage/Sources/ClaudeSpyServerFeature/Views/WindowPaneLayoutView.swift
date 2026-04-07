@@ -123,7 +123,6 @@ struct WindowPaneLayoutView: View {
         let isSingle: Bool
 
         @Environment(MirrorWindowManager.self) private var windowManager
-        @Environment(EditorSessionManager.self) private var editorSessionManager
         @State private var isHovering = false
 
         var body: some View {
@@ -142,18 +141,7 @@ struct WindowPaneLayoutView: View {
                 }
             }
             .overlay {
-                if let session = editorSessionManager.session(for: paneState.paneId) {
-                    PromptEditorOverlay(
-                        paneId: paneState.paneId,
-                        originalContent: session.originalContent,
-                        onSubmit: { content in
-                            editorSessionManager.submitSession(paneId: paneState.paneId, content: content)
-                        },
-                        onCancel: {
-                            editorSessionManager.cancelSession(paneId: paneState.paneId)
-                        }
-                    )
-                }
+                PaneEditorOverlay(paneId: paneState.paneId)
             }
             .overlay(alignment: .topTrailing) {
                 PaneSplitButtons(paneTarget: paneInfo.paneId)

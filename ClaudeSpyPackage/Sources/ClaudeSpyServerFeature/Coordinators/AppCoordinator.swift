@@ -128,13 +128,6 @@
                 controlClientManager: controlClientManager
             )
 
-            // Create window manager
-            self.windowManager = MirrorWindowManager(
-                settings: settings,
-                tmuxService: tmuxService,
-                paneStreamManager: paneStreamManager
-            )
-
             // Create terminal stream service
             self.terminalStreamService = TerminalStreamService()
 
@@ -147,8 +140,13 @@
             let editorManager = EditorSessionManager(socketServer: server)
             self.editorSessionManager = editorManager
 
-            // Inject editor session manager into window manager for mirror windows
-            self.windowManager.editorSessionManager = editorManager
+            // Create window manager with editor session manager
+            self.windowManager = MirrorWindowManager(
+                settings: settings,
+                tmuxService: tmuxService,
+                paneStreamManager: paneStreamManager,
+                editorSessionManager: editorManager
+            )
 
             // CRITICAL: Load E2EEService synchronously from Keychain BEFORE any view rendering.
             // This prevents createPairingManager() from generating temporary keys.

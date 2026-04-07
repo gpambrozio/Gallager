@@ -2,18 +2,47 @@
     import ClaudeSpyCommon
     import SwiftUI
 
+    /// Convenience wrapper that reads from `EditorSessionManager` and shows `PromptEditorOverlay`
+    /// when an editor session is active for the given pane. Used by both `MirrorWindowView` and
+    /// `WindowPaneLayoutView.PaneTileView`.
+    struct PaneEditorOverlay: View {
+        let paneId: String
+
+        @Environment(EditorSessionManager.self) private var editorSessionManager
+
+        var body: some View {
+            if let session = editorSessionManager.session(for: paneId) {
+                PromptEditorOverlay(
+                    originalContent: session.originalContent,
+                    onSubmit: { content in
+                        editorSessionManager.submitSession(paneId: paneId, content: content)
+                    },
+                    onCancel: {
+                        editorSessionManager.cancelSession(paneId: paneId)
+                    }
+                )
+            }
+        }
+    }
+
     /// Overlay view for editing a Claude Code prompt triggered by Ctrl-G.
     ///
     /// Shown as a large overlay above the terminal when an editor session is active.
     /// Both host and viewer can edit; the first to submit wins.
     struct PromptEditorOverlay: View {
-        let paneId: String
         let originalContent: String
         let onSubmit: (String) -> Void
         let onCancel: () -> Void
 
-        @State private var content: String = ""
+        @State private var content: String
         @FocusState private var isEditorFocused: Bool
+
+        init(originalContent: String, onSubmit: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
+            self.originalContent = originalContent
+            self.onSubmit = onSubmit
+            self.onCancel = onCancel
+            _content = State(initialValue: originalContent)
+        }
 
         var body: some View {
             VStack(spacing: 0) {
@@ -67,7 +96,6 @@
             .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
             .padding(24)
             .task {
-                content = originalContent
                 isEditorFocused = true
             }
         }

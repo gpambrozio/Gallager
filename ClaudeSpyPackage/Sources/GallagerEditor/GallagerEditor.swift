@@ -23,6 +23,11 @@ struct GallagerEditor {
         let filePath = CommandLine.arguments[CommandLine.arguments.count - 1]
         let paneId = ProcessInfo.processInfo.environment["TMUX_PANE"] ?? ""
 
+        guard !paneId.isEmpty else {
+            fputs("TMUX_PANE not set\n", stderr)
+            exit(1)
+        }
+
         // Create socket
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
@@ -56,7 +61,12 @@ struct GallagerEditor {
         // Send pane ID and file path as tab-separated, newline-terminated message
         let message = "\(paneId)\t\(filePath)\n"
         message.withCString { ptr in
-            _ = Darwin.write(fd, ptr, message.utf8.count)
+            let written = Darwin.write(fd, ptr, message.utf8.count)
+            if written < 0 {
+                fputs("Failed to send message\n", stderr)
+                close(fd)
+                exit(1)
+            }
         }
 
         // Block until the app sends "done\n" (or the connection closes)
