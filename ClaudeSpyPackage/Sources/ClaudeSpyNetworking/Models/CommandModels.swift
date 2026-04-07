@@ -591,6 +591,33 @@ public struct CreateTmuxWindow: CommandSpec, Equatable {
     }
 }
 
+/// Submit edited prompt content from a viewer. Returns success/failure.
+public struct SubmitEditorContent: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// The edited content to write back to the temp file
+    public let content: String
+
+    public init(content: String) {
+        self.content = content
+    }
+
+    public var commandType: CommandType {
+        .submitEditorContent(self)
+    }
+}
+
+/// Cancel an active editor session from a viewer. Returns success/failure.
+public struct CancelEditorSession: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    public init() { }
+
+    public var commandType: CommandType {
+        .cancelEditorSession(self)
+    }
+}
+
 // MARK: - Command Types
 
 /// Commands that can be sent from viewer to host, with their associated data.
@@ -623,6 +650,10 @@ public enum CommandType: Codable, Sendable, Equatable {
     case selectTmuxWindow(SelectTmuxWindow)
     /// Create a new tmux window in a session
     case createTmuxWindow(CreateTmuxWindow)
+    /// Submit edited prompt content from a viewer
+    case submitEditorContent(SubmitEditorContent)
+    /// Cancel an active editor session from a viewer
+    case cancelEditorSession(CancelEditorSession)
 
     // MARK: - Convenience Factory Methods
 
@@ -699,6 +730,16 @@ public enum CommandType: Codable, Sendable, Equatable {
     /// Create a createTmuxWindow command
     public static func createTmuxWindow(sessionName: String, workingDirectory: String? = nil) -> CommandType {
         .createTmuxWindow(CreateTmuxWindow(sessionName: sessionName, workingDirectory: workingDirectory))
+    }
+
+    /// Create a submitEditorContent command
+    public static func submitEditorContent(content: String) -> CommandType {
+        .submitEditorContent(SubmitEditorContent(content: content))
+    }
+
+    /// Create a cancelEditorSession command
+    public static var cancelEditorSession: CommandType {
+        .cancelEditorSession(CancelEditorSession())
     }
 }
 

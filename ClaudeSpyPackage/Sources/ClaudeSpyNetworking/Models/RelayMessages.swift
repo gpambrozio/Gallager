@@ -112,6 +112,11 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// Whether yolo mode is enabled (auto-approve permissions)
     public var yoloMode: Bool
 
+    // MARK: - Editor Session
+
+    /// Active prompt editor session (Ctrl-G), if any
+    public var editorSession: EditorSessionInfo?
+
     // MARK: - Computed Properties
 
     public var id: String { paneId }
@@ -136,7 +141,8 @@ public struct PaneState: Codable, Sendable, Identifiable {
         customDescription: String? = nil,
         terminalTitle: String? = nil,
         claudeSession: ClaudeSession? = nil,
-        yoloMode: Bool = false
+        yoloMode: Bool = false,
+        editorSession: EditorSessionInfo? = nil
     ) {
         self.paneId = paneId
         self.target = target
@@ -155,6 +161,23 @@ public struct PaneState: Codable, Sendable, Identifiable {
         self.terminalTitle = terminalTitle
         self.claudeSession = claudeSession
         self.yoloMode = yoloMode
+        self.editorSession = editorSession
+    }
+}
+
+// MARK: - Editor Session
+
+/// Information about an active prompt editor session for relay to viewers.
+/// Included in PaneState when a Ctrl-G editor session is active.
+public struct EditorSessionInfo: Codable, Sendable {
+    /// Unique identifier for this editor session
+    public let sessionId: UUID
+    /// The content of the file being edited
+    public let content: String
+
+    public init(sessionId: UUID, content: String) {
+        self.sessionId = sessionId
+        self.content = content
     }
 }
 

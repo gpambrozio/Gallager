@@ -123,6 +123,7 @@ struct WindowPaneLayoutView: View {
         let isSingle: Bool
 
         @Environment(MirrorWindowManager.self) private var windowManager
+        @Environment(EditorSessionManager.self) private var editorSessionManager
         @State private var isHovering = false
 
         var body: some View {
@@ -138,6 +139,20 @@ struct WindowPaneLayoutView: View {
                 if !isSingle {
                     Rectangle()
                         .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
+                }
+            }
+            .overlay {
+                if let session = editorSessionManager.session(for: paneState.paneId) {
+                    PromptEditorOverlay(
+                        paneId: paneState.paneId,
+                        originalContent: session.originalContent,
+                        onSubmit: { content in
+                            editorSessionManager.submitSession(paneId: paneState.paneId, content: content)
+                        },
+                        onCancel: {
+                            editorSessionManager.cancelSession(paneId: paneState.paneId)
+                        }
+                    )
                 }
             }
             .overlay(alignment: .topTrailing) {

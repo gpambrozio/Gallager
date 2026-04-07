@@ -35,6 +35,9 @@ final public class MirrorWindowManager {
     /// Pane stream manager for sharing streams
     public var paneStreamManager: PaneStreamManager
 
+    /// Editor session manager for prompt editing (injected after init, before any windows open)
+    public var editorSessionManager: EditorSessionManager!
+
     public init(
         settings: AppSettings,
         tmuxService: TmuxService,
@@ -182,6 +185,7 @@ final public class MirrorWindowManager {
             .environment(tmuxService)
             .environment(self)
             .environment(paneStreamManager)
+            .environment(editorSessionManager)
 
         let window = showMirrorWindow(
             key: paneId,

@@ -203,6 +203,7 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator.getOrCreatePairingManager())
                 .environment(coordinator)
                 .environment(coordinator.pluginService)
+                .environment(coordinator.editorSessionManager)
                 .environment(\.e2eeService, coordinator.e2eeService)
                 .onAppear {
                     if coordinator.settings.openPanesWindowOnLaunch {
