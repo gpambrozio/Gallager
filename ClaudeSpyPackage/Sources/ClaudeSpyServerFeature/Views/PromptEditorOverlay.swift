@@ -77,6 +77,7 @@
                         onCancel()
                     }
                     .keyboardShortcut(.escape, modifiers: [])
+                    .help("Cancel Editing")
 
                     Spacer()
 
@@ -87,6 +88,7 @@
                     }
                     .keyboardShortcut(.return, modifiers: .command)
                     .buttonStyle(.borderedProminent)
+                    .help("Submit Edited Prompt")
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
