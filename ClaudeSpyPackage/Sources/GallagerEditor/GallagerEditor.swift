@@ -12,7 +12,7 @@ import Foundation
 /// 6. Exits — Claude Code then reads the (possibly modified) file back
 @main
 struct GallagerEditor {
-    static let socketPath = "/tmp/gallager-editor.sock"
+    static let socketPath = NSTemporaryDirectory() + "gallager-editor.sock"
 
     static func main() {
         guard CommandLine.arguments.count > 1 else {

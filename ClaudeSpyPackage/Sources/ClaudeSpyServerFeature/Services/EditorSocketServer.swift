@@ -19,7 +19,7 @@
     /// The server notifies the app, which shows an editor UI. When the user finishes editing,
     /// the app calls `completeSession(_:)` to signal the CLI to exit.
     actor EditorSocketServer {
-        static let socketPath = "/tmp/gallager-editor.sock"
+        static let socketPath = NSTemporaryDirectory() + "gallager-editor.sock"
 
         private let logger = Logger(label: "com.claudespy.editorsocket")
         private var serverFd: Int32 = -1
