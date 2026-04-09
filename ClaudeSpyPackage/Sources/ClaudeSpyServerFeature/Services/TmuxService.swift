@@ -1221,6 +1221,23 @@ final public class TmuxService {
         await refreshPanes()
     }
 
+    /// Kills a single tmux pane by its pane ID.
+    /// If the pane is the last one in its window/session, tmux will close the window/session automatically.
+    /// - Parameter paneId: The pane ID to kill (e.g. "%0")
+    public func killPane(_ paneId: String) async throws {
+        let result = try await runTmuxCommand([
+            "kill-pane",
+            "-t", paneId,
+        ])
+
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+
+        // Refresh panes to reflect the killed pane
+        await refreshPanes()
+    }
+
     /// Gets the pane ID for a target
     public func getPaneId(_ target: String) async throws -> String {
         let result = try await runTmuxCommand([

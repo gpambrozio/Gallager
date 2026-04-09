@@ -126,11 +126,16 @@ final public class MirrorWindowManager {
 
         // Track active session based on event type
         switch event.action {
-        case .sessionEnd:
+        case let .sessionEnd(body):
             // Add the final event before removing the session
             updateSession(paneId: paneId) { $0.addEvent(event) }
             paneStates[paneId]?.claudeSession = nil
             paneStates[paneId]?.yoloMode = false
+
+            // Close the pane when Claude exits normally (user quit at prompt)
+            if settings.closePaneOnSessionEnd && body.reason == "prompt_input_exit" {
+                closePaneWhenClaudeExits(paneId: paneId)
+            }
 
         case .sessionStart:
             // Yolo mode is NOT reset here — context compaction restarts
@@ -227,6 +232,25 @@ final public class MirrorWindowManager {
         }
         // Fire-and-forget: avoids blocking the caller while the push completes
         Task { await onDescriptionChanged?() }
+    }
+
+    // MARK: - Auto-Close Pane
+
+    /// Polls until the Claude process exits from the pane, then closes the pane after a short delay.
+    private func closePaneWhenClaudeExits(paneId: String) {
+        Task { [tmuxService] in
+            // Poll until Claude is no longer running in this pane (up to 30 seconds)
+            for _ in 0..<30 {
+                try? await Task.sleep(for: .seconds(1))
+                let claudePanes = await tmuxService.detectClaudePanes()
+                if claudePanes[paneId] == nil {
+                    // Claude process has exited — wait 1 second then close the pane
+                    try? await Task.sleep(for: .seconds(1))
+                    try? await tmuxService.killPane(paneId)
+                    return
+                }
+            }
+        }
     }
 
     // MARK: - State Cleanup
