@@ -17,7 +17,7 @@ if len(sys.argv) < 3:
 
 pane_id = sys.argv[1]
 file_path = sys.argv[2]
-sock_path = "/tmp/gallager-editor.sock"
+sock_path = os.path.join(os.environ.get("TMPDIR", "/tmp"), "gallager-editor.sock")
 
 sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 try:
