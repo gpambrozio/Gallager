@@ -53,11 +53,17 @@ final public class TmuxService {
     /// When set, Ctrl-G in Claude Code opens the in-app prompt editor.
     public var editorCLIPath: String?
 
+    /// Socket path for the editor server. The CLI reads this from `$GALLAGER_EDITOR_SOCKET`.
+    public var editorSocketPath: String?
+
     /// Full environment variables list including VISUAL when editor CLI is available.
     private var terminalEnvironmentVars: [String] {
         var vars = Self.baseEnvironmentVars
         if let editorCLIPath {
             vars.append("VISUAL=\(editorCLIPath)")
+        }
+        if let editorSocketPath {
+            vars.append("GALLAGER_EDITOR_SOCKET=\(editorSocketPath)")
         }
         return vars
     }

@@ -19,7 +19,11 @@
     /// The server notifies the app, which shows an editor UI. When the user finishes editing,
     /// the app calls `completeSession(_:)` to signal the CLI to exit.
     actor EditorSocketServer {
-        static let socketPath = NSTemporaryDirectory() + "gallager-editor.sock"
+        /// Default socket path in the user's temp directory.
+        static let defaultSocketPath = NSTemporaryDirectory() + "gallager-editor.sock"
+
+        /// The socket path this instance listens on.
+        let socketPath: String
 
         private let logger = Logger(label: "com.claudespy.editorsocket")
         private var serverFd: Int32 = -1
@@ -31,6 +35,10 @@
 
         /// Callback when a new edit request arrives
         private var onEditRequest: (@MainActor @Sendable (EditorRequest) -> Void)?
+
+        init(socketPath: String = EditorSocketServer.defaultSocketPath) {
+            self.socketPath = socketPath
+        }
 
         /// Sets the callback for when new edit requests arrive.
         func setOnEditRequest(_ handler: @escaping @MainActor @Sendable (EditorRequest) -> Void) {
@@ -45,11 +53,11 @@
 
             // Only remove the socket file if it's stale (no active listener).
             // If another instance already owns the socket, leave it alone and skip starting.
-            if Self.isSocketActive() {
+            if isSocketActive() {
                 logger.info("Another instance already owns the editor socket, skipping")
                 return
             }
-            unlink(Self.socketPath)
+            unlink(socketPath)
 
             serverFd = socket(AF_UNIX, SOCK_STREAM, 0)
             guard serverFd >= 0 else {
@@ -58,10 +66,10 @@
 
             var addr = sockaddr_un()
             addr.sun_family = sa_family_t(AF_UNIX)
-            Self.socketPath.withCString { ptr in
+            socketPath.withCString { ptr in
                 withUnsafeMutablePointer(to: &addr.sun_path) { sunPath in
                     let raw = UnsafeMutableRawPointer(sunPath)
-                    raw.copyMemory(from: ptr, byteCount: Self.socketPath.utf8.count + 1)
+                    raw.copyMemory(from: ptr, byteCount: socketPath.utf8.count + 1)
                 }
             }
 
@@ -84,7 +92,7 @@
             }
 
             isRunning = true
-            logger.info("Editor socket server listening at \(Self.socketPath)")
+            logger.info("Editor socket server listening at \(socketPath)")
 
             // Accept connections in a background task
             acceptTask = Task {
@@ -110,7 +118,7 @@
                 close(serverFd)
                 serverFd = -1
             }
-            unlink(Self.socketPath)
+            unlink(socketPath)
             logger.info("Editor socket server stopped")
         }
 
@@ -136,7 +144,7 @@
 
         /// Checks whether an active listener exists on the socket path.
         /// Attempts a connect — if it succeeds, another instance owns the socket.
-        private static func isSocketActive() -> Bool {
+        private func isSocketActive() -> Bool {
             let fd = socket(AF_UNIX, SOCK_STREAM, 0)
             guard fd >= 0 else { return false }
             defer { close(fd) }
@@ -235,7 +243,7 @@
         var errorDescription: String? {
             switch self {
             case .socketCreationFailed: "Failed to create Unix domain socket"
-            case .bindFailed: "Failed to bind socket to \(EditorSocketServer.socketPath)"
+            case .bindFailed: "Failed to bind editor socket"
             case .listenFailed: "Failed to listen on socket"
             }
         }

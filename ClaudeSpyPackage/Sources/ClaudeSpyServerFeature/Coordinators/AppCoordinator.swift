@@ -263,6 +263,7 @@
             // The CLI is expected to be in the app bundle's MacOS directory.
             if let editorURL = Bundle.main.url(forAuxiliaryExecutable: "GallagerEditor") {
                 tmuxService.editorCLIPath = editorURL.path
+                tmuxService.editorSocketPath = await editorSocketServer.socketPath
                 logger.info("Editor CLI path: \(editorURL.path)")
             } else {
                 logger.warning("GallagerEditor CLI not found in app bundle")
