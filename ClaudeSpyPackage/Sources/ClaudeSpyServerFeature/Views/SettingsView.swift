@@ -191,6 +191,9 @@ struct GeneralSettingsView: View {
                         }
                     }
                 }
+
+                Toggle("Close pane when Claude exits", isOn: $settings.closePaneOnSessionEnd)
+                    .help("Automatically close the tmux pane after Claude Code exits normally")
             }
 
             Section("Updates") {

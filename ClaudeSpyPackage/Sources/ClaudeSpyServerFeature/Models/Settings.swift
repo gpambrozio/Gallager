@@ -174,6 +174,11 @@ final public class AppSettings {
         didSet { preferences.setBool(autoRunClaudeInProjects, Keys.autoRunClaudeInProjects) }
     }
 
+    /// Whether to close the tmux pane when Claude exits normally (user typed /exit or ctrl+c at prompt)
+    public var closePaneOnSessionEnd: Bool = Defaults.closePaneOnSessionEnd {
+        didSet { preferences.setBool(closePaneOnSessionEnd, Keys.closePaneOnSessionEnd) }
+    }
+
     /// Path to claude command (for auto-run in project folders)
     public var claudeCommandPath: String = Defaults.claudeCommandPath {
         didSet { preferences.setString(claudeCommandPath, Keys.claudeCommandPath) }
@@ -276,6 +281,7 @@ final public class AppSettings {
 
         // Claude command settings - auto-detect on first launch
         self.autoRunClaudeInProjects = preferences.optionalBool(Keys.autoRunClaudeInProjects) ?? Defaults.autoRunClaudeInProjects
+        self.closePaneOnSessionEnd = preferences.optionalBool(Keys.closePaneOnSessionEnd) ?? Defaults.closePaneOnSessionEnd
         if let savedPath = preferences.string(Keys.claudeCommandPath) {
             self.claudeCommandPath = savedPath
         } else {
@@ -343,6 +349,7 @@ final public class AppSettings {
         case tmuxSocket
         case autoRunClaudeInProjects
         case claudeCommandPath
+        case closePaneOnSessionEnd
         case terminalApp
         case customTerminalPath
         // Remote Access
@@ -381,6 +388,7 @@ final public class AppSettings {
         static let tmuxSocket = ""
         static let autoRunClaudeInProjects = true
         static let claudeCommandPath = "claude"
+        static let closePaneOnSessionEnd = false
         static let terminalApp = TerminalApp.terminalApp
         static let customTerminalPath = ""
         // Remote Access

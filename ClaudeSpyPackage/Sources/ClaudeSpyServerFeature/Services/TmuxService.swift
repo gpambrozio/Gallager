@@ -41,13 +41,32 @@ private func isNoServerError(_ stderr: String) -> Bool {
 @Observable
 @MainActor
 final public class TmuxService {
-    /// Environment variables set on all sessions/windows/panes created by the app.
+    /// Base environment variables set on all sessions/windows/panes created by the app.
     /// Includes Claude Code rendering config and oh-my-zsh update suppression.
-    private static let terminalEnvironmentVars = [
+    private static let baseEnvironmentVars = [
         "CLAUDE_CODE_NO_FLICKER=1",
         "DISABLE_AUTO_UPDATE=true",
         "DISABLE_UPDATE_PROMPT=true",
     ]
+
+    /// Path to the GallagerEditor CLI for the `$VISUAL` environment variable.
+    /// When set, Ctrl-G in Claude Code opens the in-app prompt editor.
+    public var editorCLIPath: String?
+
+    /// Socket path for the editor server. The CLI reads this from `$GALLAGER_EDITOR_SOCKET`.
+    public var editorSocketPath: String?
+
+    /// Full environment variables list including VISUAL when editor CLI is available.
+    private var terminalEnvironmentVars: [String] {
+        var vars = Self.baseEnvironmentVars
+        if let editorCLIPath {
+            vars.append("VISUAL=\(editorCLIPath)")
+        }
+        if let editorSocketPath {
+            vars.append("GALLAGER_EDITOR_SOCKET=\(editorSocketPath)")
+        }
+        return vars
+    }
 
     @ObservationIgnored
     @Dependency(ProcessRunner.self) private var processRunner
@@ -1130,7 +1149,7 @@ final public class TmuxService {
             flag,
             "-t", target,
             "-P", "-F", "#{pane_id}", // Print new pane ID
-        ] + Self.terminalEnvironmentVars.flatMap { ["-e", $0] })
+        ] + terminalEnvironmentVars.flatMap { ["-e", $0] })
 
         guard result.isSuccess else {
             throw TmuxError.commandFailed(message: result.stderrString)
@@ -1176,7 +1195,7 @@ final public class TmuxService {
             "new-window",
             "-t", sessionName,
             "-P", "-F", "#{pane_id}",
-        ] + Self.terminalEnvironmentVars.flatMap { ["-e", $0] }
+        ] + terminalEnvironmentVars.flatMap { ["-e", $0] }
 
         if let workingDirectory {
             args += ["-c", workingDirectory]
@@ -1218,6 +1237,23 @@ final public class TmuxService {
         }
 
         // Refresh panes to reflect the killed session
+        await refreshPanes()
+    }
+
+    /// Kills a single tmux pane by its pane ID.
+    /// If the pane is the last one in its window/session, tmux will close the window/session automatically.
+    /// - Parameter paneId: The pane ID to kill (e.g. "%0")
+    public func killPane(_ paneId: String) async throws {
+        let result = try await runTmuxCommand([
+            "kill-pane",
+            "-t", paneId,
+        ])
+
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+
+        // Refresh panes to reflect the killed pane
         await refreshPanes()
     }
 
@@ -1267,7 +1303,7 @@ final public class TmuxService {
             "-s", sessionName,
             "-x", String(width),
             "-y", String(height),
-        ] + Self.terminalEnvironmentVars.flatMap { ["-e", $0] }
+        ] + terminalEnvironmentVars.flatMap { ["-e", $0] }
 
         // Add working directory if specified
         if let workingDirectory, !workingDirectory.isEmpty {
