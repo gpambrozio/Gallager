@@ -201,7 +201,7 @@ final public class MirrorWindowManager {
     /// - Parameters:
     ///   - enabled: Whether to enable or disable yolo mode
     ///   - paneId: The pane ID to set yolo mode for
-    public func setYoloMode(enabled: Bool, for paneId: String) async {
+    public func setYoloMode(enabled: Bool, for paneId: String) {
         if paneStates[paneId] != nil {
             paneStates[paneId]?.yoloMode = enabled
         } else {
@@ -216,13 +216,15 @@ final public class MirrorWindowManager {
            body.isYoloAutoApprovable
         {
             let eventId = latestEvent.id
-            do {
-                try await Task.sleep(for: .milliseconds(500))
-                // Verify the event hasn't been superseded to avoid a double-Enter
-                guard paneStates[paneId]?.claudeSession?.latestEvent?.id == eventId else { return }
-                try await tmuxService.sendKeys(paneId, keys: "Enter")
-            } catch {
-                // If auto-approve fails, the user can still approve manually
+            Task { [tmuxService] in
+                do {
+                    try await Task.sleep(for: .milliseconds(500))
+                    // Verify the event hasn't been superseded to avoid a double-Enter
+                    guard self.paneStates[paneId]?.claudeSession?.latestEvent?.id == eventId else { return }
+                    try await tmuxService.sendKeys(paneId, keys: "Enter")
+                } catch {
+                    // If auto-approve fails, the user can still approve manually
+                }
             }
         }
     }

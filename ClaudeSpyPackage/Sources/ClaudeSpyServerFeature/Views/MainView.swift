@@ -805,8 +805,8 @@ public struct MainView: View {
         Binding(
             get: { windowManager.isYoloModeEnabled(for: paneId) },
             set: { newValue in
+                windowManager.setYoloMode(enabled: newValue, for: paneId)
                 Task {
-                    await windowManager.setYoloMode(enabled: newValue, for: paneId)
                     await coordinator.connectedViewerManager?.pushSessionStateToAll()
                 }
             }

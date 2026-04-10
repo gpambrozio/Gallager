@@ -375,7 +375,7 @@
 
                 // Handle yolo mode toggle
                 if case let .setYoloMode(spec) = command.command {
-                    await winManager.setYoloMode(enabled: spec.enabled, for: command.paneId)
+                    winManager.setYoloMode(enabled: spec.enabled, for: command.paneId)
                     await connectionManager?.pushSessionStateToAll()
                     return .success(for: command.id)
                 }
