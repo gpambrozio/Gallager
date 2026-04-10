@@ -195,7 +195,31 @@ final public class SessionStore {
             }
             logger.info("Session ended for pane: \(paneId)")
 
-        default:
+        case .preToolUse,
+             .postToolUse,
+             .postToolUseFailure,
+             .permissionRequest,
+             .permissionDenied,
+             .notification,
+             .userPromptSubmit,
+             .stop,
+             .stopFailure,
+             .subagentStart,
+             .subagentStop,
+             .teammateIdle,
+             .taskCreated,
+             .taskCompleted,
+             .preCompact,
+             .postCompact,
+             .instructionsLoaded,
+             .configChange,
+             .cwdChanged,
+             .fileChanged,
+             .elicitation,
+             .elicitationResult,
+             .worktreeCreate,
+             .worktreeRemove,
+             .unknown:
             break
         }
     }

@@ -17,6 +17,8 @@ public extension HookAction {
             .exclamationmarkTriangle
         case .permissionRequest:
             .lockFill
+        case .permissionDenied:
+            .lockTriangleBadgeExclamationmark
         case .notification:
             .bellFill
         case .userPromptSubmit:
@@ -71,6 +73,8 @@ public extension HookAction {
             .red
         case .permissionRequest:
             .orange
+        case .permissionDenied:
+            .red
         case .notification:
             .purple
         case .userPromptSubmit:

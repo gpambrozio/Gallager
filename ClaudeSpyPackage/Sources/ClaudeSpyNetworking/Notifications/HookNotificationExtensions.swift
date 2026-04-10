@@ -26,7 +26,28 @@ public extension HookEventMessage {
             body = "\(projectName): \(message)"
         case let .stopFailure(failureBody):
             body = "\(projectName): Error — \(failureBody.errorType ?? "unknown failure")"
-        default:
+        case .sessionEnd,
+             .preToolUse,
+             .postToolUse,
+             .postToolUseFailure,
+             .permissionDenied,
+             .userPromptSubmit,
+             .subagentStart,
+             .subagentStop,
+             .teammateIdle,
+             .taskCreated,
+             .taskCompleted,
+             .preCompact,
+             .postCompact,
+             .instructionsLoaded,
+             .configChange,
+             .cwdChanged,
+             .fileChanged,
+             .elicitation,
+             .elicitationResult,
+             .worktreeCreate,
+             .worktreeRemove,
+             .unknown:
             return nil
         }
         return (title: event.action.title, body: body)

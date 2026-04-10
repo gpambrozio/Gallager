@@ -116,7 +116,28 @@ public struct ClaudeSession: Codable, Sendable {
              .stopFailure,
              .elicitation:
             handledUpToEventId = latest.id
-        default:
+        case .sessionEnd,
+             .preToolUse,
+             .postToolUse,
+             .postToolUseFailure,
+             .permissionRequest,
+             .permissionDenied,
+             .userPromptSubmit,
+             .subagentStart,
+             .subagentStop,
+             .teammateIdle,
+             .taskCreated,
+             .taskCompleted,
+             .preCompact,
+             .postCompact,
+             .instructionsLoaded,
+             .configChange,
+             .cwdChanged,
+             .fileChanged,
+             .elicitationResult,
+             .worktreeCreate,
+             .worktreeRemove,
+             .unknown:
             break
         }
     }
@@ -153,6 +174,7 @@ public struct HookEvent: Identifiable, Codable, Sendable, Equatable {
         case .userPromptSubmit,
              .preToolUse,
              .permissionRequest,
+             .permissionDenied,
              .postToolUse,
              .postToolUseFailure,
              .subagentStart,
@@ -407,6 +429,69 @@ public struct PermissionRequestBody: HookBodyProtocol {
         self.toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
         self.permissionSuggestions = try container.decodeIfPresent([PermissionSuggestion].self, forKey: .permissionSuggestions)
         self.timestamp = try container.decodeIfPresent(String.self, forKey: .timestamp)
+
+        if container.contains(.toolInput) {
+            self.toolInput = try ClaudeCodeTool.decode(
+                from: container.superDecoder(forKey: .toolInput),
+                toolName: toolName
+            )
+        } else {
+            self.toolInput = nil
+        }
+    }
+}
+
+public struct PermissionDeniedBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public let toolName: String?
+    public let toolInput: ClaudeCodeTool?
+    public let reason: String?
+    public var shouldSendToServer: Bool { true }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+        case toolName = "tool_name"
+        case toolInput = "tool_input"
+        case reason
+    }
+
+    public init(
+        sessionId: String,
+        transcriptPath: String? = nil,
+        cwd: String? = nil,
+        hookEventName: String,
+        timestamp: String? = nil,
+        toolName: String? = nil,
+        toolInput: ClaudeCodeTool? = nil,
+        reason: String? = nil
+    ) {
+        self.sessionId = sessionId
+        self.transcriptPath = transcriptPath
+        self.cwd = cwd
+        self.hookEventName = hookEventName
+        self.timestamp = timestamp
+        self.toolName = toolName
+        self.toolInput = toolInput
+        self.reason = reason
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.sessionId = try container.decode(String.self, forKey: .sessionId)
+        self.transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
+        self.cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
+        self.hookEventName = try container.decode(String.self, forKey: .hookEventName)
+        self.timestamp = try container.decodeIfPresent(String.self, forKey: .timestamp)
+        self.toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
+        self.reason = try container.decodeIfPresent(String.self, forKey: .reason)
 
         if container.contains(.toolInput) {
             self.toolInput = try ClaudeCodeTool.decode(
@@ -1106,6 +1191,7 @@ public enum HookAction: Codable, Sendable {
     case postToolUseFailure(PostToolUseFailureBody)
     case sessionEnd(SessionEndBody)
     case permissionRequest(PermissionRequestBody)
+    case permissionDenied(PermissionDeniedBody)
     case notification(NotificationBody)
     case userPromptSubmit(UserPromptSubmitBody)
     case stop(StopBody)
@@ -1139,6 +1225,7 @@ public enum HookAction: Codable, Sendable {
         case postToolUseFailure
         case sessionEnd
         case permissionRequest
+        case permissionDenied
         case notification
         case userPromptSubmit
         case stop
@@ -1184,6 +1271,9 @@ public enum HookAction: Codable, Sendable {
         case .permissionRequest:
             let body = try container.decode(PermissionRequestBody.self, forKey: .body)
             self = .permissionRequest(body)
+        case .permissionDenied:
+            let body = try container.decode(PermissionDeniedBody.self, forKey: .body)
+            self = .permissionDenied(body)
         case .notification:
             let body = try container.decode(NotificationBody.self, forKey: .body)
             self = .notification(body)
@@ -1269,6 +1359,9 @@ public enum HookAction: Codable, Sendable {
         case let .permissionRequest(body):
             try container.encode(ActionType.permissionRequest, forKey: .type)
             try container.encode(body, forKey: .body)
+        case let .permissionDenied(body):
+            try container.encode(ActionType.permissionDenied, forKey: .type)
+            try container.encode(body, forKey: .body)
         case let .notification(body):
             try container.encode(ActionType.notification, forKey: .type)
             try container.encode(body, forKey: .body)
@@ -1341,6 +1434,7 @@ public enum HookAction: Codable, Sendable {
         case let .postToolUseFailure(body): body
         case let .sessionEnd(body): body
         case let .permissionRequest(body): body
+        case let .permissionDenied(body): body
         case let .notification(body): body
         case let .userPromptSubmit(body): body
         case let .stop(body): body
@@ -1397,6 +1491,8 @@ public enum HookAction: Codable, Sendable {
             "Failed: \(body.toolName ?? "Tool")"
         case let .permissionRequest(body):
             "Permission: \(body.toolName ?? "Request")"
+        case let .permissionDenied(body):
+            "Denied: \(body.toolName ?? "Tool")"
         case let .notification(body):
             body.notificationType ?? "Notification"
         case .userPromptSubmit:
@@ -1455,6 +1551,8 @@ public enum HookAction: Codable, Sendable {
             body.error ?? body.toolInput?.summary
         case let .permissionRequest(body):
             body.permissionMode
+        case let .permissionDenied(body):
+            body.reason ?? body.toolInput?.summary
         case let .notification(body):
             body.message
         case let .userPromptSubmit(body):
@@ -1523,6 +1621,9 @@ public enum HookAction: Codable, Sendable {
         case "PermissionRequest":
             let body = try decoder.decode(PermissionRequestBody.self, from: jsonData)
             return .permissionRequest(body)
+        case "PermissionDenied":
+            let body = try decoder.decode(PermissionDeniedBody.self, from: jsonData)
+            return .permissionDenied(body)
         case "Notification":
             let body = try decoder.decode(NotificationBody.self, from: jsonData)
             return .notification(body)
