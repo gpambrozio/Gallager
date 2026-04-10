@@ -68,6 +68,29 @@ struct RemoteWindowPaneLayoutView: View {
                             .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
                     }
                 }
+                .overlay {
+                    if let editorInfo = pane.paneState.editorSession {
+                        PromptEditorOverlay(
+                            originalContent: editorInfo.content,
+                            onSubmit: { content in
+                                Task {
+                                    _ = await connection.sendCommand(
+                                        SubmitEditorContent(content: content),
+                                        paneId: pane.paneState.paneId
+                                    )
+                                }
+                            },
+                            onCancel: {
+                                Task {
+                                    _ = await connection.sendCommand(
+                                        CancelEditorSession(),
+                                        paneId: pane.paneState.paneId
+                                    )
+                                }
+                            }
+                        )
+                    }
+                }
                 .id(pane.id)
             }
         }
@@ -119,6 +142,29 @@ struct RemoteWindowPaneLayoutView: View {
             settings: settings,
             showStatusBar: false
         )
+        .overlay {
+            if let editorInfo = pane.editorSession {
+                PromptEditorOverlay(
+                    originalContent: editorInfo.content,
+                    onSubmit: { content in
+                        Task {
+                            _ = await connection.sendCommand(
+                                SubmitEditorContent(content: content),
+                                paneId: pane.paneId
+                            )
+                        }
+                    },
+                    onCancel: {
+                        Task {
+                            _ = await connection.sendCommand(
+                                CancelEditorSession(),
+                                paneId: pane.paneId
+                            )
+                        }
+                    }
+                )
+            }
+        }
     }
 
     // MARK: - Status Bar

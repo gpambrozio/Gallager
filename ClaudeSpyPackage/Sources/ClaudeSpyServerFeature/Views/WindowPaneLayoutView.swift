@@ -140,6 +140,9 @@ struct WindowPaneLayoutView: View {
                         .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
                 }
             }
+            .overlay {
+                PaneEditorOverlay(paneId: paneState.paneId)
+            }
             .overlay(alignment: .topTrailing) {
                 PaneSplitButtons(paneTarget: paneInfo.paneId)
                     .opacity(isHovering ? 1 : 0)
