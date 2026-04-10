@@ -133,7 +133,7 @@ final public class MirrorWindowManager {
             paneStates[paneId]?.yoloMode = false
 
             // Close the pane when Claude exits normally (user quit at prompt)
-            if settings.closePaneOnSessionEnd && body.reason == "prompt_input_exit" {
+            if settings.closePaneOnSessionEnd && body.reason == .promptInputExit {
                 closePaneWhenClaudeExits(paneId: paneId)
             }
 
