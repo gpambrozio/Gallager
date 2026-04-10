@@ -107,6 +107,10 @@ let package = Package(
             name: "ClaudeSpyE2E",
             targets: ["ClaudeSpyE2E"]
         ),
+        .executable(
+            name: "GallagerEditor",
+            targets: ["GallagerEditor"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/nicklockwood/SwiftFormat", from: "0.53.0"),
@@ -222,6 +226,11 @@ let package = Package(
                 .claudeSpyE2ELib,
                 .argumentParser,
             ]
+        ),
+        // CLI wrapper for Claude Code's Ctrl-G external editor feature.
+        // Bundled inside the app and invoked via the VISUAL environment variable.
+        .executableTarget(
+            name: "GallagerEditor"
         ),
         .testTarget(
             name: "ClaudeSpyNetworkingTests",

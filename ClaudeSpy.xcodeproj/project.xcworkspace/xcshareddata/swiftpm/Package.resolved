@@ -1,5 +1,5 @@
 {
-  "originHash" : "d6ef7cbe5ddc6f1ebea26e3bb184dcbfe8165cd101bcc9c6a3b4768980391ac0",
+  "originHash" : "cd6998cefb2907e3a31dba1bcedbd48dd88d89eedfb594b054e43704433d450c",
   "pins" : [
     {
       "identity" : "apns",
@@ -71,6 +71,15 @@
       "state" : {
         "revision" : "3498e60218e6003894ff95192d756e238c01f44e",
         "version" : "4.7.1"
+      }
+    },
+    {
+      "identity" : "projectnavigator",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mchakravarty/ProjectNavigator",
+      "state" : {
+        "revision" : "c62003c4c79e92b8dea9efb8d08c55db1a2e9cce",
+        "version" : "1.7.0"
       }
     },
     {
@@ -350,6 +359,24 @@
       "state" : {
         "revision" : "8e7a1e154f470e19c709a00a8768df348ba5fc43",
         "version" : "1.13.0"
+      }
+    },
+    {
+      "identity" : "swiftui-math",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/gonzalezreal/swiftui-math",
+      "state" : {
+        "revision" : "0b5c2cfaaec8d6193db206f675048eeb5ce95f71",
+        "version" : "0.1.0"
+      }
+    },
+    {
+      "identity" : "textual",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/gonzalezreal/textual",
+      "state" : {
+        "revision" : "5b06b811c0f5313b6b84bbef98c635a630638c38",
+        "version" : "0.3.1"
       }
     },
     {

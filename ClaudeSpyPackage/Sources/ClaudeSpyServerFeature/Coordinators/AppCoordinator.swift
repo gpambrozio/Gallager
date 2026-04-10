@@ -68,8 +68,12 @@
         /// Plugin service for Claude Code plugin management
         public let pluginService: PluginService
 
+        /// Editor session manager for Ctrl-G prompt editing
+        public let editorSessionManager: EditorSessionManager
+
         // MARK: - Private Services
 
+        private let editorSocketServer: EditorSocketServer
         private var commandExecutor: TmuxCommandExecutor?
         private var isServiceSetupComplete = false
 
@@ -124,18 +128,25 @@
                 controlClientManager: controlClientManager
             )
 
-            // Create window manager
-            self.windowManager = MirrorWindowManager(
-                settings: settings,
-                tmuxService: tmuxService,
-                paneStreamManager: paneStreamManager
-            )
-
             // Create terminal stream service
             self.terminalStreamService = TerminalStreamService()
 
             // Create plugin service
             self.pluginService = PluginService()
+
+            // Create editor socket server and session manager (server is started later in setupAllServices)
+            let server = EditorSocketServer()
+            self.editorSocketServer = server
+            let editorManager = EditorSessionManager(socketServer: server)
+            self.editorSessionManager = editorManager
+
+            // Create window manager with editor session manager
+            self.windowManager = MirrorWindowManager(
+                settings: settings,
+                tmuxService: tmuxService,
+                paneStreamManager: paneStreamManager,
+                editorSessionManager: editorManager
+            )
 
             // CRITICAL: Load E2EEService synchronously from Keychain BEFORE any view rendering.
             // This prevents createPairingManager() from generating temporary keys.
@@ -206,6 +217,7 @@
 
             await initializeServices()
             await hookServer.startServer()
+            await setupEditorSocketServer()
             await setupConnectedViewerManager()
             await setupViewerConnectionManager()
             await autoConnectIfConfigured()
@@ -224,6 +236,39 @@
         }
 
         // MARK: - Private Setup Methods
+
+        /// Starts the editor socket server and configures the VISUAL env var on TmuxService.
+        private func setupEditorSocketServer() async {
+            let manager = editorSessionManager
+
+            // When editor sessions change, push updated state to viewers
+            manager.onSessionChanged = { [weak self] in
+                await self?.connectedViewerManager?.pushSessionStateToAll()
+            }
+
+            // When a CLI connects, create an editor session
+            let server = editorSocketServer
+            await server.setOnEditRequest { [weak manager] (request: EditorRequest) in
+                manager?.handleEditRequest(request)
+            }
+
+            do {
+                try await server.start()
+            } catch {
+                logger.error("Failed to start editor socket server: \(error)")
+                return
+            }
+
+            // Set the VISUAL env var on TmuxService so new sessions use our editor CLI.
+            // The CLI is expected to be in the app bundle's MacOS directory.
+            if let editorURL = Bundle.main.url(forAuxiliaryExecutable: "GallagerEditor") {
+                tmuxService.editorCLIPath = editorURL.path
+                tmuxService.editorSocketPath = await editorSocketServer.socketPath
+                logger.info("Editor CLI path: \(editorURL.path)")
+            } else {
+                logger.warning("GallagerEditor CLI not found in app bundle")
+            }
+        }
 
         private func initializeServices() async {
             // Create E2EEService if not already created
@@ -350,7 +395,8 @@
             let streamService = terminalStreamService
             let tmux = tmuxService
             let appSettings = settings
-            connectionManager.onCommand = { [executor, streamService, tmux, appSettings, winManager, weak connectionManager] command in
+            let editorManager = editorSessionManager
+            connectionManager.onCommand = { [executor, streamService, tmux, appSettings, winManager, editorManager, weak connectionManager] command in
                 // Handle stream commands
                 if case .startTerminalStream = command.command {
                     return await Self.handleStartStream(
@@ -441,20 +487,39 @@
                     )
                 }
 
+                // Handle remote editor submit
+                if case let .submitEditorContent(spec) = command.command {
+                    editorManager.handleRemoteSubmit(paneId: command.paneId, content: spec.content)
+                    return .success(for: command.id)
+                }
+
+                // Handle remote editor cancel
+                if case .cancelEditorSession = command.command {
+                    editorManager.handleRemoteCancel(paneId: command.paneId)
+                    return .success(for: command.id)
+                }
+
                 // Regular commands execute on the actor executor
                 return await executor.execute(command)
             }
 
             // Set up session state handler
             let scanner = projectScanner
-            connectionManager.onSessionStateRequest = { [weak windowManager, tmuxService, scanner] in
+            connectionManager.onSessionStateRequest = { [weak windowManager, tmuxService, scanner, editorManager] in
                 guard let windowManager else {
                     return SessionStateMessage(pairId: "", paneStates: [:])
                 }
                 // Refresh panes to ensure metadata is current
                 let allPanes = await tmuxService.refreshPanes()
                 await windowManager.updatePaneStates(from: allPanes)
-                let paneStates = await windowManager.paneStates
+                var paneStates = await windowManager.paneStates
+
+                // Inject active editor sessions into pane states
+                for (paneId, var state) in paneStates {
+                    state.editorSession = await editorManager.editorSessionInfo(for: paneId)
+                    paneStates[paneId] = state
+                }
+
                 let claudeProjects = await scanner.scanProjects()
 
                 // Note: pairId in SessionStateMessage is per-connection, will be set by individual connections

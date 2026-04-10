@@ -36,6 +36,9 @@ struct MirrorWindowView: View {
                 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay {
+                PaneEditorOverlay(paneId: paneState.paneId)
+            }
 
             if settings.showStatusBar {
                 statusBar
