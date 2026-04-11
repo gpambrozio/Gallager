@@ -449,7 +449,7 @@ public struct PermissionDeniedBody: HookBodyProtocol {
     public let timestamp: String?
     public let toolName: String?
     public let toolInput: ClaudeCodeTool?
-    public let reason: String?
+    public let reason: String
     public var shouldSendToServer: Bool { true }
 
     enum CodingKeys: String, CodingKey {
@@ -471,7 +471,7 @@ public struct PermissionDeniedBody: HookBodyProtocol {
         timestamp: String? = nil,
         toolName: String? = nil,
         toolInput: ClaudeCodeTool? = nil,
-        reason: String? = nil
+        reason: String
     ) {
         self.sessionId = sessionId
         self.transcriptPath = transcriptPath
@@ -491,7 +491,7 @@ public struct PermissionDeniedBody: HookBodyProtocol {
         self.hookEventName = try container.decode(String.self, forKey: .hookEventName)
         self.timestamp = try container.decodeIfPresent(String.self, forKey: .timestamp)
         self.toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
-        self.reason = try container.decodeIfPresent(String.self, forKey: .reason)
+        self.reason = try container.decode(String.self, forKey: .reason)
 
         if container.contains(.toolInput) {
             self.toolInput = try ClaudeCodeTool.decode(
@@ -1552,7 +1552,7 @@ public enum HookAction: Codable, Sendable {
         case let .permissionRequest(body):
             body.permissionMode
         case let .permissionDenied(body):
-            body.reason ?? body.toolInput?.summary
+            body.reason
         case let .notification(body):
             body.message
         case let .userPromptSubmit(body):
