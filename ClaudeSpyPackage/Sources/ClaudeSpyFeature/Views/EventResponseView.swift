@@ -60,7 +60,30 @@ extension HookEvent {
                 sendCommand: sendCommand,
                 state: state
             ))
-        default:
+        case .sessionEnd,
+             .preToolUse,
+             .postToolUse,
+             .postToolUseFailure,
+             .permissionDenied,
+             .notification,
+             .userPromptSubmit,
+             .stopFailure,
+             .subagentStart,
+             .subagentStop,
+             .teammateIdle,
+             .taskCreated,
+             .taskCompleted,
+             .preCompact,
+             .postCompact,
+             .instructionsLoaded,
+             .configChange,
+             .cwdChanged,
+             .fileChanged,
+             .elicitation,
+             .elicitationResult,
+             .worktreeCreate,
+             .worktreeRemove,
+             .unknown:
             return nil
         }
     }

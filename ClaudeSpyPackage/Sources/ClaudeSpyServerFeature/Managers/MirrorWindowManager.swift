@@ -159,7 +159,31 @@ final public class MirrorWindowManager {
                 // If auto-approve fails, fall through to normal flow
             }
 
-        default:
+        case .permissionRequest,
+             .preToolUse,
+             .postToolUse,
+             .postToolUseFailure,
+             .permissionDenied,
+             .notification,
+             .userPromptSubmit,
+             .stop,
+             .stopFailure,
+             .subagentStart,
+             .subagentStop,
+             .teammateIdle,
+             .taskCreated,
+             .taskCompleted,
+             .preCompact,
+             .postCompact,
+             .instructionsLoaded,
+             .configChange,
+             .cwdChanged,
+             .fileChanged,
+             .elicitation,
+             .elicitationResult,
+             .worktreeCreate,
+             .worktreeRemove,
+             .unknown:
             updateSession(paneId: paneId) { $0.addEvent(event) }
         }
     }
