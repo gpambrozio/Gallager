@@ -282,7 +282,6 @@ struct TerminalContainerView: NSViewRepresentable {
             }
 
             do {
-                let paneId = paneState.paneId
                 let target = paneState.target
                 // Note: onTitleChange is intentionally omitted here. Title changes are detected
                 // locally by SwiftTerm's delegate (terminalView.onTitleChange) and then reported
