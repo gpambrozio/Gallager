@@ -129,7 +129,7 @@ final public class TerminalStreamService {
             await connectionManager.sendTerminalStreamToAll(initialMessage)
 
             // Send current terminal title so the new viewer gets it immediately
-            if let title = await paneStreamManager.terminalTitle(for: paneId) {
+            if let title = paneStreamManager.terminalTitle(for: paneId) {
                 let titleMessage = TerminalStreamMessage.titleChange(paneId: paneId, title: title)
                 await connectionManager.sendTerminalStreamToAll(titleMessage)
             }

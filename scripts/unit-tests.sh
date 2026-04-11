@@ -64,7 +64,14 @@ echo "${_CYAN}${_BOLD}>>> Running unit tests${_RESET}"
 echo ""
 
 cd "$PACKAGE_DIR"
-swift test --parallel "$@"
+# Override the deployment target used by swiftc when building the SPM
+# test bundle. Without this, SPM links the test bundle with macOS 11.0 as its
+# minimum deployment target (the swiftc default for the host), which produces
+# linker warnings against swift-testing and XCTestSwiftSupport built for 14.0+.
+HOST_ARCH="$(uname -m)"
+swift test --parallel \
+    -Xswiftc -target -Xswiftc "${HOST_ARCH}-apple-macos15.0" \
+    "$@"
 EXIT_CODE=$?
 
 echo ""
