@@ -389,7 +389,7 @@ public extension FileSystemLoadingService {
                             return was
                         }
                         if !wasAlreadyActive {
-                            dirContinuation.withLock { continuation -> Void in
+                            dirContinuation.withLock { continuation in
                                 continuation?.yield()
                             }
                         }
