@@ -338,13 +338,28 @@ public struct PreToolUseBody: HookBodyProtocol {
     }
 }
 
+public enum SessionEndReason: String, Codable, Sendable {
+    case clear
+    case resume
+    case logout
+    case promptInputExit = "prompt_input_exit"
+    case bypassPermissionsDisabled = "bypass_permissions_disabled"
+    case other
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        self = SessionEndReason(rawValue: rawValue) ?? .other
+    }
+}
+
 public struct SessionEndBody: HookBodyProtocol {
     public let sessionId: String
     public let transcriptPath: String?
     public let cwd: String?
     public let hookEventName: String
     public let timestamp: String?
-    public let reason: String?
+    public let reason: SessionEndReason?
     public var shouldSendToServer: Bool { true }
 
     enum CodingKeys: String, CodingKey {
@@ -362,7 +377,7 @@ public struct SessionEndBody: HookBodyProtocol {
         cwd: String? = nil,
         hookEventName: String,
         timestamp: String? = nil,
-        reason: String? = nil
+        reason: SessionEndReason? = nil
     ) {
         self.sessionId = sessionId
         self.transcriptPath = transcriptPath
