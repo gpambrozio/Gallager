@@ -33,6 +33,10 @@ final class FileBrowserState {
     private(set) var reverseIds: [UUID: String] = [:]
     /// Folder paths whose children have been loaded.
     var loadedFolderPaths: Set<String> = []
+    /// All files under the directory, cached for search.
+    var allFiles: [FileSearchResult] = []
+    /// The directory path for which `allFiles` was loaded.
+    var allFilesDirectoryPath: String?
 }
 
 /// A draggable vertical divider for resizing adjacent views.
@@ -90,18 +94,31 @@ struct FileBrowserView: View {
 
     @Dependency(FileSystemLoadingService.self) private var fileSystemService
 
+    @State private var searchQuery = ""
+    @State private var selectedSearchPath: String?
+
     var body: some View {
         if let viewState = state.viewState {
             fileBrowserContent(viewState: viewState)
                 .task(id: directoryPath) {
-                    guard state.loadedPath != directoryPath else { return }
-                    await loadTree()
+                    if state.loadedPath != directoryPath {
+                        await loadTree()
+                    }
+                    if state.allFilesDirectoryPath != directoryPath {
+                        state.allFiles = await fileSystemService.collectAllFiles(
+                            URL(fileURLWithPath: directoryPath)
+                        )
+                        state.allFilesDirectoryPath = directoryPath
+                    }
                 }
                 .task(id: state.loadedFolderPaths) {
                     var watchedPaths = state.loadedFolderPaths
                     watchedPaths.insert(directoryPath)
                     for await _ in fileSystemService.directoryChanges(watchedPaths) {
                         await loadTree()
+                        state.allFiles = await fileSystemService.collectAllFiles(
+                            URL(fileURLWithPath: directoryPath)
+                        )
                     }
                 }
                 .onChange(of: viewState.expansions) {
@@ -112,6 +129,10 @@ struct FileBrowserView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .task(id: directoryPath) {
                     await loadTree()
+                    state.allFiles = await fileSystemService.collectAllFiles(
+                        URL(fileURLWithPath: directoryPath)
+                    )
+                    state.allFilesDirectoryPath = directoryPath
                 }
         }
     }
@@ -162,6 +183,109 @@ struct FileBrowserView: View {
         }
     }
 
+    // MARK: - File Search
+
+    @ViewBuilder
+    private var fileSearchField: some View {
+        HStack(spacing: 6) {
+            Symbols.magnifyingglass.image
+                .foregroundStyle(.secondary)
+                .font(.caption)
+
+            TextField("Search files...", text: $searchQuery)
+                .textFieldStyle(.plain)
+                .font(.callout)
+                .accessibilityLabel("Search files")
+
+            if !searchQuery.isEmpty {
+                Button {
+                    searchQuery = ""
+                    selectedSearchPath = nil
+                } label: {
+                    Symbols.xmarkCircleFill.image
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+    }
+
+    private var filteredSearchResults: [FileSearchResult] {
+        guard !searchQuery.isEmpty else { return [] }
+        let query = searchQuery
+
+        return Array(
+            state.allFiles
+                .compactMap { result -> (FileSearchResult, Int)? in
+                    guard result.relativePath.fuzzyMatches(query) else { return nil }
+                    return (result, fileSearchScore(for: result, query: query))
+                }
+                .sorted { lhs, rhs in
+                    if lhs.1 != rhs.1 { return lhs.1 > rhs.1 }
+                    return lhs.0.relativePath.count < rhs.0.relativePath.count
+                }
+                .prefix(100)
+                .map(\.0)
+        )
+    }
+
+    private func fileSearchScore(for result: FileSearchResult, query: String) -> Int {
+        let name = result.name.lowercased()
+        let q = query.lowercased()
+        if name == q { return 4 }
+        if name.hasPrefix(q) { return 3 }
+        if name.contains(q) { return 2 }
+        if name.fuzzyMatches(q) { return 1 }
+        return 0
+    }
+
+    @ViewBuilder
+    private var fileSearchResultsList: some View {
+        let results = filteredSearchResults
+        if results.isEmpty {
+            ContentUnavailableView.search(text: searchQuery)
+        } else {
+            List(selection: $selectedSearchPath) {
+                ForEach(results) { result in
+                    searchResultRow(result)
+                        .tag(result.fullPath)
+                }
+            }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+        }
+    }
+
+    @ViewBuilder
+    private func searchResultRow(_ result: FileSearchResult) -> some View {
+        let directory = (result.relativePath as NSString).deletingLastPathComponent
+
+        VStack(alignment: .leading, spacing: 2) {
+            Label {
+                Text(result.name)
+                    .font(.callout)
+                    .lineLimit(1)
+            } icon: {
+                Symbols.docPlaintextFill.image
+                    .foregroundStyle(.secondary)
+            }
+
+            if !directory.isEmpty {
+                Text(directory)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .padding(.leading, 24)
+            }
+        }
+    }
+
+    // MARK: - File Browser Content
+
     @ViewBuilder
     private func fileBrowserContent(
         viewState: FileNavigatorViewState<TextFileContents>
@@ -170,45 +294,54 @@ struct FileBrowserView: View {
         let directoryName = URL(fileURLWithPath: directoryPath).lastPathComponent
 
         HStack(spacing: 0) {
-            List(selection: $bindableState.selection) {
-                FileNavigator(
-                    name: directoryName,
-                    item: .constant(viewState.fileTree.root),
-                    parent: .constant(nil),
-                    viewState: viewState,
-                    fileLabel: { cursor, _, proxy in
-                        Label {
-                            Text(cursor.name)
-                                .font(.callout)
-                        } icon: {
-                            Symbols.docPlaintextFill.image
-                                .foregroundStyle(.secondary)
-                        }
-                        .fileTreeContextMenu(
-                            itemId: proxy.id,
-                            directoryPath: directoryPath,
-                            reverseIds: state.reverseIds
+            VStack(spacing: 0) {
+                fileSearchField
+                Divider()
+
+                if searchQuery.isEmpty {
+                    List(selection: $bindableState.selection) {
+                        FileNavigator(
+                            name: directoryName,
+                            item: .constant(viewState.fileTree.root),
+                            parent: .constant(nil),
+                            viewState: viewState,
+                            fileLabel: { cursor, _, proxy in
+                                Label {
+                                    Text(cursor.name)
+                                        .font(.callout)
+                                } icon: {
+                                    Symbols.docPlaintextFill.image
+                                        .foregroundStyle(.secondary)
+                                }
+                                .fileTreeContextMenu(
+                                    itemId: proxy.id,
+                                    directoryPath: directoryPath,
+                                    reverseIds: state.reverseIds
+                                )
+                            },
+                            folderLabel: { cursor, _, folder in
+                                Label {
+                                    Text(cursor.name)
+                                        .font(.callout)
+                                } icon: {
+                                    Symbols.folderFill.image
+                                        .foregroundStyle(.blue)
+                                }
+                                .fileTreeContextMenu(
+                                    itemId: folder.wrappedValue.id,
+                                    directoryPath: directoryPath,
+                                    reverseIds: state.reverseIds
+                                )
+                            }
                         )
-                    },
-                    folderLabel: { cursor, _, folder in
-                        Label {
-                            Text(cursor.name)
-                                .font(.callout)
-                        } icon: {
-                            Symbols.folderFill.image
-                                .foregroundStyle(.blue)
-                        }
-                        .fileTreeContextMenu(
-                            itemId: folder.wrappedValue.id,
-                            directoryPath: directoryPath,
-                            reverseIds: state.reverseIds
-                        )
+                        .navigatorFilter { !skippedNavigatorEntries.contains($0) }
                     }
-                )
-                .navigatorFilter { !skippedNavigatorEntries.contains($0) }
+                    .listStyle(.sidebar)
+                    .scrollContentBackground(.hidden)
+                } else {
+                    fileSearchResultsList
+                }
             }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
             .frame(width: state.sidebarWidth)
 
             ResizableDivider(dimension: $state.sidebarWidth, minDimension: 150, maxDimension: 400)
@@ -216,13 +349,38 @@ struct FileBrowserView: View {
             fileDetailView(viewState: viewState)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .onChange(of: searchQuery) {
+            selectedSearchPath = nil
+        }
     }
 
     @ViewBuilder
     private func fileDetailView(
         viewState: FileNavigatorViewState<TextFileContents>
     ) -> some View {
-        if
+        if !searchQuery.isEmpty {
+            if let path = selectedSearchPath {
+                let relativePath = path.hasPrefix(directoryPath + "/")
+                    ? String(path.dropFirst(directoryPath.count + 1))
+                    : URL(fileURLWithPath: path).lastPathComponent
+                let directoryName = URL(fileURLWithPath: directoryPath).lastPathComponent
+
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(directoryName + "/" + relativePath)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .padding(8)
+                    Divider()
+                    LiveFileContentView(filePath: path)
+                }
+            } else {
+                ContentUnavailableView(
+                    "Search for Files",
+                    symbol: .magnifyingglass,
+                    description: "Type a file name to search, then select a result to view."
+                )
+            }
+        } else if
             let uuid = viewState.selection,
             viewState.fileTree.proxy(for: uuid).file != nil {
             let filePath = viewState.fileTree.filePath(of: uuid)

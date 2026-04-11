@@ -51,6 +51,22 @@ public struct FileTreeLoadResult: Sendable {
     }
 }
 
+// MARK: - File Search Result
+
+/// A file found during a directory search, with its path information.
+public struct FileSearchResult: Sendable, Identifiable, Equatable {
+    public var id: String { fullPath }
+    public let fullPath: String
+    public let relativePath: String
+    public let name: String
+
+    public init(fullPath: String, relativePath: String, name: String) {
+        self.fullPath = fullPath
+        self.relativePath = relativePath
+        self.name = name
+    }
+}
+
 // MARK: - Dependency Client
 
 /// Service for all file system operations used by the file browser.
@@ -92,6 +108,9 @@ public struct FileSystemLoadingService: Sendable {
     public var fileChanges: @Sendable (_ path: String) -> AsyncStream<Void> = { _ in
         AsyncStream { $0.finish() }
     }
+
+    /// Recursively collects all file paths under a directory for search.
+    public var collectAllFiles: @Sendable (_ rootURL: URL) async -> [FileSearchResult] = { _ in [] }
 }
 
 // MARK: - DependencyKey
@@ -203,6 +222,13 @@ extension FileSystemLoadingService: DependencyKey {
 
                     source.resume()
                 }
+            },
+            collectAllFiles: { url in
+                await Task.detached {
+                    var results: [FileSearchResult] = []
+                    collectFilesRecursively(at: url, rootPath: url.path, results: &results)
+                    return results
+                }.value
             }
         )
     }
@@ -430,6 +456,32 @@ public extension FileSystemLoadingService {
             },
             fileChanges: { _ in
                 AsyncStream { $0.finish() }
+            },
+            collectAllFiles: { url in
+                let rootPath = url.path
+                var results: [FileSearchResult] = []
+                let effectiveTree: [String: FakeEntry]
+                if dynamicActivated.withLock({ $0 }) {
+                    effectiveTree = tree.merging(dynamicEntries) { _, new in new }
+                } else {
+                    effectiveTree = tree
+                }
+                func collect(_ entries: [String: FakeEntry], prefix: String) {
+                    for (name, entry) in entries.sorted(by: { $0.key < $1.key }) {
+                        let relativePath = prefix.isEmpty ? name : prefix + "/" + name
+                        switch entry {
+                        case .file:
+                            let fullPath = rootPath + "/" + relativePath
+                            results.append(FileSearchResult(
+                                fullPath: fullPath, relativePath: relativePath, name: name
+                            ))
+                        case let .folder(children):
+                            collect(children, prefix: relativePath)
+                        }
+                    }
+                }
+                collect(effectiveTree, prefix: "")
+                return results
             }
         )
     }
@@ -442,6 +494,49 @@ private let skippedEntries: Set<String> = [
     ".DS_Store", ".Trash", ".Spotlight-V100", ".fseventsd",
     ".TemporaryItems", ".DocumentRevisions-V100",
 ]
+
+/// Large or irrelevant directories to skip during file search.
+private let skippedSearchDirectories: Set<String> = [
+    ".git", "node_modules", ".build", "DerivedData",
+    "__pycache__", ".venv", "venv",
+    "Pods", ".svn", ".hg",
+]
+
+/// Recursively collects all file paths in a directory for search.
+private func collectFilesRecursively(
+    at url: URL,
+    rootPath: String,
+    results: inout [FileSearchResult]
+) {
+    guard !Task.isCancelled else { return }
+
+    let fm = FileManager.default
+    guard
+        let items = try? fm.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: []
+        )
+    else { return }
+
+    let prefix = rootPath + "/"
+    for item in items {
+        let name = item.lastPathComponent
+        if skippedEntries.contains(name) { continue }
+
+        let isDirectory = (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+        if isDirectory {
+            if skippedSearchDirectories.contains(name) { continue }
+            collectFilesRecursively(at: item, rootPath: rootPath, results: &results)
+        } else {
+            let fullPath = item.path
+            let relativePath = fullPath.hasPrefix(prefix)
+                ? String(fullPath.dropFirst(prefix.count))
+                : name
+            results.append(FileSearchResult(fullPath: fullPath, relativePath: relativePath, name: name))
+        }
+    }
+}
 
 // FullFileOrFolder contains File which wraps FileWrapper (not Sendable).
 // Safe here because we only transfer the tree once from Task.detached back to MainActor,
