@@ -1,6 +1,6 @@
 {
   "name": "gallager",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Gallager allows you to interact with local claude sessions.",
   "author": {
     "name": "Gustavo Ambrozio",
