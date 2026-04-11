@@ -96,6 +96,8 @@ struct FileBrowserView: View {
 
     @State private var searchQuery = ""
     @State private var selectedSearchPath: String?
+    @State private var loadTreeTask: Task<Void, Never>?
+    @State private var cachedSearchResults: [FileSearchResult] = []
 
     var body: some View {
         if let viewState = state.viewState {
@@ -105,10 +107,13 @@ struct FileBrowserView: View {
                         await loadTree()
                     }
                     if state.allFilesDirectoryPath != directoryPath {
-                        state.allFiles = await fileSystemService.collectAllFiles(
-                            URL(fileURLWithPath: directoryPath)
-                        )
+                        state.allFiles = []
                         state.allFilesDirectoryPath = directoryPath
+                        for await batch in fileSystemService.collectAllFiles(
+                            URL(fileURLWithPath: directoryPath)
+                        ) {
+                            state.allFiles.append(contentsOf: batch)
+                        }
                     }
                 }
                 .task(id: state.loadedFolderPaths) {
@@ -116,9 +121,13 @@ struct FileBrowserView: View {
                     watchedPaths.insert(directoryPath)
                     for await _ in fileSystemService.directoryChanges(watchedPaths) {
                         await loadTree()
-                        state.allFiles = await fileSystemService.collectAllFiles(
+                        var refreshed: [FileSearchResult] = []
+                        for await batch in fileSystemService.collectAllFiles(
                             URL(fileURLWithPath: directoryPath)
-                        )
+                        ) {
+                            refreshed.append(contentsOf: batch)
+                        }
+                        state.allFiles = refreshed
                     }
                 }
                 .onChange(of: viewState.expansions) {
@@ -129,10 +138,13 @@ struct FileBrowserView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .task(id: directoryPath) {
                     await loadTree()
-                    state.allFiles = await fileSystemService.collectAllFiles(
-                        URL(fileURLWithPath: directoryPath)
-                    )
+                    state.allFiles = []
                     state.allFilesDirectoryPath = directoryPath
+                    for await batch in fileSystemService.collectAllFiles(
+                        URL(fileURLWithPath: directoryPath)
+                    ) {
+                        state.allFiles.append(contentsOf: batch)
+                    }
                 }
         }
     }
@@ -168,7 +180,8 @@ struct FileBrowserView: View {
     }
 
     /// Detects when the user expands a folder whose children haven't been loaded yet,
-    /// and triggers a tree rebuild with that folder's contents.
+    /// and triggers a tree rebuild with that folder's contents. Cancels any in-flight
+    /// reload so rapid expansions don't queue overlapping `loadTree()` calls.
     private func handleExpansionChange(viewState: FileNavigatorViewState<TextFileContents>) {
         for expandedId in viewState.expansions.ids {
             guard let path = state.reverseIds[expandedId] else { continue }
@@ -176,7 +189,8 @@ struct FileBrowserView: View {
 
             // This folder needs its children loaded
             state.loadedFolderPaths.insert(path)
-            Task {
+            loadTreeTask?.cancel()
+            loadTreeTask = Task {
                 await loadTree()
             }
             return
@@ -214,15 +228,21 @@ struct FileBrowserView: View {
         .padding(.vertical, 6)
     }
 
-    private var filteredSearchResults: [FileSearchResult] {
-        guard !searchQuery.isEmpty else { return [] }
+    /// Recomputes the cached search results from the current `searchQuery` and
+    /// `state.allFiles`. Called via `.onChange` so we don't fuzzy-match thousands
+    /// of files on every SwiftUI render pass.
+    private func recomputeSearchResults() {
+        guard !searchQuery.isEmpty else {
+            cachedSearchResults = []
+            return
+        }
         let query = searchQuery
 
-        return Array(
+        cachedSearchResults = Array(
             state.allFiles
                 .compactMap { result -> (FileSearchResult, Int)? in
                     guard result.relativePath.fuzzyMatches(query) else { return nil }
-                    return (result, fileSearchScore(for: result, query: query))
+                    return (result, result.name.fileSearchScore(for: query))
                 }
                 .sorted { lhs, rhs in
                     if lhs.1 != rhs.1 { return lhs.1 > rhs.1 }
@@ -233,24 +253,13 @@ struct FileBrowserView: View {
         )
     }
 
-    private func fileSearchScore(for result: FileSearchResult, query: String) -> Int {
-        let name = result.name.lowercased()
-        let q = query.lowercased()
-        if name == q { return 4 }
-        if name.hasPrefix(q) { return 3 }
-        if name.contains(q) { return 2 }
-        if name.fuzzyMatches(q) { return 1 }
-        return 0
-    }
-
     @ViewBuilder
     private var fileSearchResultsList: some View {
-        let results = filteredSearchResults
-        if results.isEmpty {
+        if cachedSearchResults.isEmpty {
             ContentUnavailableView.search(text: searchQuery)
         } else {
             List(selection: $selectedSearchPath) {
-                ForEach(results) { result in
+                ForEach(cachedSearchResults) { result in
                     searchResultRow(result)
                         .tag(result.fullPath)
                 }
@@ -262,7 +271,10 @@ struct FileBrowserView: View {
 
     @ViewBuilder
     private func searchResultRow(_ result: FileSearchResult) -> some View {
-        let directory = (result.relativePath as NSString).deletingLastPathComponent
+        let directory: String = {
+            guard let lastSlash = result.relativePath.lastIndex(of: "/") else { return "" }
+            return String(result.relativePath[..<lastSlash])
+        }()
 
         VStack(alignment: .leading, spacing: 2) {
             Label {
@@ -349,8 +361,20 @@ struct FileBrowserView: View {
             fileDetailView(viewState: viewState)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .onChange(of: searchQuery) {
-            selectedSearchPath = nil
+        .onChange(of: searchQuery, initial: true) {
+            recomputeSearchResults()
+        }
+        .onChange(of: state.allFiles) {
+            recomputeSearchResults()
+        }
+        .onChange(of: cachedSearchResults) {
+            // Drop the selection if the previously selected file is no longer
+            // in the visible result set.
+            if
+                let selected = selectedSearchPath,
+                !cachedSearchResults.contains(where: { $0.fullPath == selected }) {
+                selectedSearchPath = nil
+            }
         }
     }
 

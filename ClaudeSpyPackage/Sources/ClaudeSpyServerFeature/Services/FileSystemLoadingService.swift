@@ -109,8 +109,16 @@ public struct FileSystemLoadingService: Sendable {
         AsyncStream { $0.finish() }
     }
 
-    /// Recursively collects all file paths under a directory for search.
-    public var collectAllFiles: @Sendable (_ rootURL: URL) async -> [FileSearchResult] = { _ in [] }
+    /// Streams batches of file paths under a directory for search.
+    ///
+    /// Yields incremental batches as the filesystem is scanned so callers can
+    /// surface partial results without waiting for the full scan to complete.
+    /// In a git work tree the scan honours `.gitignore` (via `git ls-files`);
+    /// otherwise it walks the directory directly, skipping only `.git` and the
+    /// usual OS-level entries.
+    public var collectAllFiles: @Sendable (_ rootURL: URL) -> AsyncStream<[FileSearchResult]> = { _ in
+        AsyncStream { $0.finish() }
+    }
 }
 
 // MARK: - DependencyKey
@@ -224,11 +232,23 @@ extension FileSystemLoadingService: DependencyKey {
                 }
             },
             collectAllFiles: { url in
-                await Task.detached {
-                    var results: [FileSearchResult] = []
-                    collectFilesRecursively(at: url, rootPath: url.path, results: &results)
-                    return results
-                }.value
+                AsyncStream { continuation in
+                    let task = Task.detached(priority: .utility) {
+                        if isInsideGitWorkTree(at: url) {
+                            collectFilesUsingGit(at: url, continuation: continuation)
+                        } else {
+                            collectFilesByWalking(
+                                at: url,
+                                rootPath: url.path,
+                                continuation: continuation
+                            )
+                        }
+                        continuation.finish()
+                    }
+                    continuation.onTermination = { _ in
+                        task.cancel()
+                    }
+                }
             }
         )
     }
@@ -415,7 +435,7 @@ public extension FileSystemLoadingService {
                             return was
                         }
                         if !wasAlreadyActive {
-                            dirContinuation.withLock { continuation -> Void in
+                            dirContinuation.withLock { continuation in
                                 continuation?.yield()
                             }
                         }
@@ -481,7 +501,13 @@ public extension FileSystemLoadingService {
                     }
                 }
                 collect(effectiveTree, prefix: "")
-                return results
+                let snapshot = results
+                return AsyncStream { continuation in
+                    if !snapshot.isEmpty {
+                        continuation.yield(snapshot)
+                    }
+                    continuation.finish()
+                }
             }
         )
     }
@@ -489,52 +515,162 @@ public extension FileSystemLoadingService {
 
 // MARK: - Private Helpers
 
-/// OS-level files and directories to skip when building the file tree.
+/// OS-level files and directories to skip when building the file tree or
+/// walking the filesystem for search.
 private let skippedEntries: Set<String> = [
     ".DS_Store", ".Trash", ".Spotlight-V100", ".fseventsd",
     ".TemporaryItems", ".DocumentRevisions-V100",
 ]
 
-/// Large or irrelevant directories to skip during file search.
-private let skippedSearchDirectories: Set<String> = [
-    ".git", "node_modules", ".build", "DerivedData",
-    "__pycache__", ".venv", "venv",
-    "Pods", ".svn", ".hg",
-]
+/// Number of files to accumulate before yielding a batch from `collectAllFiles`.
+private let collectAllFilesBatchSize = 200
 
-/// Recursively collects all file paths in a directory for search.
-private func collectFilesRecursively(
+/// Returns `true` if `url` (or any ancestor) contains a `.git` directory or file,
+/// which indicates we're inside a git work tree (or worktree of a bare repo).
+private func isInsideGitWorkTree(at url: URL) -> Bool {
+    let fm = FileManager.default
+    var dir = url.standardizedFileURL
+    while true {
+        let gitPath = dir.appendingPathComponent(".git").path
+        if fm.fileExists(atPath: gitPath) { return true }
+        let parent = dir.deletingLastPathComponent()
+        if parent.path == dir.path { return false }
+        dir = parent
+    }
+}
+
+/// Streams file paths from the directory by invoking `git ls-files`, which
+/// honours the project's `.gitignore` rules. Files are yielded in batches.
+private func collectFilesUsingGit(
+    at url: URL,
+    continuation: AsyncStream<[FileSearchResult]>.Continuation
+) {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+    process.arguments = [
+        "-C", url.path,
+        "ls-files",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+        "-z",
+    ]
+
+    let stdoutPipe = Pipe()
+    let stderrPipe = Pipe()
+    process.standardOutput = stdoutPipe
+    process.standardError = stderrPipe
+
+    do {
+        try process.run()
+    } catch {
+        return
+    }
+
+    let rootPath = url.path
+    let handle = stdoutPipe.fileHandleForReading
+    var buffer = Data()
+    var batch: [FileSearchResult] = []
+
+    while true {
+        if Task.isCancelled {
+            if process.isRunning { process.terminate() }
+            break
+        }
+        let chunk = handle.availableData
+        if chunk.isEmpty { break }
+        buffer.append(chunk)
+
+        while let nullIdx = buffer.firstIndex(of: 0) {
+            let pathData = buffer.subdata(in: buffer.startIndex..<nullIdx)
+            buffer.removeSubrange(buffer.startIndex...nullIdx)
+            guard
+                !pathData.isEmpty,
+                let relativePath = String(data: pathData, encoding: .utf8)
+            else { continue }
+
+            let name: String
+            if let lastSlash = relativePath.lastIndex(of: "/") {
+                name = String(relativePath[relativePath.index(after: lastSlash)...])
+            } else {
+                name = relativePath
+            }
+
+            batch.append(FileSearchResult(
+                fullPath: rootPath + "/" + relativePath,
+                relativePath: relativePath,
+                name: name
+            ))
+
+            if batch.count >= collectAllFilesBatchSize {
+                continuation.yield(batch)
+                batch.removeAll(keepingCapacity: true)
+            }
+        }
+    }
+
+    if !batch.isEmpty {
+        continuation.yield(batch)
+    }
+
+    process.waitUntilExit()
+    // Drain stderr to release the FD; ignore content.
+    _ = try? stderrPipe.fileHandleForReading.readToEnd()
+}
+
+/// Recursively walks `url`, yielding batches of file paths. Used as a fallback
+/// when the directory is not part of a git work tree. Skips only `.git` and
+/// the OS-level entries that are never useful in search results.
+private func collectFilesByWalking(
     at url: URL,
     rootPath: String,
-    results: inout [FileSearchResult]
+    continuation: AsyncStream<[FileSearchResult]>.Continuation
 ) {
-    guard !Task.isCancelled else { return }
-
+    var batch: [FileSearchResult] = []
     let fm = FileManager.default
-    guard
-        let items = try? fm.contentsOfDirectory(
-            at: url,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: []
-        )
-    else { return }
-
     let prefix = rootPath + "/"
-    for item in items {
-        let name = item.lastPathComponent
-        if skippedEntries.contains(name) { continue }
 
-        let isDirectory = (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
-        if isDirectory {
-            if skippedSearchDirectories.contains(name) { continue }
-            collectFilesRecursively(at: item, rootPath: rootPath, results: &results)
-        } else {
-            let fullPath = item.path
-            let relativePath = fullPath.hasPrefix(prefix)
-                ? String(fullPath.dropFirst(prefix.count))
-                : name
-            results.append(FileSearchResult(fullPath: fullPath, relativePath: relativePath, name: name))
+    func walk(_ dir: URL) {
+        guard !Task.isCancelled else { return }
+        guard
+            let items = try? fm.contentsOfDirectory(
+                at: dir,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: []
+            )
+        else { return }
+
+        for item in items {
+            if Task.isCancelled { return }
+            let name = item.lastPathComponent
+            if skippedEntries.contains(name) { continue }
+            if name == ".git" { continue }
+
+            let isDirectory = (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+            if isDirectory {
+                walk(item)
+            } else {
+                let fullPath = item.path
+                let relativePath = fullPath.hasPrefix(prefix)
+                    ? String(fullPath.dropFirst(prefix.count))
+                    : name
+                batch.append(FileSearchResult(
+                    fullPath: fullPath,
+                    relativePath: relativePath,
+                    name: name
+                ))
+                if batch.count >= collectAllFilesBatchSize {
+                    continuation.yield(batch)
+                    batch.removeAll(keepingCapacity: true)
+                }
+            }
         }
+    }
+
+    walk(url)
+
+    if !batch.isEmpty {
+        continuation.yield(batch)
     }
 }
 
