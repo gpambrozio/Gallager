@@ -23,15 +23,16 @@
                 Divider()
 
                 // Content based on state
-                contentSection
-
-                Spacer()
+                ScrollView {
+                    contentSection
+                }
+                .scrollBounceBehavior(.basedOnSize)
 
                 // Footer actions
                 footerSection
             }
             .padding(24)
-            .frame(width: 500, height: 450)
+            .frame(width: 500, height: 500)
             .task {
                 await pluginService.checkInstallation()
             }
@@ -119,6 +120,7 @@
                     Text(statusSubtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 Spacer()
