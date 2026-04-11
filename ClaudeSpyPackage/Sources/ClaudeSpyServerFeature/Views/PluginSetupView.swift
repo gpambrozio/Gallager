@@ -123,6 +123,12 @@
 
                 Spacer()
 
+                if
+                    case .installationFailed = pluginService.state,
+                    let failure = pluginService.lastFailure {
+                    PluginFailureDetailsButton(failure: failure)
+                }
+
                 if shouldShowInstallButton {
                     Button {
                         Task {

@@ -45,6 +45,13 @@
         /// Installation output for display
         public private(set) var installationOutput = ""
 
+        /// Detailed diagnostic for the most recent failed installation attempt.
+        ///
+        /// Populated whenever `state` transitions to `.installationFailed`, and cleared
+        /// when a new attempt starts or a previous attempt succeeds. UI code uses this
+        /// to offer a "Show Details" popover with a copy-to-clipboard report.
+        public private(set) var lastFailure: PluginInstallationFailure?
+
         // MARK: - Claude Plugin Paths
 
         private var claudePluginsPath: URL {
@@ -156,12 +163,22 @@
         /// Install the plugin programmatically
         public func installPlugin() async {
             guard let bundledPath = bundledPluginPath else {
-                state = .installationFailed("Bundled plugin not found in app resources")
+                recordFailure(
+                    summary: "Bundled plugin not found in app resources",
+                    failedStep: "Locate bundled plugin",
+                    claudePath: nil,
+                    command: nil,
+                    exitCode: nil,
+                    stdout: nil,
+                    stderr: nil,
+                    underlyingError: nil
+                )
                 return
             }
 
             state = .installing
             installationOutput = ""
+            lastFailure = nil
 
             logger.info("Starting plugin installation from: \(bundledPath.path)")
 
@@ -170,8 +187,8 @@
                 if await !isMarketplaceRegistered() {
                     appendOutput("Adding ClaudeSpy marketplace...")
                     try await runClaudeCommand(
-                        arguments: ["plugin", "marketplace", "add", bundledPath.path],
-                        description: "add marketplace"
+                        step: "add marketplace",
+                        arguments: ["plugin", "marketplace", "add", bundledPath.path]
                     )
                     appendOutput("Marketplace added successfully.\n")
                 } else {
@@ -181,8 +198,8 @@
                 // Step 2: Install the plugin with user scope
                 appendOutput("Installing gallager plugin...")
                 try await runClaudeCommand(
-                    arguments: ["plugin", "install", "gallager", "--scope", "user"],
-                    description: "install plugin"
+                    step: "install plugin",
+                    arguments: ["plugin", "install", "gallager", "--scope", "user"]
                 )
                 appendOutput("Plugin installed successfully.\n")
 
@@ -191,15 +208,34 @@
 
                 if case .installed = state {
                     logger.info("Plugin installation completed successfully")
+                    lastFailure = nil
                 } else {
-                    state = .installationFailed("Plugin installation could not be verified")
+                    recordFailure(
+                        summary: "Plugin installation could not be verified",
+                        failedStep: "Verify installation",
+                        claudePath: claudePathDetector.detectPath(),
+                        command: nil,
+                        exitCode: nil,
+                        stdout: nil,
+                        stderr: nil,
+                        underlyingError: "After running the install commands, the gallager plugin did not appear in ~/.claude/plugins/installed_plugins.json."
+                    )
                 }
             } catch let error as PluginError {
-                state = .installationFailed(error.localizedDescription)
                 logger.error("Plugin installation failed: \(error)")
+                recordFailure(from: error)
             } catch {
-                state = .installationFailed(error.localizedDescription)
                 logger.error("Plugin installation failed: \(error)")
+                recordFailure(
+                    summary: error.localizedDescription,
+                    failedStep: "Run installation command",
+                    claudePath: claudePathDetector.detectPath(),
+                    command: nil,
+                    exitCode: nil,
+                    stdout: nil,
+                    stderr: nil,
+                    underlyingError: String(describing: error)
+                )
             }
         }
 
@@ -236,39 +272,245 @@
             installationOutput += text + "\n"
         }
 
-        private func runClaudeCommand(arguments: [String], description: String) async throws {
+        private func runClaudeCommand(step: String, arguments: [String]) async throws {
             guard let executablePath = claudePathDetector.detectPath() else {
                 throw PluginError.claudeNotFound(attemptedPaths: ClaudePathDetector.commonPaths)
             }
             logger.debug("Found claude at: \(executablePath)")
-
             logger.debug("Running claude command: \(arguments.joined(separator: " "))")
 
-            // Use ProcessRunner for non-blocking async execution
-            let result = try await processRunner.run(
-                executable: executablePath,
-                arguments: arguments,
-                environment: nil,
-                timeout: nil
-            )
+            let result: ProcessResult
+            do {
+                result = try await processRunner.run(
+                    executable: executablePath,
+                    arguments: arguments,
+                    environment: nil,
+                    timeout: nil
+                )
+            } catch {
+                throw PluginError.processRunFailed(
+                    step: step,
+                    executable: executablePath,
+                    arguments: arguments,
+                    underlyingError: String(describing: error)
+                )
+            }
 
-            let output = result.stdoutString
-            if !output.isEmpty {
-                appendOutput(output.trimmingCharacters(in: .whitespacesAndNewlines))
+            let stdout = result.stdoutString
+            let stderr = result.stderrString
+
+            let trimmedStdout = stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedStdout.isEmpty {
+                appendOutput(trimmedStdout)
             }
 
             if !result.isSuccess {
-                let errorOutput = result.stderrString
-                let fullError = errorOutput.isEmpty
+                let trimmedStderr = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                let errorMessage = trimmedStderr.isEmpty
                     ? "Command failed with exit code \(result.exitCode)"
-                    : errorOutput
-                appendOutput("Error: \(fullError.trimmingCharacters(in: .whitespacesAndNewlines))")
+                    : trimmedStderr
+                appendOutput("Error: \(errorMessage)")
                 throw PluginError.commandFailed(
-                    description: description,
+                    step: step,
+                    executable: executablePath,
+                    arguments: arguments,
                     exitCode: result.exitCode,
-                    error: fullError
+                    stdout: stdout,
+                    stderr: stderr
                 )
             }
+        }
+
+        // MARK: - Failure Recording
+
+        private func recordFailure(
+            summary: String,
+            failedStep: String,
+            claudePath: String?,
+            command: (executable: String, arguments: [String])?,
+            exitCode: Int32?,
+            stdout: String?,
+            stderr: String?,
+            underlyingError: String?
+        ) {
+            let commandLine = command.map { Self.formatCommandLine(executable: $0.executable, arguments: $0.arguments) }
+            let failure = PluginInstallationFailure(
+                summary: summary,
+                failedStep: failedStep,
+                commandLine: commandLine,
+                exitCode: exitCode,
+                stdout: stdout.flatMap { $0.isEmpty ? nil : $0 },
+                stderr: stderr.flatMap { $0.isEmpty ? nil : $0 },
+                installationLog: installationOutput,
+                claudePath: claudePath,
+                bundledPluginPath: bundledPluginPath?.path,
+                underlyingError: underlyingError,
+                appVersion: Self.currentAppVersion,
+                osVersion: Self.currentOSVersion,
+                timestamp: Date()
+            )
+            lastFailure = failure
+            state = .installationFailed(summary)
+        }
+
+        private func recordFailure(from error: PluginError) {
+            switch error {
+            case let .claudeNotFound(paths):
+                let searched = "Searched common paths:\n" + paths.map { "  • \($0)" }.joined(separator: "\n")
+                recordFailure(
+                    summary: "Claude CLI not found",
+                    failedStep: "Locate claude CLI",
+                    claudePath: nil,
+                    command: nil,
+                    exitCode: nil,
+                    stdout: nil,
+                    stderr: searched,
+                    underlyingError: nil
+                )
+            case let .commandFailed(step, executable, arguments, exitCode, stdout, stderr):
+                recordFailure(
+                    summary: error.localizedDescription ?? "Command failed",
+                    failedStep: step,
+                    claudePath: executable,
+                    command: (executable, arguments),
+                    exitCode: exitCode,
+                    stdout: stdout,
+                    stderr: stderr,
+                    underlyingError: nil
+                )
+            case let .processRunFailed(step, executable, arguments, underlying):
+                recordFailure(
+                    summary: error.localizedDescription ?? "Failed to launch command",
+                    failedStep: step,
+                    claudePath: executable,
+                    command: (executable, arguments),
+                    exitCode: nil,
+                    stdout: nil,
+                    stderr: nil,
+                    underlyingError: underlying
+                )
+            case .bundledPluginNotFound:
+                recordFailure(
+                    summary: "Bundled plugin not found in app resources",
+                    failedStep: "Locate bundled plugin",
+                    claudePath: nil,
+                    command: nil,
+                    exitCode: nil,
+                    stdout: nil,
+                    stderr: nil,
+                    underlyingError: nil
+                )
+            }
+        }
+
+        // MARK: - Environment Helpers
+
+        private static var currentAppVersion: String {
+            let info = Bundle.main.infoDictionary
+            let version = info?["CFBundleShortVersionString"] as? String ?? "unknown"
+            let build = info?["CFBundleVersion"] as? String ?? "unknown"
+            return "\(version) (\(build))"
+        }
+
+        private static var currentOSVersion: String {
+            let osVer = ProcessInfo.processInfo.operatingSystemVersion
+            return "macOS \(osVer.majorVersion).\(osVer.minorVersion).\(osVer.patchVersion)"
+        }
+
+        private static func formatCommandLine(executable: String, arguments: [String]) -> String {
+            let quoted = arguments.map { argument -> String in
+                if argument.contains(where: { $0 == " " || $0 == "\t" || $0 == "\"" }) {
+                    let escaped = argument.replacingOccurrences(of: "\"", with: "\\\"")
+                    return "\"\(escaped)\""
+                }
+                return argument
+            }
+            return ([executable] + quoted).joined(separator: " ")
+        }
+    }
+
+    // MARK: - Failure Diagnostic
+
+    /// Structured diagnostic data for a failed plugin installation attempt.
+    ///
+    /// Captures everything useful for troubleshooting and sharing with a developer:
+    /// the failed step, the command that was run, its exit code and output streams,
+    /// the accumulated installation log, and environment info (app version, OS, etc.).
+    ///
+    /// Use `report` to get a formatted, copy-paste-friendly representation.
+    public struct PluginInstallationFailure: Sendable, Equatable {
+        public let summary: String
+        public let failedStep: String
+        public let commandLine: String?
+        public let exitCode: Int32?
+        public let stdout: String?
+        public let stderr: String?
+        public let installationLog: String
+        public let claudePath: String?
+        public let bundledPluginPath: String?
+        public let underlyingError: String?
+        public let appVersion: String
+        public let osVersion: String
+        public let timestamp: Date
+
+        /// Human-readable, multi-section diagnostic report suitable for clipboard sharing.
+        public var report: String {
+            var lines: [String] = []
+            lines.append("Gallager Plugin Installation Failure")
+            lines.append(String(repeating: "=", count: 40))
+
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime]
+            lines.append("Time:        \(formatter.string(from: timestamp))")
+            lines.append("App version: \(appVersion)")
+            lines.append("OS version:  \(osVersion)")
+            lines.append("")
+
+            lines.append("Failed step: \(failedStep)")
+            lines.append("Summary:     \(summary)")
+            lines.append("")
+
+            lines.append("Claude CLI path:     \(claudePath ?? "(not found)")")
+            if let bundledPluginPath {
+                lines.append("Bundled plugin path: \(bundledPluginPath)")
+            } else {
+                lines.append("Bundled plugin path: (not found)")
+            }
+            lines.append("")
+
+            if let commandLine {
+                lines.append("Command:")
+                lines.append("  \(commandLine)")
+            }
+            if let exitCode {
+                lines.append("Exit code: \(exitCode)")
+            }
+            if let underlyingError {
+                lines.append("Underlying error: \(underlyingError)")
+            }
+            if commandLine != nil || exitCode != nil || underlyingError != nil {
+                lines.append("")
+            }
+
+            if let stdout, !stdout.isEmpty {
+                lines.append("--- stdout ---")
+                lines.append(stdout)
+                lines.append("")
+            }
+
+            if let stderr, !stderr.isEmpty {
+                lines.append("--- stderr ---")
+                lines.append(stderr)
+                lines.append("")
+            }
+
+            let trimmedLog = installationLog.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedLog.isEmpty {
+                lines.append("--- Installation log ---")
+                lines.append(trimmedLog)
+            }
+
+            return lines.joined(separator: "\n")
         }
     }
 
@@ -276,7 +518,20 @@
 
     enum PluginError: LocalizedError {
         case claudeNotFound(attemptedPaths: [String])
-        case commandFailed(description: String, exitCode: Int32, error: String)
+        case commandFailed(
+            step: String,
+            executable: String,
+            arguments: [String],
+            exitCode: Int32,
+            stdout: String,
+            stderr: String
+        )
+        case processRunFailed(
+            step: String,
+            executable: String,
+            arguments: [String],
+            underlyingError: String
+        )
         case bundledPluginNotFound
 
         var errorDescription: String? {
@@ -284,8 +539,14 @@
             case let .claudeNotFound(paths):
                 let pathList = paths.joined(separator: ", ")
                 return "Claude CLI not found. Checked: \(pathList). Please ensure Claude Code is installed."
-            case let .commandFailed(description, exitCode, error):
-                return "Failed to \(description) (exit code \(exitCode)): \(error)"
+            case let .commandFailed(step, _, _, exitCode, _, stderr):
+                let trimmed = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    return "Failed to \(step) (exit code \(exitCode))"
+                }
+                return "Failed to \(step) (exit code \(exitCode)): \(trimmed)"
+            case let .processRunFailed(step, _, _, underlying):
+                return "Failed to launch command for \(step): \(underlying)"
             case .bundledPluginNotFound:
                 return "Bundled plugin not found in app resources."
             }
