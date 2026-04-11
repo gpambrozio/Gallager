@@ -18,9 +18,13 @@ public enum RapidKeystrokeOrderScenario {
         TestStep.wait(seconds: 3)
 
         // ── Phase 6: Open Panes on viewer and select the remote pane ─
-        TestStep.macOpenPanesWindow(instance: 1)
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5, instance: 1)
-        TestStep.wait(seconds: 3)
+        // Use Shortcut.openPanesWindow so the viewer window is explicitly sized
+        // to a known geometry. Without this, the terminal view inside inherits
+        // NSWindow autosave state from prior scenarios, which can leave it too
+        // short to keep the later keystroke-rounds output inside the visible
+        // `terminal.rows` accessibilityValue — causing round-3+ `valueContains`
+        // assertions to flake.
+        Shortcut.openPanesWindow(instance: 1)
         TestStep.macWaitForElement(titled: "e2e-rapid-keys", timeout: 15, instance: 1)
         TestStep.macClickButton(titled: "e2e-rapid-keys", instance: 1)
         TestStep.wait(seconds: 3)

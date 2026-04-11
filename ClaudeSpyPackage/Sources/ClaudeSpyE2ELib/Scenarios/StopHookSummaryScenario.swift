@@ -63,9 +63,10 @@ public enum StopHookSummaryScenario {
         //     individually exposed in the macOS accessibility tree (NSOutlineView
         //     rows merge child text elements), so we verify the session entry
         //     exists and rely on the screenshot for visual verification of the summary.
-        TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
-        TestStep.wait(seconds: 2)
+        //     Use Shortcut.openPanesWindow so the window is explicitly sized,
+        //     making the screenshot dimensions deterministic instead of
+        //     depending on whatever NSWindow autosave inherited from prior scenarios.
+        Shortcut.openPanesWindow()
         TestStep.macWaitForElement(titled: "session-1", timeout: 5)
         TestStep.macScreenshot(label: "mac-stop-session")
     }
