@@ -1,5 +1,6 @@
 import ClaudeSpyCommon
 import ClaudeSpyNetworking
+import Dependencies
 import Foundation
 
 /// Manages pane state, hook events, and session tracking.
@@ -18,6 +19,9 @@ final public class MirrorWindowManager {
 
     /// Interval between session validation checks (in seconds)
     private let validationInterval: TimeInterval = 5
+
+    @ObservationIgnored
+    @Dependency(ProcessRunner.self) private var processRunner
 
     private let settings: AppSettings
     private let tmuxService: TmuxService
@@ -82,6 +86,7 @@ final public class MirrorWindowManager {
                 // Refresh panes and update state
                 let panes = await self.tmuxService.refreshPanes()
                 self.updatePaneStates(from: panes)
+                await self.refreshGitBranches()
             }
         }
     }
@@ -276,6 +281,50 @@ final public class MirrorWindowManager {
                 }
             }
         }
+    }
+
+    // MARK: - Git Branch Detection
+
+    private static let gitPath = "/usr/bin/git"
+
+    /// Refreshes git branch info for all panes that have a current path.
+    public func refreshGitBranches() async {
+        let panePaths: [(String, String)] = paneStates.compactMap { paneId, state in
+            guard let path = state.currentPath, !path.isEmpty else { return nil }
+            return (paneId, path)
+        }
+
+        await withTaskGroup(of: (String, String?).self) { group in
+            for (paneId, path) in panePaths {
+                group.addTask { [processRunner] in
+                    let branch = await Self.detectGitBranch(at: path, processRunner: processRunner)
+                    return (paneId, branch)
+                }
+            }
+
+            for await (paneId, branch) in group {
+                paneStates[paneId]?.gitBranch = branch
+            }
+        }
+    }
+
+    /// Detects the git branch for a given directory path.
+    /// Returns nil if the path is not inside a git repository.
+    private static func detectGitBranch(
+        at path: String,
+        processRunner: ProcessRunner
+    ) async -> String? {
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        guard let result = try? await processRunner.run(
+            gitPath,
+            ["-C", path, "rev-parse", "--abbrev-ref", "HEAD"],
+            nil,
+            5
+        ) else { return nil }
+
+        guard result.isSuccess else { return nil }
+        let branch = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+        return branch.isEmpty ? nil : branch
     }
 
     // MARK: - State Cleanup
