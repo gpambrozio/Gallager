@@ -32,44 +32,50 @@ public enum RapidKeystrokeOrderScenario {
         // ── Phase 7: Rapid keystroke tests ──────────────────────────
         // Send rapid keystrokes (no charDelay) and verify order.
         // We use distinguishable strings so transpositions are detectable.
+        //
+        // Settle waits are generous (5s) and query timeouts are 15s so that
+        // cumulative state in the debouncer / WebSocket send chain / tmux
+        // pipeline has time to drain between rounds on a loaded CI machine —
+        // the check for the last typed round has occasionally flaked at the
+        // tighter 3s/10s budget even though the keystrokes eventually arrive.
 
         // Round 1: Type a string with all unique chars in rapid succession
         TestStep.log("Round 1: Rapid typing 'abcdefghij'")
         TestStep.macType(text: "echo round1-abcdefghij", pressReturn: true, instance: 1)
-        TestStep.wait(seconds: 3)
+        TestStep.wait(seconds: 5)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("round1-abcdefghij")]),
-            timeout: 10,
+            timeout: 15,
             instance: 1
         )
 
         // Round 2: A longer string to increase likelihood of reordering
         TestStep.log("Round 2: Rapid typing 'the-quick-brown-fox'")
         TestStep.macType(text: "echo round2-the-quick-brown-fox", pressReturn: true, instance: 1)
-        TestStep.wait(seconds: 3)
+        TestStep.wait(seconds: 5)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("round2-the-quick-brown-fox")]),
-            timeout: 10,
+            timeout: 15,
             instance: 1
         )
 
         // Round 3: Numbers and special chars
         TestStep.log("Round 3: Rapid typing '1234567890'")
         TestStep.macType(text: "echo round3-1234567890", pressReturn: true, instance: 1)
-        TestStep.wait(seconds: 3)
+        TestStep.wait(seconds: 5)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("round3-1234567890")]),
-            timeout: 10,
+            timeout: 15,
             instance: 1
         )
 
         // Round 4: Mixed case to catch case-sensitive ordering bugs
         TestStep.log("Round 4: Rapid typing mixed case")
         TestStep.macType(text: "echo round4-AaBbCcDdEe", pressReturn: true, instance: 1)
-        TestStep.wait(seconds: 3)
+        TestStep.wait(seconds: 5)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("round4-AaBbCcDdEe")]),
-            timeout: 10,
+            timeout: 15,
             instance: 1
         )
 
