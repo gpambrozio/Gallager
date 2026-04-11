@@ -14,6 +14,7 @@ struct SessionFieldsView: View {
     let terminalTitle: String?
     let command: String?
     let currentPath: String?
+    let gitBranch: String?
     let latestEvent: String?
     /// Remote host's home directory for proper path abbreviation (nil for local sessions)
     var homeDirectory: String?
@@ -59,6 +60,7 @@ struct SessionFieldsView: View {
             terminalTitle: terminalTitle,
             command: command,
             currentPath: currentPath,
+            gitBranch: gitBranch,
             homeDirectory: homeDirectory
         )
     }
@@ -71,6 +73,7 @@ struct SessionFieldsView: View {
         case .terminalTitle: terminalTitle
         case .command: command
         case .currentPath: currentPath?.abbreviatedPath(home: homeDirectory)
+        case .gitBranch: gitBranch
         case .latestEvent: latestEvent
         }
     }
@@ -113,6 +116,7 @@ struct SessionSortData {
         terminalTitle: String?,
         command: String?,
         currentPath: String?,
+        gitBranch: String? = nil,
         homeDirectory: String? = nil
     ) -> String {
         for field in fields {
@@ -123,6 +127,7 @@ struct SessionSortData {
             case .terminalTitle: terminalTitle
             case .command: command
             case .currentPath: currentPath?.abbreviatedPath(home: homeDirectory)
+            case .gitBranch: gitBranch
             case .latestEvent: nil // excluded from primary label computation
             }
             if let value, !value.isEmpty {

@@ -212,6 +212,7 @@ private struct SidebarPreview: View {
                     terminalTitle: isTerminal ? nil : "claude",
                     command: isTerminal ? "zsh" : "claude",
                     currentPath: "~/Development/Gallager",
+                    gitBranch: "feature/sidebar-git-branch",
                     latestEvent: isTerminal ? nil : "Reading file Package.swift"
                 )
             }

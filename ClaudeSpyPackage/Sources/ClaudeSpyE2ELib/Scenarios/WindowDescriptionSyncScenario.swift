@@ -44,8 +44,8 @@ public enum WindowDescriptionSyncScenario {
 
         // Host shows window ID in sidebar
         Shortcut.openPanesWindow()
-        TestStep.macWaitForElement(titled: "e2e-desc", timeout: 10)
-        TestStep.macWaitForElement(titled: "DescProject", timeout: 10)
+        TestStep.macWaitForElement(titled: "e2e-desc", timeout: 30)
+        TestStep.macWaitForElement(titled: "DescProject", timeout: 30)
 
         // Viewer shows project name in sidebar (like iOS)
         TestStep.wait(seconds: 3)

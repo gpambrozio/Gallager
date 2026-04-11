@@ -359,6 +359,7 @@
             // Start notification-only readers for all discovered panes
             let initialPanes = await tmuxService.refreshPanes()
             windowManager.updatePaneStates(from: initialPanes)
+            await windowManager.refreshGitBranches()
             await paneStreamManager.startNotificationMonitoring(panes: initialPanes)
             paneStreamManager.startPeriodicPaneRefresh(tmuxService: tmuxService)
 
