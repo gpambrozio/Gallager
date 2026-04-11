@@ -202,5 +202,44 @@ public enum YoloModeAutoApproveScenario {
         // Verify a push notification WAS sent (yolo mode is off)
         TestStep.readFile(path: "${pushLogPath}", storeAs: "pushLogAfterNonYolo")
         TestStep.assertStoredContains(key: "pushLogAfterNonYolo", substring: "PermissionRequest|${pane1Id}")
+
+        // ══════════════════════════════════════════════════════════════
+        // Phase 7: With a pending auto-approvable request, enabling
+        //          yolo mode should auto-approve it immediately (#315)
+        // ══════════════════════════════════════════════════════════════
+
+        // Precondition sanity: the npm test Bash UI from Phase 6 is still on screen.
+        TestStep.iosWaitForElement(.labelContains("Run Command"), timeout: 5)
+
+        // Type a fresh marker so we can detect the auto-approve Enter separately
+        // from the BEFORE_YOLO_APPROVE marker used in Phase 3.
+        Shortcut.tmuxRunCommand(target: "session-1:0", command: "echo PENDING_AT_YOLO_ENABLE")
+        TestStep.wait(seconds: 1)
+
+        // Enable yolo while the Bash request is still pending
+        TestStep.iosTap(.labelContains("Enable Yolo Mode"))
+
+        // Give it the 500ms auto-approve delay + processing time
+        TestStep.wait(seconds: 3)
+
+        // iOS response UI should disappear — the pending event was auto-approved
+        TestStep.iosWaitForElementToDisappear(.labelContains("Run Command"), timeout: 5)
+        TestStep.iosWaitForElementToDisappear(.labelContains("Accept"), timeout: 3)
+        TestStep.iosScreenshot(label: "ios-yolo-pending-auto-approved")
+
+        // Verify the Enter reached tmux: the PENDING_AT_YOLO_ENABLE marker must
+        // have produced a new prompt line in both terminal views
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("PENDING_AT_YOLO_ENABLE")]),
+            timeout: 10
+        )
+        TestStep.macScreenshot(label: "mac-yolo-pending-auto-approved")
+
+        // Yolo mode should now show enabled on both platforms
+        TestStep.iosWaitForElement(.labelContains("Disable Yolo Mode"), timeout: 5)
+        TestStep.macWaitForElement(
+            titled: "Yolo mode: auto-approving permissions (click to disable)",
+            timeout: 10
+        )
     }
 }
