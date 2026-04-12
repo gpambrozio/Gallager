@@ -144,22 +144,24 @@
 
                 Spacer()
 
-                if
-                    case .installationFailed = pluginService.state,
-                    let failure = pluginService.lastFailure {
-                    PluginFailureDetailsButton(failure: failure)
-                }
-
-                if shouldShowInstallButton {
-                    Button {
-                        Task {
-                            await pluginService.installPlugin()
-                        }
-                    } label: {
-                        Label("Install", symbol: .arrowDown)
+                VStack(alignment: .trailing) {
+                    if
+                        case .installationFailed = pluginService.state,
+                        let failure = pluginService.lastFailure {
+                        PluginFailureDetailsButton(failure: failure)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(pluginService.state == .installing)
+
+                    if shouldShowInstallButton {
+                        Button {
+                            Task {
+                                await pluginService.installPlugin()
+                            }
+                        } label: {
+                            Label("Install", symbol: .arrowDown)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(pluginService.state == .installing)
+                    }
                 }
             }
             .padding()
