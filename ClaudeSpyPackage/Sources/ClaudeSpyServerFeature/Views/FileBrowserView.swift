@@ -138,13 +138,6 @@ struct FileBrowserView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .task(id: directoryPath) {
                     await loadTree()
-                    state.allFiles = []
-                    state.allFilesDirectoryPath = directoryPath
-                    for await batch in fileSystemService.collectAllFiles(
-                        URL(fileURLWithPath: directoryPath)
-                    ) {
-                        state.allFiles.append(contentsOf: batch)
-                    }
                 }
         }
     }
@@ -257,6 +250,7 @@ struct FileBrowserView: View {
     private var fileSearchResultsList: some View {
         if cachedSearchResults.isEmpty {
             ContentUnavailableView.search(text: searchQuery)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             List(selection: $selectedSearchPath) {
                 ForEach(cachedSearchResults) { result in
