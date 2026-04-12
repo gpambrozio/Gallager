@@ -50,7 +50,7 @@
         /// Populated whenever `state` transitions to `.installationFailed`, and cleared
         /// when a new attempt starts or a previous attempt succeeds. UI code uses this
         /// to offer a "Show Details" popover with a copy-to-clipboard report.
-        public private(set) var lastFailure: PluginInstallationFailure?
+        public package(set) var lastFailure: PluginInstallationFailure?
 
         // MARK: - Claude Plugin Paths
 
@@ -165,13 +165,7 @@
             guard let bundledPath = bundledPluginPath else {
                 recordFailure(
                     summary: "Bundled plugin not found in app resources",
-                    failedStep: "Locate bundled plugin",
-                    claudePath: nil,
-                    command: nil,
-                    exitCode: nil,
-                    stdout: nil,
-                    stderr: nil,
-                    underlyingError: nil
+                    failedStep: "Locate bundled plugin"
                 )
                 return
             }
@@ -214,10 +208,6 @@
                         summary: "Plugin installation could not be verified",
                         failedStep: "Verify installation",
                         claudePath: claudePathDetector.detectPath(),
-                        command: nil,
-                        exitCode: nil,
-                        stdout: nil,
-                        stderr: nil,
                         underlyingError: "After running the install commands, the gallager plugin did not appear in ~/.claude/plugins/installed_plugins.json."
                     )
                 }
@@ -230,10 +220,6 @@
                     summary: error.localizedDescription,
                     failedStep: "Run installation command",
                     claudePath: claudePathDetector.detectPath(),
-                    command: nil,
-                    exitCode: nil,
-                    stdout: nil,
-                    stderr: nil,
                     underlyingError: String(describing: error)
                 )
             }
@@ -326,12 +312,12 @@
         private func recordFailure(
             summary: String,
             failedStep: String,
-            claudePath: String?,
-            command: (executable: String, arguments: [String])?,
-            exitCode: Int32?,
-            stdout: String?,
-            stderr: String?,
-            underlyingError: String?
+            claudePath: String? = nil,
+            command: (executable: String, arguments: [String])? = nil,
+            exitCode: Int32? = nil,
+            stdout: String? = nil,
+            stderr: String? = nil,
+            underlyingError: String? = nil
         ) {
             let commandLine = command.map { Self.formatCommandLine(executable: $0.executable, arguments: $0.arguments) }
             let failure = PluginInstallationFailure(
@@ -360,45 +346,30 @@
                 recordFailure(
                     summary: "Claude CLI not found",
                     failedStep: "Locate claude CLI",
-                    claudePath: nil,
-                    command: nil,
-                    exitCode: nil,
-                    stdout: nil,
-                    stderr: searched,
-                    underlyingError: nil
+                    stderr: searched
                 )
             case let .commandFailed(step, executable, arguments, exitCode, stdout, stderr):
                 recordFailure(
-                    summary: error.localizedDescription ?? "Command failed",
+                    summary: error.errorDescription ?? "Command failed",
                     failedStep: step,
                     claudePath: executable,
                     command: (executable, arguments),
                     exitCode: exitCode,
                     stdout: stdout,
-                    stderr: stderr,
-                    underlyingError: nil
+                    stderr: stderr
                 )
             case let .processRunFailed(step, executable, arguments, underlying):
                 recordFailure(
-                    summary: error.localizedDescription ?? "Failed to launch command",
+                    summary: error.errorDescription ?? "Failed to launch command",
                     failedStep: step,
                     claudePath: executable,
                     command: (executable, arguments),
-                    exitCode: nil,
-                    stdout: nil,
-                    stderr: nil,
                     underlyingError: underlying
                 )
             case .bundledPluginNotFound:
                 recordFailure(
                     summary: "Bundled plugin not found in app resources",
-                    failedStep: "Locate bundled plugin",
-                    claudePath: nil,
-                    command: nil,
-                    exitCode: nil,
-                    stdout: nil,
-                    stderr: nil,
-                    underlyingError: nil
+                    failedStep: "Locate bundled plugin"
                 )
             }
         }

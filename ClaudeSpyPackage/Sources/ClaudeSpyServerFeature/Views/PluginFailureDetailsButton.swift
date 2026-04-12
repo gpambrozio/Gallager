@@ -100,4 +100,25 @@
             feedbackResetTrigger = UUID()
         }
     }
+
+    #Preview {
+        PluginFailureDetailsButton(
+            failure: PluginInstallationFailure(
+                summary: "Failed to install plugin (exit code 1)",
+                failedStep: "install plugin",
+                commandLine: "/usr/local/bin/claude plugin install gallager --scope user",
+                exitCode: 1,
+                stdout: "Resolving plugin gallager...",
+                stderr: "Error: plugin verification failed",
+                installationLog: "Adding ClaudeSpy marketplace...\nMarketplace added successfully.\nInstalling gallager plugin...\nError: plugin verification failed",
+                claudePath: "/usr/local/bin/claude",
+                bundledPluginPath: "/Applications/Gallager.app/Contents/Resources/plugin",
+                underlyingError: nil,
+                appVersion: "1.19 (42)",
+                osVersion: "macOS 15.3.0",
+                timestamp: Date()
+            )
+        )
+        .padding()
+    }
 #endif
