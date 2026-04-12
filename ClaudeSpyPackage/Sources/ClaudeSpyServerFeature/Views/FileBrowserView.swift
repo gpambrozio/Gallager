@@ -167,8 +167,6 @@ struct FileBrowserView: View {
             expansions: expansions,
             selection: selection
         )
-        // Expand the root folder by default
-        viewState.expansions[tree.root.id] = true
         state.viewState = viewState
         state.loadedPath = directoryPath
         state.stableIds = result.stableIds
@@ -300,7 +298,6 @@ struct FileBrowserView: View {
         viewState: FileNavigatorViewState<TextFileContents>
     ) -> some View {
         @Bindable var bindableState = viewState
-        let directoryName = URL(fileURLWithPath: directoryPath).lastPathComponent
 
         HStack(spacing: 0) {
             VStack(spacing: 0) {
@@ -310,7 +307,7 @@ struct FileBrowserView: View {
                 if state.searchQuery.isEmpty {
                     List(selection: $bindableState.selection) {
                         FileNavigator(
-                            name: directoryName,
+                            name: nil as String?,
                             item: .constant(viewState.fileTree.root),
                             parent: .constant(nil),
                             viewState: viewState,
