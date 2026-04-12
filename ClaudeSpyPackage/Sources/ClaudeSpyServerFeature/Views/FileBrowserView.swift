@@ -37,6 +37,12 @@ final class FileBrowserState {
     var allFiles: [FileSearchResult] = []
     /// The directory path for which `allFiles` was loaded.
     var allFilesDirectoryPath: String?
+    /// Current search query, preserved across tab switches.
+    var searchQuery = ""
+    /// Selected file path in search results, preserved across tab switches.
+    var selectedSearchPath: String?
+    /// Cached search results matching the current query.
+    var cachedSearchResults: [FileSearchResult] = []
 }
 
 /// A draggable vertical divider for resizing adjacent views.
@@ -94,10 +100,7 @@ struct FileBrowserView: View {
 
     @Dependency(FileSystemLoadingService.self) private var fileSystemService
 
-    @State private var searchQuery = ""
-    @State private var selectedSearchPath: String?
     @State private var loadTreeTask: Task<Void, Never>?
-    @State private var cachedSearchResults: [FileSearchResult] = []
 
     var body: some View {
         if let viewState = state.viewState {
@@ -199,15 +202,15 @@ struct FileBrowserView: View {
                 .foregroundStyle(.secondary)
                 .font(.caption)
 
-            TextField("Search files...", text: $searchQuery)
+            TextField("Search files...", text: $state.searchQuery)
                 .textFieldStyle(.plain)
                 .font(.callout)
                 .accessibilityLabel("Search files")
 
-            if !searchQuery.isEmpty {
+            if !state.searchQuery.isEmpty {
                 Button {
-                    searchQuery = ""
-                    selectedSearchPath = nil
+                    state.searchQuery = ""
+                    state.selectedSearchPath = nil
                 } label: {
                     Symbols.xmarkCircleFill.image
                         .foregroundStyle(.secondary)
@@ -225,13 +228,13 @@ struct FileBrowserView: View {
     /// `state.allFiles`. Called via `.onChange` so we don't fuzzy-match thousands
     /// of files on every SwiftUI render pass.
     private func recomputeSearchResults() {
-        guard !searchQuery.isEmpty else {
-            cachedSearchResults = []
+        guard !state.searchQuery.isEmpty else {
+            state.cachedSearchResults = []
             return
         }
-        let query = searchQuery
+        let query = state.searchQuery
 
-        cachedSearchResults = Array(
+        state.cachedSearchResults = Array(
             state.allFiles
                 .compactMap { result -> (FileSearchResult, Int)? in
                     guard result.relativePath.fuzzyMatches(query) else { return nil }
@@ -248,12 +251,12 @@ struct FileBrowserView: View {
 
     @ViewBuilder
     private var fileSearchResultsList: some View {
-        if cachedSearchResults.isEmpty {
-            ContentUnavailableView.search(text: searchQuery)
+        if state.cachedSearchResults.isEmpty {
+            ContentUnavailableView.search(text: state.searchQuery)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            List(selection: $selectedSearchPath) {
-                ForEach(cachedSearchResults) { result in
+            List(selection: $state.selectedSearchPath) {
+                ForEach(state.cachedSearchResults) { result in
                     searchResultRow(result)
                         .tag(result.fullPath)
                 }
@@ -304,7 +307,7 @@ struct FileBrowserView: View {
                 fileSearchField
                 Divider()
 
-                if searchQuery.isEmpty {
+                if state.searchQuery.isEmpty {
                     List(selection: $bindableState.selection) {
                         FileNavigator(
                             name: directoryName,
@@ -355,19 +358,19 @@ struct FileBrowserView: View {
             fileDetailView(viewState: viewState)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .onChange(of: searchQuery, initial: true) {
+        .onChange(of: state.searchQuery, initial: true) {
             recomputeSearchResults()
         }
         .onChange(of: state.allFiles) {
             recomputeSearchResults()
         }
-        .onChange(of: cachedSearchResults) {
+        .onChange(of: state.cachedSearchResults) {
             // Drop the selection if the previously selected file is no longer
             // in the visible result set.
             if
-                let selected = selectedSearchPath,
-                !cachedSearchResults.contains(where: { $0.fullPath == selected }) {
-                selectedSearchPath = nil
+                let selected = state.selectedSearchPath,
+                !state.cachedSearchResults.contains(where: { $0.fullPath == selected }) {
+                state.selectedSearchPath = nil
             }
         }
     }
@@ -376,8 +379,8 @@ struct FileBrowserView: View {
     private func fileDetailView(
         viewState: FileNavigatorViewState<TextFileContents>
     ) -> some View {
-        if !searchQuery.isEmpty {
-            if let path = selectedSearchPath {
+        if !state.searchQuery.isEmpty {
+            if let path = state.selectedSearchPath {
                 let relativePath = path.hasPrefix(directoryPath + "/")
                     ? String(path.dropFirst(directoryPath.count + 1))
                     : URL(fileURLWithPath: path).lastPathComponent
