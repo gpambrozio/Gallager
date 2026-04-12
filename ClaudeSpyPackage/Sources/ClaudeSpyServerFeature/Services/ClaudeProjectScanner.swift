@@ -154,12 +154,12 @@
             }
 
             let name = url.lastPathComponent
-            let lastUsed = getLastUsedTimestamp(projectPath: url.path, data: data)
+            let lastUsed = getLastUsedTimestamp(projectPath: url.path)
 
             return ClaudeProjectInfo(name: name, path: url.path, lastUsed: lastUsed)
         }
 
-        private func getLastUsedTimestamp(projectPath: String, data: [String: Any]) -> Date? {
+        private func getLastUsedTimestamp(projectPath: String) -> Date? {
             let folderName = projectPath.replacingOccurrences(of: "/", with: "-")
             let projectSessionDir = claudeProjectsPath.appendingPathComponent(folderName)
 
@@ -172,15 +172,10 @@
                 return nil
             }
 
-            guard let mostRecentSessionFile = findMostRecentSessionFile(in: projectSessionDir) else {
-                logger.debug("No session files in directory: \(projectSessionDir.path)")
-                return nil
-            }
-
-            return readLastTimestamp(from: mostRecentSessionFile)
+            return mostRecentSessionDate(in: projectSessionDir)
         }
 
-        private func findMostRecentSessionFile(in directory: URL) -> URL? {
+        private func mostRecentSessionDate(in directory: URL) -> Date? {
             guard
                 let contents = try? fileManager.contentsOfDirectory(
                     at: directory,
@@ -192,56 +187,10 @@
 
             return contents
                 .filter { $0.pathExtension == "jsonl" }
-                .max { lhs, rhs in
-                    let lhsDate = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-                    let rhsDate = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-                    return lhsDate < rhsDate
+                .compactMap { url -> Date? in
+                    try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
                 }
-        }
-
-        private func readLastTimestamp(from url: URL) -> Date? {
-            guard let fileHandle = try? FileHandle(forReadingFrom: url) else {
-                return nil
-            }
-            defer { try? fileHandle.close() }
-
-            let fileSize = fileHandle.seekToEndOfFile()
-            let readSize: UInt64 = min(fileSize, 10_240)
-            fileHandle.seek(toFileOffset: fileSize - readSize)
-
-            guard
-                let data = try? fileHandle.readToEnd(),
-                let content = String(data: data, encoding: .utf8)
-            else {
-                return nil
-            }
-
-            let lines = content.components(separatedBy: .newlines).reversed()
-
-            let dateFormatter = ISO8601DateFormatter()
-            dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
-            for line in lines where !line.isEmpty {
-                let lineData = Data(line.utf8)
-                guard let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
-                    continue
-                }
-
-                if
-                    let timestampString = json["timestamp"] as? String,
-                    let date = dateFormatter.date(from: timestampString) {
-                    return date
-                }
-
-                if
-                    let snapshot = json["snapshot"] as? [String: Any],
-                    let timestampString = snapshot["timestamp"] as? String,
-                    let date = dateFormatter.date(from: timestampString) {
-                    return date
-                }
-            }
-
-            return nil
+                .max()
         }
     }
 
