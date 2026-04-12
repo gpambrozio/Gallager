@@ -222,6 +222,8 @@ public protocol HookBodyProtocol: Codable, Sendable {
 
 /// Fields common to all hook payloads from Claude Code
 public struct CommonHookFields: HookBodyProtocol {
+    public static let permissionRequestEventName = "PermissionRequest"
+
     public let sessionId: String
     public let transcriptPath: String?
     public let cwd: String?
