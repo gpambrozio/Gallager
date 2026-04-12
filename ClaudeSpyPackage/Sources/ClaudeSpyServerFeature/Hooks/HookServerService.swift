@@ -231,7 +231,7 @@ private actor LiveHookServer {
             return emptyResponse()
         }
 
-        if common.agentId != nil {
+        if common.agentId != nil, common.hookEventName != "PermissionRequest" {
             logger.info("Ignoring subagent hook event", metadata: [
                 "agentId": "\(common.agentId ?? "?")",
                 "event": "\(common.hookEventName)",
