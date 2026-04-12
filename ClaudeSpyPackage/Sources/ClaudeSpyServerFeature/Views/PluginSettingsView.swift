@@ -90,10 +90,22 @@
                         Text("Version \(version)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    } else if
+                        case let .installationFailed(summary) = pluginService.state {
+                        Text(summary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
                     }
                 }
 
                 Spacer()
+
+                if
+                    case .installationFailed = pluginService.state,
+                    let failure = pluginService.lastFailure {
+                    PluginFailureDetailsButton(failure: failure)
+                }
 
                 statusActionButton
             }
@@ -133,8 +145,8 @@
                 "Plugin Not Installed"
             case .installing:
                 "Installing..."
-            case let .installationFailed(error):
-                "Installation Failed: \(error)"
+            case .installationFailed:
+                "Installation Failed"
             }
         }
 

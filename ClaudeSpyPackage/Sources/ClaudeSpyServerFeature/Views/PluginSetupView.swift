@@ -144,16 +144,24 @@
 
                 Spacer()
 
-                if shouldShowInstallButton {
-                    Button {
-                        Task {
-                            await pluginService.installPlugin()
-                        }
-                    } label: {
-                        Label("Install", symbol: .arrowDown)
+                VStack(alignment: .trailing) {
+                    if
+                        case .installationFailed = pluginService.state,
+                        let failure = pluginService.lastFailure {
+                        PluginFailureDetailsButton(failure: failure)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(pluginService.state == .installing)
+
+                    if shouldShowInstallButton {
+                        Button {
+                            Task {
+                                await pluginService.installPlugin()
+                            }
+                        } label: {
+                            Label("Install", symbol: .arrowDown)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(pluginService.state == .installing)
+                    }
                 }
             }
             .padding()
@@ -281,6 +289,21 @@
     #Preview("Installation Failed") {
         let service = PluginService()
         service.state = .installationFailed("Plugin installation could not be verified")
+        service.lastFailure = PluginInstallationFailure(
+            summary: "Plugin installation could not be verified",
+            failedStep: "Verify installation",
+            commandLine: nil,
+            exitCode: nil,
+            stdout: nil,
+            stderr: nil,
+            installationLog: "Adding ClaudeSpy marketplace...\nMarketplace added successfully.\nInstalling gallager plugin...\nPlugin installed successfully.",
+            claudePath: "/usr/local/bin/claude",
+            bundledPluginPath: "/Applications/Gallager.app/Contents/Resources/plugin",
+            underlyingError: "After running the install commands, the gallager plugin did not appear in ~/.claude/plugins/installed_plugins.json.",
+            appVersion: "1.19 (42)",
+            osVersion: "macOS 15.3.0",
+            timestamp: Date()
+        )
         return PluginSetupView(skipAutoCheck: true)
             .environment(AppSettings())
             .environment(service)
