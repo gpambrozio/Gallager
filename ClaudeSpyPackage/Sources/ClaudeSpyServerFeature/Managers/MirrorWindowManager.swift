@@ -1,5 +1,6 @@
 import ClaudeSpyCommon
 import ClaudeSpyNetworking
+import Dependencies
 import Foundation
 
 /// Manages pane state, hook events, and session tracking.
@@ -18,6 +19,9 @@ final public class MirrorWindowManager {
 
     /// Interval between session validation checks (in seconds)
     private let validationInterval: TimeInterval = 5
+
+    @ObservationIgnored
+    @Dependency(ProcessRunner.self) private var processRunner
 
     private let settings: AppSettings
     private let tmuxService: TmuxService
@@ -82,6 +86,7 @@ final public class MirrorWindowManager {
                 // Refresh panes and update state
                 let panes = await self.tmuxService.refreshPanes()
                 self.updatePaneStates(from: panes)
+                await self.refreshGitBranches()
             }
         }
     }
@@ -244,11 +249,11 @@ final public class MirrorWindowManager {
         }
 
         // When enabling, auto-approve any pending permission request
-        if enabled,
-           let latestEvent = paneStates[paneId]?.claudeSession?.latestEvent,
-           case let .permissionRequest(body) = latestEvent.action,
-           body.isYoloAutoApprovable
-        {
+        if
+            enabled,
+            let latestEvent = paneStates[paneId]?.claudeSession?.latestEvent,
+            case let .permissionRequest(body) = latestEvent.action,
+            body.isYoloAutoApprovable {
             let eventId = latestEvent.id
             Task { [tmuxService] in
                 do {
@@ -300,6 +305,59 @@ final public class MirrorWindowManager {
                 }
             }
         }
+    }
+
+    // MARK: - Git Branch Detection
+
+    private static let gitPath = "/usr/bin/git"
+
+    /// Refreshes git branch info for all panes that have a current path.
+    func refreshGitBranches() async {
+        var panesForPath: [String: [String]] = [:]
+        for (paneId, state) in paneStates {
+            guard let path = state.currentPath, !path.isEmpty else { continue }
+            panesForPath[path, default: []].append(paneId)
+        }
+
+        await withTaskGroup(of: (String, String?).self) { group in
+            for path in panesForPath.keys {
+                group.addTask { [processRunner] in
+                    let branch = await Self.detectGitBranch(at: path, processRunner: processRunner)
+                    return (path, branch)
+                }
+            }
+
+            for await (path, branch) in group {
+                for paneId in panesForPath[path] ?? [] {
+                    paneStates[paneId]?.gitBranch = branch
+                }
+            }
+        }
+    }
+
+    /// Detects the git branch for a given directory path.
+    /// Returns nil if the path is not inside a git repository.
+    private static func detectGitBranch(
+        at path: String,
+        processRunner: ProcessRunner
+    ) async -> String? {
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        guard
+            let result = try? await processRunner.run(
+                gitPath,
+                ["-C", path, "rev-parse", "--abbrev-ref", "HEAD"],
+                nil,
+                5
+            ) else { return nil }
+
+        guard result.isSuccess else { return nil }
+        let branch = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+        if branch.isEmpty { return nil }
+        // `git rev-parse --abbrev-ref HEAD` returns the literal "HEAD" when the
+        // working copy is in a detached-HEAD state. Surface that explicitly
+        // rather than showing "HEAD" in the sidebar.
+        if branch == "HEAD" { return "(detached)" }
+        return branch
     }
 
     // MARK: - State Cleanup
