@@ -102,6 +102,11 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// Terminal title detected via OSC escape sequences
     public var terminalTitle: String?
 
+    // MARK: - Git State
+
+    /// The git branch name for this pane's current working directory, if it's a git repo
+    public var gitBranch: String?
+
     // MARK: - Claude Session
 
     /// The Claude Code session running in this pane, if any
@@ -140,6 +145,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         isWindowActive: Bool = false,
         customDescription: String? = nil,
         terminalTitle: String? = nil,
+        gitBranch: String? = nil,
         claudeSession: ClaudeSession? = nil,
         yoloMode: Bool = false,
         editorSession: EditorSessionInfo? = nil
@@ -159,6 +165,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         self.isWindowActive = isWindowActive
         self.customDescription = customDescription
         self.terminalTitle = terminalTitle
+        self.gitBranch = gitBranch
         self.claudeSession = claudeSession
         self.yoloMode = yoloMode
         self.editorSession = editorSession

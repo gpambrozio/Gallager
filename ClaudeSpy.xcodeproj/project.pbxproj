@@ -680,15 +680,17 @@
 			inputFileListPaths = (
 			);
 			inputPaths = (
+				"${BUILD_DIR}/${CONFIGURATION}/GallagerEditor",
 			);
 			name = "Copy GallagerEditor to bundle";
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/MacOS/GallagerEditor",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# Build GallagerEditor and copy into app bundle\nEDITOR_PATH=\"${BUILD_DIR}/${CONFIGURATION}/GallagerEditor\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/MacOS/\"\n\nif [ -f \"$EDITOR_PATH\" ]; then\n    cp \"$EDITOR_PATH\" \"$DEST\"\n    codesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" --timestamp=none \"${DEST}/GallagerEditor\"\nelse\n    echo \"warning: GallagerEditor not found at $EDITOR_PATH — build the ClaudeSpyPackage scheme first\"\nfi\n";
+			shellScript = "# Build GallagerEditor and copy into app bundle\nEDITOR_PATH=\"${BUILD_DIR}/${CONFIGURATION}/GallagerEditor\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/MacOS/\"\n\nif [ -f \"$EDITOR_PATH\" ]; then\n    cp \"$EDITOR_PATH\" \"$DEST\"\n    codesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" --options runtime --timestamp \"${DEST}/GallagerEditor\"\nelse\n    echo \"warning: GallagerEditor not found at $EDITOR_PATH — build the ClaudeSpyPackage scheme first\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

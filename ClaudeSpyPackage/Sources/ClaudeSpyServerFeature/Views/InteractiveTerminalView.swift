@@ -122,7 +122,19 @@
                 // Build batched SGR mouse scroll sequences. Each line crossed
                 // produces one ESC[<button;col;rowM sequence. They're concatenated
                 // into a single Data and sent as one tmux send-keys -H call.
-                let lineThreshold: CGFloat = 1
+                //
+                // NSEvent.scrollingDeltaY semantics depend on the device:
+                // - Mouse wheel (hasPreciseScrollingDeltas == false): delta is
+                //   already in *lines*, so the threshold is 1.
+                // - Trackpad (hasPreciseScrollingDeltas == true): delta is in
+                //   *points* (pixels). We divide by the terminal cell height so
+                //   one cell-row of pixel scroll becomes one line event — the
+                //   scroll rate then matches what the user sees visually. Without
+                //   this, a modest swipe of ~40pt would emit ~40 line events and
+                //   the terminal would leap dozens of lines at once.
+                let lineThreshold: CGFloat = event.hasPreciseScrollingDeltas
+                    ? max(interactive.cellSize.height, 1)
+                    : 1
                 var lines = 0
                 while abs(scrollAccumulator) >= lineThreshold {
                     lines += 1

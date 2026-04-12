@@ -6,6 +6,50 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.19</title>
+         <sparkle:version>19</sparkle:version>
+         <sparkle:shortVersionString>1.19</sparkle:shortVersionString>
+         <pubDate>Sat, 11 Apr 2026 16:56:07 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.19 Release Notes
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>In-app prompt editing with Ctrl-G</strong> — Press Ctrl-G to capture and edit prompts directly within the app, powered by the new GallagerEditor integration.</li>
+<li><strong>Git branch in sidebar</strong> — The current git branch is now displayed in the sidebar, giving you immediate visibility into which branch each session is working on.</li>
+<li><strong>Auto-close terminal pane on exit</strong> — New option to automatically close the terminal pane when a Claude Code session ends, keeping your workspace tidy.</li>
+<li><strong>Auto-approve on yolo mode</strong> — Pending permission requests are now automatically approved when you switch to yolo (auto-approve) mode, so you don't have to manually clear the queue.</li>
+<li><strong>PermissionDenied hook</strong> — A new hook fires when a permission request is denied, enabling custom automation workflows around denied actions.</li>
+<li><strong>Mouse support for remote sessions</strong> — Remote viewers can now use mouse input, bringing the remote monitoring experience closer to parity with local sessions.</li>
+<li><strong>Detect running sessions on startup</strong> — ClaudeSpy now detects already-running Claude Code instances when the app launches, so you no longer need to restart sessions for them to appear.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Faster remote typing</strong> — Keystrokes are now batched before being sent to the relay server, significantly improving responsiveness when typing in remote sessions.</li>
+<li><strong>Removed standalone mirror window</strong> — The legacy standalone mirror window feature has been removed, simplifying preferences and reducing maintenance surface.</li>
+<li><strong>Updated setting defaults</strong> — Default settings have been refreshed to better reflect common usage patterns.</li>
+<li><strong>Viewer sessions cleared on host disconnect</strong> — When a host disconnects, remote viewer sessions are now properly cleaned up.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Fixed jumpy trackpad scrolling</strong> — Resolved an issue where scrolling with a trackpad in terminal mouse mode would jump erratically.</li>
+<li><strong>Fixed terminal title for remote viewers</strong> — The terminal title is now correctly sent to remote viewers on their initial connection.</li>
+<li><strong>Fixed permission request attention state</strong> — Permission requests no longer lose their "Needs attention" indicator prematurely.</li>
+<li><strong>Fixed GallagerEditor notarization</strong> — Resolved a build phase warning and notarization issue with the GallagerEditor component.</li>
+<li><strong>Fixed redundant Void return</strong> — Cleaned up a minor code issue in FileSystemLoadingService.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.19.dmg"
+                    sparkle:edSignature="38KmYVwXvHpoGBt8LfH7S5eUhOkusUywS48SNxwmJz9Ysr16jfqIxb1olO2MEW3VBeMaMPzU2c8Vt+yoCZdCDg=="
+                    length="27260605"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.18</title>
          <sparkle:version>18</sparkle:version>
          <sparkle:shortVersionString>1.18</sparkle:shortVersionString>
