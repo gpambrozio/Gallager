@@ -33,6 +33,16 @@ final class FileBrowserState {
     private(set) var reverseIds: [UUID: String] = [:]
     /// Folder paths whose children have been loaded.
     var loadedFolderPaths: Set<String> = []
+    /// All files under the directory, cached for search.
+    var allFiles: [FileSearchResult] = []
+    /// The directory path for which `allFiles` was loaded.
+    var allFilesDirectoryPath: String?
+    /// Current search query, preserved across tab switches.
+    var searchQuery = ""
+    /// Selected file path in search results, preserved across tab switches.
+    var selectedSearchPath: String?
+    /// Cached search results matching the current query.
+    var cachedSearchResults: [FileSearchResult] = []
 }
 
 /// A draggable vertical divider for resizing adjacent views.
@@ -90,18 +100,37 @@ struct FileBrowserView: View {
 
     @Dependency(FileSystemLoadingService.self) private var fileSystemService
 
+    @State private var loadTreeTask: Task<Void, Never>?
+
     var body: some View {
         if let viewState = state.viewState {
             fileBrowserContent(viewState: viewState)
                 .task(id: directoryPath) {
-                    guard state.loadedPath != directoryPath else { return }
-                    await loadTree()
+                    if state.loadedPath != directoryPath {
+                        await loadTree()
+                    }
+                    if state.allFilesDirectoryPath != directoryPath {
+                        state.allFiles = []
+                        state.allFilesDirectoryPath = directoryPath
+                        for await batch in fileSystemService.collectAllFiles(
+                            URL(fileURLWithPath: directoryPath)
+                        ) {
+                            state.allFiles.append(contentsOf: batch)
+                        }
+                    }
                 }
                 .task(id: state.loadedFolderPaths) {
                     var watchedPaths = state.loadedFolderPaths
                     watchedPaths.insert(directoryPath)
                     for await _ in fileSystemService.directoryChanges(watchedPaths) {
                         await loadTree()
+                        var refreshed: [FileSearchResult] = []
+                        for await batch in fileSystemService.collectAllFiles(
+                            URL(fileURLWithPath: directoryPath)
+                        ) {
+                            refreshed.append(contentsOf: batch)
+                        }
+                        state.allFiles = refreshed
                     }
                 }
                 .onChange(of: viewState.expansions) {
@@ -145,7 +174,8 @@ struct FileBrowserView: View {
     }
 
     /// Detects when the user expands a folder whose children haven't been loaded yet,
-    /// and triggers a tree rebuild with that folder's contents.
+    /// and triggers a tree rebuild with that folder's contents. Cancels any in-flight
+    /// reload so rapid expansions don't queue overlapping `loadTree()` calls.
     private func handleExpansionChange(viewState: FileNavigatorViewState<TextFileContents>) {
         for expandedId in viewState.expansions.ids {
             guard let path = state.reverseIds[expandedId] else { continue }
@@ -153,12 +183,115 @@ struct FileBrowserView: View {
 
             // This folder needs its children loaded
             state.loadedFolderPaths.insert(path)
-            Task {
+            loadTreeTask?.cancel()
+            loadTreeTask = Task {
                 await loadTree()
             }
             return
         }
     }
+
+    // MARK: - File Search
+
+    @ViewBuilder
+    private var fileSearchField: some View {
+        HStack(spacing: 6) {
+            Symbols.magnifyingglass.image
+                .foregroundStyle(.secondary)
+                .font(.caption)
+
+            TextField("Search files...", text: $state.searchQuery)
+                .textFieldStyle(.plain)
+                .font(.callout)
+                .accessibilityLabel("Search files")
+
+            if !state.searchQuery.isEmpty {
+                Button {
+                    state.searchQuery = ""
+                    state.selectedSearchPath = nil
+                } label: {
+                    Symbols.xmarkCircleFill.image
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+    }
+
+    /// Recomputes the cached search results from the current `searchQuery` and
+    /// `state.allFiles`. Called via `.onChange` so we don't fuzzy-match thousands
+    /// of files on every SwiftUI render pass.
+    private func recomputeSearchResults() {
+        guard !state.searchQuery.isEmpty else {
+            state.cachedSearchResults = []
+            return
+        }
+        let query = state.searchQuery
+
+        state.cachedSearchResults = Array(
+            state.allFiles
+                .compactMap { result -> (FileSearchResult, Int)? in
+                    guard result.relativePath.fuzzyMatches(query) else { return nil }
+                    return (result, result.name.fileSearchScore(for: query))
+                }
+                .sorted { lhs, rhs in
+                    if lhs.1 != rhs.1 { return lhs.1 > rhs.1 }
+                    return lhs.0.relativePath.count < rhs.0.relativePath.count
+                }
+                .prefix(100)
+                .map(\.0)
+        )
+    }
+
+    @ViewBuilder
+    private var fileSearchResultsList: some View {
+        if state.cachedSearchResults.isEmpty {
+            ContentUnavailableView.search(text: state.searchQuery)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            List(selection: $state.selectedSearchPath) {
+                ForEach(state.cachedSearchResults) { result in
+                    searchResultRow(result)
+                        .tag(result.fullPath)
+                }
+            }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+        }
+    }
+
+    @ViewBuilder
+    private func searchResultRow(_ result: FileSearchResult) -> some View {
+        let directory: String = {
+            guard let lastSlash = result.relativePath.lastIndex(of: "/") else { return "" }
+            return String(result.relativePath[..<lastSlash])
+        }()
+
+        VStack(alignment: .leading, spacing: 2) {
+            Label {
+                Text(result.name)
+                    .font(.callout)
+                    .lineLimit(1)
+            } icon: {
+                Symbols.docPlaintextFill.image
+                    .foregroundStyle(.secondary)
+            }
+
+            if !directory.isEmpty {
+                Text(directory)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .padding(.leading, 24)
+            }
+        }
+    }
+
+    // MARK: - File Browser Content
 
     @ViewBuilder
     private func fileBrowserContent(
@@ -167,45 +300,54 @@ struct FileBrowserView: View {
         @Bindable var bindableState = viewState
 
         HStack(spacing: 0) {
-            List(selection: $bindableState.selection) {
-                FileNavigator(
-                    name: nil as String?,
-                    item: .constant(viewState.fileTree.root),
-                    parent: .constant(nil),
-                    viewState: viewState,
-                    fileLabel: { cursor, _, proxy in
-                        Label {
-                            Text(cursor.name)
-                                .font(.callout)
-                        } icon: {
-                            Symbols.docPlaintextFill.image
-                                .foregroundStyle(.secondary)
-                        }
-                        .fileTreeContextMenu(
-                            itemId: proxy.id,
-                            directoryPath: directoryPath,
-                            reverseIds: state.reverseIds
+            VStack(spacing: 0) {
+                fileSearchField
+                Divider()
+
+                if state.searchQuery.isEmpty {
+                    List(selection: $bindableState.selection) {
+                        FileNavigator(
+                            name: nil as String?,
+                            item: .constant(viewState.fileTree.root),
+                            parent: .constant(nil),
+                            viewState: viewState,
+                            fileLabel: { cursor, _, proxy in
+                                Label {
+                                    Text(cursor.name)
+                                        .font(.callout)
+                                } icon: {
+                                    Symbols.docPlaintextFill.image
+                                        .foregroundStyle(.secondary)
+                                }
+                                .fileTreeContextMenu(
+                                    itemId: proxy.id,
+                                    directoryPath: directoryPath,
+                                    reverseIds: state.reverseIds
+                                )
+                            },
+                            folderLabel: { cursor, _, folder in
+                                Label {
+                                    Text(cursor.name)
+                                        .font(.callout)
+                                } icon: {
+                                    Symbols.folderFill.image
+                                        .foregroundStyle(.blue)
+                                }
+                                .fileTreeContextMenu(
+                                    itemId: folder.wrappedValue.id,
+                                    directoryPath: directoryPath,
+                                    reverseIds: state.reverseIds
+                                )
+                            }
                         )
-                    },
-                    folderLabel: { cursor, _, folder in
-                        Label {
-                            Text(cursor.name)
-                                .font(.callout)
-                        } icon: {
-                            Symbols.folderFill.image
-                                .foregroundStyle(.blue)
-                        }
-                        .fileTreeContextMenu(
-                            itemId: folder.wrappedValue.id,
-                            directoryPath: directoryPath,
-                            reverseIds: state.reverseIds
-                        )
+                        .navigatorFilter { !skippedNavigatorEntries.contains($0) }
                     }
-                )
-                .navigatorFilter { !skippedNavigatorEntries.contains($0) }
+                    .listStyle(.sidebar)
+                    .scrollContentBackground(.hidden)
+                } else {
+                    fileSearchResultsList
+                }
             }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
             .frame(width: state.sidebarWidth)
 
             ResizableDivider(dimension: $state.sidebarWidth, minDimension: 150, maxDimension: 400)
@@ -213,13 +355,50 @@ struct FileBrowserView: View {
             fileDetailView(viewState: viewState)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .onChange(of: state.searchQuery, initial: true) {
+            recomputeSearchResults()
+        }
+        .onChange(of: state.allFiles) {
+            recomputeSearchResults()
+        }
+        .onChange(of: state.cachedSearchResults) {
+            // Drop the selection if the previously selected file is no longer
+            // in the visible result set.
+            if
+                let selected = state.selectedSearchPath,
+                !state.cachedSearchResults.contains(where: { $0.fullPath == selected }) {
+                state.selectedSearchPath = nil
+            }
+        }
     }
 
     @ViewBuilder
     private func fileDetailView(
         viewState: FileNavigatorViewState<TextFileContents>
     ) -> some View {
-        if
+        if !state.searchQuery.isEmpty {
+            if let path = state.selectedSearchPath {
+                let relativePath = path.hasPrefix(directoryPath + "/")
+                    ? String(path.dropFirst(directoryPath.count + 1))
+                    : URL(fileURLWithPath: path).lastPathComponent
+                let directoryName = URL(fileURLWithPath: directoryPath).lastPathComponent
+
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(directoryName + "/" + relativePath)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .padding(8)
+                    Divider()
+                    LiveFileContentView(filePath: path)
+                }
+            } else {
+                ContentUnavailableView(
+                    "Search for Files",
+                    symbol: .magnifyingglass,
+                    description: "Type a file name to search, then select a result to view."
+                )
+            }
+        } else if
             let uuid = viewState.selection,
             viewState.fileTree.proxy(for: uuid).file != nil {
             let filePath = viewState.fileTree.filePath(of: uuid)

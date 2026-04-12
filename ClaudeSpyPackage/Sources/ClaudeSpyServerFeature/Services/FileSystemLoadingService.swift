@@ -51,6 +51,22 @@ public struct FileTreeLoadResult: Sendable {
     }
 }
 
+// MARK: - File Search Result
+
+/// A file found during a directory search, with its path information.
+public struct FileSearchResult: Sendable, Identifiable, Equatable {
+    public var id: String { fullPath }
+    public let fullPath: String
+    public let relativePath: String
+    public let name: String
+
+    public init(fullPath: String, relativePath: String, name: String) {
+        self.fullPath = fullPath
+        self.relativePath = relativePath
+        self.name = name
+    }
+}
+
 // MARK: - Dependency Client
 
 /// Service for all file system operations used by the file browser.
@@ -90,6 +106,17 @@ public struct FileSystemLoadingService: Sendable {
 
     /// Returns an async stream that yields whenever the file at the given path changes on disk.
     public var fileChanges: @Sendable (_ path: String) -> AsyncStream<Void> = { _ in
+        AsyncStream { $0.finish() }
+    }
+
+    /// Streams batches of file paths under a directory for search.
+    ///
+    /// Yields incremental batches as the filesystem is scanned so callers can
+    /// surface partial results without waiting for the full scan to complete.
+    /// In a git work tree the scan honours `.gitignore` (via `git ls-files`);
+    /// otherwise it walks the directory directly, skipping only `.git` and the
+    /// usual OS-level entries.
+    public var collectAllFiles: @Sendable (_ rootURL: URL) -> AsyncStream<[FileSearchResult]> = { _ in
         AsyncStream { $0.finish() }
     }
 }
@@ -202,6 +229,25 @@ extension FileSystemLoadingService: DependencyKey {
                     }
 
                     source.resume()
+                }
+            },
+            collectAllFiles: { url in
+                AsyncStream { continuation in
+                    let task = Task.detached(priority: .utility) {
+                        if isInsideGitWorkTree(at: url) {
+                            collectFilesUsingGit(at: url, continuation: continuation)
+                        } else {
+                            collectFilesByWalking(
+                                at: url,
+                                rootPath: url.path,
+                                continuation: continuation
+                            )
+                        }
+                        continuation.finish()
+                    }
+                    continuation.onTermination = { _ in
+                        task.cancel()
+                    }
                 }
             }
         )
@@ -430,6 +476,38 @@ public extension FileSystemLoadingService {
             },
             fileChanges: { _ in
                 AsyncStream { $0.finish() }
+            },
+            collectAllFiles: { url in
+                let rootPath = url.path
+                var results: [FileSearchResult] = []
+                let effectiveTree: [String: FakeEntry]
+                if dynamicActivated.withLock({ $0 }) {
+                    effectiveTree = tree.merging(dynamicEntries) { _, new in new }
+                } else {
+                    effectiveTree = tree
+                }
+                func collect(_ entries: [String: FakeEntry], prefix: String) {
+                    for (name, entry) in entries.sorted(by: { $0.key < $1.key }) {
+                        let relativePath = prefix.isEmpty ? name : prefix + "/" + name
+                        switch entry {
+                        case .file:
+                            let fullPath = rootPath + "/" + relativePath
+                            results.append(FileSearchResult(
+                                fullPath: fullPath, relativePath: relativePath, name: name
+                            ))
+                        case let .folder(children):
+                            collect(children, prefix: relativePath)
+                        }
+                    }
+                }
+                collect(effectiveTree, prefix: "")
+                let snapshot = results
+                return AsyncStream { continuation in
+                    if !snapshot.isEmpty {
+                        continuation.yield(snapshot)
+                    }
+                    continuation.finish()
+                }
             }
         )
     }
@@ -437,11 +515,164 @@ public extension FileSystemLoadingService {
 
 // MARK: - Private Helpers
 
-/// OS-level files and directories to skip when building the file tree.
+/// OS-level files and directories to skip when building the file tree or
+/// walking the filesystem for search.
 private let skippedEntries: Set<String> = [
     ".DS_Store", ".Trash", ".Spotlight-V100", ".fseventsd",
     ".TemporaryItems", ".DocumentRevisions-V100",
 ]
+
+/// Number of files to accumulate before yielding a batch from `collectAllFiles`.
+private let collectAllFilesBatchSize = 200
+
+/// Returns `true` if `url` (or any ancestor) contains a `.git` directory or file,
+/// which indicates we're inside a git work tree (or worktree of a bare repo).
+private func isInsideGitWorkTree(at url: URL) -> Bool {
+    let fm = FileManager.default
+    var dir = url.standardizedFileURL
+    while true {
+        let gitPath = dir.appendingPathComponent(".git").path
+        if fm.fileExists(atPath: gitPath) { return true }
+        let parent = dir.deletingLastPathComponent()
+        if parent.path == dir.path { return false }
+        dir = parent
+    }
+}
+
+/// Streams file paths from the directory by invoking `git ls-files`, which
+/// honours the project's `.gitignore` rules. Files are yielded in batches.
+private func collectFilesUsingGit(
+    at url: URL,
+    continuation: AsyncStream<[FileSearchResult]>.Continuation
+) {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+    process.arguments = [
+        "-C", url.path,
+        "ls-files",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+        "-z",
+    ]
+
+    let stdoutPipe = Pipe()
+    let stderrPipe = Pipe()
+    process.standardOutput = stdoutPipe
+    process.standardError = stderrPipe
+
+    do {
+        try process.run()
+    } catch {
+        return
+    }
+
+    let rootPath = url.path
+    let handle = stdoutPipe.fileHandleForReading
+    var buffer = Data()
+    var batch: [FileSearchResult] = []
+
+    while true {
+        if Task.isCancelled {
+            if process.isRunning { process.terminate() }
+            break
+        }
+        let chunk = handle.availableData
+        if chunk.isEmpty { break }
+        buffer.append(chunk)
+
+        while let nullIdx = buffer.firstIndex(of: 0) {
+            let pathData = buffer.subdata(in: buffer.startIndex..<nullIdx)
+            buffer.removeSubrange(buffer.startIndex...nullIdx)
+            guard
+                !pathData.isEmpty,
+                let relativePath = String(data: pathData, encoding: .utf8)
+            else { continue }
+
+            let name: String
+            if let lastSlash = relativePath.lastIndex(of: "/") {
+                name = String(relativePath[relativePath.index(after: lastSlash)...])
+            } else {
+                name = relativePath
+            }
+
+            batch.append(FileSearchResult(
+                fullPath: rootPath + "/" + relativePath,
+                relativePath: relativePath,
+                name: name
+            ))
+
+            if batch.count >= collectAllFilesBatchSize {
+                continuation.yield(batch)
+                batch.removeAll(keepingCapacity: true)
+            }
+        }
+    }
+
+    if !batch.isEmpty {
+        continuation.yield(batch)
+    }
+
+    process.waitUntilExit()
+    // Drain stderr to release the FD; ignore content.
+    _ = try? stderrPipe.fileHandleForReading.readToEnd()
+}
+
+/// Recursively walks `url`, yielding batches of file paths. Used as a fallback
+/// when the directory is not part of a git work tree. Skips only `.git` and
+/// the OS-level entries that are never useful in search results.
+private func collectFilesByWalking(
+    at url: URL,
+    rootPath: String,
+    continuation: AsyncStream<[FileSearchResult]>.Continuation
+) {
+    var batch: [FileSearchResult] = []
+    let fm = FileManager.default
+    let prefix = rootPath + "/"
+
+    func walk(_ dir: URL) {
+        guard !Task.isCancelled else { return }
+        guard
+            let items = try? fm.contentsOfDirectory(
+                at: dir,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: []
+            )
+        else { return }
+
+        for item in items {
+            if Task.isCancelled { return }
+            let name = item.lastPathComponent
+            if skippedEntries.contains(name) { continue }
+            if name == ".git" { continue }
+
+            let isDirectory = (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+            if isDirectory {
+                walk(item)
+            } else {
+                let fullPath = item.path
+                let relativePath = fullPath.hasPrefix(prefix)
+                    ? String(fullPath.dropFirst(prefix.count))
+                    : name
+                batch.append(FileSearchResult(
+                    fullPath: fullPath,
+                    relativePath: relativePath,
+                    name: name
+                ))
+                if batch.count >= collectAllFilesBatchSize {
+                    continuation.yield(batch)
+                    batch.removeAll(keepingCapacity: true)
+                }
+            }
+        }
+    }
+
+    walk(url)
+
+    if !batch.isEmpty {
+        continuation.yield(batch)
+    }
+}
 
 // FullFileOrFolder contains File which wraps FileWrapper (not Sendable).
 // Safe here because we only transfer the tree once from Task.detached back to MainActor,
