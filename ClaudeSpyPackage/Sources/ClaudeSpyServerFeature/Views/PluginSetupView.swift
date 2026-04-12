@@ -13,7 +13,16 @@
         @State private var showCopiedFeedback = false
         @State private var feedbackResetTrigger: UUID?
 
-        public init() { }
+        private let skipAutoCheck: Bool
+
+        public init() {
+            self.skipAutoCheck = false
+        }
+
+        /// For previews only — skips the automatic `checkInstallation` task.
+        package init(skipAutoCheck: Bool) {
+            self.skipAutoCheck = skipAutoCheck
+        }
 
         public var body: some View {
             VStack(spacing: 24) {
@@ -23,16 +32,18 @@
                 Divider()
 
                 // Content based on state
-                contentSection
-
-                Spacer()
+                ScrollView {
+                    contentSection
+                }
+                .scrollBounceBehavior(.basedOnSize)
 
                 // Footer actions
                 footerSection
             }
             .padding(24)
-            .frame(width: 500, height: 450)
+            .frame(width: 500, height: 500)
             .task {
+                guard !skipAutoCheck else { return }
                 await pluginService.checkInstallation()
             }
             .task(id: feedbackResetTrigger) {
@@ -85,23 +96,32 @@
                 }
 
                 // Manual instructions disclosure
-                DisclosureGroup("Manual Installation", isExpanded: $showingInstructions) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(pluginService.manualInstructions)
-                            .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
-                            .padding(8)
-                            .background(Color(nsColor: .textBackgroundColor))
-                            .cornerRadius(4)
-
-                        Button {
-                            copyToClipboard(pluginService.manualInstructions)
-                        } label: {
-                            Label(showCopiedFeedback ? "Copied!" : "Copy Commands", symbol: .docOnClipboard)
+                DisclosureGroup(
+                    isExpanded: $showingInstructions,
+                    content: {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(pluginService.manualInstructions)
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                                .padding(8)
+                                .background(Color(nsColor: .textBackgroundColor))
+                                .cornerRadius(4)
                         }
-                        .buttonStyle(.bordered)
+                    },
+                    label: {
+                        HStack {
+                            Text("Manual Installation")
+                            Button {
+                                copyToClipboard(pluginService.manualInstructions)
+                            } label: {
+                                Label(showCopiedFeedback ? "Copied!" : "Copy Commands", symbol: .docOnClipboard)
+                            }
+                            .buttonStyle(.bordered)
+
+                            Spacer()
+                        }
                     }
-                }
+                )
                 .padding(.horizontal)
             }
         }
@@ -119,6 +139,7 @@
                     Text(statusSubtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 Spacer()
@@ -210,20 +231,22 @@
         @ViewBuilder
         private var footerSection: some View {
             HStack {
-                Button("Skip for Now") {
-                    settings.hasCompletedPluginSetup = true
-                    dismiss()
-                }
-                .buttonStyle(.bordered)
-
-                Spacer()
-
                 if case .installed = pluginService.state {
+                    Spacer()
+
                     Button("Get Started") {
                         settings.hasCompletedPluginSetup = true
                         dismiss()
                     }
                     .buttonStyle(.borderedProminent)
+                } else {
+                    Button("Skip for Now") {
+                        settings.hasCompletedPluginSetup = true
+                        dismiss()
+                    }
+                    .buttonStyle(.bordered)
+
+                    Spacer()
                 }
             }
         }
@@ -237,5 +260,29 @@
             showCopiedFeedback = true
             feedbackResetTrigger = UUID()
         }
+    }
+
+    #Preview("Not Installed") {
+        let service = PluginService()
+        service.state = .notInstalled
+        return PluginSetupView(skipAutoCheck: true)
+            .environment(AppSettings())
+            .environment(service)
+    }
+
+    #Preview("Installed") {
+        let service = PluginService()
+        service.state = .installed(version: "1.0.0")
+        return PluginSetupView(skipAutoCheck: true)
+            .environment(AppSettings())
+            .environment(service)
+    }
+
+    #Preview("Installation Failed") {
+        let service = PluginService()
+        service.state = .installationFailed("Plugin installation could not be verified")
+        return PluginSetupView(skipAutoCheck: true)
+            .environment(AppSettings())
+            .environment(service)
     }
 #endif

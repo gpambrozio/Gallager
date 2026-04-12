@@ -35,7 +35,7 @@
         @Dependency(ClaudePathDetector.self) private var claudePathDetector
 
         /// Current plugin state
-        public private(set) var state: State = .unknown
+        public package(set) var state: State = .unknown
 
         /// Path to the bundled plugin (in app Resources)
         public var bundledPluginPath: URL? {
@@ -43,7 +43,7 @@
         }
 
         /// Installation output for display
-        public private(set) var installationOutput = ""
+        public package(set) var installationOutput = ""
 
         // MARK: - Claude Plugin Paths
 
