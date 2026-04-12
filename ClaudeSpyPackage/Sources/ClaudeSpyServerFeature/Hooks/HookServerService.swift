@@ -231,7 +231,8 @@ private actor LiveHookServer {
             return emptyResponse()
         }
 
-        if common.agentId != nil, common.hookEventName != "PermissionRequest" {
+        // PermissionRequest events require user interaction, so always forward them even from subagents
+        if common.agentId != nil, common.hookEventName != CommonHookFields.permissionRequestEventName {
             logger.info("Ignoring subagent hook event", metadata: [
                 "agentId": "\(common.agentId ?? "?")",
                 "event": "\(common.hookEventName)",
