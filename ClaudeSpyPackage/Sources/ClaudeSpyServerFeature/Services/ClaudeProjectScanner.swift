@@ -160,22 +160,43 @@
         }
 
         private func getLastUsedTimestamp(projectPath: String, data: [String: Any]) -> Date? {
-            guard let sessionId = data["lastSessionId"] as? String else {
-                logger.debug("No lastSessionId for project: \(projectPath)")
-                return nil
-            }
-
             let folderName = projectPath.replacingOccurrences(of: "/", with: "-")
-            let sessionFilePath = claudeProjectsPath
-                .appendingPathComponent(folderName)
-                .appendingPathComponent("\(sessionId).jsonl")
+            let projectSessionDir = claudeProjectsPath.appendingPathComponent(folderName)
 
-            guard fileManager.fileExists(atPath: sessionFilePath.path) else {
-                logger.debug("Session file not found: \(sessionFilePath.path)")
+            var isDirectory: ObjCBool = false
+            guard
+                fileManager.fileExists(atPath: projectSessionDir.path, isDirectory: &isDirectory),
+                isDirectory.boolValue
+            else {
+                logger.debug("No session directory for project: \(projectPath)")
                 return nil
             }
 
-            return readLastTimestamp(from: sessionFilePath)
+            guard let mostRecentSessionFile = findMostRecentSessionFile(in: projectSessionDir) else {
+                logger.debug("No session files in directory: \(projectSessionDir.path)")
+                return nil
+            }
+
+            return readLastTimestamp(from: mostRecentSessionFile)
+        }
+
+        private func findMostRecentSessionFile(in directory: URL) -> URL? {
+            guard
+                let contents = try? fileManager.contentsOfDirectory(
+                    at: directory,
+                    includingPropertiesForKeys: [.contentModificationDateKey],
+                    options: .skipsHiddenFiles
+                ) else {
+                return nil
+            }
+
+            return contents
+                .filter { $0.pathExtension == "jsonl" }
+                .max { lhs, rhs in
+                    let lhsDate = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                    let rhsDate = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                    return lhsDate < rhsDate
+                }
         }
 
         private func readLastTimestamp(from url: URL) -> Date? {
