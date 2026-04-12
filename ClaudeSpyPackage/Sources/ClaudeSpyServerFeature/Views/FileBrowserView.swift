@@ -169,7 +169,7 @@ struct FileBrowserView: View {
         HStack(spacing: 0) {
             List(selection: $bindableState.selection) {
                 FileNavigator(
-                    name: String?.none,
+                    name: nil as String?,
                     item: .constant(viewState.fileTree.root),
                     parent: .constant(nil),
                     viewState: viewState,
