@@ -1,7 +1,22 @@
 #if os(macOS)
     import AppKit
     import ClaudeSpyCommon
+    import Foundation
     import SwiftUI
+
+    /// Common paths where tmux may be installed.
+    private let tmuxSearchPaths = [
+        "/opt/homebrew/bin/tmux",
+        "/usr/local/bin/tmux",
+        "/opt/local/bin/tmux",
+        "/usr/bin/tmux",
+    ]
+
+    /// Searches common paths for the tmux binary.
+    /// Returns the first valid executable path found, or nil.
+    public func findTmuxBinary() -> String? {
+        tmuxSearchPaths.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
 
     /// Dialog shown at startup when tmux is not installed.
     ///
@@ -54,7 +69,7 @@
             .task {
                 // Poll for tmux every second
                 while !Task.isCancelled {
-                    if let path = Self.findTmux() {
+                    if let path = findTmuxBinary() {
                         onTmuxFound(path)
                         dismiss()
                         return
@@ -106,8 +121,8 @@
                     if hasMacPorts {
                         commandCard(
                             title: "Install with MacPorts",
-                            command: "port install tmux",
-                            description: "Installs tmux using MacPorts."
+                            command: "sudo port install tmux",
+                            description: "Installs tmux using MacPorts (requires administrator password)."
                         )
                     }
                 } else {
@@ -191,15 +206,7 @@
             feedbackResetTrigger = UUID()
         }
 
-        // MARK: - tmux Detection
-
-        /// Common paths where tmux may be installed.
-        private static let tmuxSearchPaths = [
-            "/opt/homebrew/bin/tmux",
-            "/usr/local/bin/tmux",
-            "/opt/local/bin/tmux",
-            "/usr/bin/tmux",
-        ]
+        // MARK: - Package Manager Detection
 
         /// Common Homebrew installation paths.
         private static let brewPaths = [
@@ -209,12 +216,6 @@
 
         /// MacPorts binary path.
         private static let portPath = "/opt/local/bin/port"
-
-        /// Searches common paths for the tmux binary.
-        /// Returns the first valid executable path found, or nil.
-        public static func findTmux() -> String? {
-            tmuxSearchPaths.first { FileManager.default.isExecutableFile(atPath: $0) }
-        }
     }
 
     // MARK: - Previews

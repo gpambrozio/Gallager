@@ -8,6 +8,7 @@ import SwiftUI
 struct TmuxPaneMirrorApp: App {
     @State private var coordinator: AppCoordinator
     @State private var showingTmuxInstallGuide: Bool
+    @State private var pluginSetupCheckTrigger = 0
     @State private var showingPluginSetup = false
     @State private var showingLaunchAtLoginPrompt = false
     @State private var updaterController: UpdaterController
@@ -17,7 +18,7 @@ struct TmuxPaneMirrorApp: App {
         _updaterController = State(initialValue: UpdaterController(startUpdater: !isE2E))
 
         // Check if tmux is available at any common path (skip check in E2E tests)
-        let tmuxFound = isE2E || TmuxInstallationGuideView.findTmux() != nil
+        let tmuxFound = isE2E || findTmuxBinary() != nil
         _showingTmuxInstallGuide = State(initialValue: !tmuxFound)
 
         // Bootstrap logging FIRST, before any Logger instances are created
@@ -218,7 +219,7 @@ struct TmuxPaneMirrorApp: App {
                 }
                 .sheet(isPresented: $showingTmuxInstallGuide, onDismiss: {
                     // After tmux is found, proceed with the plugin setup chain
-                    checkForPluginSetup()
+                    pluginSetupCheckTrigger += 1
                 }) {
                     TmuxInstallationGuideView { foundPath in
                         coordinator.settings.tmuxPath = foundPath
@@ -227,7 +228,11 @@ struct TmuxPaneMirrorApp: App {
                 .task {
                     // Only run first-launch dialogs if tmux is already installed
                     guard !showingTmuxInstallGuide else { return }
-                    checkForPluginSetup()
+                    pluginSetupCheckTrigger += 1
+                }
+                .task(id: pluginSetupCheckTrigger) {
+                    guard pluginSetupCheckTrigger > 0 else { return }
+                    await checkForPluginSetup()
                 }
                 .sheet(isPresented: $showingPluginSetup, onDismiss: {
                     // After plugin setup is dismissed, check for launch at login prompt
@@ -334,21 +339,19 @@ struct TmuxPaneMirrorApp: App {
     }
 
     /// Checks if we should show the plugin setup on first launch.
-    /// Called after tmux is confirmed available, or directly if tmux was already installed.
-    private func checkForPluginSetup() {
-        Task {
-            if !coordinator.settings.hasCompletedPluginSetup {
-                await coordinator.pluginService.checkInstallation()
+    /// Driven by `pluginSetupCheckTrigger` via `.task(id:)`.
+    private func checkForPluginSetup() async {
+        if !coordinator.settings.hasCompletedPluginSetup {
+            await coordinator.pluginService.checkInstallation()
 
-                if case .notInstalled = coordinator.pluginService.state {
-                    showingPluginSetup = true
-                } else if case .installed = coordinator.pluginService.state {
-                    coordinator.settings.hasCompletedPluginSetup = true
-                    checkForLaunchAtLoginPrompt()
-                }
-            } else {
+            if case .notInstalled = coordinator.pluginService.state {
+                showingPluginSetup = true
+            } else if case .installed = coordinator.pluginService.state {
+                coordinator.settings.hasCompletedPluginSetup = true
                 checkForLaunchAtLoginPrompt()
             }
+        } else {
+            checkForLaunchAtLoginPrompt()
         }
     }
 
