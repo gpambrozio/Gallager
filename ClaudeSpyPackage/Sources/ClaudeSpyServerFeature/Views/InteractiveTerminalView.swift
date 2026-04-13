@@ -56,14 +56,6 @@
         /// emit one scroll event per line crossed.
         private var scrollAccumulator: CGFloat = 0
 
-        /// Tracks whether the current mouse gesture (mouseDown → drag → mouseUp)
-        /// is forcing local text selection by temporarily disabling SwiftTerm's
-        /// mouse reporting. Set on Shift+mouseDown when mouse mode is active,
-        /// cleared on mouseUp. This follows the standard terminal emulator
-        /// convention (iTerm2, Terminal.app, xterm) where Shift bypasses mouse
-        /// reporting so the user can select text even when the app owns the mouse.
-        private var forceLocalSelection = false
-
         override var acceptsFirstResponder: Bool { false }
 
         override func hitTest(_ point: NSPoint) -> NSView? {
@@ -108,13 +100,9 @@
             // and batch them into a single onRawInput call. This is critical because
             // each onRawInput spawns one tmux subprocess — batching N scroll lines
             // into one call avoids N separate process forks.
-            //
-            // Shift+scroll bypasses mouse reporting and scrolls the local terminal
-            // scrollback, matching the standard terminal emulator convention.
             if
                 let interactive = interactiveView,
                 interactive.isMouseModeActive,
-                !event.modifierFlags.contains(.shift),
                 let tv = terminalView {
                 let deltaY = event.scrollingDeltaY
                 guard deltaY != 0 else { return }
@@ -170,19 +158,6 @@
         }
 
         override func mouseDown(with event: NSEvent) {
-            // Reset any stale state from an interrupted prior gesture.
-            if forceLocalSelection {
-                terminalView?.allowMouseReporting = true
-                forceLocalSelection = false
-            }
-            // Shift+click bypasses mouse reporting so the user can select text
-            // even when the terminal app has mouse mode enabled.
-            if
-                event.modifierFlags.contains(.shift),
-                interactiveView?.isMouseModeActive == true {
-                forceLocalSelection = true
-                terminalView?.allowMouseReporting = false
-            }
             terminalView?.mouseDown(with: event)
             onMouseDown?()
         }
@@ -195,7 +170,6 @@
             // directly via onRawInput also avoids the motion-event filter in
             // send(source:data:) which suppresses SwiftTerm-internal tracking.
             if
-                !forceLocalSelection,
                 let interactive = interactiveView,
                 interactive.isMouseModeActive,
                 let tv = terminalView {
@@ -219,24 +193,6 @@
         }
 
         override func mouseUp(with event: NSEvent) {
-            // End of a Shift+drag local selection gesture — restore mouse reporting
-            // and handle auto-copy the same way as when mouse mode is off.
-            if forceLocalSelection {
-                // Call mouseUp before restoring reporting so SwiftTerm finalises
-                // selection without emitting an SGR release escape to the terminal app.
-                terminalView?.mouseUp(with: event)
-                terminalView?.allowMouseReporting = true
-                forceLocalSelection = false
-
-                if
-                    let interactive = interactiveView,
-                    interactive.autoCopyOnSelect,
-                    interactive.getSelectedTextTrimmed() != nil {
-                    interactive.copySelectionToClipboard()
-                }
-                return
-            }
-
             // When mouse mode is active, skip URL detection and auto-copy —
             // the terminal app owns mouse interaction.
             if interactiveView?.isMouseModeActive == true {
@@ -961,11 +917,6 @@
             terminalView.keyDown(with: event)
         }
 
-        override func flagsChanged(with event: NSEvent) {
-            super.flagsChanged(with: event)
-            updateCursor(for: event)
-        }
-
         // MARK: - URL Detection
 
         /// Bridges SwiftTerm's `Terminal` to the closures expected by `TerminalURLDetector`.
@@ -1175,15 +1126,9 @@
 
         /// Called by the system's cursor tracking when the cursor enters/moves within the view.
         /// Sets the cursor based on mouse mode and whether the mouse is over a detected URL.
-        /// When mouse mode is active but Shift is held, shows iBeam to hint that text
-        /// selection is available.
         private func updateCursor(for event: NSEvent) {
             if isMouseModeActive {
-                if event.modifierFlags.contains(.shift) {
-                    NSCursor.iBeam.set()
-                } else {
-                    NSCursor.arrow.set()
-                }
+                NSCursor.arrow.set()
             } else if isOverURL {
                 NSCursor.pointingHand.set()
             } else {
