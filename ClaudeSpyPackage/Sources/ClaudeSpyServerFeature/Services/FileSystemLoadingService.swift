@@ -39,15 +39,19 @@ public struct FileTreeLoadResult: Sendable {
     public let stableIds: [String: UUID]
     /// Filesystem paths of folders whose children have been loaded.
     public let loadedFolderPaths: Set<String>
+    /// Filesystem paths where `contentsOfDirectory` failed, likely due to TCC denial.
+    public let accessDeniedPaths: Set<String>
 
     public init(
         root: FullFileOrFolder<TextFileContents>,
         stableIds: [String: UUID],
-        loadedFolderPaths: Set<String>
+        loadedFolderPaths: Set<String>,
+        accessDeniedPaths: Set<String> = []
     ) {
         self.root = root
         self.stableIds = stableIds
         self.loadedFolderPaths = loadedFolderPaths
+        self.accessDeniedPaths = accessDeniedPaths
     }
 }
 
@@ -130,15 +134,22 @@ extension FileSystemLoadingService: DependencyKey {
                 await Task.detached {
                     var ids = stableIds
                     var loadedPaths = Set<String>()
+                    var deniedPaths = Set<String>()
                     let root = loadDirectory(
                         at: url,
                         path: url.path,
                         depth: 1,
                         expandedPaths: expandedPaths,
                         stableIds: &ids,
-                        loadedPaths: &loadedPaths
+                        loadedPaths: &loadedPaths,
+                        accessDeniedPaths: &deniedPaths
                     )
-                    return FileTreeLoadResult(root: root, stableIds: ids, loadedFolderPaths: loadedPaths)
+                    return FileTreeLoadResult(
+                        root: root,
+                        stableIds: ids,
+                        loadedFolderPaths: loadedPaths,
+                        accessDeniedPaths: deniedPaths
+                    )
                 }.value
             },
             detectFileKind: { path in
@@ -522,6 +533,24 @@ private let skippedEntries: Set<String> = [
     ".TemporaryItems", ".DocumentRevisions-V100",
 ]
 
+/// Directories under `~` that macOS protects with TCC (Transparency, Consent, and Control).
+/// Accessing these triggers individual permission prompts. We defer loading their contents
+/// until the user explicitly expands them in the file navigator, avoiding a burst of
+/// back-to-back permission dialogs on first launch.
+private let tccProtectedFolderNames: Set<String> = [
+    "Desktop", "Documents", "Downloads", "Music", "Movies", "Pictures",
+]
+
+/// Returns `true` when `childPath` is a TCC-protected folder directly under the
+/// user's home directory.
+private func isTCCProtectedFolder(_ childPath: String) -> Bool {
+    let home = FileManager.default.homeDirectoryForCurrentUser.path
+    let parent = (childPath as NSString).deletingLastPathComponent
+    guard parent == home else { return false }
+    let name = (childPath as NSString).lastPathComponent
+    return tccProtectedFolderNames.contains(name)
+}
+
 /// Number of files to accumulate before yielding a batch from `collectAllFiles`.
 private let collectAllFilesBatchSize = 200
 
@@ -648,6 +677,8 @@ private func collectFilesByWalking(
 
             let isDirectory = (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
             if isDirectory {
+                // Skip TCC-protected folders to avoid permission prompts during search indexing
+                if isTCCProtectedFolder(item.path) { continue }
                 walk(item)
             } else {
                 let fullPath = item.path
@@ -687,13 +718,25 @@ private func loadDirectory(
     depth: Int,
     expandedPaths: Set<String>,
     stableIds: inout [String: UUID],
-    loadedPaths: inout Set<String>
+    loadedPaths: inout Set<String>,
+    accessDeniedPaths: inout Set<String>
 ) -> FullFileOrFolder<TextFileContents> {
     let folderUUID = stableIds[path] ?? {
         let id = UUID()
         stableIds[path] = id
         return id
     }()
+
+    // Only load children if we're within depth or this folder is explicitly expanded.
+    // Check this BEFORE touching the filesystem to avoid triggering TCC prompts
+    // for folders whose contents we won't display anyway.
+    let shouldLoadChildren = depth > 0 || expandedPaths.contains(path)
+
+    // TCC-protected folders under ~ get deferred until the user explicitly expands them.
+    // This avoids a burst of permission dialogs when opening the file browser at ~.
+    if !shouldLoadChildren || (isTCCProtectedFolder(path) && !expandedPaths.contains(path)) {
+        return .folder(FullFolder<TextFileContents>(children: [:], persistentID: folderUUID))
+    }
 
     let fm = FileManager.default
     guard
@@ -703,12 +746,11 @@ private func loadDirectory(
             options: []
         )
     else {
-        return .folder(FullFolder<TextFileContents>(children: [:], persistentID: folderUUID))
-    }
-
-    // Only load children if we're within depth or this folder is explicitly expanded
-    let shouldLoadChildren = depth > 0 || expandedPaths.contains(path)
-    guard shouldLoadChildren else {
+        // If this is a TCC-protected folder the user tried to expand, the failure
+        // likely means they denied the permission prompt.
+        if isTCCProtectedFolder(path) {
+            accessDeniedPaths.insert(path)
+        }
         return .folder(FullFolder<TextFileContents>(children: [:], persistentID: folderUUID))
     }
 
@@ -731,7 +773,8 @@ private func loadDirectory(
                 depth: depth - 1,
                 expandedPaths: expandedPaths,
                 stableIds: &stableIds,
-                loadedPaths: &loadedPaths
+                loadedPaths: &loadedPaths,
+                accessDeniedPaths: &accessDeniedPaths
             )
         } else {
             let fileUUID = stableIds[childPath] ?? {

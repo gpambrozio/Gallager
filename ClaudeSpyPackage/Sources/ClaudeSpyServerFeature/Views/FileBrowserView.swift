@@ -37,6 +37,8 @@ final class FileBrowserState {
     var allFiles: [FileSearchResult] = []
     /// The directory path for which `allFiles` was loaded.
     var allFilesDirectoryPath: String?
+    /// Folder paths where access was denied (likely TCC rejection).
+    var accessDeniedPaths: Set<String> = []
     /// Current search query, preserved across tab switches.
     var searchQuery = ""
     /// Selected file path in search results, preserved across tab switches.
@@ -171,6 +173,7 @@ struct FileBrowserView: View {
         state.loadedPath = directoryPath
         state.stableIds = result.stableIds
         state.loadedFolderPaths = result.loadedFolderPaths
+        state.accessDeniedPaths.formUnion(result.accessDeniedPaths)
     }
 
     /// Detects when the user expands a folder whose children haven't been loaded yet,
@@ -428,18 +431,41 @@ struct FileBrowserView: View {
         } else if
             let uuid = viewState.selection,
             viewState.fileTree.proxy(for: uuid).file == nil {
-            // A folder is selected
-            ContentUnavailableView(
-                "Folder Selected",
-                symbol: .folder,
-                description: "Select a file to view its contents."
-            )
+            // A folder is selected — check if it was denied by TCC
+            if
+                let folderPath = state.reverseIds[uuid],
+                state.accessDeniedPaths.contains(folderPath) {
+                accessDeniedView(folderName: URL(fileURLWithPath: folderPath).lastPathComponent)
+            } else {
+                ContentUnavailableView(
+                    "Folder Selected",
+                    symbol: .folder,
+                    description: "Select a file to view its contents."
+                )
+            }
         } else {
             ContentUnavailableView(
                 "Select a File",
                 symbol: .docPlaintextFill,
                 description: "Choose a file from the navigator to view its contents."
             )
+        }
+    }
+
+    // MARK: - Access Denied
+
+    @ViewBuilder
+    private func accessDeniedView(folderName: String) -> some View {
+        ContentUnavailableView {
+            Label("Access Denied", symbol: .lockTriangleBadgeExclamationmark)
+        } description: {
+            Text("Gallager doesn't have permission to access \(folderName). Grant Full Disk Access in System Settings to browse protected folders.")
+        } actions: {
+            Button("Open System Settings") {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
         }
     }
 }
