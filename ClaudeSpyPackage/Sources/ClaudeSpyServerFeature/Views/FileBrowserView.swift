@@ -103,6 +103,7 @@ struct FileBrowserView: View {
     @Dependency(FileSystemLoadingService.self) private var fileSystemService
 
     @State private var loadTreeTask: Task<Void, Never>?
+    @State private var accessDeniedFolder: String?
 
     var body: some View {
         if let viewState = state.viewState {
@@ -137,6 +138,29 @@ struct FileBrowserView: View {
                 }
                 .onChange(of: viewState.expansions) {
                     handleExpansionChange(viewState: viewState)
+                }
+                .alert(
+                    "Access Denied",
+                    isPresented: Binding(
+                        get: { accessDeniedFolder != nil },
+                        set: { if !$0 { accessDeniedFolder = nil } }
+                    )
+                ) {
+                    Button("Open System Settings") {
+                        if
+                            let url = URL(
+                                string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+                            ) {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    Button("OK", role: .cancel) { }
+                } message: {
+                    if let folder = accessDeniedFolder {
+                        Text(
+                            "Gallager doesn't have permission to access \(folder). Open System Settings \u{2192} Privacy & Security \u{2192} Full Disk Access, click the + button, and add Gallager from your Applications folder."
+                        )
+                    }
                 }
         } else {
             ProgressView("Loading files...")
@@ -173,7 +197,11 @@ struct FileBrowserView: View {
         state.loadedPath = directoryPath
         state.stableIds = result.stableIds
         state.loadedFolderPaths = result.loadedFolderPaths
+        let newDenials = result.accessDeniedPaths.subtracting(state.accessDeniedPaths)
         state.accessDeniedPaths.formUnion(result.accessDeniedPaths)
+        if let first = newDenials.first {
+            accessDeniedFolder = URL(fileURLWithPath: first).lastPathComponent
+        }
     }
 
     /// Detects when the user expands a folder whose children haven't been loaded yet,
@@ -459,7 +487,7 @@ struct FileBrowserView: View {
         ContentUnavailableView {
             Label("Access Denied", symbol: .lockTriangleBadgeExclamationmark)
         } description: {
-            Text("Gallager doesn't have permission to access \(folderName). Grant Full Disk Access in System Settings to browse protected folders.")
+            Text("Gallager doesn't have permission to access \(folderName). Open System Settings \u{2192} Privacy & Security \u{2192} Full Disk Access, click the + button, and add Gallager from your Applications folder.")
         } actions: {
             Button("Open System Settings") {
                 if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
