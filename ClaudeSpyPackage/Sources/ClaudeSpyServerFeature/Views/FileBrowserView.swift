@@ -198,7 +198,7 @@ struct FileBrowserView: View {
         state.stableIds = result.stableIds
         state.loadedFolderPaths = result.loadedFolderPaths
         let newDenials = result.accessDeniedPaths.subtracting(state.accessDeniedPaths)
-        state.accessDeniedPaths.formUnion(result.accessDeniedPaths)
+        state.accessDeniedPaths = result.accessDeniedPaths
         if let first = newDenials.first {
             accessDeniedFolder = URL(fileURLWithPath: first).lastPathComponent
         }

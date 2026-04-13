@@ -541,10 +541,12 @@ private let tccProtectedFolderNames: Set<String> = [
     "Desktop", "Documents", "Downloads", "Music", "Movies", "Pictures",
 ]
 
+private let userHomePath = FileManager.default.homeDirectoryForCurrentUser.path
+
 /// Returns `true` when `childPath` is a TCC-protected folder directly under the
 /// user's home directory.
 private func isTCCProtectedFolder(_ childPath: String) -> Bool {
-    let home = FileManager.default.homeDirectoryForCurrentUser.path
+    let home = userHomePath
     let parent = (childPath as NSString).deletingLastPathComponent
     guard parent == home else { return false }
     let name = (childPath as NSString).lastPathComponent
@@ -677,8 +679,6 @@ private func collectFilesByWalking(
 
             let isDirectory = (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
             if isDirectory {
-                // Skip TCC-protected folders to avoid permission prompts during search indexing
-                if isTCCProtectedFolder(item.path) { continue }
                 walk(item)
             } else {
                 let fullPath = item.path
