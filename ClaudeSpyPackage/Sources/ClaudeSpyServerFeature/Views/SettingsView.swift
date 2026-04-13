@@ -198,6 +198,40 @@ struct GeneralSettingsView: View {
                     .help("Automatically close the tmux pane after Claude Code exits normally")
             }
 
+            Section("Project Folders") {
+                Text("Directories containing .claude.json and .claude/ to scan for projects.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                LabeledContent("Default") {
+                    Text("~/.claude")
+                        .foregroundStyle(.secondary)
+                }
+
+                ForEach(Array(settings.additionalClaudeFolders.enumerated()), id: \.offset) { index, folder in
+                    HStack {
+                        Text(abbreviatePath(folder))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(folder)
+                        Spacer()
+                        Button {
+                            settings.removeClaudeFolder(at: IndexSet(integer: index))
+                        } label: {
+                            Symbols.minusCircleFill.image
+                                .foregroundStyle(.red)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Remove this folder")
+                    }
+                }
+
+                Button("Add Folder...") {
+                    browseForClaudeFolder(settings: settings)
+                }
+                .help("Add a directory that contains a .claude.json config and .claude/projects/ session data")
+            }
+
             Section("Updates") {
                 Toggle(
                     "Automatically check for updates",
@@ -291,6 +325,29 @@ private func browseForClaude(settings: AppSettings) {
     if panel.runModal() == .OK, let url = panel.url {
         settings.claudeCommandPath = url.path
     }
+}
+
+@MainActor
+private func browseForClaudeFolder(settings: AppSettings) {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = false
+    panel.canChooseDirectories = true
+    panel.allowsMultipleSelection = false
+    panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+    panel.message = "Select a directory containing .claude.json and .claude/"
+    panel.prompt = "Add Folder"
+
+    if panel.runModal() == .OK, let url = panel.url {
+        settings.addClaudeFolder(url.path)
+    }
+}
+
+private func abbreviatePath(_ path: String) -> String {
+    let home = FileManager.default.homeDirectoryForCurrentUser.path
+    if path.hasPrefix(home) {
+        return "~" + path.dropFirst(home.count)
+    }
+    return path
 }
 
 #Preview {

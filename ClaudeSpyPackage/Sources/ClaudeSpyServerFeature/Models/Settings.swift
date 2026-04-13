@@ -240,6 +240,13 @@ final public class AppSettings {
         didSet { preferences.setString(sidebarSortMode.rawValue, Keys.sidebarSortMode) }
     }
 
+    // MARK: - Project Scanning Settings
+
+    /// Additional directories to scan for Claude projects (each should contain .claude.json and .claude/projects/)
+    public var additionalClaudeFolders: [String] = [] {
+        didSet { saveAdditionalClaudeFolders() }
+    }
+
     // MARK: - Plugin Settings
 
     /// Whether the user has completed the plugin setup (or dismissed it)
@@ -313,6 +320,9 @@ final public class AppSettings {
             rawValue: preferences.string(Keys.sidebarSortMode) ?? ""
         ) ?? .statusPriorityIdleFirst
 
+        // Project Scanning
+        self.additionalClaudeFolders = Self.loadCodable(from: preferences, key: Keys.additionalClaudeFolders)
+
         // Plugin
         self.hasCompletedPluginSetup = preferences.optionalBool(Keys.hasCompletedPluginSetup) ?? Defaults.hasCompletedPluginSetup
 
@@ -352,6 +362,8 @@ final public class AppSettings {
         case sidebarFields
         case sidebarTerminalFields
         case sidebarSortMode
+        // Project Scanning
+        case additionalClaudeFolders
         // Plugin
         case hasCompletedPluginSetup
         // Launch at Login
@@ -433,6 +445,13 @@ final public class AppSettings {
         preferences.setData(data, Keys.sidebarFields)
     }
 
+    private func saveAdditionalClaudeFolders() {
+        guard let data = try? JSONEncoder().encode(additionalClaudeFolders) else {
+            return
+        }
+        preferences.setData(data, Keys.additionalClaudeFolders)
+    }
+
     private func saveSidebarTerminalFields() {
         guard let data = try? JSONEncoder().encode(sidebarTerminalFields) else {
             return
@@ -508,6 +527,19 @@ final public class AppSettings {
             $0.hostName == host.hostName && $0.id != host.id
         }
         return !matchingNames.isEmpty
+    }
+
+    // MARK: - Claude Folder Management
+
+    /// Add a new folder to scan for Claude projects.
+    public func addClaudeFolder(_ path: String) {
+        guard !additionalClaudeFolders.contains(path) else { return }
+        additionalClaudeFolders.append(path)
+    }
+
+    /// Remove a Claude folder by its offset index.
+    public func removeClaudeFolder(at offsets: IndexSet) {
+        additionalClaudeFolders.remove(atOffsets: offsets)
     }
 
     // MARK: - Login Item Management
