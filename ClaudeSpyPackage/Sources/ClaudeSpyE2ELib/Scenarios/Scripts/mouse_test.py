@@ -11,6 +11,9 @@ try:
     click = 0
     click_col = 0
     click_row = 0
+    drag = 0
+    drag_col = 0
+    drag_row = 0
 
     def render():
         lines = [
@@ -19,6 +22,9 @@ try:
             'CLICK:%d' % click,
             'CLICK-COL:%d' % click_col,
             'CLICK-ROW:%d' % click_row,
+            'DRAG:%d' % drag,
+            'DRAG-COL:%d' % drag_col,
+            'DRAG-ROW:%d' % drag_row,
             'STATUS:READY',
         ]
         os.write(1, b'\033[H')
@@ -61,6 +67,11 @@ try:
                 click += 1
                 click_col = col
                 click_row = row
+                changed = True
+            elif btn == 32 and press:
+                drag += 1
+                drag_col = col
+                drag_row = row
                 changed = True
         if changed:
             render()
