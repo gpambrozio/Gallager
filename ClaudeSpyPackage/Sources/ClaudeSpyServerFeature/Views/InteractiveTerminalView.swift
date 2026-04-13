@@ -56,6 +56,10 @@
         /// emit one scroll event per line crossed.
         private var scrollAccumulator: CGFloat = 0
 
+        /// Last terminal cell that generated a drag SGR sequence.
+        /// Used to suppress redundant events when the cursor stays in the same cell.
+        private var lastDragPosition: (col: Int, row: Int)?
+
         override var acceptsFirstResponder: Bool { false }
 
         override func hitTest(_ point: NSPoint) -> NSView? {
@@ -183,6 +187,14 @@
                     max(0, Int((tv.frame.height - point.y) / interactive.cellSize.height)),
                     terminal.rows - 1
                 )
+                // Skip if the cursor hasn't moved to a new cell — mouseDragged
+                // fires at display refresh rate and each onRawInput spawns a
+                // tmux subprocess, so deduplication matters.
+                if let last = lastDragPosition, last.col == col, last.row == row {
+                    return
+                }
+                lastDragPosition = (col, row)
+
                 // SGR drag: button 32 (left button + motion bit 5)
                 // Format: ESC [ < 32 ; col ; row M  (1-indexed coordinates)
                 let seq = "\u{1b}[<32;\(col + 1);\(row + 1)M"
@@ -193,6 +205,8 @@
         }
 
         override func mouseUp(with event: NSEvent) {
+            lastDragPosition = nil
+
             // When mouse mode is active, skip URL detection and auto-copy —
             // the terminal app owns mouse interaction.
             if interactiveView?.isMouseModeActive == true {
