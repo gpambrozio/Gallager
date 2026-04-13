@@ -6,6 +6,57 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.20</title>
+         <sparkle:version>20</sparkle:version>
+         <sparkle:shortVersionString>1.20</sparkle:shortVersionString>
+         <pubDate>Sun, 12 Apr 2026 16:38:29 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.20 Release Notes
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>File Search in File Browser</strong> — The file browser sidebar now includes a search field, making it easy to find files quickly without manually scrolling through the directory tree.</li>
+</ul>
+
+<ul>
+<li><strong>Subagent Permission Hooks</strong> — Permission request hooks now fire for subagent tool calls in addition to the main agent, giving you visibility into all permission-related activity during a session.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Updated App Icons and Accent Color</strong> — Fresh app icons and a new accent color across both macOS and iOS.</li>
+</ul>
+
+<ul>
+<li><strong>Cleaner File Explorer</strong> — The redundant root node has been removed from the file explorer, so you jump straight into the project contents.</li>
+</ul>
+
+<ul>
+<li><strong>Better Plugin Error Reporting</strong> — When a plugin fails to install, the app now shows a detailed error message with a copyable report, making it easier to diagnose and share issues.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Project List Sorting</strong> — The project list now correctly sorts by most recently used, so your active projects appear at the top.</li>
+</ul>
+
+<ul>
+<li><strong>Welcome Screen Layout</strong> — Fixed layout clipping and text truncation on the welcome screen that could cut off content on smaller windows.</li>
+</ul>
+
+<ul>
+<li><strong>Build Script Fix</strong> — Fixed the TestFlight build script reading the version number from the wrong configuration file.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.20.dmg"
+                    sparkle:edSignature="d+3sO6JkQqbIi4CT12ydvNzir5CKHmzEoDWmhK5Cb2FPQmwFuFzEMhXrpggiROvUWwiWUkKg+1WIhOU6eXMvBA=="
+                    length="27463612"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.19</title>
          <sparkle:version>19</sparkle:version>
          <sparkle:shortVersionString>1.19</sparkle:shortVersionString>
