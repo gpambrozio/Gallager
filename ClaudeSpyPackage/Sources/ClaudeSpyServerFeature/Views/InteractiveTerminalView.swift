@@ -188,6 +188,33 @@
         }
 
         override func mouseDragged(with event: NSEvent) {
+            // When mouse mode is active, synthesize SGR drag (motion) escape
+            // sequences ourselves. SwiftTerm only emits motion events for
+            // .anyEvent mode (1003), silently dropping them for
+            // .buttonEventTracking (1002). Bypassing SwiftTerm and sending
+            // directly via onRawInput also avoids the motion-event filter in
+            // send(source:data:) which suppresses SwiftTerm-internal tracking.
+            if
+                !forceLocalSelection,
+                let interactive = interactiveView,
+                interactive.isMouseModeActive,
+                let tv = terminalView {
+                let point = tv.convert(event.locationInWindow, from: nil)
+                let terminal = tv.getTerminal()
+                let col = min(
+                    max(0, Int(point.x / interactive.cellSize.width)),
+                    terminal.cols - 1
+                )
+                let row = min(
+                    max(0, Int((tv.frame.height - point.y) / interactive.cellSize.height)),
+                    terminal.rows - 1
+                )
+                // SGR drag: button 32 (left button + motion bit 5)
+                // Format: ESC [ < 32 ; col ; row M  (1-indexed coordinates)
+                let seq = "\u{1b}[<32;\(col + 1);\(row + 1)M"
+                interactive.onRawInput?(Data(seq.utf8))
+                return
+            }
             terminalView?.mouseDragged(with: event)
         }
 
