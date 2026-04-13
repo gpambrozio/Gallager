@@ -103,12 +103,6 @@
             onCursorUpdate?(event)
         }
 
-        override func flagsChanged(with event: NSEvent) {
-            // Update the cursor immediately when modifier keys change so the
-            // user sees the iBeam hint as soon as Shift is pressed.
-            onCursorUpdate?(event)
-        }
-
         override func scrollWheel(with event: NSEvent) {
             // When mouse mode is active, synthesize SGR mouse wheel escape sequences
             // and batch them into a single onRawInput call. This is critical because
@@ -176,12 +170,16 @@
         }
 
         override func mouseDown(with event: NSEvent) {
+            // Reset any stale state from an interrupted prior gesture.
+            if forceLocalSelection {
+                terminalView?.allowMouseReporting = true
+                forceLocalSelection = false
+            }
             // Shift+click bypasses mouse reporting so the user can select text
             // even when the terminal app has mouse mode enabled.
             if
                 event.modifierFlags.contains(.shift),
-                interactiveView?.isMouseModeActive == true
-            {
+                interactiveView?.isMouseModeActive == true {
                 forceLocalSelection = true
                 terminalView?.allowMouseReporting = false
             }
@@ -197,6 +195,8 @@
             // End of a Shift+drag local selection gesture — restore mouse reporting
             // and handle auto-copy the same way as when mouse mode is off.
             if forceLocalSelection {
+                // Call mouseUp before restoring reporting so SwiftTerm finalises
+                // selection without emitting an SGR release escape to the terminal app.
                 terminalView?.mouseUp(with: event)
                 terminalView?.allowMouseReporting = true
                 forceLocalSelection = false
@@ -932,6 +932,11 @@
 
         override func keyDown(with event: NSEvent) {
             terminalView.keyDown(with: event)
+        }
+
+        override func flagsChanged(with event: NSEvent) {
+            super.flagsChanged(with: event)
+            updateCursor(for: event)
         }
 
         // MARK: - URL Detection
