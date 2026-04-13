@@ -93,9 +93,6 @@ final public class AppSettings {
     @Dependency(PreferencesService.self) private var preferences
 
     @ObservationIgnored
-    @Dependency(ClaudePathDetector.self) private var claudePathDetector
-
-    @ObservationIgnored
     @Dependency(LoginItemService.self) private var loginItemService
 
     // MARK: - UI State (transient, not persisted)
@@ -279,17 +276,10 @@ final public class AppSettings {
         self.tmuxPath = preferences.string(Keys.tmuxPath) ?? Defaults.tmuxPath
         self.tmuxSocket = preferences.string(Keys.tmuxSocket) ?? Defaults.tmuxSocket
 
-        // Claude command settings - auto-detect on first launch
+        // Claude command settings
         self.autoRunClaudeInProjects = preferences.optionalBool(Keys.autoRunClaudeInProjects) ?? Defaults.autoRunClaudeInProjects
         self.closePaneOnSessionEnd = preferences.optionalBool(Keys.closePaneOnSessionEnd) ?? Defaults.closePaneOnSessionEnd
-        if let savedPath = preferences.string(Keys.claudeCommandPath) {
-            self.claudeCommandPath = savedPath
-        } else {
-            // First launch - try to detect claude path
-            let detectedPath = claudePathDetector.detectPath() ?? Defaults.claudeCommandPath
-            self.claudeCommandPath = detectedPath
-            preferences.setString(detectedPath, Keys.claudeCommandPath)
-        }
+        self.claudeCommandPath = preferences.string(Keys.claudeCommandPath) ?? Defaults.claudeCommandPath
         self.terminalApp = TerminalApp(rawValue: preferences.string(Keys.terminalApp) ?? "") ?? Defaults.terminalApp
         self.customTerminalPath = preferences.string(Keys.customTerminalPath) ?? Defaults.customTerminalPath
 

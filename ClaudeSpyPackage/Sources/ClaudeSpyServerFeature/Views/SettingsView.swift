@@ -108,8 +108,10 @@ struct GeneralSettingsView: View {
 
                 HStack {
                     Text("Scrollback")
-                    TextField("Lines", value: $settings.scrollbackLines, format: .number)
-                        .frame(width: 80)
+                    Spacer()
+                    TextField("", value: $settings.scrollbackLines, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 200)
                     Text("lines")
                 }
 
@@ -163,8 +165,8 @@ struct GeneralSettingsView: View {
 
             Section("tmux") {
                 HStack {
-                    Text("Path")
                     TextField("Path to tmux", text: $settings.tmuxPath)
+                        .textFieldStyle(.roundedBorder)
                     Button("Browse...") {
                         browseForTmux(settings: settings)
                     }
@@ -183,9 +185,9 @@ struct GeneralSettingsView: View {
 
                 if settings.autoRunClaudeInProjects {
                     HStack {
-                        Text("Command")
-                        TextField("claude", text: $settings.claudeCommandPath)
+                        TextField("Command", text: $settings.claudeCommandPath)
                             .help("Path to the claude command (full path or just 'claude' if in PATH)")
+                            .textFieldStyle(.roundedBorder)
                         Button("Browse...") {
                             browseForClaude(settings: settings)
                         }

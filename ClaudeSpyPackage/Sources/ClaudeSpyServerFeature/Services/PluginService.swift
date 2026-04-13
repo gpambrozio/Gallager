@@ -32,7 +32,7 @@
         @Dependency(ProcessRunner.self) private var processRunner
 
         @ObservationIgnored
-        @Dependency(ClaudePathDetector.self) private var claudePathDetector
+        @Dependency(PreferencesService.self) private var preferences
 
         /// Current plugin state
         public package(set) var state: State = .unknown
@@ -207,7 +207,7 @@
                     recordFailure(
                         summary: "Plugin installation could not be verified",
                         failedStep: "Verify installation",
-                        claudePath: claudePathDetector.detectPath(),
+                        claudePath: preferences.string(AppSettings.Keys.claudeCommandPath.rawValue) ?? "claude",
                         underlyingError: "After running the install commands, the gallager plugin did not appear in ~/.claude/plugins/installed_plugins.json."
                     )
                 }
@@ -219,7 +219,7 @@
                 recordFailure(
                     summary: error.localizedDescription,
                     failedStep: "Run installation command",
-                    claudePath: claudePathDetector.detectPath(),
+                    claudePath: preferences.string(AppSettings.Keys.claudeCommandPath.rawValue) ?? "claude",
                     underlyingError: String(describing: error)
                 )
             }
@@ -259,10 +259,8 @@
         }
 
         private func runClaudeCommand(step: String, arguments: [String]) async throws {
-            guard let executablePath = claudePathDetector.detectPath() else {
-                throw PluginError.claudeNotFound(attemptedPaths: ClaudePathDetector.commonPaths)
-            }
-            logger.debug("Found claude at: \(executablePath)")
+            let executablePath = preferences.string(AppSettings.Keys.claudeCommandPath.rawValue) ?? "claude"
+            logger.debug("Using claude at: \(executablePath)")
             logger.debug("Running claude command: \(arguments.joined(separator: " "))")
 
             let result: ProcessResult
@@ -341,13 +339,6 @@
 
         private func recordFailure(from error: PluginError) {
             switch error {
-            case let .claudeNotFound(paths):
-                let searched = "Searched common paths:\n" + paths.map { "  • \($0)" }.joined(separator: "\n")
-                recordFailure(
-                    summary: "Claude CLI not found",
-                    failedStep: "Locate claude CLI",
-                    stderr: searched
-                )
             case let .commandFailed(step, executable, arguments, exitCode, stdout, stderr):
                 recordFailure(
                     summary: error.errorDescription ?? "Command failed",
@@ -488,7 +479,6 @@
     // MARK: - Errors
 
     enum PluginError: LocalizedError {
-        case claudeNotFound(attemptedPaths: [String])
         case commandFailed(
             step: String,
             executable: String,
@@ -507,9 +497,6 @@
 
         var errorDescription: String? {
             switch self {
-            case let .claudeNotFound(paths):
-                let pathList = paths.joined(separator: ", ")
-                return "Claude CLI not found. Checked: \(pathList). Please ensure Claude Code is installed."
             case let .commandFailed(step, _, _, exitCode, _, stderr):
                 let trimmed = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
                 if trimmed.isEmpty {
