@@ -533,8 +533,9 @@ final public class AppSettings {
 
     /// Add a new folder to scan for Claude projects.
     public func addClaudeFolder(_ path: String) {
-        guard !additionalClaudeFolders.contains(path) else { return }
-        additionalClaudeFolders.append(path)
+        let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
+        guard !additionalClaudeFolders.contains(normalized) else { return }
+        additionalClaudeFolders.append(normalized)
     }
 
     /// Remove a Claude folder by its offset index.

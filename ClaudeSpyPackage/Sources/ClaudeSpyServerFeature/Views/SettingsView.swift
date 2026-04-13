@@ -208,7 +208,7 @@ struct GeneralSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                ForEach(Array(settings.additionalClaudeFolders.enumerated()), id: \.offset) { index, folder in
+                ForEach(Array(settings.additionalClaudeFolders.enumerated()), id: \.element) { index, folder in
                     HStack {
                         Text(abbreviatePath(folder))
                             .lineLimit(1)
