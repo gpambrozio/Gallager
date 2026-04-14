@@ -1529,53 +1529,56 @@ private struct WindowTabBar: View {
         let hasClaude = window.panes.contains { windowManager.paneStates[$0.paneId]?.claudeSession != nil }
         let windowName = tabLabel(for: window)
 
-        return Button {
-            onSelectWindow(window)
-        } label: {
-            HStack(spacing: 4) {
-                if hasClaude {
-                    Symbols.sparkles.image
-                        .font(.caption2)
-                        .foregroundStyle(.purple)
-                }
+        return HStack(spacing: 0) {
+            Button {
+                onSelectWindow(window)
+            } label: {
+                HStack(spacing: 4) {
+                    if hasClaude {
+                        Symbols.sparkles.image
+                            .font(.caption2)
+                            .foregroundStyle(.purple)
+                    }
 
-                Text(windowName)
-                    .font(.system(.caption, design: .monospaced))
-                    .lineLimit(1)
-
-                Button {
-                    onCloseWindow(window)
-                } label: {
-                    Symbols.xmark.image
-                        .font(.system(size: 8, weight: .bold))
-                        .frame(width: 14, height: 14)
-                        .contentShape(Rectangle())
+                    Text(windowName)
+                        .font(.system(.caption, design: .monospaced))
+                        .lineLimit(1)
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .opacity(isSelected || isHovered ? 1 : 0)
-                .help("Close window")
+                .padding(.leading, 12)
+                .padding(.trailing, 4)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
             }
-            .padding(.leading, 12)
+            .buttonStyle(.plain)
+            .accessibilityLabel(window.id)
+            .accessibilityValue(isSelected ? "selected" : "")
+
+            Button {
+                onCloseWindow(window)
+            } label: {
+                Symbols.xmark.image
+                    .font(.system(size: 8, weight: .bold))
+                    .frame(width: 14, height: 14)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .opacity(isSelected || isHovered ? 1 : 0)
+            .help("Close window")
             .padding(.trailing, 6)
-            .padding(.vertical, 6)
-            .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
-            .overlay(alignment: .bottom) {
-                if isSelected {
-                    Rectangle()
-                        .fill(Color.accentColor)
-                        .frame(height: 2)
-                }
-            }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
         .foregroundStyle(isSelected ? .primary : .secondary)
+        .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+        .overlay(alignment: .bottom) {
+            if isSelected {
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(height: 2)
+            }
+        }
         .onHover { hovering in
             hoveredWindowId = hovering ? window.id : nil
         }
-        .accessibilityLabel(window.id)
-        .accessibilityValue(isSelected ? "selected" : "")
     }
 
     private func tabLabel(for window: LocalTmuxWindow) -> String {
@@ -2123,7 +2126,7 @@ private struct AlertsModifier: ViewModifier {
                 )
             ) {
                 if let confirmation = closeConfirmation {
-                    Button("Close \"\(confirmation.targetName)\"", role: .destructive) {
+                    Button("Close Anyway", role: .destructive) {
                         onPerformClose(confirmation.target)
                     }
                 }

@@ -165,6 +165,26 @@ public actor MacOSDriver {
         try await Task.sleep(for: .milliseconds(200))
     }
 
+    /// Press Escape key to dismiss dialogs/alerts.
+    public func pressEscape() async throws {
+        let pid = try requirePID()
+        logger.info("Pressing Escape key (PID \(pid))")
+        MacOSAccessibility.focusApp(appPID: pid)
+        try await Task.sleep(for: .milliseconds(200))
+        MacOSAccessibility.pressKey(code: 53) // Escape
+        try await Task.sleep(for: .milliseconds(200))
+    }
+
+    /// Press Return key to confirm default action in dialogs/alerts.
+    public func pressReturn() async throws {
+        let pid = try requirePID()
+        logger.info("Pressing Return key (PID \(pid))")
+        MacOSAccessibility.focusApp(appPID: pid)
+        try await Task.sleep(for: .milliseconds(200))
+        MacOSAccessibility.pressKey(code: 36) // Return
+        try await Task.sleep(for: .milliseconds(200))
+    }
+
     /// Press Cmd+A to select all text in the focused field.
     public func selectAll() async throws {
         let pid = try requirePID()
