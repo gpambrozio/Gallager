@@ -1257,6 +1257,23 @@ final public class TmuxService {
         await refreshPanes()
     }
 
+    /// Kills a single tmux window by its target (e.g., "session:0").
+    /// If the window is the last one in its session, tmux will close the session automatically.
+    /// - Parameter windowTarget: The window target to kill (e.g., "mysession:0")
+    public func killWindow(_ windowTarget: String) async throws {
+        let result = try await runTmuxCommand([
+            "kill-window",
+            "-t", windowTarget,
+        ])
+
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+
+        // Refresh panes to reflect the killed window
+        await refreshPanes()
+    }
+
     /// Describes a process running in a tmux pane (foreground or background).
     public struct RunningProcess: Sendable {
         /// The pane index within its window (e.g., 0, 1)
@@ -1281,11 +1298,28 @@ final public class TmuxService {
     /// - Parameter sessionName: The tmux session name to inspect
     /// - Returns: Array of running processes found across the session's panes
     public func runningProcesses(inSession sessionName: String) async -> [RunningProcess] {
+        // list-panes -s lists all panes in the session (across all windows)
+        await runningProcesses(listPanesArgs: ["-s", "-t", sessionName])
+    }
+
+    /// Detects running processes across all panes of a specific tmux window.
+    ///
+    /// Same detection as `runningProcesses(inSession:)` but scoped to a single window.
+    ///
+    /// - Parameter windowTarget: The tmux window target (e.g., "session:0")
+    /// - Returns: Array of running processes found across the window's panes
+    public func runningProcesses(inWindow windowTarget: String) async -> [RunningProcess] {
+        // list-panes without -s lists panes only in the specified window
+        await runningProcesses(listPanesArgs: ["-t", windowTarget])
+    }
+
+    /// Shared implementation for detecting running processes in tmux panes.
+    private func runningProcesses(listPanesArgs: [String]) async -> [RunningProcess] {
         do {
             let format = "#{pane_index}|#{pane_current_command}|#{pane_pid}"
-            let result = try await runTmuxCommand([
-                "list-panes", "-s", "-t", sessionName, "-F", format,
-            ])
+            let result = try await runTmuxCommand(
+                ["list-panes"] + listPanesArgs + ["-F", format]
+            )
             guard result.isSuccess else { return [] }
 
             struct PaneEntry {
@@ -1361,7 +1395,7 @@ final public class TmuxService {
 
             return running
         } catch {
-            logger.warning("runningProcesses(inSession:) failed: \(error)")
+            logger.warning("runningProcesses failed: \(error)")
             return []
         }
     }

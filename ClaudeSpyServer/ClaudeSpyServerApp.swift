@@ -258,8 +258,15 @@ struct TmuxPaneMirrorApp: App {
                 CheckForUpdatesView(updaterController: updaterController)
             }
 
-            // Hide File menu (no file-based actions in this app)
-            CommandGroup(replacing: .newItem) { }
+            // File menu - replace default items with Close Tab
+            CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .saveItem) {}
+            CommandGroup(after: .newItem) {
+                Button("Close Tab") {
+                    NotificationCenter.default.post(name: .closeCurrentTab, object: nil)
+                }
+                .keyboardShortcut("w", modifiers: .command)
+            }
 
             // Edit menu - Copy as Rich Text / Copy with Control Sequences
             CommandGroup(after: .pasteboard) {
@@ -288,7 +295,6 @@ struct TmuxPaneMirrorApp: App {
                 Toggle("Show Status Bar", isOn: Bindable(coordinator.settings).showStatusBar)
                     .keyboardShortcut("s", modifiers: [.command, .shift])
             }
-
         }
 
         // About window - custom About panel with Gallager explanation
