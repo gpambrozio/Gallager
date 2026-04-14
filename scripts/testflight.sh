@@ -26,6 +26,8 @@ ARCHIVE_PATH="$BUILD_DIR/Gallager.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
 APP_NAME="Gallager"
 TEAM_ID="XG2WG7U93U"
+BUNDLE_ID="br.eng.gustavo.claudespy"
+ASC_API_BASE="https://api.appstoreconnect.apple.com/v1"
 
 # =====================================================
 # Colors for output
@@ -42,6 +44,7 @@ NC='\033[0m'
 SKIP_UPLOAD=false
 EXPORT_ONLY=false
 AUTO_YES=false
+SET_CHANGELOG=false
 API_KEY=""
 API_ISSUER=""
 
@@ -53,6 +56,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --export-only)
             EXPORT_ONLY=true
+            shift
+            ;;
+        --set-changelog)
+            SET_CHANGELOG=true
             shift
             ;;
         --yes|-y)
@@ -73,6 +80,7 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --skip-upload       Build, archive, and export IPA but don't upload"
             echo "  --export-only       Same as --skip-upload (alias)"
+            echo "  --set-changelog     Set TestFlight 'What to Test' from git commits (run after build processes)"
             echo "  --yes, -y           Skip confirmation prompts"
             echo "  --api-key KEY       App Store Connect API Key ID"
             echo "  --api-issuer ID     App Store Connect API Issuer ID"
@@ -123,6 +131,191 @@ get_version() {
 
 get_build_number() {
     grep "^CURRENT_PROJECT_VERSION" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d ' '
+}
+
+# =====================================================
+# App Store Connect API helpers
+# =====================================================
+base64url_encode() {
+    openssl base64 -e -A | tr '+/' '-_' | tr -d '='
+}
+
+generate_jwt() {
+    local key_path="$HOME/.appstoreconnect/private_keys/AuthKey_${API_KEY}.p8"
+    local now
+    now=$(date +%s)
+    local exp=$((now + 1200))
+
+    local header
+    header=$(printf '{"alg":"ES256","kid":"%s","typ":"JWT"}' "$API_KEY" | base64url_encode)
+    local payload
+    payload=$(printf '{"iss":"%s","iat":%d,"exp":%d,"aud":"appstoreconnect-v1"}' "$API_ISSUER" "$now" "$exp" | base64url_encode)
+
+    # openssl produces DER-encoded ECDSA, but JWT ES256 needs raw R||S (64 bytes)
+    local signature
+    signature=$(printf '%s.%s' "$header" "$payload" \
+        | openssl dgst -sha256 -sign "$key_path" -binary \
+        | python3 -c "
+import sys
+der = sys.stdin.buffer.read()
+# Parse DER SEQUENCE -> two INTEGERs (R, S)
+pos = 2 + (der[1] & 0x7f if der[1] & 0x80 else 0)
+assert der[pos] == 0x02
+r_len = der[pos+1]; r = der[pos+2:pos+2+r_len]; pos += 2 + r_len
+assert der[pos] == 0x02
+s_len = der[pos+1]; s = der[pos+2:pos+2+s_len]
+sys.stdout.buffer.write(r[-32:].rjust(32, b'\x00') + s[-32:].rjust(32, b'\x00'))
+" \
+        | base64url_encode)
+
+    printf '%s.%s.%s' "$header" "$payload" "$signature"
+}
+
+asc_get() {
+    local token
+    token=$(generate_jwt)
+    curl -s --globoff -H "Authorization: Bearer $token" -H "Content-Type: application/json" "${ASC_API_BASE}$1"
+}
+
+asc_post() {
+    local token
+    token=$(generate_jwt)
+    curl -s --globoff -X POST -H "Authorization: Bearer $token" -H "Content-Type: application/json" -d "$2" "${ASC_API_BASE}$1"
+}
+
+asc_patch() {
+    local token
+    token=$(generate_jwt)
+    curl -s --globoff -X PATCH -H "Authorization: Bearer $token" -H "Content-Type: application/json" -d "$2" "${ASC_API_BASE}$1"
+}
+
+generate_changelog() {
+    local prev_tag
+    prev_tag=$(git -C "$PROJECT_ROOT" tag --sort=-v:refname | head -1)
+
+    local commit_range
+    if [ -z "$prev_tag" ]; then
+        log_warning "No previous tag found, using last 20 commits" >&2
+        commit_range="HEAD~20..HEAD"
+    else
+        log_info "Generating changelog since $prev_tag" >&2
+        commit_range="${prev_tag}..HEAD"
+    fi
+
+    local commits
+    commits=$(git -C "$PROJECT_ROOT" log "$commit_range" --pretty=format:"- %s (%h)" --no-merges 2>/dev/null || echo "Initial release")
+
+    if ! command -v claude &> /dev/null; then
+        log_warning "Claude CLI not found, using raw commit list" >&2
+        echo "$commits"
+        return
+    fi
+
+    log_info "Generating What to Test notes with Claude..." >&2
+
+    local prompt="You are a technical writer creating TestFlight 'What to Test' notes for testers.
+
+Generate concise, tester-friendly notes for version $(get_version) of Gallager (ClaudeSpy), an iOS app for remotely monitoring Claude Code sessions.
+
+IMPORTANT: This is an independent open source project. It is NOT affiliated with or built by Anthropic.
+
+Here are the commits since the last release:
+$commits
+
+Requirements:
+- Only include changes relevant to the iOS app or that could indirectly affect it (e.g. shared networking, encryption, server relay changes)
+- Skip commits that only affect the macOS app, build scripts, CI, or docs
+- Group changes by category (New Features, Improvements, Bug Fixes) if applicable
+- Explain what each change means for testers — what to look for, what might break
+- Keep it concise but informative — this is TestFlight, not a press release
+- Use plain text, no markdown (TestFlight renders plain text only)
+- Do NOT wrap output in code fences, backticks, or any formatting wrappers
+- Do NOT include ANY preamble, commentary, thinking, or meta-text — start directly with the content
+- Do NOT add URLs, links, or 'for more information' sections
+- Output ONLY the What to Test content itself
+- If no commits are relevant to iOS, output: No iOS-relevant changes in this build."
+
+    local notes
+    notes=$(claude -p "$prompt" 2>/dev/null) || {
+        log_warning "Claude failed to generate notes, using raw commit list" >&2
+        echo "$commits"
+        return
+    }
+
+    # Strip code fences and any preamble before the actual content
+    notes=$(echo "$notes" | sed '/^```/d' | sed '/^Gallager/,$!d')
+
+    echo "$notes"
+}
+
+find_app_id() {
+    local response
+    response=$(asc_get "/apps?filter[bundleId]=${BUNDLE_ID}&fields[apps]=bundleId")
+    local app_id
+    app_id=$(echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['data'][0]['id'])" 2>/dev/null)
+
+    if [ -z "$app_id" ]; then
+        log_error "Could not find app with bundle ID: $BUNDLE_ID
+API response: $response"
+    fi
+    echo "$app_id"
+}
+
+find_build_id() {
+    local app_id="$1"
+    local build_number="$2"
+    local response
+    response=$(asc_get "/builds?filter[app]=${app_id}&filter[version]=${build_number}&fields[builds]=version,processingState")
+    local build_id
+    build_id=$(echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['data'][0]['id'])" 2>/dev/null)
+    local state
+    state=$(echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['data'][0]['attributes']['processingState'])" 2>/dev/null)
+
+    if [ -z "$build_id" ]; then
+        log_error "Could not find build $build_number for app $app_id
+The build may not have been uploaded yet, or is still being ingested.
+API response: $response"
+    fi
+
+    if [ "$state" != "VALID" ]; then
+        log_error "Build $build_number is still processing (state: $state).
+Wait for processing to complete and try again."
+    fi
+
+    echo "$build_id"
+}
+
+set_whats_new() {
+    local build_id="$1"
+    local changelog="$2"
+
+    local escaped_changelog
+    escaped_changelog=$(python3 -c "import sys,json; print(json.dumps(sys.stdin.read().strip()))" <<< "$changelog")
+
+    # Check for existing localization
+    local response
+    response=$(asc_get "/builds/${build_id}/betaBuildLocalizations")
+    local loc_id
+    loc_id=$(echo "$response" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+for item in d.get('data', []):
+    if item['attributes'].get('locale') == 'en-US':
+        print(item['id'])
+        break
+" 2>/dev/null)
+
+    if [ -n "$loc_id" ]; then
+        log_info "Updating existing en-US localization..."
+        asc_patch "/betaBuildLocalizations/${loc_id}" \
+            "{\"data\":{\"type\":\"betaBuildLocalizations\",\"id\":\"${loc_id}\",\"attributes\":{\"whatsNew\":${escaped_changelog}}}}" > /dev/null
+    else
+        log_info "Creating en-US localization..."
+        asc_post "/betaBuildLocalizations" \
+            "{\"data\":{\"type\":\"betaBuildLocalizations\",\"attributes\":{\"locale\":\"en-US\",\"whatsNew\":${escaped_changelog}},\"relationships\":{\"build\":{\"data\":{\"type\":\"builds\",\"id\":\"${build_id}\"}}}}}" > /dev/null
+    fi
+
+    log_success "What to Test notes updated"
 }
 
 # =====================================================
@@ -263,12 +456,58 @@ main() {
     echo "=========================================="
     echo ""
 
-    check_prerequisites
-
     local version
     version=$(get_version)
     local build_number
     build_number=$(get_build_number)
+
+    # --set-changelog mode: skip build, just update What to Test
+    if [ "$SET_CHANGELOG" = true ]; then
+        if [ -z "$API_KEY" ] || [ -z "$API_ISSUER" ]; then
+            log_error "API credentials required for --set-changelog. See --help."
+        fi
+
+        log_info "Version: $version (build $build_number)"
+
+        local changelog
+        changelog=$(generate_changelog)
+        if [ -z "$changelog" ]; then
+            log_error "No commits found for changelog"
+        fi
+
+        echo ""
+        echo "Changelog:"
+        echo "$changelog"
+        echo ""
+
+        if [ "$AUTO_YES" != true ]; then
+            read -p "Set this as 'What to Test' for build $build_number? (y/N) " -n 1 -r
+            echo ""
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                log_info "Cancelled"
+                exit 0
+            fi
+        fi
+
+        log_info "Looking up app..."
+        local app_id
+        app_id=$(find_app_id)
+        log_info "App ID: $app_id"
+
+        log_info "Looking up build $build_number..."
+        local build_id
+        build_id=$(find_build_id "$app_id" "$build_number")
+        log_info "Build ID: $build_id"
+
+        set_whats_new "$build_id" "$changelog"
+
+        echo ""
+        log_success "What to Test updated for build $build_number"
+        echo ""
+        exit 0
+    fi
+
+    check_prerequisites
     log_info "Version: $version (build $build_number)"
 
     if [ "$AUTO_YES" != true ]; then
