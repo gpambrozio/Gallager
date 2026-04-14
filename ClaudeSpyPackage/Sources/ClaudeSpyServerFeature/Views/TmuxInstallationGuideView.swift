@@ -45,6 +45,15 @@
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
+                Button("Quit Gallager") {
+                    // Force exit — NSApp.terminate gets blocked by
+                    // interactiveDismissDisabled on the parent sheet.
+                    exit(0)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .font(.caption)
             }
             .padding(24)
             .frame(width: 520, height: 460)
