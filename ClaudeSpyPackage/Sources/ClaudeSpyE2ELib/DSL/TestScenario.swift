@@ -136,6 +136,8 @@ public enum TestStep: Sendable {
     case macScrollWheel(deltaY: Int32, count: Int = 3, instance: Int = 0)
     /// Click at a specific screen coordinate in the macOS app.
     case macClickAtPoint(x: Double, y: Double, instance: Int = 0)
+    /// Drag from one screen coordinate to another in the macOS app.
+    case macDrag(fromX: Double, fromY: Double, toX: Double, toY: Double, instance: Int = 0)
     /// Take a macOS screenshot, optionally comparing against a stored baseline
     /// Default tolerance of 2% because sometimes the image needs to be normalized
     /// and in this case some pixels will differ.

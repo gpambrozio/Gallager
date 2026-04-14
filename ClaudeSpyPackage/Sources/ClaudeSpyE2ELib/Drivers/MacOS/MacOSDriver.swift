@@ -394,6 +394,20 @@ public actor MacOSDriver {
         MacOSAccessibility.clickAtPoint(CGPoint(x: x, y: y))
     }
 
+    /// Drag from one screen coordinate to another after focusing the app.
+    public func drag(fromX: Double, fromY: Double, toX: Double, toY: Double) async throws {
+        let pid = try requirePID()
+        logger.info("Drag from (\(fromX), \(fromY)) to (\(toX), \(toY))")
+
+        MacOSAccessibility.focusApp(appPID: pid)
+        try await Task.sleep(for: .milliseconds(200))
+
+        MacOSAccessibility.drag(
+            from: CGPoint(x: fromX, y: fromY),
+            to: CGPoint(x: toX, y: toY)
+        )
+    }
+
     /// Get the center point of the app's first visible window.
     private func windowCenter(appPID: pid_t) -> CGPoint? {
         let allWindows = MacOSAccessibility.windows(appPID: appPID)
