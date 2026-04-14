@@ -235,6 +235,46 @@ enum MacOSAccessibility {
         event.post(tap: .cghidEventTap)
     }
 
+    /// Post CGEvent drag from one screen coordinate to another.
+    /// Generates mouseDown at `from`, intermediate leftMouseDragged events, and mouseUp at `to`.
+    static func drag(from start: CGPoint, to end: CGPoint, steps: Int = 20) {
+        logger.info("CGEvent drag from (\(start.x), \(start.y)) to (\(end.x), \(end.y)), steps=\(steps)")
+
+        let dx = (end.x - start.x) / CGFloat(steps)
+        let dy = (end.y - start.y) / CGFloat(steps)
+
+        let mouseDown = CGEvent(
+            mouseEventSource: nil,
+            mouseType: .leftMouseDown,
+            mouseCursorPosition: start,
+            mouseButton: .left
+        )
+        mouseDown?.post(tap: .cghidEventTap)
+
+        for i in 1...steps {
+            let point = CGPoint(
+                x: start.x + dx * CGFloat(i),
+                y: start.y + dy * CGFloat(i)
+            )
+            let dragEvent = CGEvent(
+                mouseEventSource: nil,
+                mouseType: .leftMouseDragged,
+                mouseCursorPosition: point,
+                mouseButton: .left
+            )
+            dragEvent?.post(tap: .cghidEventTap)
+            usleep(16_000) // ~60fps
+        }
+
+        let mouseUp = CGEvent(
+            mouseEventSource: nil,
+            mouseType: .leftMouseUp,
+            mouseCursorPosition: end,
+            mouseButton: .left
+        )
+        mouseUp?.post(tap: .cghidEventTap)
+    }
+
     /// CGEvent left-click on an element matching the query.
     /// Unlike `press`, this always uses a real mouse click (no AXPress / parent walking).
     /// Useful for selecting items in SwiftUI List/OutlineGroup where AXPress
