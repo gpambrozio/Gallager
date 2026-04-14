@@ -1,6 +1,6 @@
 import Foundation
 
-/// E2E scenario: Verify mouse mode sync, scroll wheel, and click event delivery.
+/// E2E scenario: Verify mouse mode sync, scroll wheel, click, and drag event delivery.
 ///
 /// Uses a Python test app that enables mouse tracking (SGR mode) and renders
 /// observable counters for scroll and click events, including click coordinates.
@@ -91,11 +91,27 @@ public enum MouseSupportScenario {
         )
         TestStep.macScreenshot(label: "after-clicks")
 
-        // ── Verify motion doesn't cause clicks ──────────────────
-        // The click count should still be 2 — mouse movement over
-        // the window during scroll events did not increment it.
-        TestStep.tmuxCapturePaneContent(target: "mouse-test:0", storeAs: "after-clicks")
-        TestStep.assertStoredNotContains(key: "after-clicks", substring: "CLICK:3")
+        // ── Test drag ─────────────────────────────────────────────
+        // Drag across the terminal area to verify SGR drag (motion)
+        // sequences are synthesized and delivered to the app.
+        TestStep.log("Sending drag event")
+        TestStep.macDrag(fromX: 400, fromY: 200, toX: 700, toY: 400)
+        TestStep.wait(seconds: 1)
+
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("DRAG:")]),
+            timeout: 10
+        )
+        // Verify drag count is at least 1 (likely many more from intermediate points)
+        TestStep.tmuxCapturePaneContent(target: "mouse-test:0", storeAs: "after-drag")
+        TestStep.assertStoredNotContains(key: "after-drag", substring: "DRAG:0")
+        TestStep.macScreenshot(label: "after-drag")
+
+        // ── Verify drag caused exactly one extra click ───────────
+        // A drag starts with mouseDown which the app sees as a click,
+        // so the count goes from 2 → 3. No spurious extra clicks beyond that.
+        TestStep.assertStoredContains(key: "after-drag", substring: "CLICK:3")
+        TestStep.assertStoredNotContains(key: "after-drag", substring: "CLICK:4")
 
         // ── Stop the test app ────────────────────────────────────
         TestStep.tmuxSendKeys(target: "mouse-test:0", keys: "C-c")

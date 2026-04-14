@@ -484,6 +484,9 @@ public actor TestOrchestrator {
         case let .macClickAtPoint(x, y, instance):
             try await macDriver(for: instance).clickAtScreenPoint(x: x, y: y)
 
+        case let .macDrag(fromX, fromY, toX, toY, instance):
+            try await macDriver(for: instance).drag(fromX: fromX, fromY: fromY, toX: toX, toY: toY)
+
         case let .macScreenshot(label, compare, tolerance, perPixelThreshold, instance):
             let numberedLabel = nextScreenshotLabel(label)
             let actualPath = screenshotPath(for: numberedLabel)
