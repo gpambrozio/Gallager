@@ -144,8 +144,9 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         if interactive {
             try await runInteractive(orchestrator: orchestrator)
         } else {
-            await dashboardReporter?.sendRunStarted()
-            try await runTests(orchestrator: orchestrator)
+            let scenariosToRun = resolveScenarios()
+            await dashboardReporter?.sendRunStarted(totalScenarios: scenariosToRun.count)
+            try await runTests(scenarios: scenariosToRun, orchestrator: orchestrator)
         }
     }
 
@@ -270,18 +271,18 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         PromptEditorRemoteScenario.scenario,
     ]
 
-    private func runTests(orchestrator: TestOrchestrator) async throws {
-        // Filter if a specific scenario is requested
-        let scenariosToRun: [TestScenario]
+    private func resolveScenarios() -> [TestScenario] {
         if let scenarioName = scenario {
-            scenariosToRun = Self.allScenarios.filter { $0.name == scenarioName }
-            if scenariosToRun.isEmpty {
-                print("ERROR: No scenario named '\(scenarioName)'")
-                print("Available: \(Self.allScenarios.map(\.name).joined(separator: ", "))")
-                throw ExitCode.failure
-            }
-        } else {
-            scenariosToRun = Self.allScenarios
+            return Self.allScenarios.filter { $0.name == scenarioName }
+        }
+        return Self.allScenarios
+    }
+
+    private func runTests(scenarios scenariosToRun: [TestScenario], orchestrator: TestOrchestrator) async throws {
+        if scenariosToRun.isEmpty, let scenarioName = scenario {
+            print("ERROR: No scenario named '\(scenarioName)'")
+            print("Available: \(Self.allScenarios.map(\.name).joined(separator: ", "))")
+            throw ExitCode.failure
         }
 
         print("Running \(scenariosToRun.count) scenario(s)...")
