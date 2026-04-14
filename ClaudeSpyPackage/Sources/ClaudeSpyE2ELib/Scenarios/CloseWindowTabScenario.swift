@@ -6,7 +6,8 @@ import Foundation
 /// 1. An idle window can be closed via the X button without confirmation
 /// 2. A window with a running process shows a confirmation dialog listing the process
 /// 3. Pressing Escape cancels the confirmation and keeps the window open
-/// 4. Pressing Return confirms and closes the window
+/// 4. Closing an idle window removes the tab
+/// 5. Closing a whole session with running processes via "Close Anyway" works
 public enum CloseWindowTabScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Close Window Tab",
@@ -85,5 +86,33 @@ public enum CloseWindowTabScenario {
         // Session should be gone since it was the last window
         TestStep.macWaitForElementToDisappear(titled: "closetest", timeout: 10)
         TestStep.macScreenshot(label: "mac-session-gone")
+
+        // 7. Create a new session with a running process, close the whole session
+        //    via context menu "Close Session" and confirm with "Close Anyway"
+        TestStep.log("Stage 7: Close session with running process via Close Anyway")
+        TestStep.tmuxCreateSession(name: "forceclose", width: 160, height: 50)
+        Shortcut.tmuxClearAndSetPrompt(target: "forceclose:0")
+        Shortcut.tmuxRunCommand(target: "forceclose:0.0", command: "sleep 999")
+        TestStep.wait(seconds: 2)
+
+        TestStep.macWaitForElement(titled: "forceclose", timeout: 5)
+        TestStep.macClickButton(titled: "forceclose")
+        TestStep.wait(seconds: 2)
+
+        // Right-click sidebar → Close Session
+        TestStep.macContextMenuClick(elementTitle: "forceclose", menuItem: "Close Session")
+        TestStep.wait(seconds: 2)
+
+        // Confirmation should appear since sleep is running
+        TestStep.macWaitForElement(titled: "Close Session?", timeout: 5)
+        TestStep.macScreenshot(label: "mac-close-session-confirmation")
+
+        // "Close Anyway" is the default action — press Return to confirm
+        TestStep.macPressReturn()
+        TestStep.wait(seconds: 3)
+
+        // Session should be gone despite the running process
+        TestStep.macWaitForElementToDisappear(titled: "forceclose", timeout: 10)
+        TestStep.macScreenshot(label: "mac-session-force-closed")
     }
 }

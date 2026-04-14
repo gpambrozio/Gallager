@@ -427,6 +427,9 @@ public actor TestOrchestrator {
         case let .macPressReturn(instance):
             try await macDriver(for: instance).pressReturn()
 
+        case let .macPressSpace(instance):
+            try await macDriver(for: instance).pressSpace()
+
         case let .macSelectAll(instance):
             try await macDriver(for: instance).selectAll()
 

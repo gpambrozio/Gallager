@@ -185,6 +185,16 @@ public actor MacOSDriver {
         try await Task.sleep(for: .milliseconds(200))
     }
 
+    /// Press Space key to activate the focused button in dialogs.
+    public func pressSpace() async throws {
+        let pid = try requirePID()
+        logger.info("Pressing Space key (PID \(pid))")
+        MacOSAccessibility.focusApp(appPID: pid)
+        try await Task.sleep(for: .milliseconds(200))
+        MacOSAccessibility.pressKey(code: 49) // Space
+        try await Task.sleep(for: .milliseconds(200))
+    }
+
     /// Press Cmd+A to select all text in the focused field.
     public func selectAll() async throws {
         let pid = try requirePID()

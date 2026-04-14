@@ -99,6 +99,8 @@ public enum TestStep: Sendable {
     case macPressEscape(instance: Int = 0)
     /// Press Return key to confirm default action in dialogs/alerts
     case macPressReturn(instance: Int = 0)
+    /// Press Space key to activate the focused button in dialogs
+    case macPressSpace(instance: Int = 0)
     /// Press Cmd+A to select all text in the focused field
     case macSelectAll(instance: Int = 0)
     /// CGEvent left-click on an element (bypasses AXPress, uses real mouse click).

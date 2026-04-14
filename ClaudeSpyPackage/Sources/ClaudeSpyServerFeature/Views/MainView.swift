@@ -2129,6 +2129,7 @@ private struct AlertsModifier: ViewModifier {
                     Button("Close Anyway", role: .destructive) {
                         onPerformClose(confirmation.target)
                     }
+                    .keyboardShortcut(.defaultAction)
                 }
                 Button("Cancel", role: .cancel) { closeConfirmation = nil }
             } message: {
