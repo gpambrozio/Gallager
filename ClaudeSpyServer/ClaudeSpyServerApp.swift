@@ -18,7 +18,8 @@ struct TmuxPaneMirrorApp: App {
         _updaterController = State(initialValue: UpdaterController(startUpdater: !isE2E))
 
         // Check if tmux is available at any common path (skip check in E2E tests)
-        let tmuxFound = isE2E || findTmuxBinary() != nil
+        @Dependency(TmuxBinaryLocator.self) var tmuxLocator
+        let tmuxFound = isE2E || tmuxLocator.find() != nil
         _showingTmuxInstallGuide = State(initialValue: !tmuxFound)
 
         // Bootstrap logging FIRST, before any Logger instances are created
@@ -236,7 +237,7 @@ struct TmuxPaneMirrorApp: App {
                 }
                 .sheet(isPresented: $showingPluginSetup, onDismiss: {
                     // After plugin setup is dismissed, check for launch at login prompt
-                    checkForLaunchAtLoginPrompt()
+                    Task { await checkForLaunchAtLoginPrompt() }
                 }) {
                     PluginSetupView()
                         .environment(coordinator.settings)
@@ -265,7 +266,7 @@ struct TmuxPaneMirrorApp: App {
             }
 
             // Hide File menu (no file-based actions in this app)
-            CommandGroup(replacing: .newItem) { }
+            CommandGroup(replacing: .newItem) {}
 
             // Edit menu - Copy as Rich Text / Copy with Control Sequences
             CommandGroup(after: .pasteboard) {
@@ -294,7 +295,6 @@ struct TmuxPaneMirrorApp: App {
                 Toggle("Show Status Bar", isOn: Bindable(coordinator.settings).showStatusBar)
                     .keyboardShortcut("s", modifiers: [.command, .shift])
             }
-
         }
 
         // About window - custom About panel with Gallager explanation
@@ -348,23 +348,22 @@ struct TmuxPaneMirrorApp: App {
                 showingPluginSetup = true
             } else if case .installed = coordinator.pluginService.state {
                 coordinator.settings.hasCompletedPluginSetup = true
-                checkForLaunchAtLoginPrompt()
+                await checkForLaunchAtLoginPrompt()
             }
         } else {
-            checkForLaunchAtLoginPrompt()
+            await checkForLaunchAtLoginPrompt()
         }
     }
 
     /// Checks if we should show the launch at login prompt.
     /// Called after plugin setup is complete or skipped.
-    private func checkForLaunchAtLoginPrompt() {
+    private func checkForLaunchAtLoginPrompt() async {
         // Only show if user hasn't been asked yet
         guard !coordinator.settings.hasAskedAboutLaunchAtLogin else { return }
 
         // Small delay to avoid sheet animation conflicts
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            showingLaunchAtLoginPrompt = true
-        }
+        try? await Task.sleep(for: .milliseconds(300))
+        showingLaunchAtLoginPrompt = true
     }
 }
 

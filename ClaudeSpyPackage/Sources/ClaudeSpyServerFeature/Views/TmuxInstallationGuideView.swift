@@ -1,22 +1,9 @@
 #if os(macOS)
     import AppKit
     import ClaudeSpyCommon
+    import Dependencies
     import Foundation
     import SwiftUI
-
-    /// Common paths where tmux may be installed.
-    private let tmuxSearchPaths = [
-        "/opt/homebrew/bin/tmux",
-        "/usr/local/bin/tmux",
-        "/opt/local/bin/tmux",
-        "/usr/bin/tmux",
-    ]
-
-    /// Searches common paths for the tmux binary.
-    /// Returns the first valid executable path found, or nil.
-    public func findTmuxBinary() -> String? {
-        tmuxSearchPaths.first { FileManager.default.isExecutableFile(atPath: $0) }
-    }
 
     /// Dialog shown at startup when tmux is not installed.
     ///
@@ -25,6 +12,7 @@
     /// Polls every second for the tmux binary and auto-dismisses when it becomes available.
     public struct TmuxInstallationGuideView: View {
         @Environment(\.dismiss) private var dismiss
+        @Dependency(TmuxBinaryLocator.self) private var tmuxLocator
 
         /// Whether Homebrew is available on this system
         @State private var hasHomebrew = false
@@ -35,9 +23,9 @@
         @State private var feedbackResetTrigger: UUID?
 
         /// Called when tmux is detected, with the path where it was found.
-        private let onTmuxFound: (String) -> Void
+        private let onTmuxFound: @MainActor (String) -> Void
 
-        public init(onTmuxFound: @escaping (String) -> Void) {
+        public init(onTmuxFound: @escaping @MainActor (String) -> Void) {
             self.onTmuxFound = onTmuxFound
         }
 
@@ -69,7 +57,7 @@
             .task {
                 // Poll for tmux every second
                 while !Task.isCancelled {
-                    if let path = findTmuxBinary() {
+                    if let path = tmuxLocator.find() {
                         onTmuxFound(path)
                         dismiss()
                         return
@@ -138,9 +126,9 @@
                     commandCard(
                         title: "Step 1 — Install Homebrew",
                         command:
-                            #"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)""#,
+                        #"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)""#,
                         description:
-                            "Paste this into Terminal to install the Homebrew package manager."
+                        "Paste this into Terminal to install the Homebrew package manager."
                     )
 
                     commandCard(
@@ -188,7 +176,7 @@
                 }
                 .padding(10)
                 .background(Color(nsColor: .textBackgroundColor))
-                .cornerRadius(6)
+                .clipShape(.rect(cornerRadius: 6))
 
                 Text(description)
                     .font(.caption)
