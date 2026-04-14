@@ -265,8 +265,15 @@ struct TmuxPaneMirrorApp: App {
                 CheckForUpdatesView(updaterController: updaterController)
             }
 
-            // Hide File menu (no file-based actions in this app)
+            // File menu - replace default items with Close Tab
             CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .saveItem) {}
+            CommandGroup(after: .newItem) {
+                Button("Close Tab") {
+                    NotificationCenter.default.post(name: .closeCurrentTab, object: nil)
+                }
+                .keyboardShortcut("w", modifiers: .command)
+            }
 
             // Edit menu - Copy as Rich Text / Copy with Control Sequences
             CommandGroup(after: .pasteboard) {

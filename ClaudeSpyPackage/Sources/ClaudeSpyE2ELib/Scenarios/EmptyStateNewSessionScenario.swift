@@ -42,12 +42,9 @@ public enum EmptyStateNewSessionScenario {
         TestStep.macScreenshot(label: "mac-terminal-created")
 
         // ── Close session and verify empty state returns ─────
+        // No running processes → closes immediately without confirmation dialog
         TestStep.log("Clicking Close session toolbar button")
         TestStep.macClickButton(titled: "Close session")
-        TestStep.wait(seconds: 1)
-
-        TestStep.log("Confirming close session dialog")
-        TestStep.macClickButton(titled: "Close \"terminal\"")
         TestStep.wait(seconds: 2)
 
         TestStep.log("Verifying empty state returned")
