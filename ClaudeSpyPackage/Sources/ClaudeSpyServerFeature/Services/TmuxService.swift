@@ -26,15 +26,18 @@ enum TmuxError: Error, LocalizedError {
     }
 }
 
-/// Whether a tmux stderr message indicates no server is running (or no sessions exist)
+/// Whether a tmux stderr message definitively indicates no server is running (or no sessions exist).
+///
+/// This intentionally excludes transient connection errors ("error connecting to",
+/// "no such file or directory") which can occur when tmux is busy under load. Those
+/// are handled as generic errors so `refreshPanes` preserves existing pane state
+/// instead of wiping it.
 private func isNoServerError(_ stderr: String) -> Bool {
     let lower = stderr.lowercased()
     return lower.contains("no server running")
         || lower.contains("no sessions")
         || lower.contains("no current target")
         || lower.contains("server exited unexpectedly")
-        || lower.contains("error connecting to")
-        || lower.contains("no such file or directory")
 }
 
 /// Service for interacting with tmux via CLI
@@ -179,6 +182,10 @@ final public class TmuxService {
                     panes = []
                     return panes
                 }
+                logger.warning("tmux list-panes failed (keeping old panes)", metadata: [
+                    "stderr": "\(result.stderrString)",
+                    "oldPaneCount": "\(panes.count)",
+                ])
                 lastError = result.stderrString
                 return panes
             }
@@ -215,6 +222,10 @@ final public class TmuxService {
             panes = []
         } catch {
             // Other errors (transient failures) - keep old panes to avoid falsely marking sessions as stale
+            logger.warning("tmux refresh failed transiently (keeping old panes)", metadata: [
+                "error": "\(error.localizedDescription)",
+                "oldPaneCount": "\(panes.count)",
+            ])
             lastError = error.localizedDescription
         }
 
