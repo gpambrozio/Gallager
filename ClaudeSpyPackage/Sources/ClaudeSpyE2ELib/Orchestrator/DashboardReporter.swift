@@ -37,8 +37,8 @@ final public class DashboardReporter: TestProgressReporter, @unchecked Sendable 
 
     // MARK: - Run lifecycle
 
-    public func sendRunStarted() async {
-        var body: [String: Any] = ["type": "e2e", "event": "run-started"]
+    public func sendRunStarted(totalScenarios: Int) async {
+        var body: [String: Any] = ["type": "e2e", "event": "run-started", "totalScenarios": totalScenarios]
         if let n = prNumber { body["prNumber"] = n }
         if let t = prTitle { body["prTitle"] = t }
         enqueue(body)
