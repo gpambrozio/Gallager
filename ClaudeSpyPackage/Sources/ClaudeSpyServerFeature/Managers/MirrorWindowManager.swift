@@ -49,6 +49,7 @@ final public class MirrorWindowManager {
     /// Updates the pane states dictionary from tmux pane metadata.
     /// Creates new entries for newly discovered panes, updates metadata for existing panes,
     /// and removes entries for panes that no longer exist (cleaning up associated state).
+    ///
     public func updatePaneStates(from panes: [PaneInfo]) {
         let currentPaneIds = Set(panes.map(\.paneId))
 

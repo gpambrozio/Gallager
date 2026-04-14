@@ -26,14 +26,28 @@ enum TmuxError: Error, LocalizedError {
     }
 }
 
-/// Whether a tmux stderr message indicates no server is running (or no sessions exist)
+/// Whether a tmux stderr message definitively indicates no server is running (or no sessions exist).
+///
+/// This intentionally excludes transient connection errors ("error connecting to",
+/// "no such file or directory") which can occur when tmux is busy under load. Those
+/// are disambiguated by checking whether the tmux socket file still exists — if
+/// the socket is gone, the server genuinely exited (e.g. last session was closed).
 private func isNoServerError(_ stderr: String) -> Bool {
     let lower = stderr.lowercased()
     return lower.contains("no server running")
         || lower.contains("no sessions")
         || lower.contains("no current target")
+        // "server exited unexpectedly" is tmux's crash message (vs clean shutdown's "no server running")
         || lower.contains("server exited unexpectedly")
-        || lower.contains("error connecting to")
+}
+
+/// Whether the stderr indicates a connection-level failure (socket gone or unreachable).
+/// These errors are ambiguous: they can mean the server genuinely exited (last session closed,
+/// socket deleted) or that the server is momentarily unreachable under load.
+/// Callers should follow up with a socket-existence check to disambiguate.
+private func isConnectionError(_ stderr: String) -> Bool {
+    let lower = stderr.lowercased()
+    return lower.contains("error connecting to")
         || lower.contains("no such file or directory")
 }
 
@@ -116,6 +130,22 @@ final public class TmuxService {
         onPanesChanged = handler
     }
 
+    /// Whether the tmux server socket file is missing from disk.
+    /// When the last session is closed, tmux removes the socket. A missing socket
+    /// definitively means no server is running, disambiguating connection errors
+    /// from transient failures (where the socket still exists).
+    private var isServerSocketMissing: Bool {
+        let path: String
+        if let socket = socketPath {
+            path = socket
+        } else {
+            // tmux default: $TMUX_TMPDIR/tmux-<uid>/default or /tmp/tmux-<uid>/default
+            let tmpDir = ProcessInfo.processInfo.environment["TMUX_TMPDIR"] ?? "/tmp"
+            path = "\(tmpDir)/tmux-\(getuid())/default"
+        }
+        return !FileManager.default.fileExists(atPath: path)
+    }
+
     // MARK: - tmux Commands
 
     /// Checks if tmux is available and a server is running
@@ -129,6 +159,10 @@ final public class TmuxService {
         let result = try await runTmuxCommand(["list-sessions"])
         if !result.isSuccess {
             if isNoServerError(result.stderrString) {
+                throw TmuxError.noServerRunning
+            }
+            // Connection errors with a missing socket mean the server genuinely exited
+            if isConnectionError(result.stderrString) && isServerSocketMissing {
                 throw TmuxError.noServerRunning
             }
             if result.stderrString.lowercased().contains("permission denied") {
@@ -179,6 +213,18 @@ final public class TmuxService {
                     panes = []
                     return panes
                 }
+                // Connection errors are ambiguous: check if the socket is actually gone
+                // (server genuinely exited, e.g. last session closed) vs. transient
+                if isConnectionError(result.stderrString) && isServerSocketMissing {
+                    logger.info("tmux socket missing after connection error — server exited, clearing panes")
+                    panes = []
+                    return panes
+                }
+                logger.warning("tmux list-panes failed (keeping old panes)", metadata: [
+                    "stderr": "\(result.stderrString)",
+                    "exitCode": "\(result.exitCode)",
+                    "oldPaneCount": "\(panes.count)",
+                ])
                 lastError = result.stderrString
                 return panes
             }
@@ -214,8 +260,19 @@ final public class TmuxService {
             lastError = nil
             panes = []
         } catch {
-            // Other errors (transient failures) - keep old panes to avoid falsely marking sessions as stale
-            lastError = error.localizedDescription
+            // Check if the socket is gone — if so, the server genuinely exited
+            if isServerSocketMissing {
+                logger.info("tmux socket missing after error — server exited, clearing panes")
+                lastError = nil
+                panes = []
+            } else {
+                // Socket still exists — transient failure, keep old panes
+                logger.warning("tmux refresh failed transiently (keeping old panes)", metadata: [
+                    "error": "\(error.localizedDescription)",
+                    "oldPaneCount": "\(panes.count)",
+                ])
+                lastError = error.localizedDescription
+            }
         }
 
         return panes
