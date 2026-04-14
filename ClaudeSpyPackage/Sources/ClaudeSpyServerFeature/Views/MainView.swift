@@ -21,12 +21,11 @@ public struct MainView: View {
     @State private var selectedRemoteWindowId: String?
     @State private var attachError: String?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var showingCloseConfirmation = false
     @State private var projects: [ClaudeProjectInfo] = []
     @State private var isLoadingProjects = false
     @State private var creatingSelection: NewSessionCreatingState?
     @State private var detailPaneSize: CGSize = .zero
-    @State private var contextMenuCloseSessionName: String?
+    @State private var closeSessionConfirmation: CloseSessionConfirmation?
 
     /// Tracks active session pane IDs for detecting section changes
     @State private var trackedActiveSessionPaneIds: Set<String> = []
@@ -86,17 +85,19 @@ public struct MainView: View {
             }
         }
         .alert("Close Session?", isPresented: .init(
-            get: { contextMenuCloseSessionName != nil },
-            set: { if !$0 { contextMenuCloseSessionName = nil } }
+            get: { closeSessionConfirmation != nil },
+            set: { if !$0 { closeSessionConfirmation = nil } }
         )) {
-            if let sessionName = contextMenuCloseSessionName {
-                Button("Close \"\(sessionName)\"", role: .destructive) {
-                    closeSession(sessionName)
+            if let confirmation = closeSessionConfirmation {
+                Button("Close \"\(confirmation.sessionName)\"", role: .destructive) {
+                    closeSession(confirmation.sessionName)
                 }
             }
-            Button("Cancel", role: .cancel) { contextMenuCloseSessionName = nil }
+            Button("Cancel", role: .cancel) { closeSessionConfirmation = nil }
         } message: {
-            Text("This will end all processes in the session.")
+            if let confirmation = closeSessionConfirmation {
+                Text(confirmation.message)
+            }
         }
         .onChange(of: tmuxService.panes) { _, newPanes in
             // Ensure pane states exist for all known panes so the detail view
@@ -431,7 +432,7 @@ public struct MainView: View {
                 Divider()
 
                 Button(role: .destructive) {
-                    contextMenuCloseSessionName = session.sessionName
+                    requestCloseSession(session.sessionName)
                 } label: {
                     Label("Close Session", symbol: .xmark)
                 }
@@ -657,16 +658,11 @@ public struct MainView: View {
                 }
 
                 Button {
-                    showingCloseConfirmation = true
+                    requestCloseSession(window.sessionName)
                 } label: {
                     Symbols.xmark.image
                 }
                 .help("Close session")
-                .popover(isPresented: $showingCloseConfirmation, arrowEdge: .bottom) {
-                    CloseSessionConfirmation(sessionName: window.sessionName) {
-                        closeSession(window.sessionName)
-                    }
-                }
             } else if let remote = selectedRemoteSession, let remoteWindow = selectedRemoteWindow {
                 // Yolo mode toggle for remote windows with active Claude sessions
                 let claudePaneId = remoteWindow.panes.first(where: { $0.claudeSession != nil })?.paneId
@@ -1043,6 +1039,20 @@ public struct MainView: View {
                 try await launcher.attachToSession(pane.sessionName)
             } catch {
                 attachError = error.localizedDescription
+            }
+        }
+    }
+
+    private func requestCloseSession(_ sessionName: String) {
+        Task {
+            let processes = await tmuxService.runningProcesses(inSession: sessionName)
+            if processes.isEmpty {
+                closeSession(sessionName)
+            } else {
+                closeSessionConfirmation = CloseSessionConfirmation(
+                    sessionName: sessionName,
+                    runningProcesses: processes
+                )
             }
         }
     }
@@ -2051,34 +2061,18 @@ private struct NewSessionRow: View {
     }
 }
 
-// MARK: - Close Session Confirmation Popover
+// MARK: - Close Session Confirmation
 
-private struct CloseSessionConfirmation: View {
+private struct CloseSessionConfirmation {
     let sessionName: String
-    let onConfirm: () -> Void
+    let runningProcesses: [TmuxService.RunningProcess]
 
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Text("Close Session?")
-                .font(.headline)
-            Text("This will end all processes in the session.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            HStack(spacing: 8) {
-                Button("Cancel") {
-                    dismiss()
-                }
-                .keyboardShortcut(.cancelAction)
-                Button("Close \"\(sessionName)\"", role: .destructive) {
-                    dismiss()
-                    onConfirm()
-                }
-                .keyboardShortcut(.defaultAction)
-            }
+    var message: String {
+        let grouped = Dictionary(grouping: runningProcesses) { $0.paneIndex }
+        let descriptions = grouped.sorted(by: { $0.key < $1.key }).map { paneIndex, processes in
+            let names = Set(processes.map(\.name)).sorted().joined(separator: ", ")
+            return "Pane \(paneIndex): \(names)"
         }
-        .padding()
-        .frame(minWidth: 250)
+        return "The following processes are still running:\n\(descriptions.joined(separator: "\n"))"
     }
 }

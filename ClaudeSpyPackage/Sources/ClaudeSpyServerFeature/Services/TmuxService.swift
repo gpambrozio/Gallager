@@ -1257,6 +1257,115 @@ final public class TmuxService {
         await refreshPanes()
     }
 
+    /// Describes a process running in a tmux pane (foreground or background).
+    public struct RunningProcess: Sendable {
+        /// The pane index within its window (e.g., 0, 1)
+        public let paneIndex: Int
+        /// The process name (e.g., "python", "node", "make")
+        public let name: String
+        /// Whether this is the foreground process (vs a background child)
+        public let isForeground: Bool
+    }
+
+    /// Known shell executables that indicate an idle pane.
+    private static let knownShells: Set<String> = [
+        "bash", "zsh", "sh", "fish", "dash", "csh", "tcsh", "ksh",
+    ]
+
+    /// Detects running processes across all panes of a tmux session.
+    ///
+    /// Checks both the foreground command (`pane_current_command`) and background
+    /// child processes (via `ps` process tree walk from `pane_pid`). A pane whose
+    /// foreground command is a known shell and has no child processes is considered idle.
+    ///
+    /// - Parameter sessionName: The tmux session name to inspect
+    /// - Returns: Array of running processes found across the session's panes
+    public func runningProcesses(inSession sessionName: String) async -> [RunningProcess] {
+        do {
+            let format = "#{pane_index}|#{pane_current_command}|#{pane_pid}"
+            let result = try await runTmuxCommand([
+                "list-panes", "-s", "-t", sessionName, "-F", format,
+            ])
+            guard result.isSuccess else { return [] }
+
+            struct PaneEntry {
+                let paneIndex: Int
+                let command: String
+                let pid: String
+            }
+
+            var entries: [PaneEntry] = []
+            for line in result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n") {
+                let parts = line.split(separator: "|", maxSplits: 2)
+                guard parts.count == 3, let index = Int(parts[0]) else { continue }
+                entries.append(PaneEntry(paneIndex: index, command: String(parts[1]), pid: String(parts[2])))
+            }
+
+            guard !entries.isEmpty else { return [] }
+
+            // Get full process tree from ps (pid, ppid, command name)
+            let psResult = try await processRunner.run(
+                executable: "/bin/ps",
+                arguments: ["-eo", "pid,ppid,comm"],
+                environment: nil,
+                timeout: 5
+            )
+            guard psResult.isSuccess else { return [] }
+
+            // Build parent -> children mapping and track process names
+            var childrenOf: [String: [String]] = [:]
+            var processNames: [String: String] = [:]
+
+            for line in psResult.stdoutString.split(separator: "\n") {
+                let cols = line.split(whereSeparator: \.isWhitespace)
+                guard cols.count >= 3 else { continue }
+                let pid = String(cols[0])
+                let ppid = String(cols[1])
+                // comm may contain path separators — take just the basename
+                let comm = String(cols[cols.count - 1])
+                let basename = comm.split(separator: "/").last.map(String.init) ?? comm
+                childrenOf[ppid, default: []].append(pid)
+                processNames[pid] = basename
+            }
+
+            var running: [RunningProcess] = []
+
+            for entry in entries {
+                let isShell = Self.knownShells.contains(entry.command)
+
+                // If foreground process is not a shell, it's a running process
+                if !isShell {
+                    running.append(RunningProcess(
+                        paneIndex: entry.paneIndex,
+                        name: entry.command,
+                        isForeground: true
+                    ))
+                }
+
+                // Walk the process tree from the pane's shell PID to find background children.
+                // Skip the shell itself — we only care about descendants.
+                var seen: Set<String> = [entry.pid]
+                var stack = childrenOf[entry.pid, default: []]
+                while let pid = stack.popLast() {
+                    guard seen.insert(pid).inserted else { continue }
+                    if let name = processNames[pid], !Self.knownShells.contains(name) {
+                        running.append(RunningProcess(
+                            paneIndex: entry.paneIndex,
+                            name: name,
+                            isForeground: false
+                        ))
+                    }
+                    stack.append(contentsOf: childrenOf[pid, default: []])
+                }
+            }
+
+            return running
+        } catch {
+            logger.warning("runningProcesses(inSession:) failed: \(error)")
+            return []
+        }
+    }
+
     /// Gets the pane ID for a target
     public func getPaneId(_ target: String) async throws -> String {
         let result = try await runTmuxCommand([
