@@ -150,6 +150,14 @@ public struct MainView: View {
             markSelectedSessionsHandledIfActive()
         }
         .onReceive(NotificationCenter.default.publisher(for: .closeCurrentTab)) { _ in
+            // Close remote tab if a remote session is selected
+            if
+                let remote = selectedRemoteSession,
+                let remoteWindow = selectedRemoteWindow {
+                requestCloseRemoteWindow(remoteWindow, hostId: remote.hostId)
+                return
+            }
+            // Close local tab
             guard
                 let window = selectedWindow,
                 !fileBrowserActiveWindowIds.contains(window.id)
@@ -333,6 +341,9 @@ public struct MainView: View {
                                 hostId: host.id
                             )
                         }
+                    },
+                    onCloseSession: { sessionName in
+                        requestCloseRemoteSession(sessionName, hostId: host.id)
                     }
                 )
             }
@@ -481,6 +492,9 @@ public struct MainView: View {
                                 paneId: newWindow.id
                             )
                         }
+                    },
+                    onCloseWindow: { windowToClose in
+                        requestCloseRemoteWindow(windowToClose, hostId: remote.hostId)
                     },
                     onNewWindow: {
                         Task {
@@ -685,6 +699,13 @@ public struct MainView: View {
                     let resizeKey = remote.resizeKey(paneId: activePane.paneId)
                     resizeToolbarGroup(resizeKey: resizeKey, remoteHostId: remote.hostId, remotePaneId: activePane.paneId)
                 }
+
+                Button {
+                    requestCloseRemoteSession(remote.sessionName, hostId: remote.hostId)
+                } label: {
+                    Symbols.xmark.image
+                }
+                .help("Close session")
             }
 
             Button {
@@ -1041,7 +1062,7 @@ public struct MainView: View {
             } else {
                 closeConfirmation = CloseConfirmation(
                     target: .session(sessionName),
-                    runningProcesses: processes
+                    localProcesses: processes
                 )
             }
         }
@@ -1055,8 +1076,48 @@ public struct MainView: View {
             } else {
                 closeConfirmation = CloseConfirmation(
                     target: .window(window),
-                    runningProcesses: processes
+                    localProcesses: processes
                 )
+            }
+        }
+    }
+
+    // MARK: - Remote Close
+
+    private func requestCloseRemoteWindow(_ window: TmuxWindow, hostId: String) {
+        Task {
+            guard let manager = coordinator.viewerConnectionManager else { return }
+            let spec = CheckRunningProcesses(target: .window(window.id))
+            let result = await manager.sendCommand(spec, paneId: "", hostId: hostId)
+            if case let .success(response) = result {
+                let processes = response.runningProcesses ?? []
+                if processes.isEmpty {
+                    performClose(.remoteWindow(window, hostId: hostId))
+                } else {
+                    closeConfirmation = CloseConfirmation(
+                        target: .remoteWindow(window, hostId: hostId),
+                        runningProcesses: processes
+                    )
+                }
+            }
+        }
+    }
+
+    private func requestCloseRemoteSession(_ sessionName: String, hostId: String) {
+        Task {
+            guard let manager = coordinator.viewerConnectionManager else { return }
+            let spec = CheckRunningProcesses(target: .session(sessionName))
+            let result = await manager.sendCommand(spec, paneId: "", hostId: hostId)
+            if case let .success(response) = result {
+                let processes = response.runningProcesses ?? []
+                if processes.isEmpty {
+                    performClose(.remoteSession(sessionName: sessionName, hostId: hostId))
+                } else {
+                    closeConfirmation = CloseConfirmation(
+                        target: .remoteSession(sessionName: sessionName, hostId: hostId),
+                        runningProcesses: processes
+                    )
+                }
             }
         }
     }
@@ -1073,6 +1134,26 @@ public struct MainView: View {
                     if selectedWindow?.id == window.id {
                         let session = tmuxService.sessions.first { $0.sessionName == window.sessionName }
                         selectedWindow = session?.activeWindow
+                    }
+                case let .remoteWindow(window, hostId):
+                    guard let manager = coordinator.viewerConnectionManager else { return }
+                    let result = await manager.sendCommand(
+                        KillTmuxWindow(windowId: window.id),
+                        paneId: "",
+                        hostId: hostId
+                    )
+                    if case let .failure(error) = result {
+                        attachError = error.localizedDescription
+                    }
+                case let .remoteSession(sessionName, hostId):
+                    guard let manager = coordinator.viewerConnectionManager else { return }
+                    let result = await manager.sendCommand(
+                        KillTmuxSession(sessionName: sessionName),
+                        paneId: "",
+                        hostId: hostId
+                    )
+                    if case let .failure(error) = result {
+                        attachError = error.localizedDescription
                     }
                 }
             } catch {
@@ -1594,6 +1675,7 @@ private struct RemoteWindowTabBar: View {
     let selectedWindow: TmuxWindow
     let isHostConnected: Bool
     let onSelectWindow: (TmuxWindow) -> Void
+    let onCloseWindow: (TmuxWindow) -> Void
     let onNewWindow: () -> Void
 
     var body: some View {
@@ -1626,40 +1708,64 @@ private struct RemoteWindowTabBar: View {
         }
     }
 
+    @State private var hoveredWindowId: String?
+
     private func windowTab(_ window: TmuxWindow) -> some View {
         let isSelected = window.id == selectedWindow.id
+        let isHovered = hoveredWindowId == window.id
         let windowName = tabLabel(for: window)
 
-        return Button {
-            onSelectWindow(window)
-        } label: {
-            HStack(spacing: 4) {
-                if window.hasClaude {
-                    Symbols.sparkles.image
-                        .font(.caption2)
-                        .foregroundStyle(.purple)
-                }
+        return HStack(spacing: 0) {
+            Button {
+                onSelectWindow(window)
+            } label: {
+                HStack(spacing: 4) {
+                    if window.hasClaude {
+                        Symbols.sparkles.image
+                            .font(.caption2)
+                            .foregroundStyle(.purple)
+                    }
 
-                Text(windowName)
-                    .font(.system(.caption, design: .monospaced))
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
-            .overlay(alignment: .bottom) {
-                if isSelected {
-                    Rectangle()
-                        .fill(Color.accentColor)
-                        .frame(height: 2)
+                    Text(windowName)
+                        .font(.system(.caption, design: .monospaced))
+                        .lineLimit(1)
                 }
+                .padding(.leading, 12)
+                .padding(.trailing, 4)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .accessibilityLabel(window.id)
+            .accessibilityValue(isSelected ? "selected" : "")
+
+            Button {
+                onCloseWindow(window)
+            } label: {
+                Symbols.xmark.image
+                    .font(.system(size: 8, weight: .bold))
+                    .frame(width: 14, height: 14)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .opacity(isSelected || isHovered ? 1 : 0)
+            .help("Close window")
+            .padding(.trailing, 6)
+            .disabled(!isHostConnected)
         }
-        .buttonStyle(.plain)
         .foregroundStyle(isSelected ? .primary : .secondary)
-        .accessibilityLabel(window.id)
-        .accessibilityValue(isSelected ? "selected" : "")
+        .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+        .overlay(alignment: .bottom) {
+            if isSelected {
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(height: 2)
+            }
+        }
+        .onHover { hovering in
+            hoveredWindowId = hovering ? window.id : nil
+        }
     }
 
     private func tabLabel(for window: TmuxWindow) -> String {
@@ -1844,6 +1950,7 @@ private struct RemoteHostSidebarSection: View {
     let onCreate: (ClaudeProjectInfo?) -> Void
     let onSetDescription: (String, String?) -> Void
     let onToggleYolo: (String, Bool) -> Void
+    let onCloseSession: (String) -> Void
 
     @Environment(AppSettings.self) private var settings
 
@@ -1972,6 +2079,15 @@ private struct RemoteHostSidebarSection: View {
 
                     Divider()
                 }
+
+                Button(role: .destructive) {
+                    onCloseSession(session.sessionName)
+                } label: {
+                    Label("Close Session", symbol: .xmark)
+                }
+                .disabled(connection?.isHostConnected != true)
+
+                Divider()
             }
         ))
     }
@@ -2146,15 +2262,31 @@ private struct CloseConfirmation {
     enum Target {
         case session(String)
         case window(LocalTmuxWindow)
+        case remoteWindow(TmuxWindow, hostId: String)
+        case remoteSession(sessionName: String, hostId: String)
     }
 
     let target: Target
-    let runningProcesses: [TmuxService.RunningProcess]
+    let runningProcesses: [RunningProcessInfo]
+
+    /// Create from local TmuxService processes
+    init(target: Target, localProcesses: [TmuxService.RunningProcess]) {
+        self.target = target
+        self.runningProcesses = localProcesses.map {
+            RunningProcessInfo(paneIndex: $0.paneIndex, name: $0.name, isForeground: $0.isForeground)
+        }
+    }
+
+    /// Create from remote RunningProcessInfo (already in wire format)
+    init(target: Target, runningProcesses: [RunningProcessInfo]) {
+        self.target = target
+        self.runningProcesses = runningProcesses
+    }
 
     var title: String {
         switch target {
-        case .session: "Close Session?"
-        case .window: "Close Window?"
+        case .session, .remoteSession: "Close Session?"
+        case .window, .remoteWindow: "Close Window?"
         }
     }
 
@@ -2162,6 +2294,8 @@ private struct CloseConfirmation {
         switch target {
         case let .session(name): name
         case let .window(window): windowTabLabel(windowName: window.windowName, windowIndex: window.windowIndex)
+        case let .remoteWindow(window, _): windowTabLabel(windowName: window.windowName, windowIndex: window.windowIndex)
+        case let .remoteSession(name, _): name
         }
     }
 

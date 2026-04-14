@@ -488,6 +488,37 @@
                     )
                 }
 
+                // Handle check running processes (for remote close confirmation)
+                if case let .checkRunningProcesses(spec) = command.command {
+                    return await Self.handleCheckRunningProcesses(
+                        command: command,
+                        spec: spec,
+                        tmuxService: tmux
+                    )
+                }
+
+                // Handle kill window
+                if case let .killTmuxWindow(spec) = command.command {
+                    return await Self.handleKillWindow(
+                        command: command,
+                        spec: spec,
+                        tmuxService: tmux,
+                        windowManager: winManager,
+                        connectionManager: connectionManager
+                    )
+                }
+
+                // Handle kill session
+                if case let .killTmuxSession(spec) = command.command {
+                    return await Self.handleKillSession(
+                        command: command,
+                        spec: spec,
+                        tmuxService: tmux,
+                        windowManager: winManager,
+                        connectionManager: connectionManager
+                    )
+                }
+
                 // Handle remote editor submit
                 if case let .submitEditorContent(spec) = command.command {
                     editorManager.handleRemoteSubmit(paneId: command.paneId, content: spec.content)
@@ -691,6 +722,61 @@
                 await connectionManager?.pushSessionStateToAll()
 
                 return .success(for: command.id, paneId: paneId)
+            } catch {
+                return .failure(for: command.id, error: error.localizedDescription)
+            }
+        }
+
+        private static func handleCheckRunningProcesses(
+            command: CommandMessage,
+            spec: CheckRunningProcesses,
+            tmuxService: TmuxService
+        ) async -> CommandResponseMessage {
+            let processes: [TmuxService.RunningProcess]
+            switch spec.target {
+            case let .window(windowId):
+                processes = await tmuxService.runningProcesses(inWindow: windowId)
+            case let .session(sessionName):
+                processes = await tmuxService.runningProcesses(inSession: sessionName)
+            }
+
+            let processInfos = processes.map {
+                RunningProcessInfo(paneIndex: $0.paneIndex, name: $0.name, isForeground: $0.isForeground)
+            }
+            return .success(for: command.id, runningProcesses: processInfos)
+        }
+
+        private static func handleKillWindow(
+            command: CommandMessage,
+            spec: KillTmuxWindow,
+            tmuxService: TmuxService,
+            windowManager: MirrorWindowManager,
+            connectionManager: ConnectedViewerManager?
+        ) async -> CommandResponseMessage {
+            do {
+                try await tmuxService.killWindow(spec.windowId)
+                let allPanes = await tmuxService.refreshPanes()
+                windowManager.updatePaneStates(from: allPanes)
+                await connectionManager?.pushSessionStateToAll()
+                return .success(for: command.id)
+            } catch {
+                return .failure(for: command.id, error: error.localizedDescription)
+            }
+        }
+
+        private static func handleKillSession(
+            command: CommandMessage,
+            spec: KillTmuxSession,
+            tmuxService: TmuxService,
+            windowManager: MirrorWindowManager,
+            connectionManager: ConnectedViewerManager?
+        ) async -> CommandResponseMessage {
+            do {
+                try await tmuxService.killSession(spec.sessionName)
+                let allPanes = await tmuxService.refreshPanes()
+                windowManager.updatePaneStates(from: allPanes)
+                await connectionManager?.pushSessionStateToAll()
+                return .success(for: command.id)
             } catch {
                 return .failure(for: command.id, error: error.localizedDescription)
             }
