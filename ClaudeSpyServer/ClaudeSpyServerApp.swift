@@ -7,6 +7,8 @@ import SwiftUI
 @main
 struct TmuxPaneMirrorApp: App {
     @State private var coordinator: AppCoordinator
+    @State private var showingTmuxInstallGuide: Bool
+    @State private var pluginSetupCheckTrigger = 0
     @State private var showingPluginSetup = false
     @State private var showingLaunchAtLoginPrompt = false
     @State private var updaterController: UpdaterController
@@ -14,6 +16,11 @@ struct TmuxPaneMirrorApp: App {
     init() {
         let isE2E = CommandLine.arguments.contains("--e2e-test")
         _updaterController = State(initialValue: UpdaterController(startUpdater: !isE2E))
+
+        // Check if tmux is available at any common path (skip check in E2E tests)
+        @Dependency(TmuxBinaryLocator.self) var tmuxLocator
+        let tmuxFound = isE2E || tmuxLocator.find() != nil
+        _showingTmuxInstallGuide = State(initialValue: !tmuxFound)
 
         // Bootstrap logging FIRST, before any Logger instances are created
         // Log level is determined by LOG_LEVEL env var (default: warning)
@@ -206,33 +213,31 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator.editorSessionManager)
                 .environment(\.e2eeService, coordinator.e2eeService)
                 .onAppear {
-                    if coordinator.settings.openPanesWindowOnLaunch {
+                    if coordinator.settings.openPanesWindowOnLaunch || showingTmuxInstallGuide {
                         NSApp.setActivationPolicy(.regular)
                         MenuBarExtraView.bringAppToFront()
                     }
                 }
-                .task {
-                    // Check if we should show the plugin setup on first launch
-                    if !coordinator.settings.hasCompletedPluginSetup {
-                        await coordinator.pluginService.checkInstallation()
-
-                        // Show setup only if plugin is not installed
-                        if case .notInstalled = coordinator.pluginService.state {
-                            showingPluginSetup = true
-                        } else if case .installed = coordinator.pluginService.state {
-                            // Plugin is installed, mark setup as complete
-                            coordinator.settings.hasCompletedPluginSetup = true
-                            // Check if we should show launch at login prompt
-                            checkForLaunchAtLoginPrompt()
-                        }
-                    } else {
-                        // Plugin setup already done, check for launch at login prompt
-                        checkForLaunchAtLoginPrompt()
+                .sheet(isPresented: $showingTmuxInstallGuide, onDismiss: {
+                    // After tmux is found, proceed with the plugin setup chain
+                    pluginSetupCheckTrigger += 1
+                }) {
+                    TmuxInstallationGuideView { foundPath in
+                        coordinator.settings.tmuxPath = foundPath
                     }
+                }
+                .task {
+                    // Only run first-launch dialogs if tmux is already installed
+                    guard !showingTmuxInstallGuide else { return }
+                    pluginSetupCheckTrigger += 1
+                }
+                .task(id: pluginSetupCheckTrigger) {
+                    guard pluginSetupCheckTrigger > 0 else { return }
+                    await checkForPluginSetup()
                 }
                 .sheet(isPresented: $showingPluginSetup, onDismiss: {
                     // After plugin setup is dismissed, check for launch at login prompt
-                    checkForLaunchAtLoginPrompt()
+                    Task { await checkForLaunchAtLoginPrompt() }
                 }) {
                     PluginSetupView()
                         .environment(coordinator.settings)
@@ -243,7 +248,9 @@ struct TmuxPaneMirrorApp: App {
                         .environment(coordinator.settings)
                 }
         }
-        .defaultLaunchBehavior(coordinator.settings.openPanesWindowOnLaunch ? .presented : .suppressed)
+        .defaultLaunchBehavior(
+            (coordinator.settings.openPanesWindowOnLaunch || showingTmuxInstallGuide) ? .presented : .suppressed
+        )
         .onChange(of: totalPendingSessionCount, initial: true) { _, newValue in
             NSApp.dockTile.badgeLabel = newValue > 0 ? "\(newValue)" : nil
         }
@@ -258,8 +265,15 @@ struct TmuxPaneMirrorApp: App {
                 CheckForUpdatesView(updaterController: updaterController)
             }
 
-            // Hide File menu (no file-based actions in this app)
-            CommandGroup(replacing: .newItem) { }
+            // File menu - replace default items with Close Tab
+            CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .saveItem) {}
+            CommandGroup(after: .newItem) {
+                Button("Close Tab") {
+                    NotificationCenter.default.post(name: .closeCurrentTab, object: nil)
+                }
+                .keyboardShortcut("w", modifiers: .command)
+            }
 
             // Edit menu - Copy as Rich Text / Copy with Control Sequences
             CommandGroup(after: .pasteboard) {
@@ -288,7 +302,6 @@ struct TmuxPaneMirrorApp: App {
                 Toggle("Show Status Bar", isOn: Bindable(coordinator.settings).showStatusBar)
                     .keyboardShortcut("s", modifiers: [.command, .shift])
             }
-
         }
 
         // About window - custom About panel with Gallager explanation
@@ -317,7 +330,8 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator)
         } label: {
             MenuBarLabel(pendingCount: totalPendingSessionCount)
-                .task {
+                .task(id: showingTmuxInstallGuide) {
+                    guard !showingTmuxInstallGuide else { return }
                     await coordinator.setupAllServices()
                 }
         }
@@ -331,16 +345,32 @@ struct TmuxPaneMirrorApp: App {
         return localCount + remoteCount
     }
 
+    /// Checks if we should show the plugin setup on first launch.
+    /// Driven by `pluginSetupCheckTrigger` via `.task(id:)`.
+    private func checkForPluginSetup() async {
+        if !coordinator.settings.hasCompletedPluginSetup {
+            await coordinator.pluginService.checkInstallation()
+
+            if case .notInstalled = coordinator.pluginService.state {
+                showingPluginSetup = true
+            } else if case .installed = coordinator.pluginService.state {
+                coordinator.settings.hasCompletedPluginSetup = true
+                await checkForLaunchAtLoginPrompt()
+            }
+        } else {
+            await checkForLaunchAtLoginPrompt()
+        }
+    }
+
     /// Checks if we should show the launch at login prompt.
     /// Called after plugin setup is complete or skipped.
-    private func checkForLaunchAtLoginPrompt() {
+    private func checkForLaunchAtLoginPrompt() async {
         // Only show if user hasn't been asked yet
         guard !coordinator.settings.hasAskedAboutLaunchAtLogin else { return }
 
         // Small delay to avoid sheet animation conflicts
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            showingLaunchAtLoginPrompt = true
-        }
+        try? await Task.sleep(for: .milliseconds(300))
+        showingLaunchAtLoginPrompt = true
     }
 }
 

@@ -95,6 +95,12 @@ public enum TestStep: Sendable {
     case macClickMenuItem(menuButtonTitle: String, itemTitle: String, instance: Int = 0)
     /// Press Tab key to cycle focus between elements in dialogs
     case macPressTab(instance: Int = 0)
+    /// Press Escape key to dismiss dialogs/alerts
+    case macPressEscape(instance: Int = 0)
+    /// Press Return key to confirm default action in dialogs/alerts
+    case macPressReturn(instance: Int = 0)
+    /// Press Space key to activate the focused button in dialogs
+    case macPressSpace(instance: Int = 0)
     /// Press Cmd+A to select all text in the focused field
     case macSelectAll(instance: Int = 0)
     /// CGEvent left-click on an element (bypasses AXPress, uses real mouse click).

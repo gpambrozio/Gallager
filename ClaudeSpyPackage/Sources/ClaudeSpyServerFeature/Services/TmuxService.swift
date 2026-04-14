@@ -261,40 +261,15 @@ final public class TmuxService {
 
             guard !paneInfo.isEmpty else { return [:] }
 
-            // Get full process tree from ps (pid, ppid, command name)
-            let psResult = try await processRunner.run(
-                executable: "/bin/ps",
-                arguments: ["-eo", "pid,ppid,comm"],
-                environment: nil,
-                timeout: 5
-            )
-            guard psResult.isSuccess else { return [:] }
-
-            // Build parent -> children mapping and track process names
-            var childrenOf: [String: [String]] = [:]
-            var processNames: [String: String] = [:]
-
-            for line in psResult.stdoutString.split(separator: "\n") {
-                let cols = line.split(whereSeparator: \.isWhitespace)
-                guard cols.count >= 3 else { continue }
-                let pid = String(cols[0])
-                let ppid = String(cols[1])
-                let comm = String(cols[cols.count - 1])
-                childrenOf[ppid, default: []].append(pid)
-                processNames[pid] = comm
-            }
+            let tree = try await processTree()
+            guard let tree else { return [:] }
 
             // Walk the subtree of each pane shell, looking for a "claude" descendant
             var claudePanes: [String: String] = [:]
             for (paneId, info) in paneInfo {
-                var stack = [info.pid]
-                while let pid = stack.popLast() {
-                    for child in childrenOf[pid, default: []] {
-                        if processNames[child] == "claude" {
-                            claudePanes[paneId] = info.path
-                        }
-                        stack.append(child)
-                    }
+                let descendants = tree.descendants(of: info.pid)
+                if descendants.contains(where: { tree.processName(for: $0) == "claude" }) {
+                    claudePanes[paneId] = info.path
                 }
             }
 
@@ -1268,6 +1243,181 @@ final public class TmuxService {
 
         // Refresh panes to reflect the killed pane
         await refreshPanes()
+    }
+
+    /// Kills a single tmux window by its target (e.g., "session:0").
+    /// If the window is the last one in its session, tmux will close the session automatically.
+    /// - Parameter windowTarget: The window target to kill (e.g., "mysession:0")
+    public func killWindow(_ windowTarget: String) async throws {
+        let result = try await runTmuxCommand([
+            "kill-window",
+            "-t", windowTarget,
+        ])
+
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+
+        // Refresh panes to reflect the killed window
+        await refreshPanes()
+    }
+
+    /// Describes a process running in a tmux pane (foreground or background).
+    public struct RunningProcess: Sendable {
+        /// The pane index within its window (e.g., 0, 1)
+        public let paneIndex: Int
+        /// The process name (e.g., "python", "node", "make")
+        public let name: String
+        /// Whether this is the foreground process (vs a background child)
+        public let isForeground: Bool
+    }
+
+    /// Known shell executables that indicate an idle pane.
+    private static let knownShells: Set<String> = [
+        "bash", "zsh", "sh", "fish", "dash", "csh", "tcsh", "ksh",
+    ]
+
+    /// Snapshot of the system process tree, built from `ps` output.
+    /// Shared by `detectClaudePanes` and `runningProcesses`.
+    private struct ProcessTree {
+        private let childrenOf: [String: [String]]
+        private let names: [String: String]
+
+        init(psOutput: String) {
+            var children: [String: [String]] = [:]
+            var processNames: [String: String] = [:]
+
+            for line in psOutput.split(separator: "\n") {
+                let cols = line.split(whereSeparator: \.isWhitespace)
+                guard cols.count >= 3 else { continue }
+                let pid = String(cols[0])
+                let ppid = String(cols[1])
+                // comm may contain path separators — take just the basename
+                let comm = String(cols[cols.count - 1])
+                let basename = comm.split(separator: "/").last.map(String.init) ?? comm
+                children[ppid, default: []].append(pid)
+                processNames[pid] = basename
+            }
+
+            self.childrenOf = children
+            self.names = processNames
+        }
+
+        func processName(for pid: String) -> String? {
+            names[pid]
+        }
+
+        /// Returns all descendant PIDs of the given root (excluding the root itself).
+        func descendants(of rootPid: String) -> [String] {
+            var result: [String] = []
+            var seen: Set<String> = [rootPid]
+            var stack = childrenOf[rootPid, default: []]
+            while let pid = stack.popLast() {
+                guard seen.insert(pid).inserted else { continue }
+                result.append(pid)
+                stack.append(contentsOf: childrenOf[pid, default: []])
+            }
+            return result
+        }
+    }
+
+    /// Builds a `ProcessTree` from the current system state.
+    private func processTree() async throws -> ProcessTree? {
+        let psResult = try await processRunner.run(
+            executable: "/bin/ps",
+            arguments: ["-eo", "pid,ppid,comm"],
+            environment: nil,
+            timeout: 5
+        )
+        guard psResult.isSuccess else { return nil }
+        return ProcessTree(psOutput: psResult.stdoutString)
+    }
+
+    /// Detects running processes across all panes of a tmux session.
+    ///
+    /// Checks both the foreground command (`pane_current_command`) and background
+    /// child processes (via `ps` process tree walk from `pane_pid`). A pane whose
+    /// foreground command is a known shell and has no child processes is considered idle.
+    ///
+    /// - Parameter sessionName: The tmux session name to inspect
+    /// - Returns: Array of running processes found across the session's panes
+    public func runningProcesses(inSession sessionName: String) async -> [RunningProcess] {
+        // list-panes -s lists all panes in the session (across all windows)
+        await runningProcesses(listPanesArgs: ["-s", "-t", sessionName])
+    }
+
+    /// Detects running processes across all panes of a specific tmux window.
+    ///
+    /// Same detection as `runningProcesses(inSession:)` but scoped to a single window.
+    ///
+    /// - Parameter windowTarget: The tmux window target (e.g., "session:0")
+    /// - Returns: Array of running processes found across the window's panes
+    public func runningProcesses(inWindow windowTarget: String) async -> [RunningProcess] {
+        // list-panes without -s lists panes only in the specified window
+        await runningProcesses(listPanesArgs: ["-t", windowTarget])
+    }
+
+    /// Shared implementation for detecting running processes in tmux panes.
+    private func runningProcesses(listPanesArgs: [String]) async -> [RunningProcess] {
+        do {
+            let format = "#{pane_index}|#{pane_current_command}|#{pane_pid}"
+            let result = try await runTmuxCommand(
+                ["list-panes"] + listPanesArgs + ["-F", format]
+            )
+            guard result.isSuccess else { return [] }
+
+            struct PaneEntry {
+                let paneIndex: Int
+                let command: String
+                let pid: String
+            }
+
+            var entries: [PaneEntry] = []
+            for line in result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n") {
+                let parts = line.split(separator: "|", maxSplits: 2)
+                guard parts.count == 3, let index = Int(parts[0]) else { continue }
+                entries.append(PaneEntry(paneIndex: index, command: String(parts[1]), pid: String(parts[2])))
+            }
+
+            guard !entries.isEmpty else { return [] }
+
+            let tree = try await processTree()
+            guard let tree else { return [] }
+
+            var running: [RunningProcess] = []
+
+            for entry in entries {
+                let isShell = Self.knownShells.contains(entry.command)
+
+                // If foreground process is not a shell, it's a running process
+                if !isShell {
+                    running.append(RunningProcess(
+                        paneIndex: entry.paneIndex,
+                        name: entry.command,
+                        isForeground: true
+                    ))
+                }
+
+                // Walk the process tree from the pane's shell PID to find background children.
+                let descendants = tree.descendants(of: entry.pid)
+                for pid in descendants {
+                    if let name = tree.processName(for: pid), !Self.knownShells.contains(name) {
+                        // Skip the foreground process — already counted above
+                        if !isShell && name == entry.command { continue }
+                        running.append(RunningProcess(
+                            paneIndex: entry.paneIndex,
+                            name: name,
+                            isForeground: false
+                        ))
+                    }
+                }
+            }
+
+            return running
+        } catch {
+            logger.warning("runningProcesses failed: \(error)")
+            return []
+        }
     }
 
     /// Gets the pane ID for a target

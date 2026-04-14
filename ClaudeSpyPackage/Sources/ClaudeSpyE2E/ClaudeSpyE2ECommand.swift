@@ -269,6 +269,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         HostDisconnectClearsSessionsScenario.scenario,
         PromptEditorScenario.scenario,
         PromptEditorRemoteScenario.scenario,
+        CloseWindowTabScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {

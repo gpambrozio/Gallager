@@ -21,12 +21,11 @@ public struct MainView: View {
     @State private var selectedRemoteWindowId: String?
     @State private var attachError: String?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var showingCloseConfirmation = false
     @State private var projects: [ClaudeProjectInfo] = []
     @State private var isLoadingProjects = false
     @State private var creatingSelection: NewSessionCreatingState?
     @State private var detailPaneSize: CGSize = .zero
-    @State private var contextMenuCloseSessionName: String?
+    @State private var closeConfirmation: CloseConfirmation?
 
     /// Tracks active session pane IDs for detecting section changes
     @State private var trackedActiveSessionPaneIds: Set<String> = []
@@ -75,29 +74,11 @@ public struct MainView: View {
         .onChange(of: settings.additionalClaudeFolders) {
             Task { await loadProjects() }
         }
-        .alert("Terminal Error", isPresented: .init(
-            get: { attachError != nil },
-            set: { if !$0 { attachError = nil } }
-        )) {
-            Button("OK") { attachError = nil }
-        } message: {
-            if let error = attachError {
-                Text(error)
-            }
-        }
-        .alert("Close Session?", isPresented: .init(
-            get: { contextMenuCloseSessionName != nil },
-            set: { if !$0 { contextMenuCloseSessionName = nil } }
-        )) {
-            if let sessionName = contextMenuCloseSessionName {
-                Button("Close \"\(sessionName)\"", role: .destructive) {
-                    closeSession(sessionName)
-                }
-            }
-            Button("Cancel", role: .cancel) { contextMenuCloseSessionName = nil }
-        } message: {
-            Text("This will end all processes in the session.")
-        }
+        .modifier(AlertsModifier(
+            attachError: $attachError,
+            closeConfirmation: $closeConfirmation,
+            onPerformClose: { performClose($0) }
+        ))
         .onChange(of: tmuxService.panes) { _, newPanes in
             // Ensure pane states exist for all known panes so the detail view
             // can render immediately when a window is selected (without waiting
@@ -167,6 +148,13 @@ public struct MainView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             markSelectedSessionsHandledIfActive()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .closeCurrentTab)) { _ in
+            guard
+                let window = selectedWindow,
+                !fileBrowserActiveWindowIds.contains(window.id)
+            else { return }
+            requestCloseWindow(window)
         }
         .onChange(of: windowManager.pendingSessionCount) {
             // When an event arrives on the already-selected session, no selection
@@ -431,7 +419,7 @@ public struct MainView: View {
                 Divider()
 
                 Button(role: .destructive) {
-                    contextMenuCloseSessionName = session.sessionName
+                    requestCloseSession(session.sessionName)
                 } label: {
                     Label("Close Session", symbol: .xmark)
                 }
@@ -551,6 +539,9 @@ public struct MainView: View {
                                 try? await tmuxService.selectWindow(newWindow.id)
                             }
                         },
+                        onCloseWindow: { windowToClose in
+                            requestCloseWindow(windowToClose)
+                        },
                         onNewWindow: {
                             Task {
                                 let currentPath = window.activePane?.currentPath
@@ -657,16 +648,11 @@ public struct MainView: View {
                 }
 
                 Button {
-                    showingCloseConfirmation = true
+                    requestCloseSession(window.sessionName)
                 } label: {
                     Symbols.xmark.image
                 }
                 .help("Close session")
-                .popover(isPresented: $showingCloseConfirmation, arrowEdge: .bottom) {
-                    CloseSessionConfirmation(sessionName: window.sessionName) {
-                        closeSession(window.sessionName)
-                    }
-                }
             } else if let remote = selectedRemoteSession, let remoteWindow = selectedRemoteWindow {
                 // Yolo mode toggle for remote windows with active Claude sessions
                 let claudePaneId = remoteWindow.panes.first(where: { $0.claudeSession != nil })?.paneId
@@ -1047,10 +1033,48 @@ public struct MainView: View {
         }
     }
 
-    private func closeSession(_ sessionName: String) {
+    private func requestCloseSession(_ sessionName: String) {
+        Task {
+            let processes = await tmuxService.runningProcesses(inSession: sessionName)
+            if processes.isEmpty {
+                performClose(.session(sessionName))
+            } else {
+                closeConfirmation = CloseConfirmation(
+                    target: .session(sessionName),
+                    runningProcesses: processes
+                )
+            }
+        }
+    }
+
+    private func requestCloseWindow(_ window: LocalTmuxWindow) {
+        Task {
+            let processes = await tmuxService.runningProcesses(inWindow: window.id)
+            if processes.isEmpty {
+                performClose(.window(window))
+            } else {
+                closeConfirmation = CloseConfirmation(
+                    target: .window(window),
+                    runningProcesses: processes
+                )
+            }
+        }
+    }
+
+    private func performClose(_ target: CloseConfirmation.Target) {
         Task {
             do {
-                try await tmuxService.killSession(sessionName)
+                switch target {
+                case let .session(sessionName):
+                    try await tmuxService.killSession(sessionName)
+                case let .window(window):
+                    try await tmuxService.killWindow(window.id)
+                    // If the closed window was selected, select another window in the session
+                    if selectedWindow?.id == window.id {
+                        let session = tmuxService.sessions.first { $0.sessionName == window.sessionName }
+                        selectedWindow = session?.activeWindow
+                    }
+                }
             } catch {
                 attachError = error.localizedDescription
             }
@@ -1439,6 +1463,7 @@ private struct WindowTabBar: View {
     let selectedWindow: LocalTmuxWindow
     let isFileBrowserSelected: Bool
     let onSelectWindow: (LocalTmuxWindow) -> Void
+    let onCloseWindow: (LocalTmuxWindow) -> Void
     let onNewWindow: () -> Void
     let onSelectFileBrowser: () -> Void
 
@@ -1496,41 +1521,64 @@ private struct WindowTabBar: View {
         }
     }
 
+    @State private var hoveredWindowId: String?
+
     private func windowTab(_ window: LocalTmuxWindow) -> some View {
         let isSelected = window.id == selectedWindow.id && !isFileBrowserSelected
+        let isHovered = hoveredWindowId == window.id
         let hasClaude = window.panes.contains { windowManager.paneStates[$0.paneId]?.claudeSession != nil }
         let windowName = tabLabel(for: window)
 
-        return Button {
-            onSelectWindow(window)
-        } label: {
-            HStack(spacing: 4) {
-                if hasClaude {
-                    Symbols.sparkles.image
-                        .font(.caption2)
-                        .foregroundStyle(.purple)
-                }
+        return HStack(spacing: 0) {
+            Button {
+                onSelectWindow(window)
+            } label: {
+                HStack(spacing: 4) {
+                    if hasClaude {
+                        Symbols.sparkles.image
+                            .font(.caption2)
+                            .foregroundStyle(.purple)
+                    }
 
-                Text(windowName)
-                    .font(.system(.caption, design: .monospaced))
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
-            .overlay(alignment: .bottom) {
-                if isSelected {
-                    Rectangle()
-                        .fill(Color.accentColor)
-                        .frame(height: 2)
+                    Text(windowName)
+                        .font(.system(.caption, design: .monospaced))
+                        .lineLimit(1)
                 }
+                .padding(.leading, 12)
+                .padding(.trailing, 4)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .accessibilityLabel(window.id)
+            .accessibilityValue(isSelected ? "selected" : "")
+
+            Button {
+                onCloseWindow(window)
+            } label: {
+                Symbols.xmark.image
+                    .font(.system(size: 8, weight: .bold))
+                    .frame(width: 14, height: 14)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .opacity(isSelected || isHovered ? 1 : 0)
+            .help("Close window")
+            .padding(.trailing, 6)
         }
-        .buttonStyle(.plain)
         .foregroundStyle(isSelected ? .primary : .secondary)
-        .accessibilityLabel(window.id)
-        .accessibilityValue(isSelected ? "selected" : "")
+        .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+        .overlay(alignment: .bottom) {
+            if isSelected {
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(height: 2)
+            }
+        }
+        .onHover { hovering in
+            hoveredWindowId = hovering ? window.id : nil
+        }
     }
 
     private func tabLabel(for window: LocalTmuxWindow) -> String {
@@ -2051,34 +2099,78 @@ private struct NewSessionRow: View {
     }
 }
 
-// MARK: - Close Session Confirmation Popover
+// MARK: - Alerts Modifier
 
-private struct CloseSessionConfirmation: View {
-    let sessionName: String
-    let onConfirm: () -> Void
+private struct AlertsModifier: ViewModifier {
+    @Binding var attachError: String?
+    @Binding var closeConfirmation: CloseConfirmation?
+    let onPerformClose: (CloseConfirmation.Target) -> Void
 
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Text("Close Session?")
-                .font(.headline)
-            Text("This will end all processes in the session.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            HStack(spacing: 8) {
-                Button("Cancel") {
-                    dismiss()
+    func body(content: Content) -> some View {
+        content
+            .alert("Terminal Error", isPresented: .init(
+                get: { attachError != nil },
+                set: { if !$0 { attachError = nil } }
+            )) {
+                Button("OK") { attachError = nil }
+            } message: {
+                if let error = attachError {
+                    Text(error)
                 }
-                .keyboardShortcut(.cancelAction)
-                Button("Close \"\(sessionName)\"", role: .destructive) {
-                    dismiss()
-                    onConfirm()
-                }
-                .keyboardShortcut(.defaultAction)
             }
+            .alert(
+                closeConfirmation?.title ?? "Close?",
+                isPresented: .init(
+                    get: { closeConfirmation != nil },
+                    set: { if !$0 { closeConfirmation = nil } }
+                )
+            ) {
+                if let confirmation = closeConfirmation {
+                    Button("Close Anyway", role: .destructive) {
+                        onPerformClose(confirmation.target)
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
+                Button("Cancel", role: .cancel) { closeConfirmation = nil }
+            } message: {
+                if let confirmation = closeConfirmation {
+                    Text(confirmation.message)
+                }
+            }
+    }
+}
+
+// MARK: - Close Confirmation
+
+private struct CloseConfirmation {
+    enum Target {
+        case session(String)
+        case window(LocalTmuxWindow)
+    }
+
+    let target: Target
+    let runningProcesses: [TmuxService.RunningProcess]
+
+    var title: String {
+        switch target {
+        case .session: "Close Session?"
+        case .window: "Close Window?"
         }
-        .padding()
-        .frame(minWidth: 250)
+    }
+
+    var targetName: String {
+        switch target {
+        case let .session(name): name
+        case let .window(window): windowTabLabel(windowName: window.windowName, windowIndex: window.windowIndex)
+        }
+    }
+
+    var message: String {
+        let grouped = Dictionary(grouping: runningProcesses) { $0.paneIndex }
+        let descriptions = grouped.sorted(by: { $0.key < $1.key }).map { paneIndex, processes in
+            let names = Set(processes.map(\.name)).sorted().joined(separator: ", ")
+            return "Pane \(paneIndex): \(names)"
+        }
+        return "The following processes are still running:\n\(descriptions.joined(separator: "\n"))"
     }
 }
