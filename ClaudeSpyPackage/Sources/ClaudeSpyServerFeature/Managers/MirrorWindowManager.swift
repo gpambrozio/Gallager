@@ -50,15 +50,7 @@ final public class MirrorWindowManager {
     /// Creates new entries for newly discovered panes, updates metadata for existing panes,
     /// and removes entries for panes that no longer exist (cleaning up associated state).
     ///
-    /// When the refresh returns empty but we have existing state, this is treated as a
-    /// transient tmux failure and existing state is preserved to avoid wiping Claude sessions.
     public func updatePaneStates(from panes: [PaneInfo]) {
-        // Guard against transient tmux failures: if we have state but the refresh
-        // returned nothing, keep existing state rather than wiping all sessions.
-        if panes.isEmpty && !paneStates.isEmpty {
-            return
-        }
-
         let currentPaneIds = Set(panes.map(\.paneId))
 
         // Update or create entries for current panes

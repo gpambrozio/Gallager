@@ -37,6 +37,7 @@ private func isNoServerError(_ stderr: String) -> Bool {
     return lower.contains("no server running")
         || lower.contains("no sessions")
         || lower.contains("no current target")
+        // "server exited unexpectedly" is tmux's crash message (vs clean shutdown's "no server running")
         || lower.contains("server exited unexpectedly")
 }
 
@@ -184,6 +185,7 @@ final public class TmuxService {
                 }
                 logger.warning("tmux list-panes failed (keeping old panes)", metadata: [
                     "stderr": "\(result.stderrString)",
+                    "exitCode": "\(result.exitCode)",
                     "oldPaneCount": "\(panes.count)",
                 ])
                 lastError = result.stderrString
