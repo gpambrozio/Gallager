@@ -29,13 +29,6 @@
             self.onTmuxFound = onTmuxFound
         }
 
-        /// For previews only — allows injecting package manager state.
-        package init(hasHomebrew: Bool, hasMacPorts: Bool) {
-            self.onTmuxFound = { _ in }
-            _hasHomebrew = State(initialValue: hasHomebrew)
-            _hasMacPorts = State(initialValue: hasMacPorts)
-        }
-
         public var body: some View {
             VStack(spacing: 24) {
                 headerSection
@@ -44,15 +37,21 @@
                     contentSection
                 }
                 .scrollBounceBehavior(.basedOnSize)
+
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Waiting for tmux to be installed\u{2026}")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             .padding(24)
             .frame(width: 520, height: 460)
             .interactiveDismissDisabled()
             .task {
-                hasHomebrew = Self.brewPaths.contains {
-                    FileManager.default.isExecutableFile(atPath: $0)
-                }
-                hasMacPorts = FileManager.default.isExecutableFile(atPath: Self.portPath)
+                hasHomebrew = tmuxLocator.hasHomebrew()
+                hasMacPorts = tmuxLocator.hasMacPorts()
             }
             .task {
                 // Poll for tmux every second
@@ -137,15 +136,6 @@
                         description: "After Homebrew finishes, run this to install tmux."
                     )
                 }
-
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Waiting for tmux to be installed\u{2026}")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.top, 4)
             }
         }
 
@@ -193,30 +183,34 @@
             copiedCommand = text
             feedbackResetTrigger = UUID()
         }
-
-        // MARK: - Package Manager Detection
-
-        /// Common Homebrew installation paths.
-        private static let brewPaths = [
-            "/opt/homebrew/bin/brew",
-            "/usr/local/bin/brew",
-        ]
-
-        /// MacPorts binary path.
-        private static let portPath = "/opt/local/bin/port"
     }
 
     // MARK: - Previews
 
     #Preview("Homebrew Available") {
-        TmuxInstallationGuideView(hasHomebrew: true, hasMacPorts: false)
+        withDependencies {
+            $0[TmuxBinaryLocator.self].hasHomebrew = { true }
+            $0[TmuxBinaryLocator.self].hasMacPorts = { false }
+        } operation: {
+            TmuxInstallationGuideView { _ in }
+        }
     }
 
     #Preview("Both Available") {
-        TmuxInstallationGuideView(hasHomebrew: true, hasMacPorts: true)
+        withDependencies {
+            $0[TmuxBinaryLocator.self].hasHomebrew = { true }
+            $0[TmuxBinaryLocator.self].hasMacPorts = { true }
+        } operation: {
+            TmuxInstallationGuideView { _ in }
+        }
     }
 
     #Preview("No Package Manager") {
-        TmuxInstallationGuideView(hasHomebrew: false, hasMacPorts: false)
+        withDependencies {
+            $0[TmuxBinaryLocator.self].hasHomebrew = { false }
+            $0[TmuxBinaryLocator.self].hasMacPorts = { false }
+        } operation: {
+            TmuxInstallationGuideView { _ in }
+        }
     }
 #endif
