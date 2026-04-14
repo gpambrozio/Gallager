@@ -6,6 +6,57 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.21</title>
+         <sparkle:version>21</sparkle:version>
+         <sparkle:shortVersionString>1.21</sparkle:shortVersionString>
+         <pubDate>Tue, 14 Apr 2026 11:42:25 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.21 Release Notes
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Smart window close behavior</strong> — Closing a window tab with Cmd-W now intelligently closes just the active tab instead of the entire window. A dedicated close button has also been added to each tab. (#339)</li>
+</ul>
+
+<ul>
+<li><strong>Tmux installation guide</strong> — A guided setup flow now appears at startup if tmux is not installed, helping new users get up and running quickly. (#337)</li>
+</ul>
+
+<ul>
+<li><strong>Multi-folder project discovery</strong> — ClaudeSpy now scans multiple `.claude` directories, improving automatic discovery of Claude Code projects across your system. (#336)</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Text selection in mouse-mode terminals</strong> — Synthesized SGR drag sequences fix text selection when terminal mouse mode is active, making it possible to select and copy text reliably. (#334)</li>
+</ul>
+
+<ul>
+<li><strong>Simplified Claude path settings</strong> — Removed the legacy ClaudePathDetector in favor of a streamlined configuration, reducing complexity and potential misconfiguration.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Fixed session state loss from transient tmux errors</strong> — Temporary tmux communication failures no longer wipe the active Claude session state, preventing unexpected resets during monitoring. (#342)</li>
+</ul>
+
+<ul>
+<li><strong>Fixed needsAttention badge in yolo mode</strong> — The attention indicator now correctly clears when yolo mode auto-approves a permission request, eliminating stale notifications. (#340)</li>
+</ul>
+
+<ul>
+<li><strong>Fixed iOS TestFlight upload</strong> — Removed the alpha channel from the iOS app icon, resolving an issue that prevented successful submission to TestFlight.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.21.dmg"
+                    sparkle:edSignature="983NQcyH9WFTPanOMpU96UG/iioAbiROrxky8Dqt6TAA9F2vb/AenrNLuR1mhbH68Fx0cXPZbAxW7i4QNW8qDw=="
+                    length="27554483"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.20</title>
          <sparkle:version>20</sparkle:version>
          <sparkle:shortVersionString>1.20</sparkle:shortVersionString>
