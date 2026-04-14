@@ -131,7 +131,7 @@
         /// The home directory uses `~/.claude.json` and `~/.claude/projects/`.
         /// Additional folders use `<folder>/.claude.json` and `<folder>/projects/`.
         private func allScanRoots() -> [ScanRoot] {
-            let home = fileManager.homeDirectoryForCurrentUser
+            let home = fileManager.homeDirectoryForCurrentUser.standardizedFileURL
             var roots = [
                 ScanRoot(
                     configPath: home.appendingPathComponent(".claude.json"),
@@ -145,7 +145,7 @@
                 let data = preferences.data(AppSettings.Keys.additionalClaudeFolders.rawValue),
                 let additional = try? JSONDecoder().decode([String].self, from: data) {
                 for path in additional {
-                    let url = URL(fileURLWithPath: path)
+                    let url = URL(fileURLWithPath: path).standardizedFileURL
                     let root = ScanRoot(
                         configPath: url.appendingPathComponent(".claude.json"),
                         sessionBasePath: url.appendingPathComponent("projects")

@@ -538,9 +538,9 @@ final public class AppSettings {
         additionalClaudeFolders.append(normalized)
     }
 
-    /// Remove a Claude folder by its offset index.
-    public func removeClaudeFolder(at offsets: IndexSet) {
-        additionalClaudeFolders.remove(atOffsets: offsets)
+    /// Remove a Claude folder by its path.
+    public func removeClaudeFolder(_ path: String) {
+        additionalClaudeFolders.removeAll { $0 == path }
     }
 
     // MARK: - Login Item Management

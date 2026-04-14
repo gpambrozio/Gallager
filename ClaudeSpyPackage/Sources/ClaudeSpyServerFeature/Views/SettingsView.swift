@@ -208,7 +208,7 @@ struct GeneralSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                ForEach(Array(settings.additionalClaudeFolders.enumerated()), id: \.element) { index, folder in
+                ForEach(settings.additionalClaudeFolders, id: \.self) { folder in
                     HStack {
                         Text(abbreviatePath(folder))
                             .lineLimit(1)
@@ -216,7 +216,7 @@ struct GeneralSettingsView: View {
                             .help(folder)
                         Spacer()
                         Button {
-                            settings.removeClaudeFolder(at: IndexSet(integer: index))
+                            settings.removeClaudeFolder(folder)
                         } label: {
                             Symbols.minusCircleFill.image
                                 .foregroundStyle(.red)
@@ -345,7 +345,7 @@ private func browseForClaudeFolder(settings: AppSettings) {
 
 private func abbreviatePath(_ path: String) -> String {
     let home = FileManager.default.homeDirectoryForCurrentUser.path
-    if path.hasPrefix(home) {
+    if path.hasPrefix(home + "/") || path == home {
         return "~" + path.dropFirst(home.count)
     }
     return path
