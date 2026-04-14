@@ -333,6 +333,7 @@ private func browseForClaudeFolder(settings: AppSettings) {
     panel.canChooseFiles = false
     panel.canChooseDirectories = true
     panel.allowsMultipleSelection = false
+    panel.showsHiddenFiles = true
     panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
     panel.message = "Select a directory containing .claude.json and .claude/"
     panel.prompt = "Add Folder"

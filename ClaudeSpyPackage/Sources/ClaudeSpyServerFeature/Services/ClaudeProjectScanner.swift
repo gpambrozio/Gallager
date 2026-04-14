@@ -66,18 +66,13 @@
         func scanProjects() async -> [ClaudeProjectInfo] {
             logger.debug("Scanning for Claude projects")
 
-            let roots = allRootFolders()
+            let scanRoots = allScanRoots()
             var projectsByPath: [String: ClaudeProjectInfo] = [:]
             let homeDirectory = fileManager.homeDirectoryForCurrentUser.standardizedFileURL
 
-            for root in roots {
-                let configPath = root.appendingPathComponent(".claude.json")
-                let sessionBasePath = root
-                    .appendingPathComponent(".claude")
-                    .appendingPathComponent("projects")
-
-                guard let projectsData = readClaudeConfig(at: configPath) else {
-                    logger.debug("No Claude config found at \(configPath.path)")
+            for scanRoot in scanRoots {
+                guard let projectsData = readClaudeConfig(at: scanRoot.configPath) else {
+                    logger.debug("No Claude config found at \(scanRoot.configPath.path)")
                     continue
                 }
 
@@ -88,7 +83,10 @@
                         continue
                     }
 
-                    if let project = validateProject(at: projectURL, data: data, sessionBasePath: sessionBasePath) {
+                    if
+                        let project = validateProject(
+                            at: projectURL, data: data, sessionBasePath: scanRoot.sessionBasePath
+                        ) {
                         if let existing = projectsByPath[project.path] {
                             // Keep the entry with the most recent lastUsed date
                             if shouldReplace(existing: existing, with: project) {
@@ -116,23 +114,44 @@
                 }
             }
 
-            logger.info("Found \(projects.count) Claude projects across \(roots.count) root(s)")
+            logger.info("Found \(projects.count) Claude projects across \(scanRoots.count) root(s)")
             return projects
         }
 
         // MARK: - Private Methods
 
-        /// Returns all root folders to scan: the home directory plus any additional configured folders.
-        private func allRootFolders() -> [URL] {
-            var roots = [fileManager.homeDirectoryForCurrentUser]
+        /// A root folder to scan, with its config and session paths.
+        private struct ScanRoot {
+            let configPath: URL
+            let sessionBasePath: URL
+        }
 
-            if let data = preferences.data(AppSettings.Keys.additionalClaudeFolders.rawValue),
-               let additional = try? JSONDecoder().decode([String].self, from: data)
-            {
+        /// Returns all root folders to scan: the home directory plus any additional configured folders.
+        ///
+        /// The home directory uses `~/.claude.json` and `~/.claude/projects/`.
+        /// Additional folders use `<folder>/.claude.json` and `<folder>/projects/`.
+        private func allScanRoots() -> [ScanRoot] {
+            let home = fileManager.homeDirectoryForCurrentUser
+            var roots = [
+                ScanRoot(
+                    configPath: home.appendingPathComponent(".claude.json"),
+                    sessionBasePath: home
+                        .appendingPathComponent(".claude")
+                        .appendingPathComponent("projects")
+                ),
+            ]
+
+            if
+                let data = preferences.data(AppSettings.Keys.additionalClaudeFolders.rawValue),
+                let additional = try? JSONDecoder().decode([String].self, from: data) {
                 for path in additional {
                     let url = URL(fileURLWithPath: path)
-                    if !roots.contains(url) {
-                        roots.append(url)
+                    let root = ScanRoot(
+                        configPath: url.appendingPathComponent(".claude.json"),
+                        sessionBasePath: url.appendingPathComponent("projects")
+                    )
+                    if !roots.contains(where: { $0.configPath == root.configPath }) {
+                        roots.append(root)
                     }
                 }
             }
