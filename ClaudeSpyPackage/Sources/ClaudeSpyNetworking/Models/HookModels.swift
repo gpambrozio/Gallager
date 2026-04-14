@@ -104,6 +104,12 @@ public struct ClaudeSession: Codable, Sendable {
         return "Idle"
     }
 
+    /// Marks the latest event as handled unconditionally.
+    /// Use when yolo mode auto-approves a permission request so `needsAttention` clears immediately.
+    public mutating func markAutoApproved() {
+        handledUpToEventId = latestEvent?.id
+    }
+
     /// Marks the current latest event as handled, clearing the `needsAttention` flag.
     /// Clears for most notification-triggering events. Permission requests require explicit
     /// user action (approve/deny) and should not be auto-dismissed by viewing the session.

@@ -91,6 +91,10 @@ public enum YoloModeAutoApproveScenario {
         TestStep.readFile(path: "${pushLogPath}", storeAs: "pushLogAfterYolo")
         TestStep.assertStoredNotContains(key: "pushLogAfterYolo", substring: "PermissionRequest|${pane1Id}")
 
+        // Session should NOT be in "Attention" state — yolo auto-approved it (#338)
+        TestStep.macWaitForElementToDisappear(titled: "Attention", timeout: 5)
+        TestStep.macWaitForElement(titled: "Working", timeout: 5)
+
         // ══════════════════════════════════════════════════════════════
         // Phase 4: Verify the auto-approve Enter was sent to tmux
         //          (visible on both macOS tmux pane and iOS terminal)
@@ -234,6 +238,10 @@ public enum YoloModeAutoApproveScenario {
             timeout: 10
         )
         TestStep.macScreenshot(label: "mac-yolo-pending-auto-approved")
+
+        // Session should NOT be in "Attention" state — yolo auto-approved the pending request (#338)
+        TestStep.macWaitForElementToDisappear(titled: "Attention", timeout: 5)
+        TestStep.macWaitForElement(titled: "Working", timeout: 5)
 
         // Yolo mode should now show enabled on both platforms
         TestStep.iosWaitForElement(.labelContains("Disable Yolo Mode"), timeout: 5)
