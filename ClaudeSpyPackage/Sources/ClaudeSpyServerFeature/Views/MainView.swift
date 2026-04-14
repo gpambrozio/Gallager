@@ -72,6 +72,9 @@ public struct MainView: View {
             // Consume any pending menu bar selection that was set before this view appeared
             applyPendingMenuBarSelection()
         }
+        .onChange(of: settings.additionalClaudeFolders) {
+            Task { await loadProjects() }
+        }
         .alert("Terminal Error", isPresented: .init(
             get: { attachError != nil },
             set: { if !$0 { attachError = nil } }

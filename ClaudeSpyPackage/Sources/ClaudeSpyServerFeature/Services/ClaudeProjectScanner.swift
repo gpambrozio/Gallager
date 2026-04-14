@@ -1,4 +1,5 @@
 #if os(macOS)
+    import ClaudeSpyCommon
     import ClaudeSpyNetworking
     import Dependencies
     import DependenciesMacros
@@ -36,7 +37,8 @@
         }
 
         public static var liveValue: ClaudeProjectScanner {
-            let scanner = LiveClaudeProjectScanner()
+            @Dependency(PreferencesService.self) var preferences
+            let scanner = LiveClaudeProjectScanner(preferences: preferences)
 
             return ClaudeProjectScanner(
                 scanProjects: {
@@ -49,44 +51,55 @@
     // MARK: - Live Implementation
 
     /// Actor that scans the filesystem for Claude projects.
+    ///
+    /// Scans the default home directory plus any additional folders configured
+    /// in preferences, merging and deduplicating results by project path.
     private actor LiveClaudeProjectScanner {
         private let logger = Logger(label: "com.claudespy.projectscanner")
         private let fileManager = FileManager.default
+        private let preferences: PreferencesService
 
-        private var claudeConfigPath: URL {
-            fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".claude.json")
+        init(preferences: PreferencesService) {
+            self.preferences = preferences
         }
-
-        private var claudeProjectsPath: URL {
-            fileManager.homeDirectoryForCurrentUser
-                .appendingPathComponent(".claude")
-                .appendingPathComponent("projects")
-        }
-
-        init() { }
 
         func scanProjects() async -> [ClaudeProjectInfo] {
             logger.debug("Scanning for Claude projects")
 
-            guard let projectsData = readClaudeConfig() else {
-                logger.info("No Claude config found or no projects in config")
-                return []
-            }
-
-            var projects: [ClaudeProjectInfo] = []
+            let scanRoots = allScanRoots()
+            var projectsByPath: [String: ClaudeProjectInfo] = [:]
             let homeDirectory = fileManager.homeDirectoryForCurrentUser.standardizedFileURL
 
-            for (path, data) in projectsData {
-                let projectURL = URL(fileURLWithPath: path).standardizedFileURL
-
-                if projectURL == homeDirectory {
+            for scanRoot in scanRoots {
+                guard let projectsData = readClaudeConfig(at: scanRoot.configPath) else {
+                    logger.debug("No Claude config found at \(scanRoot.configPath.path)")
                     continue
                 }
 
-                if let project = validateProject(at: projectURL, data: data) {
-                    projects.append(project)
+                for (path, data) in projectsData {
+                    let projectURL = URL(fileURLWithPath: path).standardizedFileURL
+
+                    if projectURL == homeDirectory {
+                        continue
+                    }
+
+                    if
+                        let project = validateProject(
+                            at: projectURL, data: data, sessionBasePath: scanRoot.sessionBasePath
+                        ) {
+                        if let existing = projectsByPath[project.path] {
+                            // Keep the entry with the most recent lastUsed date
+                            if shouldReplace(existing: existing, with: project) {
+                                projectsByPath[project.path] = project
+                            }
+                        } else {
+                            projectsByPath[project.path] = project
+                        }
+                    }
                 }
             }
+
+            var projects = Array(projectsByPath.values)
 
             projects.sort { lhs, rhs in
                 switch (lhs.lastUsed, rhs.lastUsed) {
@@ -101,15 +114,64 @@
                 }
             }
 
-            logger.info("Found \(projects.count) Claude projects")
+            logger.info("Found \(projects.count) Claude projects across \(scanRoots.count) root(s)")
             return projects
         }
 
         // MARK: - Private Methods
 
-        private func readClaudeConfig() -> [String: [String: Any]]? {
-            let configPath = claudeConfigPath
+        /// A root folder to scan, with its config and session paths.
+        private struct ScanRoot {
+            let configPath: URL
+            let sessionBasePath: URL
+        }
 
+        /// Returns all root folders to scan: the home directory plus any additional configured folders.
+        ///
+        /// The home directory uses `~/.claude.json` and `~/.claude/projects/`.
+        /// Additional folders use `<folder>/.claude.json` and `<folder>/projects/`.
+        private func allScanRoots() -> [ScanRoot] {
+            let home = fileManager.homeDirectoryForCurrentUser.standardizedFileURL
+            var roots = [
+                ScanRoot(
+                    configPath: home.appendingPathComponent(".claude.json"),
+                    sessionBasePath: home
+                        .appendingPathComponent(".claude")
+                        .appendingPathComponent("projects")
+                ),
+            ]
+
+            if
+                let data = preferences.data(AppSettings.Keys.additionalClaudeFolders.rawValue),
+                let additional = try? JSONDecoder().decode([String].self, from: data) {
+                for path in additional {
+                    let url = URL(fileURLWithPath: path).standardizedFileURL
+                    let root = ScanRoot(
+                        configPath: url.appendingPathComponent(".claude.json"),
+                        sessionBasePath: url.appendingPathComponent("projects")
+                    )
+                    if !roots.contains(where: { $0.configPath == root.configPath }) {
+                        roots.append(root)
+                    }
+                }
+            }
+
+            return roots
+        }
+
+        /// Whether a candidate project should replace an existing one (newer lastUsed wins).
+        private func shouldReplace(existing: ClaudeProjectInfo, with candidate: ClaudeProjectInfo) -> Bool {
+            switch (existing.lastUsed, candidate.lastUsed) {
+            case let (existingDate?, candidateDate?):
+                return candidateDate > existingDate
+            case (nil, .some):
+                return true
+            default:
+                return false
+            }
+        }
+
+        private func readClaudeConfig(at configPath: URL) -> [String: [String: Any]]? {
             guard fileManager.fileExists(atPath: configPath.path) else {
                 logger.debug("Claude config file not found at \(configPath.path)")
                 return nil
@@ -134,7 +196,7 @@
             }
         }
 
-        private func validateProject(at url: URL, data: [String: Any]) -> ClaudeProjectInfo? {
+        private func validateProject(at url: URL, data: [String: Any], sessionBasePath: URL) -> ClaudeProjectInfo? {
             var isDirectory: ObjCBool = false
             guard
                 fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
@@ -154,14 +216,14 @@
             }
 
             let name = url.lastPathComponent
-            let lastUsed = getLastUsedTimestamp(projectPath: url.path)
+            let lastUsed = getLastUsedTimestamp(projectPath: url.path, sessionBasePath: sessionBasePath)
 
             return ClaudeProjectInfo(name: name, path: url.path, lastUsed: lastUsed)
         }
 
-        private func getLastUsedTimestamp(projectPath: String) -> Date? {
+        private func getLastUsedTimestamp(projectPath: String, sessionBasePath: URL) -> Date? {
             let folderName = projectPath.replacingOccurrences(of: "/", with: "-")
-            let projectSessionDir = claudeProjectsPath.appendingPathComponent(folderName)
+            let projectSessionDir = sessionBasePath.appendingPathComponent(folderName)
 
             var isDirectory: ObjCBool = false
             guard
