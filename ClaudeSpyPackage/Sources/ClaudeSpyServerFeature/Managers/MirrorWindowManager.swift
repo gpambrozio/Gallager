@@ -156,7 +156,10 @@ final public class MirrorWindowManager {
 
         case let .permissionRequest(body) where isYoloModeEnabled(for: paneId) && body.isYoloAutoApprovable:
             // Yolo mode: auto-approve by sending Enter after a short delay
-            updateSession(paneId: paneId) { $0.addEvent(event) }
+            updateSession(paneId: paneId) {
+                $0.addEvent(event)
+                $0.markAutoApproved()
+            }
             do {
                 try await Task.sleep(for: .milliseconds(500))
                 try await tmuxService.sendKeys(paneId, keys: "Enter")
@@ -254,6 +257,7 @@ final public class MirrorWindowManager {
             let latestEvent = paneStates[paneId]?.claudeSession?.latestEvent,
             case let .permissionRequest(body) = latestEvent.action,
             body.isYoloAutoApprovable {
+            paneStates[paneId]?.claudeSession?.markAutoApproved()
             let eventId = latestEvent.id
             Task { [tmuxService] in
                 do {
