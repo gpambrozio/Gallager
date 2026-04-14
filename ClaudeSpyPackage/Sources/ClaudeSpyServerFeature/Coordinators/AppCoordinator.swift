@@ -754,9 +754,9 @@
             connectionManager: ConnectedViewerManager?
         ) async -> CommandResponseMessage {
             do {
+                // killWindow internally refreshes panes
                 try await tmuxService.killWindow(spec.windowId)
-                let allPanes = await tmuxService.refreshPanes()
-                windowManager.updatePaneStates(from: allPanes)
+                windowManager.updatePaneStates(from: tmuxService.panes)
                 await connectionManager?.pushSessionStateToAll()
                 return .success(for: command.id)
             } catch {
@@ -772,9 +772,9 @@
             connectionManager: ConnectedViewerManager?
         ) async -> CommandResponseMessage {
             do {
+                // killSession internally refreshes panes
                 try await tmuxService.killSession(spec.sessionName)
-                let allPanes = await tmuxService.refreshPanes()
-                windowManager.updatePaneStates(from: allPanes)
+                windowManager.updatePaneStates(from: tmuxService.panes)
                 await connectionManager?.pushSessionStateToAll()
                 return .success(for: command.id)
             } catch {

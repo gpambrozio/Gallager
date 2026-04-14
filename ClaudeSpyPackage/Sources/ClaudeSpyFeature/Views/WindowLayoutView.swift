@@ -574,7 +574,7 @@
             Task {
                 let spec = KillTmuxWindow(windowId: window.id)
                 let result = await relayClient.sendCommand(spec, paneId: "")
-                if case let .success(_) = result {
+                if case .success = result {
                     await relayClient.requestSessionState()
                     // Select another window if the closed one was selected
                     if selectedWindowId == window.id {

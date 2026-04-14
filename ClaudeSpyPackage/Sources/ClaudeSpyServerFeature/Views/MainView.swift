@@ -1089,7 +1089,8 @@ public struct MainView: View {
             guard let manager = coordinator.viewerConnectionManager else { return }
             let spec = CheckRunningProcesses(target: .window(window.id))
             let result = await manager.sendCommand(spec, paneId: "", hostId: hostId)
-            if case let .success(response) = result {
+            switch result {
+            case let .success(response):
                 let processes = response.runningProcesses ?? []
                 if processes.isEmpty {
                     performClose(.remoteWindow(window, hostId: hostId))
@@ -1099,6 +1100,8 @@ public struct MainView: View {
                         runningProcesses: processes
                     )
                 }
+            case let .failure(error):
+                attachError = error.localizedDescription
             }
         }
     }
@@ -1108,7 +1111,8 @@ public struct MainView: View {
             guard let manager = coordinator.viewerConnectionManager else { return }
             let spec = CheckRunningProcesses(target: .session(sessionName))
             let result = await manager.sendCommand(spec, paneId: "", hostId: hostId)
-            if case let .success(response) = result {
+            switch result {
+            case let .success(response):
                 let processes = response.runningProcesses ?? []
                 if processes.isEmpty {
                     performClose(.remoteSession(sessionName: sessionName, hostId: hostId))
@@ -1118,6 +1122,8 @@ public struct MainView: View {
                         runningProcesses: processes
                     )
                 }
+            case let .failure(error):
+                attachError = error.localizedDescription
             }
         }
     }
@@ -1142,7 +1148,13 @@ public struct MainView: View {
                         paneId: "",
                         hostId: hostId
                     )
-                    if case let .failure(error) = result {
+                    if case .success = result {
+                        // Select another window if the closed one was selected
+                        if selectedRemoteWindowId == window.id {
+                            let remaining = selectedRemoteSessionWindows.filter { $0.id != window.id }
+                            selectedRemoteWindowId = remaining.first(where: \.isWindowActive)?.id ?? remaining.first?.id
+                        }
+                    } else if case let .failure(error) = result {
                         attachError = error.localizedDescription
                     }
                 case let .remoteSession(sessionName, hostId):
