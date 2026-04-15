@@ -45,6 +45,7 @@ public enum CloseRemoteWindowIOSScenario {
         // Tap navigation title to open window switcher menu
         TestStep.iosTap(.labelContains("ios-close"))
         TestStep.wait(seconds: 1)
+        TestStep.iosScreenshot(label: "ios-window-menu-two-windows")
         // Tap window 1 ("1: other") in the menu
         TestStep.iosTap(.labelContains("1: other"))
         TestStep.wait(seconds: 3)
@@ -53,6 +54,7 @@ public enum CloseRemoteWindowIOSScenario {
         // Open menu again and tap "Close Window"
         TestStep.iosTap(.labelContains("ios-close"))
         TestStep.wait(seconds: 1)
+        TestStep.iosScreenshot(label: "ios-window-menu-close-option")
         TestStep.iosTap(.label("Close Window"))
         TestStep.wait(seconds: 3)
 
@@ -80,6 +82,7 @@ public enum CloseRemoteWindowIOSScenario {
         // Confirmation alert should appear with process info
         TestStep.iosWaitForElement(.labelContains("Close Session"), timeout: 10)
         TestStep.iosWaitForElement(.labelContains("sleep"), timeout: 10)
+        TestStep.iosScreenshot(label: "ios-close-session-confirmation", tolerance: 85.0)
 
         // 6. Confirm by tapping "Close Anyway"
         TestStep.log("Stage 5: Confirm close — session should be killed")
