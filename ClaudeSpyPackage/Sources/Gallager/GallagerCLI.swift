@@ -1,5 +1,5 @@
 import ArgumentParser
-import ClaudeSpyNetworking
+import GallagerAPI
 import Foundation
 
 @main
