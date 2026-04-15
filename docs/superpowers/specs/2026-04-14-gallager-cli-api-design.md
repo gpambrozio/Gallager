@@ -197,7 +197,6 @@ struct SessionInfo: Codable, Sendable {
     let name: String        // display name
     let windowCount: Int
     let isAttached: Bool
-    let createdAt: Date?
 }
 
 struct WindowInfo: Codable, Sendable {
