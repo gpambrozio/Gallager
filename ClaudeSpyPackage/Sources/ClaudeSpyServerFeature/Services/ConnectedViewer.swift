@@ -435,8 +435,16 @@ final public class ConnectedViewer: Identifiable {
 
         case let .command(command):
             logger.info("Received command from viewer", metadata: ["type": "\(command.command)"])
-            if let onCommand, let response = await onCommand(command), command.command.requiresResponse {
-                await sendEncrypted(.commandResponse(response))
+            if let onCommand {
+                if command.command.requiresResponse {
+                    if let response = await onCommand(command) {
+                        await sendEncrypted(.commandResponse(response))
+                    }
+                } else {
+                    // Fire-and-forget: process without blocking the receive loop
+                    let handler = onCommand
+                    Task { _ = await handler(command) }
+                }
             }
 
         case let .viewerConnected(connectedMessage):
