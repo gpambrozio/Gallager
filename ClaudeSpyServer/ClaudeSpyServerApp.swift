@@ -302,6 +302,11 @@ struct TmuxPaneMirrorApp: App {
                 Toggle("Show Status Bar", isOn: Bindable(coordinator.settings).showStatusBar)
                     .keyboardShortcut("s", modifiers: [.command, .shift])
             }
+
+            // Help menu - CLI API Reference
+            CommandGroup(replacing: .help) {
+                APIReferenceMenuItem()
+            }
         }
 
         // About window - custom About panel with Gallager explanation
@@ -309,6 +314,13 @@ struct TmuxPaneMirrorApp: App {
             AboutWindowView()
         }
         .windowResizability(.contentSize)
+        .defaultLaunchBehavior(.suppressed)
+
+        // CLI API Reference window
+        Window("CLI API Reference", id: "api-reference") {
+            APIReferenceView()
+        }
+        .defaultSize(width: 700, height: 600)
         .defaultLaunchBehavior(.suppressed)
 
         // Settings window
@@ -386,6 +398,17 @@ private struct AboutMenuItem: View {
             NSApp.setActivationPolicy(.regular)
             openWindow(id: "about")
             NSApp.activate()
+        }
+    }
+}
+
+/// Menu item that opens the CLI API Reference window.
+private struct APIReferenceMenuItem: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("CLI API Reference") {
+            openWindow(id: "api-reference")
         }
     }
 }

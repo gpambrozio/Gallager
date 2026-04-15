@@ -180,6 +180,9 @@ let package = Package(
                 .projectNavigator,
                 .files,
                 .textual,
+            ],
+            resources: [
+                .process("Resources"),
             ]
         ),
         // External server library (all business logic, importable by tests and E2E)
