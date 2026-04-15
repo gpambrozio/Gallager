@@ -136,42 +136,41 @@
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        isKeyboardActive.toggle()
-                    } label: {
-                        Label(
-                            keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
-                            symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
-                        )
-                    }
-                    .disabled(!relayClient.isHostConnected)
-                }
-
-                if let activeService, activeService.session != nil {
-                    ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
                         Button {
-                            let newValue = !activeService.isYoloModeEnabled
-                            Task {
-                                await activeService.sendCommand(.setYoloMode(enabled: newValue))
-                            }
+                            isKeyboardActive.toggle()
                         } label: {
                             Label(
-                                activeService.isYoloModeEnabled ? "Disable Yolo Mode" : "Enable Yolo Mode",
-                                symbol: .bolt
+                                keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
+                                symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
                             )
                         }
-                        .tint(activeService.isYoloModeEnabled ? .red : nil)
-                    }
+                        .disabled(!relayClient.isHostConnected)
 
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            showSessionInfo = true
-                        } label: {
-                            Label("Session Info", symbol: .infoCircle)
+                        if let activeService, activeService.session != nil {
+                            Button {
+                                let newValue = !activeService.isYoloModeEnabled
+                                Task {
+                                    await activeService.sendCommand(.setYoloMode(enabled: newValue))
+                                }
+                            } label: {
+                                Label(
+                                    activeService.isYoloModeEnabled ? "Disable Yolo Mode" : "Enable Yolo Mode",
+                                    symbol: .bolt
+                                )
+                            }
+
+                            Button {
+                                showSessionInfo = true
+                            } label: {
+                                Label("Session Info", symbol: .infoCircle)
+                            }
                         }
-                        .popover(isPresented: $showSessionInfo) {
-                            sessionInfoPopover
-                        }
+                    } label: {
+                        Label("Commands", symbol: .ellipsisCircle)
+                    }
+                    .popover(isPresented: $showSessionInfo) {
+                        sessionInfoPopover
                     }
                 }
             }
