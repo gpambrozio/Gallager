@@ -855,7 +855,8 @@ public extension CommandType {
     var requiresResponse: Bool {
         switch self {
         case .sendKeystroke,
-             .sendRawInput:
+             .sendRawInput,
+             .stopTerminalStream:
             false
         default:
             true
