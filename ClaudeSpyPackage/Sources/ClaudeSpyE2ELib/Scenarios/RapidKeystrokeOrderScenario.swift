@@ -43,6 +43,7 @@ public enum RapidKeystrokeOrderScenario {
         TestStep.log("Round 1: Rapid typing 'abcdefghij'")
         TestStep.macType(text: "echo round1-abcdefghij", pressReturn: true, instance: 1)
         TestStep.wait(seconds: 5)
+        TestStep.macScreenshot(label: "viewer-after-round1", instance: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("round1-abcdefghij")]),
             timeout: 15,
@@ -53,6 +54,7 @@ public enum RapidKeystrokeOrderScenario {
         TestStep.log("Round 2: Rapid typing 'the-quick-brown-fox'")
         TestStep.macType(text: "echo round2-the-quick-brown-fox", pressReturn: true, instance: 1)
         TestStep.wait(seconds: 5)
+        TestStep.macScreenshot(label: "viewer-after-round2", instance: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("round2-the-quick-brown-fox")]),
             timeout: 15,
@@ -63,6 +65,7 @@ public enum RapidKeystrokeOrderScenario {
         TestStep.log("Round 3: Rapid typing '1234567890'")
         TestStep.macType(text: "echo round3-1234567890", pressReturn: true, instance: 1)
         TestStep.wait(seconds: 5)
+        TestStep.macScreenshot(label: "viewer-after-round3", instance: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("round3-1234567890")]),
             timeout: 15,
@@ -73,6 +76,7 @@ public enum RapidKeystrokeOrderScenario {
         TestStep.log("Round 4: Rapid typing mixed case")
         TestStep.macType(text: "echo round4-AaBbCcDdEe", pressReturn: true, instance: 1)
         TestStep.wait(seconds: 5)
+        TestStep.macScreenshot(label: "viewer-after-round4", instance: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("round4-AaBbCcDdEe")]),
             timeout: 15,
