@@ -32,9 +32,6 @@ public enum ClipboardSyncMacViewerScenario {
 
         TestStep.log("Phase 1: Clipboard NOT synced when Mac viewer is not viewing the session")
 
-        // Read the viewer's clipboard before OSC 52
-        TestStep.macReadClipboard(storeAs: "macClipboardBefore", instance: 1)
-
         // Send OSC 52 while the viewer has NOT opened the terminal pane
         // "should not arrive mac" in base64 = "c2hvdWxkIG5vdCBhcnJpdmUgbWFj"
         Shortcut.tmuxRunCommand(
