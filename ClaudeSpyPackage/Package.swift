@@ -56,7 +56,6 @@ extension Target.Dependency {
         .product(name: "DependenciesTestSupport", package: "swift-dependencies")
     }
 
-    static var gallagerAPI: Self { "GallagerAPI" }
     static var claudeSpyNetworking: Self { "ClaudeSpyNetworking" }
     static var claudeSpyCommon: Self { "ClaudeSpyCommon" }
     static var claudeSpyEncryption: Self { "ClaudeSpyEncryption" }
@@ -131,18 +130,11 @@ let package = Package(
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
 
-        // Lightweight API types (JSON-RPC, API models) with zero dependencies.
-        // Used by the CLI binary and re-exported by ClaudeSpyNetworking.
-        .target(
-            name: "GallagerAPI"
-        ),
-
         // Platform-agnostic networking models (no SwiftUI dependencies)
         // Used by external server on Linux and by Apple platform apps
         .target(
             name: "ClaudeSpyNetworking",
             dependencies: [
-                .gallagerAPI,
                 .claudeSpyEncryption,
             ]
         ),
@@ -178,7 +170,6 @@ let package = Package(
         .target(
             name: "ClaudeSpyServerFeature",
             dependencies: [
-                .gallagerAPI,
                 .claudeSpyCommon,
                 .claudeSpyEncryption,
                 .swiftTerm,
@@ -245,7 +236,6 @@ let package = Package(
             name: "GallagerCLI",
             dependencies: [
                 .argumentParser,
-                .gallagerAPI,
             ],
             path: "Sources/Gallager"
         ),

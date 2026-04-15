@@ -1,4 +1,3 @@
-import GallagerAPI
 import Foundation
 
 /// Connects to the Gallager app's Unix domain socket and sends JSON-RPC requests.

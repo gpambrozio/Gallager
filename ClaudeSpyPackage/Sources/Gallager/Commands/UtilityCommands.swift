@@ -1,5 +1,4 @@
 import ArgumentParser
-import GallagerAPI
 import Foundation
 
 struct PingCommand: ParsableCommand {
