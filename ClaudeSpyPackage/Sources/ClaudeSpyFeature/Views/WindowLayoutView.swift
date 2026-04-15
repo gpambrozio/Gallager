@@ -139,7 +139,7 @@
                             Button(role: .destructive) {
                                 requestCloseWindow(window)
                             } label: {
-                                Label("Close Window", symbol: .xmark)
+                                Label("Close Window", symbol: .rectangleBadgeMinus)
                             }
                             .disabled(!relayClient.isHostConnected)
                         }
@@ -149,7 +149,7 @@
                         Button(role: .destructive) {
                             requestCloseSession()
                         } label: {
-                            Label("Close Session", symbol: .xmark)
+                            Label("Close Session", symbol: .rectangleStackBadgeMinus)
                         }
                         .disabled(!relayClient.isHostConnected)
                     } label: {

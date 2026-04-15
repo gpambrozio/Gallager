@@ -432,7 +432,7 @@ public struct MainView: View {
                 Button(role: .destructive) {
                     requestCloseSession(session.sessionName)
                 } label: {
-                    Label("Close Session", symbol: .xmark)
+                    Label("Close Session", symbol: .rectangleStackBadgeMinus)
                 }
 
                 Divider()
@@ -2095,7 +2095,7 @@ private struct RemoteHostSidebarSection: View {
                 Button(role: .destructive) {
                     onCloseSession(session.sessionName)
                 } label: {
-                    Label("Close Session", symbol: .xmark)
+                    Label("Close Session", symbol: .rectangleStackBadgeMinus)
                 }
                 .disabled(connection?.isHostConnected != true)
 
