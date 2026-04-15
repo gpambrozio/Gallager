@@ -82,5 +82,6 @@ public enum ClipboardSyncScenario {
         // The iOS clipboard should still contain the previous value, NOT the new one
         TestStep.iosReadClipboard(storeAs: "iosClipboardAfter")
         TestStep.assertStoredNotContains(key: "iosClipboardAfter", substring: "should not arrive")
+        TestStep.assertStoredContains(key: "iosClipboardAfter", substring: "hello from host")
     }
 }

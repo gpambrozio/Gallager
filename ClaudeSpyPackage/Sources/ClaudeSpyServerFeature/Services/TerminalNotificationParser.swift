@@ -54,7 +54,7 @@
         /// Call this on each incoming data chunk — incomplete sequences are buffered
         /// automatically across calls.
         mutating func parse(_ data: Data) -> ParseResult {
-            var result = scanOnly ? Data() : Data()
+            var result = Data()
             var notifications: [TerminalStreamMessage.TerminalNotification] = []
             var lastTitleChange: String?
             var lastClipboardContent: String?
@@ -229,9 +229,12 @@
                 return nil
             }
 
+            // Pad base64 string — real terminals (including tmux) often omit trailing `=`
+            let padded = base64String + String(repeating: "=", count: (4 - base64String.count % 4) % 4)
+
             // Decode base64 content
             guard
-                let data = Data(base64Encoded: base64String),
+                let data = Data(base64Encoded: padded),
                 let text = String(data: data, encoding: .utf8),
                 !text.isEmpty
             else {

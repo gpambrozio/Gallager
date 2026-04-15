@@ -270,7 +270,8 @@
                 guard
                     let activePaneId,
                     let content = clipboardContents[activePaneId],
-                    scenePhase == .active
+                    scenePhase == .active,
+                    content != UIPasteboard.general.string
                 else { return }
                 UIPasteboard.general.string = content
             }
