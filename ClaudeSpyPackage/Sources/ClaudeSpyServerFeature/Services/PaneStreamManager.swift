@@ -27,6 +27,7 @@
             let onDimensionChange: (@MainActor (Int, Int) -> Void)?
             let onTitleChange: (@MainActor (String) -> Void)?
             let onNotification: (@MainActor (TerminalStreamMessage.TerminalNotification) -> Void)?
+            let onClipboard: (@MainActor (String) -> Void)?
         }
 
         /// Context for a managed stream
@@ -169,7 +170,8 @@
             onData: @escaping @MainActor (Data) -> Void,
             onDimensionChange: (@MainActor (Int, Int) -> Void)? = nil,
             onTitleChange: (@MainActor (String) -> Void)? = nil,
-            onNotification: (@MainActor (TerminalStreamMessage.TerminalNotification) -> Void)? = nil
+            onNotification: (@MainActor (TerminalStreamMessage.TerminalNotification) -> Void)? = nil,
+            onClipboard: (@MainActor (String) -> Void)? = nil
         ) async throws -> SubscriptionResult {
             let subscriptionId = UUID()
             let subscription = Subscription(
@@ -178,7 +180,8 @@
                 onData: onData,
                 onDimensionChange: onDimensionChange,
                 onTitleChange: onTitleChange,
-                onNotification: onNotification
+                onNotification: onNotification,
+                onClipboard: onClipboard
             )
             subscriptions[subscriptionId] = subscription
 
@@ -240,6 +243,9 @@
                 }
                 stream.onTitleChange = { [weak self] title in
                     self?.handleStreamTitleChange(paneId: paneId, title: title)
+                }
+                stream.onClipboard = { [weak self] content in
+                    self?.forwardClipboard(paneId: paneId, content: content)
                 }
 
                 // Seed with title detected by notification reader (if any)
@@ -562,6 +568,17 @@
                     let subscription = subscriptions[subscriberId],
                     let callback = subscription.onTitleChange {
                     callback(title)
+                }
+            }
+        }
+
+        private func forwardClipboard(paneId: String, content: String) {
+            guard let context = streams[paneId] else { return }
+            for subscriberId in context.subscriberIds {
+                if
+                    let subscription = subscriptions[subscriberId],
+                    let callback = subscription.onClipboard {
+                    callback(content)
                 }
             }
         }

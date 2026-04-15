@@ -270,6 +270,8 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         PromptEditorScenario.scenario,
         PromptEditorRemoteScenario.scenario,
         CloseWindowTabScenario.scenario,
+        ClipboardSyncScenario.scenario,
+        ClipboardSyncMacViewerScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {

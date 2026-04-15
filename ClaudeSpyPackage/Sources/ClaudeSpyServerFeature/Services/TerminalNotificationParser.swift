@@ -29,6 +29,8 @@
             let notifications: [TerminalStreamMessage.TerminalNotification]
             /// Last terminal title change detected via OSC 0/2 (nil if none found)
             let titleChange: String?
+            /// Last clipboard content detected via OSC 52 (nil if none found)
+            let clipboardContent: String?
         }
 
         /// Maximum OSC buffer size (8 KB) before discarding as pass-through data.
@@ -55,6 +57,7 @@
             var result = scanOnly ? Data() : Data()
             var notifications: [TerminalStreamMessage.TerminalNotification] = []
             var lastTitleChange: String?
+            var lastClipboardContent: String?
 
             // Prepend any buffered incomplete sequence from previous read
             var dataToProcess = data
@@ -116,7 +119,7 @@
                         if j + 1 >= dataToProcess.endIndex {
                             // ESC at end inside OSC — buffer entire sequence
                             oscBuffer = Data(dataToProcess[oscStart...])
-                            return ParseResult(filteredData: result, notifications: notifications, titleChange: lastTitleChange)
+                            return ParseResult(filteredData: result, notifications: notifications, titleChange: lastTitleChange, clipboardContent: lastClipboardContent)
                         }
                         if dataToProcess[j + 1] == 0x5C { // '\'
                             foundTerminator = true
@@ -129,6 +132,13 @@
 
                 guard foundTerminator else {
                     // Reached end without terminator — buffer entire sequence
+                    // But if it's an OSC 52 clipboard sequence, enforce a size limit
+                    // to prevent unbounded buffering of large clipboard payloads
+                    let incompleteSize = dataToProcess.endIndex - oscStart
+                    if incompleteSize > Self.maxBufferSize {
+                        // Discard oversized incomplete sequence
+                        break
+                    }
                     oscBuffer = Data(dataToProcess[oscStart...])
                     break
                 }
@@ -136,13 +146,16 @@
                 // Extract content between ESC ] and terminator
                 let content = dataToProcess[contentStart..<j]
 
-                // Check if this is a notification or title OSC sequence
+                // Check if this is a notification, title, or clipboard OSC sequence
                 let (isNotificationSequence, notification) = parseNotificationContent(content)
                 if isNotificationSequence {
                     // Strip notification sequences from output
                     if let notification {
                         notifications.append(notification)
                     }
+                } else if let clipboardText = parseClipboardContent(content) {
+                    // OSC 52 clipboard — strip from output and capture
+                    lastClipboardContent = clipboardText
                 } else if let title = parseTitleContent(content) {
                     // OSC 0/2 title change — pass through to terminal but also capture
                     lastTitleChange = title
@@ -150,7 +163,7 @@
                         result.append(contentsOf: dataToProcess[oscStart..<terminatorEnd])
                     }
                 } else if !scanOnly {
-                    // Not a notification or title — pass through the entire OSC sequence unchanged
+                    // Not a notification, clipboard, or title — pass through unchanged
                     result.append(contentsOf: dataToProcess[oscStart..<terminatorEnd])
                 }
 
@@ -165,7 +178,7 @@
                 oscBuffer = Data()
             }
 
-            return ParseResult(filteredData: result, notifications: notifications, titleChange: lastTitleChange)
+            return ParseResult(filteredData: result, notifications: notifications, titleChange: lastTitleChange, clipboardContent: lastClipboardContent)
         }
 
         /// Attempt to parse OSC content as a terminal title change (OSC 0 or OSC 2).
@@ -186,6 +199,46 @@
             }
 
             return nil
+        }
+
+        /// Attempt to parse OSC content as a clipboard set (OSC 52).
+        ///
+        /// OSC 52 format: `52;<selection>;<base64-data>`
+        /// - `<selection>` is typically `c` (clipboard), `p` (primary), `s` (secondary),
+        ///   or empty (defaults to clipboard)
+        /// - `<base64-data>` is the clipboard content encoded in Base64
+        ///
+        /// Returns the decoded clipboard text, or nil if not an OSC 52 sequence.
+        private func parseClipboardContent(_ content: Data) -> String? {
+            guard let string = String(bytes: content, encoding: .utf8) else {
+                return nil
+            }
+
+            guard string.hasPrefix("52;") else { return nil }
+
+            let payload = String(string.dropFirst(3)) // Drop "52;"
+
+            // Find the second semicolon separating selection from base64 data
+            guard let semicolonIndex = payload.firstIndex(of: ";") else {
+                return nil
+            }
+
+            let base64String = String(payload[payload.index(after: semicolonIndex)...])
+            guard !base64String.isEmpty, base64String != "?" else {
+                // "?" means the terminal is querying the clipboard, not setting it
+                return nil
+            }
+
+            // Decode base64 content
+            guard
+                let data = Data(base64Encoded: base64String),
+                let text = String(data: data, encoding: .utf8),
+                !text.isEmpty
+            else {
+                return nil
+            }
+
+            return text
         }
 
         /// Attempt to parse OSC content as a notification.

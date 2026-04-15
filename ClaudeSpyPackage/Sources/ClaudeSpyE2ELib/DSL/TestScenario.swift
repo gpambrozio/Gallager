@@ -69,6 +69,8 @@ public enum TestStep: Sendable {
     case iosScreenshot(label: String, compare: Bool = true, tolerance: Double = 0.5, perPixelThreshold: Double = 0.3)
     /// Dump the iOS AX tree to the log (for debugging)
     case iosLogUI
+    /// Read the iOS simulator clipboard and store in context
+    case iosReadClipboard(storeAs: String)
 
     // MARK: - macOS App
     //

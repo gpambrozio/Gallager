@@ -365,6 +365,11 @@ public actor TestOrchestrator {
                 return try captureWithoutComparison(actualPath: actualPath, label: numberedLabel)
             }
 
+        case let .iosReadClipboard(storeAs):
+            let value = try await simulatorDriver.readClipboard()
+            context.set(storeAs, value: value)
+            logger.info("Stored iOS clipboard as '\(storeAs)': \(value)")
+
         case .iosLogUI:
             let elements = await simulatorDriver.describeUI()
             func logTree(_ elements: [UIElement], indent: String = "") {

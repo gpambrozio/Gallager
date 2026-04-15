@@ -40,6 +40,12 @@
         /// Terminal titles detected via OSC escape sequences, keyed by pane ID
         @State private var terminalTitles: [String: String] = [:]
 
+        /// Latest clipboard content from each pane, keyed by pane ID
+        @State private var clipboardContents: [String: String] = [:]
+
+        /// Tracks app foreground state for clipboard sync
+        @Environment(\.scenePhase) private var scenePhase
+
         /// All windows in this session
         private var sessionWindows: [TmuxWindow] {
             sessionStore.windows(for: hostId).filter { $0.sessionName == sessionName }
@@ -199,6 +205,13 @@
                     Task { await activeService?.markHandledIfNeeded() }
                 }
             }
+            .onChange(of: clipboardContents) {
+                guard let activePaneId,
+                      let content = clipboardContents[activePaneId],
+                      scenePhase == .active
+                else { return }
+                UIPasteboard.general.string = content
+            }
             .onChange(of: activePaneId) { oldValue, newValue in
                 updateActiveService()
                 // Mark session as handled when switching to a pane with attention
@@ -350,6 +363,10 @@
                 terminalTitle: Binding(
                     get: { terminalTitles[pane.paneId] },
                     set: { terminalTitles[pane.paneId] = $0 }
+                ),
+                clipboardContent: Binding(
+                    get: { clipboardContents[pane.paneId] },
+                    set: { clipboardContents[pane.paneId] = $0 }
                 ),
                 isConnected: relayClient.isHostConnected,
                 hideNavigationBar: false,

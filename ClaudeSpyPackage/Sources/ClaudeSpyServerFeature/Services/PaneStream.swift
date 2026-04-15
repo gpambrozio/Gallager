@@ -47,6 +47,9 @@
         /// Callback for terminal title changes (OSC 0/2)
         var onTitleChange: (@MainActor (String) -> Void)?
 
+        /// Callback for clipboard content (OSC 52)
+        var onClipboard: (@MainActor (String) -> Void)?
+
         /// Number of lines in scrollback
         private(set) var scrollbackLines = 0
 
@@ -122,6 +125,13 @@
                 await reader.setTitleChangeHandler { [weak self] title in
                     Task { @MainActor [weak self] in
                         self?.onTitleChange?(title)
+                    }
+                }
+
+                // Set up clipboard handler for OSC 52 sequences
+                await reader.setClipboardHandler { [weak self] content in
+                    Task { @MainActor [weak self] in
+                        self?.onClipboard?(content)
                     }
                 }
 

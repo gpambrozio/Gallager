@@ -330,9 +330,24 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
                 // Terminal notifications are handled globally by PaneStreamManager
                 break
 
+            case let .clipboardUpdate(update):
+                applyClipboardIfFocused(update.content)
+
             case .streamEnd:
                 updateState(.disconnected)
             }
+        }
+
+        // MARK: - Clipboard
+
+        /// Sets the system clipboard if this terminal's window is the key window
+        /// and the app is active.
+        private func applyClipboardIfFocused(_ content: String) {
+            guard NSApp.isActive else { return }
+            // Check if the terminal view's window is key
+            guard terminalView.window?.isKeyWindow == true else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(content, forType: .string)
         }
 
         // MARK: - Settings
