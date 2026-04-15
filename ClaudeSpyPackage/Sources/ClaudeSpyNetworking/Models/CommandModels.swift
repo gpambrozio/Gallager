@@ -611,6 +611,61 @@ public struct CreateTmuxWindow: CommandSpec, Equatable {
     }
 }
 
+/// Check running processes in a tmux window or session, for close confirmation.
+/// Returns process info in the response's `runningProcesses` field.
+public struct CheckRunningProcesses: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// What to check for running processes
+    public enum Target: Codable, Sendable, Equatable {
+        /// Check processes in a single window (window ID e.g. "session:0")
+        case window(String)
+        /// Check processes in an entire session
+        case session(String)
+    }
+
+    public let target: Target
+
+    public init(target: Target) {
+        self.target = target
+    }
+
+    public var commandType: CommandType {
+        .checkRunningProcesses(self)
+    }
+}
+
+/// Kill (close) a tmux window. Returns success/failure.
+public struct KillTmuxWindow: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// The window target (e.g. "session:0")
+    public let windowId: String
+
+    public init(windowId: String) {
+        self.windowId = windowId
+    }
+
+    public var commandType: CommandType {
+        .killTmuxWindow(self)
+    }
+}
+
+/// Kill (close) a tmux session. Returns success/failure.
+public struct KillTmuxSession: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    public let sessionName: String
+
+    public init(sessionName: String) {
+        self.sessionName = sessionName
+    }
+
+    public var commandType: CommandType {
+        .killTmuxSession(self)
+    }
+}
+
 /// Submit edited prompt content from a viewer. Returns success/failure.
 public struct SubmitEditorContent: CommandSpec, Equatable {
     public typealias Response = CommandResponseMessage
@@ -676,6 +731,12 @@ public enum CommandType: Codable, Sendable, Equatable {
     case cancelEditorSession(CancelEditorSession)
     /// Send raw bytes (mouse escape sequences) to a tmux pane
     case sendRawInput(SendRawInput)
+    /// Check running processes in a window or session (for close confirmation)
+    case checkRunningProcesses(CheckRunningProcesses)
+    /// Kill (close) a tmux window
+    case killTmuxWindow(KillTmuxWindow)
+    /// Kill (close) a tmux session
+    case killTmuxSession(KillTmuxSession)
 
     // MARK: - Convenience Factory Methods
 
@@ -768,6 +829,21 @@ public enum CommandType: Codable, Sendable, Equatable {
     public static func sendRawInput(data: Data) -> CommandType {
         .sendRawInput(SendRawInput(data: data))
     }
+
+    /// Create a checkRunningProcesses command
+    public static func checkRunningProcesses(target: CheckRunningProcesses.Target) -> CommandType {
+        .checkRunningProcesses(CheckRunningProcesses(target: target))
+    }
+
+    /// Create a killTmuxWindow command
+    public static func killTmuxWindow(windowId: String) -> CommandType {
+        .killTmuxWindow(KillTmuxWindow(windowId: windowId))
+    }
+
+    /// Create a killTmuxSession command
+    public static func killTmuxSession(sessionName: String) -> CommandType {
+        .killTmuxSession(KillTmuxSession(sessionName: sessionName))
+    }
 }
 
 // MARK: - Response Requirements
@@ -779,7 +855,8 @@ public extension CommandType {
     var requiresResponse: Bool {
         switch self {
         case .sendKeystroke,
-             .sendRawInput:
+             .sendRawInput,
+             .stopTerminalStream:
             false
         default:
             true
@@ -811,6 +888,19 @@ public struct CommandMessage: Codable, Sendable, Identifiable {
 
 // MARK: - Command Response
 
+/// Info about a running process, sent from host to viewer for close confirmation.
+public struct RunningProcessInfo: Codable, Sendable, Equatable {
+    public let paneIndex: Int
+    public let name: String
+    public let isForeground: Bool
+
+    public init(paneIndex: Int, name: String, isForeground: Bool) {
+        self.paneIndex = paneIndex
+        self.name = name
+        self.isForeground = isForeground
+    }
+}
+
 /// Response to a command execution
 public struct CommandResponseMessage: Codable, Sendable {
     public let commandId: UUID
@@ -818,16 +908,32 @@ public struct CommandResponseMessage: Codable, Sendable {
     public let error: String?
     /// Optional pane ID returned by commands that create or affect panes
     public let paneId: String?
+    /// Running processes returned by `checkRunningProcesses` command
+    public let runningProcesses: [RunningProcessInfo]?
 
-    public init(commandId: UUID, success: Bool, error: String? = nil, paneId: String? = nil) {
+    public init(
+        commandId: UUID,
+        success: Bool,
+        error: String? = nil,
+        paneId: String? = nil,
+        runningProcesses: [RunningProcessInfo]? = nil
+    ) {
         self.commandId = commandId
         self.success = success
         self.error = error
         self.paneId = paneId
+        self.runningProcesses = runningProcesses
     }
 
     public static func success(for commandId: UUID, paneId: String? = nil) -> CommandResponseMessage {
         CommandResponseMessage(commandId: commandId, success: true, paneId: paneId)
+    }
+
+    public static func success(
+        for commandId: UUID,
+        runningProcesses: [RunningProcessInfo]
+    ) -> CommandResponseMessage {
+        CommandResponseMessage(commandId: commandId, success: true, runningProcesses: runningProcesses)
     }
 
     public static func failure(for commandId: UUID, error: String) -> CommandResponseMessage {

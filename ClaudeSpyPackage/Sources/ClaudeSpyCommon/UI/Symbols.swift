@@ -72,9 +72,11 @@ public enum Symbols: String {
     case puzzlepiece
     case qrcode
     case questionmark
+    case rectangleBadgeMinus = "rectangle.badge.minus"
     case rectangleSplit1x2Fill = "rectangle.split.1x2.fill"
     case rectangleSplit2x1 = "rectangle.split.2x1"
     case rectangleSplit2x1Fill = "rectangle.split.2x1.fill"
+    case rectangleStackBadgeMinus = "rectangle.stack.badge.minus"
     case sparkles
     case square
     case stopCircleFill = "stop.circle.fill"
