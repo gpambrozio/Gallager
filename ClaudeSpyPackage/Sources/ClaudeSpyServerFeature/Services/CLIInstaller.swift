@@ -20,24 +20,24 @@
 
         /// Install the CLI wrapper script at `/usr/local/bin/gallager`.
         ///
+        /// Embeds the current app bundle path directly in the script.
         /// Uses AppleScript to request admin privileges.
         @MainActor
         public static func install() -> Bool {
+            guard let appPath = Bundle.main.bundlePath as String? else {
+                logger.error("Could not determine app bundle path")
+                return false
+            }
+
             let wrapperScript = """
             #!/bin/bash
             # Gallager CLI — installed by Gallager.app
-            # Locates the app bundle and runs the embedded GallagerCLI binary.
+            # Re-run "Install Command Line Tool..." if you move the app.
 
-            APP="$(mdfind 'kMDItemCFBundleIdentifier == "\(bundleID)"' 2>/dev/null | head -1)"
-
-            if [ -z "$APP" ] || [ ! -d "$APP" ]; then
-                echo "Error: Gallager.app not found. Is it installed?" >&2
-                exit 1
-            fi
-
-            CLI="$APP/Contents/MacOS/GallagerCLI"
+            CLI="\(appPath)/Contents/MacOS/GallagerCLI"
             if [ ! -x "$CLI" ]; then
-                echo "Error: GallagerCLI not found in $APP" >&2
+                echo "Error: GallagerCLI not found at $CLI" >&2
+                echo "The app may have moved. Re-run Install Command Line Tool from the Gallager menu." >&2
                 exit 1
             fi
 
