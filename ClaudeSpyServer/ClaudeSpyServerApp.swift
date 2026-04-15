@@ -260,9 +260,10 @@ struct TmuxPaneMirrorApp: App {
                 AboutMenuItem()
             }
 
-            // App menu - Check for Updates
+            // App menu - Check for Updates + Install CLI
             CommandGroup(after: .appInfo) {
                 CheckForUpdatesView(updaterController: updaterController)
+                InstallCLIMenuItem()
             }
 
             // File menu - replace default items with Close Tab
@@ -409,6 +410,25 @@ private struct APIReferenceMenuItem: View {
     var body: some View {
         Button("CLI API Reference") {
             openWindow(id: "api-reference")
+        }
+    }
+}
+
+/// Menu item to install/uninstall the `gallager` CLI symlink.
+private struct InstallCLIMenuItem: View {
+    @State private var installed = CLIInstaller.isInstalled
+
+    var body: some View {
+        Button(installed ? "Uninstall Command Line Tool..." : "Install Command Line Tool...") {
+            if installed {
+                if CLIInstaller.uninstall() {
+                    installed = false
+                }
+            } else {
+                if CLIInstaller.install() {
+                    installed = true
+                }
+            }
         }
     }
 }
