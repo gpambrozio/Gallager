@@ -73,7 +73,12 @@
 
         // MARK: - Private Services
 
-        private let editorSocketServer: EditorSocketServer
+        @ObservationIgnored
+        @Dependency(APISocketServer.self) private var apiSocketServer
+
+        /// Live router instance for wiring service callbacks.
+        private let liveRouter = LiveAPIRequestRouter()
+
         private var commandExecutor: TmuxCommandExecutor?
         private var isServiceSetupComplete = false
 
@@ -134,10 +139,8 @@
             // Create plugin service
             self.pluginService = PluginService()
 
-            // Create editor socket server and session manager (server is started later in setupAllServices)
-            let server = EditorSocketServer()
-            self.editorSocketServer = server
-            let editorManager = EditorSessionManager(socketServer: server)
+            // Create editor session manager (API server is started later in setupAllServices)
+            let editorManager = EditorSessionManager()
             self.editorSessionManager = editorManager
 
             // Create window manager with editor session manager
@@ -217,7 +220,7 @@
 
             await initializeServices()
             await hookServer.startServer()
-            await setupEditorSocketServer()
+            await setupAPIServer()
             await setupConnectedViewerManager()
             await setupViewerConnectionManager()
             await autoConnectIfConfigured()
@@ -237,8 +240,18 @@
 
         // MARK: - Private Setup Methods
 
-        /// Starts the editor socket server and configures the VISUAL env var on TmuxService.
-        private func setupEditorSocketServer() async {
+        /// Error type for API request handling.
+        enum APIError: Error, LocalizedError {
+            case notFound(String)
+            var errorDescription: String? {
+                switch self {
+                case let .notFound(msg): msg
+                }
+            }
+        }
+
+        /// Starts the API socket server, wires router callbacks, and configures env vars.
+        private func setupAPIServer() async {
             let manager = editorSessionManager
 
             // When editor sessions change, push updated state to viewers
@@ -246,27 +259,279 @@
                 await self?.connectedViewerManager?.pushSessionStateToAll()
             }
 
-            // When a CLI connects, create an editor session
-            let server = editorSocketServer
-            await server.setOnEditRequest { [weak manager] (request: EditorRequest) in
-                manager?.handleEditRequest(request)
+            // Wire router callbacks to services
+            let tmux = tmuxService
+            let winManager = windowManager
+            let editorManager = editorSessionManager
+            let notificationService = terminalNotificationService
+            let router = liveRouter
+
+            // MARK: - Session callbacks
+
+            router.onSessionList = { [tmux] in
+                await MainActor.run {
+                    let panes = tmux.panes
+                    let attached = tmux.attachedSessionNames
+                    let allWindows = LocalTmuxWindow.groupPanes(panes)
+                    let grouped = LocalTmuxSession.groupWindows(allWindows)
+                    return grouped.map { session in
+                        APISessionInfo(
+                            id: session.sessionName,
+                            name: session.sessionName,
+                            windowCount: session.windows.count,
+                            isAttached: attached.contains(session.sessionName)
+                        ).toJSONValue()
+                    }
+                }
             }
 
+            router.onSessionCreate = { [tmux] name in
+                let baseName = name ?? "main"
+                let (sessionName, paneId) = try await tmux.createSession(
+                    baseName: baseName,
+                    width: 200,
+                    height: 50
+                )
+                return APISessionInfo(
+                    id: sessionName,
+                    name: sessionName,
+                    windowCount: 1,
+                    isAttached: false
+                ).toJSONValue()
+            }
+
+            router.onSessionSelect = { [tmux] sessionId in
+                try await tmux.selectWindow("\(sessionId):!")
+            }
+
+            router.onSessionCurrent = { [tmux] in
+                await MainActor.run {
+                    let panes = tmux.panes
+                    let attached = tmux.attachedSessionNames
+                    guard
+                        let firstAttached = panes.first(where: {
+                            attached.contains($0.sessionName)
+                        }) else { return nil }
+                    let allWindows = LocalTmuxWindow.groupPanes(panes)
+                    let windowCount = allWindows.filter { $0.sessionName == firstAttached.sessionName }.count
+                    return APISessionInfo(
+                        id: firstAttached.sessionName,
+                        name: firstAttached.sessionName,
+                        windowCount: windowCount,
+                        isAttached: true
+                    ).toJSONValue()
+                }
+            }
+
+            router.onSessionClose = { [tmux] sessionId in
+                try await tmux.killSession(sessionId)
+            }
+
+            // MARK: - Window callbacks
+
+            router.onWindowList = { [tmux] sessionId in
+                let panes = await tmux.refreshPanes()
+                let allWindows = LocalTmuxWindow.groupPanes(panes)
+                let filtered = if let sessionId {
+                    allWindows.filter { $0.sessionName == sessionId }
+                } else {
+                    allWindows
+                }
+                return filtered.map { window in
+                    APIWindowInfo(
+                        id: window.id,
+                        index: window.windowIndex,
+                        name: window.windowName,
+                        paneCount: window.panes.count,
+                        isActive: window.isWindowActive,
+                        sessionId: window.sessionName
+                    ).toJSONValue()
+                }
+            }
+
+            router.onWindowCreate = { [tmux] sessionId in
+                let targetSession: String = await MainActor.run {
+                    if let sessionId { return sessionId }
+                    let panes = tmux.panes
+                    let attached = tmux.attachedSessionNames
+                    return panes.first(where: {
+                        attached.contains($0.sessionName)
+                    })?.sessionName ?? panes.first?.sessionName ?? "main"
+                }
+                let paneId = try await tmux.newWindow(sessionName: targetSession)
+                let panes = await tmux.refreshPanes()
+                guard let newPane = panes.first(where: { $0.paneId == paneId }) else {
+                    throw APIError.notFound("New window pane not found")
+                }
+                return APIWindowInfo(
+                    id: newPane.windowId,
+                    index: newPane.windowIndex,
+                    name: newPane.windowName,
+                    paneCount: 1,
+                    isActive: true,
+                    sessionId: newPane.sessionName
+                ).toJSONValue()
+            }
+
+            router.onWindowSelect = { [tmux] windowId in
+                try await tmux.selectWindow(windowId)
+            }
+
+            router.onWindowClose = { [tmux] windowId in
+                try await tmux.killWindow(windowId)
+            }
+
+            // MARK: - Pane callbacks
+
+            router.onPaneList = { [tmux, winManager] windowId in
+                let panes = await tmux.refreshPanes()
+                return await MainActor.run {
+                    let filtered = if let windowId {
+                        panes.filter { $0.windowId == windowId }
+                    } else {
+                        panes
+                    }
+                    return filtered.map { pane in
+                        let hasSession = winManager.paneStates[pane.paneId]?.claudeSession != nil
+                        return APIPaneInfo(
+                            id: pane.paneId,
+                            index: pane.paneIndex,
+                            isActive: pane.isActive,
+                            command: pane.command,
+                            cwd: pane.currentPath,
+                            width: pane.width,
+                            height: pane.height,
+                            windowId: pane.windowId,
+                            hasClaudeSession: hasSession
+                        ).toJSONValue()
+                    }
+                }
+            }
+
+            router.onPaneSplit = { [tmux, winManager] paneId, direction in
+                let horizontal = direction == "right" || direction == "horizontal"
+                let target: String = await MainActor.run {
+                    paneId ?? tmux.panes.first(where: { $0.isActive && $0.isWindowActive })?.paneId ?? "%0"
+                }
+                let newPaneId = try await tmux.splitPane(target, horizontal: horizontal)
+                let panes = await tmux.refreshPanes()
+                await MainActor.run { winManager.updatePaneStates(from: panes) }
+                guard let newPane = panes.first(where: { $0.paneId == newPaneId }) else {
+                    throw APIError.notFound("New pane not found after split")
+                }
+                return APIPaneInfo(
+                    id: newPane.paneId,
+                    index: newPane.paneIndex,
+                    isActive: newPane.isActive,
+                    command: newPane.command,
+                    cwd: newPane.currentPath,
+                    width: newPane.width,
+                    height: newPane.height,
+                    windowId: newPane.windowId,
+                    hasClaudeSession: false
+                ).toJSONValue()
+            }
+
+            router.onPaneSelect = { [tmux] paneId in
+                try await tmux.selectPane(paneId)
+            }
+
+            // MARK: - Input callbacks
+
+            router.onSendText = { [tmux] text, paneId in
+                let target: String = await MainActor.run {
+                    paneId ?? tmux.panes.first(where: { $0.isActive && $0.isWindowActive })?.paneId ?? "%0"
+                }
+                try await tmux.sendKeys(target, keys: text, literal: true)
+            }
+
+            router.onSendKey = { [tmux] key, paneId in
+                let target: String = await MainActor.run {
+                    paneId ?? tmux.panes.first(where: { $0.isActive && $0.isWindowActive })?.paneId ?? "%0"
+                }
+                try await tmux.sendKeys(target, keys: key)
+            }
+
+            // MARK: - Notification callback
+
+            router.onNotify = { [notificationService] title, body, subtitle, paneId in
+                let notification = TerminalStreamMessage.TerminalNotification(
+                    title: subtitle ?? title,
+                    body: body
+                )
+                let targetPane = paneId ?? "system"
+                notificationService.showNotification(targetPane, notification)
+            }
+
+            // MARK: - Editor callback
+
+            router.onEditorOpen = { [editorManager] paneId, filePath in
+                await editorManager.handleAPIEditRequest(paneId: paneId, filePath: filePath)
+            }
+
+            // MARK: - Identify callback
+
+            router.onIdentify = { [tmux, winManager] paneId in
+                let panes = await tmux.refreshPanes()
+                return await MainActor.run { () -> [String: JSONValue]? in
+                    guard
+                        let pane = paneId.flatMap({ id in panes.first(where: { $0.paneId == id }) })
+                        ?? panes.first(where: { $0.isActive && $0.isWindowActive })
+                    else { return nil }
+
+                    let hasSession = winManager.paneStates[pane.paneId]?.claudeSession != nil
+                    let attached = tmux.attachedSessionNames
+                    return APIIdentifyInfo(
+                        session: APISessionInfo(
+                            id: pane.sessionName,
+                            name: pane.sessionName,
+                            windowCount: LocalTmuxWindow.groupPanes(panes)
+                                .filter { $0.sessionName == pane.sessionName }.count,
+                            isAttached: attached.contains(pane.sessionName)
+                        ),
+                        window: APIWindowInfo(
+                            id: pane.windowId,
+                            index: pane.windowIndex,
+                            name: pane.windowName,
+                            paneCount: panes.filter { $0.windowId == pane.windowId }.count,
+                            isActive: pane.isWindowActive,
+                            sessionId: pane.sessionName
+                        ),
+                        pane: APIPaneInfo(
+                            id: pane.paneId,
+                            index: pane.paneIndex,
+                            isActive: pane.isActive,
+                            command: pane.command,
+                            cwd: pane.currentPath,
+                            width: pane.width,
+                            height: pane.height,
+                            windowId: pane.windowId,
+                            hasClaudeSession: hasSession
+                        )
+                    ).toJSONValue()
+                }
+            }
+
+            // Set the router as the request handler on the socket server
+            await apiSocketServer.setRequestHandler(router.handleRequest)
+
+            // Start the socket server
+            let socketPath = NSTemporaryDirectory() + "gallager.sock"
             do {
-                try await server.start()
+                try await apiSocketServer.start(socketPath)
             } catch {
-                logger.error("Failed to start editor socket server: \(error)")
+                logger.error("Failed to start API socket server: \(error)")
                 return
             }
 
-            // Set the VISUAL env var on TmuxService so new sessions use our editor CLI.
+            // Set the VISUAL env var on TmuxService so new sessions use our CLI.
             // The CLI is expected to be in the app bundle's MacOS directory.
-            if let editorURL = Bundle.main.url(forAuxiliaryExecutable: "GallagerEditor") {
+            if let editorURL = Bundle.main.url(forAuxiliaryExecutable: "Gallager") {
                 tmuxService.editorCLIPath = editorURL.path
-                tmuxService.editorSocketPath = editorSocketServer.socketPath
-                logger.info("Editor CLI path: \(editorURL.path)")
+                tmuxService.apiSocketPath = socketPath
+                logger.info("Gallager CLI path: \(editorURL.path)")
             } else {
-                logger.warning("GallagerEditor CLI not found in app bundle")
+                logger.warning("Gallager CLI not found in app bundle")
             }
         }
 

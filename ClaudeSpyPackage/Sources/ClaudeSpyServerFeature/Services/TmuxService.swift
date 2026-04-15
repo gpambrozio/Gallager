@@ -63,21 +63,21 @@ final public class TmuxService {
         "DISABLE_UPDATE_PROMPT=true",
     ]
 
-    /// Path to the GallagerEditor CLI for the `$VISUAL` environment variable.
-    /// When set, Ctrl-G in Claude Code opens the in-app prompt editor.
+    /// Path to the Gallager CLI for the `$VISUAL` environment variable.
+    /// When set, Ctrl-G in Claude Code opens the in-app prompt editor via `Gallager edit`.
     public var editorCLIPath: String?
 
-    /// Socket path for the editor server. The CLI reads this from `$GALLAGER_EDITOR_SOCKET`.
-    public var editorSocketPath: String?
+    /// Socket path for the API server. The CLI reads this from `$GALLAGER_SOCKET`.
+    public var apiSocketPath: String?
 
     /// Full environment variables list including VISUAL when editor CLI is available.
     private var terminalEnvironmentVars: [String] {
         var vars = Self.baseEnvironmentVars
         if let editorCLIPath {
-            vars.append("VISUAL=\(editorCLIPath)")
+            vars.append("VISUAL=\(editorCLIPath) edit")
         }
-        if let editorSocketPath {
-            vars.append("GALLAGER_EDITOR_SOCKET=\(editorSocketPath)")
+        if let apiSocketPath {
+            vars.append("GALLAGER_SOCKET=\(apiSocketPath)")
         }
         return vars
     }

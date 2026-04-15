@@ -17,14 +17,16 @@
 
     /// Manages active prompt editor sessions across all panes.
     ///
-    /// When the GallagerEditor CLI connects via the socket server, this manager:
+    /// When the Gallager CLI sends an `editor.open` request via the API socket,
+    /// this manager:
     /// 1. Reads the file content
     /// 2. Creates an EditorSession
     /// 3. Notifies the UI to show the editor overlay
+    /// 4. Blocks the API response until the user submits or cancels
     ///
     /// When the user submits or cancels, it:
     /// 1. Optionally writes the edited content back to the file
-    /// 2. Signals the socket server to release the CLI
+    /// 2. Resumes the continuation (unblocking the API response to the CLI)
     /// 3. Removes the session from active sessions
     @Observable
     @MainActor
@@ -33,64 +35,66 @@
         /// Only one editor session per pane is supported.
         public private(set) var activeSessions: [String: EditorSession] = [:]
 
-        private let socketServer: EditorSocketServer
+        /// Per-session continuations that block the API response until editing completes.
+        private var completionContinuations: [UUID: CheckedContinuation<Void, Never>] = [:]
+
         private let logger = Logger(label: "com.claudespy.editorsessionmanager")
 
         /// Called when an editor session opens or closes, to push state to viewers.
         public var onSessionChanged: (@MainActor @Sendable () async -> Void)?
 
-        init(socketServer: EditorSocketServer) {
-            self.socketServer = socketServer
-        }
+        public init() { }
 
         // MARK: - Public API
 
-        /// Handles an incoming edit request from the socket server.
-        public func handleEditRequest(_ request: EditorRequest) {
-            Task {
-                // Read file content off the main actor
-                let content: String
-                do {
-                    content = try await Task.detached {
-                        try String(contentsOfFile: request.filePath, encoding: .utf8)
-                    }.value
-                } catch {
-                    logger.error("Failed to read editor file: \(error)")
-                    // Signal the CLI to exit immediately so Claude Code doesn't hang
-                    await socketServer.completeSession(request.sessionId)
-                    return
-                }
+        /// Handles an editor.open API request. Blocks until the user submits or cancels.
+        ///
+        /// Called by the API request router. The router's response is held until
+        /// this method returns, which happens when `submitSession` or `cancelSession`
+        /// resumes the stored continuation.
+        public func handleAPIEditRequest(paneId: String, filePath: String) async {
+            let sessionId = UUID()
 
-                await registerSession(request, content: content)
+            // Read file content off the main actor
+            let content: String
+            do {
+                content = try await Task.detached {
+                    try String(contentsOfFile: filePath, encoding: .utf8)
+                }.value
+            } catch {
+                logger.error("Failed to read editor file: \(error)")
+                return
             }
-        }
 
-        /// Registers a new editor session after file content has been read.
-        private func registerSession(_ request: EditorRequest, content: String) async {
             // If there's already a session for this pane, complete the old one first
-            if let existing = activeSessions[request.paneId] {
-                logger.warning("Replacing existing editor session for pane \(request.paneId)")
-                await socketServer.completeSession(existing.id)
+            if let existing = activeSessions[paneId] {
+                logger.warning("Replacing existing editor session for pane \(paneId)")
+                completionContinuations.removeValue(forKey: existing.id)?.resume()
             }
 
             let session = EditorSession(
-                id: request.sessionId,
-                paneId: request.paneId,
-                filePath: request.filePath,
+                id: sessionId,
+                paneId: paneId,
+                filePath: filePath,
                 originalContent: content
             )
-            activeSessions[request.paneId] = session
+            activeSessions[paneId] = session
 
-            logger.info("Opened editor session for pane \(request.paneId)")
+            logger.info("Opened editor session for pane \(paneId)")
 
             // Bring app to front
             NSApplication.shared.activate(ignoringOtherApps: true)
 
             // Notify viewers
             await onSessionChanged?()
+
+            // Block until submit/cancel resumes the continuation
+            await withCheckedContinuation { continuation in
+                completionContinuations[sessionId] = continuation
+            }
         }
 
-        /// Submits edited content, writes it to the file, and signals the CLI to exit.
+        /// Submits edited content, writes it to the file, and unblocks the API response.
         public func submitSession(paneId: String, content: String) {
             guard let session = activeSessions.removeValue(forKey: paneId) else {
                 logger.warning("No active editor session for pane \(paneId)")
@@ -104,8 +108,8 @@
                 logger.error("Failed to write edited content: \(error)")
             }
 
-            // Signal the CLI to exit
-            Task { await socketServer.completeSession(session.id) }
+            // Resume the continuation, which unblocks the API response
+            completionContinuations.removeValue(forKey: session.id)?.resume()
             logger.info("Submitted editor session for pane \(paneId)")
 
             // Notify viewers
@@ -120,8 +124,8 @@
                 return
             }
 
-            // Signal the CLI to exit without writing changes
-            Task { await socketServer.completeSession(session.id) }
+            // Resume the continuation, which unblocks the API response
+            completionContinuations.removeValue(forKey: session.id)?.resume()
             logger.info("Cancelled editor session for pane \(paneId)")
 
             // Notify viewers

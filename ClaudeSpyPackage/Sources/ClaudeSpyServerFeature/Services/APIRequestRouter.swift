@@ -80,7 +80,7 @@
 
         nonisolated(unsafe) var onEditorOpen: (@Sendable (String, String) async -> Void)?
 
-        nonisolated(unsafe) var onIdentify: (@Sendable (String?) async -> [String: JSONValue])?
+        nonisolated(unsafe) var onIdentify: (@Sendable (String?) async -> [String: JSONValue]?)?
 
         public init() { }
 
@@ -102,7 +102,7 @@
 
                 case "system.identify":
                     let paneId = params["pane_id"]?.stringValue
-                    if let info = await onIdentify?(paneId) {
+                    if let callback = onIdentify, let info = await callback(paneId) {
                         return JSONRPCResponse(id: id, result: info)
                     }
                     return .internalError(id: id, "Identify not available")
