@@ -79,16 +79,11 @@ public enum CloseRemoteWindowIOSScenario {
         // 6. Confirm by tapping "Close Anyway"
         TestStep.log("Stage 5: Confirm close — session should be killed")
         TestStep.iosTap(.roleAndLabelContains(role: "Button", label: "Close Anyway"))
-        TestStep.wait(seconds: 3)
+        TestStep.wait(seconds: 5)
 
-        // After session is killed, the view shows "Window Not Found"
-        TestStep.iosWaitForElement(.labelContains("Window Not Found"), timeout: 10)
-        TestStep.iosScreenshot(label: "ios-window-not-found")
-
-        // Navigate back to session list and verify session is gone
-        TestStep.iosTap(.label("Sessions"))
-        TestStep.wait(seconds: 2)
+        // After session is killed, the view should auto-dismiss to the session list
+        TestStep.iosWaitForElement(.labelContains("Sessions"), timeout: 10)
         TestStep.iosWaitForElementToDisappear(.labelContains("ios-close"), timeout: 10)
-        TestStep.iosScreenshot(label: "ios-session-list-empty")
+        TestStep.iosScreenshot(label: "ios-session-list-after-close")
     }
 }

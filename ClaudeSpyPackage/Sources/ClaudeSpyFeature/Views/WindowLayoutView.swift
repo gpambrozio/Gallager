@@ -15,6 +15,7 @@
         let settings: IOSSettings
 
         @Environment(SessionStore.self) private var sessionStore
+        @Environment(\.dismiss) private var dismiss
 
         /// The currently selected window within the session
         @State private var selectedWindowId: String?
@@ -269,6 +270,20 @@
                 guard oldValue != nil, let newValue else { return }
                 Task {
                     await sendCommand(.selectTmuxPane, paneId: newValue)
+                }
+            }
+            .onChange(of: sessionWindows.map(\.id)) { _, newWindowIds in
+                guard let selectedWindowId else { return }
+                // If the selected window was removed, switch to another or dismiss
+                if !newWindowIds.contains(selectedWindowId) {
+                    let windows = sessionWindows
+                    if let next = windows.first(where: \.isWindowActive) ?? windows.first {
+                        self.selectedWindowId = next.id
+                        activePaneId = next.activePane?.paneId ?? next.panes.first?.paneId
+                    } else {
+                        // Session is gone — navigate back to the session list
+                        dismiss()
+                    }
                 }
             }
         }
