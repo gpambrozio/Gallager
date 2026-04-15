@@ -394,6 +394,7 @@ public actor TestOrchestrator {
                 "--test-accessibility-port", "\(driver.testAccessibilityPort)",
                 "--notification-log", notificationLogPath(for: instance),
                 "--push-log", pushLogPath(for: instance),
+                "--clipboard-file", clipboardFilePath(for: instance),
             ]
             if
                 let sampleDir = Bundle.module.resourcePath.map({ $0 + "/SampleFiles" }),
@@ -451,7 +452,16 @@ public actor TestOrchestrator {
             try await macDriver(for: instance).unpair()
 
         case let .macReadClipboard(storeAs, instance):
-            let value = await macDriver(for: instance).readClipboard()
+            let clipboardPath = clipboardFilePath(for: instance)
+            let value: String
+            if
+                let data = FileManager.default.contents(atPath: clipboardPath),
+                let text = String(data: data, encoding: .utf8), !text.isEmpty {
+                value = text
+            } else {
+                // Fall back to system clipboard for non-E2E or if file doesn't exist yet
+                value = await macDriver(for: instance).readClipboard()
+            }
             let suffix = instance > 0 ? " (mac\(instance + 1))" : ""
             logger.info("  Clipboard value\(suffix): \(value) → stored as ${\(storeAs)}")
             context.set(storeAs, value: value)
@@ -788,6 +798,13 @@ public actor TestOrchestrator {
     private func pushLogPath(for instance: Int) -> String {
         let base = NSTemporaryDirectory() + "claudespy-e2e-push.log"
         return instance == 0 ? base : "\(base)-\(instance)"
+    }
+
+    /// Return the clipboard file path for the given instance number.
+    /// Each app instance writes clipboard contents here instead of using NSPasteboard,
+    /// isolating clipboards between instances on the same machine.
+    func clipboardFilePath(for instance: Int) -> String {
+        NSTemporaryDirectory() + "claudespy-e2e-clipboard-\(instance).txt"
     }
 
     // MARK: - Script Cleanup

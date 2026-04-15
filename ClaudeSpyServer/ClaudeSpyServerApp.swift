@@ -82,6 +82,16 @@ struct TmuxPaneMirrorApp: App {
                 pushLogPath = nil
             }
 
+            // E2E test support: file-backed clipboard for instance isolation
+            let clipboardFilePath: String?
+            if let idx = CommandLine.arguments.firstIndex(of: "--clipboard-file"),
+               idx + 1 < CommandLine.arguments.count
+            {
+                clipboardFilePath = CommandLine.arguments[idx + 1]
+            } else {
+                clipboardFilePath = nil
+            }
+
             prepareDependencies {
                 $0[PreferencesService.self] = prefs
                 $0[SecretsService.self] = .inMemory()
@@ -183,6 +193,11 @@ struct TmuxPaneMirrorApp: App {
                 if let pushLogPath {
                     try? FileManager.default.removeItem(atPath: pushLogPath)
                     $0[PushNotificationLogService.self] = .e2eTest(logPath: pushLogPath)
+                }
+                if let clipboardFilePath {
+                    // Clean up any previous clipboard file
+                    try? FileManager.default.removeItem(atPath: clipboardFilePath)
+                    $0[ClipboardClient.self] = .fileBacked(path: clipboardFilePath)
                 }
             }
 

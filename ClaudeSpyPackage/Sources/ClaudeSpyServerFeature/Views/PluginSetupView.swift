@@ -1,6 +1,7 @@
 #if os(macOS)
     import AppKit
     import ClaudeSpyCommon
+    import Dependencies
     import SwiftUI
 
     /// First-launch setup view for plugin installation
@@ -262,8 +263,8 @@
         // MARK: - Helpers
 
         private func copyToClipboard(_ text: String) {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
+            @Dependency(ClipboardClient.self) var clipboard
+            clipboard.setString(text)
 
             showCopiedFeedback = true
             feedbackResetTrigger = UUID()

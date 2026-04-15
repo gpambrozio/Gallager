@@ -187,8 +187,8 @@
         // MARK: - Helpers
 
         private func copyToClipboard(_ text: String) {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
+            @Dependency(ClipboardClient.self) var clipboard
+            clipboard.setString(text)
             copiedCommand = text
             feedbackResetTrigger = UUID()
         }

@@ -63,8 +63,9 @@ public enum ClipboardSyncMacViewerScenario {
         TestStep.log("Phase 2: Clipboard NOT synced when viewer's terminal window loses focus")
 
         // Open Settings on the viewer — this steals key window from the terminal
+        // The Settings window is already open from pairing setup with "Remote Hosts" tab
         TestStep.macOpenSettings(instance: 1)
-        TestStep.macWaitForWindow(titled: "General", timeout: 5, instance: 1)
+        TestStep.macWaitForWindow(titled: "Remote Hosts", timeout: 5, instance: 1)
         TestStep.wait(seconds: 2)
 
         // Send another OSC 52 while the terminal window is not key

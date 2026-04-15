@@ -2,6 +2,7 @@
     import AppKit
     import ClaudeSpyCommon
     import ClaudeSpyNetworking
+    import Dependencies
     import SwiftTerm
 
     // MARK: - Focus Border Overlay
@@ -524,8 +525,8 @@
         /// Copies the current selection to the clipboard as plain text (trimmed).
         func copySelectionToClipboard() {
             guard let text = getSelectedTextTrimmed(), !text.isEmpty else { return }
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
+            @Dependency(ClipboardClient.self) var clipboard
+            clipboard.setString(text)
         }
 
         /// Copies the current selection as rich text (RTF with terminal font/colors/styles).
@@ -664,8 +665,8 @@
             guard let matchRange = fullPlain.range(of: selectionText, options: .backwards) else {
                 // Fallback: copy plain text without sequences
                 let trimmed = Self.trimTrailingWhitespacePerLine(selectionText)
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(trimmed, forType: .string)
+                @Dependency(ClipboardClient.self) var clipboard
+                clipboard.setString(trimmed)
                 return
             }
 
@@ -726,8 +727,8 @@
             // Trim trailing whitespace per line
             let trimmed = Self.trimTrailingWhitespacePerLine(result)
 
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(trimmed, forType: .string)
+            @Dependency(ClipboardClient.self) var clipboard
+            clipboard.setString(trimmed)
         }
 
         /// Builds an SGR escape sequence for the given terminal attribute.
@@ -898,15 +899,16 @@
             switch event.charactersIgnoringModifiers {
             case "v":
                 // Handle Cmd+V paste
-                let pasteboard = NSPasteboard.general
+                @Dependency(ClipboardClient.self) var clipboard
 
                 // If clipboard has text, send it directly to tmux
-                if let clipboardString = pasteboard.string(forType: .string), !clipboardString.isEmpty {
+                if let clipboardString = clipboard.getString(), !clipboardString.isEmpty {
                     onInput?([.text(clipboardString)])
                     return true
                 }
 
                 // If clipboard has an image, send Ctrl+V so the terminal app can handle it
+                let pasteboard = NSPasteboard.general
                 if pasteboard.data(forType: .png) != nil || pasteboard.data(forType: .tiff) != nil {
                     onInput?([.ctrl("v")])
                     return true
@@ -1463,8 +1465,8 @@
         func clipboardCopy(source: TerminalView, content: Data) {
             if let string = String(data: content, encoding: .utf8) {
                 let trimmed = InteractiveTerminalView.trimTrailingWhitespacePerLine(string)
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(trimmed, forType: .string)
+                @Dependency(ClipboardClient.self) var clipboard
+                clipboard.setString(trimmed)
             }
         }
 

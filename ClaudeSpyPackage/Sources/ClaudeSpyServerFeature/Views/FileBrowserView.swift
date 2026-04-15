@@ -465,13 +465,13 @@ private extension View {
                 }
                 Divider()
                 Button("Copy Path") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(fullPath, forType: .string)
+                    @Dependency(ClipboardClient.self) var clipboard
+                    clipboard.setString(fullPath)
                 }
                 if let relativePath {
                     Button("Copy Relative Path") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(relativePath, forType: .string)
+                        @Dependency(ClipboardClient.self) var clipboard
+                        clipboard.setString(relativePath)
                     }
                 }
                 let isDirectory = (try? URL(fileURLWithPath: fullPath)

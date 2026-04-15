@@ -1,6 +1,7 @@
 import AppKit
 import ClaudeSpyCommon
 import ClaudeSpyNetworking
+import Dependencies
 import SwiftTerm
 import SwiftUI
 
@@ -165,6 +166,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
     @MainActor
     final class Coordinator: @unchecked Sendable {
         let terminalView: InteractiveTerminalView
+        @Dependency(ClipboardClient.self) private var clipboard
 
         private var paneId: String?
         private weak var connection: ViewerConnection?
@@ -346,8 +348,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             guard NSApp.isActive else { return }
             // Check if the terminal view's window is key
             guard terminalView.window?.isKeyWindow == true else { return }
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(content, forType: .string)
+            clipboard.setString(content)
         }
 
         // MARK: - Settings

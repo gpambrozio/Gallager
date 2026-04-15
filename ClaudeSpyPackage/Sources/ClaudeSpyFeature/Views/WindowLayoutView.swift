@@ -1,6 +1,7 @@
 #if os(iOS)
     import ClaudeSpyCommon
     import ClaudeSpyNetworking
+    import Dependencies
     import SwiftUI
 
     /// Renders a multi-pane tmux window on iOS.
@@ -267,13 +268,14 @@
                 }
             }
             .onChange(of: clipboardContents) {
+                @Dependency(ClipboardClient.self) var clipboard
                 guard
                     let activePaneId,
                     let content = clipboardContents[activePaneId],
                     scenePhase == .active,
-                    content != UIPasteboard.general.string
+                    content != clipboard.getString()
                 else { return }
-                UIPasteboard.general.string = content
+                clipboard.setString(content)
             }
             .onChange(of: activePaneId) { oldValue, newValue in
                 updateActiveService()
