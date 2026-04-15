@@ -108,8 +108,8 @@ let package = Package(
             targets: ["ClaudeSpyE2E"]
         ),
         .executable(
-            name: "Gallager",
-            targets: ["Gallager"]
+            name: "GallagerCLI",
+            targets: ["GallagerCLI"]
         ),
     ],
     dependencies: [
@@ -227,14 +227,15 @@ let package = Package(
                 .argumentParser,
             ]
         ),
-        // CLI wrapper for Claude Code's Ctrl-G external editor feature.
+        // CLI for controlling Gallager from the command line (API + editor).
         // Bundled inside the app and invoked via the VISUAL environment variable.
         .executableTarget(
-            name: "Gallager",
+            name: "GallagerCLI",
             dependencies: [
                 .argumentParser,
                 .claudeSpyNetworking,
-            ]
+            ],
+            path: "Sources/Gallager"
         ),
         .testTarget(
             name: "ClaudeSpyNetworkingTests",

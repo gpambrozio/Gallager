@@ -10,7 +10,7 @@ func requestEncodesToJSON() throws {
         params: [:]
     )
     let data = try JSONEncoder().encode(request)
-    let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+    let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     #expect(json["id"] as? String == "test-1")
     #expect(json["method"] as? String == "session.list")
     #expect(json["params"] is [String: Any])
@@ -18,9 +18,9 @@ func requestEncodesToJSON() throws {
 
 @Test
 func successResponseDecodable() throws {
-    let json = """
+    let json = Data("""
     {"id":"test-1","ok":true,"result":{"pong":true}}
-    """.data(using: .utf8)!
+    """.utf8)
     let response = try JSONDecoder().decode(JSONRPCResponse.self, from: json)
     #expect(response.id == "test-1")
     #expect(response.ok == true)
@@ -29,9 +29,9 @@ func successResponseDecodable() throws {
 
 @Test
 func errorResponseDecodable() throws {
-    let json = """
+    let json = Data("""
     {"id":"test-2","ok":false,"error":{"code":"not_found","message":"Session not found"}}
-    """.data(using: .utf8)!
+    """.utf8)
     let response = try JSONDecoder().decode(JSONRPCResponse.self, from: json)
     #expect(response.id == "test-2")
     #expect(response.ok == false)

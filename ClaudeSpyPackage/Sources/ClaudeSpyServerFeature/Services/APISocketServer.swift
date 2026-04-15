@@ -10,12 +10,11 @@
     /// For editor.open, the handler should block until editing completes, then return.
     public typealias APIRequestHandler = @Sendable (JSONRPCRequest) async -> JSONRPCResponse
 
-    @DependencyClient
+    /// Unix domain socket server that accepts JSON-RPC connections.
     public struct APISocketServer: Sendable {
-        public var start: @Sendable (_ socketPath: String) async throws -> Void
-        public var stop: @Sendable () async -> Void
-        public var setRequestHandler: @Sendable (_ handler: @escaping APIRequestHandler) async -> Void
-        /// The socket path the server is listening on (set after start()).
+        public var start: @Sendable (_ socketPath: String) async throws -> Void = { _ in }
+        public var stop: @Sendable () async -> Void = { }
+        public var setRequestHandler: @Sendable (_ handler: @escaping APIRequestHandler) async -> Void = { _ in }
         public var getSocketPath: @Sendable () async -> String? = { nil }
     }
 
@@ -40,6 +39,10 @@
                     await server.socketPath
                 }
             )
+        }
+
+        public static var testValue: APISocketServer {
+            APISocketServer()
         }
     }
 

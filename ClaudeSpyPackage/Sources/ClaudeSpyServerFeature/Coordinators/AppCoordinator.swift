@@ -526,12 +526,12 @@
 
             // Set the VISUAL env var on TmuxService so new sessions use our CLI.
             // The CLI is expected to be in the app bundle's MacOS directory.
-            if let editorURL = Bundle.main.url(forAuxiliaryExecutable: "Gallager") {
+            if let editorURL = Bundle.main.url(forAuxiliaryExecutable: "GallagerCLI") {
                 tmuxService.editorCLIPath = editorURL.path
                 tmuxService.apiSocketPath = socketPath
-                logger.info("Gallager CLI path: \(editorURL.path)")
+                logger.info("GallagerCLI path: \(editorURL.path)")
             } else {
-                logger.warning("Gallager CLI not found in app bundle")
+                logger.warning("GallagerCLI not found in app bundle")
             }
         }
 
