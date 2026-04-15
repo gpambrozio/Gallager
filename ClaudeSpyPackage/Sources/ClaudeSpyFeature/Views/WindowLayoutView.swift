@@ -43,6 +43,9 @@
         /// Close confirmation state for showing alert with running processes
         @State private var closeConfirmation: CloseConfirmation?
 
+        /// Error message from failed commands (close window/session)
+        @State private var commandError: String?
+
         /// All windows in this session
         private var sessionWindows: [TmuxWindow] {
             sessionStore.windows(for: hostId).filter { $0.sessionName == sessionName }
@@ -226,6 +229,16 @@
             } message: {
                 if let confirmation = closeConfirmation {
                     Text(confirmation.message)
+                }
+            }
+            .alert("Error", isPresented: .init(
+                get: { commandError != nil },
+                set: { if !$0 { commandError = nil } }
+            )) {
+                Button("OK") { commandError = nil }
+            } message: {
+                if let error = commandError {
+                    Text(error)
                 }
             }
             .task {
@@ -575,13 +588,15 @@
                 let spec = KillTmuxWindow(windowId: window.id)
                 let result = await relayClient.sendCommand(spec, paneId: "")
                 if case .success = result {
-                    await relayClient.requestSessionState()
                     // Select another window if the closed one was selected
+                    // (the host will push updated state via pushSessionStateToAll)
                     if selectedWindowId == window.id {
                         let remaining = sessionWindows.filter { $0.id != window.id }
                         selectedWindowId = remaining.first(where: \.isWindowActive)?.id ?? remaining.first?.id
                         activePaneId = sessionWindows.first(where: { $0.id == selectedWindowId })?.activePane?.paneId
                     }
+                } else if case let .failure(error) = result {
+                    commandError = error.localizedDescription
                 }
             }
         }
@@ -589,7 +604,10 @@
         private func performCloseSession() {
             Task {
                 let spec = KillTmuxSession(sessionName: sessionName)
-                _ = await relayClient.sendCommand(spec, paneId: "")
+                let result = await relayClient.sendCommand(spec, paneId: "")
+                if case let .failure(error) = result {
+                    commandError = error.localizedDescription
+                }
             }
         }
     }
