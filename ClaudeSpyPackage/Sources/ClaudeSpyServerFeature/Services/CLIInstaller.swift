@@ -3,40 +3,59 @@
     import Foundation
     import Logging
 
-    /// Manages installation of the `gallager` CLI symlink in `/usr/local/bin`.
+    /// Manages installation of the `gallager` CLI wrapper in `/usr/local/bin`.
+    ///
+    /// Installs a shell script that locates the Gallager app bundle and invokes
+    /// the embedded GallagerCLI binary. This approach (used by VS Code, Sublime, etc.)
+    /// avoids dynamic framework loading issues that occur with direct symlinks.
     public enum CLIInstaller {
         private static let logger = Logger(label: "com.claudespy.cliinstaller")
-        private static let symlinkPath = "/usr/local/bin/gallager"
+        private static let installPath = "/usr/local/bin/gallager"
+        private static let bundleID = "br.eng.gustavo.ClaudeSpyServer"
 
-        /// Whether the CLI symlink is already installed and points to the current binary.
+        /// Whether the CLI wrapper is installed.
         public static var isInstalled: Bool {
-            let fm = FileManager.default
-            guard let destination = try? fm.destinationOfSymbolicLink(atPath: symlinkPath) else {
-                return false
-            }
-            guard let currentCLIPath = cliBinaryPath else { return false }
-            return destination == currentCLIPath
+            FileManager.default.isExecutableFile(atPath: installPath)
         }
 
-        /// Path to the GallagerCLI binary inside the running app bundle.
-        public static var cliBinaryPath: String? {
-            Bundle.main.url(forAuxiliaryExecutable: "GallagerCLI")?.path
-        }
-
-        /// Install the CLI symlink at `/usr/local/bin/gallager`.
+        /// Install the CLI wrapper script at `/usr/local/bin/gallager`.
         ///
-        /// Uses AppleScript to request admin privileges for creating the symlink.
+        /// Uses AppleScript to request admin privileges.
         @MainActor
         public static func install() -> Bool {
-            guard let cliPath = cliBinaryPath else {
-                logger.error("GallagerCLI binary not found in app bundle")
+            let wrapperScript = """
+            #!/bin/bash
+            # Gallager CLI — installed by Gallager.app
+            # Locates the app bundle and runs the embedded GallagerCLI binary.
+
+            APP="$(mdfind 'kMDItemCFBundleIdentifier == "\(bundleID)"' 2>/dev/null | head -1)"
+
+            if [ -z "$APP" ] || [ ! -d "$APP" ]; then
+                echo "Error: Gallager.app not found. Is it installed?" >&2
+                exit 1
+            fi
+
+            CLI="$APP/Contents/MacOS/GallagerCLI"
+            if [ ! -x "$CLI" ]; then
+                echo "Error: GallagerCLI not found in $APP" >&2
+                exit 1
+            fi
+
+            exec "$CLI" "$@"
+            """
+
+            // Write the script to a temp file, then move it with admin privileges
+            let tempPath = NSTemporaryDirectory() + "gallager-cli-install.sh"
+            do {
+                try wrapperScript.write(toFile: tempPath, atomically: true, encoding: .utf8)
+            } catch {
+                logger.error("Failed to write wrapper script: \(error)")
                 return false
             }
 
-            // Use osascript with administrator privileges to create the symlink
             let script = """
             do shell script \
-            "mkdir -p /usr/local/bin && ln -sf '\(cliPath)' '\(symlinkPath)'" \
+            "mkdir -p /usr/local/bin && cp '\(tempPath)' '\(installPath)' && chmod +x '\(installPath)'" \
             with administrator privileges
             """
 
@@ -44,22 +63,25 @@
             var error: NSDictionary?
             appleScript?.executeAndReturnError(&error)
 
+            // Clean up temp file
+            try? FileManager.default.removeItem(atPath: tempPath)
+
             if let error {
                 let message = error[NSAppleScript.errorMessage] as? String ?? "Unknown error"
                 logger.error("Failed to install CLI: \(message)")
                 return false
             }
 
-            logger.info("CLI installed at \(symlinkPath) -> \(cliPath)")
+            logger.info("CLI wrapper installed at \(installPath)")
             return true
         }
 
-        /// Remove the CLI symlink.
+        /// Remove the CLI wrapper.
         @MainActor
         public static func uninstall() -> Bool {
             let script = """
             do shell script \
-            "rm -f '\(symlinkPath)'" \
+            "rm -f '\(installPath)'" \
             with administrator privileges
             """
 
@@ -73,7 +95,7 @@
                 return false
             }
 
-            logger.info("CLI uninstalled from \(symlinkPath)")
+            logger.info("CLI wrapper removed from \(installPath)")
             return true
         }
     }
