@@ -64,10 +64,7 @@ public enum CloseRemoteWindowIOSScenario {
         TestStep.iosWaitForElementToDisappear(.labelContains("Connecting"), timeout: 15)
         TestStep.iosWaitForElementToDisappear(.labelContains("Window Not Found"), timeout: 15)
         TestStep.wait(seconds: 3)
-        // Tolerance is high because the terminal stream may show a transient
-        // "Stream Error" after closing a sibling window; the nav bar and status
-        // bar (proving window 0 is selected) are always correct.
-        TestStep.iosScreenshot(label: "ios-after-window-close", tolerance: 85.0)
+        TestStep.iosScreenshot(label: "ios-after-window-close")
 
         // 5. Run a process in the remaining window, then try to close the session
         TestStep.log("Stage 4: Run process and try to close session — should show confirmation")
@@ -82,7 +79,7 @@ public enum CloseRemoteWindowIOSScenario {
         // Confirmation alert should appear with process info
         TestStep.iosWaitForElement(.labelContains("Close Session"), timeout: 10)
         TestStep.iosWaitForElement(.labelContains("sleep"), timeout: 10)
-        TestStep.iosScreenshot(label: "ios-close-session-confirmation", tolerance: 85.0)
+        TestStep.iosScreenshot(label: "ios-close-session-confirmation")
 
         // 6. Confirm by tapping "Close Anyway"
         TestStep.log("Stage 5: Confirm close — session should be killed")
