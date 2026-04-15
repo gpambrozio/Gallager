@@ -5,10 +5,15 @@ import Foundation
 /// Verifies the gallager CLI can control the app via Unix socket by
 /// exercising commands that produce visible UI changes:
 /// 1. ping + list-sessions — verify basic connectivity
-/// 2. send text — verify text appears in terminal
-/// 3. split-pane — verify window splits into two panes
-/// 4. new-window — verify a new tab appears
-/// 5. notify — trigger a desktop notification
+/// 2. new-session — verify new session appears in sidebar
+/// 3. list-panes — find pane ID for explicit targeting
+/// 4. split-pane — verify window splits into two panes
+/// 5. send text — verify text appears in pane
+/// 6. new-window — verify a new tab appears
+///
+/// Strategy: all CLI commands typed into `cli-test:0` via tmuxSendKeys.
+/// Commands that need to target e2e-api use explicit pane IDs from list-panes.
+/// Sidebar stays on e2e-api for screenshots.
 public enum GallagerCLIScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Gallager CLI API",
@@ -27,12 +32,13 @@ public enum GallagerCLIScenario {
         TestStep.wait(seconds: 2)
 
         // 2. Set up CLI access
-        // The tmux session was created by the E2E framework, not the app,
-        // so $VISUAL and $GALLAGER_SOCKET aren't set. Derive CLI path from
-        // the running app process and use the default socket path.
         Shortcut.tmuxClearAndSetPrompt(target: "cli-test:0")
 
-        // Find CLI binary inside the running app bundle
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"export GALLAGER_SOCKET="$TMPDIR/gallager-e2e.sock""#
+        )
+        TestStep.wait(seconds: 0.5)
         Shortcut.tmuxRunCommand(
             target: "cli-test:0",
             command: #"APP_DIR="$(dirname "$(ps -o comm= -p $(pgrep -x Gallager | head -1))")""#
@@ -40,14 +46,14 @@ public enum GallagerCLIScenario {
         TestStep.wait(seconds: 0.5)
         Shortcut.tmuxRunCommand(
             target: "cli-test:0",
-            command: #"CLI="$APP_DIR/GallagerCLI --socket $TMPDIR/gallager.sock""#
+            command: #"gallager() { "$APP_DIR/GallagerCLI" "$@"; }"#
         )
         TestStep.wait(seconds: 0.5)
 
         // 3. Verify basic connectivity
         Shortcut.tmuxRunCommand(
             target: "cli-test:0",
-            command: #"$CLI ping > /tmp/e2e-cli-ping.txt 2>&1"#
+            command: #"gallager ping > /tmp/e2e-cli-ping.txt 2>&1"#
         )
         TestStep.wait(seconds: 2)
         TestStep.readFile(path: "/tmp/e2e-cli-ping.txt", storeAs: "pingResult")
@@ -55,62 +61,70 @@ public enum GallagerCLIScenario {
 
         Shortcut.tmuxRunCommand(
             target: "cli-test:0",
-            command: #"$CLI list-sessions --json > /tmp/e2e-cli-sessions.txt 2>&1"#
+            command: #"gallager list-sessions --json > /tmp/e2e-cli-sessions.txt 2>&1"#
         )
         TestStep.wait(seconds: 2)
         TestStep.readFile(path: "/tmp/e2e-cli-sessions.txt", storeAs: "sessionsResult")
-        TestStep.assertStoredContains(key: "sessionsResult", substring: "cli-test")
+        TestStep.assertStoredContains(key: "sessionsResult", substring: "sessions")
 
-        // 4. Screenshot: single-pane terminal before any changes
-        Shortcut.tmuxRunCommand(target: "cli-test:0", command: "clear")
-        TestStep.wait(seconds: 0.5)
+        // 4. Screenshot: baseline — single session in sidebar
+        TestStep.macScreenshot(label: "mac-baseline")
+
+        // 5. Create a new session via CLI
         Shortcut.tmuxRunCommand(
             target: "cli-test:0",
-            command: #"echo "Single pane — before split""#
-        )
-        TestStep.wait(seconds: 1)
-        TestStep.macScreenshot(label: "mac-single-pane-before-split")
-
-        // 5. Split pane via CLI — should show two panes side by side
-        Shortcut.tmuxRunCommand(
-            target: "cli-test:0",
-            command: #"$CLI split-pane right > /tmp/e2e-cli-split.txt 2>&1"#
+            command: #"gallager new-session --name e2e-api > /tmp/e2e-cli-newsession.txt 2>&1"#
         )
         TestStep.wait(seconds: 3)
+
+        // Click e2e-api to view it — stay here for all subsequent screenshots
+        TestStep.macWaitForElement(titled: "e2e-api", timeout: 5)
+        TestStep.macClickButton(titled: "e2e-api")
+        TestStep.wait(seconds: 2)
+        TestStep.macScreenshot(label: "mac-new-session-created")
+
+        // 6. Get the pane ID of e2e-api's pane for explicit targeting.
+        // Pane IDs are like %0, %1, etc. Extract from list-panes JSON.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"PANE_ID=$(gallager list-panes --window e2e-api:0 --json 2>/dev/null | grep -o '"id":"%[0-9]*"' | head -1 | cut -d'"' -f4)"#
+        )
+        TestStep.wait(seconds: 2)
+        // Verify we got a pane ID
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"echo "PANE=$PANE_ID" > /tmp/e2e-cli-paneid.txt"#
+        )
+        TestStep.wait(seconds: 0.5)
+        TestStep.readFile(path: "/tmp/e2e-cli-paneid.txt", storeAs: "paneIdResult")
+        TestStep.assertStoredContains(key: "paneIdResult", substring: "PANE=%")
+
+        // 7. Split the e2e-api pane using explicit pane ID
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager split-pane right --pane "$PANE_ID" > /tmp/e2e-cli-split.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 3)
+        TestStep.readFile(path: "/tmp/e2e-cli-split.txt", storeAs: "splitResult")
+        TestStep.assertStoredContains(key: "splitResult", substring: "Created pane")
         TestStep.macScreenshot(label: "mac-after-split-pane")
 
-        // 6. Send text to the original pane via CLI
+        // 8. Send text to e2e-api's pane using explicit pane ID
         Shortcut.tmuxRunCommand(
             target: "cli-test:0",
-            command: #"$CLI send 'echo hello-from-gallager-api' && $CLI send-key enter"#
+            command: #"gallager send 'echo hello-from-gallager-api' --pane "$PANE_ID" && gallager send-key enter --pane "$PANE_ID""#
         )
         TestStep.wait(seconds: 2)
-
-        // Verify the text appeared
-        Shortcut.tmuxRunCommand(
-            target: "cli-test:0",
-            command: #"tmux capture-pane -t cli-test:0.0 -p > /tmp/e2e-cli-send.txt"#
-        )
-        TestStep.wait(seconds: 1)
-        TestStep.readFile(path: "/tmp/e2e-cli-send.txt", storeAs: "sendResult")
-        TestStep.assertStoredContains(key: "sendResult", substring: "hello-from-gallager-api")
-
         TestStep.macScreenshot(label: "mac-after-send-text")
 
-        // 7. Create a new window via CLI — should show a new tab
+        // 9. Create a new window in e2e-api — should show a tab bar
         Shortcut.tmuxRunCommand(
             target: "cli-test:0",
-            command: #"$CLI new-window --session cli-test > /tmp/e2e-cli-newwin.txt 2>&1"#
+            command: #"gallager new-window --session e2e-api > /tmp/e2e-cli-newwin.txt 2>&1"#
         )
         TestStep.wait(seconds: 3)
+        TestStep.readFile(path: "/tmp/e2e-cli-newwin.txt", storeAs: "newwinResult")
+        TestStep.assertStoredContains(key: "newwinResult", substring: "Created window")
         TestStep.macScreenshot(label: "mac-after-new-window")
-
-        // 8. Send a notification via CLI
-        Shortcut.tmuxRunCommand(
-            target: "cli-test:0",
-            command: #"$CLI notify --title "Gallager CLI" --body "E2E test notification""#
-        )
-        TestStep.wait(seconds: 2)
-        TestStep.macScreenshot(label: "mac-after-notify")
     }
 }

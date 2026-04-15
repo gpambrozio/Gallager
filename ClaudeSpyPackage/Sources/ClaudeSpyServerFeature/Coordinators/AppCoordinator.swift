@@ -515,8 +515,9 @@
             // Set the router as the request handler on the socket server
             await apiSocketServer.setRequestHandler(router.handleRequest)
 
-            // Start the socket server
-            let socketPath = NSTemporaryDirectory() + "gallager.sock"
+            // Start the socket server (use separate path in E2E to avoid conflicts)
+            let isE2E = CommandLine.arguments.contains("--e2e-test")
+            let socketPath = NSTemporaryDirectory() + (isE2E ? "gallager-e2e.sock" : "gallager.sock")
             do {
                 try await apiSocketServer.start(socketPath)
             } catch {
