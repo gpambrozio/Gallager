@@ -83,6 +83,9 @@ public enum TestStep: Sendable {
     case launchMacApp(instance: Int = 0)
     /// Terminate the macOS app
     case terminateMacApp(instance: Int = 0)
+    /// Activate the macOS app instance so it becomes frontmost with its key window.
+    /// Use before steps that depend on `NSApp.isActive` or `window.isKeyWindow`.
+    case macActivate(instance: Int = 0)
     /// Open Settings window
     case macOpenSettings(instance: Int = 0)
     /// Close a window by title via its close button

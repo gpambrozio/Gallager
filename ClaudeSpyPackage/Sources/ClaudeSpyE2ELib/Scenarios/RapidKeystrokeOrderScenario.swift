@@ -39,6 +39,17 @@ public enum RapidKeystrokeOrderScenario {
         // the check for the last typed round has occasionally flaked at the
         // tighter 3s/10s budget even though the keystrokes eventually arrive.
 
+        // Confirm the terminal stream is established and the AX value is
+        // readable before we start typing.  Also activate the viewer so it
+        // is the frontmost app — macType sets frontmost, but an explicit
+        // activation before the AX check avoids stale-tree false negatives.
+        TestStep.macActivate(instance: 1)
+        TestStep.macWaitForElementQuery(
+            .identifier("terminal-%0"),
+            timeout: 15,
+            instance: 1
+        )
+
         // Round 1: Type a string with all unique chars in rapid succession
         TestStep.log("Round 1: Rapid typing 'abcdefghij'")
         TestStep.macType(text: "echo round1-abcdefghij", pressReturn: true, instance: 1)

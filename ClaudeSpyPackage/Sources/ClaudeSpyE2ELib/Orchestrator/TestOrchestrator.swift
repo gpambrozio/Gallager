@@ -406,6 +406,9 @@ public actor TestOrchestrator {
         case let .terminateMacApp(instance):
             try? await macDriver(for: instance).terminateApp()
 
+        case let .macActivate(instance):
+            try await macDriver(for: instance).activate()
+
         case let .macOpenSettings(instance):
             try await macDriver(for: instance).openSettings()
 

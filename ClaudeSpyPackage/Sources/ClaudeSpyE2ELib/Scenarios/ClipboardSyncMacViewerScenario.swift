@@ -43,6 +43,10 @@ public enum ClipboardSyncMacViewerScenario {
 
         TestStep.log("Phase 1: Mac viewer receives clipboard via OSC 52")
 
+        // Ensure the viewer is frontmost with its terminal window key —
+        // applyClipboardIfFocused guards on NSApp.isActive and isKeyWindow.
+        TestStep.macActivate(instance: 1)
+
         // Send OSC 52 clipboard escape sequence from the host terminal
         // "mac viewer clipboard" in base64 = "bWFjIHZpZXdlciBjbGlwYm9hcmQ="
         Shortcut.tmuxRunCommand(

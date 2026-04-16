@@ -77,6 +77,25 @@ public actor MacOSDriver {
         appPID = nil
     }
 
+    // MARK: - App Activation
+
+    /// Bring the app to the front and make its key window active.
+    /// Uses `NSRunningApplication.activate` via AppleScript so the app
+    /// passes both `NSApp.isActive` and `window.isKeyWindow` checks.
+    public func activate() async throws {
+        let pid = try requirePID()
+        logger.info("Activating app (pid \(pid))")
+        let script = """
+        tell application "System Events"
+            tell (first process whose unix id is \(pid))
+                set frontmost to true
+            end tell
+        end tell
+        delay 0.3
+        """
+        try await runAppleScript(script)
+    }
+
     // MARK: - Settings Navigation
 
     /// Open the Settings window via the status item menu
@@ -362,10 +381,16 @@ public actor MacOSDriver {
             try await runAppleScript(script)
         } else {
             let escaped = escapeForAppleScript(text)
+            // A brief delay after activation lets the app's event loop settle
+            // so the first keystroke isn't processed in isolation.  Without
+            // this, the KeystrokeDebouncer can flush a single-char batch
+            // before the remaining characters arrive — producing two WebSocket
+            // messages that the host may reorder under contention.
             let script = """
             tell application "System Events"
                 tell (first process whose unix id is \(pid))
                     set frontmost to true
+                    delay 0.1
                     keystroke "\(escaped)"\(returnClause)
                 end tell
             end tell
@@ -526,12 +551,19 @@ public actor MacOSDriver {
     @discardableResult
     public func waitForElement(matching query: ElementQuery, timeout: TimeInterval = 10) async throws -> UIElement {
         let pid = try requirePID()
-        return try await Polling.waitFor(
-            description: "macOS UI element matching \(query)",
-            timeout: timeout,
-            pollInterval: 0.5
-        ) {
-            MacOSAccessibility.findElement(appPID: pid, matching: query)
+        do {
+            return try await Polling.waitFor(
+                description: "macOS UI element matching \(query)",
+                timeout: timeout,
+                pollInterval: 0.5
+            ) {
+                MacOSAccessibility.findElement(appPID: pid, matching: query)
+            }
+        } catch {
+            // One-shot diagnostic on timeout — explains what matched vs. what didn't.
+            let diag = MacOSAccessibility.diagnoseQuery(appPID: pid, query: query)
+            logger.warning("AX diagnostic for \(query):\n\(diag)")
+            throw error
         }
     }
 

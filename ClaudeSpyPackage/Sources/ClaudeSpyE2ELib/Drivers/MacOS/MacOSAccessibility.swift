@@ -35,6 +35,32 @@ enum MacOSAccessibility {
         findElement(appPID: appPID, matching: .anyTextMatches(titled))
     }
 
+    /// Diagnose why a query didn't match — returns info about partial matches.
+    /// For `.allOf` queries, checks each sub-query individually.
+    static func diagnoseQuery(appPID: pid_t, query: ElementQuery) -> String {
+        let elements = describeUI(appPID: appPID)
+        switch query {
+        case let .allOf(subQueries):
+            var parts: [String] = []
+            for sub in subQueries {
+                if let match = sub.findFirst(in: elements) {
+                    let valueSnippet = match.value.map { String($0.prefix(200)) } ?? "nil"
+                    parts.append("  \(sub): FOUND (value=\(valueSnippet))")
+                } else {
+                    parts.append("  \(sub): NOT FOUND")
+                }
+            }
+            return parts.joined(separator: "\n")
+        default:
+            let totalElements = countElements(elements)
+            return "  Total AX elements: \(totalElements), no match for \(query)"
+        }
+    }
+
+    private static func countElements(_ elements: [UIElement]) -> Int {
+        elements.reduce(0) { $0 + 1 + countElements($1.children) }
+    }
+
     // MARK: - Windows
 
     /// List visible windows with their titles.
@@ -413,7 +439,7 @@ enum MacOSAccessibility {
     // MARK: - Private: Role Partitioning
 
     /// Interactive AX roles whose elements should be tried before static text/groups.
-    private static let interactiveRoles: Set<String> = [
+    private static let interactiveRoles: Set = [
         "AXButton", "AXCheckBox", "AXRadioButton", "AXMenuItem",
         "AXPopUpButton", "AXToggle", "AXLink", "AXCell",
     ]
