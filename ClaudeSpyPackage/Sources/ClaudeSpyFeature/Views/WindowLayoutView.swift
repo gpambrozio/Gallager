@@ -135,20 +135,20 @@
                         }
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            isKeyboardActive.toggle()
-                        } label: {
-                            Label(
-                                keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
-                                symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
-                            )
-                        }
-                        .disabled(!relayClient.isHostConnected)
-                        .tint(nil)
+                if let activeService, activeService.session != nil {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
+                            Button {
+                                isKeyboardActive.toggle()
+                            } label: {
+                                Label(
+                                    keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
+                                    symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
+                                )
+                            }
+                            .disabled(!relayClient.isHostConnected)
+                            .tint(nil)
 
-                        if let activeService, activeService.session != nil {
                             Button {
                                 let newValue = !activeService.isYoloModeEnabled
                                 Task {
@@ -167,13 +167,25 @@
                                 Label("Session Info", symbol: .infoCircle)
                             }
                             .tint(nil)
+                        } label: {
+                            Label("Commands", symbol: .ellipsisCircle)
                         }
-                    } label: {
-                        Label("Commands", symbol: .ellipsisCircle)
+                        .tint(activeService.isYoloModeEnabled ? .red : nil)
+                        .popover(isPresented: $showSessionInfo) {
+                            sessionInfoPopover
+                        }
                     }
-                    .tint(activeService?.isYoloModeEnabled == true ? .red : nil)
-                    .popover(isPresented: $showSessionInfo) {
-                        sessionInfoPopover
+                } else {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            isKeyboardActive.toggle()
+                        } label: {
+                            Label(
+                                keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
+                                symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
+                            )
+                        }
+                        .disabled(!relayClient.isHostConnected)
                     }
                 }
             }
