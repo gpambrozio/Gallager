@@ -459,8 +459,7 @@ public actor TestOrchestrator {
                 let text = String(data: data, encoding: .utf8), !text.isEmpty {
                 value = text
             } else {
-                // Fall back to system clipboard for non-E2E or if file doesn't exist yet
-                value = await macDriver(for: instance).readClipboard()
+                value = ""
             }
             let suffix = instance > 0 ? " (mac\(instance + 1))" : ""
             logger.info("  Clipboard value\(suffix): \(value) → stored as ${\(storeAs)}")

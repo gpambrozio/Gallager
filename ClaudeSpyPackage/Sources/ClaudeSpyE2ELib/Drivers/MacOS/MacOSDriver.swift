@@ -547,14 +547,6 @@ public actor MacOSDriver {
         }
     }
 
-    // MARK: - Clipboard
-
-    /// Read the system clipboard
-    public func readClipboard() -> String {
-        // swiftlint:disable:next custom_no_direct_nspasteboard
-        NSPasteboard.general.string(forType: .string) ?? ""
-    }
-
     // MARK: - Screenshots
 
     /// Take a screenshot of the macOS app window
