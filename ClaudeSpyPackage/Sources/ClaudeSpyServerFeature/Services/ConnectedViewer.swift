@@ -115,6 +115,10 @@ final public class ConnectedViewer: Identifiable {
     /// Task for retrying registration if the first attempt is dropped
     private var registrationRetryTask: Task<Void, Never>?
 
+    /// Serial chain for fire-and-forget commands (keystrokes, raw input).
+    /// Each new command awaits the previous one to preserve WebSocket ordering.
+    private var pendingFireAndForget: Task<Void, Never>?
+
     /// Partner's public key received during registration or connection (Base64-encoded)
     private var partnerPublicKey: String
 
@@ -441,9 +445,16 @@ final public class ConnectedViewer: Identifiable {
                         await sendEncrypted(.commandResponse(response))
                     }
                 } else {
-                    // Fire-and-forget: process without blocking the receive loop
+                    // Fire-and-forget: chain on the previous task so commands
+                    // execute in the order they arrive on the WebSocket.
+                    // Without this, concurrent unstructured Tasks can reach the
+                    // TmuxCommandExecutor actor out of order, reordering keystrokes.
                     let handler = onCommand
-                    Task { _ = await handler(command) }
+                    let previous = pendingFireAndForget
+                    pendingFireAndForget = Task {
+                        _ = await previous?.value
+                        _ = await handler(command)
+                    }
                 }
             }
 

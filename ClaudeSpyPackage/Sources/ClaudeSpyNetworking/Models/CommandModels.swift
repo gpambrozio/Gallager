@@ -88,6 +88,16 @@ public enum TmuxKey: Codable, Sendable, Equatable {
         }
     }
 
+    /// Short label for debug logging.
+    public var debugLabel: String {
+        switch self {
+        case let .text(string): string
+        case .enter: "⏎"
+        case .space: "␣"
+        default: "[\(tmuxKeyName)]"
+        }
+    }
+
     /// Whether this key requires tmux literal mode (sends text as-is without interpretation).
     /// Only applies to `.text` - other cases like `.delay` are handled specially by the executor.
     public var requiresLiteralMode: Bool {
@@ -115,7 +125,7 @@ public extension TmuxKey {
         var index = data.startIndex
         var textBuffer = ""
 
-        // Flush accumulated text to results
+        /// Flush accumulated text to results
         func flushText() {
             if !textBuffer.isEmpty {
                 result.append(.text(textBuffer))

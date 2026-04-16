@@ -191,6 +191,12 @@ final public class TerminalStreamService {
                     Task {
                         await self.handleNotification(paneId: paneId, notification: notification)
                     }
+                },
+                onClipboard: { [weak self] (content: String) in
+                    guard let self else { return }
+                    Task {
+                        await self.handleClipboard(paneId: paneId, content: content)
+                    }
                 }
             )
         } catch {
@@ -390,6 +396,32 @@ final public class TerminalStreamService {
             title: notification.title,
             body: notification.body
         )
+        await connectionManager.sendTerminalStreamToAll(message)
+    }
+
+    /// Maximum clipboard content size (1 MB) to forward to viewers.
+    /// Prevents adversarial or buggy terminals from broadcasting huge payloads.
+    private static let maxClipboardSize = 1_048_576
+
+    /// Handle clipboard content (OSC 52) — forward to connected viewers
+    private func handleClipboard(paneId: String, content: String) async {
+        guard activeStreams[paneId] != nil else { return }
+        guard let connectionManager else { return }
+
+        guard content.utf8.count <= Self.maxClipboardSize else {
+            logger.warning("Dropping oversized clipboard update", metadata: [
+                "paneId": "\(paneId)",
+                "contentLength": "\(content.count)",
+            ])
+            return
+        }
+
+        logger.info("Sending clipboard update", metadata: [
+            "paneId": "\(paneId)",
+            "contentLength": "\(content.count)",
+        ])
+
+        let message = TerminalStreamMessage.clipboardUpdate(paneId: paneId, content: content)
         await connectionManager.sendTerminalStreamToAll(message)
     }
 }

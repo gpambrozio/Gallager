@@ -22,21 +22,18 @@ public enum YoloModeAutoApproveScenario {
         // Open the Claude session terminal view on iOS
         TestStep.iosTap(.labelContains("MyProject"))
         TestStep.wait(seconds: 5)
-        TestStep.iosWaitForElement(.labelContains("Session Info"), timeout: 15)
+        TestStep.iosWaitForElement(.labelContains("Commands"), timeout: 15)
 
         // ══════════════════════════════════════════════════════════════
         // Phase 2: Enable yolo mode from iOS
         // ══════════════════════════════════════════════════════════════
 
-        // Verify yolo mode button shows off state
-        TestStep.iosWaitForElement(.labelContains("Enable Yolo Mode"), timeout: 10)
-
-        // Enable yolo mode
-        TestStep.iosTap(.labelContains("Enable Yolo Mode"))
+        // Open Commands menu and enable yolo mode
+        Shortcut.iosTapCommandsMenuItem("Enable Yolo Mode", timeout: 10)
         TestStep.wait(seconds: 3)
 
         // Verify iOS now shows yolo mode enabled
-        TestStep.iosWaitForElement(.labelContains("Disable Yolo Mode"), timeout: 10)
+        Shortcut.iosVerifyCommandsMenuItem("Disable Yolo Mode", timeout: 10)
         TestStep.iosScreenshot(label: "ios-yolo-enabled")
 
         // Verify macOS also reflects yolo mode enabled
@@ -162,12 +159,12 @@ public enum YoloModeAutoApproveScenario {
         TestStep.iosTap(.labelContains("Confirm"))
         TestStep.wait(seconds: 2)
 
-        // Disable yolo mode
-        TestStep.iosTap(.labelContains("Disable Yolo Mode"))
+        // Disable yolo mode via Commands menu
+        Shortcut.iosTapCommandsMenuItem("Disable Yolo Mode")
         TestStep.wait(seconds: 3)
 
         // Verify iOS shows yolo mode disabled
-        TestStep.iosWaitForElement(.labelContains("Enable Yolo Mode"), timeout: 10)
+        Shortcut.iosVerifyCommandsMenuItem("Enable Yolo Mode", timeout: 10)
         TestStep.iosScreenshot(label: "ios-yolo-disabled")
 
         // Verify macOS also reflects yolo mode disabled
@@ -221,7 +218,7 @@ public enum YoloModeAutoApproveScenario {
         TestStep.wait(seconds: 1)
 
         // Enable yolo while the Bash request is still pending
-        TestStep.iosTap(.labelContains("Enable Yolo Mode"))
+        Shortcut.iosTapCommandsMenuItem("Enable Yolo Mode")
 
         // Give it the 500ms auto-approve delay + processing time
         TestStep.wait(seconds: 3)
@@ -244,7 +241,7 @@ public enum YoloModeAutoApproveScenario {
         TestStep.macWaitForElement(titled: "Working", timeout: 5)
 
         // Yolo mode should now show enabled on both platforms
-        TestStep.iosWaitForElement(.labelContains("Disable Yolo Mode"), timeout: 5)
+        Shortcut.iosVerifyCommandsMenuItem("Disable Yolo Mode", timeout: 5)
         TestStep.macWaitForElement(
             titled: "Yolo mode: auto-approving permissions (click to disable)",
             timeout: 10

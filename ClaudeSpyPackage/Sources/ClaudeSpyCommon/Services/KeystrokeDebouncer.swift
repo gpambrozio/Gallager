@@ -6,6 +6,14 @@ import Foundation
 /// Shared between iOS and macOS viewer terminal views. The debounce window batches
 /// keystrokes to reduce WebSocket message volume, and the send chain preserves
 /// ordering without waiting for the round-trip response.
+///
+/// ## Ordering guarantee
+///
+/// A single `sendTask` drains a FIFO queue of send operations. Each flush or
+/// raw-input call appends to the queue and signals the task. Because only one
+/// task reads from the queue, WebSocket writes are strictly ordered even when
+/// multiple flush timers fire close together (Swift does not guarantee FIFO
+/// scheduling of `@MainActor` continuations).
 @MainActor
 final public class KeystrokeDebouncer {
     private static let debounceInterval: Duration = .milliseconds(8)
@@ -15,11 +23,21 @@ final public class KeystrokeDebouncer {
 
     private var keyBuffer: [TmuxKey] = []
     private var flushTask: Task<Void, Never>?
-    private var pendingKeyTask: Task<Void, Never>?
+
+    /// FIFO queue of operations for the send task.
+    private var sendQueue: [SendOp] = []
+    private var sendTask: Task<Void, Never>?
+    private var sendContinuation: CheckedContinuation<Void, Never>?
+
+    private enum SendOp {
+        case keys([TmuxKey])
+        case rawInput(Data)
+    }
 
     public init(paneId: String, relayClient: ViewerRelayClient) {
         self.paneId = paneId
         self.relayClient = relayClient
+        startSendLoop()
     }
 
     /// Add keys to the buffer and reset the flush timer.
@@ -27,7 +45,8 @@ final public class KeystrokeDebouncer {
     public func enqueue(_ keys: [TmuxKey]) {
         keyBuffer.append(contentsOf: keys)
 
-        // Reset the flush timer — if more keys arrive within the debounce window, they'll be batched together
+        // Reset the flush timer — if more keys arrive within the debounce window,
+        // they'll be batched together.
         flushTask?.cancel()
         flushTask = Task {
             do {
@@ -35,47 +54,20 @@ final public class KeystrokeDebouncer {
             } catch {
                 return
             }
-
-            let keysToSend = keyBuffer
-            keyBuffer.removeAll()
-
-            // Chain on the WebSocket write (not response) to preserve ordering
-            // without serializing on the full network round-trip.
-            // sendCommand returns immediately for commands where requiresResponse is false.
-            let previous = pendingKeyTask
-            pendingKeyTask = Task {
-                _ = await previous?.value
-                _ = await relayClient.sendCommand(
-                    SendKeystroke(keysToSend),
-                    paneId: paneId
-                )
-            }
+            flushBuffer()
         }
     }
 
-    /// Immediately flush any buffered keystrokes, then send raw bytes (e.g., mouse escape sequences).
-    /// Raw input is not debounced — it's already batched by the scroll event overlay —
-    /// but it chains on the pending task to preserve ordering with keystrokes.
+    /// Immediately flush any buffered keystrokes, then send raw bytes
+    /// (e.g., mouse escape sequences).
+    ///
+    /// Raw input is not debounced — it's already batched by the scroll event
+    /// overlay — but it goes through the send queue to preserve ordering with
+    /// keystrokes.
     public func enqueueRawInput(_ data: Data) {
-        // Flush any buffered keystrokes first so ordering is preserved
         flushTask?.cancel()
-        let pendingKeys = keyBuffer
-        keyBuffer.removeAll()
-
-        let previous = pendingKeyTask
-        pendingKeyTask = Task {
-            _ = await previous?.value
-            if !pendingKeys.isEmpty {
-                _ = await relayClient.sendCommand(
-                    SendKeystroke(pendingKeys),
-                    paneId: paneId
-                )
-            }
-            _ = await relayClient.sendCommand(
-                SendRawInput(data: data),
-                paneId: paneId
-            )
-        }
+        flushBuffer()
+        enqueueSendOp(.rawInput(data))
     }
 
     /// Cancel any pending debounce and in-flight sends.
@@ -83,7 +75,62 @@ final public class KeystrokeDebouncer {
         flushTask?.cancel()
         flushTask = nil
         keyBuffer.removeAll()
-        pendingKeyTask?.cancel()
-        pendingKeyTask = nil
+        sendQueue.removeAll()
+        sendTask?.cancel()
+        sendTask = nil
+        if let cont = sendContinuation {
+            sendContinuation = nil
+            cont.resume()
+        }
+    }
+
+    // MARK: - Private
+
+    /// Move buffered keys into the send queue.
+    private func flushBuffer() {
+        guard !keyBuffer.isEmpty else { return }
+        let keys = keyBuffer
+        keyBuffer.removeAll()
+        enqueueSendOp(.keys(keys))
+    }
+
+    /// Append an operation and wake the send loop.
+    private func enqueueSendOp(_ op: SendOp) {
+        sendQueue.append(op)
+        if let cont = sendContinuation {
+            sendContinuation = nil
+            cont.resume()
+        }
+    }
+
+    /// Long-running task that drains the send queue in FIFO order.
+    private func startSendLoop() {
+        sendTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+
+                if self.sendQueue.isEmpty {
+                    // Park until enqueueSendOp wakes us.
+                    await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                        self.sendContinuation = cont
+                    }
+                    continue
+                }
+
+                let op = self.sendQueue.removeFirst()
+                switch op {
+                case let .keys(keys):
+                    _ = await self.relayClient.sendCommand(
+                        SendKeystroke(keys),
+                        paneId: self.paneId
+                    )
+                case let .rawInput(data):
+                    _ = await self.relayClient.sendCommand(
+                        SendRawInput(data: data),
+                        paneId: self.paneId
+                    )
+                }
+            }
+        }
     }
 }

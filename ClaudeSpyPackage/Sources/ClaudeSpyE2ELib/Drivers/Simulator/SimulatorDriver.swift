@@ -402,6 +402,20 @@ public actor SimulatorDriver {
         return output
     }
 
+    /// Read the simulator clipboard via `simctl pbpaste`
+    public func readClipboard() async throws -> String {
+        guard let udid else {
+            throw SimulatorDriverError.simulatorNotRunning
+        }
+
+        let result = try await processRunner.runOrThrow(
+            "/usr/bin/xcrun",
+            arguments: ["simctl", "pbpaste", udid]
+        )
+
+        return result.stdoutString
+    }
+
     // MARK: - Private
 
     /// Set a fixed status bar time and force light mode so screenshots are deterministic.

@@ -273,6 +273,8 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         GallagerCLIScenario.scenario,
         CloseRemoteWindowIOSScenario.scenario,
         CloseRemoteWindowMacScenario.scenario,
+        ClipboardSyncScenario.scenario,
+        ClipboardSyncMacViewerScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {

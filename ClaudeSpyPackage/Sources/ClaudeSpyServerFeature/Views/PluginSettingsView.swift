@@ -1,6 +1,7 @@
 #if os(macOS)
     import AppKit
     import ClaudeSpyCommon
+    import Dependencies
     import SwiftUI
 
     /// Settings view for managing the Claude Code plugin
@@ -221,8 +222,8 @@
         // MARK: - Helpers
 
         private func copyToClipboard(_ text: String) {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
+            @Dependency(ClipboardClient.self) var clipboard
+            clipboard.setString(text)
 
             showCopiedFeedback = true
             feedbackResetTrigger = UUID()

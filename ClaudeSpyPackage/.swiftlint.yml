@@ -104,3 +104,17 @@ custom_rules:
         regex: ':\s*ObservableObject\b|@ObservedObject|@StateObject'
         message: "Use @Observable macro with @State instead of ObservableObject/@StateObject/@ObservedObject (MV pattern)"
         severity: error
+
+    custom_no_direct_nspasteboard:
+        name: "Use ClipboardClient instead of NSPasteboard"
+        regex: 'NSPasteboard\.general'
+        message: "Use @Dependency(ClipboardClient.self) instead of NSPasteboard.general for clipboard isolation in E2E tests"
+        severity: error
+        excluded: ".*ClipboardClient\\.swift"
+
+    custom_no_direct_uipasteboard:
+        name: "Use ClipboardClient instead of UIPasteboard"
+        regex: 'UIPasteboard\.general'
+        message: "Use @Dependency(ClipboardClient.self) instead of UIPasteboard.general for clipboard isolation in E2E tests"
+        severity: error
+        excluded: ".*ClipboardClient\\.swift"
