@@ -19,15 +19,12 @@ public enum YoloModeStateSyncScenario {
         TestStep.iosTap(.labelContains("MyProject"))
         TestStep.wait(seconds: 5)
 
-        // 3. Verify the yolo mode button shows off state
-        TestStep.iosWaitForElement(.labelContains("Enable Yolo Mode"), timeout: 10)
-
-        // 4. Tap the yolo mode button on iOS to enable it
-        TestStep.iosTap(.labelContains("Enable Yolo Mode"))
+        // 3-4. Open Commands menu and tap yolo mode to enable it
+        Shortcut.iosTapCommandsMenuItem("Enable Yolo Mode", timeout: 10)
         TestStep.wait(seconds: 3)
 
         // 5. Verify iOS now shows on state (reflected back from host)
-        TestStep.iosWaitForElement(.labelContains("Disable Yolo Mode"), timeout: 10)
+        Shortcut.iosVerifyCommandsMenuItem("Disable Yolo Mode", timeout: 10)
         TestStep.iosScreenshot(label: "ios-yolo-enabled")
 
         // 6. Open the macOS Panes window and select the session pane
@@ -48,7 +45,7 @@ public enum YoloModeStateSyncScenario {
         TestStep.wait(seconds: 3)
 
         // 9. Verify iOS sees yolo mode disabled
-        TestStep.iosWaitForElement(.labelContains("Enable Yolo Mode"), timeout: 10)
+        Shortcut.iosVerifyCommandsMenuItem("Enable Yolo Mode", timeout: 10)
         TestStep.iosScreenshot(label: "ios-yolo-disabled-from-mac")
 
         // 10. Verify macOS help text also shows disabled state
@@ -61,16 +58,18 @@ public enum YoloModeStateSyncScenario {
         TestStep.macClickButton(titled: "Enable yolo mode to auto-approve permissions")
         TestStep.wait(seconds: 3)
 
-        // 12. Verify iOS sees yolo mode enabled again
+        // 12-13. Open Commands menu, verify enabled state, screenshot, tap to disable
+        //        (Done as inline steps to keep the menu open between verify and tap,
+        //         avoiding a dismiss-then-reopen cycle which has proven flaky.)
+        TestStep.iosTap(.labelContains("Commands"))
+        TestStep.wait(seconds: 0.5)
         TestStep.iosWaitForElement(.labelContains("Disable Yolo Mode"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-yolo-re-enabled-from-mac")
-
-        // 13. Tap the yolo mode button on iOS to disable it
         TestStep.iosTap(.labelContains("Disable Yolo Mode"))
         TestStep.wait(seconds: 3)
 
         // 14. Verify iOS sees yolo mode disabled
-        TestStep.iosWaitForElement(.labelContains("Enable Yolo Mode"), timeout: 10)
+        Shortcut.iosVerifyCommandsMenuItem("Enable Yolo Mode", timeout: 10)
         TestStep.iosScreenshot(label: "ios-yolo-disabled-from-ios")
 
         // 15. Verify macOS also shows yolo mode disabled

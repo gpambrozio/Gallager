@@ -199,6 +199,58 @@ public enum Shortcut {
         }
     }
 
+    // MARK: - iOS Commands Menu
+
+    /// Tap an item inside the iOS "Commands" toolbar menu.
+    ///
+    /// Opens the menu, waits for the item to appear, and taps it.
+    /// The menu auto-dismisses after the tap.
+    ///
+    /// **Example:**
+    /// ```swift
+    /// Shortcut.iosTapCommandsMenuItem("Enable Yolo Mode")
+    /// ```
+    public static func iosTapCommandsMenuItem(
+        _ label: String,
+        timeout: TimeInterval = 5
+    ) -> TestScenario {
+        ClaudeSpyE2ELib.scenario(
+            "iOS Tap Commands Menu Item",
+            tags: ["shortcut"]
+        ) {
+            TestStep.iosTap(.labelContains("Commands"))
+            TestStep.wait(seconds: 0.5)
+            TestStep.iosWaitForElement(.labelContains(label), timeout: timeout)
+            TestStep.iosTap(.labelContains(label))
+        }
+    }
+
+    /// Verify an item exists inside the iOS "Commands" toolbar menu.
+    ///
+    /// Opens the menu, waits for the item to appear, then dismisses
+    /// the menu by tapping outside it.
+    ///
+    /// **Example:**
+    /// ```swift
+    /// Shortcut.iosVerifyCommandsMenuItem("Disable Yolo Mode", timeout: 10)
+    /// ```
+    public static func iosVerifyCommandsMenuItem(
+        _ label: String,
+        timeout: TimeInterval = 5
+    ) -> TestScenario {
+        ClaudeSpyE2ELib.scenario(
+            "iOS Verify Commands Menu Item",
+            tags: ["shortcut"]
+        ) {
+            TestStep.iosTap(.labelContains("Commands"))
+            TestStep.wait(seconds: 0.5)
+            TestStep.iosWaitForElement(.labelContains(label), timeout: timeout)
+            // Dismiss menu by tapping the terminal area
+            TestStep.iosTapCoordinate(x: 200, y: 500)
+            TestStep.wait(seconds: 0.5)
+        }
+    }
+
     // MARK: - Additional Pairing
 
     /// After `FreshPairingScenario`, add a Mac viewer as instance 1.
