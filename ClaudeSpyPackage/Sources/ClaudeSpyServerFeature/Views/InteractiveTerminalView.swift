@@ -622,8 +622,11 @@
             let plainText = Self.trimTrailingWhitespacePerLine(selectionText)
 
             guard let rtfData = trimmed.rtf(from: NSRange(location: 0, length: trimmed.length)) else { return }
+            // swiftlint:disable:next custom_no_direct_nspasteboard
             NSPasteboard.general.clearContents()
+            // swiftlint:disable:next custom_no_direct_nspasteboard
             NSPasteboard.general.setData(rtfData, forType: .rtf)
+            // swiftlint:disable:next custom_no_direct_nspasteboard
             NSPasteboard.general.setString(plainText, forType: .string)
         }
 
@@ -908,6 +911,7 @@
                 }
 
                 // If clipboard has an image, send Ctrl+V so the terminal app can handle it
+                // swiftlint:disable:next custom_no_direct_nspasteboard
                 let pasteboard = NSPasteboard.general
                 if pasteboard.data(forType: .png) != nil || pasteboard.data(forType: .tiff) != nil {
                     onInput?([.ctrl("v")])

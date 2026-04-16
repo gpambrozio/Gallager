@@ -551,6 +551,7 @@ public actor MacOSDriver {
 
     /// Read the system clipboard
     public func readClipboard() -> String {
+        // swiftlint:disable:next custom_no_direct_nspasteboard
         NSPasteboard.general.string(forType: .string) ?? ""
     }
 

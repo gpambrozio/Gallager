@@ -478,7 +478,9 @@ private extension View {
                     .resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
                 if !isDirectory {
                     Button("Copy") {
+                        // swiftlint:disable:next custom_no_direct_nspasteboard
                         NSPasteboard.general.clearContents()
+                        // swiftlint:disable:next custom_no_direct_nspasteboard
                         NSPasteboard.general.writeObjects([URL(fileURLWithPath: fullPath) as NSURL])
                     }
                 }
