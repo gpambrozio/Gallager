@@ -2,6 +2,12 @@ import Dependencies
 import DependenciesMacros
 import Foundation
 
+#if os(macOS)
+    import AppKit
+#elseif os(iOS)
+    import UIKit
+#endif
+
 /// A dependency for reading and writing the system clipboard.
 ///
 /// The live implementation uses NSPasteboard (macOS) or UIPasteboard (iOS).
@@ -17,6 +23,15 @@ public struct ClipboardClient: Sendable {
 
     /// Clears the clipboard.
     public var clear: @Sendable () -> Void
+
+    /// Sets rich text (RTF data + plain text fallback) on the clipboard (macOS only).
+    public var setRichText: @Sendable (_ rtfData: Data, _ plainText: String) -> Void
+
+    /// Copies a file URL to the clipboard for Finder paste (macOS only).
+    public var setFileURL: @Sendable (_ url: URL) -> Void
+
+    /// Returns true if the clipboard contains image data (macOS only).
+    public var hasImage: @Sendable () -> Bool = { false }
 }
 
 // MARK: - File-Backed Implementation (E2E)
@@ -32,7 +47,10 @@ public extension ClipboardClient {
         return ClipboardClient(
             getString: { store.read() },
             setString: { value in store.write(value) },
-            clear: { store.clear() }
+            clear: { store.clear() },
+            setRichText: { _, plainText in store.write(plainText) },
+            setFileURL: { _ in },
+            hasImage: { false }
         )
     }
 }
@@ -74,7 +92,10 @@ extension ClipboardClient: DependencyKey {
         return ClipboardClient(
             getString: { store.value },
             setString: { value in store.value = value },
-            clear: { store.value = nil }
+            clear: { store.value = nil },
+            setRichText: { _, plainText in store.value = plainText },
+            setFileURL: { _ in },
+            hasImage: { false }
         )
     }
 
@@ -90,6 +111,19 @@ extension ClipboardClient: DependencyKey {
                 },
                 clear: {
                     NSPasteboard.general.clearContents()
+                },
+                setRichText: { rtfData, plainText in
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setData(rtfData, forType: .rtf)
+                    NSPasteboard.general.setString(plainText, forType: .string)
+                },
+                setFileURL: { url in
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.writeObjects([url as NSURL])
+                },
+                hasImage: {
+                    let pb = NSPasteboard.general
+                    return pb.data(forType: .png) != nil || pb.data(forType: .tiff) != nil
                 }
             )
         #elseif os(iOS)
@@ -102,7 +136,10 @@ extension ClipboardClient: DependencyKey {
                 },
                 clear: {
                     UIPasteboard.general.string = ""
-                }
+                },
+                setRichText: { _, _ in },
+                setFileURL: { _ in },
+                hasImage: { false }
             )
         #endif
     }
@@ -117,9 +154,3 @@ final private class InMemoryClipboard: @unchecked Sendable {
         set { lock.withLock { _value = newValue } }
     }
 }
-
-#if os(macOS)
-    import AppKit
-#elseif os(iOS)
-    import UIKit
-#endif
