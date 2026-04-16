@@ -162,57 +162,43 @@
                         }
                     }
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        isKeyboardActive.toggle()
+                    } label: {
+                        Label(
+                            keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
+                            symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
+                        )
+                    }
+                    .disabled(!relayClient.isHostConnected)
+                }
+
                 if let activeService, activeService.session != nil {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Menu {
-                            Button {
-                                isKeyboardActive.toggle()
-                            } label: {
-                                Label(
-                                    keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
-                                    symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
-                                )
+                        Button {
+                            let newValue = !activeService.isYoloModeEnabled
+                            Task {
+                                await activeService.sendCommand(.setYoloMode(enabled: newValue))
                             }
-                            .disabled(!relayClient.isHostConnected)
-                            .tint(nil)
-
-                            Button {
-                                let newValue = !activeService.isYoloModeEnabled
-                                Task {
-                                    await activeService.sendCommand(.setYoloMode(enabled: newValue))
-                                }
-                            } label: {
-                                Label(
-                                    activeService.isYoloModeEnabled ? "Disable Yolo Mode" : "Enable Yolo Mode",
-                                    symbol: .bolt
-                                )
-                            }
-
-                            Button {
-                                showSessionInfo = true
-                            } label: {
-                                Label("Session Info", symbol: .infoCircle)
-                            }
-                            .tint(nil)
                         } label: {
-                            Label("Commands", symbol: .ellipsisCircle)
+                            Label(
+                                activeService.isYoloModeEnabled ? "Disable Yolo Mode" : "Enable Yolo Mode",
+                                symbol: .bolt
+                            )
                         }
                         .tint(activeService.isYoloModeEnabled ? .red : nil)
+                    }
+
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            showSessionInfo = true
+                        } label: {
+                            Label("Session Info", symbol: .infoCircle)
+                        }
                         .popover(isPresented: $showSessionInfo) {
                             sessionInfoPopover
                         }
-                    }
-                } else {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            isKeyboardActive.toggle()
-                        } label: {
-                            Label(
-                                keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
-                                symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
-                            )
-                        }
-                        .disabled(!relayClient.isHostConnected)
                     }
                 }
             }
