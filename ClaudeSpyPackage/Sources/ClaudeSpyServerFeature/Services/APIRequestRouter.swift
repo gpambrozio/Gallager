@@ -52,37 +52,73 @@
 
     /// Live implementation that routes JSON-RPC methods to service calls.
     ///
-    /// Service dependencies are injected via callbacks set by AppCoordinator,
+    /// Service dependencies are injected via callbacks provided at init by AppCoordinator,
     /// since the router needs access to @MainActor services (TmuxService, MirrorWindowManager).
     final public class LiveAPIRequestRouter: Sendable {
         private let logger = Logger(label: "com.claudespy.apirouter")
 
-        // Service callbacks set by AppCoordinator
-        nonisolated(unsafe) var onSessionList: (@Sendable () async -> [[String: JSONValue]])?
-        nonisolated(unsafe) var onSessionCreate: (@Sendable (String?) async throws -> [String: JSONValue])?
-        nonisolated(unsafe) var onSessionSelect: (@Sendable (String) async throws -> Void)?
-        nonisolated(unsafe) var onSessionCurrent: (@Sendable () async -> [String: JSONValue]?)?
-        nonisolated(unsafe) var onSessionClose: (@Sendable (String) async throws -> Void)?
+        // Service callbacks injected at init by AppCoordinator
+        let onSessionList: (@Sendable () async -> [[String: JSONValue]])?
+        let onSessionCreate: (@Sendable (String?) async throws -> [String: JSONValue])?
+        let onSessionSelect: (@Sendable (String) async throws -> Void)?
+        let onSessionCurrent: (@Sendable () async -> [String: JSONValue]?)?
+        let onSessionClose: (@Sendable (String) async throws -> Void)?
 
-        nonisolated(unsafe) var onWindowList: (@Sendable (String?) async -> [[String: JSONValue]])?
-        nonisolated(unsafe) var onWindowCreate: (@Sendable (String?) async throws -> [String: JSONValue])?
-        nonisolated(unsafe) var onWindowSelect: (@Sendable (String) async throws -> Void)?
-        nonisolated(unsafe) var onWindowClose: (@Sendable (String) async throws -> Void)?
+        let onWindowList: (@Sendable (String?) async -> [[String: JSONValue]])?
+        let onWindowCreate: (@Sendable (String?) async throws -> [String: JSONValue])?
+        let onWindowSelect: (@Sendable (String) async throws -> Void)?
+        let onWindowClose: (@Sendable (String) async throws -> Void)?
 
-        nonisolated(unsafe) var onPaneList: (@Sendable (String?) async -> [[String: JSONValue]])?
-        nonisolated(unsafe) var onPaneSplit: (@Sendable (String?, String) async throws -> [String: JSONValue])?
-        nonisolated(unsafe) var onPaneSelect: (@Sendable (String) async throws -> Void)?
+        let onPaneList: (@Sendable (String?) async -> [[String: JSONValue]])?
+        let onPaneSplit: (@Sendable (String?, String) async throws -> [String: JSONValue])?
+        let onPaneSelect: (@Sendable (String) async throws -> Void)?
 
-        nonisolated(unsafe) var onSendText: (@Sendable (String, String?) async throws -> Void)?
-        nonisolated(unsafe) var onSendKey: (@Sendable (String, String?) async throws -> Void)?
+        let onSendText: (@Sendable (String, String?) async throws -> Void)?
+        let onSendKey: (@Sendable (String, String?) async throws -> Void)?
 
-        nonisolated(unsafe) var onNotify: (@Sendable (String, String, String?, String?) async -> Void)?
+        let onNotify: (@Sendable (String, String, String?, String?) async -> Void)?
 
-        nonisolated(unsafe) var onEditorOpen: (@Sendable (String, String) async -> Void)?
+        let onEditorOpen: (@Sendable (String, String) async -> Void)?
 
-        nonisolated(unsafe) var onIdentify: (@Sendable (String?) async -> [String: JSONValue]?)?
+        let onIdentify: (@Sendable (String?) async -> [String: JSONValue]?)?
 
-        public init() { }
+        public init(
+            onSessionList: (@Sendable () async -> [[String: JSONValue]])? = nil,
+            onSessionCreate: (@Sendable (String?) async throws -> [String: JSONValue])? = nil,
+            onSessionSelect: (@Sendable (String) async throws -> Void)? = nil,
+            onSessionCurrent: (@Sendable () async -> [String: JSONValue]?)? = nil,
+            onSessionClose: (@Sendable (String) async throws -> Void)? = nil,
+            onWindowList: (@Sendable (String?) async -> [[String: JSONValue]])? = nil,
+            onWindowCreate: (@Sendable (String?) async throws -> [String: JSONValue])? = nil,
+            onWindowSelect: (@Sendable (String) async throws -> Void)? = nil,
+            onWindowClose: (@Sendable (String) async throws -> Void)? = nil,
+            onPaneList: (@Sendable (String?) async -> [[String: JSONValue]])? = nil,
+            onPaneSplit: (@Sendable (String?, String) async throws -> [String: JSONValue])? = nil,
+            onPaneSelect: (@Sendable (String) async throws -> Void)? = nil,
+            onSendText: (@Sendable (String, String?) async throws -> Void)? = nil,
+            onSendKey: (@Sendable (String, String?) async throws -> Void)? = nil,
+            onNotify: (@Sendable (String, String, String?, String?) async -> Void)? = nil,
+            onEditorOpen: (@Sendable (String, String) async -> Void)? = nil,
+            onIdentify: (@Sendable (String?) async -> [String: JSONValue]?)? = nil
+        ) {
+            self.onSessionList = onSessionList
+            self.onSessionCreate = onSessionCreate
+            self.onSessionSelect = onSessionSelect
+            self.onSessionCurrent = onSessionCurrent
+            self.onSessionClose = onSessionClose
+            self.onWindowList = onWindowList
+            self.onWindowCreate = onWindowCreate
+            self.onWindowSelect = onWindowSelect
+            self.onWindowClose = onWindowClose
+            self.onPaneList = onPaneList
+            self.onPaneSplit = onPaneSplit
+            self.onPaneSelect = onPaneSelect
+            self.onSendText = onSendText
+            self.onSendKey = onSendKey
+            self.onNotify = onNotify
+            self.onEditorOpen = onEditorOpen
+            self.onIdentify = onIdentify
+        }
 
         public func handleRequest(_ request: JSONRPCRequest) async -> JSONRPCResponse {
             let id = request.id
