@@ -465,21 +465,21 @@ private extension View {
                 }
                 Divider()
                 Button("Copy Path") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(fullPath, forType: .string)
+                    @Dependency(ClipboardClient.self) var clipboard
+                    clipboard.setString(fullPath)
                 }
                 if let relativePath {
                     Button("Copy Relative Path") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(relativePath, forType: .string)
+                        @Dependency(ClipboardClient.self) var clipboard
+                        clipboard.setString(relativePath)
                     }
                 }
                 let isDirectory = (try? URL(fileURLWithPath: fullPath)
                     .resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
                 if !isDirectory {
                     Button("Copy") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.writeObjects([URL(fileURLWithPath: fullPath) as NSURL])
+                        @Dependency(ClipboardClient.self) var clipboard
+                        clipboard.setFileURL(URL(fileURLWithPath: fullPath))
                     }
                 }
             }

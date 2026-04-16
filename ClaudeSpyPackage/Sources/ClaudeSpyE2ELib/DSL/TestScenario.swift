@@ -69,6 +69,8 @@ public enum TestStep: Sendable {
     case iosScreenshot(label: String, compare: Bool = true, tolerance: Double = 0.5, perPixelThreshold: Double = 0.3)
     /// Dump the iOS AX tree to the log (for debugging)
     case iosLogUI
+    /// Read the iOS simulator clipboard and store in context
+    case iosReadClipboard(storeAs: String)
 
     // MARK: - macOS App
     //
@@ -81,6 +83,9 @@ public enum TestStep: Sendable {
     case launchMacApp(instance: Int = 0)
     /// Terminate the macOS app
     case terminateMacApp(instance: Int = 0)
+    /// Activate the macOS app instance so it becomes frontmost with its key window.
+    /// Use before steps that depend on `NSApp.isActive` or `window.isKeyWindow`.
+    case macActivate(instance: Int = 0)
     /// Open Settings window
     case macOpenSettings(instance: Int = 0)
     /// Close a window by title via its close button

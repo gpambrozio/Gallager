@@ -1,6 +1,7 @@
 #if os(iOS)
     import ClaudeSpyCommon
     import ClaudeSpyNetworking
+    import Dependencies
     import SwiftTerm
     import UIKit
 
@@ -316,7 +317,8 @@
 
             alert.addAction(UIAlertAction(title: "Copy Link", style: .default) { [weak self] _ in
                 self?.removeURLHighlight()
-                UIPasteboard.general.string = url
+                @Dependency(ClipboardClient.self) var clipboard
+                clipboard.setString(url)
             })
 
             alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
@@ -455,7 +457,8 @@
 
         func clipboardCopy(source: TerminalView, content: Data) {
             if let string = String(data: content, encoding: .utf8) {
-                UIPasteboard.general.string = string
+                @Dependency(ClipboardClient.self) var clipboard
+                clipboard.setString(string)
             }
         }
 

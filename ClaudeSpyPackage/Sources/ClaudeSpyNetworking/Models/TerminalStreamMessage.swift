@@ -45,6 +45,10 @@ public struct TerminalStreamMessage: Codable, Sendable, Identifiable {
         /// Terminal notification received (via OSC 9 or OSC 777 escape sequences).
         case notification(TerminalNotification)
 
+        /// Clipboard content from OSC 52 escape sequence.
+        /// Sent when the terminal application sets the clipboard (e.g., Claude Code copying text).
+        case clipboardUpdate(ClipboardUpdate)
+
         /// Stream has ended (pane closed, disconnected, etc.).
         case streamEnd
     }
@@ -126,6 +130,16 @@ public struct TerminalStreamMessage: Codable, Sendable, Identifiable {
             self.body = body
         }
     }
+
+    /// Clipboard content from OSC 52 escape sequence.
+    public struct ClipboardUpdate: Codable, Sendable, Equatable {
+        /// The clipboard text content
+        public let content: String
+
+        public init(content: String) {
+            self.content = content
+        }
+    }
 }
 
 // MARK: - Convenience Initializers
@@ -177,6 +191,14 @@ public extension TerminalStreamMessage {
         TerminalStreamMessage(
             paneId: paneId,
             updateType: .notification(TerminalNotification(title: title, body: body))
+        )
+    }
+
+    /// Create a clipboard update message.
+    static func clipboardUpdate(paneId: String, content: String) -> TerminalStreamMessage {
+        TerminalStreamMessage(
+            paneId: paneId,
+            updateType: .clipboardUpdate(ClipboardUpdate(content: content))
         )
     }
 

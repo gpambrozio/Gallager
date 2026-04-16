@@ -43,6 +43,14 @@ public enum TwoMacPairingScenario {
 
         // ── Phase 8: Type a command from the viewer (rapid keystrokes) ─
 
+        // Activate the viewer so AX queries see up-to-date values
+        TestStep.macActivate(instance: 1)
+        TestStep.macWaitForElementQuery(
+            .identifier("terminal-%0"),
+            timeout: 15,
+            instance: 1
+        )
+
         TestStep.log("Typing command from viewer into remote terminal (no charDelay)")
         TestStep.macType(text: "echo e2e-test-hello", pressReturn: true, instance: 1)
         TestStep.wait(seconds: 3)

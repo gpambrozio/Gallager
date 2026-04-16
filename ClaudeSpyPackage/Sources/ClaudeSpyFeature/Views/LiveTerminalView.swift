@@ -21,6 +21,9 @@
         /// Binding to the terminal title detected via OSC escape sequences
         @Binding var terminalTitle: String?
 
+        /// Binding to the latest clipboard content from the host (OSC 52)
+        @Binding var clipboardContent: String?
+
         /// Whether the host is connected
         let isConnected: Bool
 
@@ -56,6 +59,7 @@
             paneId: String,
             responseState: Binding<ResponseState?>,
             terminalTitle: Binding<String?>,
+            clipboardContent: Binding<String?> = .constant(nil),
             isConnected: Bool,
             isYoloMode: Bool = false,
             hideNavigationBar: Bool = false,
@@ -67,6 +71,7 @@
             self.paneId = paneId
             self._responseState = responseState
             self._terminalTitle = terminalTitle
+            self._clipboardContent = clipboardContent
             self.isConnected = isConnected
             self.isYoloMode = isYoloMode
             self.hideNavigationBar = hideNavigationBar
@@ -151,6 +156,9 @@
             }
             .onChange(of: coordinator.terminalTitle) { _, newTitle in
                 terminalTitle = newTitle
+            }
+            .onChange(of: coordinator.pendingClipboardContent) { _, newContent in
+                clipboardContent = newContent
             }
         }
 
@@ -282,6 +290,10 @@
         var terminalTitle: String?
         var error: String?
 
+        /// Latest clipboard content received from the host via OSC 52.
+        /// The parent view checks focus state before applying to UIPasteboard.
+        var pendingClipboardContent: String?
+
         /// Unique identifier for the current streaming session.
         /// Set when streaming starts, cleared when streaming stops.
         /// Prevents race conditions where old callbacks process messages meant for new sessions.
@@ -345,6 +357,9 @@
             case .notification:
                 // Terminal notifications are not displayed on iOS yet
                 break
+
+            case let .clipboardUpdate(update):
+                pendingClipboardContent = update.content
 
             case .streamEnd:
                 // Only process streamEnd if we're actually streaming.

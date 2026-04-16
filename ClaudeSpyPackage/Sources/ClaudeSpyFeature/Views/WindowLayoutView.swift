@@ -1,6 +1,7 @@
 #if os(iOS)
     import ClaudeSpyCommon
     import ClaudeSpyNetworking
+    import Dependencies
     import SwiftUI
 
     /// Renders a multi-pane tmux window on iOS.
@@ -40,6 +41,14 @@
 
         /// Terminal titles detected via OSC escape sequences, keyed by pane ID
         @State private var terminalTitles: [String: String] = [:]
+
+        /// Latest clipboard content from each pane, keyed by pane ID
+        @State private var clipboardContents: [String: String] = [:]
+
+        /// Tracks app foreground state for clipboard sync
+        @Environment(\.scenePhase) private var scenePhase
+
+        @Dependency(ClipboardClient.self) private var clipboard
 
         /// Close confirmation state for showing alert with running processes
         @State private var closeConfirmation: CloseConfirmation?
@@ -274,6 +283,15 @@
                     Task { await activeService?.markHandledIfNeeded() }
                 }
             }
+            .onChange(of: clipboardContents) {
+                guard
+                    let activePaneId,
+                    let content = clipboardContents[activePaneId],
+                    scenePhase == .active,
+                    content != clipboard.getString()
+                else { return }
+                clipboard.setString(content)
+            }
             .onChange(of: activePaneId) { oldValue, newValue in
                 updateActiveService()
                 // Mark session as handled when switching to a pane with attention
@@ -302,7 +320,6 @@
             }
         }
 
-        @ViewBuilder
         private func windowContent(_ window: TmuxWindow) -> some View {
             VStack(spacing: 0) {
                 // Response view for active pane's Claude session (full width, above layout)
@@ -431,7 +448,6 @@
 
         // MARK: - Pane Terminal
 
-        @ViewBuilder
         private func paneTerminal(pane: PaneState) -> some View {
             LiveTerminalView(
                 paneId: pane.paneId,
@@ -439,6 +455,10 @@
                 terminalTitle: Binding(
                     get: { terminalTitles[pane.paneId] },
                     set: { terminalTitles[pane.paneId] = $0 }
+                ),
+                clipboardContent: Binding(
+                    get: { clipboardContents[pane.paneId] },
+                    set: { clipboardContents[pane.paneId] = $0 }
                 ),
                 isConnected: relayClient.isHostConnected,
                 hideNavigationBar: false,

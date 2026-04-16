@@ -1,6 +1,7 @@
 #if os(macOS)
     import AppKit
     import ClaudeSpyCommon
+    import Dependencies
     import SwiftUI
 
     /// Button that reveals a popover with the full diagnostic report for a failed
@@ -94,8 +95,8 @@
         }
 
         private func copyReport() {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(failure.report, forType: .string)
+            @Dependency(ClipboardClient.self) var clipboard
+            clipboard.setString(failure.report)
             showCopiedFeedback = true
             feedbackResetTrigger = UUID()
         }
