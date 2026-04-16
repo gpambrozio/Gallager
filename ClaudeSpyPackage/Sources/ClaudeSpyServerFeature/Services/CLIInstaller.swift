@@ -29,12 +29,13 @@
                 return false
             }
 
+            let escapedAppPath = appPath.replacingOccurrences(of: "'", with: "'\\''")
             let wrapperScript = """
             #!/bin/bash
             # Gallager CLI — installed by Gallager.app
             # Re-run "Install Command Line Tool..." if you move the app.
 
-            CLI="\(appPath)/Contents/MacOS/GallagerCLI"
+            CLI='\(escapedAppPath)/Contents/MacOS/GallagerCLI'
             if [ ! -x "$CLI" ]; then
                 echo "Error: GallagerCLI not found at $CLI" >&2
                 echo "The app may have moved. Re-run Install Command Line Tool from the Gallager menu." >&2

@@ -75,6 +75,9 @@
 
             var addr = sockaddr_un()
             addr.sun_family = sa_family_t(AF_UNIX)
+            guard socketPath.utf8.count < MemoryLayout.size(ofValue: addr.sun_path) else {
+                throw APISocketError.pathTooLong
+            }
             socketPath.withCString { ptr in
                 withUnsafeMutablePointer(to: &addr.sun_path) { sunPath in
                     let raw = UnsafeMutableRawPointer(sunPath)
@@ -116,6 +119,7 @@
             acceptTask = nil
 
             if serverFd >= 0 {
+                shutdown(serverFd, SHUT_RDWR)
                 close(serverFd)
                 serverFd = -1
             }
@@ -241,12 +245,14 @@
         case socketCreationFailed
         case bindFailed
         case listenFailed
+        case pathTooLong
 
         var errorDescription: String? {
             switch self {
             case .socketCreationFailed: "Failed to create Unix domain socket"
             case .bindFailed: "Failed to bind API socket"
             case .listenFailed: "Failed to listen on socket"
+            case .pathTooLong: "Socket path exceeds maximum length"
             }
         }
     }

@@ -68,7 +68,7 @@ func executeRequest(
     )
     let response = try SocketClient.send(request, socketPath: options.socket)
     if !response.ok, let error = response.error {
-        throw ValidationError("Error: \(error.message)")
+        throw CleanExit.message("Error: \(error.message)")
     }
     return response
 }

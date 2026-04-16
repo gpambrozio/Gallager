@@ -14,7 +14,7 @@ struct EditCommand: ParsableCommand {
 
     func run() throws {
         guard let paneId = ProcessInfo.processInfo.environment["TMUX_PANE"], !paneId.isEmpty else {
-            throw ValidationError("TMUX_PANE not set")
+            throw CleanExit.message("Error: TMUX_PANE not set")
         }
 
         let request = JSONRPCRequest(
@@ -27,6 +27,6 @@ struct EditCommand: ParsableCommand {
         )
 
         // This blocks until the user finishes editing in the app
-        _ = try SocketClient.sendAndWait(request, socketPath: options.socket)
+        _ = try SocketClient.send(request, socketPath: options.socket)
     }
 }

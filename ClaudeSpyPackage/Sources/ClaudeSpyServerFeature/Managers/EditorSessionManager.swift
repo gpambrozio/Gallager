@@ -45,6 +45,18 @@
 
         public init() { }
 
+        /// Resumes all pending continuations on shutdown to avoid leaked continuation warnings.
+        public func cancelAll() {
+            for (paneId, _) in activeSessions {
+                logger.info("Cleaning up editor session for pane \(paneId) on shutdown")
+            }
+            for (_, continuation) in completionContinuations {
+                continuation.resume()
+            }
+            completionContinuations.removeAll()
+            activeSessions.removeAll()
+        }
+
         // MARK: - Public API
 
         /// Handles an editor.open API request. Blocks until the user submits or cancels.

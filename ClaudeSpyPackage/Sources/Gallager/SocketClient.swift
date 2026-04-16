@@ -9,7 +9,10 @@ enum SocketClient {
     }
 
     /// Sends a JSON-RPC request and returns the response.
-    /// For most commands this is a simple request-response.
+    ///
+    /// For most commands this is a simple request-response. For blocking commands
+    /// like `editor.open`, the server delays its response until the user finishes,
+    /// so the socket read naturally blocks until completion.
     static func send(_ request: JSONRPCRequest, socketPath: String? = nil) throws -> JSONRPCResponse {
         let path = socketPath ?? self.socketPath
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -20,6 +23,9 @@ enum SocketClient {
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
+        guard path.utf8.count < MemoryLayout.size(ofValue: addr.sun_path) else {
+            throw CLIError.pathTooLong
+        }
         path.withCString { ptr in
             withUnsafeMutablePointer(to: &addr.sun_path) { sunPath in
                 let raw = UnsafeMutableRawPointer(sunPath)
@@ -63,13 +69,6 @@ enum SocketClient {
 
         return try JSONDecoder().decode(JSONRPCResponse.self, from: responseData)
     }
-
-    /// Sends a request and blocks until response (used by `edit` command which waits for user action).
-    static func sendAndWait(_ request: JSONRPCRequest, socketPath: String? = nil) throws -> JSONRPCResponse {
-        // Same as send() — the blocking behavior comes from the server not responding
-        // until the user finishes editing. The socket read naturally blocks.
-        try send(request, socketPath: socketPath)
-    }
 }
 
 enum CLIError: Error, CustomStringConvertible {
@@ -77,6 +76,7 @@ enum CLIError: Error, CustomStringConvertible {
     case connectionFailed
     case writeFailed
     case emptyResponse
+    case pathTooLong
 
     var description: String {
         switch self {
@@ -84,6 +84,7 @@ enum CLIError: Error, CustomStringConvertible {
         case .connectionFailed: "Failed to connect to Gallager (is it running?)"
         case .writeFailed: "Failed to send request"
         case .emptyResponse: "Empty response from server"
+        case .pathTooLong: "Socket path exceeds maximum length"
         }
     }
 }
