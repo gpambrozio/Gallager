@@ -87,9 +87,14 @@ public enum MultiPaneIOSScenario {
         // 9. Verify Claude session UI appears
         TestStep.log("Verify Claude session UI is visible for Claude pane")
 
-        // Toolbar should have yolo mode and session info buttons
+        // Toolbar Commands menu should contain yolo mode and session info
+        TestStep.iosTap(.labelContains("Commands"))
+        TestStep.wait(seconds: 0.5)
         TestStep.iosWaitForElement(.labelContains("Yolo Mode"), timeout: 5)
         TestStep.iosWaitForElement(.label("Session Info"), timeout: 5)
+        // Dismiss menu
+        TestStep.iosTapCoordinate(x: 200, y: 500)
+        TestStep.wait(seconds: 0.5)
 
         // The prompt text field should be visible (full width above the layout)
         TestStep.iosWaitForElement(.labelContains("Send a message to Claude"), timeout: 5)
@@ -101,10 +106,10 @@ public enum MultiPaneIOSScenario {
         TestStep.iosTapCoordinate(x: 290, y: 400)
         TestStep.wait(seconds: 2)
 
-        // 11. Verify Claude session UI disappears
+        // 11. Verify Claude session UI disappears (Commands menu gone = no Yolo Mode)
         TestStep.log("Verify Claude session UI is hidden for plain terminal pane")
         TestStep.iosWaitForElementToDisappear(.labelContains("Send a message to Claude"), timeout: 5)
-        TestStep.iosWaitForElementToDisappear(.labelContains("Yolo Mode"), timeout: 5)
+        TestStep.iosWaitForElementToDisappear(.labelContains("Commands"), timeout: 5)
 
         // The keyboard button should still be visible (always present)
         TestStep.iosWaitForElement(.labelContains("Show Keyboard"), timeout: 5)
@@ -115,7 +120,7 @@ public enum MultiPaneIOSScenario {
         TestStep.iosTapCoordinate(x: 100, y: 400)
         TestStep.wait(seconds: 2)
 
-        TestStep.iosWaitForElement(.labelContains("Yolo Mode"), timeout: 5)
+        Shortcut.iosVerifyCommandsMenuItem("Yolo Mode", timeout: 5)
         TestStep.iosWaitForElement(.labelContains("Send a message to Claude"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-claude-ui-restored")
     }

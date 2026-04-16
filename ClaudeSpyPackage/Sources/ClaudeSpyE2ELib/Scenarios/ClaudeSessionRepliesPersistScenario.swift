@@ -19,8 +19,8 @@ public enum ClaudeSessionRepliesPersistScenario {
         TestStep.iosTap(.labelContains("MyProject"))
         TestStep.wait(seconds: 5)
 
-        // Verify the terminal view loaded by checking for the Session Info button
-        TestStep.iosWaitForElement(.labelContains("Session Info"), timeout: 15)
+        // Verify the terminal view loaded by checking for the Commands menu button
+        TestStep.iosWaitForElement(.labelContains("Commands"), timeout: 15)
 
         // ──────────────────────────────────────────────────────────
         // Phase 0.5: Verify prompt text box and persistence
