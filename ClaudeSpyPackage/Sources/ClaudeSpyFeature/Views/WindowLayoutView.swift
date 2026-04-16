@@ -146,6 +146,7 @@
                             )
                         }
                         .disabled(!relayClient.isHostConnected)
+                        .tint(nil)
 
                         if let activeService, activeService.session != nil {
                             Button {
@@ -158,7 +159,6 @@
                                     activeService.isYoloModeEnabled ? "Disable Yolo Mode" : "Enable Yolo Mode",
                                     symbol: .bolt
                                 )
-                                .foregroundStyle(activeService.isYoloModeEnabled ? .red : .primary)
                             }
 
                             Button {
@@ -166,13 +166,12 @@
                             } label: {
                                 Label("Session Info", symbol: .infoCircle)
                             }
+                            .tint(nil)
                         }
                     } label: {
                         Label("Commands", symbol: .ellipsisCircle)
-                            .foregroundStyle(
-                                activeService?.isYoloModeEnabled == true ? AnyShapeStyle(.red) : AnyShapeStyle(.tint)
-                            )
                     }
+                    .tint(activeService?.isYoloModeEnabled == true ? .red : nil)
                     .popover(isPresented: $showSessionInfo) {
                         sessionInfoPopover
                     }
