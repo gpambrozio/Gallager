@@ -158,6 +158,7 @@
                                     activeService.isYoloModeEnabled ? "Disable Yolo Mode" : "Enable Yolo Mode",
                                     symbol: .bolt
                                 )
+                                .foregroundStyle(activeService.isYoloModeEnabled ? .red : .primary)
                             }
 
                             Button {
@@ -168,6 +169,9 @@
                         }
                     } label: {
                         Label("Commands", symbol: .ellipsisCircle)
+                            .foregroundStyle(
+                                activeService?.isYoloModeEnabled == true ? AnyShapeStyle(.red) : AnyShapeStyle(.tint)
+                            )
                     }
                     .popover(isPresented: $showSessionInfo) {
                         sessionInfoPopover
