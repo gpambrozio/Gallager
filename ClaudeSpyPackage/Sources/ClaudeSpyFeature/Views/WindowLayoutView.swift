@@ -15,6 +15,7 @@
         let settings: IOSSettings
 
         @Environment(SessionStore.self) private var sessionStore
+        @Environment(\.dismiss) private var dismiss
 
         /// The currently selected window within the session
         @State private var selectedWindowId: String?
@@ -39,6 +40,12 @@
 
         /// Terminal titles detected via OSC escape sequences, keyed by pane ID
         @State private var terminalTitles: [String: String] = [:]
+
+        /// Close confirmation state for showing alert with running processes
+        @State private var closeConfirmation: CloseConfirmation?
+
+        /// Error message from failed commands (close window/session)
+        @State private var commandError: String?
 
         /// All windows in this session
         private var sessionWindows: [TmuxWindow] {
@@ -125,6 +132,26 @@
                             Label("New Window", symbol: .plus)
                         }
                         .disabled(!relayClient.isHostConnected)
+
+                        if let window, sessionWindows.count > 1 {
+                            Divider()
+
+                            Button(role: .destructive) {
+                                requestCloseWindow(window)
+                            } label: {
+                                Label("Close Window", symbol: .rectangleBadgeMinus)
+                            }
+                            .disabled(!relayClient.isHostConnected)
+                        }
+
+                        Divider()
+
+                        Button(role: .destructive) {
+                            requestCloseSession()
+                        } label: {
+                            Label("Close Session", symbol: .rectangleStackBadgeMinus)
+                        }
+                        .disabled(!relayClient.isHostConnected)
                     } label: {
                         HStack(spacing: 4) {
                             Text(navigationTitle)
@@ -135,43 +162,57 @@
                         }
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        isKeyboardActive.toggle()
-                    } label: {
-                        Label(
-                            keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
-                            symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
-                        )
-                    }
-                    .disabled(!relayClient.isHostConnected)
-                }
-
                 if let activeService, activeService.session != nil {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            let newValue = !activeService.isYoloModeEnabled
-                            Task {
-                                await activeService.sendCommand(.setYoloMode(enabled: newValue))
+                        Menu {
+                            Button {
+                                isKeyboardActive.toggle()
+                            } label: {
+                                Label(
+                                    keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
+                                    symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
+                                )
                             }
+                            .disabled(!relayClient.isHostConnected)
+                            .tint(nil)
+
+                            Button {
+                                let newValue = !activeService.isYoloModeEnabled
+                                Task {
+                                    await activeService.sendCommand(.setYoloMode(enabled: newValue))
+                                }
+                            } label: {
+                                Label(
+                                    activeService.isYoloModeEnabled ? "Disable Yolo Mode" : "Enable Yolo Mode",
+                                    symbol: .bolt
+                                )
+                            }
+
+                            Button {
+                                showSessionInfo = true
+                            } label: {
+                                Label("Session Info", symbol: .infoCircle)
+                            }
+                            .tint(nil)
                         } label: {
-                            Label(
-                                activeService.isYoloModeEnabled ? "Disable Yolo Mode" : "Enable Yolo Mode",
-                                symbol: .bolt
-                            )
+                            Label("Commands", symbol: .ellipsisCircle)
                         }
                         .tint(activeService.isYoloModeEnabled ? .red : nil)
-                    }
-
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            showSessionInfo = true
-                        } label: {
-                            Label("Session Info", symbol: .infoCircle)
-                        }
                         .popover(isPresented: $showSessionInfo) {
                             sessionInfoPopover
                         }
+                    }
+                } else {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            isKeyboardActive.toggle()
+                        } label: {
+                            Label(
+                                keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
+                                symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
+                            )
+                        }
+                        .disabled(!relayClient.isHostConnected)
                     }
                 }
             }
@@ -180,6 +221,40 @@
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                 keyboardVisible = false
+            }
+            .alert(
+                closeConfirmation?.title ?? "Close?",
+                isPresented: .init(
+                    get: { closeConfirmation != nil },
+                    set: { if !$0 { closeConfirmation = nil } }
+                )
+            ) {
+                if let confirmation = closeConfirmation {
+                    Button("Close Anyway", role: .destructive) {
+                        switch confirmation.target {
+                        case let .window(window):
+                            performCloseWindow(window)
+                        case .session:
+                            performCloseSession()
+                        }
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
+                Button("Cancel", role: .cancel) { closeConfirmation = nil }
+            } message: {
+                if let confirmation = closeConfirmation {
+                    Text(confirmation.message)
+                }
+            }
+            .alert("Error", isPresented: .init(
+                get: { commandError != nil },
+                set: { if !$0 { commandError = nil } }
+            )) {
+                Button("OK") { commandError = nil }
+            } message: {
+                if let error = commandError {
+                    Text(error)
+                }
             }
             .task {
                 // Default to the active window in the session
@@ -209,6 +284,20 @@
                 guard oldValue != nil, let newValue else { return }
                 Task {
                     await sendCommand(.selectTmuxPane, paneId: newValue)
+                }
+            }
+            .onChange(of: sessionWindows.map(\.id)) { _, newWindowIds in
+                guard let selectedWindowId else { return }
+                // If the selected window was removed, switch to another or dismiss
+                if !newWindowIds.contains(selectedWindowId) {
+                    let windows = sessionWindows
+                    if let next = windows.first(where: \.isWindowActive) ?? windows.first {
+                        self.selectedWindowId = next.id
+                        activePaneId = next.activePane?.paneId ?? next.panes.first?.paneId
+                    } else {
+                        // Session is gone — navigate back to the session list
+                        dismiss()
+                    }
                 }
             }
         }
@@ -484,6 +573,72 @@
         private func sendCommand(_ command: CommandType, paneId: String) async {
             await relayClient.send(command, paneId: paneId)
         }
+
+        // MARK: - Close Window/Session
+
+        private func requestCloseWindow(_ window: TmuxWindow) {
+            Task {
+                let spec = CheckRunningProcesses(target: .window(window.id))
+                let result = await relayClient.sendCommand(spec, paneId: "")
+                if case let .success(response) = result {
+                    let processes = response.runningProcesses ?? []
+                    if processes.isEmpty {
+                        performCloseWindow(window)
+                    } else {
+                        closeConfirmation = CloseConfirmation(
+                            target: .window(window),
+                            runningProcesses: processes
+                        )
+                    }
+                }
+            }
+        }
+
+        private func requestCloseSession() {
+            Task {
+                let spec = CheckRunningProcesses(target: .session(sessionName))
+                let result = await relayClient.sendCommand(spec, paneId: "")
+                if case let .success(response) = result {
+                    let processes = response.runningProcesses ?? []
+                    if processes.isEmpty {
+                        performCloseSession()
+                    } else {
+                        closeConfirmation = CloseConfirmation(
+                            target: .session(sessionName),
+                            runningProcesses: processes
+                        )
+                    }
+                }
+            }
+        }
+
+        private func performCloseWindow(_ window: TmuxWindow) {
+            Task {
+                let spec = KillTmuxWindow(windowId: window.id)
+                let result = await relayClient.sendCommand(spec, paneId: "")
+                if case .success = result {
+                    // Select another window if the closed one was selected
+                    // (the host will push updated state via pushSessionStateToAll)
+                    if selectedWindowId == window.id {
+                        let remaining = sessionWindows.filter { $0.id != window.id }
+                        selectedWindowId = remaining.first(where: \.isWindowActive)?.id ?? remaining.first?.id
+                        activePaneId = sessionWindows.first(where: { $0.id == selectedWindowId })?.activePane?.paneId
+                    }
+                } else if case let .failure(error) = result {
+                    commandError = error.localizedDescription
+                }
+            }
+        }
+
+        private func performCloseSession() {
+            Task {
+                let spec = KillTmuxSession(sessionName: sessionName)
+                let result = await relayClient.sendCommand(spec, paneId: "")
+                if case let .failure(error) = result {
+                    commandError = error.localizedDescription
+                }
+            }
+        }
     }
 
     // MARK: - Session Info
@@ -545,6 +700,34 @@
         let id: String
         let paneState: PaneState
         let rect: CGRect
+    }
+
+    // MARK: - Close Confirmation
+
+    private struct CloseConfirmation {
+        enum Target {
+            case window(TmuxWindow)
+            case session(String)
+        }
+
+        let target: Target
+        let runningProcesses: [RunningProcessInfo]
+
+        var title: String {
+            switch target {
+            case .window: "Close Window?"
+            case .session: "Close Session?"
+            }
+        }
+
+        var message: String {
+            let grouped = Dictionary(grouping: runningProcesses) { $0.paneIndex }
+            let descriptions = grouped.sorted(by: { $0.key < $1.key }).map { paneIndex, processes in
+                let names = Set(processes.map(\.name)).sorted().joined(separator: ", ")
+                return "Pane \(paneIndex): \(names)"
+            }
+            return "The following processes are still running:\n\(descriptions.joined(separator: "\n"))"
+        }
     }
 
 #endif

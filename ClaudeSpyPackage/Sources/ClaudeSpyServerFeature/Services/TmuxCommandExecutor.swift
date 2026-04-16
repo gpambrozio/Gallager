@@ -67,7 +67,10 @@ public actor TmuxCommandExecutor {
                  .markHandled,
                  .setWindowDescription,
                  .submitEditorContent,
-                 .cancelEditorSession:
+                 .cancelEditorSession,
+                 .checkRunningProcesses,
+                 .killTmuxWindow,
+                 .killTmuxSession:
                 // These commands are handled by AppCoordinator, should not reach here
                 logger.warning("Command should be handled by AppCoordinator, not executor")
             }
