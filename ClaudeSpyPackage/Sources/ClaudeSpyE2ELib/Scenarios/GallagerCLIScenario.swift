@@ -41,12 +41,7 @@ public enum GallagerCLIScenario {
         TestStep.wait(seconds: 0.5)
         Shortcut.tmuxRunCommand(
             target: "cli-test:0",
-            command: #"APP_DIR="$(dirname "$(ps -o comm= -p $(pgrep -x Gallager | head -1))")""#
-        )
-        TestStep.wait(seconds: 0.5)
-        Shortcut.tmuxRunCommand(
-            target: "cli-test:0",
-            command: #"gallager() { "$APP_DIR/GallagerCLI" "$@"; }"#
+            command: #"gallager() { "${macOSAppPath}/Contents/MacOS/GallagerCLI" "$@"; }"#
         )
         TestStep.wait(seconds: 0.5)
 
