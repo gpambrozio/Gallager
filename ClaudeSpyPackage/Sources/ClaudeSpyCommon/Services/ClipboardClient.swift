@@ -1,6 +1,7 @@
 import Dependencies
 import DependenciesMacros
 import Foundation
+import os.log
 
 #if os(macOS)
     import AppKit
@@ -55,8 +56,13 @@ public extension ClipboardClient {
     }
 }
 
-final private class FileBackedClipboard: @unchecked Sendable {
-    private let lock = NSLock()
+final private class FileBackedClipboard: Sendable {
+    private static let logger = Logger(
+        subsystem: "com.claudespy",
+        category: "FileBackedClipboard"
+    )
+
+    private let lock = OSAllocatedUnfairLock()
     let path: String
 
     init(path: String) {
@@ -73,13 +79,21 @@ final private class FileBackedClipboard: @unchecked Sendable {
 
     func write(_ value: String) {
         lock.withLock {
-            try? value.write(toFile: path, atomically: true, encoding: .utf8)
+            do {
+                try value.write(toFile: path, atomically: true, encoding: .utf8)
+            } catch {
+                Self.logger.error("Failed to write clipboard file at \(self.path): \(error)")
+            }
         }
     }
 
     func clear() {
         lock.withLock {
-            try? "".write(toFile: path, atomically: true, encoding: .utf8)
+            do {
+                try "".write(toFile: path, atomically: true, encoding: .utf8)
+            } catch {
+                Self.logger.error("Failed to clear clipboard file at \(self.path): \(error)")
+            }
         }
     }
 }
@@ -145,12 +159,11 @@ extension ClipboardClient: DependencyKey {
     }
 }
 
-final private class InMemoryClipboard: @unchecked Sendable {
-    private let lock = NSLock()
-    private var _value: String?
+final private class InMemoryClipboard: Sendable {
+    private let lock = OSAllocatedUnfairLock<String?>(initialState: nil)
 
     var value: String? {
-        get { lock.withLock { _value } }
-        set { lock.withLock { _value = newValue } }
+        get { lock.withLock { $0 } }
+        set { lock.withLock { $0 = newValue } }
     }
 }

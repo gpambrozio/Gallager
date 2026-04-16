@@ -78,7 +78,10 @@ final public class KeystrokeDebouncer {
         sendQueue.removeAll()
         sendTask?.cancel()
         sendTask = nil
-        sendContinuation = nil
+        if let cont = sendContinuation {
+            sendContinuation = nil
+            cont.resume()
+        }
     }
 
     // MARK: - Private

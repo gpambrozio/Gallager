@@ -48,6 +48,8 @@
         /// Tracks app foreground state for clipboard sync
         @Environment(\.scenePhase) private var scenePhase
 
+        @Dependency(ClipboardClient.self) private var clipboard
+
         /// Close confirmation state for showing alert with running processes
         @State private var closeConfirmation: CloseConfirmation?
 
@@ -268,7 +270,6 @@
                 }
             }
             .onChange(of: clipboardContents) {
-                @Dependency(ClipboardClient.self) var clipboard
                 guard
                     let activePaneId,
                     let content = clipboardContents[activePaneId],
@@ -305,7 +306,6 @@
             }
         }
 
-        @ViewBuilder
         private func windowContent(_ window: TmuxWindow) -> some View {
             VStack(spacing: 0) {
                 // Response view for active pane's Claude session (full width, above layout)
@@ -434,7 +434,6 @@
 
         // MARK: - Pane Terminal
 
-        @ViewBuilder
         private func paneTerminal(pane: PaneState) -> some View {
             LiveTerminalView(
                 paneId: pane.paneId,
