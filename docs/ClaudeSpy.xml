@@ -6,6 +6,41 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.22</title>
+         <sparkle:version>22</sparkle:version>
+         <sparkle:shortVersionString>1.22</sparkle:shortVersionString>
+         <pubDate>Fri, 17 Apr 2026 08:31:41 -1000</pubDate>
+         <description><![CDATA[
+<h2>Release Notes - Version 1.22</h2>
+
+<h3>New Features</h3>
+
+<ul>
+<li><strong>Gallager CLI</strong>: A new cmux-compatible command-line API is now available, enabling scripted interaction and programmatic control of Claude Code sessions.</li>
+<li><strong>Remote Clipboard Sync</strong>: Text copied on the remote host is now synced to the viewer automatically via OSC 52, streamlining clipboard transfer between machines.</li>
+<li><strong>Close Tmux Windows and Sessions Remotely</strong>: Remote viewers can now close tmux windows and sessions directly from the iOS app.</li>
+<li><strong>Desktop Download Guidance</strong>: The iOS pairing screen now displays instructions for downloading the desktop app, making first-time setup easier.</li>
+</ul>
+
+<h3>Improvements</h3>
+
+<ul>
+<li><strong>Streamlined iOS Terminal Toolbar</strong>: Terminal toolbar commands on iOS have been consolidated into a single menu popover, reducing visual clutter and providing a more organized command layout.</li>
+</ul>
+
+<h3>Bug Fixes</h3>
+
+<ul>
+<li><strong>Terminal Rendering</strong>: Resolved an issue where SGR underline styling could leak across terminal content during mirror re-capture, ensuring correct text formatting.</li>
+<li><strong>E2EE Tests</strong>: Fixed a build failure caused by an ambiguous `CryptoError` reference in the end-to-end encryption test suite.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.22.dmg"
+                    sparkle:edSignature="+yKEG8uit0pyjQZd1KBvpLICSA4FOQed2/qylQM8xMQ12dzMleGswWfqXk5PqK1EMeoJdDH0spqdNITm1hCpBQ=="
+                    length="28573310"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.21</title>
          <sparkle:version>21</sparkle:version>
          <sparkle:shortVersionString>1.21</sparkle:shortVersionString>
