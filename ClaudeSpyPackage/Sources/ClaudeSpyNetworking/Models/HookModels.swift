@@ -186,7 +186,9 @@ public struct HookEvent: Identifiable, Codable, Sendable, Equatable {
              .subagentStart,
              .subagentStop,
              .taskCreated,
-             .taskCompleted:
+             .taskCompleted,
+             .elicitation,
+             .elicitationResult:
             return true
         case .stop,
              .stopFailure:
@@ -201,8 +203,6 @@ public struct HookEvent: Identifiable, Codable, Sendable, Equatable {
              .configChange,
              .cwdChanged,
              .fileChanged,
-             .elicitation,
-             .elicitationResult,
              .worktreeCreate,
              .worktreeRemove,
              .unknown:
@@ -937,7 +937,7 @@ public struct ElicitationBody: HookBodyProtocol {
     public let hookEventName: String
     public let timestamp: String?
     public let mcpServerName: String?
-    public var shouldSendToServer: Bool { false }
+    public var shouldSendToServer: Bool { true }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"

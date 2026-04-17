@@ -26,6 +26,8 @@ public extension HookEventMessage {
             body = "\(projectName): \(message)"
         case let .stopFailure(failureBody):
             body = "\(projectName): Error — \(failureBody.errorType ?? "unknown failure")"
+        case let .elicitation(elicitBody):
+            body = "\(projectName): MCP server \(elicitBody.mcpServerName ?? "unknown") needs your input"
         case .sessionEnd,
              .preToolUse,
              .postToolUse,
@@ -43,7 +45,6 @@ public extension HookEventMessage {
              .configChange,
              .cwdChanged,
              .fileChanged,
-             .elicitation,
              .elicitationResult,
              .worktreeCreate,
              .worktreeRemove,
