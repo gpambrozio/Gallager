@@ -102,7 +102,8 @@ public enum GallagerCLIScenario {
         )
         TestStep.wait(seconds: 3)
         TestStep.readFile(path: "/tmp/e2e-cli-split.txt", storeAs: "splitResult")
-        TestStep.assertStoredContains(key: "splitResult", substring: #""cwd":"/tmp""#)
+        // tmux resolves symlinks when reporting cwd; on macOS /tmp → /private/tmp.
+        TestStep.assertStoredContains(key: "splitResult", substring: #""cwd":"\/private\/tmp""#)
         TestStep.macScreenshot(label: "mac-after-split-pane")
 
         // 8. Send text to e2e-api's pane using explicit pane ID
