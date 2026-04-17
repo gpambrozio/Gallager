@@ -16,8 +16,7 @@
         /// Called when pairing is successful with the new PairedHost
         var onPaired: ((PairedHost) -> Void)?
 
-        // swiftlint:disable:next force_unwrapping
-        private static let downloadURL = URL(string: "https://github.com/gpambrozio/ClaudeSpy/releases")!
+        private static let downloadURL = URL(staticString: "https://github.com/gpambrozio/ClaudeSpy/releases")
         private let codeLength = 6
 
         var body: some View {
