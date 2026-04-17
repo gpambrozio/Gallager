@@ -247,8 +247,8 @@ Requirements:
         return
     }
 
-    # Strip code fences and any preamble before the actual content
-    notes=$(echo "$notes" | sed '/^```/d' | sed '/^Gallager/,$!d')
+    # Strip code fences in case Claude ignored the instruction to omit them
+    notes=$(echo "$notes" | sed '/^```/d')
 
     echo "$notes"
 }
