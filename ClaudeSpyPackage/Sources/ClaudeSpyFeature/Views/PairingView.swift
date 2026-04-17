@@ -26,7 +26,11 @@
 
         var body: some View {
             ScrollView {
-                VStack(spacing: 24) {
+                VStack(spacing: 16) {
+                    Text("Pair with Host")
+                        .font(.title)
+                        .fontWeight(.bold)
+
                     compactHeaderSection
 
                     codeInputSection
@@ -42,12 +46,12 @@
                     instructionsSection
 
                     downloadSection
+
+                    Spacer()
                 }
                 .padding()
             }
             .scrollDismissesKeyboard(.interactively)
-            .navigationTitle("Pair with Host")
-            .navigationBarTitleDisplayMode(.large)
         }
 
         private var compactHeaderSection: some View {
@@ -145,7 +149,7 @@
                     .font(.headline)
 
                 VStack(alignment: .leading, spacing: 8) {
-                    instructionRow(number: 1, text: "Open Gallager on your host")
+                    instructionRow(number: 1, text: "Open Gallager on your mac")
                     instructionRow(number: 2, text: "Go to Settings > Remote Access")
                     instructionRow(number: 3, text: "Click \"Generate Pairing Code\"")
                     instructionRow(number: 4, text: "Enter the code above")
