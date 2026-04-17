@@ -60,9 +60,9 @@ public enum Symbols: String {
     case magnifyingglass
     case minusCircleFill = "minus.circle.fill"
     case moonFill = "moon.fill"
+    case paperplaneFill = "paperplane.fill"
     case pause
     case pauseCircleFill = "pause.circle.fill"
-    case paperplaneFill = "paperplane.fill"
     case pencil
     case pencilLine = "pencil.line"
     case play
@@ -79,6 +79,7 @@ public enum Symbols: String {
     case rectangleStackBadgeMinus = "rectangle.stack.badge.minus"
     case sparkles
     case square
+    case squareAndArrowUp = "square.and.arrow.up"
     case stopCircleFill = "stop.circle.fill"
     case stopFill = "stop.fill"
     case terminal
