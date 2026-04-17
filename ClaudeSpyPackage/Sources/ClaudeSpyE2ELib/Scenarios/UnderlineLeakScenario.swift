@@ -81,9 +81,14 @@ public enum UnderlineLeakScenario {
         //   row 5: 80 underlined spaces (trimmed by capture-pane -p to \e[4m)
         //   rows 6+: empty
         //   cursor at (col 0, row 6 in 0-indexed / row 7 in 1-indexed)
+        // `cat >/dev/null` holds the foreground process so the shell doesn't
+        // print a new prompt (which would move cursor off col 0 and mask the
+        // bug), while still draining the tty input buffer. `sleep` would also
+        // hold the foreground, but wouldn't drain — typing would stall after
+        // ~1 KB of buffered input. `cat` lets us type many lines in Phase 3.
         Shortcut.tmuxRunCommand(
             target: "uline-test:0",
-            command: #"printf '\033[H\033[2J\033[5;1H\033[4m%80s\033[0m\033[7;1H' '' && sleep 60"#
+            command: #"printf '\033[H\033[2J\033[5;1H\033[4m%80s\033[0m\033[7;1H' '' && cat >/dev/null"#
         )
         TestStep.wait(seconds: 2)
 
@@ -113,26 +118,33 @@ public enum UnderlineLeakScenario {
 
         TestStep.log("Phase 3: Typing many characters via live stream")
 
-        // `sleep` is still the foreground process, so the terminal driver
+        // `cat >/dev/null` is the foreground process, so the terminal driver
         // echoes each keystroke we send directly back through the PTY, into
         // pipe-pane, into the mirror's SwiftTerm. No shell interaction, no
         // re-render — just pure live-stream byte echo. That means each char
         // renders with whatever SGR state SwiftTerm was left in by the
-        // re-capture.
+        // re-capture. `cat` also reads stdin (discarding to /dev/null) so
+        // the tty's line-discipline input buffer doesn't back-pressure and
+        // drop characters after ~1 KB.
         //
-        // We send many short groups separated by Enter so the echoed output
-        // wraps onto many rows, filling the screen. If any underline state
-        // leaked through the capture, every one of these characters across
-        // ~18 rows shows a horizontal underscore stroke.
-        for lineNumber in 1...18 {
+        // If any underline state leaked through the capture, every one of
+        // these characters across the entire 24-row pane shows a horizontal
+        // underscore stroke beneath it.
+        // Send in small batches with short waits. A single large literal
+        // payload (~1.2 KB) can race with the tty's line-discipline buffer
+        // and drop chars mid-stream; chunking keeps each batch small enough
+        // to deliver reliably.
+        for lineNumber in 1...24 {
             TestStep.tmuxSendKeys(
                 target: "uline-test:0",
-                keys: "line \(lineNumber): no underline should appear under this text"
+                keys: "line \(String(format: "%02d", lineNumber)): no underline should appear under this text\r",
+                literal: true
             )
-            TestStep.tmuxSendKeys(target: "uline-test:0", keys: "Enter")
-            TestStep.wait(seconds: 0.1)
+            TestStep.wait(seconds: 0.05)
         }
-        TestStep.wait(seconds: 1)
+        // Give the pipe-pane live stream time to drain all echoed keystrokes
+        // into the mirror's SwiftTerm before the screenshot.
+        TestStep.wait(seconds: 2)
 
         TestStep.macScreenshot(label: "mac-03-typed-lines")
     }
