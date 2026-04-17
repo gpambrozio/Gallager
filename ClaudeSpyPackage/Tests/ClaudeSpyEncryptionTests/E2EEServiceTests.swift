@@ -1,5 +1,4 @@
 @_spi(Testing) import ClaudeSpyEncryption
-import Crypto
 import Dependencies
 import DependenciesTestSupport
 import Foundation
