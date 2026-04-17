@@ -16,6 +16,8 @@
         /// Called when pairing is successful with the new PairedHost
         var onPaired: ((PairedHost) -> Void)?
 
+        // swiftlint:disable:next force_unwrapping
+        private static let downloadURL = URL(string: "https://github.com/gpambrozio/ClaudeSpy/releases")!
         private let codeLength = 6
 
         var body: some View {
@@ -34,6 +36,8 @@
                     }
 
                     instructionsSection
+
+                    downloadSection
                 }
                 .padding()
             }
@@ -144,6 +148,31 @@
                 }
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+            }
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.gray.opacity(0.1))
+            )
+        }
+
+        private var downloadSection: some View {
+            VStack(spacing: 12) {
+                Text("Need the Mac app?")
+                    .font(.headline)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    instructionRow(number: 1, text: "Download Gallager from GitHub")
+                    instructionRow(number: 2, text: "Open the DMG and drag to Applications")
+                    instructionRow(number: 3, text: "Launch Gallager and complete setup")
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+                ShareLink(item: Self.downloadURL) {
+                    Label("Send Download Link", symbol: .squareAndArrowUp)
+                }
+                .buttonStyle(.bordered)
             }
             .padding()
             .background(
