@@ -191,7 +191,7 @@ private struct PaneListPreview: View {
                     tmuxService: tmuxService,
                     controlClientManager: controlClientManager
                 ),
-                editorSessionManager: EditorSessionManager(socketServer: EditorSocketServer())
+                editorSessionManager: EditorSessionManager()
             )
         }
     }

@@ -63,21 +63,21 @@ final public class TmuxService {
         "DISABLE_UPDATE_PROMPT=true",
     ]
 
-    /// Path to the GallagerEditor CLI for the `$VISUAL` environment variable.
-    /// When set, Ctrl-G in Claude Code opens the in-app prompt editor.
+    /// Path to the Gallager CLI for the `$VISUAL` environment variable.
+    /// When set, Ctrl-G in Claude Code opens the in-app prompt editor via `Gallager edit`.
     public var editorCLIPath: String?
 
-    /// Socket path for the editor server. The CLI reads this from `$GALLAGER_EDITOR_SOCKET`.
-    public var editorSocketPath: String?
+    /// Socket path for the API server. The CLI reads this from `$GALLAGER_SOCKET`.
+    public var apiSocketPath: String?
 
     /// Full environment variables list including VISUAL when editor CLI is available.
     private var terminalEnvironmentVars: [String] {
         var vars = Self.baseEnvironmentVars
         if let editorCLIPath {
-            vars.append("VISUAL=\(editorCLIPath)")
+            vars.append("VISUAL=\(editorCLIPath) edit")
         }
-        if let editorSocketPath {
-            vars.append("GALLAGER_EDITOR_SOCKET=\(editorSocketPath)")
+        if let apiSocketPath {
+            vars.append("GALLAGER_SOCKET=\(apiSocketPath)")
         }
         return vars
     }
@@ -665,9 +665,14 @@ final public class TmuxService {
         }
         output += "\u{1b}[\(cursorX + 1)G" // Move to column (absolute column positioning)
 
-        // Restore active SGR state at the cursor position so that live stream
-        // data inherits the correct colors. capture-pane -e resets SGR per line,
-        // so without this, typed characters would render in default color.
+        // Reset SGR to a known default, then restore the active SGR state at
+        // the cursor position so live-stream data inherits the correct colors.
+        // The explicit reset is load-bearing: mid-capture rendering can leave
+        // SwiftTerm in a non-default SGR state when tmux's `capture-pane -p`
+        // emits a lone `\e[4m` (or similar set-code) on a row whose trailing
+        // cells were trimmed. Without the reset, that state would persist past
+        // the capture and bleed into live-streamed writes (issue #352).
+        output += "\u{1b}[0m"
         let activeSGR = extractActiveSGR(from: visibleLines, cursorX: cursorX, cursorY: effectiveCursorY)
         if !activeSGR.isEmpty {
             output += activeSGR
@@ -851,6 +856,23 @@ final public class TmuxService {
 
         for lineIndex in 0...min(cursorY, lines.count - 1) {
             let line = lines[lineIndex]
+
+            // If the cursor line is completely empty in the capture, the cell
+            // at the cursor was never written (tmux emits nothing for a row
+            // with no content transitions from its left margin). Its attributes
+            // are the pane default — ignore any SGR state accumulated from
+            // earlier rows that the capture failed to pair with an explicit
+            // reset (e.g. a row of fully-underlined spaces that `capture-pane
+            // -p` trimmed, leaving just `\e[4m` with no matching `\e[0m` when
+            // every row below is also empty). Without this guard the accumulated
+            // `\e[4m` would be emitted and the mirror's SwiftTerm would stay
+            // stuck in underline mode, causing subsequent live-streamed writes
+            // to render underlined even though the real pane has default
+            // attributes at the cursor cell. See issue #352.
+            if lineIndex == cursorY, line.isEmpty {
+                return ""
+            }
+
             var i = line.startIndex
             var col = 0
 
@@ -1173,22 +1195,32 @@ final public class TmuxService {
     /// - Parameters:
     ///   - target: The pane target to split (e.g., "%5")
     ///   - horizontal: If true, splits left-right (-h); if false, splits top-bottom (-v)
+    ///   - workingDirectory: Optional starting directory for the new pane
     /// - Returns: The pane ID of the newly created pane
-    public func splitPane(_ target: String, horizontal: Bool) async throws -> String {
+    public func splitPane(
+        _ target: String,
+        horizontal: Bool,
+        workingDirectory: String? = nil
+    ) async throws -> String {
         let flag = horizontal ? "-h" : "-v"
-        let result = try await runTmuxCommand([
+        var args = [
             "split-window",
             flag,
             "-t", target,
             "-P", "-F", "#{pane_id}", // Print new pane ID
-        ] + terminalEnvironmentVars.flatMap { ["-e", $0] })
+        ] + terminalEnvironmentVars.flatMap { ["-e", $0] }
+
+        if let workingDirectory, !workingDirectory.isEmpty {
+            args.append(contentsOf: ["-c", workingDirectory])
+        }
+
+        let result = try await runTmuxCommand(args)
 
         guard result.isSuccess else {
             throw TmuxError.commandFailed(message: result.stderrString)
         }
 
-        let paneId = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
-        return paneId
+        return result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Selects (focuses) a tmux pane
@@ -1317,7 +1349,7 @@ final public class TmuxService {
     }
 
     /// Known shell executables that indicate an idle pane.
-    private static let knownShells: Set<String> = [
+    private static let knownShells: Set = [
         "bash", "zsh", "sh", "fish", "dash", "csh", "tcsh", "ksh",
     ]
 

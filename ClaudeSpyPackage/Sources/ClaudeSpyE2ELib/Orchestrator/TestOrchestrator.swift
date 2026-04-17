@@ -116,6 +116,7 @@ public actor TestOrchestrator {
         context.set("notificationLogPath", value: notificationLogPath(for: 0))
         context.set("pushLogPath", value: pushLogPath(for: 0))
         context.set("scenarioName", value: scenarioDirName)
+        context.set("macOSAppPath", value: macOSAppPath)
 
         var stepResults: [StepResult] = []
         var firstFailedStep: Int?

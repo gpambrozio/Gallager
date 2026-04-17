@@ -275,9 +275,10 @@ struct TmuxPaneMirrorApp: App {
                 AboutMenuItem()
             }
 
-            // App menu - Check for Updates
+            // App menu - Check for Updates + Install CLI
             CommandGroup(after: .appInfo) {
                 CheckForUpdatesView(updaterController: updaterController)
+                InstallCLIMenuItem()
             }
 
             // File menu - replace default items with Close Tab
@@ -317,6 +318,11 @@ struct TmuxPaneMirrorApp: App {
                 Toggle("Show Status Bar", isOn: Bindable(coordinator.settings).showStatusBar)
                     .keyboardShortcut("s", modifiers: [.command, .shift])
             }
+
+            // Help menu - CLI API Reference
+            CommandGroup(replacing: .help) {
+                APIReferenceMenuItem()
+            }
         }
 
         // About window - custom About panel with Gallager explanation
@@ -324,6 +330,13 @@ struct TmuxPaneMirrorApp: App {
             AboutWindowView()
         }
         .windowResizability(.contentSize)
+        .defaultLaunchBehavior(.suppressed)
+
+        // CLI API Reference window
+        Window("CLI API Reference", id: "api-reference") {
+            APIReferenceView()
+        }
+        .defaultSize(width: 700, height: 600)
         .defaultLaunchBehavior(.suppressed)
 
         // Settings window
@@ -401,6 +414,36 @@ private struct AboutMenuItem: View {
             NSApp.setActivationPolicy(.regular)
             openWindow(id: "about")
             NSApp.activate()
+        }
+    }
+}
+
+/// Menu item that opens the CLI API Reference window.
+private struct APIReferenceMenuItem: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("CLI API Reference") {
+            openWindow(id: "api-reference")
+        }
+    }
+}
+
+/// Menu item to install/uninstall the `gallager` CLI symlink.
+private struct InstallCLIMenuItem: View {
+    @State private var installed = CLIInstaller.isInstalled
+
+    var body: some View {
+        Button(installed ? "Uninstall Command Line Tool..." : "Install Command Line Tool...") {
+            if installed {
+                if CLIInstaller.uninstall() {
+                    installed = false
+                }
+            } else {
+                if CLIInstaller.install() {
+                    installed = true
+                }
+            }
         }
     }
 }
