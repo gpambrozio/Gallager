@@ -10,7 +10,7 @@ import Textual
 import WebKit
 
 /// OS-level entries to hide in the file navigator (same as skippedEntries in the service).
-private let skippedNavigatorEntries: Set<String> = [
+private let skippedNavigatorEntries: Set = [
     ".DS_Store", ".Trash", ".Spotlight-V100", ".fseventsd",
     ".TemporaryItems", ".DocumentRevisions-V100",
 ]
@@ -193,7 +193,6 @@ struct FileBrowserView: View {
 
     // MARK: - File Search
 
-    @ViewBuilder
     private var fileSearchField: some View {
         HStack(spacing: 6) {
             Symbols.magnifyingglass.image
@@ -474,8 +473,10 @@ private extension View {
                         clipboard.setString(relativePath)
                     }
                 }
-                let isDirectory = (try? URL(fileURLWithPath: fullPath)
-                    .resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+                let isDirectory = (
+                    try? URL(fileURLWithPath: fullPath)
+                        .resourceValues(forKeys: [.isDirectoryKey])
+                )?.isDirectory == true
                 if !isDirectory {
                     Button("Copy") {
                         @Dependency(ClipboardClient.self) var clipboard
@@ -528,7 +529,7 @@ private struct LiveFileContentView: View {
                     if let text {
                         ScrollView {
                             StructuredText(markdown: text)
-                                .textSelection(.enabled)
+                                .textual.textSelection(.enabled)
                                 .padding()
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
