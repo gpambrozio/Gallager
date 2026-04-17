@@ -190,8 +190,13 @@ asc_patch() {
 }
 
 generate_changelog() {
+    local current_version
+    current_version=$(get_version)
+
     local prev_tag
-    prev_tag=$(git -C "$PROJECT_ROOT" tag --sort=-v:refname | head -1)
+    prev_tag=$(git -C "$PROJECT_ROOT" tag --sort=-v:refname \
+        | grep -Ev "^v?${current_version}$" \
+        | head -1)
 
     local commit_range
     if [ -z "$prev_tag" ]; then
