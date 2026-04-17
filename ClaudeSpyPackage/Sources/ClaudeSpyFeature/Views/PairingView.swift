@@ -16,7 +16,12 @@
         /// Called when pairing is successful with the new PairedHost
         var onPaired: ((PairedHost) -> Void)?
 
-        private static let downloadURL = URL(staticString: "https://github.com/gpambrozio/ClaudeSpy/releases")
+        private static var downloadURL: URL {
+            let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+            return URL(staticString: "https://updates.gustavo.eng.br")
+                .appending(path: "Gallager-\(version).dmg")
+        }
+
         private let codeLength = 6
 
         var body: some View {
@@ -161,7 +166,7 @@
                     .font(.headline)
 
                 VStack(alignment: .leading, spacing: 8) {
-                    instructionRow(number: 1, text: "Download Gallager from GitHub")
+                    instructionRow(number: 1, text: "Send yourself the download link below")
                     instructionRow(number: 2, text: "Open the DMG and drag to Applications")
                     instructionRow(number: 3, text: "Launch Gallager and complete setup")
                 }
