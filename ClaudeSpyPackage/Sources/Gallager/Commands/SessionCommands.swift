@@ -38,11 +38,15 @@ struct NewSessionCommand: ParsableCommand {
     @Option(name: .long, help: "Session name")
     var name: String?
 
+    @Option(name: .long, help: "Working directory for the new session (defaults to $HOME)")
+    var path: String?
+
     @OptionGroup var options: GlobalOptions
 
     func run() throws {
         var params: [String: JSONValue] = [:]
         if let name { params["name"] = .string(name) }
+        if let path { params["path"] = .string(path) }
         let response = try executeRequest(method: "session.create", params: params, options: options)
         if options.json {
             printResponse(response, json: true)

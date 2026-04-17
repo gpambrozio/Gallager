@@ -173,8 +173,7 @@
                 return manager
             }
 
-            let manager = createPairingManager()
-            return manager
+            return createPairingManager()
         }
 
         /// Scans for Claude projects using the project scanner dependency.
@@ -282,12 +281,14 @@
                         }
                     }
                 },
-                onSessionCreate: { [tmux] name in
+                onSessionCreate: { [tmux] name, path in
                     let baseName = name ?? "main"
+                    let workingDirectory = path ?? FileManager.default.homeDirectoryForCurrentUser.path
                     let (sessionName, paneId) = try await tmux.createSession(
                         baseName: baseName,
                         width: 200,
-                        height: 50
+                        height: 50,
+                        workingDirectory: workingDirectory
                     )
                     return APISessionInfo(
                         id: sessionName,
@@ -339,7 +340,7 @@
                         ).toJSONValue()
                     }
                 },
-                onWindowCreate: { [tmux] sessionId in
+                onWindowCreate: { [tmux] sessionId, path in
                     let targetSession: String = await MainActor.run {
                         if let sessionId { return sessionId }
                         let panes = tmux.panes
@@ -348,7 +349,11 @@
                             attached.contains($0.sessionName)
                         })?.sessionName ?? panes.first?.sessionName ?? "main"
                     }
-                    let paneId = try await tmux.newWindow(sessionName: targetSession)
+                    let workingDirectory = path ?? FileManager.default.homeDirectoryForCurrentUser.path
+                    let paneId = try await tmux.newWindow(
+                        sessionName: targetSession,
+                        workingDirectory: workingDirectory
+                    )
                     let panes = await tmux.refreshPanes()
                     guard let newPane = panes.first(where: { $0.paneId == paneId }) else {
                         throw APIError.notFound("New window pane not found")
@@ -392,12 +397,17 @@
                         }
                     }
                 },
-                onPaneSplit: { [tmux, winManager] paneId, direction in
+                onPaneSplit: { [tmux, winManager] paneId, direction, path in
                     let horizontal = direction == "right" || direction == "horizontal"
                     let target: String = await MainActor.run {
                         paneId ?? tmux.panes.first(where: { $0.isActive && $0.isWindowActive })?.paneId ?? "%0"
                     }
-                    let newPaneId = try await tmux.splitPane(target, horizontal: horizontal)
+                    let workingDirectory = path ?? FileManager.default.homeDirectoryForCurrentUser.path
+                    let newPaneId = try await tmux.splitPane(
+                        target,
+                        horizontal: horizontal,
+                        workingDirectory: workingDirectory
+                    )
                     let panes = await tmux.refreshPanes()
                     await MainActor.run { winManager.updatePaneStates(from: panes) }
                     guard let newPane = panes.first(where: { $0.paneId == newPaneId }) else {

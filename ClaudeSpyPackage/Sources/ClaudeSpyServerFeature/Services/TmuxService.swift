@@ -1173,22 +1173,32 @@ final public class TmuxService {
     /// - Parameters:
     ///   - target: The pane target to split (e.g., "%5")
     ///   - horizontal: If true, splits left-right (-h); if false, splits top-bottom (-v)
+    ///   - workingDirectory: Optional starting directory for the new pane
     /// - Returns: The pane ID of the newly created pane
-    public func splitPane(_ target: String, horizontal: Bool) async throws -> String {
+    public func splitPane(
+        _ target: String,
+        horizontal: Bool,
+        workingDirectory: String? = nil
+    ) async throws -> String {
         let flag = horizontal ? "-h" : "-v"
-        let result = try await runTmuxCommand([
+        var args = [
             "split-window",
             flag,
             "-t", target,
             "-P", "-F", "#{pane_id}", // Print new pane ID
-        ] + terminalEnvironmentVars.flatMap { ["-e", $0] })
+        ] + terminalEnvironmentVars.flatMap { ["-e", $0] }
+
+        if let workingDirectory, !workingDirectory.isEmpty {
+            args.append(contentsOf: ["-c", workingDirectory])
+        }
+
+        let result = try await runTmuxCommand(args)
 
         guard result.isSuccess else {
             throw TmuxError.commandFailed(message: result.stderrString)
         }
 
-        let paneId = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
-        return paneId
+        return result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Selects (focuses) a tmux pane
@@ -1317,7 +1327,7 @@ final public class TmuxService {
     }
 
     /// Known shell executables that indicate an idle pane.
-    private static let knownShells: Set<String> = [
+    private static let knownShells: Set = [
         "bash", "zsh", "sh", "fish", "dash", "csh", "tcsh", "ksh",
     ]
 

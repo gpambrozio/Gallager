@@ -42,11 +42,15 @@ struct SplitPaneCommand: ParsableCommand {
     @Argument(help: "Split direction: left, right, up, down")
     var direction = "right"
 
+    @Option(name: .long, help: "Working directory for the new pane (defaults to $HOME)")
+    var path: String?
+
     @OptionGroup var options: GlobalOptions
 
     func run() throws {
         var params: [String: JSONValue] = ["direction": .string(direction)]
         if let pane = options.pane { params["pane_id"] = .string(pane) }
+        if let path { params["path"] = .string(path) }
         let response = try executeRequest(method: "pane.split", params: params, options: options)
         if options.json {
             printResponse(response, json: true)

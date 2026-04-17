@@ -38,11 +38,15 @@ struct NewWindowCommand: ParsableCommand {
         abstract: "Create window in current/specified session"
     )
 
+    @Option(name: .long, help: "Working directory for the new window (defaults to $HOME)")
+    var path: String?
+
     @OptionGroup var options: GlobalOptions
 
     func run() throws {
         var params: [String: JSONValue] = [:]
         if let session = options.session { params["session_id"] = .string(session) }
+        if let path { params["path"] = .string(path) }
         let response = try executeRequest(method: "window.create", params: params, options: options)
         if options.json {
             printResponse(response, json: true)

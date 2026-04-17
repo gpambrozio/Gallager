@@ -59,18 +59,18 @@
 
         // Service callbacks injected at init by AppCoordinator
         let onSessionList: (@Sendable () async -> [[String: JSONValue]])?
-        let onSessionCreate: (@Sendable (String?) async throws -> [String: JSONValue])?
+        let onSessionCreate: (@Sendable (String?, String?) async throws -> [String: JSONValue])?
         let onSessionSelect: (@Sendable (String) async throws -> Void)?
         let onSessionCurrent: (@Sendable () async -> [String: JSONValue]?)?
         let onSessionClose: (@Sendable (String) async throws -> Void)?
 
         let onWindowList: (@Sendable (String?) async -> [[String: JSONValue]])?
-        let onWindowCreate: (@Sendable (String?) async throws -> [String: JSONValue])?
+        let onWindowCreate: (@Sendable (String?, String?) async throws -> [String: JSONValue])?
         let onWindowSelect: (@Sendable (String) async throws -> Void)?
         let onWindowClose: (@Sendable (String) async throws -> Void)?
 
         let onPaneList: (@Sendable (String?) async -> [[String: JSONValue]])?
-        let onPaneSplit: (@Sendable (String?, String) async throws -> [String: JSONValue])?
+        let onPaneSplit: (@Sendable (String?, String, String?) async throws -> [String: JSONValue])?
         let onPaneSelect: (@Sendable (String) async throws -> Void)?
 
         let onSendText: (@Sendable (String, String?) async throws -> Void)?
@@ -84,16 +84,16 @@
 
         public init(
             onSessionList: (@Sendable () async -> [[String: JSONValue]])? = nil,
-            onSessionCreate: (@Sendable (String?) async throws -> [String: JSONValue])? = nil,
+            onSessionCreate: (@Sendable (String?, String?) async throws -> [String: JSONValue])? = nil,
             onSessionSelect: (@Sendable (String) async throws -> Void)? = nil,
             onSessionCurrent: (@Sendable () async -> [String: JSONValue]?)? = nil,
             onSessionClose: (@Sendable (String) async throws -> Void)? = nil,
             onWindowList: (@Sendable (String?) async -> [[String: JSONValue]])? = nil,
-            onWindowCreate: (@Sendable (String?) async throws -> [String: JSONValue])? = nil,
+            onWindowCreate: (@Sendable (String?, String?) async throws -> [String: JSONValue])? = nil,
             onWindowSelect: (@Sendable (String) async throws -> Void)? = nil,
             onWindowClose: (@Sendable (String) async throws -> Void)? = nil,
             onPaneList: (@Sendable (String?) async -> [[String: JSONValue]])? = nil,
-            onPaneSplit: (@Sendable (String?, String) async throws -> [String: JSONValue])? = nil,
+            onPaneSplit: (@Sendable (String?, String, String?) async throws -> [String: JSONValue])? = nil,
             onPaneSelect: (@Sendable (String) async throws -> Void)? = nil,
             onSendText: (@Sendable (String, String?) async throws -> Void)? = nil,
             onSendKey: (@Sendable (String, String?) async throws -> Void)? = nil,
@@ -153,7 +153,8 @@
 
                 case "session.create":
                     let name = params["name"]?.stringValue
-                    if let result = try await onSessionCreate?(name) {
+                    let path = params["path"]?.stringValue
+                    if let result = try await onSessionCreate?(name, path) {
                         return JSONRPCResponse(id: id, result: result)
                     }
                     return .internalError(id: id, "Session create not available")
@@ -189,7 +190,8 @@
 
                 case "window.create":
                     let sessionId = params["session_id"]?.stringValue
-                    if let result = try await onWindowCreate?(sessionId) {
+                    let path = params["path"]?.stringValue
+                    if let result = try await onWindowCreate?(sessionId, path) {
                         return JSONRPCResponse(id: id, result: result)
                     }
                     return .internalError(id: id, "Window create not available")
@@ -220,7 +222,8 @@
                 case "pane.split":
                     let direction = params["direction"]?.stringValue ?? "right"
                     let paneId = params["pane_id"]?.stringValue
-                    if let result = try await onPaneSplit?(paneId, direction) {
+                    let path = params["path"]?.stringValue
+                    if let result = try await onPaneSplit?(paneId, direction, path) {
                         return JSONRPCResponse(id: id, result: result)
                     }
                     return .internalError(id: id, "Pane split not available")

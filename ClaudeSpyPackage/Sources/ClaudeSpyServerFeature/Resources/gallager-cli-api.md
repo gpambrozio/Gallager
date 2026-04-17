@@ -84,16 +84,17 @@ gallager list-sessions
 
 #### `new-session`
 
-Create a new tmux session.
+Create a new tmux session. Use `--path` to set the starting directory for the first pane; if omitted, the session opens in the user's home directory.
 
 ```bash
 gallager new-session
 gallager new-session --name myproject
+gallager new-session --name myproject --path /Users/me/code/myproject
 ```
 
 **JSON-RPC**
 - Method: `session.create`
-- Params: `{ "name": "myproject" }` _(name is optional)_
+- Params: `{ "name": "myproject", "path": "/Users/me/code/myproject" }` _(both optional; `path` defaults to `$HOME`)_
 - Response:
 ```json
 {
@@ -189,16 +190,17 @@ gallager list-windows --session work
 
 #### `new-window`
 
-Create a new window in the current session, or a specific session with `--session`.
+Create a new window in the current session, or a specific session with `--session`. Use `--path` to set the starting directory for the new window; if omitted, it opens in the user's home directory.
 
 ```bash
 gallager new-window
 gallager new-window --session work
+gallager new-window --session work --path /Users/me/code/work
 ```
 
 **JSON-RPC**
 - Method: `window.create`
-- Params: `{ "session_id": "work" }` _(session_id is optional)_
+- Params: `{ "session_id": "work", "path": "/Users/me/code/work" }` _(both optional; `path` defaults to `$HOME`)_
 - Response:
 ```json
 {
@@ -276,17 +278,18 @@ gallager list-panes --window main:0
 
 #### `split-pane [direction]`
 
-Split the current pane. Direction is `left`, `right`, `up`, or `down` (default: `right`). Use `--pane` to target a specific pane.
+Split the current pane. Direction is `left`, `right`, `up`, or `down` (default: `right`). Use `--pane` to target a specific pane. Use `--path` to set the starting directory for the new pane; if omitted, it opens in the user's home directory.
 
 ```bash
 gallager split-pane
 gallager split-pane down
 gallager split-pane right --pane %3
+gallager split-pane down --path /Users/me/code/work
 ```
 
 **JSON-RPC**
 - Method: `pane.split`
-- Params: `{ "direction": "down", "pane_id": "%3" }` _(both optional)_
+- Params: `{ "direction": "down", "pane_id": "%3", "path": "/Users/me/code/work" }` _(all optional; `path` defaults to `$HOME`)_
 - Response:
 ```json
 {
@@ -476,6 +479,7 @@ gallager identify
 | `--pane <id>` | Target a specific pane by tmux pane ID (e.g. `%3`). Overrides the active pane for input commands |
 | `--session <id>` | Target a specific session. Used by `list-windows`, `new-window` |
 | `--window <id>` | Target a specific window. Used by `list-panes` |
+| `--path <dir>` | Starting directory for `new-session`, `new-window`, and `split-pane`. Defaults to `$HOME` when omitted. |
 
 ---
 

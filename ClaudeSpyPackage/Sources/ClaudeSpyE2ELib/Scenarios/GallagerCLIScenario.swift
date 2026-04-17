@@ -94,14 +94,15 @@ public enum GallagerCLIScenario {
         TestStep.readFile(path: "/tmp/e2e-cli-paneid.txt", storeAs: "paneIdResult")
         TestStep.assertStoredContains(key: "paneIdResult", substring: "PANE=%")
 
-        // 7. Split the e2e-api pane using explicit pane ID
+        // 7. Split the e2e-api pane using explicit pane ID, with an explicit --path.
+        // The new pane should open in /tmp (not $HOME), proving --path is wired through.
         Shortcut.tmuxRunCommand(
             target: "cli-test:0",
-            command: #"gallager split-pane right --pane "$PANE_ID" > /tmp/e2e-cli-split.txt 2>&1"#
+            command: #"gallager split-pane right --pane "$PANE_ID" --path /tmp --json > /tmp/e2e-cli-split.txt 2>&1"#
         )
         TestStep.wait(seconds: 3)
         TestStep.readFile(path: "/tmp/e2e-cli-split.txt", storeAs: "splitResult")
-        TestStep.assertStoredContains(key: "splitResult", substring: "Created pane")
+        TestStep.assertStoredContains(key: "splitResult", substring: #""cwd":"/tmp""#)
         TestStep.macScreenshot(label: "mac-after-split-pane")
 
         // 8. Send text to e2e-api's pane using explicit pane ID
