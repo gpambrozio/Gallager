@@ -70,8 +70,8 @@ struct RemoteWindowPaneLayoutView: View {
                 }
                 .overlay {
                     if let editorInfo = pane.paneState.editorSession {
-                        PromptEditorOverlay(
-                            originalContent: editorInfo.content,
+                        RemotePaneEditorOverlay(
+                            initialContent: editorInfo.content,
                             onSubmit: { content in
                                 Task {
                                     _ = await connection.sendCommand(
@@ -144,8 +144,8 @@ struct RemoteWindowPaneLayoutView: View {
         )
         .overlay {
             if let editorInfo = pane.editorSession {
-                PromptEditorOverlay(
-                    originalContent: editorInfo.content,
+                RemotePaneEditorOverlay(
+                    initialContent: editorInfo.content,
                     onSubmit: { content in
                         Task {
                             _ = await connection.sendCommand(
@@ -195,5 +195,31 @@ struct RemoteWindowPaneLayoutView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(.bar)
+    }
+}
+
+/// Wrapper for `PromptEditorOverlay` in remote viewer contexts.
+/// Manages a local `@State` to back the content binding since remote viewers
+/// don't have an `EditorSessionManager` to persist edits.
+private struct RemotePaneEditorOverlay: View {
+    let initialContent: String
+    let onSubmit: (String) -> Void
+    let onCancel: () -> Void
+
+    @State private var content: String
+
+    init(initialContent: String, onSubmit: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
+        self.initialContent = initialContent
+        self.onSubmit = onSubmit
+        self.onCancel = onCancel
+        _content = State(initialValue: initialContent)
+    }
+
+    var body: some View {
+        PromptEditorOverlay(
+            content: $content,
+            onSubmit: onSubmit,
+            onCancel: onCancel
+        )
     }
 }

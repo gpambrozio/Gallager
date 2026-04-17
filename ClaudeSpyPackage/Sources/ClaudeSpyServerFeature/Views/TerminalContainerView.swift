@@ -33,6 +33,7 @@ struct TerminalContainerView: NSViewRepresentable {
     @Environment(AppSettings.self) private var settings
     @Environment(TmuxService.self) private var tmuxService
     @Environment(PaneStreamManager.self) private var paneStreamManager
+    @Environment(EditorSessionManager.self) private var editorSessionManager
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -59,6 +60,16 @@ struct TerminalContainerView: NSViewRepresentable {
 
     func updateNSView(_ nsView: InteractiveTerminalView, context: Context) {
         let coordinator = context.coordinator
+
+        // Update editor state — suppress keyboard/focus when editor overlay is active
+        let editorActive = editorSessionManager.session(for: paneState.paneId) != nil
+        let wasEditorActive = nsView.isEditorActive
+        nsView.isEditorActive = editorActive
+
+        // When editor just closed, restore focus to the terminal
+        if wasEditorActive, !editorActive {
+            nsView.window?.makeFirstResponder(nsView)
+        }
 
         // Update pane state — tmux rearranges pane indices when panes are
         // added or removed, so the target (e.g., "session:0.1") can change.
@@ -111,14 +122,14 @@ struct TerminalContainerView: NSViewRepresentable {
         private var onStateChange: TerminalStateChangeHandler?
         private var onTitleChange: TerminalTitleChangeHandler?
 
-        // Track initial scroll state
+        /// Track initial scroll state
         private var hasScrolledInitial = false
 
         // Track consecutive key send failures for error reporting
         private var consecutiveKeyFailures = 0
         private let maxConsecutiveKeyFailures = 3
 
-        // Serializes key sends so concurrent onInput callbacks don't race
+        /// Serializes key sends so concurrent onInput callbacks don't race
         private var pendingKeyTask: Task<Void, Never>?
 
         // MARK: Initialization

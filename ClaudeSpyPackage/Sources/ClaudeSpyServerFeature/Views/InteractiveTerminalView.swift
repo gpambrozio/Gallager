@@ -61,7 +61,9 @@
         /// Used to suppress redundant events when the cursor stays in the same cell.
         private var lastDragPosition: (col: Int, row: Int)?
 
-        override var acceptsFirstResponder: Bool { false }
+        override var acceptsFirstResponder: Bool {
+            false
+        }
 
         override func hitTest(_ point: NSPoint) -> NSView? {
             bounds.contains(point) ? self : nil
@@ -328,6 +330,10 @@
         /// will be overridden to maintain the locked dimensions.
         var lockedDimensions: (cols: Int, rows: Int)?
 
+        /// When true, a prompt editor overlay is active above this terminal.
+        /// Keyboard events and auto-focus are suppressed so the editor gets input.
+        var isEditorActive = false
+
         // URL detection state
         private var isOverURL = false
         private var urlPreviewField: NSTextField?
@@ -350,7 +356,7 @@
             }
         }
 
-        // Using nonisolated(unsafe) for notification observer cleanup in deinit
+        /// Using nonisolated(unsafe) for notification observer cleanup in deinit
         private nonisolated(unsafe) var windowObservers: [any NSObjectProtocol] = []
 
         override init(frame: NSRect) {
@@ -443,7 +449,9 @@
 
         // MARK: - First Responder
 
-        override var acceptsFirstResponder: Bool { true }
+        override var acceptsFirstResponder: Bool {
+            true
+        }
 
         override func becomeFirstResponder() -> Bool {
             isFocused = true
@@ -473,8 +481,9 @@
             guard let window else { return }
 
             // Auto-focus when added to a window (disabled in multi-pane layouts
-            // where multiple terminals share one window to avoid focus fighting)
-            if autoFocusEnabled {
+            // where multiple terminals share one window to avoid focus fighting,
+            // and when the prompt editor overlay is active)
+            if autoFocusEnabled, !isEditorActive {
                 Task { [weak self] in
                     guard let self else { return }
                     self.window?.makeFirstResponder(self)
@@ -489,7 +498,7 @@
             ) { [weak self] _ in
                 Task { @MainActor in
                     guard let self, let window = self.window else { return }
-                    if self.autoFocusEnabled {
+                    if self.autoFocusEnabled, !self.isEditorActive {
                         window.makeFirstResponder(self)
                     }
                     // If we're already first responder, restore cursor appearance
@@ -891,6 +900,9 @@
         // MARK: - Keyboard Events
 
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            // Don't intercept keys when the prompt editor overlay is active
+            guard !isEditorActive else { return false }
+
             guard event.modifierFlags.contains(.command) else {
                 return false
             }
@@ -928,6 +940,7 @@
         }
 
         override func keyDown(with event: NSEvent) {
+            guard !isEditorActive else { return }
             terminalView.keyDown(with: event)
         }
 
