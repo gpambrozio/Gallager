@@ -665,9 +665,14 @@ final public class TmuxService {
         }
         output += "\u{1b}[\(cursorX + 1)G" // Move to column (absolute column positioning)
 
-        // Restore active SGR state at the cursor position so that live stream
-        // data inherits the correct colors. capture-pane -e resets SGR per line,
-        // so without this, typed characters would render in default color.
+        // Reset SGR to a known default, then restore the active SGR state at
+        // the cursor position so live-stream data inherits the correct colors.
+        // The explicit reset is load-bearing: mid-capture rendering can leave
+        // SwiftTerm in a non-default SGR state when tmux's `capture-pane -p`
+        // emits a lone `\e[4m` (or similar set-code) on a row whose trailing
+        // cells were trimmed. Without the reset, that state would persist past
+        // the capture and bleed into live-streamed writes (issue #352).
+        output += "\u{1b}[0m"
         let activeSGR = extractActiveSGR(from: visibleLines, cursorX: cursorX, cursorY: effectiveCursorY)
         if !activeSGR.isEmpty {
             output += activeSGR
@@ -851,6 +856,23 @@ final public class TmuxService {
 
         for lineIndex in 0...min(cursorY, lines.count - 1) {
             let line = lines[lineIndex]
+
+            // If the cursor line is completely empty in the capture, the cell
+            // at the cursor was never written (tmux emits nothing for a row
+            // with no content transitions from its left margin). Its attributes
+            // are the pane default — ignore any SGR state accumulated from
+            // earlier rows that the capture failed to pair with an explicit
+            // reset (e.g. a row of fully-underlined spaces that `capture-pane
+            // -p` trimmed, leaving just `\e[4m` with no matching `\e[0m` when
+            // every row below is also empty). Without this guard the accumulated
+            // `\e[4m` would be emitted and the mirror's SwiftTerm would stay
+            // stuck in underline mode, causing subsequent live-streamed writes
+            // to render underlined even though the real pane has default
+            // attributes at the cursor cell. See issue #352.
+            if lineIndex == cursorY, line.isEmpty {
+                return ""
+            }
+
             var i = line.startIndex
             var col = 0
 

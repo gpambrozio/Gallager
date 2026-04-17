@@ -1373,6 +1373,30 @@
             // SGR state: \e[31m (from before A), then \e[32m (from before B)
             #expect(sgr == "\u{1b}[31m\u{1b}[32m", "Should track SGR correctly past 2-col emoji")
         }
+
+        @Test("Empty cursor line does not inherit SGR from unmatched earlier set (#352)")
+        @MainActor
+        func emptyCursorLineDoesNotLeakSGR() {
+            let service = TmuxService()
+            // tmux's `capture-pane -p` trims trailing cells (even non-default).
+            // A row of 80 underlined spaces captured with `-p` becomes just
+            // `\e[4m` — the spaces are gone and no `\e[0m` is emitted if every
+            // row below it is also empty. If the cursor is parked on one of
+            // those empty rows, the capture has no reset at all.
+            //
+            // Without the fix the accumulated `\e[4m` leaks to the cursor, and
+            // the capture restoration puts SwiftTerm into underline mode. Live-
+            // streamed typed characters would then render underlined even
+            // though the real pane has default attributes at the cursor cell.
+            let lines = [
+                "", // row 0: empty
+                "\u{1b}[4m", // row 1: row of fully-underlined trimmed spaces
+                "", // row 2: empty
+                "", // row 3: empty (cursor parked here)
+            ]
+            let sgr = service.extractActiveSGR(from: lines, cursorX: 0, cursorY: 3)
+            #expect(sgr == "", "Cursor on empty line must reset SGR, not inherit unmatched \\e[4m")
+        }
     }
 
     // MARK: - Clear Screen Recapture
@@ -1605,15 +1629,23 @@
             }
 
             // Pre-clear content should NOT appear (scrollback suppressed)
-            #expect(!allContent.contains { $0.contains("export PS1") },
-                    "Pre-clear content should be suppressed")
-            #expect(!allContent.contains { $0.contains("clear") },
-                    "$ clear should not appear")
+            #expect(
+                !allContent.contains { $0.contains("export PS1") },
+                "Pre-clear content should be suppressed"
+            )
+            #expect(
+                !allContent.contains { $0.contains("clear") },
+                "$ clear should not appear"
+            )
             // Visible content SHOULD appear
-            #expect(allContent.contains { $0.contains("Box-Drawing Table") },
-                    "Table content should be present")
-            #expect(allContent.contains { $0.contains("Row 1 data") },
-                    "Table rows should be present")
+            #expect(
+                allContent.contains { $0.contains("Box-Drawing Table") },
+                "Table content should be present"
+            )
+            #expect(
+                allContent.contains { $0.contains("Row 1 data") },
+                "Table rows should be present"
+            )
         }
 
         @Test("Scrollback IS output when there is genuine scrollback content")
