@@ -200,7 +200,7 @@ final public class TmuxService {
             let attachedSessions = await getAttachedSessionNames()
             attachedSessionNames = attachedSessions
 
-            let format = "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_title}|#{window_layout}|#{window_name}|#{window_active}"
+            let format = "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_title}|#{window_layout}|#{window_name}|#{window_active}|#{@gallager-description}"
 
             let result = try await runTmuxCommand([
                 "list-panes",
@@ -1336,6 +1336,84 @@ final public class TmuxService {
 
         // Refresh panes to reflect the killed window
         await refreshPanes()
+    }
+
+    // MARK: - Custom Descriptions
+
+    /// The tmux user option key used to persist Gallager custom descriptions.
+    /// User options must be prefixed with `@`; tmux stores them at the scope
+    /// they are set (session or window) and resolves lookups with window-over-session
+    /// inheritance when formatted from a pane.
+    private static let descriptionOptionKey = "@gallager-description"
+
+    /// Persists the custom description for a session as a tmux user option.
+    ///
+    /// Writes `@gallager-description` at session scope so it survives app restarts
+    /// (the tmux server keeps the option for the session's lifetime). Any existing
+    /// window-level overrides inside the session are cleared so the new value applies
+    /// uniformly across every window.
+    /// - Parameters:
+    ///   - description: The description text, or `nil` to clear the option.
+    ///   - sessionName: The tmux session name.
+    public func setSessionDescription(_ description: String?, for sessionName: String) async throws {
+        if let description {
+            let result = try await runTmuxCommand([
+                "set-option", "-t", sessionName,
+                Self.descriptionOptionKey, description,
+            ])
+            guard result.isSuccess else {
+                throw TmuxError.commandFailed(message: result.stderrString)
+            }
+        } else {
+            let result = try await runTmuxCommand([
+                "set-option", "-u", "-t", sessionName,
+                Self.descriptionOptionKey,
+            ])
+            guard result.isSuccess else {
+                throw TmuxError.commandFailed(message: result.stderrString)
+            }
+        }
+
+        // Drop window-level overrides so the session value is what every window resolves to.
+        let windows = try? await runTmuxCommand([
+            "list-windows", "-t", sessionName, "-F", "#{window_index}",
+        ])
+        guard let windows, windows.isSuccess else { return }
+        let indexes = windows.stdoutString
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        for index in indexes {
+            _ = try? await runTmuxCommand([
+                "set-option", "-wu", "-t", "\(sessionName):\(index)",
+                Self.descriptionOptionKey,
+            ])
+        }
+    }
+
+    /// Persists the custom description for a window as a tmux user option.
+    ///
+    /// Writes `@gallager-description` at window scope, which overrides any
+    /// session-scope value when formatted from a pane in that window.
+    /// - Parameters:
+    ///   - description: The description text, or `nil` to clear the override.
+    ///   - windowTarget: The window target (e.g., "mysession:0").
+    public func setWindowDescription(_ description: String?, for windowTarget: String) async throws {
+        let result: ProcessResult
+        if let description {
+            result = try await runTmuxCommand([
+                "set-option", "-w", "-t", windowTarget,
+                Self.descriptionOptionKey, description,
+            ])
+        } else {
+            result = try await runTmuxCommand([
+                "set-option", "-wu", "-t", windowTarget,
+                Self.descriptionOptionKey,
+            ])
+        }
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
     }
 
     /// Describes a process running in a tmux pane (foreground or background).
