@@ -71,6 +71,9 @@
         /// Editor session manager for Ctrl-G prompt editing
         public let editorSessionManager: EditorSessionManager
 
+        /// Persists in-progress edits for remote viewer editor overlays, keyed by session UUID.
+        public let remoteEditorContentStore: RemoteEditorContentStore
+
         // MARK: - Private Services
 
         @ObservationIgnored
@@ -142,6 +145,7 @@
             // Create editor session manager (API server is started later in setupAllServices)
             let editorManager = EditorSessionManager()
             self.editorSessionManager = editorManager
+            self.remoteEditorContentStore = RemoteEditorContentStore()
 
             // Create window manager with editor session manager
             self.windowManager = MirrorWindowManager(
@@ -1057,9 +1061,14 @@
                     store?.handleEvent(event)
                 }
 
-                // Wire session state updates from remote hosts
-                manager.onSessionState = { [weak store] state in
+                // Wire session state updates from remote hosts.
+                // After applying the update, prune any remote-editor edits whose
+                // sessions the host has ended — otherwise those entries leak until quit.
+                manager.onSessionState = { [weak store, weak remoteEditorContentStore] state in
                     store?.handleStateUpdate(state)
+                    guard let remoteEditorContentStore, let panes = store?.panes else { return }
+                    let activeIds = Set(panes.compactMap { $0.editorSession?.sessionId })
+                    remoteEditorContentStore.retainOnly(activeSessionIds: activeIds)
                 }
 
                 // Wire partner key received to persist in settings
