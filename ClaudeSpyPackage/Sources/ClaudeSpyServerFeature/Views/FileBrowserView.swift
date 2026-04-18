@@ -527,12 +527,7 @@ private struct LiveFileContentView: View {
                     }
                 case .markdown:
                     if let text {
-                        ScrollView {
-                            StructuredText(markdown: text)
-                                .textual.textSelection(.enabled)
-                                .padding()
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
+                        MarkdownContentView(text: text)
                     }
                 case .text:
                     if let text {
@@ -621,5 +616,41 @@ private struct AVPlayerViewRepresentable: NSViewRepresentable {
     static func dismantleNSView(_ nsView: AVPlayerView, coordinator: ()) {
         nsView.player?.pause()
         nsView.player = nil
+    }
+}
+
+/// Renders markdown with `StructuredText` inside a `ScrollView`.
+///
+/// Workaround for https://github.com/gonzalezreal/textual/issues/49: Textual's selection
+/// overlay uses preference-driven geometry that isn't coherent on first layout inside a
+/// SwiftUI `ScrollView`, so selection only becomes live after the user manually scrolls.
+/// The `.task` nudges the scroll offset (y: 4 → 0) to reproduce that manual scroll, and the
+/// `minHeight` pegged to the container guarantees the content is always taller than the
+/// viewport so the nudge actually moves the offset — even for markdown short enough to fit
+/// without scrolling. Remove all of this once the upstream issue is fixed.
+private struct MarkdownContentView: View {
+    let text: String
+    @State private var scrollPosition = ScrollPosition(edge: .top)
+
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollView {
+                StructuredText(markdown: text)
+                    .padding()
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: geometry.size.height + 8,
+                        alignment: .topLeading
+                    )
+            }
+            .scrollPosition($scrollPosition)
+            .textual.textSelection(.enabled)
+            .task(id: text) {
+                try? await Task.sleep(for: .milliseconds(100))
+                scrollPosition.scrollTo(y: 4)
+                try? await Task.sleep(for: .milliseconds(50))
+                scrollPosition.scrollTo(y: 0)
+            }
+        }
     }
 }
