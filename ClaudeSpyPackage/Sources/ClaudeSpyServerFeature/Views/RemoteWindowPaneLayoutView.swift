@@ -60,7 +60,8 @@ struct RemoteWindowPaneLayoutView: View {
                     hostName: connection.hostName,
                     connection: connection,
                     settings: settings,
-                    showStatusBar: false
+                    showStatusBar: false,
+                    isEditorActive: pane.paneState.editorSession != nil
                 )
                 .overlay {
                     if !isSingle {
@@ -71,23 +72,10 @@ struct RemoteWindowPaneLayoutView: View {
                 .overlay {
                     if let editorInfo = pane.paneState.editorSession {
                         RemotePaneEditorOverlay(
+                            sessionId: editorInfo.sessionId,
                             initialContent: editorInfo.content,
-                            onSubmit: { content in
-                                Task {
-                                    _ = await connection.sendCommand(
-                                        SubmitEditorContent(content: content),
-                                        paneId: pane.paneState.paneId
-                                    )
-                                }
-                            },
-                            onCancel: {
-                                Task {
-                                    _ = await connection.sendCommand(
-                                        CancelEditorSession(),
-                                        paneId: pane.paneState.paneId
-                                    )
-                                }
-                            }
+                            connection: connection,
+                            paneId: pane.paneState.paneId
                         )
                     }
                 }
@@ -140,28 +128,16 @@ struct RemoteWindowPaneLayoutView: View {
             hostName: connection.hostName,
             connection: connection,
             settings: settings,
-            showStatusBar: false
+            showStatusBar: false,
+            isEditorActive: pane.editorSession != nil
         )
         .overlay {
             if let editorInfo = pane.editorSession {
                 RemotePaneEditorOverlay(
+                    sessionId: editorInfo.sessionId,
                     initialContent: editorInfo.content,
-                    onSubmit: { content in
-                        Task {
-                            _ = await connection.sendCommand(
-                                SubmitEditorContent(content: content),
-                                paneId: pane.paneId
-                            )
-                        }
-                    },
-                    onCancel: {
-                        Task {
-                            _ = await connection.sendCommand(
-                                CancelEditorSession(),
-                                paneId: pane.paneId
-                            )
-                        }
-                    }
+                    connection: connection,
+                    paneId: pane.paneId
                 )
             }
         }
@@ -199,25 +175,45 @@ struct RemoteWindowPaneLayoutView: View {
 }
 
 /// Wrapper for `PromptEditorOverlay` in remote viewer contexts.
-/// Manages a local `@State` to back the content binding since remote viewers
-/// don't have an `EditorSessionManager` to persist edits.
+///
+/// Edits are persisted in `RemoteEditorContentStore` keyed by `sessionId`, so they
+/// survive SwiftUI view teardown/recreation (tab switch, window tab rebuild) just
+/// like the host-side overlay persists via `EditorSessionManager.editedContents`.
 private struct RemotePaneEditorOverlay: View {
-    let onSubmit: (String) -> Void
-    let onCancel: () -> Void
+    let sessionId: UUID
+    let initialContent: String
+    let connection: ViewerConnection
+    let paneId: String
 
-    @State private var content: String
-
-    init(initialContent: String, onSubmit: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
-        self.onSubmit = onSubmit
-        self.onCancel = onCancel
-        _content = State(initialValue: initialContent)
-    }
+    @Environment(RemoteEditorContentStore.self) private var store
 
     var body: some View {
         PromptEditorOverlay(
-            content: $content,
-            onSubmit: onSubmit,
-            onCancel: onCancel
+            content: Binding(
+                get: { store.editedContents[sessionId] ?? initialContent },
+                set: { store.editedContents[sessionId] = $0 }
+            ),
+            onSubmit: { content in
+                Task {
+                    _ = await connection.sendCommand(
+                        SubmitEditorContent(content: content),
+                        paneId: paneId
+                    )
+                    // Clean up only after the host has ack'd. Clearing earlier
+                    // would leave the overlay rendering `initialContent` during
+                    // the relay round-trip, appearing to "lose" the edit.
+                    store.clear(sessionId: sessionId)
+                }
+            },
+            onCancel: {
+                Task {
+                    _ = await connection.sendCommand(
+                        CancelEditorSession(),
+                        paneId: paneId
+                    )
+                    store.clear(sessionId: sessionId)
+                }
+            }
         )
     }
 }

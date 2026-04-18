@@ -71,6 +71,9 @@
         /// Editor session manager for Ctrl-G prompt editing
         public let editorSessionManager: EditorSessionManager
 
+        /// Persists in-progress edits for remote viewer editor overlays, keyed by session UUID.
+        public let remoteEditorContentStore: RemoteEditorContentStore
+
         // MARK: - Private Services
 
         @ObservationIgnored
@@ -142,6 +145,7 @@
             // Create editor session manager (API server is started later in setupAllServices)
             let editorManager = EditorSessionManager()
             self.editorSessionManager = editorManager
+            self.remoteEditorContentStore = RemoteEditorContentStore()
 
             // Create window manager with editor session manager
             self.windowManager = MirrorWindowManager(
