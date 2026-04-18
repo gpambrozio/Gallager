@@ -21,6 +21,9 @@ struct RemoteTerminalContainerView: View {
     var onStreamEnd: (() -> Void)?
     /// Whether to show the per-pane status bar (defaults to using the app setting)
     var showStatusBar: Bool?
+    /// True when a prompt editor overlay is active above this terminal.
+    /// Suppresses keyboard forwarding to the remote tmux pane so the editor gets input.
+    var isEditorActive = false
 
     @State private var streamState: RemoteStreamState = .connecting
     @State private var streamWidth = 80
@@ -40,6 +43,7 @@ struct RemoteTerminalContainerView: View {
                 paneId: paneId,
                 connection: connection,
                 settings: settings,
+                isEditorActive: isEditorActive,
                 onStateChange: { state, width, height in
                     streamState = state
                     streamWidth = width
@@ -131,6 +135,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
     let paneId: String
     let connection: ViewerConnection
     let settings: AppSettings
+    let isEditorActive: Bool
     let onStateChange: @MainActor (RemoteStreamState, Int, Int) -> Void
     let onTitleChange: @MainActor (String) -> Void
 
@@ -148,6 +153,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             onStateChange: onStateChange,
             onTitleChange: onTitleChange
         )
+        coordinator.terminalView.isEditorActive = isEditorActive
 
         return coordinator.terminalView
     }
@@ -155,6 +161,14 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
     func updateNSView(_ nsView: InteractiveTerminalView, context: Context) {
         context.coordinator.updateSettings(settings)
         context.coordinator.updateContainerSize(nsView.frame.size)
+
+        // Update editor-active flag. When the editor just closed, restore first
+        // responder to the terminal so typing resumes without a manual click.
+        let wasEditorActive = nsView.isEditorActive
+        nsView.isEditorActive = isEditorActive
+        if wasEditorActive, !isEditorActive {
+            nsView.window?.makeFirstResponder(nsView)
+        }
     }
 
     static func dismantleNSView(_ nsView: InteractiveTerminalView, coordinator: Coordinator) {

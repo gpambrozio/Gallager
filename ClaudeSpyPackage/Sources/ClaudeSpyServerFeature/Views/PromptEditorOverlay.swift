@@ -11,9 +11,12 @@
         @Environment(EditorSessionManager.self) private var editorSessionManager
 
         var body: some View {
-            if let session = editorSessionManager.session(for: paneId) {
+            if editorSessionManager.session(for: paneId) != nil {
                 PromptEditorOverlay(
-                    originalContent: session.originalContent,
+                    content: Binding(
+                        get: { editorSessionManager.editedContents[paneId] ?? "" },
+                        set: { editorSessionManager.editedContents[paneId] = $0 }
+                    ),
                     onSubmit: { content in
                         editorSessionManager.submitSession(paneId: paneId, content: content)
                     },
@@ -29,20 +32,15 @@
     ///
     /// Shown as a large overlay above the terminal when an editor session is active.
     /// Both host and viewer can edit; the first to submit wins.
+    ///
+    /// Content is provided via `Binding` so edits persist across SwiftUI view
+    /// teardown/recreation (e.g., when switching tabs or sessions).
     struct PromptEditorOverlay: View {
-        let originalContent: String
+        @Binding var content: String
         let onSubmit: (String) -> Void
         let onCancel: () -> Void
 
-        @State private var content: String
         @FocusState private var isEditorFocused: Bool
-
-        init(originalContent: String, onSubmit: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
-            self.originalContent = originalContent
-            self.onSubmit = onSubmit
-            self.onCancel = onCancel
-            _content = State(initialValue: originalContent)
-        }
 
         var body: some View {
             VStack(spacing: 0) {
