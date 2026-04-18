@@ -430,6 +430,9 @@ private struct APIReferenceMenuItem: View {
 }
 
 /// Menu item to install/uninstall the `gallager` CLI symlink.
+///
+/// When installing on a zsh user's machine, offers to also install the zsh
+/// completion script alongside the CLI so tab-completion works out of the box.
 private struct InstallCLIMenuItem: View {
     @State private var installed = CLIInstaller.isInstalled
 
@@ -440,10 +443,41 @@ private struct InstallCLIMenuItem: View {
                     installed = false
                 }
             } else {
-                if CLIInstaller.install() {
+                let installCompletion = CLIInstaller.userShellIsZsh && askAboutZshCompletion()
+                let result = CLIInstaller.install(installZshCompletion: installCompletion)
+                if result.cliInstalled {
                     installed = true
+                }
+                if result.completionRequested, !result.completionInstalled {
+                    showCompletionFailureAlert(reason: result.completionFailureReason)
                 }
             }
         }
+    }
+
+    /// Shows a confirmation alert asking whether to install the zsh completion script.
+    private func askAboutZshCompletion() -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Install zsh tab completion?"
+        alert.informativeText = """
+        Your login shell is zsh. Also install tab completion for \
+        the gallager command? It will be written to \
+        /usr/local/share/zsh/site-functions/_gallager in the same admin prompt.
+        """
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Install Completion")
+        alert.addButton(withTitle: "Skip")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    /// Notifies the user that the CLI installed but completion didn't.
+    private func showCompletionFailureAlert(reason: String?) {
+        let alert = NSAlert()
+        alert.messageText = "Zsh completion was not installed"
+        alert.informativeText = reason.map { "The CLI is installed, but completion failed: \($0)." }
+            ?? "The CLI is installed, but completion could not be generated."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 }
