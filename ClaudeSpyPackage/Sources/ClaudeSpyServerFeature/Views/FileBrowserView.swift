@@ -167,8 +167,22 @@ struct FileBrowserView: View {
             )
         }
         state.loadedPath = directoryPath
-        state.stableIds = result.stableIds
+        // Assign `loadedFolderPaths` before `stableIds` so the `didSet` on
+        // `stableIds` (which refreshes `reverseIds`) can't publish a new
+        // `reverseIds`/old `loadedFolderPaths` pairing to observers that read
+        // both (see `handleExpansionChange`).
         state.loadedFolderPaths = result.loadedFolderPaths
+        state.stableIds = result.stableIds
+
+        // Clear the selection if the previously selected path no longer exists
+        // in the rebuilt tree; otherwise `fileDetailView` would render against
+        // a stale UUID that `ProjectNavigator` no longer knows about.
+        if
+            let existing = state.viewState,
+            let sel = existing.selection,
+            state.reverseIds[sel] == nil {
+            existing.selection = nil
+        }
     }
 
     /// Detects when the user expands a folder whose children haven't been loaded yet,
