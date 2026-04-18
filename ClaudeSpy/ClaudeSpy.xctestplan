@@ -13,7 +13,8 @@
       "containerPath" : "container:ClaudeSpy.xcodeproj",
       "identifier" : "8B41F6442DEDD0D5001A66F9",
       "name" : "ClaudeSpy"
-    }
+    },
+    "userAttachmentLifetime" : "deleteOnSuccess"
   },
   "testTargets" : [
     {
