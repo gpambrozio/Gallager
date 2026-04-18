@@ -692,6 +692,13 @@
                     return .success(for: command.id)
                 }
 
+                // Handle session description (applied to every pane in the session)
+                if case let .setSessionDescription(spec) = command.command {
+                    winManager.setSessionDescription(spec.description, for: spec.sessionName)
+                    await connectionManager?.pushSessionStateToAll()
+                    return .success(for: command.id)
+                }
+
                 // Handle split pane (needs state refresh after split)
                 if case .splitTmuxPane = command.command {
                     let response = await executor.execute(command)

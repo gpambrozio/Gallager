@@ -293,6 +293,19 @@ final public class MirrorWindowManager {
         Task { await onDescriptionChanged?() }
     }
 
+    /// Sets a custom description for a session, updating every pane in every window
+    /// of that session so the description survives switching windows/tabs.
+    /// - Parameters:
+    ///   - description: The description text, or nil to clear
+    ///   - sessionName: The tmux session name
+    public func setSessionDescription(_ description: String?, for sessionName: String) {
+        let normalizedDescription = description?.isEmpty == true ? nil : description
+        for (paneId, state) in paneStates where state.sessionName == sessionName {
+            paneStates[paneId]?.customDescription = normalizedDescription
+        }
+        Task { await onDescriptionChanged?() }
+    }
+
     // MARK: - Auto-Close Pane
 
     /// Polls until the Claude process exits from the pane, then closes the pane after a short delay.

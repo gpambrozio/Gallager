@@ -51,7 +51,7 @@ public struct DescriptionContextMenuButtons: View {
 /// Callers can supply additional context menu items via the `additionalMenu` parameter.
 /// These items appear above the description editing buttons.
 public struct DescriptionEditingModifier<AdditionalMenu: View>: ViewModifier {
-    let windowId: String
+    let sessionName: String
     let currentDescription: String?
     let isDisabled: Bool
     let onSetDescription: (String, String?) -> Void
@@ -61,13 +61,13 @@ public struct DescriptionEditingModifier<AdditionalMenu: View>: ViewModifier {
     @State private var editedDescription = ""
 
     public init(
-        windowId: String,
+        sessionName: String,
         currentDescription: String?,
         isDisabled: Bool = false,
         onSetDescription: @escaping (String, String?) -> Void,
         @ViewBuilder additionalMenu: () -> AdditionalMenu
     ) {
-        self.windowId = windowId
+        self.sessionName = sessionName
         self.currentDescription = currentDescription
         self.isDisabled = isDisabled
         self.onSetDescription = onSetDescription
@@ -85,17 +85,17 @@ public struct DescriptionEditingModifier<AdditionalMenu: View>: ViewModifier {
                         isEditingDescription = true
                     },
                     onRemove: {
-                        onSetDescription(windowId, nil)
+                        onSetDescription(sessionName, nil)
                     }
                 )
 
                 additionalMenu
             }
-            .alert("Window Description", isPresented: $isEditingDescription) {
+            .alert("Session Description", isPresented: $isEditingDescription) {
                 TextField("Description", text: $editedDescription)
                 Button("Save") {
                     let trimmed = editedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-                    onSetDescription(windowId, trimmed.isEmpty ? nil : trimmed)
+                    onSetDescription(sessionName, trimmed.isEmpty ? nil : trimmed)
                 }
                 Button("Cancel", role: .cancel) { }
             } message: {
@@ -106,13 +106,13 @@ public struct DescriptionEditingModifier<AdditionalMenu: View>: ViewModifier {
 
 public extension DescriptionEditingModifier where AdditionalMenu == EmptyView {
     init(
-        windowId: String,
+        sessionName: String,
         currentDescription: String?,
         isDisabled: Bool = false,
         onSetDescription: @escaping (String, String?) -> Void
     ) {
         self.init(
-            windowId: windowId,
+            sessionName: sessionName,
             currentDescription: currentDescription,
             isDisabled: isDisabled,
             onSetDescription: onSetDescription,
