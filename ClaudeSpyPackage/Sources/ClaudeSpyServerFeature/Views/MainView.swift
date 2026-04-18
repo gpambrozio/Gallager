@@ -1977,7 +1977,7 @@ private struct RemoteHostSidebarSection: View {
 
     /// Remote sessions grouped by tmux session (mirrors local session grouping)
     private var tmuxSessions: [TmuxSession] {
-        sessionStore.sessions(for: host.id) as [TmuxSession]
+        sessionStore.sessions(for: host.id)
     }
 
     private var hasContent: Bool {

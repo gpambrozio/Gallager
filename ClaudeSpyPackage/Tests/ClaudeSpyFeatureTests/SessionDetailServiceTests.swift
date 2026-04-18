@@ -128,6 +128,49 @@ struct SessionDetailServiceTests {
         #expect(service.session == nil) // Session removed on end
     }
 
+    // MARK: - Cross-Host Pane Isolation Tests
+
+    @Test("Same paneId from two hosts produces two distinct sessions")
+    func samePaneIdAcrossHostsDoesNotCollide() {
+        let sessionStore = SessionStore()
+        let relayClient = ViewerRelayClient()
+
+        // Two hosts emit events for the same tmux pane id (`%0`).
+        let eventA = HookEvent(
+            action: .sessionStart(SessionStartBody(sessionId: "session-a", hookEventName: "SessionStart")),
+            projectPath: "/host-a/path",
+            tmuxPane: "%0"
+        )
+        let eventB = HookEvent(
+            action: .sessionStart(SessionStartBody(sessionId: "session-b", hookEventName: "SessionStart")),
+            projectPath: "/host-b/path",
+            tmuxPane: "%0"
+        )
+        sessionStore.handleEvent(HookEventMessage(pairId: "host-a", event: eventA))
+        sessionStore.handleEvent(HookEventMessage(pairId: "host-b", event: eventB))
+
+        // Store keeps both panes separately rather than collapsing them.
+        #expect(sessionStore.paneStates.count == 2)
+
+        // A SessionDetailService scoped to host-a does not pick up host-b's session.
+        let serviceA = SessionDetailService(
+            paneId: "%0",
+            hostId: "host-a",
+            sessionStore: sessionStore,
+            relayClient: relayClient
+        )
+        let serviceB = SessionDetailService(
+            paneId: "%0",
+            hostId: "host-b",
+            sessionStore: sessionStore,
+            relayClient: relayClient
+        )
+
+        #expect(serviceA.session?.latestEvent?.id == eventA.id)
+        #expect(serviceB.session?.latestEvent?.id == eventB.id)
+        #expect(serviceA.session?.latestEvent?.id != serviceB.session?.latestEvent?.id)
+    }
+
     // MARK: - Mac Connection Status Tests
 
     @Test("Mac connection status reflects relay client state")

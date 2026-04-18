@@ -19,7 +19,7 @@ public struct MenuBarExtraView: View {
     private var remoteSessionsByHost: [(host: PairedHost, sessions: [ClaudeSession])] {
         guard let sessionStore = coordinator.remoteSessionStore else { return [] }
         return settings.pairedHosts.compactMap { host in
-            let sessions = sessionStore.sessions(for: host.id).map(\.session)
+            let sessions = sessionStore.claudeSessions(for: host.id).map(\.session)
             guard !sessions.isEmpty else { return nil }
             return (host: host, sessions: sessions)
         }
@@ -99,7 +99,6 @@ public struct MenuBarExtraView: View {
 
     // MARK: - Session Buttons
 
-    @ViewBuilder
     private func localSessionButton(for session: ClaudeSession) -> some View {
         Button {
             coordinator.pendingMenuBarSelection = .local(paneId: session.paneId)
@@ -111,7 +110,6 @@ public struct MenuBarExtraView: View {
         }
     }
 
-    @ViewBuilder
     private func remoteSessionButton(for session: ClaudeSession, host: PairedHost) -> some View {
         Button {
             coordinator.pendingMenuBarSelection = .remote(

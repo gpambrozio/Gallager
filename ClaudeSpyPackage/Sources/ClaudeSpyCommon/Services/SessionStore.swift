@@ -77,7 +77,7 @@ final public class SessionStore {
     // MARK: - Per-Host Computed Properties
 
     /// Get Claude sessions for a specific host, sorted by most recent event
-    public func sessions(for hostId: String) -> [(paneId: String, session: ClaudeSession)] {
+    public func claudeSessions(for hostId: String) -> [(paneId: String, session: ClaudeSession)] {
         paneStates
             .filter { $0.key.pairId == hostId }
             .compactMap { key, state -> (paneId: String, session: ClaudeSession)? in
@@ -240,6 +240,7 @@ final public class SessionStore {
 
         // Clear stored projects
         claudeProjectsByHost.removeValue(forKey: hostId)
+        homeDirectoryByHost.removeValue(forKey: hostId)
         hostsWithReceivedState.remove(hostId)
 
         logger.info("Cleared all sessions for host: \(hostId)")
