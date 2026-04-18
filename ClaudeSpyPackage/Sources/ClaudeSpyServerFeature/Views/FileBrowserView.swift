@@ -10,7 +10,7 @@ import Textual
 import WebKit
 
 /// OS-level entries to hide in the file navigator (same as skippedEntries in the service).
-private let skippedNavigatorEntries: Set<String> = [
+private let skippedNavigatorEntries: Set = [
     ".DS_Store", ".Trash", ".Spotlight-V100", ".fseventsd",
     ".TemporaryItems", ".DocumentRevisions-V100",
 ]
@@ -151,23 +151,21 @@ struct FileBrowserView: View {
             state.loadedFolderPaths,
             state.stableIds
         )
-        let tree = FileTree(files: result.root)
-        let expansions: WrappedUUIDSet
-        let selection: FileOrFolder.ID?
         if let existing = state.viewState {
-            // Preserve expansion and selection state across rebuilds
-            expansions = existing.expansions
-            selection = existing.selection
+            // Mutate the existing FileTree in place so ProjectNavigator's
+            // @Observable tracking and internal bindings see the new children.
+            // Replacing the FileTree or the whole view state leaves the rendered
+            // rows bound to the previous tree, which is why newly created files
+            // never appeared after a refresh.
+            existing.fileTree.root = result.root.proxy(within: existing.fileTree)
         } else {
-            expansions = WrappedUUIDSet()
-            selection = nil
+            let tree = FileTree(files: result.root)
+            state.viewState = FileNavigatorViewState<TextFileContents>(
+                fileTree: tree,
+                expansions: WrappedUUIDSet(),
+                selection: nil
+            )
         }
-        let viewState = FileNavigatorViewState<TextFileContents>(
-            fileTree: tree,
-            expansions: expansions,
-            selection: selection
-        )
-        state.viewState = viewState
         state.loadedPath = directoryPath
         state.stableIds = result.stableIds
         state.loadedFolderPaths = result.loadedFolderPaths
@@ -193,7 +191,6 @@ struct FileBrowserView: View {
 
     // MARK: - File Search
 
-    @ViewBuilder
     private var fileSearchField: some View {
         HStack(spacing: 6) {
             Symbols.magnifyingglass.image
@@ -474,8 +471,10 @@ private extension View {
                         clipboard.setString(relativePath)
                     }
                 }
-                let isDirectory = (try? URL(fileURLWithPath: fullPath)
-                    .resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+                let isDirectory = (
+                    try? URL(fileURLWithPath: fullPath)
+                        .resourceValues(forKeys: [.isDirectoryKey])
+                )?.isDirectory == true
                 if !isDirectory {
                     Button("Copy") {
                         @Dependency(ClipboardClient.self) var clipboard
