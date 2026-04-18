@@ -506,8 +506,9 @@ public struct SetWindowDescription: CommandSpec, Equatable {
 }
 
 /// Set a custom description for a tmux session. Returns success/failure.
-/// The description is applied to every pane in every window of the session and
-/// synced to all connected devices, so it persists when switching windows/tabs.
+/// When handled by the host, the description is applied to every pane in every
+/// window and then pushed to all connected viewers, so it persists when
+/// switching windows/tabs.
 public struct SetSessionDescription: CommandSpec, Equatable {
     public typealias Response = CommandResponseMessage
 
