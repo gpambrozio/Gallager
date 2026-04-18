@@ -15,6 +15,7 @@ struct SessionDetailServiceTests {
         let relayClient = ViewerRelayClient()
         let service = SessionDetailService(
             paneId: "%1",
+            hostId: "test-pair",
             sessionStore: sessionStore,
             relayClient: relayClient
         )
@@ -40,6 +41,7 @@ struct SessionDetailServiceTests {
 
         let service = SessionDetailService(
             paneId: "%1",
+            hostId: "test-pair",
             sessionStore: sessionStore,
             relayClient: relayClient
         )
@@ -57,6 +59,7 @@ struct SessionDetailServiceTests {
 
         let service = SessionDetailService(
             paneId: "%1",
+            hostId: "test-pair",
             sessionStore: sessionStore,
             relayClient: relayClient
         )
@@ -79,6 +82,7 @@ struct SessionDetailServiceTests {
 
         let service = SessionDetailService(
             paneId: "%1",
+            hostId: "test-pair",
             sessionStore: sessionStore,
             relayClient: relayClient
         )
@@ -105,6 +109,7 @@ struct SessionDetailServiceTests {
 
         let service = SessionDetailService(
             paneId: "%1",
+            hostId: "test-pair",
             sessionStore: sessionStore,
             relayClient: relayClient
         )
@@ -132,6 +137,7 @@ struct SessionDetailServiceTests {
 
         let service = SessionDetailService(
             paneId: "%1",
+            hostId: "test-pair",
             sessionStore: sessionStore,
             relayClient: relayClient
         )
@@ -163,6 +169,7 @@ struct SessionDetailServiceTests {
 
             let service = SessionDetailService(
                 paneId: "%1",
+                hostId: "test-pair",
                 sessionStore: sessionStore,
                 relayClient: relayClient
             )
@@ -190,6 +197,7 @@ struct SessionDetailServiceTests {
             // First service - set a response
             let service1 = SessionDetailService(
                 paneId: "%1",
+                hostId: "test-pair",
                 sessionStore: sessionStore,
                 relayClient: relayClient
             )
@@ -198,6 +206,7 @@ struct SessionDetailServiceTests {
             // Create a new service (simulating navigation away and back)
             let service2 = SessionDetailService(
                 paneId: "%1",
+                hostId: "test-pair",
                 sessionStore: sessionStore,
                 relayClient: relayClient
             )
@@ -221,6 +230,7 @@ struct SessionDetailServiceTests {
 
             let service = SessionDetailService(
                 paneId: "%1",
+                hostId: "test-pair",
                 sessionStore: sessionStore,
                 relayClient: relayClient
             )

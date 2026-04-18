@@ -1,6 +1,23 @@
 import ClaudeSpyNetworking
 import Foundation
 
+/// Composite identity for a pane originating from a specific host.
+///
+/// A viewer can be connected to several hosts at once, and tmux assigns
+/// pane IDs independently on each host (both `%0`, `%1`, etc. are reused).
+/// Keying only by `paneId` across hosts makes them collide, so the viewer
+/// stores panes under `(pairId, paneId)` — the `pairId` uniquely identifies
+/// both the host and the user account on that host via the pairing flow.
+public struct PaneKey: Hashable, Sendable {
+    public let pairId: String
+    public let paneId: String
+
+    public init(pairId: String, paneId: String) {
+        self.pairId = pairId
+        self.paneId = paneId
+    }
+}
+
 /// Manages local session state received from multiple host servers.
 ///
 /// This store maintains a synchronized view of Claude Code sessions and hook events
@@ -12,11 +29,9 @@ final public class SessionStore {
 
     private let logger = Logger(label: "com.claudespy.sessionstore")
 
-    /// Unified per-pane state keyed by pane ID (all hosts combined)
-    public private(set) var paneStates: [String: PaneState] = [:]
-
-    /// Maps pane ID to source host's pairId
-    private var paneToHostMap: [String: String] = [:]
+    /// Per-pane state keyed by `(pairId, paneId)` to disambiguate panes
+    /// whose IDs collide across hosts.
+    public private(set) var paneStates: [PaneKey: PaneState] = [:]
 
     /// Claude projects grouped by source host's pairId
     public private(set) var claudeProjectsByHost: [String: [ClaudeProjectInfo]] = [:]
@@ -28,25 +43,6 @@ final public class SessionStore {
     private var hostsWithReceivedState: Set<String> = []
 
     // MARK: - Computed Properties (All Hosts Combined)
-
-    /// Claude sessions sorted by most recent event timestamp (all hosts combined)
-    public var sortedSessions: [(paneId: String, session: ClaudeSession)] {
-        paneStates
-            .compactMap { key, state -> (paneId: String, session: ClaudeSession)? in
-                guard let session = state.claudeSession else { return nil }
-                return (paneId: key, session: session)
-            }
-            .sorted { lhs, rhs in
-                let lhsTime = lhs.session.latestEvent?.timestamp ?? .distantPast
-                let rhsTime = rhs.session.latestEvent?.timestamp ?? .distantPast
-                return lhsTime > rhsTime
-            }
-    }
-
-    /// Panes that have Claude sessions (for legacy compatibility)
-    public var claudeSessionPanes: [(paneId: String, session: ClaudeSession)] {
-        sortedSessions
-    }
 
     /// All panes combined from all hosts
     public var panes: [PaneState] {
@@ -83,10 +79,10 @@ final public class SessionStore {
     /// Get Claude sessions for a specific host, sorted by most recent event
     public func sessions(for hostId: String) -> [(paneId: String, session: ClaudeSession)] {
         paneStates
-            .filter { paneToHostMap[$0.key] == hostId }
+            .filter { $0.key.pairId == hostId }
             .compactMap { key, state -> (paneId: String, session: ClaudeSession)? in
                 guard let session = state.claudeSession else { return nil }
-                return (paneId: key, session: session)
+                return (paneId: key.paneId, session: session)
             }
             .sorted { lhs, rhs in
                 let lhsTime = lhs.session.latestEvent?.timestamp ?? .distantPast
@@ -98,14 +94,14 @@ final public class SessionStore {
     /// Get plain terminal panes (no Claude session) for a specific host
     public func panes(for hostId: String) -> [PaneState] {
         paneStates
-            .filter { paneToHostMap[$0.key] == hostId && $0.value.claudeSession == nil }
+            .filter { $0.key.pairId == hostId && $0.value.claudeSession == nil }
             .map(\.value)
     }
 
     /// Get all pane states for a specific host grouped by tmux window
     public func windows(for hostId: String) -> [TmuxWindow] {
         let hostPanes = paneStates
-            .filter { paneToHostMap[$0.key] == hostId }
+            .filter { $0.key.pairId == hostId }
             .map(\.value)
         return TmuxWindow.groupPanes(hostPanes)
     }
@@ -118,7 +114,7 @@ final public class SessionStore {
     /// Get a single window by ID for a specific host, without grouping all panes
     public func window(id windowId: String, hostId: String) -> TmuxWindow? {
         let windowPanes = paneStates
-            .filter { paneToHostMap[$0.key] == hostId && $0.value.windowId == windowId }
+            .filter { $0.key.pairId == hostId && $0.value.windowId == windowId }
             .map(\.value)
             .sorted { $0.paneIndex < $1.paneIndex }
         guard let first = windowPanes.first else { return nil }
@@ -138,14 +134,9 @@ final public class SessionStore {
         claudeProjectsByHost[hostId] ?? []
     }
 
-    /// Get the source host ID for a pane
-    public func hostId(for paneId: String) -> String? {
-        paneToHostMap[paneId]
-    }
-
     /// Check if a host has any sessions or panes
     public func hasSessions(for hostId: String) -> Bool {
-        paneStates.keys.contains { paneToHostMap[$0] == hostId }
+        paneStates.keys.contains { $0.pairId == hostId }
     }
 
     /// Whether a full session state has been received from the given host
@@ -164,20 +155,18 @@ final public class SessionStore {
         let event = eventMessage.event
         let hostId = eventMessage.pairId
         let paneId = event.tmuxPane ?? event.action.sessionId
+        let key = PaneKey(pairId: hostId, paneId: paneId)
 
         logger.info("Handling hook event: \(event.action.eventName) for pane: \(paneId) from host: \(hostId)")
 
-        // Track host source for this pane
-        paneToHostMap[paneId] = hostId
-
         // Get or create session within pane state
-        var session = paneStates[paneId]?.claudeSession ?? ClaudeSession(paneId: paneId)
+        var session = paneStates[key]?.claudeSession ?? ClaudeSession(paneId: paneId)
         session.addEvent(event)
 
-        if paneStates[paneId] != nil {
-            paneStates[paneId]?.claudeSession = session
+        if paneStates[key] != nil {
+            paneStates[key]?.claudeSession = session
         } else {
-            paneStates[paneId] = PaneState(paneId: paneId, claudeSession: session)
+            paneStates[key] = PaneState(paneId: paneId, claudeSession: session)
         }
 
         // Handle session lifecycle
@@ -186,12 +175,11 @@ final public class SessionStore {
             logger.info("Session started for pane: \(paneId)")
 
         case .sessionEnd:
-            paneStates[paneId]?.claudeSession = nil
-            paneStates[paneId]?.yoloMode = false
+            paneStates[key]?.claudeSession = nil
+            paneStates[key]?.yoloMode = false
             // Remove pane state entirely if it has no meaningful data
-            if paneStates[paneId]?.target.isEmpty == true {
-                paneStates.removeValue(forKey: paneId)
-                paneToHostMap.removeValue(forKey: paneId)
+            if paneStates[key]?.target.isEmpty == true {
+                paneStates.removeValue(forKey: key)
             }
             logger.info("Session ended for pane: \(paneId)")
 
@@ -232,20 +220,15 @@ final public class SessionStore {
             "Received full session state from host \(hostId): \(state.paneStates.count) panes, \(state.claudeProjects?.count ?? 0) projects"
         )
 
-        // Build new state atomically to avoid UI flicker from clear-then-repopulate
-        // First, filter out old data for this host
-        var newPaneStates = paneStates.filter { paneToHostMap[$0.key] != hostId }
-        var newPaneToHostMap = paneToHostMap.filter { $0.value != hostId }
+        // Build new state atomically to avoid UI flicker from clear-then-repopulate.
+        // Drop this host's existing panes first, then add the incoming ones keyed by `(hostId, paneId)`.
+        var newPaneStates = paneStates.filter { $0.key.pairId != hostId }
 
-        // Add pane states with host tracking
         for (paneId, paneState) in state.paneStates {
-            newPaneStates[paneId] = paneState
-            newPaneToHostMap[paneId] = hostId
+            newPaneStates[PaneKey(pairId: hostId, paneId: paneId)] = paneState
         }
 
-        // Atomically swap all state
         paneStates = newPaneStates
-        paneToHostMap = newPaneToHostMap
         claudeProjectsByHost[hostId] = state.claudeProjects ?? []
         homeDirectoryByHost[hostId] = state.homeDirectory
         hostsWithReceivedState.insert(hostId)
@@ -253,14 +236,7 @@ final public class SessionStore {
 
     /// Clear all sessions and panes for a specific host
     public func clearSessions(for hostId: String) {
-        // Collect panes to remove first
-        let panesToRemove = paneToHostMap.filter { $0.value == hostId }.keys
-
-        // Remove pane states and tracking
-        for paneId in panesToRemove {
-            paneStates.removeValue(forKey: paneId)
-            paneToHostMap.removeValue(forKey: paneId)
-        }
+        paneStates = paneStates.filter { $0.key.pairId != hostId }
 
         // Clear stored projects
         claudeProjectsByHost.removeValue(forKey: hostId)
@@ -269,31 +245,31 @@ final public class SessionStore {
         logger.info("Cleared all sessions for host: \(hostId)")
     }
 
-    /// Get a session by pane ID
-    public func session(for paneId: String) -> ClaudeSession? {
-        paneStates[paneId]?.claudeSession
+    /// Get a session by host and pane ID
+    public func session(for paneId: String, hostId: String) -> ClaudeSession? {
+        paneStates[PaneKey(pairId: hostId, paneId: paneId)]?.claudeSession
     }
 
-    /// Get the pane state by pane ID
-    public func paneState(for paneId: String) -> PaneState? {
-        paneStates[paneId]
+    /// Get the pane state by host and pane ID
+    public func paneState(for paneId: String, hostId: String) -> PaneState? {
+        paneStates[PaneKey(pairId: hostId, paneId: paneId)]
     }
 
     /// Check if a pane is currently active (has a Claude session)
-    public func isPaneActive(_ paneId: String) -> Bool {
-        paneStates[paneId]?.claudeSession != nil
+    public func isPaneActive(paneId: String, hostId: String) -> Bool {
+        paneStates[PaneKey(pairId: hostId, paneId: paneId)]?.claudeSession != nil
     }
 
     /// Check if yolo mode is enabled for a pane (as reported by the host)
-    public func isYoloModeEnabled(for paneId: String) -> Bool {
-        paneStates[paneId]?.yoloMode ?? false
+    public func isYoloModeEnabled(paneId: String, hostId: String) -> Bool {
+        paneStates[PaneKey(pairId: hostId, paneId: paneId)]?.yoloMode ?? false
     }
 
     /// Marks a session as handled (user has seen it), clearing the `needsAttention` flag locally.
-    /// - Parameter paneId: The pane ID whose session should be marked handled
-    public func markSessionHandled(paneId: String) {
-        guard paneStates[paneId]?.claudeSession?.needsAttention == true else { return }
-        paneStates[paneId]?.claudeSession?.markHandled()
+    public func markSessionHandled(paneId: String, hostId: String) {
+        let key = PaneKey(pairId: hostId, paneId: paneId)
+        guard paneStates[key]?.claudeSession?.needsAttention == true else { return }
+        paneStates[key]?.claudeSession?.markHandled()
     }
 
     // MARK: - Event Response Storage (iOS only)

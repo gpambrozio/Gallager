@@ -180,7 +180,6 @@ public struct MainView: View {
 
     // MARK: - Sidebar
 
-    @ViewBuilder
     private var sidebarContent: some View {
         Group {
             if tmuxService.isRefreshing && tmuxService.panes.isEmpty && !settings.hasRemoteHosts {
@@ -248,7 +247,6 @@ public struct MainView: View {
         }
     }
 
-    @ViewBuilder
     private func localSessionsSection(sessions: [LocalTmuxSession]) -> some View {
         Section {
             if sessions.isEmpty && settings.hasRemoteHosts {
@@ -641,9 +639,11 @@ public struct MainView: View {
                         Symbols.bolt.image
                     }
                     .toggleStyle(.button)
-                    .help(windowManager.isYoloModeEnabled(for: claudePane.paneId)
-                        ? "Yolo mode: auto-approving permissions (click to disable)"
-                        : "Enable yolo mode to auto-approve permissions")
+                    .help(
+                        windowManager.isYoloModeEnabled(for: claudePane.paneId)
+                            ? "Yolo mode: auto-approving permissions (click to disable)"
+                            : "Enable yolo mode to auto-approve permissions"
+                    )
                 }
 
                 if let activePane {
@@ -673,9 +673,9 @@ public struct MainView: View {
                 if
                     let claudePaneId,
                     let sessionStore = coordinator.remoteSessionStore,
-                    sessionStore.session(for: claudePaneId) != nil {
+                    sessionStore.session(for: claudePaneId, hostId: remote.hostId) != nil {
                     Toggle(isOn: Binding(
-                        get: { sessionStore.isYoloModeEnabled(for: claudePaneId) },
+                        get: { sessionStore.isYoloModeEnabled(paneId: claudePaneId, hostId: remote.hostId) },
                         set: { newValue in
                             Task {
                                 guard let manager = coordinator.viewerConnectionManager else { return }
@@ -690,9 +690,11 @@ public struct MainView: View {
                         Symbols.bolt.image
                     }
                     .toggleStyle(.button)
-                    .help(coordinator.remoteSessionStore?.isYoloModeEnabled(for: claudePaneId) == true
-                        ? "Yolo mode: auto-approving permissions (click to disable)"
-                        : "Enable yolo mode to auto-approve permissions")
+                    .help(
+                        coordinator.remoteSessionStore?.isYoloModeEnabled(paneId: claudePaneId, hostId: remote.hostId) == true
+                            ? "Yolo mode: auto-approving permissions (click to disable)"
+                            : "Enable yolo mode to auto-approve permissions"
+                    )
                 }
 
                 if let activePane = remoteWindow.activePane {
@@ -723,7 +725,6 @@ public struct MainView: View {
 
     // MARK: - Connection Status View
 
-    @ViewBuilder
     private var connectionStatusView: some View {
         HStack(spacing: 6) {
             connectionStatusIcon
@@ -755,9 +756,11 @@ public struct MainView: View {
         case .connected:
             Symbols.wifi.image
                 .foregroundStyle(.green)
-                .help(anyViewerConnected
-                    ? "Connected - viewer online"
-                    : "Connected - waiting for viewer")
+                .help(
+                    anyViewerConnected
+                        ? "Connected - viewer online"
+                        : "Connected - waiting for viewer"
+                )
         case let .error(message):
             Symbols.exclamationmarkTriangle.image
                 .foregroundStyle(.red)
@@ -996,7 +999,7 @@ public struct MainView: View {
 
         if let remote = selectedRemoteSession, let remoteWindow = selectedRemoteWindow {
             for pane in remoteWindow.panes where pane.claudeSession?.needsAttention == true {
-                coordinator.remoteSessionStore?.markSessionHandled(paneId: pane.paneId)
+                coordinator.remoteSessionStore?.markSessionHandled(paneId: pane.paneId, hostId: remote.hostId)
                 Task {
                     _ = await coordinator.viewerConnectionManager?.sendCommand(
                         MarkHandled(),
@@ -1025,7 +1028,7 @@ public struct MainView: View {
             }
         case let .remote(hostId, hostName, paneId):
             // Find the session name for this pane from the session store
-            if let paneState = coordinator.remoteSessionStore?.paneState(for: paneId) {
+            if let paneState = coordinator.remoteSessionStore?.paneState(for: paneId, hostId: hostId) {
                 selectedRemoteSession = RemoteSessionSelection(
                     hostId: hostId,
                     hostName: hostName,
@@ -1321,7 +1324,7 @@ public struct MainView: View {
             // Select the new remote session if we got a pane ID
             if
                 let paneId = response.paneId,
-                let paneState = coordinator.remoteSessionStore?.paneState(for: paneId) {
+                let paneState = coordinator.remoteSessionStore?.paneState(for: paneId, hostId: host.id) {
                 selectedRemoteSession = RemoteSessionSelection(
                     hostId: host.id,
                     hostName: host.displayName,
@@ -1445,10 +1448,14 @@ private struct SessionSidebarRow: View {
     let session: LocalTmuxSession
 
     /// The active window (or first)
-    private var activeWindow: LocalTmuxWindow? { session.activeWindow }
+    private var activeWindow: LocalTmuxWindow? {
+        session.activeWindow
+    }
 
     /// The primary pane to show info for (active pane or first pane in active window)
-    private var primaryPane: PaneInfo? { activeWindow?.activePane }
+    private var primaryPane: PaneInfo? {
+        activeWindow?.activePane
+    }
 
     private var primaryPaneState: PaneState? {
         guard let pane = primaryPane else { return nil }
@@ -1939,7 +1946,9 @@ private struct RemoteSessionSelection: Equatable, Hashable {
     let sessionName: String
 
     /// Returns the auto-resize key for the active pane in a given window
-    func resizeKey(paneId: String) -> String { "remote-\(hostId)-\(paneId)" }
+    func resizeKey(paneId: String) -> String {
+        "remote-\(hostId)-\(paneId)"
+    }
 
     /// Extracts the paneId from a resizeKey generated by this type.
     static func paneId(from resizeKey: String, hostId: String) -> String {
@@ -2082,7 +2091,7 @@ private struct RemoteHostSidebarSection: View {
             additionalMenu: {
                 if let claudePane {
                     Toggle(isOn: Binding(
-                        get: { sessionStore.isYoloModeEnabled(for: claudePane.paneId) },
+                        get: { sessionStore.isYoloModeEnabled(paneId: claudePane.paneId, hostId: host.id) },
                         set: { onToggleYolo(claudePane.paneId, $0) }
                     )) {
                         Label("Yolo Mode", symbol: .bolt)
@@ -2297,8 +2306,10 @@ private struct CloseConfirmation {
 
     var title: String {
         switch target {
-        case .session, .remoteSession: "Close Session?"
-        case .window, .remoteWindow: "Close Window?"
+        case .session,
+             .remoteSession: "Close Session?"
+        case .window,
+             .remoteWindow: "Close Window?"
         }
     }
 
