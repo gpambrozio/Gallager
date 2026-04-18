@@ -16,5 +16,12 @@
         public func clear(sessionId: UUID) {
             editedContents.removeValue(forKey: sessionId)
         }
+
+        /// Drops any stored edits whose `sessionId` is no longer in `activeSessionIds`.
+        /// Call after each session-state update from the remote host so that entries
+        /// for sessions ended by the host (not the local viewer) don't linger.
+        public func retainOnly(activeSessionIds: Set<UUID>) {
+            editedContents = editedContents.filter { activeSessionIds.contains($0.key) }
+        }
     }
 #endif

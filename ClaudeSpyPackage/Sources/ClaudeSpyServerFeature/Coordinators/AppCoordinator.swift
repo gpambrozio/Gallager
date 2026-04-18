@@ -1054,9 +1054,14 @@
                     store?.handleEvent(event)
                 }
 
-                // Wire session state updates from remote hosts
-                manager.onSessionState = { [weak store] state in
+                // Wire session state updates from remote hosts.
+                // After applying the update, prune any remote-editor edits whose
+                // sessions the host has ended — otherwise those entries leak until quit.
+                manager.onSessionState = { [weak store, weak remoteEditorContentStore] state in
                     store?.handleStateUpdate(state)
+                    guard let remoteEditorContentStore, let panes = store?.panes else { return }
+                    let activeIds = Set(panes.compactMap { $0.editorSession?.sessionId })
+                    remoteEditorContentStore.retainOnly(activeSessionIds: activeIds)
                 }
 
                 // Wire partner key received to persist in settings

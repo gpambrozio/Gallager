@@ -42,8 +42,13 @@ struct TerminalContainerView: NSViewRepresentable {
     func makeNSView(context: Context) -> InteractiveTerminalView {
         let coordinator = context.coordinator
 
-        // Configure auto-focus before starting (must be set before viewDidMoveToWindow fires)
+        // Configure auto-focus before starting (must be set before viewDidMoveToWindow fires).
+        // Same applies to isEditorActive: if a pane tile is (re)created while an editor
+        // session is already active on that pane (e.g., tab switch), viewDidMoveToWindow
+        // would otherwise auto-grab focus before updateNSView flips the flag.
         coordinator.terminalView.autoFocusEnabled = autoFocus
+        coordinator.terminalView.isEditorActive =
+            editorSessionManager.session(for: paneState.paneId) != nil
 
         // Start the coordinator with all dependencies
         coordinator.start(

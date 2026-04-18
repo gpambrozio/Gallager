@@ -195,23 +195,27 @@ private struct RemotePaneEditorOverlay: View {
             ),
             onSubmit: { content in
                 Task {
-                    _ = await connection.sendCommand(
-                        SubmitEditorContent(content: content),
-                        paneId: paneId
-                    )
-                    // Clean up only after the host has ack'd. Clearing earlier
-                    // would leave the overlay rendering `initialContent` during
-                    // the relay round-trip, appearing to "lose" the edit.
-                    store.clear(sessionId: sessionId)
+                    // Only clear on success — on a transient relay failure the host's
+                    // session stays open and the overlay remains visible, so keeping
+                    // the edit in the store lets the user retry without retyping.
+                    if
+                        case .success = await connection.sendCommand(
+                            SubmitEditorContent(content: content),
+                            paneId: paneId
+                        ) {
+                        store.clear(sessionId: sessionId)
+                    }
                 }
             },
             onCancel: {
                 Task {
-                    _ = await connection.sendCommand(
-                        CancelEditorSession(),
-                        paneId: paneId
-                    )
-                    store.clear(sessionId: sessionId)
+                    if
+                        case .success = await connection.sendCommand(
+                            CancelEditorSession(),
+                            paneId: paneId
+                        ) {
+                        store.clear(sessionId: sessionId)
+                    }
                 }
             }
         )
