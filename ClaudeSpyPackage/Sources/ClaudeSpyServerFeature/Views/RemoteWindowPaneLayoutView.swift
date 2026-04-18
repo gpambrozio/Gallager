@@ -202,14 +202,12 @@ struct RemoteWindowPaneLayoutView: View {
 /// Manages a local `@State` to back the content binding since remote viewers
 /// don't have an `EditorSessionManager` to persist edits.
 private struct RemotePaneEditorOverlay: View {
-    let initialContent: String
     let onSubmit: (String) -> Void
     let onCancel: () -> Void
 
     @State private var content: String
 
     init(initialContent: String, onSubmit: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
-        self.initialContent = initialContent
         self.onSubmit = onSubmit
         self.onCancel = onCancel
         _content = State(initialValue: initialContent)
