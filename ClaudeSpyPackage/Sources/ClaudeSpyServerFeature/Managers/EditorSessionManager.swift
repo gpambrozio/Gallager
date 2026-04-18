@@ -35,6 +35,10 @@
         /// Only one editor session per pane is supported.
         public private(set) var activeSessions: [String: EditorSession] = [:]
 
+        /// Current edited content per pane. Persisted here so that edits survive
+        /// SwiftUI view teardown/recreation (e.g., when switching tabs).
+        public var editedContents: [String: String] = [:]
+
         /// Per-session continuations that block the API response until editing completes.
         private var completionContinuations: [UUID: CheckedContinuation<Void, Never>] = [:]
 
@@ -55,6 +59,7 @@
             }
             completionContinuations.removeAll()
             activeSessions.removeAll()
+            editedContents.removeAll()
         }
 
         // MARK: - Public API
@@ -91,6 +96,7 @@
                 originalContent: content
             )
             activeSessions[paneId] = session
+            editedContents[paneId] = content
 
             logger.info("Opened editor session for pane \(paneId)")
 
@@ -122,6 +128,7 @@
 
             // Resume the continuation, which unblocks the API response
             completionContinuations.removeValue(forKey: session.id)?.resume()
+            editedContents.removeValue(forKey: paneId)
             logger.info("Submitted editor session for pane \(paneId)")
 
             // Notify viewers
@@ -138,6 +145,7 @@
 
             // Resume the continuation, which unblocks the API response
             completionContinuations.removeValue(forKey: session.id)?.resume()
+            editedContents.removeValue(forKey: paneId)
             logger.info("Cancelled editor session for pane \(paneId)")
 
             // Notify viewers
