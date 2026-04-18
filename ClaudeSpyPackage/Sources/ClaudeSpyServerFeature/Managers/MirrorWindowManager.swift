@@ -278,25 +278,7 @@ final public class MirrorWindowManager {
         paneStates[paneId]?.yoloMode ?? false
     }
 
-    // MARK: - Window Descriptions
-
-    /// Sets a custom description for a window, updating all panes that belong to it.
-    /// The description is persisted as a tmux user option so it survives app restarts.
-    /// - Parameters:
-    ///   - description: The description text, or nil to clear
-    ///   - windowId: The window ID (sessionName:windowIndex)
-    public func setWindowDescription(_ description: String?, for windowId: String) {
-        let normalizedDescription = description?.isEmpty == true ? nil : description
-        // Optimistic local update for immediate UI feedback; tmux remains the source
-        // of truth and the next refresh reconciles from it.
-        for (paneId, state) in paneStates where state.windowId == windowId {
-            paneStates[paneId]?.customDescription = normalizedDescription
-        }
-        Task { [tmuxService] in
-            try? await tmuxService.setWindowDescription(normalizedDescription, for: windowId)
-            await onDescriptionChanged?()
-        }
-    }
+    // MARK: - Session Descriptions
 
     /// Sets a custom description for a session, updating every pane in every window
     /// of that session so the description survives switching windows/tabs.
@@ -306,6 +288,8 @@ final public class MirrorWindowManager {
     ///   - sessionName: The tmux session name
     public func setSessionDescription(_ description: String?, for sessionName: String) {
         let normalizedDescription = description?.isEmpty == true ? nil : description
+        // Optimistic local update for immediate UI feedback; tmux remains the source
+        // of truth and the next refresh reconciles from it.
         for (paneId, state) in paneStates where state.sessionName == sessionName {
             paneStates[paneId]?.customDescription = normalizedDescription
         }

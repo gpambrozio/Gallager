@@ -1350,12 +1350,33 @@ final public class TmuxService {
     ///
     /// Writes `@gallager-description` at session scope so it survives app restarts
     /// (the tmux server keeps the option for the session's lifetime). Any existing
-    /// window-level overrides inside the session are cleared so the new value applies
-    /// uniformly across every window.
+    /// window-level overrides inside the session are cleared first so the new value
+    /// applies uniformly across every window — doing the sweep up front also means a
+    /// stray override from a previous version or manual tmux tweak gets cleaned up
+    /// even if the session-level write ends up being a no-op.
     /// - Parameters:
     ///   - description: The description text, or `nil` to clear the option.
     ///   - sessionName: The tmux session name.
     public func setSessionDescription(_ description: String?, for sessionName: String) async throws {
+        // Sweep window-level overrides first so the session value wins everywhere.
+        // Running this before the session-level write also means the cleanup still
+        // happens if `set-option -u` exits non-zero (e.g. option already unset).
+        if
+            let windows = try? await runTmuxCommand([
+                "list-windows", "-t", sessionName, "-F", "#{window_index}",
+            ]), windows.isSuccess {
+            let indexes = windows.stdoutString
+                .split(separator: "\n")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            for index in indexes {
+                _ = try? await runTmuxCommand([
+                    "set-option", "-wu", "-t", "\(sessionName):\(index)",
+                    Self.descriptionOptionKey,
+                ])
+            }
+        }
+
         if let description {
             let result = try await runTmuxCommand([
                 "set-option", "-t", sessionName,
@@ -1372,47 +1393,6 @@ final public class TmuxService {
             guard result.isSuccess else {
                 throw TmuxError.commandFailed(message: result.stderrString)
             }
-        }
-
-        // Drop window-level overrides so the session value is what every window resolves to.
-        let windows = try? await runTmuxCommand([
-            "list-windows", "-t", sessionName, "-F", "#{window_index}",
-        ])
-        guard let windows, windows.isSuccess else { return }
-        let indexes = windows.stdoutString
-            .split(separator: "\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        for index in indexes {
-            _ = try? await runTmuxCommand([
-                "set-option", "-wu", "-t", "\(sessionName):\(index)",
-                Self.descriptionOptionKey,
-            ])
-        }
-    }
-
-    /// Persists the custom description for a window as a tmux user option.
-    ///
-    /// Writes `@gallager-description` at window scope, which overrides any
-    /// session-scope value when formatted from a pane in that window.
-    /// - Parameters:
-    ///   - description: The description text, or `nil` to clear the override.
-    ///   - windowTarget: The window target (e.g., "mysession:0").
-    public func setWindowDescription(_ description: String?, for windowTarget: String) async throws {
-        let result: ProcessResult
-        if let description {
-            result = try await runTmuxCommand([
-                "set-option", "-w", "-t", windowTarget,
-                Self.descriptionOptionKey, description,
-            ])
-        } else {
-            result = try await runTmuxCommand([
-                "set-option", "-wu", "-t", windowTarget,
-                Self.descriptionOptionKey,
-            ])
-        }
-        guard result.isSuccess else {
-            throw TmuxError.commandFailed(message: result.stderrString)
         }
     }
 

@@ -104,7 +104,9 @@ public extension PaneInfo {
         self.windowName = components.count >= 12 ? components[11] : ""
         self.isWindowActive = components.count >= 13 ? components[12] == "1" : false
         if components.count >= 14 {
-            let description = components[13]
+            // Descriptions may contain `|`, so rejoin everything past the fixed fields
+            // instead of only taking components[13].
+            let description = components[13...].joined(separator: "|")
             self.customDescription = description.isEmpty ? nil : description
         } else {
             self.customDescription = nil

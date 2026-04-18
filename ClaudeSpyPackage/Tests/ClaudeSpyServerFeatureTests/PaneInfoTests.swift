@@ -32,4 +32,11 @@ struct PaneInfoTests {
         #expect(pane.customDescription == nil)
         #expect(pane.isWindowActive)
     }
+
+    @Test("Pipe characters inside the description are preserved")
+    func pipesInDescriptionArePreserved() throws {
+        let line = "%5|work|2|0|zsh|/tmp|80|24|1|Title|d0c6,80x24|main|1|foo | bar | baz"
+        let pane = try #require(PaneInfo(fromTmuxOutput: line))
+        #expect(pane.customDescription == "foo | bar | baz")
+    }
 }
