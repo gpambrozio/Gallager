@@ -152,12 +152,19 @@ struct FileBrowserView: View {
             state.stableIds
         )
         if let existing = state.viewState {
-            // Mutate the existing FileTree in place so ProjectNavigator's
-            // @Observable tracking and internal bindings see the new children.
-            // Replacing the FileTree or the whole view state leaves the rendered
-            // rows bound to the previous tree, which is why newly created files
-            // never appeared after a refresh.
+            // Mutate the existing FileTree in place so `File.Proxy`'s weak
+            // reference to the tree stays valid and ProjectNavigator sees the
+            // new children. Then rebuild the `FileNavigatorViewState` around
+            // the same tree so SwiftUI sees `state.viewState` change and
+            // rebuilds the navigator hierarchy — mutating `fileTree.root`
+            // alone does not reliably propagate through the navigator's
+            // disclosure views, so expansions load one step behind.
             existing.fileTree.root = result.root.proxy(within: existing.fileTree)
+            state.viewState = FileNavigatorViewState<TextFileContents>(
+                fileTree: existing.fileTree,
+                expansions: existing.expansions,
+                selection: existing.selection
+            )
         } else {
             let tree = FileTree(files: result.root)
             state.viewState = FileNavigatorViewState<TextFileContents>(
@@ -167,12 +174,8 @@ struct FileBrowserView: View {
             )
         }
         state.loadedPath = directoryPath
-        // Assign `loadedFolderPaths` before `stableIds` so the `didSet` on
-        // `stableIds` (which refreshes `reverseIds`) can't publish a new
-        // `reverseIds`/old `loadedFolderPaths` pairing to observers that read
-        // both (see `handleExpansionChange`).
-        state.loadedFolderPaths = result.loadedFolderPaths
         state.stableIds = result.stableIds
+        state.loadedFolderPaths = result.loadedFolderPaths
 
         // Clear the selection if the previously selected path no longer exists
         // in the rebuilt tree; otherwise `fileDetailView` would render against
