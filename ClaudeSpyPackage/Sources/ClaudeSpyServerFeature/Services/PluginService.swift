@@ -16,6 +16,8 @@
         /// Current state of the plugin installation
         public enum State: Equatable, Sendable {
             case unknown
+            case checkingClaude
+            case claudeNotInstalled
             case checking
             case installed(version: String)
             case notInstalled
@@ -73,6 +75,28 @@
         public init() { }
 
         // MARK: - Public API
+
+        /// Search common locations for the `claude` binary.
+        ///
+        /// If found, returns the path so the caller can persist it via
+        /// `AppSettings.claudeCommandPath`. If not found, transitions state to
+        /// `.claudeNotInstalled` so the UI can prompt the user to install
+        /// Claude Code. Call this before `checkInstallation()` to ensure the
+        /// plugin flow has a usable CLI.
+        @discardableResult
+        public func findClaude() -> String? {
+            @Dependency(ClaudeBinaryLocator.self) var claudeLocator
+
+            state = .checkingClaude
+            if let path = claudeLocator.find() {
+                logger.info("Found claude at: \(path)")
+                return path
+            } else {
+                logger.info("Claude CLI not found in common locations")
+                state = .claudeNotInstalled
+                return nil
+            }
+        }
 
         /// Check if the plugin is installed (async to avoid blocking main thread)
         public func checkInstallation() async {

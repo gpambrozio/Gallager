@@ -7,10 +7,14 @@
     /// Settings view for managing the Claude Code plugin
     public struct PluginSettingsView: View {
         @Environment(PluginService.self) private var pluginService
+        @Environment(AppSettings.self) private var settings
+
+        @Dependency(ClaudeBinaryLocator.self) private var claudeLocator
 
         @State private var showingInstructions = false
         @State private var showCopiedFeedback = false
         @State private var feedbackResetTrigger: UUID?
+        @State private var claudeCopied = false
 
         public init() { }
 
@@ -25,6 +29,19 @@
                     Text("The gallager plugin enables real-time monitoring of Claude Code sessions.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+
+                // Claude Code Installation Section (when claude binary is missing)
+                if case .claudeNotInstalled = pluginService.state {
+                    Section {
+                        claudeInstallContent
+                    } header: {
+                        Text("Install Claude Code")
+                    } footer: {
+                        Text("The plugin requires the Claude Code CLI. Install it using the command above — the installation will be detected automatically.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 // Installation Section
@@ -66,18 +83,39 @@
             .frame(minWidth: 400, minHeight: 300)
             .navigationTitle("Plugin")
             .task {
-                await pluginService.checkInstallation()
+                await runCheckFlow()
             }
             .task(id: feedbackResetTrigger) {
                 guard feedbackResetTrigger != nil else { return }
                 try? await Task.sleep(for: .seconds(2))
                 showCopiedFeedback = false
+                claudeCopied = false
+            }
+        }
+
+        // MARK: - Check Flow
+
+        /// Checks for claude, then the plugin. Polls for claude when it's
+        /// missing so the UI reacts as soon as the user installs it.
+        private func runCheckFlow() async {
+            if let path = pluginService.findClaude() {
+                settings.claudeCommandPath = path
+                await pluginService.checkInstallation()
+                return
+            }
+
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                if let path = claudeLocator.find() {
+                    settings.claudeCommandPath = path
+                    await pluginService.checkInstallation()
+                    return
+                }
             }
         }
 
         // MARK: - Plugin Status Row
 
-        @ViewBuilder
         private var pluginStatusRow: some View {
             HStack(spacing: 12) {
                 statusIcon
@@ -117,13 +155,15 @@
         private var statusIcon: some View {
             switch pluginService.state {
             case .unknown,
-                 .checking:
+                 .checking,
+                 .checkingClaude:
                 ProgressView()
                     .controlSize(.small)
             case .installed:
                 Symbols.checkmarkCircleFill.image
                     .foregroundStyle(.green)
-            case .notInstalled:
+            case .notInstalled,
+                 .claudeNotInstalled:
                 Symbols.exclamationmarkTriangle.image
                     .foregroundStyle(.orange)
             case .installing:
@@ -140,6 +180,10 @@
             case .unknown,
                  .checking:
                 "Checking..."
+            case .checkingClaude:
+                "Checking for Claude Code..."
+            case .claudeNotInstalled:
+                "Claude Code Not Installed"
             case .installed:
                 "Plugin Installed"
             case .notInstalled:
@@ -171,14 +215,54 @@
                 .disabled(pluginService.state == .installing)
             case .unknown,
                  .checking,
+                 .checkingClaude,
+                 .claudeNotInstalled,
                  .installing:
                 EmptyView()
             }
         }
 
+        // MARK: - Claude Install Content
+
+        private var claudeInstallContent: some View {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Run this command in Terminal to install Claude Code:")
+                    .foregroundStyle(.secondary)
+
+                HStack(alignment: .top) {
+                    Text(Self.claudeInstallCommand)
+                        .font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Spacer()
+
+                    Button {
+                        copyClaudeCommand()
+                    } label: {
+                        Label(
+                            claudeCopied ? "Copied!" : "Copy",
+                            symbol: .docOnClipboard
+                        )
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(10)
+                .background(Color(nsColor: .textBackgroundColor))
+                .clipShape(.rect(cornerRadius: 6))
+
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Waiting for Claude Code to be installed\u{2026}")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+
         // MARK: - Installation Content
 
-        @ViewBuilder
         private var installationContent: some View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("The plugin is required for Gallager to receive events from Claude Code sessions.")
@@ -198,7 +282,6 @@
 
         // MARK: - Manual Instructions
 
-        @ViewBuilder
         private var manualInstructionsContent: some View {
             DisclosureGroup("Show Installation Commands") {
                 VStack(alignment: .leading, spacing: 8) {
@@ -228,5 +311,15 @@
             showCopiedFeedback = true
             feedbackResetTrigger = UUID()
         }
+
+        private func copyClaudeCommand() {
+            @Dependency(ClipboardClient.self) var clipboard
+            clipboard.setString(Self.claudeInstallCommand)
+
+            claudeCopied = true
+            feedbackResetTrigger = UUID()
+        }
+
+        private static let claudeInstallCommand = "curl -fsSL https://claude.ai/install.sh | bash"
     }
 #endif
