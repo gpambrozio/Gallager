@@ -507,6 +507,28 @@ public struct SetSessionDescription: CommandSpec, Equatable {
     }
 }
 
+/// Rename a tmux window. Returns success/failure.
+/// Applied on the host via `tmux rename-window`, which also implicitly disables
+/// tmux's automatic-rename so the tab stops tracking the running command.
+public struct SetWindowName: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// The window to rename, in `sessionName:windowIndex` form
+    public let windowId: String
+
+    /// The new window name. Empty strings are rejected by the host.
+    public let name: String
+
+    public init(windowId: String, name: String) {
+        self.windowId = windowId
+        self.name = name
+    }
+
+    public var commandType: CommandType {
+        .setWindowName(self)
+    }
+}
+
 /// Set yolo mode for a pane's Claude session. Returns success/failure.
 public struct SetYoloMode: CommandSpec, Equatable {
     public typealias Response = CommandResponseMessage
@@ -729,6 +751,8 @@ public enum CommandType: Codable, Sendable, Equatable {
     case markHandled(MarkHandled)
     /// Set a custom description for a tmux session (applied to all panes)
     case setSessionDescription(SetSessionDescription)
+    /// Rename a tmux window (shown in the tab)
+    case setWindowName(SetWindowName)
     /// Split a tmux pane
     case splitTmuxPane(SplitTmuxPane)
     /// Select (focus) a tmux pane
@@ -805,6 +829,11 @@ public enum CommandType: Codable, Sendable, Equatable {
     /// Create a setSessionDescription command
     public static func setSessionDescription(sessionName: String, description: String?) -> CommandType {
         .setSessionDescription(SetSessionDescription(sessionName: sessionName, description: description))
+    }
+
+    /// Create a setWindowName command
+    public static func setWindowName(windowId: String, name: String) -> CommandType {
+        .setWindowName(SetWindowName(windowId: windowId, name: name))
     }
 
     /// Create a splitTmuxPane command

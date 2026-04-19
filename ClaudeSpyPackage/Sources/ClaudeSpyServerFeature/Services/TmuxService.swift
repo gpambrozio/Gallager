@@ -1255,10 +1255,14 @@ final public class TmuxService {
     ///   - workingDirectory: Optional working directory for the new window
     /// - Returns: The pane ID of the new window's first pane
     public func newWindow(sessionName: String, workingDirectory: String? = nil) async throws -> String {
+        // Snapshot window names *before* creating the new window so we can
+        // derive a sensible "terminal N" name for it.
+        let existingNames = await listWindowNames(in: sessionName)
+
         var args = [
             "new-window",
             "-t", sessionName,
-            "-P", "-F", "#{pane_id}",
+            "-P", "-F", "#{pane_id}:#{window_index}",
         ] + terminalEnvironmentVars.flatMap { ["-e", $0] }
 
         if let workingDirectory {
@@ -1271,12 +1275,69 @@ final public class TmuxService {
             throw TmuxError.commandFailed(message: result.stderrString)
         }
 
-        let paneId = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+        let output = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+        let components = output.split(separator: ":", maxSplits: 1).map(String.init)
+        let paneId = components.first ?? output
+        let windowIndex = components.count >= 2 ? components[1] : nil
+
+        // Name the new window "terminal N" so the tab shows a stable label
+        // instead of the running command. tmux's auto-rename is implicitly
+        // disabled once we rename the window.
+        if let windowIndex {
+            let nextName = Self.nextTerminalWindowName(existingNames: existingNames)
+            _ = try? await renameWindow(target: "\(sessionName):\(windowIndex)", name: nextName)
+        }
 
         // Refresh to pick up the new window
         await refreshPanes()
 
         return paneId
+    }
+
+    /// Renames an existing tmux window.
+    /// - Parameters:
+    ///   - target: The window target in the form `sessionName:windowIndex`.
+    ///   - name: The new window name.
+    public func renameWindow(target: String, name: String) async throws {
+        let result = try await runTmuxCommand([
+            "rename-window",
+            "-t", target,
+            name,
+        ])
+
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+    }
+
+    /// Lists window names for a session in window-index order.
+    private func listWindowNames(in sessionName: String) async -> [String] {
+        guard
+            let result = try? await runTmuxCommand([
+                "list-windows", "-t", sessionName, "-F", "#{window_name}",
+            ]), result.isSuccess
+        else {
+            return []
+        }
+        return result.stdoutString
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Computes the next "terminal N" name based on existing window names.
+    /// - If any existing name matches `terminal \d+`, returns `"terminal (maxN + 1)"`.
+    /// - Otherwise returns `"terminal 1"`.
+    static func nextTerminalWindowName(existingNames: [String]) -> String {
+        let maxTerminalNumber = existingNames.compactMap { terminalNumber(in: $0) }.max() ?? 0
+        return "terminal \(maxTerminalNumber + 1)"
+    }
+
+    /// Extracts the integer N from a name of the form "terminal N".
+    private static func terminalNumber(in name: String) -> Int? {
+        let prefix = "terminal "
+        guard name.hasPrefix(prefix) else { return nil }
+        return Int(name.dropFirst(prefix.count))
     }
 
     /// Sends Ctrl+C to cancel the current operation in a pane
@@ -1577,13 +1638,17 @@ final public class TmuxService {
     ///   - baseName: The desired base name for the session
     ///   - width: Terminal width in columns
     ///   - height: Terminal height in rows
+    ///   - isClaudeProject: When `true`, the first window is named `"claude"`.
+    ///     Otherwise it's named `"terminal 1"`. The explicit name also disables
+    ///     tmux's automatic-rename so the tab doesn't track the running command.
     /// - Returns: Tuple containing the actual session name and the pane ID of the first pane
     public func createSession(
         baseName: String,
         width: Int,
         height: Int,
         workingDirectory: String? = nil,
-        runCommand: String? = nil
+        runCommand: String? = nil,
+        isClaudeProject: Bool = false
     ) async throws -> (sessionName: String, paneId: String) {
         // Get existing session names
         let existingNames = await getExistingSessionNames()
@@ -1594,10 +1659,14 @@ final public class TmuxService {
         // Build command arguments
         // -d: detached, -x: width, -y: height, -c: working directory
         // -e: set environment variables (suppress oh-my-zsh update prompts)
+        // -n: name the first window up front so the tab doesn't briefly show
+        //     the shell command name before we rename it
+        let firstWindowName = isClaudeProject ? "claude" : "terminal 1"
         var args = [
             "new-session",
             "-d",
             "-s", sessionName,
+            "-n", firstWindowName,
             "-x", String(width),
             "-y", String(height),
         ] + terminalEnvironmentVars.flatMap { ["-e", $0] }

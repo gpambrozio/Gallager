@@ -1,0 +1,73 @@
+import ClaudeSpyNetworking
+import SwiftUI
+
+/// View modifier that adds a "Rename Window" context menu and an alert for
+/// editing the window name. Kept parallel to `DescriptionEditingModifier` so
+/// tabs feel consistent with session description editing.
+public struct WindowRenamingModifier<AdditionalMenu: View>: ViewModifier {
+    let windowId: String
+    let currentName: String
+    let isDisabled: Bool
+    let onRename: (_ windowId: String, _ newName: String) -> Void
+    let additionalMenu: AdditionalMenu
+
+    @State private var isEditingName = false
+    @State private var editedName = ""
+
+    public init(
+        windowId: String,
+        currentName: String,
+        isDisabled: Bool = false,
+        onRename: @escaping (_ windowId: String, _ newName: String) -> Void,
+        @ViewBuilder additionalMenu: () -> AdditionalMenu
+    ) {
+        self.windowId = windowId
+        self.currentName = currentName
+        self.isDisabled = isDisabled
+        self.onRename = onRename
+        self.additionalMenu = additionalMenu()
+    }
+
+    public func body(content: Content) -> some View {
+        content
+            .contextMenu {
+                Button {
+                    editedName = currentName
+                    isEditingName = true
+                } label: {
+                    Label("Rename Window", symbol: .pencil)
+                }
+                .disabled(isDisabled)
+
+                additionalMenu
+            }
+            .alert("Rename Window", isPresented: $isEditingName) {
+                TextField("Window Name", text: $editedName)
+                Button("Save") {
+                    let trimmed = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return }
+                    onRename(windowId, trimmed)
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Enter a new name for this window")
+            }
+    }
+}
+
+public extension WindowRenamingModifier where AdditionalMenu == EmptyView {
+    init(
+        windowId: String,
+        currentName: String,
+        isDisabled: Bool = false,
+        onRename: @escaping (_ windowId: String, _ newName: String) -> Void
+    ) {
+        self.init(
+            windowId: windowId,
+            currentName: currentName,
+            isDisabled: isDisabled,
+            onRename: onRename,
+            additionalMenu: { EmptyView() }
+        )
+    }
+}
