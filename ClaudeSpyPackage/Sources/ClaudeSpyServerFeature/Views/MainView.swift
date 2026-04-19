@@ -12,6 +12,7 @@ public struct MainView: View {
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(PairingManager.self) private var pairingManager
     @Environment(\.e2eeService) private var e2eeService: E2EEService?
+    @Environment(\.openSettings) private var openSettings
 
     public init() { }
 
@@ -26,6 +27,9 @@ public struct MainView: View {
     @State private var creatingSelection: NewSessionCreatingState?
     @State private var detailPaneSize: CGSize = .zero
     @State private var closeConfirmation: CloseConfirmation?
+
+    /// Whether the disconnect confirmation popover is shown
+    @State private var showingDisconnectConfirmation = false
 
     /// Tracks active session pane IDs for detecting section changes
     @State private var trackedActiveSessionPaneIds: Set<String> = []
@@ -180,7 +184,6 @@ public struct MainView: View {
 
     // MARK: - Sidebar
 
-    @ViewBuilder
     private var sidebarContent: some View {
         Group {
             if tmuxService.isRefreshing && tmuxService.panes.isEmpty && !settings.hasRemoteHosts {
@@ -248,7 +251,6 @@ public struct MainView: View {
         }
     }
 
-    @ViewBuilder
     private func localSessionsSection(sessions: [LocalTmuxSession]) -> some View {
         Section {
             if sessions.isEmpty && settings.hasRemoteHosts {
@@ -641,9 +643,11 @@ public struct MainView: View {
                         Symbols.bolt.image
                     }
                     .toggleStyle(.button)
-                    .help(windowManager.isYoloModeEnabled(for: claudePane.paneId)
-                        ? "Yolo mode: auto-approving permissions (click to disable)"
-                        : "Enable yolo mode to auto-approve permissions")
+                    .help(
+                        windowManager.isYoloModeEnabled(for: claudePane.paneId)
+                            ? "Yolo mode: auto-approving permissions (click to disable)"
+                            : "Enable yolo mode to auto-approve permissions"
+                    )
                 }
 
                 if let activePane {
@@ -690,9 +694,11 @@ public struct MainView: View {
                         Symbols.bolt.image
                     }
                     .toggleStyle(.button)
-                    .help(coordinator.remoteSessionStore?.isYoloModeEnabled(for: claudePaneId) == true
-                        ? "Yolo mode: auto-approving permissions (click to disable)"
-                        : "Enable yolo mode to auto-approve permissions")
+                    .help(
+                        coordinator.remoteSessionStore?.isYoloModeEnabled(for: claudePaneId) == true
+                            ? "Yolo mode: auto-approving permissions (click to disable)"
+                            : "Enable yolo mode to auto-approve permissions"
+                    )
                 }
 
                 if let activePane = remoteWindow.activePane {
@@ -723,7 +729,6 @@ public struct MainView: View {
 
     // MARK: - Connection Status View
 
-    @ViewBuilder
     private var connectionStatusView: some View {
         HStack(spacing: 6) {
             connectionStatusIcon
@@ -755,14 +760,44 @@ public struct MainView: View {
         case .connected:
             Symbols.wifi.image
                 .foregroundStyle(.green)
-                .help(anyViewerConnected
-                    ? "Connected - viewer online"
-                    : "Connected - waiting for viewer")
+                .help(
+                    anyViewerConnected
+                        ? "Connected - viewer online"
+                        : "Connected - waiting for viewer"
+                )
         case let .error(message):
             Symbols.exclamationmarkTriangle.image
                 .foregroundStyle(.red)
                 .help("Error: \(message)")
         }
+    }
+
+    private var disconnectConfirmationPopover: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Disconnect from relay server?")
+                .font(.headline)
+            Text("Paired iOS viewers will stop receiving updates until you reconnect.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) {
+                    showingDisconnectConfirmation = false
+                }
+                .keyboardShortcut(.cancelAction)
+                Button("Disconnect", role: .destructive) {
+                    showingDisconnectConfirmation = false
+                    let connectionManager = coordinator.connectedViewerManager
+                    Task {
+                        await connectionManager?.disconnectAll()
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(16)
+        .frame(width: 320)
     }
 
     @ViewBuilder
@@ -778,14 +813,15 @@ public struct MainView: View {
             .controlSize(.small)
             .help("Open Remote Access settings to pair with iOS")
         } else if combinedState.isConnected {
-            // Connected - show disconnect button
+            // Connected - show disconnect button with confirmation popover
             Button("Disconnect") {
-                Task {
-                    await connectionManager?.disconnectAll()
-                }
+                showingDisconnectConfirmation = true
             }
             .controlSize(.small)
             .help("Disconnect from relay server")
+            .popover(isPresented: $showingDisconnectConfirmation, arrowEdge: .bottom) {
+                disconnectConfirmationPopover
+            }
         } else if case .connecting = combinedState {
             // Connecting - no button
             EmptyView()
@@ -1177,13 +1213,9 @@ public struct MainView: View {
     private func openSettingsToRemoteAccess() {
         // Set the tab to Remote Access before opening settings
         settings.selectedSettingsTab = .remoteAccess
-
-        // Open the Settings window using macOS selector
-        // Note: This uses a private selector that may change in future macOS versions
-        let selector = Selector(("showSettingsWindow:"))
-        if NSApp.responds(to: selector) {
-            NSApp.sendAction(selector, to: nil, from: nil)
-        }
+        NSApp.setActivationPolicy(.regular)
+        openSettings()
+        MenuBarExtraView.bringAppToFront()
     }
 
     // MARK: - New Session
@@ -1445,10 +1477,14 @@ private struct SessionSidebarRow: View {
     let session: LocalTmuxSession
 
     /// The active window (or first)
-    private var activeWindow: LocalTmuxWindow? { session.activeWindow }
+    private var activeWindow: LocalTmuxWindow? {
+        session.activeWindow
+    }
 
     /// The primary pane to show info for (active pane or first pane in active window)
-    private var primaryPane: PaneInfo? { activeWindow?.activePane }
+    private var primaryPane: PaneInfo? {
+        activeWindow?.activePane
+    }
 
     private var primaryPaneState: PaneState? {
         guard let pane = primaryPane else { return nil }
@@ -1939,7 +1975,9 @@ private struct RemoteSessionSelection: Equatable, Hashable {
     let sessionName: String
 
     /// Returns the auto-resize key for the active pane in a given window
-    func resizeKey(paneId: String) -> String { "remote-\(hostId)-\(paneId)" }
+    func resizeKey(paneId: String) -> String {
+        "remote-\(hostId)-\(paneId)"
+    }
 
     /// Extracts the paneId from a resizeKey generated by this type.
     static func paneId(from resizeKey: String, hostId: String) -> String {
@@ -2297,8 +2335,10 @@ private struct CloseConfirmation {
 
     var title: String {
         switch target {
-        case .session, .remoteSession: "Close Session?"
-        case .window, .remoteWindow: "Close Window?"
+        case .session,
+             .remoteSession: "Close Session?"
+        case .window,
+             .remoteWindow: "Close Window?"
         }
     }
 
