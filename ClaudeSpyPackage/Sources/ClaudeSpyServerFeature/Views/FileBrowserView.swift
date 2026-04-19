@@ -151,26 +151,41 @@ struct FileBrowserView: View {
             state.loadedFolderPaths,
             state.stableIds
         )
-        let tree = FileTree(files: result.root)
-        let expansions: WrappedUUIDSet
-        let selection: FileOrFolder.ID?
         if let existing = state.viewState {
-            // Preserve expansion and selection state across rebuilds
-            expansions = existing.expansions
-            selection = existing.selection
+            // Mutate the existing FileTree in place so `File.Proxy`'s weak
+            // reference to the tree stays valid and ProjectNavigator sees the
+            // new children. Then rebuild the `FileNavigatorViewState` around
+            // the same tree so SwiftUI sees `state.viewState` change and
+            // rebuilds the navigator hierarchy — mutating `fileTree.root`
+            // alone does not reliably propagate through the navigator's
+            // disclosure views, so expansions load one step behind.
+            existing.fileTree.root = result.root.proxy(within: existing.fileTree)
+            state.viewState = FileNavigatorViewState<TextFileContents>(
+                fileTree: existing.fileTree,
+                expansions: existing.expansions,
+                selection: existing.selection
+            )
         } else {
-            expansions = WrappedUUIDSet()
-            selection = nil
+            let tree = FileTree(files: result.root)
+            state.viewState = FileNavigatorViewState<TextFileContents>(
+                fileTree: tree,
+                expansions: WrappedUUIDSet(),
+                selection: nil
+            )
         }
-        let viewState = FileNavigatorViewState<TextFileContents>(
-            fileTree: tree,
-            expansions: expansions,
-            selection: selection
-        )
-        state.viewState = viewState
         state.loadedPath = directoryPath
         state.stableIds = result.stableIds
         state.loadedFolderPaths = result.loadedFolderPaths
+
+        // Clear the selection if the previously selected path no longer exists
+        // in the rebuilt tree; otherwise `fileDetailView` would render against
+        // a stale UUID that `ProjectNavigator` no longer knows about.
+        if
+            let existing = state.viewState,
+            let sel = existing.selection,
+            state.reverseIds[sel] == nil {
+            existing.selection = nil
+        }
     }
 
     /// Detects when the user expands a folder whose children haven't been loaded yet,
