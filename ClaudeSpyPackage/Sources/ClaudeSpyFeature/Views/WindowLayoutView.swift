@@ -82,7 +82,7 @@
                 let pane = panes.first {
                 if let title = terminalTitles[pane.paneId] { return title }
                 // Fall back to the relay-provided terminal title
-                if let title = sessionStore.paneStates[pane.paneId]?.terminalTitle { return title }
+                if let title = sessionStore.paneState(for: pane.paneId, hostId: hostId)?.terminalTitle { return title }
             }
             return sessionName
         }
@@ -551,6 +551,7 @@
             if activeService?.paneId != activePaneId {
                 activeService = SessionDetailService(
                     paneId: activePaneId,
+                    hostId: hostId,
                     sessionStore: sessionStore,
                     relayClient: relayClient
                 )
