@@ -13,8 +13,9 @@
 
         @State private var showingInstructions = false
         @State private var showCopiedFeedback = false
-        @State private var feedbackResetTrigger: UUID?
+        @State private var commandCopiedResetTrigger: UUID?
         @State private var claudeCopied = false
+        @State private var claudeCopiedResetTrigger: UUID?
 
         public init() { }
 
@@ -85,10 +86,14 @@
             .task {
                 await runCheckFlow()
             }
-            .task(id: feedbackResetTrigger) {
-                guard feedbackResetTrigger != nil else { return }
+            .task(id: commandCopiedResetTrigger) {
+                guard commandCopiedResetTrigger != nil else { return }
                 try? await Task.sleep(for: .seconds(2))
                 showCopiedFeedback = false
+            }
+            .task(id: claudeCopiedResetTrigger) {
+                guard claudeCopiedResetTrigger != nil else { return }
+                try? await Task.sleep(for: .seconds(2))
                 claudeCopied = false
             }
         }
@@ -230,7 +235,7 @@
                     .foregroundStyle(.secondary)
 
                 HStack(alignment: .top) {
-                    Text(Self.claudeInstallCommand)
+                    Text(ClaudeBinaryLocator.installCommand)
                         .font(.system(.body, design: .monospaced))
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
@@ -290,7 +295,7 @@
                         .textSelection(.enabled)
                         .padding(8)
                         .background(Color(nsColor: .textBackgroundColor))
-                        .cornerRadius(4)
+                        .clipShape(.rect(cornerRadius: 4))
 
                     Button {
                         copyToClipboard(pluginService.manualInstructions)
@@ -309,17 +314,15 @@
             clipboard.setString(text)
 
             showCopiedFeedback = true
-            feedbackResetTrigger = UUID()
+            commandCopiedResetTrigger = UUID()
         }
 
         private func copyClaudeCommand() {
             @Dependency(ClipboardClient.self) var clipboard
-            clipboard.setString(Self.claudeInstallCommand)
+            clipboard.setString(ClaudeBinaryLocator.installCommand)
 
             claudeCopied = true
-            feedbackResetTrigger = UUID()
+            claudeCopiedResetTrigger = UUID()
         }
-
-        private static let claudeInstallCommand = "curl -fsSL https://claude.ai/install.sh | bash"
     }
 #endif

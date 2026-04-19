@@ -36,6 +36,9 @@
         @ObservationIgnored
         @Dependency(PreferencesService.self) private var preferences
 
+        @ObservationIgnored
+        @Dependency(ClaudeBinaryLocator.self) private var claudeLocator
+
         /// Current plugin state
         public package(set) var state: State = .unknown
 
@@ -85,8 +88,6 @@
         /// plugin flow has a usable CLI.
         @discardableResult
         public func findClaude() -> String? {
-            @Dependency(ClaudeBinaryLocator.self) var claudeLocator
-
             state = .checkingClaude
             if let path = claudeLocator.find() {
                 logger.info("Found claude at: \(path)")

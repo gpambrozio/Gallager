@@ -12,6 +12,10 @@
     /// access it.
     @DependencyClient
     public struct ClaudeBinaryLocator: Sendable {
+        /// Shell command the user runs in Terminal to install Claude Code.
+        /// Shown verbatim by the plugin setup UI.
+        public static let installCommand = "curl -fsSL https://claude.ai/install.sh | bash"
+
         /// Searches common paths for the claude binary.
         /// Returns the first valid executable path found, or nil.
         public var find: @Sendable () -> String? = { nil }
