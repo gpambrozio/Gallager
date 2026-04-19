@@ -102,7 +102,17 @@ public enum CloseRemoteWindowMacScenario {
         // 6. Run a process in the remaining window, then close the session
         TestStep.log("Phase 5: Run process and close session — should show confirmation")
         Shortcut.tmuxRunCommand(target: "mac-close:0.0", command: "sleep 999")
-        TestStep.wait(seconds: 2)
+
+        // Wait until tmux sees `sleep` as the pane's foreground command. A fixed 2s
+        // wait is racy on CI — the shell may not have executed `sleep` yet, in which
+        // case the host's CheckRunningProcesses returns an empty list and the alert
+        // never appears (close happens without confirmation).
+        TestStep.waitForTmuxDisplayMessage(
+            target: "mac-close:0.0",
+            format: "#{pane_current_command}",
+            contains: "sleep",
+            timeout: 10
+        )
 
         // Close session via toolbar button
         TestStep.macClickButton(titled: "Close session", instance: 1)

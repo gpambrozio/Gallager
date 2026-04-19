@@ -53,7 +53,15 @@ public enum CloseWindowTabScenario {
         // 4. Run a process in the remaining window, then try to close
         TestStep.log("Stage 4: Run a process and try to close — should show confirmation")
         Shortcut.tmuxRunCommand(target: "closetest:0.0", command: "sleep 999")
-        TestStep.wait(seconds: 2)
+
+        // Wait until tmux sees `sleep` as the pane's foreground command before
+        // attempting the close. A fixed wait is racy on CI.
+        TestStep.waitForTmuxDisplayMessage(
+            target: "closetest:0.0",
+            format: "#{pane_current_command}",
+            contains: "sleep",
+            timeout: 10
+        )
 
         TestStep.macClickButton(titled: "Close window")
         TestStep.wait(seconds: 2)
@@ -93,7 +101,15 @@ public enum CloseWindowTabScenario {
         TestStep.tmuxCreateSession(name: "forceclose", width: 160, height: 50)
         Shortcut.tmuxClearAndSetPrompt(target: "forceclose:0")
         Shortcut.tmuxRunCommand(target: "forceclose:0.0", command: "sleep 999")
-        TestStep.wait(seconds: 2)
+
+        // Wait until tmux sees `sleep` as the pane's foreground command before
+        // attempting the close. A fixed wait is racy on CI.
+        TestStep.waitForTmuxDisplayMessage(
+            target: "forceclose:0.0",
+            format: "#{pane_current_command}",
+            contains: "sleep",
+            timeout: 10
+        )
 
         TestStep.macWaitForElement(titled: "forceclose", timeout: 5)
         TestStep.macClickButton(titled: "forceclose")
