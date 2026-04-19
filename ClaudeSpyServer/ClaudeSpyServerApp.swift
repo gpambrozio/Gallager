@@ -378,7 +378,15 @@ struct TmuxPaneMirrorApp: App {
     /// Driven by `pluginSetupCheckTrigger` via `.task(id:)`.
     private func checkForPluginSetup() async {
         if !coordinator.settings.hasCompletedPluginSetup {
-            await coordinator.pluginService.checkInstallation()
+            // If claude isn't installed, jump straight to the setup sheet so
+            // the user can follow the install flow.
+            if let path = coordinator.pluginService.findClaude() {
+                coordinator.settings.claudeCommandPath = path
+                await coordinator.pluginService.checkInstallation()
+            } else {
+                showingPluginSetup = true
+                return
+            }
 
             if case .notInstalled = coordinator.pluginService.state {
                 showingPluginSetup = true
