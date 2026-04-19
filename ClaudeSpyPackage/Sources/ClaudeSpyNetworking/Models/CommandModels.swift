@@ -484,24 +484,26 @@ public struct CreateTmuxSession: CommandSpec, Equatable {
     }
 }
 
-/// Set a custom description for a tmux window. Returns success/failure.
-/// The description is applied to all panes in the window and synced to all connected devices.
-public struct SetWindowDescription: CommandSpec, Equatable {
+/// Set a custom description for a tmux session. Returns success/failure.
+/// When handled by the host, the description is applied to every pane in every
+/// window and then pushed to all connected viewers, so it persists when
+/// switching windows/tabs.
+public struct SetSessionDescription: CommandSpec, Equatable {
     public typealias Response = CommandResponseMessage
 
-    /// The window ID (sessionName:windowIndex) to set the description for
-    public let windowId: String
+    /// The session name to set the description for
+    public let sessionName: String
 
     /// The custom description text, or nil to clear
     public let description: String?
 
-    public init(windowId: String, description: String?) {
-        self.windowId = windowId
+    public init(sessionName: String, description: String?) {
+        self.sessionName = sessionName
         self.description = description
     }
 
     public var commandType: CommandType {
-        .setWindowDescription(self)
+        .setSessionDescription(self)
     }
 }
 
@@ -725,8 +727,8 @@ public enum CommandType: Codable, Sendable, Equatable {
     case setYoloMode(SetYoloMode)
     /// Mark a session as handled (user has seen it)
     case markHandled(MarkHandled)
-    /// Set a custom description for a tmux window
-    case setWindowDescription(SetWindowDescription)
+    /// Set a custom description for a tmux session (applied to all panes)
+    case setSessionDescription(SetSessionDescription)
     /// Split a tmux pane
     case splitTmuxPane(SplitTmuxPane)
     /// Select (focus) a tmux pane
@@ -800,9 +802,9 @@ public enum CommandType: Codable, Sendable, Equatable {
         .markHandled(MarkHandled())
     }
 
-    /// Create a setWindowDescription command
-    public static func setWindowDescription(windowId: String, description: String?) -> CommandType {
-        .setWindowDescription(SetWindowDescription(windowId: windowId, description: description))
+    /// Create a setSessionDescription command
+    public static func setSessionDescription(sessionName: String, description: String?) -> CommandType {
+        .setSessionDescription(SetSessionDescription(sessionName: sessionName, description: description))
     }
 
     /// Create a splitTmuxPane command

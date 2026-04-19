@@ -18,8 +18,12 @@ public enum ClipboardSyncScenario {
 
         // Create a tmux session and store the pane ID
         TestStep.tmuxCreateSession(name: "clip-test", width: 80, height: 24)
-        TestStep.wait(seconds: 2)
         TestStep.tmuxStorePaneId(target: "clip-test:0.0", storeAs: "paneId")
+
+        // Wait for the plain terminal row to appear on iOS before sending the
+        // SessionStart hook — guarantees the viewer has the pane state so the
+        // hook transitions it into a Claude session row deterministically.
+        TestStep.iosWaitForElement(.labelContains("clip-test"), timeout: 15)
 
         // Send a SessionStart hook so the session appears as a Claude session on iOS
         TestStep.macSendHookEvent(

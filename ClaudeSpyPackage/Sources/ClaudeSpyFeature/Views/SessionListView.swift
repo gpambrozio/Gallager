@@ -87,9 +87,9 @@
                         onNewSession: {
                             selectedHostForNewSession = host
                         },
-                        onSetDescription: { windowId, description in
+                        onSetDescription: { sessionName, description in
                             Task {
-                                let command = SetWindowDescription(windowId: windowId, description: description)
+                                let command = SetSessionDescription(sessionName: sessionName, description: description)
                                 _ = await connectionManager.sendCommand(command, paneId: "", hostId: host.id)
                             }
                         }
@@ -192,7 +192,7 @@
                 // Navigate to the new terminal if we got a pane ID
                 if
                     let paneId = response.paneId,
-                    let paneState = sessionStore.paneStates[paneId] {
+                    let paneState = sessionStore.paneState(for: paneId, hostId: host.id) {
                     navigationPath.append(SessionNavigation(sessionName: paneState.sessionName, hostId: host.id))
                 }
             case let .failure(error):
@@ -275,7 +275,7 @@
                     SessionRowView(
                         paneId: claudePane.paneId,
                         session: claudeSession,
-                        isActive: sessionStore.isPaneActive(claudePane.paneId),
+                        isActive: sessionStore.isPaneActive(paneId: claudePane.paneId, hostId: host.id),
                         customDescription: session.customDescription,
                         windowCount: session.windows.count
                     )
@@ -285,7 +285,7 @@
             }
             .accessibilityValue(claudePaneInSession?.claudeSession?.statusLabel ?? "")
             .modifier(DescriptionEditingModifier(
-                windowId: activeWindow?.id ?? session.sessionName,
+                sessionName: session.sessionName,
                 currentDescription: session.customDescription,
                 isDisabled: connection?.isHostConnected != true,
                 onSetDescription: onSetDescription

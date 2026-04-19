@@ -19,6 +19,10 @@ final public class SessionDetailService {
     /// The pane ID for this session
     public let paneId: String
 
+    /// The pair ID of the host this pane belongs to. Required to disambiguate
+    /// panes with the same tmux ID (`%0`, `%1`, ...) coming from different hosts.
+    public let hostId: String
+
     /// Reference to the session store for live session data
     private let sessionStore: SessionStore
 
@@ -37,12 +41,12 @@ final public class SessionDetailService {
 
     /// Live session from store (always up-to-date via observation tracking)
     public var session: ClaudeSession? {
-        sessionStore.session(for: paneId)
+        sessionStore.session(for: paneId, hostId: hostId)
     }
 
     /// Whether the pane is currently active
     public var isPaneActive: Bool {
-        sessionStore.isPaneActive(paneId)
+        sessionStore.isPaneActive(paneId: paneId, hostId: hostId)
     }
 
     /// Whether the host is connected to the relay
@@ -52,7 +56,7 @@ final public class SessionDetailService {
 
     /// Whether yolo mode is enabled for this pane (as reported by the host)
     public var isYoloModeEnabled: Bool {
-        sessionStore.isYoloModeEnabled(for: paneId)
+        sessionStore.isYoloModeEnabled(paneId: paneId, hostId: hostId)
     }
 
     /// The relay client for this session (needed for environment injection)
@@ -67,8 +71,9 @@ final public class SessionDetailService {
 
     // MARK: - Initialization
 
-    public init(paneId: String, sessionStore: SessionStore, relayClient: ViewerRelayClient) {
+    public init(paneId: String, hostId: String, sessionStore: SessionStore, relayClient: ViewerRelayClient) {
         self.paneId = paneId
+        self.hostId = hostId
         self.sessionStore = sessionStore
         self.relayClient = relayClient
 
@@ -89,7 +94,7 @@ final public class SessionDetailService {
 
             withObservationTracking {
                 // Access the properties we want to observe
-                _ = self.sessionStore.session(for: self.paneId)
+                _ = self.sessionStore.session(for: self.paneId, hostId: self.hostId)
             } onChange: {
                 // Schedule update on main actor when store changes
                 Task { @MainActor [weak self] in
@@ -104,7 +109,7 @@ final public class SessionDetailService {
 
     /// Updates response state based on current session's latest event
     private func updateResponseState() {
-        let currentSession = sessionStore.session(for: paneId)
+        let currentSession = sessionStore.session(for: paneId, hostId: hostId)
 
         if let latestEvent = currentSession?.latestEvent {
             if latestEvent.id != lastProcessedEventId {
@@ -124,7 +129,7 @@ final public class SessionDetailService {
     /// Marks the session as handled locally and notifies the host
     public func markHandledIfNeeded() async {
         guard session?.needsAttention == true else { return }
-        sessionStore.markSessionHandled(paneId: paneId)
+        sessionStore.markSessionHandled(paneId: paneId, hostId: hostId)
         _ = await relayClient.sendCommand(MarkHandled(), paneId: paneId)
     }
 
