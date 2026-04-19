@@ -334,11 +334,11 @@
 
                 // Pane state may not be synced yet on cold start (e.g., launched via
                 // push notification). Retry briefly to allow the session store to populate.
-                var paneState = sessionStore.paneStates[deepLink.paneId]
+                var paneState = sessionStore.paneState(for: deepLink.paneId, hostId: deepLink.hostId)
                 if paneState == nil {
                     for _ in 0..<5 {
                         try? await Task.sleep(for: .milliseconds(500))
-                        paneState = sessionStore.paneStates[deepLink.paneId]
+                        paneState = sessionStore.paneState(for: deepLink.paneId, hostId: deepLink.hostId)
                         if paneState != nil { break }
                     }
                 }

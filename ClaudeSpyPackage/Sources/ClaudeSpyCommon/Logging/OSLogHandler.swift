@@ -36,7 +36,7 @@ struct OSLogHandler: LogHandler {
     ) {
         let osLevel = level.osLogType
         let formattedMessage = formatMessage(message, metadata: metadata)
-        osLogger.log(level: osLevel, "\(formattedMessage)")
+        osLogger.log(level: osLevel, "\(formattedMessage, privacy: .public)")
     }
 
     private func formatMessage(_ message: Logging.Logger.Message, metadata: Logging.Logger.Metadata?) -> String {

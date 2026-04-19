@@ -65,7 +65,7 @@ public actor TmuxCommandExecutor {
                  .createTmuxWindow,
                  .setYoloMode,
                  .markHandled,
-                 .setWindowDescription,
+                 .setSessionDescription,
                  .submitEditorContent,
                  .cancelEditorSession,
                  .checkRunningProcesses,

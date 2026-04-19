@@ -689,10 +689,10 @@
                     return .success(for: command.id)
                 }
 
-                // Handle window description
-                if case let .setWindowDescription(spec) = command.command {
-                    winManager.setWindowDescription(spec.description, for: spec.windowId)
-                    await connectionManager?.pushSessionStateToAll()
+                // Handle session description (applied to every pane in the session)
+                // pushSessionStateToAll() runs via onDescriptionChanged, not here.
+                if case let .setSessionDescription(spec) = command.command {
+                    winManager.setSessionDescription(spec.description, for: spec.sessionName)
                     return .success(for: command.id)
                 }
 
