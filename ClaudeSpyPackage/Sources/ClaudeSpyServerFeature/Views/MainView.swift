@@ -28,7 +28,6 @@ public struct MainView: View {
     @State private var detailPaneSize: CGSize = .zero
     @State private var closeConfirmation: CloseConfirmation?
 
-    /// Whether the disconnect confirmation popover is shown
     @State private var showingDisconnectConfirmation = false
 
     /// Tracks active session pane IDs for detecting section changes
@@ -736,6 +735,9 @@ public struct MainView: View {
 
             connectionActionButton
         }
+        .onChange(of: coordinator.connectedViewerManager?.combinedState) { _, _ in
+            showingDisconnectConfirmation = false
+        }
     }
 
     @ViewBuilder
@@ -772,34 +774,6 @@ public struct MainView: View {
         }
     }
 
-    private var disconnectConfirmationPopover: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Disconnect from relay server?")
-                .font(.headline)
-            Text("Paired iOS viewers will stop receiving updates until you reconnect.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) {
-                    showingDisconnectConfirmation = false
-                }
-                .keyboardShortcut(.cancelAction)
-                Button("Disconnect", role: .destructive) {
-                    showingDisconnectConfirmation = false
-                    let connectionManager = coordinator.connectedViewerManager
-                    Task {
-                        await connectionManager?.disconnectAll()
-                    }
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(16)
-        .frame(width: 320)
-    }
-
     @ViewBuilder
     private var connectionActionButton: some View {
         let connectionManager = coordinator.connectedViewerManager
@@ -820,7 +794,30 @@ public struct MainView: View {
             .controlSize(.small)
             .help("Disconnect from relay server")
             .popover(isPresented: $showingDisconnectConfirmation, arrowEdge: .bottom) {
-                disconnectConfirmationPopover
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Disconnect from relay server?")
+                        .font(.headline)
+                    Text("Paired iOS viewers will stop receiving updates until you reconnect.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Spacer()
+                        Button("Cancel", role: .cancel) {
+                            showingDisconnectConfirmation = false
+                        }
+                        .keyboardShortcut(.cancelAction)
+                        Button("Disconnect", role: .destructive) {
+                            showingDisconnectConfirmation = false
+                            Task {
+                                await connectionManager?.disconnectAll()
+                            }
+                        }
+                        .keyboardShortcut(.defaultAction)
+                    }
+                }
+                .padding(16)
+                .frame(width: 320)
             }
         } else if case .connecting = combinedState {
             // Connecting - no button
