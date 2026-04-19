@@ -25,10 +25,6 @@
             public let completionRequested: Bool
             public let completionInstalled: Bool
             public let completionFailureReason: String?
-
-            public var ok: Bool {
-                cliInstalled && (!completionRequested || completionInstalled)
-            }
         }
 
         /// Whether the CLI wrapper is installed.
@@ -165,10 +161,13 @@
             if let error {
                 let message = error[NSAppleScript.errorMessage] as? String ?? "Unknown error"
                 logger.error("Failed to install CLI: \(message)")
+                // The admin command is a chained `&&` — `cp`/`chmod` for the CLI may
+                // have succeeded before a later completion step failed. Re-check the
+                // filesystem so we report what actually landed on disk.
                 return InstallResult(
-                    cliInstalled: false,
+                    cliInstalled: isInstalled,
                     completionRequested: installZshCompletion,
-                    completionInstalled: false,
+                    completionInstalled: installZshCompletion && isCompletionInstalled,
                     completionFailureReason: completionFailureReason
                 )
             }
@@ -190,13 +189,20 @@
         /// Skips the admin prompt entirely if neither file is installed.
         @MainActor
         public static func uninstall() -> Bool {
-            guard isInstalled || isCompletionInstalled else {
+            var paths: [String] = []
+            if isInstalled { paths.append(installPath) }
+            if isCompletionInstalled { paths.append(completionPath) }
+
+            guard !paths.isEmpty else {
                 logger.info("Nothing to uninstall")
                 return true
             }
 
+            // Both paths are compile-time constants under `/usr/local/`, so no
+            // shell escaping is needed beyond the single-quote wrapping.
+            let quoted = paths.map { "'\($0)'" }.joined(separator: " ")
             let script = """
-            do shell script "rm -f '\(installPath)' '\(completionPath)'" with administrator privileges
+            do shell script "rm -f \(quoted)" with administrator privileges
             """
 
             let appleScript = NSAppleScript(source: script)
@@ -230,9 +236,19 @@
             process.arguments = ["--generate-completion-script", "zsh"]
             let stdoutPipe = Pipe()
             process.standardOutput = stdoutPipe
-            // Discard stderr to avoid filling the pipe buffer and deadlocking
-            // the child process; we surface failures via termination status.
-            process.standardError = FileHandle(forWritingAtPath: "/dev/null")
+            // Redirect stderr to /dev/null. `FileHandle(forWritingAtPath:)`
+            // returns Optional, and a nil there would let the child inherit our
+            // stderr — exactly the deadlock case we want to avoid. The throwing
+            // URL-based initializer guarantees a non-nil handle; we surface
+            // failures via termination status anyway, so dropping stderr is fine.
+            let devNull: FileHandle
+            do {
+                devNull = try FileHandle(forWritingTo: URL(fileURLWithPath: "/dev/null"))
+            } catch {
+                return .failure("could not open /dev/null: \(error)")
+            }
+            defer { try? devNull.close() }
+            process.standardError = devNull
 
             do {
                 try process.run()
