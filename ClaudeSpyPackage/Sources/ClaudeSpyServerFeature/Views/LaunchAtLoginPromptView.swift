@@ -30,6 +30,7 @@
             }
             .padding(24)
             .frame(width: 450, height: 340)
+            .sheetFocusFix()
             .alert("Error", isPresented: $showingError) {
                 Button("OK") { }
             } message: {

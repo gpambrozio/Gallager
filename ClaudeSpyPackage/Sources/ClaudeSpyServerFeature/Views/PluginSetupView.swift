@@ -46,6 +46,7 @@
             }
             .padding(24)
             .frame(width: 500, height: 500)
+            .sheetFocusFix()
             .task {
                 guard !skipAutoCheck else { return }
                 await runSetupFlow()
