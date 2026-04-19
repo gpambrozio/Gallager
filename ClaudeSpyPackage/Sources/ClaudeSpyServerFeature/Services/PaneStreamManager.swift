@@ -397,7 +397,14 @@
         /// - Returns: Escape sequence bytes (empty if mouse mode is off or the pane is not streaming)
         public func mouseModeSequences(for paneId: String) async -> Data {
             guard let context = streams[paneId] else { return Data() }
-            guard let mode = try? await tmuxService.getPaneMouseMode(context.target), mode != .off else {
+            let mode: TmuxService.PaneMouseMode
+            do {
+                mode = try await tmuxService.getPaneMouseMode(context.target)
+            } catch {
+                logger.debug("Failed to query mouse mode, defaulting to off", metadata: [
+                    "paneId": "\(paneId)",
+                    "error": "\(error)",
+                ])
                 return Data()
             }
 

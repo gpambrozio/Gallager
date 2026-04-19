@@ -118,18 +118,14 @@ final public class TerminalStreamService {
                 "subscriberCount": "\(context.deviceSubscriberCount)",
             ])
 
-            // Append mouse mode enable sequences so the viewer's SwiftTerm picks up the
-            // host pane's current mouse tracking mode. Without this, scroll/click don't
-            // work until the terminal app redraws and re-emits the sequences.
-            let mouseSequences = await paneStreamManager.mouseModeSequences(for: paneId)
-
             // Send current state as initialState to all devices.
             // Existing viewers get a content refresh (cosmetic), new viewer gets the full state.
-            let initialMessage = TerminalStreamMessage.initialState(
+            let initialMessage = await makeInitialStateMessage(
                 paneId: paneId,
                 width: current.width,
                 height: current.height,
-                content: current.content + mouseSequences
+                content: current.content,
+                paneStreamManager: paneStreamManager
             )
             await connectionManager.sendTerminalStreamToAll(initialMessage)
 
@@ -222,21 +218,32 @@ final public class TerminalStreamService {
             "bufferSize": "\(result.initialContent.count)",
         ])
 
-        // Append mouse mode enable sequences so the viewer's SwiftTerm picks up the
-        // host pane's current mouse tracking mode. Without this, scroll/click don't
-        // work until the terminal app redraws and re-emits the sequences.
-        let mouseSequences = await paneStreamManager.mouseModeSequences(for: paneId)
-
         // Send initial state to all viewers
         // The content was captured atomically with the subscription,
         // so there's no gap between this state and incoming live updates
-        let initialMessage = TerminalStreamMessage.initialState(
+        let initialMessage = await makeInitialStateMessage(
             paneId: paneId,
             width: result.width,
             height: result.height,
-            content: result.initialContent + mouseSequences
+            content: result.initialContent,
+            paneStreamManager: paneStreamManager
         )
         await connectionManager.sendTerminalStreamToAll(initialMessage)
+    }
+
+    /// Builds an `initialState` message with the pane's current mouse-mode escape sequences
+    /// appended to `content`. Without these sequences, the viewer's SwiftTerm won't pick up
+    /// the host pane's current mouse tracking mode until the terminal app redraws.
+    private func makeInitialStateMessage(
+        paneId: String,
+        width: Int,
+        height: Int,
+        content: Data,
+        paneStreamManager: PaneStreamManager
+    ) async -> TerminalStreamMessage {
+        var payload = content
+        payload.append(await paneStreamManager.mouseModeSequences(for: paneId))
+        return .initialState(paneId: paneId, width: width, height: height, content: payload)
     }
 
     /// Errors that can occur during streaming
