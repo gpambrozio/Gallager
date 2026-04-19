@@ -118,13 +118,18 @@ final public class TerminalStreamService {
                 "subscriberCount": "\(context.deviceSubscriberCount)",
             ])
 
+            // Append mouse mode enable sequences so the viewer's SwiftTerm picks up the
+            // host pane's current mouse tracking mode. Without this, scroll/click don't
+            // work until the terminal app redraws and re-emits the sequences.
+            let mouseSequences = await paneStreamManager.mouseModeSequences(for: paneId)
+
             // Send current state as initialState to all devices.
             // Existing viewers get a content refresh (cosmetic), new viewer gets the full state.
             let initialMessage = TerminalStreamMessage.initialState(
                 paneId: paneId,
                 width: current.width,
                 height: current.height,
-                content: current.content
+                content: current.content + mouseSequences
             )
             await connectionManager.sendTerminalStreamToAll(initialMessage)
 
@@ -217,6 +222,11 @@ final public class TerminalStreamService {
             "bufferSize": "\(result.initialContent.count)",
         ])
 
+        // Append mouse mode enable sequences so the viewer's SwiftTerm picks up the
+        // host pane's current mouse tracking mode. Without this, scroll/click don't
+        // work until the terminal app redraws and re-emits the sequences.
+        let mouseSequences = await paneStreamManager.mouseModeSequences(for: paneId)
+
         // Send initial state to all viewers
         // The content was captured atomically with the subscription,
         // so there's no gap between this state and incoming live updates
@@ -224,7 +234,7 @@ final public class TerminalStreamService {
             paneId: paneId,
             width: result.width,
             height: result.height,
-            content: result.initialContent
+            content: result.initialContent + mouseSequences
         )
         await connectionManager.sendTerminalStreamToAll(initialMessage)
     }
@@ -440,7 +450,9 @@ final private class StreamContext {
     /// The stream is only truly stopped when this reaches 0 (or forced).
     var deviceSubscriberCount = 1
 
-    var pendingDataSize: Int { pendingData.count }
+    var pendingDataSize: Int {
+        pendingData.count
+    }
 
     init(paneId: String) {
         self.paneId = paneId
