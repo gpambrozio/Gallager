@@ -555,15 +555,18 @@ public actor MacOSDriver {
             return try await Polling.waitFor(
                 description: "macOS UI element matching \(query)",
                 timeout: timeout,
-                pollInterval: 0.5
+                pollInterval: 0.25
             ) {
                 MacOSAccessibility.findElement(appPID: pid, matching: query)
             }
         } catch {
             // One-shot diagnostic on timeout — explains what matched vs. what didn't.
+            // Include the diagnostic in the thrown error so it surfaces in the JSON
+            // report (step errors use `.localizedDescription`). The swift logger
+            // output is easy to miss in CI noise.
             let diag = MacOSAccessibility.diagnoseQuery(appPID: pid, query: query)
             logger.warning("AX diagnostic for \(query):\n\(diag)")
-            throw error
+            throw MacOSDriverError.elementQueryTimedOut(query: "\(query)", diagnostic: diag)
         }
     }
 
@@ -745,6 +748,7 @@ public enum MacOSDriverError: Error, LocalizedError {
     case windowNotFound(String)
     case elementNotFound(String)
     case hookEventFailed(String)
+    case elementQueryTimedOut(query: String, diagnostic: String)
 
     public var errorDescription: String? {
         switch self {
@@ -758,6 +762,8 @@ public enum MacOSDriverError: Error, LocalizedError {
             "Element not found for click: \(title)"
         case let .hookEventFailed(message):
             "Hook event failed: \(message)"
+        case let .elementQueryTimedOut(query, diagnostic):
+            "Timed out waiting for: macOS UI element matching \(query)\nAX diagnostic:\n\(diagnostic)"
         }
     }
 }
