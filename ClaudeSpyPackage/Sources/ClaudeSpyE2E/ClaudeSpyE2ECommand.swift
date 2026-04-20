@@ -280,6 +280,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         VersionMismatchOldIOSViewerScenario.scenario,
         VersionMismatchOldMacHostScenario.scenario,
         VersionMismatchOldMacViewerScenario.scenario,
+        VersionMismatchOldMacHostIOSViewerScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {

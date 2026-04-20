@@ -1,0 +1,72 @@
+import Foundation
+
+/// E2E scenario: Mac host is running an older app version than the iOS viewer requires.
+///
+/// The old Mac host should be told "this app is out of date", the current iOS viewer
+/// should be told "host is running version 0.1 and cannot connect", and neither side
+/// should try to reconnect.
+public enum VersionMismatchOldMacHostIOSViewerScenario {
+    public static let scenario = ClaudeSpyE2ELib.scenario(
+        "Version Mismatch - Old Mac Host with iOS Viewer",
+        tags: ["pairing", "version-mismatch"]
+    ) {
+        // 1. Clean state
+        TestStep.uninstallIOSApp
+        TestStep.terminateMacApp()
+
+        // 2. Start relay server
+        TestStep.startServer
+        TestStep.verifyServerHealth
+
+        // 3. Launch Mac host as an old build (version 0.1) with a very low
+        //    required-partner-version so the old host accepts any viewer — we only
+        //    want the viewer to reject the host (and the host's own "we are too old"
+        //    check to trigger).
+        TestStep.launchMacApp(appVersion: "0.1", minRequiredPartnerVersion: "0.0")
+
+        // 4. Launch iOS viewer at the current default version (requires host 1.23)
+        TestStep.launchIOSApp()
+        TestStep.iosWaitForElement(.labelContains("pairing code"), timeout: 15)
+
+        // 5. Generate pairing code on macOS and copy it
+        TestStep.macOpenSettings()
+        TestStep.macWaitForWindow(titled: "General", timeout: 5)
+        TestStep.macSelectSettingsTab("Remote Access")
+        TestStep.wait(seconds: 1)
+        TestStep.macClickButton(titled: "Generate Pairing Code")
+        TestStep.wait(seconds: 1)
+        TestStep.macClickButton(titled: "Copy Code")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macReadClipboard(storeAs: "pairingCode")
+
+        // 6. Enter the code on iOS — the pairing REST call succeeds, but the
+        //    peer-to-peer `peerHello` exchange that follows will surface the mismatch.
+        TestStep.iosType(text: "${pairingCode}")
+        // iOS transitions from PairingView to MainView once pairing completes,
+        // regardless of the version mismatch that fires during peerHello.
+        TestStep.iosWaitForElement(.labelContains("Sessions"), timeout: 15)
+
+        // 7. Server accepted the pair record (versions are enforced in peerHello, not pairing)
+        TestStep.verifyServerHasPairings(count: 1)
+
+        // 8. Mac host should see "This Mac app is out of date" once the iOS viewer's
+        //    peerHello arrives peer-to-peer and carries the viewer's minRequiredHostVersion.
+        //    tolerance: 5 matches the FreshPairing scenario's Settings-window screenshots —
+        //    these captures are slightly non-deterministic across runs when the iOS
+        //    simulator is in play.
+        TestStep.macWaitForElement(titled: "out of date", timeout: 20)
+        TestStep.macWaitForElement(titled: "requires version 1.23", timeout: 5)
+        TestStep.macScreenshot(label: "mac-host-sees-update-prompt", tolerance: 5)
+
+        // 9. iOS viewer should surface an error referencing the old host's version.
+        //    The per-host status text lives on the Manage Hosts screen (Settings tab →
+        //    Paired Hosts), so navigate there to assert against the rendered text.
+        TestStep.iosTap(.labelContains("Settings"))
+        TestStep.wait(seconds: 0.5)
+        TestStep.iosTap(.labelContains("Paired Hosts"))
+        TestStep.wait(seconds: 0.5)
+        TestStep.iosWaitForElement(.labelContains("running version 0.1"), timeout: 15)
+        TestStep.iosWaitForElement(.labelContains("cannot connect"), timeout: 5)
+        TestStep.iosScreenshot(label: "ios-viewer-rejects-old-mac-host")
+    }
+}
