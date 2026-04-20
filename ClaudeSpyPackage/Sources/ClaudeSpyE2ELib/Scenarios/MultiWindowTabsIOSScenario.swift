@@ -22,13 +22,18 @@ public enum MultiWindowTabsIOSScenario {
         TestStep.log("Stage 1: Create session with two windows (160x50)")
         TestStep.tmuxCreateSession(name: "ios-tabs", width: 160, height: 50)
 
+        // Give windows deterministic names so menu items have predictable labels
+        // (raw tmux's automatic-rename would otherwise track the running command).
+        Shortcut.tmuxRunCommand(target: "ios-tabs:0.0", command: "tmux rename-window -t ios-tabs:0 'win0'")
+
         // Produce identifiable content in window 0
         Shortcut.tmuxRunCommand(target: "ios-tabs:0.0", command: "echo 'WINDOW_ZERO_CONTENT'")
         TestStep.wait(seconds: 1)
 
-        // Create window 1 (becomes tmux-active)
+        // Create window 1 (becomes tmux-active) and name it
         Shortcut.tmuxRunCommand(target: "ios-tabs:0.0", command: "tmux new-window -t ios-tabs")
         TestStep.wait(seconds: 2)
+        Shortcut.tmuxRunCommand(target: "ios-tabs:1.0", command: "tmux rename-window -t ios-tabs:1 'win1'")
 
         // Produce identifiable content in window 1
         Shortcut.tmuxRunCommand(target: "ios-tabs:1.0", command: "echo 'WINDOW_ONE_CONTENT'")
@@ -56,8 +61,8 @@ public enum MultiWindowTabsIOSScenario {
         TestStep.iosTap(.labelContains("ios-tabs"))
         TestStep.wait(seconds: 1)
 
-        // Tap window 1 in the menu
-        TestStep.iosTap(.labelContains("1"))
+        // Tap window 1 in the menu (by its custom name "win1")
+        TestStep.iosTap(.labelContains("win1"))
         TestStep.wait(seconds: 3)
 
         // Screenshot + verify the iOS app switched to window 1

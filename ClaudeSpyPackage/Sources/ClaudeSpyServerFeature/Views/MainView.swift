@@ -520,6 +520,14 @@ public struct MainView: View {
                                 }
                             }
                         }
+                    },
+                    onRenameWindow: { windowToRename, newName in
+                        Task {
+                            _ = await connection.relayClient.sendCommand(
+                                SetWindowName(windowId: windowToRename.id, name: newName),
+                                paneId: ""
+                            )
+                        }
                     }
                 )
 
@@ -570,6 +578,13 @@ public struct MainView: View {
                                     let newWindow = tmuxService.windows.first(where: { $0.panes.contains(where: { $0.paneId == paneId }) }) {
                                     selectedWindow = newWindow
                                 }
+                            }
+                        },
+                        onRenameWindow: { windowToRename, newName in
+                            Task {
+                                try? await tmuxService.renameWindow(target: windowToRename.id, name: newName)
+                                _ = await tmuxService.refreshPanes()
+                                await coordinator.connectedViewerManager?.pushSessionStateToAll()
                             }
                         },
                         onSelectFileBrowser: {
@@ -1300,7 +1315,8 @@ public struct MainView: View {
                     width: dimensions.columns,
                     height: dimensions.rows,
                     workingDirectory: workingDirectory,
-                    runCommand: runCommand
+                    runCommand: runCommand,
+                    isClaudeProject: project != nil
                 )
 
                 // Find the window containing the new pane and select it
@@ -1584,7 +1600,7 @@ private struct SessionSidebarRow: View {
 /// Returns the display label for a tmux window tab.
 /// Shared between `WindowTabBar` (local) and `RemoteWindowTabBar` (remote).
 private func windowTabLabel(windowName: String, windowIndex: Int) -> String {
-    if !windowName.isEmpty, Int(windowName) == nil {
+    if !windowName.isEmpty {
         return windowName
     }
     return "\(windowIndex)"
@@ -1601,6 +1617,7 @@ private struct WindowTabBar: View {
     let onSelectWindow: (LocalTmuxWindow) -> Void
     let onCloseWindow: (LocalTmuxWindow) -> Void
     let onNewWindow: () -> Void
+    let onRenameWindow: (LocalTmuxWindow, String) -> Void
     let onSelectFileBrowser: () -> Void
 
     @Environment(MirrorWindowManager.self) private var windowManager
@@ -1686,7 +1703,7 @@ private struct WindowTabBar: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(window.id)
+            .accessibilityLabel("\(window.id) \(windowName)")
             .accessibilityValue(isSelected ? "selected" : "")
 
             Button {
@@ -1712,6 +1729,12 @@ private struct WindowTabBar: View {
                     .frame(height: 2)
             }
         }
+        .modifier(WindowRenamingModifier(
+            currentName: window.windowName,
+            onRename: { newName in
+                onRenameWindow(window, newName)
+            }
+        ))
         .onHover { hovering in
             hoveredWindowId = hovering ? window.id : nil
         }
@@ -1732,6 +1755,7 @@ private struct RemoteWindowTabBar: View {
     let onSelectWindow: (TmuxWindow) -> Void
     let onCloseWindow: (TmuxWindow) -> Void
     let onNewWindow: () -> Void
+    let onRenameWindow: (TmuxWindow, String) -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -1791,7 +1815,7 @@ private struct RemoteWindowTabBar: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(window.id)
+            .accessibilityLabel("\(window.id) \(windowName)")
             .accessibilityValue(isSelected ? "selected" : "")
 
             Button {
@@ -1818,6 +1842,13 @@ private struct RemoteWindowTabBar: View {
                     .frame(height: 2)
             }
         }
+        .modifier(WindowRenamingModifier(
+            currentName: window.windowName,
+            isDisabled: !isHostConnected,
+            onRename: { newName in
+                onRenameWindow(window, newName)
+            }
+        ))
         .onHover { hovering in
             hoveredWindowId = hovering ? window.id : nil
         }
