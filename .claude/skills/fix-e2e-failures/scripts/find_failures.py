@@ -4,14 +4,43 @@
 Pulls latest results, finds the most recent failing run, and outputs a
 structured JSON summary of all failures with actionable details.
 
+Screenshot mismatches are non-fatal in the orchestrator — a scenario continues
+running after a failed screenshot comparison, so a single scenario can produce
+multiple failed steps. This script extracts every failed step, not just the
+first one.
+
 Usage:
     python find_failures.py [--results-dir PATH]
 
 Output (JSON to stdout):
     {
         "status": "failures_found" | "all_passed" | "build_failed" | "no_results",
-        "report": { ... },       # only when status == "failures_found"
-        "message": "..."         # human-readable summary
+        "failures": [...],  # one entry per failed SCENARIO (not per step)
+        "message": "..."    # human-readable summary
+    }
+
+    Each scenario failure entry has shape:
+    {
+        "scenarioName": "...",
+        "error": "...",            # the scenario's top-level error string
+        "failedStep": 47,          # first failed step (compat with old reports)
+        "failedSteps": [           # EVERY failed step in the scenario
+            {
+                "stepNumber": 47,
+                "description": "...",
+                "error": "...",
+                "type": "screenshot_mismatch" | "functional",
+                "screenshot": {           # only when type == screenshot_mismatch
+                    "label": "...",
+                    "diffPercentage": 2.97,
+                    "actualImage": "/.../hash.png",
+                    "baselineImage": "/.../hash.png",
+                    "diffImage": "/.../hash.png"
+                }
+            },
+            ...
+        ],
+        "hasFatalFailure": bool    # true if any failed step was NOT a screenshot mismatch
     }
 """
 
@@ -57,43 +86,57 @@ def load_report(results_dir: str, folder: str) -> dict:
         return json.load(f)
 
 
+def _step_failure_detail(step: dict, images_dir: str) -> dict:
+    """Build the detail dict for a single failed step."""
+    detail = {
+        "stepNumber": step["stepNumber"],
+        "description": step.get("description"),
+        "error": step.get("error"),
+        "type": "functional",
+        "screenshot": None,
+    }
+    ss = step.get("screenshot")
+    if ss and not ss.get("passed"):
+        detail["type"] = "screenshot_mismatch"
+        detail["screenshot"] = {
+            "label": ss.get("label"),
+            "diffPercentage": ss.get("diffPercentage"),
+            "actualImage": os.path.join(images_dir, f"{ss['imageHash']}.png") if ss.get("imageHash") else None,
+            "baselineImage": os.path.join(images_dir, f"{ss['baselineHash']}.png") if ss.get("baselineHash") else None,
+            "diffImage": os.path.join(images_dir, f"{ss['diffHash']}.png") if ss.get("diffHash") else None,
+        }
+    return detail
+
+
 def extract_failures(report: dict, results_dir: str) -> list[dict]:
-    """Extract failed scenarios with actionable details."""
-    failures = []
+    """Extract failed scenarios with details of EVERY failed step.
+
+    A single scenario can fail multiple times because screenshot mismatches are
+    non-fatal — the orchestrator records the failed step and continues. Only a
+    non-screenshot error stops the scenario early.
+    """
+    images_dir = os.path.join(results_dir, "images")
+    failures: list[dict] = []
 
     for scenario in report.get("scenarios", []):
         if scenario.get("success"):
             continue
 
-        failure = {
+        failed_steps = [
+            _step_failure_detail(step, images_dir)
+            for step in scenario.get("steps", [])
+            if not step.get("success")
+        ]
+
+        has_fatal = any(s["type"] == "functional" for s in failed_steps)
+
+        failures.append({
             "scenarioName": scenario["scenarioName"],
             "error": scenario.get("error", "Unknown error"),
             "failedStep": scenario.get("failedStep"),
-            "failedStepDescription": None,
-            "type": "functional",
-            "screenshot": None,
-        }
-
-        # Find the failed step details
-        for step in scenario.get("steps", []):
-            if step["stepNumber"] == scenario.get("failedStep"):
-                failure["failedStepDescription"] = step.get("description")
-
-                # Check if it's a screenshot failure
-                ss = step.get("screenshot")
-                if ss and not ss.get("passed"):
-                    failure["type"] = "screenshot_mismatch"
-                    images_dir = os.path.join(results_dir, "images")
-                    failure["screenshot"] = {
-                        "label": ss.get("label"),
-                        "diffPercentage": ss.get("diffPercentage"),
-                        "actualImage": os.path.join(images_dir, f"{ss['imageHash']}.png") if ss.get("imageHash") else None,
-                        "baselineImage": os.path.join(images_dir, f"{ss['baselineHash']}.png") if ss.get("baselineHash") else None,
-                        "diffImage": os.path.join(images_dir, f"{ss['diffHash']}.png") if ss.get("diffHash") else None,
-                    }
-                break
-
-        failures.append(failure)
+            "failedSteps": failed_steps,
+            "hasFatalFailure": has_fatal,
+        })
 
     return failures
 
@@ -109,12 +152,16 @@ def build_summary(entry: dict, report: dict, failures: list[dict]) -> str:
     ]
 
     for f in failures:
-        lines.append(f"FAILED: {f['scenarioName']}")
-        lines.append(f"  Step {f['failedStep']}: {f['failedStepDescription']}")
-        lines.append(f"  Type: {f['type']}")
-        lines.append(f"  Error: {f['error']}")
-        if f["screenshot"]:
-            lines.append(f"  Screenshot: {f['screenshot']['label']} ({f['screenshot']['diffPercentage']}% diff)")
+        lines.append(f"FAILED: {f['scenarioName']}  ({len(f['failedSteps'])} failed step(s))")
+        for s in f["failedSteps"]:
+            lines.append(f"  Step {s['stepNumber']} [{s['type']}]: {s['description']}")
+            if s["type"] == "screenshot_mismatch" and s["screenshot"]:
+                ss = s["screenshot"]
+                lines.append(f"    Screenshot: {ss['label']} ({ss['diffPercentage']}% diff)")
+            if s.get("error"):
+                lines.append(f"    Error: {s['error']}")
+        if f["hasFatalFailure"]:
+            lines.append("  (scenario stopped early at first non-screenshot error)")
         lines.append("")
 
     return "\n".join(lines)

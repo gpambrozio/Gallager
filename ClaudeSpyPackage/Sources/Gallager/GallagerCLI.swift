@@ -29,6 +29,9 @@ struct GallagerCLI: ParsableCommand {
             NotifyCommand.self,
             // Editor
             EditCommand.self,
+            // Projects
+            ListProjectsCommand.self,
+            StartProjectCommand.self,
             // Utility
             PingCommand.self,
             CapabilitiesCommand.self,

@@ -48,6 +48,8 @@
         "input.send_key",
         "notification.create",
         "editor.open",
+        "project.list",
+        "project.start",
     ]
 
     /// Live implementation that routes JSON-RPC methods to service calls.
@@ -82,6 +84,9 @@
 
         let onIdentify: (@Sendable (String?) async -> [String: JSONValue]?)?
 
+        let onProjectList: (@Sendable () async -> [[String: JSONValue]])?
+        let onProjectStart: (@Sendable (String, [String]) async throws -> [String: JSONValue])?
+
         public init(
             onSessionList: (@Sendable () async -> [[String: JSONValue]])? = nil,
             onSessionCreate: (@Sendable (String?, String?) async throws -> [String: JSONValue])? = nil,
@@ -99,7 +104,9 @@
             onSendKey: (@Sendable (String, String?) async throws -> Void)? = nil,
             onNotify: (@Sendable (String, String, String?, String?) async -> Void)? = nil,
             onEditorOpen: (@Sendable (String, String) async -> Void)? = nil,
-            onIdentify: (@Sendable (String?) async -> [String: JSONValue]?)? = nil
+            onIdentify: (@Sendable (String?) async -> [String: JSONValue]?)? = nil,
+            onProjectList: (@Sendable () async -> [[String: JSONValue]])? = nil,
+            onProjectStart: (@Sendable (String, [String]) async throws -> [String: JSONValue])? = nil
         ) {
             self.onSessionList = onSessionList
             self.onSessionCreate = onSessionCreate
@@ -118,6 +125,8 @@
             self.onNotify = onNotify
             self.onEditorOpen = onEditorOpen
             self.onIdentify = onIdentify
+            self.onProjectList = onProjectList
+            self.onProjectStart = onProjectStart
         }
 
         public func handleRequest(_ request: JSONRPCRequest) async -> JSONRPCResponse {
@@ -279,6 +288,29 @@
                     // This blocks until editing is done
                     await onEditorOpen?(paneId, filePath)
                     return .ok(id: id)
+
+                // MARK: - Projects
+
+                case "project.list":
+                    let projects = await onProjectList?() ?? []
+                    return JSONRPCResponse(id: id, result: [
+                        "projects": .array(projects.map { .object($0) }),
+                    ])
+
+                case "project.start":
+                    guard let path = params["path"]?.stringValue else {
+                        return .invalidParams(id: id, "path required")
+                    }
+                    let args: [String]
+                    if case let .array(values) = params["args"] {
+                        args = values.compactMap { $0.stringValue }
+                    } else {
+                        args = []
+                    }
+                    if let result = try await onProjectStart?(path, args) {
+                        return JSONRPCResponse(id: id, result: result)
+                    }
+                    return .internalError(id: id, "Project start not available")
 
                 default:
                     return .methodNotFound(id: id, request.method)
