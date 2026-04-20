@@ -104,6 +104,44 @@ public struct APIPaneInfo: Codable, Sendable {
     }
 }
 
+/// API representation of a Claude project discovered on the host.
+public struct APIProjectInfo: Codable, Sendable {
+    public let id: String
+    public let name: String
+    public let path: String
+    public let lastUsed: Date?
+
+    public init(id: String, name: String, path: String, lastUsed: Date?) {
+        self.id = id
+        self.name = name
+        self.path = path
+        self.lastUsed = lastUsed
+    }
+
+    public init(_ info: ClaudeProjectInfo) {
+        self.id = info.id
+        self.name = info.name
+        self.path = info.path
+        self.lastUsed = info.lastUsed
+    }
+
+    public func toJSONValue() -> [String: JSONValue] {
+        var dict: [String: JSONValue] = [
+            "id": .string(id),
+            "name": .string(name),
+            "path": .string(path),
+        ]
+        if let lastUsed {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            dict["last_used"] = .string(formatter.string(from: lastUsed))
+        } else {
+            dict["last_used"] = .null
+        }
+        return dict
+    }
+}
+
 /// API response for the identify command.
 public struct APIIdentifyInfo: Codable, Sendable {
     public let session: APISessionInfo?

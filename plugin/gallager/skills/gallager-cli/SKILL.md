@@ -18,7 +18,7 @@ If `gallager` is not on `PATH`, ask the user to run **Gallager menu → Install 
 
 ## Core mental model
 
-Every command is one of: `list-*` (inspect), `new-*` / `split-pane` (create), `select-*` (focus), `close-*` (destroy), `send` / `send-key` (input), `notify` (alert), `edit` (block on prompt editor), or a utility (`ping`, `capabilities`, `identify`).
+Every command is one of: `list-*` (inspect), `new-*` / `split-pane` / `start-project` (create), `select-*` (focus), `close-*` (destroy), `send` / `send-key` (input), `notify` (alert), `edit` (block on prompt editor), or a utility (`ping`, `capabilities`, `identify`).
 
 Commands default to the **current** session/window/pane (inferred from the calling shell's `$TMUX_PANE`). Override with `--session <id>`, `--window <id>`, or `--pane <id>` when targeting something else.
 
@@ -63,6 +63,12 @@ gallager notify --title "Alert" --subtitle "CI" --body "Tests failed on main"
 
 # Prompt editor (blocks until the user submits/cancels in the app)
 gallager edit /tmp/prompt.txt
+
+# Claude projects (discovered from ~/.claude.json + additional folders)
+gallager list-projects                     # name<TAB>path per line
+gallager list-projects --json              # full info incl. last_used
+gallager start-project ~/code/proj         # new session at project, runs `claude`
+gallager start-project ~/code/proj -- --resume   # forwards `--resume` to claude
 ```
 
 ## Global options (available on every command)
@@ -82,6 +88,7 @@ gallager edit /tmp/prompt.txt
 - **Socket resolution order**: `--socket` flag → `$GALLAGER_SOCKET` → `$TMPDIR/gallager.sock`. Inside Gallager-managed panes, `$GALLAGER_SOCKET` is set for you.
 - **`gallager edit` blocks.** It returns only after the user submits or cancels the prompt in the app. Great for interactive workflows, wrong for fire-and-forget scripts.
 - **`notify` attaches pane context automatically** when `$TMUX_PANE` is set, so tapping the iOS notification jumps to the right pane.
+- **`start-project` always runs `claude`.** Unlike `new-session --path`, which only auto-runs claude when the **Auto-run Claude in project folders** setting is on, `start-project` always launches the configured claude command in the new pane. Pass extra arguments after `--` to forward them (e.g. `start-project ~/code/foo -- --resume`).
 
 ## Composing with other tools
 

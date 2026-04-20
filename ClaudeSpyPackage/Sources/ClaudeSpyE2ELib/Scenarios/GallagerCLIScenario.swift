@@ -10,6 +10,8 @@ import Foundation
 /// 4. split-pane — verify window splits into two panes
 /// 5. send text — verify text appears in pane
 /// 6. new-window — verify a new tab appears
+/// 7. list-projects — verify mock projects from in-memory scanner are returned
+/// 8. start-project — verify a session is created from a project path
 ///
 /// Strategy: all CLI commands typed into `cli-test:0` via tmuxSendKeys.
 /// Commands that need to target e2e-api use explicit pane IDs from list-panes.
@@ -123,5 +125,37 @@ public enum GallagerCLIScenario {
         TestStep.readFile(path: "/tmp/e2e-cli-newwin.txt", storeAs: "newwinResult")
         TestStep.assertStoredContains(key: "newwinResult", substring: "Created window")
         TestStep.macScreenshot(label: "mac-after-new-window")
+
+        // 10. list-projects — the in-memory scanner returns mock projects
+        // (see ClaudeProjectScanner.inMemory(): AlphaProject, BetaProject, …)
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager list-projects --json > /tmp/e2e-cli-projects.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-projects.txt", storeAs: "projectsResult")
+        TestStep.assertStoredContains(key: "projectsResult", substring: "AlphaProject")
+        TestStep.assertStoredContains(key: "projectsResult", substring: "BetaProject")
+
+        // 11. start-project — create a real directory under /tmp and start a
+        // session there. The session should appear in the sidebar.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"mkdir -p /tmp/e2e-start-project && gallager start-project /tmp/e2e-start-project --json > /tmp/e2e-cli-start.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 3)
+        TestStep.readFile(path: "/tmp/e2e-cli-start.txt", storeAs: "startResult")
+        TestStep.assertStoredContains(key: "startResult", substring: #""name":"e2e-start-project""#)
+        TestStep.macWaitForElement(titled: "e2e-start-project", timeout: 5)
+        TestStep.macScreenshot(label: "mac-after-start-project")
+
+        // 12. start-project with a non-existent path — should return an error
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager start-project /tmp/e2e-missing-project-xyz > /tmp/e2e-cli-start-err.txt 2>&1; echo "exit=$?" >> /tmp/e2e-cli-start-err.txt"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-start-err.txt", storeAs: "startErrResult")
+        TestStep.assertStoredContains(key: "startErrResult", substring: "Path does not exist")
     }
 }
