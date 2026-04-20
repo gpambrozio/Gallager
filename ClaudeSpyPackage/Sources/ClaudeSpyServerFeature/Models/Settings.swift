@@ -7,16 +7,45 @@ import SwiftUI
 // MARK: - PreferencesService + AppSettings.Keys
 
 extension PreferencesService {
-    func string(_ key: AppSettings.Keys) -> String? { string(key.rawValue) }
-    func setString(_ value: String?, _ key: AppSettings.Keys) { setString(value, key.rawValue) }
-    func optionalBool(_ key: AppSettings.Keys) -> Bool? { optionalBool(key.rawValue) }
-    func setBool(_ value: Bool, _ key: AppSettings.Keys) { setBool(value, key.rawValue) }
-    func optionalInt(_ key: AppSettings.Keys) -> Int? { optionalInt(key.rawValue) }
-    func setInt(_ value: Int, _ key: AppSettings.Keys) { setInt(value, key.rawValue) }
-    func optionalDouble(_ key: AppSettings.Keys) -> Double? { optionalDouble(key.rawValue) }
-    func setDouble(_ value: Double, _ key: AppSettings.Keys) { setDouble(value, key.rawValue) }
-    func data(_ key: AppSettings.Keys) -> Data? { data(key.rawValue) }
-    func setData(_ value: Data?, _ key: AppSettings.Keys) { setData(value, key.rawValue) }
+    func string(_ key: AppSettings.Keys) -> String? {
+        string(key.rawValue)
+    }
+
+    func setString(_ value: String?, _ key: AppSettings.Keys) {
+        setString(value, key.rawValue)
+    }
+
+    func optionalBool(_ key: AppSettings.Keys) -> Bool? {
+        optionalBool(key.rawValue)
+    }
+
+    func setBool(_ value: Bool, _ key: AppSettings.Keys) {
+        setBool(value, key.rawValue)
+    }
+
+    func optionalInt(_ key: AppSettings.Keys) -> Int? {
+        optionalInt(key.rawValue)
+    }
+
+    func setInt(_ value: Int, _ key: AppSettings.Keys) {
+        setInt(value, key.rawValue)
+    }
+
+    func optionalDouble(_ key: AppSettings.Keys) -> Double? {
+        optionalDouble(key.rawValue)
+    }
+
+    func setDouble(_ value: Double, _ key: AppSettings.Keys) {
+        setDouble(value, key.rawValue)
+    }
+
+    func data(_ key: AppSettings.Keys) -> Data? {
+        data(key.rawValue)
+    }
+
+    func setData(_ value: Data?, _ key: AppSettings.Keys) {
+        setData(value, key.rawValue)
+    }
 }
 
 /// Settings tab for programmatic navigation
@@ -362,9 +391,9 @@ final public class AppSettings {
         case sidebarFields
         case sidebarTerminalFields
         case sidebarSortMode
-        // Project Scanning
+        /// Project Scanning
         case additionalClaudeFolders
-        // Plugin
+        /// Plugin
         case hasCompletedPluginSetup
         // Launch at Login
         case launchAtLogin
@@ -396,7 +425,7 @@ final public class AppSettings {
         // Remote Access
         static let externalServerURL = "wss://claudespy.gustavo.eng.br"
         static let autoConnectToServer = true
-        // Plugin
+        /// Plugin
         static let hasCompletedPluginSetup = false
         // Launch at Login
         static let launchAtLogin = false
@@ -532,10 +561,17 @@ final public class AppSettings {
     // MARK: - Claude Folder Management
 
     /// Add a new folder to scan for Claude projects.
-    public func addClaudeFolder(_ path: String) {
+    ///
+    /// Returns the normalized path that was added (or would have been added if
+    /// it hadn't already been present). Callers that need to act on the
+    /// canonical representation can use this instead of re-normalizing the
+    /// input.
+    @discardableResult
+    public func addClaudeFolder(_ path: String) -> String {
         let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
-        guard !additionalClaudeFolders.contains(normalized) else { return }
+        guard !additionalClaudeFolders.contains(normalized) else { return normalized }
         additionalClaudeFolders.append(normalized)
+        return normalized
     }
 
     /// Remove a Claude folder by its path.

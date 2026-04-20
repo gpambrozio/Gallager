@@ -39,6 +39,12 @@
         @ObservationIgnored
         @Dependency(ClaudeBinaryLocator.self) private var claudeLocator
 
+        /// Optional Claude config directory (used when managing plugins for a
+        /// non-default `.claude` folder). When set, the plugin paths derive
+        /// from this directory and all `claude` commands are run with
+        /// `CLAUDE_CONFIG_DIR` set to its path.
+        public let configDir: URL?
+
         /// Current plugin state
         public package(set) var state: State = .unknown
 
@@ -59,10 +65,17 @@
 
         // MARK: - Claude Plugin Paths
 
+        /// Root directory Claude Code reads its state from.
+        ///
+        /// Default: `~/.claude`. When `configDir` is set, Claude Code uses
+        /// that directory directly as its data root (enabled via the
+        /// `CLAUDE_CONFIG_DIR` environment variable).
+        private var claudeRootPath: URL {
+            configDir ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".claude")
+        }
+
         private var claudePluginsPath: URL {
-            fileManager.homeDirectoryForCurrentUser
-                .appendingPathComponent(".claude")
-                .appendingPathComponent("plugins")
+            claudeRootPath.appendingPathComponent("plugins")
         }
 
         private var installedPluginsPath: URL {
@@ -75,7 +88,9 @@
 
         // MARK: - Initialization
 
-        public init() { }
+        public init(configDir: URL? = nil) {
+            self.configDir = configDir
+        }
 
         // MARK: - Public API
 
@@ -233,7 +248,7 @@
                         summary: "Plugin installation could not be verified",
                         failedStep: "Verify installation",
                         claudePath: preferences.string(AppSettings.Keys.claudeCommandPath.rawValue) ?? "claude",
-                        underlyingError: "After running the install commands, the gallager plugin did not appear in ~/.claude/plugins/installed_plugins.json."
+                        underlyingError: "After running the install commands, the gallager plugin did not appear in \(installedPluginsPath.path)."
                     )
                 }
             } catch let error as PluginError {
@@ -264,16 +279,23 @@
                 """
             }
 
+            let prefix: String
+            if let configDir {
+                prefix = "CLAUDE_CONFIG_DIR=\(Self.quoteIfNeeded(configDir.path)) "
+            } else {
+                prefix = ""
+            }
+
             return """
             # Manual Plugin Installation
 
             Run these commands in your terminal:
 
             1. Add the marketplace:
-               claude plugin marketplace add "\(bundledPath.path)"
+               \(prefix)claude plugin marketplace add "\(bundledPath.path)"
 
             2. Install the plugin:
-               claude plugin install gallager --scope user
+               \(prefix)claude plugin install gallager --scope user
             """
         }
 
@@ -288,12 +310,19 @@
             logger.debug("Using claude at: \(executablePath)")
             logger.debug("Running claude command: \(arguments.joined(separator: " "))")
 
+            let environment: [String: String]?
+            if let configDir {
+                environment = ["CLAUDE_CONFIG_DIR": configDir.path]
+            } else {
+                environment = nil
+            }
+
             let result: ProcessResult
             do {
                 result = try await processRunner.run(
                     executable: executablePath,
                     arguments: arguments,
-                    environment: nil,
+                    environment: environment,
                     timeout: nil
                 )
             } catch {
@@ -405,14 +434,18 @@
         }
 
         private static func formatCommandLine(executable: String, arguments: [String]) -> String {
-            let quoted = arguments.map { argument -> String in
-                if argument.contains(where: { $0 == " " || $0 == "\t" || $0 == "\"" }) {
-                    let escaped = argument.replacingOccurrences(of: "\"", with: "\\\"")
-                    return "\"\(escaped)\""
-                }
-                return argument
+            let quoted = arguments.map { argument in
+                Self.quoteIfNeeded(argument)
             }
             return ([executable] + quoted).joined(separator: " ")
+        }
+
+        private static func quoteIfNeeded(_ argument: String) -> String {
+            guard argument.contains(where: { $0 == " " || $0 == "\t" || $0 == "\"" }) else {
+                return argument
+            }
+            let escaped = argument.replacingOccurrences(of: "\"", with: "\\\"")
+            return "\"\(escaped)\""
         }
     }
 

@@ -63,6 +63,9 @@ struct GeneralSettingsView: View {
     @State private var showingLoginItemError = false
     @State private var loginItemErrorMessage = ""
 
+    /// Folder whose plugin install prompt is currently being shown, if any.
+    @State private var pluginSetupFolder: ClaudeFolderIdentifier?
+
     var body: some View {
         @Bindable var settings = settings
 
@@ -227,7 +230,9 @@ struct GeneralSettingsView: View {
                 }
 
                 Button("Add Folder...") {
-                    browseForClaudeFolder(settings: settings)
+                    if let url = browseForClaudeFolder(settings: settings) {
+                        pluginSetupFolder = ClaudeFolderIdentifier(url: url)
+                    }
                 }
                 .help("Add a directory that contains a .claude.json config and .claude/projects/ session data")
             }
@@ -266,6 +271,18 @@ struct GeneralSettingsView: View {
         } message: {
             Text(loginItemErrorMessage)
         }
+        .sheet(item: $pluginSetupFolder) { folder in
+            CustomFolderPluginSetupView(configDir: folder.url)
+        }
+    }
+}
+
+/// Identifier wrapper so a selected Claude folder URL can drive a
+/// `sheet(item:)` presentation.
+private struct ClaudeFolderIdentifier: Identifiable {
+    let url: URL
+    var id: String {
+        url.path
     }
 }
 
@@ -327,8 +344,11 @@ private func browseForClaude(settings: AppSettings) {
     }
 }
 
+/// Presents a folder picker for a new Claude folder, adds it to settings,
+/// and returns the normalized URL so the caller can follow up (e.g. offer
+/// to install the plugin for it). Returns `nil` if the panel was cancelled.
 @MainActor
-private func browseForClaudeFolder(settings: AppSettings) {
+private func browseForClaudeFolder(settings: AppSettings) -> URL? {
     let panel = NSOpenPanel()
     panel.canChooseFiles = false
     panel.canChooseDirectories = true
@@ -338,9 +358,11 @@ private func browseForClaudeFolder(settings: AppSettings) {
     panel.message = "Select a directory containing .claude.json and .claude/"
     panel.prompt = "Add Folder"
 
-    if panel.runModal() == .OK, let url = panel.url {
-        settings.addClaudeFolder(url.path)
+    guard panel.runModal() == .OK, let url = panel.url else {
+        return nil
     }
+    let normalized = settings.addClaudeFolder(url.path)
+    return URL(fileURLWithPath: normalized)
 }
 
 private func abbreviatePath(_ path: String) -> String {
