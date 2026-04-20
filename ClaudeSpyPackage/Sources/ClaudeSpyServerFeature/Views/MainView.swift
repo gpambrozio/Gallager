@@ -1265,8 +1265,6 @@ public struct MainView: View {
                     nil
                 }
 
-                // When the project lives in a non-default `.claude` folder, point
-                // claude at it via CLAUDE_CONFIG_DIR on the tmux session.
                 let extraEnvironment: [String] = if let configDir = project?.claudeConfigDir {
                     ["CLAUDE_CONFIG_DIR=\(configDir)"]
                 } else {

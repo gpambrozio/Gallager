@@ -540,6 +540,7 @@ struct CreateTmuxSessionTests {
 
         #expect(decoded.sessionName == "legacy")
         #expect(decoded.width == 80)
+        #expect(decoded.height == 24)
         #expect(decoded.workingDirectory == nil)
         #expect(decoded.claudeConfigDir == nil)
     }
