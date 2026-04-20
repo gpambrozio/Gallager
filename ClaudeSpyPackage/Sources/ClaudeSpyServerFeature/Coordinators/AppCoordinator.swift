@@ -958,6 +958,11 @@
                 let workingDirectory = spec.workingDirectory
                     ?? FileManager.default.homeDirectoryForCurrentUser.path()
 
+                // A non-nil `spec.workingDirectory` means this was a
+                // "create from Claude project" request — that's the only flow
+                // today that supplies a directory. Other entry points (empty
+                // session) leave it nil, so we treat presence as the project
+                // marker and name the first window "claude" accordingly.
                 let (_, paneId) = try await tmuxService.createSession(
                     baseName: spec.sessionName,
                     width: spec.width,

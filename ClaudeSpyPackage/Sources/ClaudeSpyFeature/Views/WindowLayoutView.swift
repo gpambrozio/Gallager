@@ -281,6 +281,10 @@
                     Text(error)
                 }
             }
+            // Intentionally inline rather than using `WindowRenamingModifier`:
+            // iOS attaches rename via a `Menu` inside the tab (see WindowTabBar),
+            // not a `contextMenu`, so the alert lives on the enclosing view and
+            // `renamingWindow`/`renameWindowText` bridge the Menu tap to it.
             .alert("Rename Window", isPresented: .init(
                 get: { renamingWindow != nil },
                 set: { if !$0 { renamingWindow = nil } }

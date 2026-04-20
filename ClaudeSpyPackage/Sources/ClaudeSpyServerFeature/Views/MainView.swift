@@ -1694,9 +1694,8 @@ private struct WindowTabBar: View {
             }
         }
         .modifier(WindowRenamingModifier(
-            windowId: window.id,
             currentName: window.windowName,
-            onRename: { _, newName in
+            onRename: { newName in
                 onRenameWindow(window, newName)
             }
         ))
@@ -1808,10 +1807,9 @@ private struct RemoteWindowTabBar: View {
             }
         }
         .modifier(WindowRenamingModifier(
-            windowId: window.id,
             currentName: window.windowName,
             isDisabled: !isHostConnected,
-            onRename: { _, newName in
+            onRename: { newName in
                 onRenameWindow(window, newName)
             }
         ))

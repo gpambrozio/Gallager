@@ -5,23 +5,20 @@ import SwiftUI
 /// editing the window name. Kept parallel to `DescriptionEditingModifier` so
 /// tabs feel consistent with session description editing.
 public struct WindowRenamingModifier<AdditionalMenu: View>: ViewModifier {
-    let windowId: String
     let currentName: String
     let isDisabled: Bool
-    let onRename: (_ windowId: String, _ newName: String) -> Void
+    let onRename: (_ newName: String) -> Void
     let additionalMenu: AdditionalMenu
 
     @State private var isEditingName = false
     @State private var editedName = ""
 
     public init(
-        windowId: String,
         currentName: String,
         isDisabled: Bool = false,
-        onRename: @escaping (_ windowId: String, _ newName: String) -> Void,
+        onRename: @escaping (_ newName: String) -> Void,
         @ViewBuilder additionalMenu: () -> AdditionalMenu
     ) {
-        self.windowId = windowId
         self.currentName = currentName
         self.isDisabled = isDisabled
         self.onRename = onRename
@@ -46,7 +43,7 @@ public struct WindowRenamingModifier<AdditionalMenu: View>: ViewModifier {
                 Button("Save") {
                     let trimmed = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !trimmed.isEmpty else { return }
-                    onRename(windowId, trimmed)
+                    onRename(trimmed)
                 }
                 Button("Cancel", role: .cancel) { }
             } message: {
@@ -57,13 +54,11 @@ public struct WindowRenamingModifier<AdditionalMenu: View>: ViewModifier {
 
 public extension WindowRenamingModifier where AdditionalMenu == EmptyView {
     init(
-        windowId: String,
         currentName: String,
         isDisabled: Bool = false,
-        onRename: @escaping (_ windowId: String, _ newName: String) -> Void
+        onRename: @escaping (_ newName: String) -> Void
     ) {
         self.init(
-            windowId: windowId,
             currentName: currentName,
             isDisabled: isDisabled,
             onRename: onRename,

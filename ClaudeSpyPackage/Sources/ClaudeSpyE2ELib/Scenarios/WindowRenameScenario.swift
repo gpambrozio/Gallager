@@ -61,7 +61,9 @@ public enum WindowRenameScenario {
 
         // ── Phase 5: Host renames window 0 via context menu ────
         TestStep.log("Phase 5: Host right-clicks tab and renames window 0")
-        // Right-click uses the tab's accessibility label (window.id = "session:windowIndex").
+        // The tab's accessibility label is "{windowId} {windowName}" (e.g.
+        // "e2e-rename:0 win0"); matching by the windowId prefix via `contains`
+        // is enough and keeps this step independent of the current name.
         TestStep.macContextMenuClick(elementTitle: "e2e-rename:0", menuItem: "Rename Window")
         TestStep.macWaitForElement(titled: "Rename Window", timeout: 5)
         TestStep.wait(seconds: 0.5)

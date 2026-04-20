@@ -1255,10 +1255,6 @@ final public class TmuxService {
     ///   - workingDirectory: Optional working directory for the new window
     /// - Returns: The pane ID of the new window's first pane
     public func newWindow(sessionName: String, workingDirectory: String? = nil) async throws -> String {
-        // Snapshot window names *before* creating the new window so we can
-        // derive a sensible "terminal N" name for it.
-        let existingNames = await listWindowNames(in: sessionName)
-
         var args = [
             "new-window",
             "-t", sessionName,
@@ -1282,8 +1278,11 @@ final public class TmuxService {
 
         // Name the new window "terminal N" so the tab shows a stable label
         // instead of the running command. tmux's auto-rename is implicitly
-        // disabled once we rename the window.
+        // disabled once we rename the window. Snapshot *after* new-window
+        // returns so concurrent calls see each other's creations and avoid
+        // picking the same number.
         if let windowIndex {
+            let existingNames = await listWindowNames(in: sessionName)
             let nextName = Self.nextTerminalWindowName(existingNames: existingNames)
             _ = try? await renameWindow(target: "\(sessionName):\(windowIndex)", name: nextName)
         }
@@ -1320,7 +1319,7 @@ final public class TmuxService {
             return []
         }
         return result.stdoutString
-            .split(separator: "\n", omittingEmptySubsequences: false)
+            .split(separator: "\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
     }
