@@ -84,9 +84,12 @@
                     .font(.title)
                     .fontWeight(.semibold)
 
-                Text(configDir.lastPathComponent)
+                Text(abbreviatedConfigDirPath)
                     .font(.headline)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(configDir.path)
 
                 Text("Gallager needs the plugin installed in this folder to monitor Claude Code sessions launched from it.")
                     .font(.body)
@@ -282,6 +285,15 @@
         }
 
         // MARK: - Helpers
+
+        private var abbreviatedConfigDirPath: String {
+            let path = configDir.path
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            if path.hasPrefix(home + "/") || path == home {
+                return "~" + path.dropFirst(home.count)
+            }
+            return path
+        }
 
         private func copyToClipboard(_ text: String) {
             @Dependency(ClipboardClient.self) var clipboard

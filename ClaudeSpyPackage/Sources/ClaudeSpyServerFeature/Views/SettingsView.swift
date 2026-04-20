@@ -345,8 +345,9 @@ private func browseForClaude(settings: AppSettings) {
 }
 
 /// Presents a folder picker for a new Claude folder, adds it to settings,
-/// and returns the normalized URL so the caller can follow up (e.g. offer
-/// to install the plugin for it). Returns `nil` if the panel was cancelled.
+/// and returns the normalized URL when the folder was newly added so the
+/// caller can follow up (e.g. offer to install the plugin for it). Returns
+/// `nil` if the panel was cancelled or the folder was already tracked.
 @MainActor
 private func browseForClaudeFolder(settings: AppSettings) -> URL? {
     let panel = NSOpenPanel()
@@ -361,7 +362,11 @@ private func browseForClaudeFolder(settings: AppSettings) -> URL? {
     guard panel.runModal() == .OK, let url = panel.url else {
         return nil
     }
-    let normalized = settings.addClaudeFolder(url.path)
+    let normalized = URL(fileURLWithPath: url.path).standardizedFileURL.path
+    guard !settings.additionalClaudeFolders.contains(normalized) else {
+        return nil
+    }
+    settings.addClaudeFolder(url.path)
     return URL(fileURLWithPath: normalized)
 }
 

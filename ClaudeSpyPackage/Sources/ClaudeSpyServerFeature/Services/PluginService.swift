@@ -43,7 +43,7 @@
         /// non-default `.claude` folder). When set, the plugin paths derive
         /// from this directory and all `claude` commands are run with
         /// `CLAUDE_CONFIG_DIR` set to its path.
-        public let configDir: URL?
+        package let configDir: URL?
 
         /// Current plugin state
         public package(set) var state: State = .unknown
