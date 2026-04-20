@@ -12,6 +12,7 @@ public struct MainView: View {
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(PairingManager.self) private var pairingManager
     @Environment(\.e2eeService) private var e2eeService: E2EEService?
+    @Environment(\.openSettings) private var openSettings
 
     public init() { }
 
@@ -26,6 +27,8 @@ public struct MainView: View {
     @State private var creatingSelection: NewSessionCreatingState?
     @State private var detailPaneSize: CGSize = .zero
     @State private var closeConfirmation: CloseConfirmation?
+
+    @State private var showingDisconnectConfirmation = false
 
     /// Tracks active session pane IDs for detecting section changes
     @State private var trackedActiveSessionPaneIds: Set<String> = []
@@ -732,6 +735,9 @@ public struct MainView: View {
 
             connectionActionButton
         }
+        .onChange(of: coordinator.connectedViewerManager?.combinedState) { _, _ in
+            showingDisconnectConfirmation = false
+        }
     }
 
     @ViewBuilder
@@ -781,14 +787,38 @@ public struct MainView: View {
             .controlSize(.small)
             .help("Open Remote Access settings to pair with iOS")
         } else if combinedState.isConnected {
-            // Connected - show disconnect button
+            // Connected - show disconnect button with confirmation popover
             Button("Disconnect") {
-                Task {
-                    await connectionManager?.disconnectAll()
-                }
+                showingDisconnectConfirmation = true
             }
             .controlSize(.small)
             .help("Disconnect from relay server")
+            .popover(isPresented: $showingDisconnectConfirmation, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Disconnect from relay server?")
+                        .font(.headline)
+                    Text("Paired iOS viewers will stop receiving updates until you reconnect.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Spacer()
+                        Button("Cancel", role: .cancel) {
+                            showingDisconnectConfirmation = false
+                        }
+                        .keyboardShortcut(.cancelAction)
+                        Button("Disconnect", role: .destructive) {
+                            showingDisconnectConfirmation = false
+                            Task {
+                                await connectionManager?.disconnectAll()
+                            }
+                        }
+                        .keyboardShortcut(.defaultAction)
+                    }
+                }
+                .padding(16)
+                .frame(width: 320)
+            }
         } else if case .connecting = combinedState {
             // Connecting - no button
             EmptyView()
@@ -1180,13 +1210,9 @@ public struct MainView: View {
     private func openSettingsToRemoteAccess() {
         // Set the tab to Remote Access before opening settings
         settings.selectedSettingsTab = .remoteAccess
-
-        // Open the Settings window using macOS selector
-        // Note: This uses a private selector that may change in future macOS versions
-        let selector = Selector(("showSettingsWindow:"))
-        if NSApp.responds(to: selector) {
-            NSApp.sendAction(selector, to: nil, from: nil)
-        }
+        NSApp.setActivationPolicy(.regular)
+        openSettings()
+        MenuBarExtraView.bringAppToFront()
     }
 
     // MARK: - New Session
@@ -1531,12 +1557,22 @@ private struct SessionSidebarRow: View {
         // from reading .accessibilityValue directly on the indicator.
         .accessibilityValue(session.sessionName)
         .overlay {
-            if let status = claudeSession?.statusLabel {
-                Text(status)
-                    .font(.system(size: 1))
-                    .opacity(0)
-                    .accessibilityLabel(status)
+            ZStack {
+                if let status = claudeSession?.statusLabel {
+                    Text(status)
+                        .accessibilityLabel(status)
+                }
+                // The project name is rendered by SessionFieldsView, but when the row's
+                // Button combines its children's AX into a single label, that leaf can
+                // drop out intermittently — exposing it as its own hidden label gives
+                // e2e tests a stable element to find.
+                if let projectName = claudeSession?.displayName {
+                    Text(projectName)
+                        .accessibilityLabel(projectName)
+                }
             }
+            .font(.system(size: 1))
+            .opacity(0)
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
@@ -2169,14 +2205,22 @@ private struct RemoteSessionSidebarRow: View {
         // Expose session name to macOS accessibility tree so e2e tests can find sessions
         // regardless of which sidebar fields are configured.
         .accessibilityValue(session.sessionName)
-        // Invisible text exposing session status to macOS accessibility tree for e2e tests.
+        // Invisible text exposing session status and project name to macOS accessibility
+        // tree for e2e tests. The Button that wraps this row can combine children into a
+        // single label, dropping leaf Texts — these hidden labels give tests stable targets.
         .overlay {
-            if let status = claudeSession?.statusLabel {
-                Text(status)
-                    .font(.system(size: 1))
-                    .opacity(0)
-                    .accessibilityLabel(status)
+            ZStack {
+                if let status = claudeSession?.statusLabel {
+                    Text(status)
+                        .accessibilityLabel(status)
+                }
+                if let projectName = claudeSession?.displayName {
+                    Text(projectName)
+                        .accessibilityLabel(projectName)
+                }
             }
+            .font(.system(size: 1))
+            .opacity(0)
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
