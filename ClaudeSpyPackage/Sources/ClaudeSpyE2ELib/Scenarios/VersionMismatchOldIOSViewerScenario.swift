@@ -52,11 +52,17 @@ public enum VersionMismatchOldIOSViewerScenario {
         //    The status text goes through `state.statusText` which prefixes "Error: ".
         TestStep.macWaitForElement(titled: "running version 0.1", timeout: 20)
         TestStep.macWaitForElement(titled: "cannot connect", timeout: 5)
-        TestStep.macScreenshot(label: "mac-host-rejects-old-ios-viewer", compare: false)
+        // tolerance: 5 matches the FreshPairing scenario's Settings-window
+        // screenshots — these captures are slightly non-deterministic across runs
+        // when the iOS simulator is in play.
+        TestStep.macScreenshot(label: "mac-host-rejects-old-ios-viewer", tolerance: 5)
 
         // 9. The old side (iOS) should never reach the connected state.
-        //    After a short wait, iOS still should not see "Connected" anywhere.
+        //    Assert that the iOS status line explicitly reports "Disconnected" so a
+        //    regression where the viewer reaches "Connected" is caught by the test
+        //    itself, not just visible in the screenshot.
         TestStep.wait(seconds: 5)
-        TestStep.iosScreenshot(label: "ios-version-mismatch-state", compare: false)
+        TestStep.iosWaitForElement(.labelContains("Disconnected"), timeout: 5)
+        TestStep.iosScreenshot(label: "ios-version-mismatch-state")
     }
 }

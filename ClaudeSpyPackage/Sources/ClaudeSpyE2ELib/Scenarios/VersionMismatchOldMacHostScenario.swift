@@ -53,12 +53,12 @@ public enum VersionMismatchOldMacHostScenario {
         //    Text is rendered in-place (no "Error: " prefix) on RemoteHostsSettingsView.
         TestStep.macWaitForElement(titled: "running version 0.1", timeout: 20, instance: 1)
         TestStep.macWaitForElement(titled: "cannot connect", timeout: 5, instance: 1)
-        TestStep.macScreenshot(label: "viewer-rejects-old-host", compare: false, instance: 1)
+        TestStep.macScreenshot(label: "viewer-rejects-old-host", instance: 1)
 
         // 6. Host sees "This Mac app is out of date" once the viewer's peerHello
         //    arrives peer-to-peer and carries the viewer's minRequiredHostVersion.
         TestStep.macWaitForElement(titled: "out of date", timeout: 20)
         TestStep.macWaitForElement(titled: "requires version 1.23", timeout: 5)
-        TestStep.macScreenshot(label: "old-host-sees-update-prompt", compare: false)
+        TestStep.macScreenshot(label: "old-host-sees-update-prompt")
     }
 }

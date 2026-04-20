@@ -578,7 +578,10 @@ final public class ViewerRelayClient {
 
                 setState(.connected)
                 connectedHostName = response.hostDeviceName
-                isHostConnected = response.hostDeviceName != nil
+                // `isHostConnected` is deliberately NOT set here — a mismatched host
+                // would otherwise surface as "Connected" in the UI until peerHello
+                // validation completes and flips state to `.error`. The flag is
+                // raised only after a compatible peerHello arrives (below).
 
                 // Establish E2EE session if host is connected and we have their public key.
                 // The relay also fires `.hostConnected` in this case, which re-establishes
@@ -640,7 +643,10 @@ final public class ViewerRelayClient {
         case let .hostConnected(connectedMessage):
             logger.info("Host device connected")
 
-            isHostConnected = true
+            // `isHostConnected` is NOT flipped to true here — it is set only after
+            // the host's peerHello arrives and passes the compatibility check.
+            // Otherwise the UI would flash "Connected" before the handshake resolves
+            // on a version mismatch.
 
             // Establish E2EE, then send our peerHello. Session state is requested only
             // after the host's peerHello arrives and passes the compatibility check;
@@ -680,14 +686,16 @@ final public class ViewerRelayClient {
                 metadata: ["appVersion": "\(peerHello.appVersion)"]
             )
             if
-                let mismatch = checkPartnerCompatibility(
+                let mismatch = VersionCompatibility.checkCompatibility(
                     partnerAppVersion: peerHello.appVersion,
-                    partnerMinRequiredOurVersion: peerHello.minRequiredPartnerVersion
+                    partnerMinRequiredOurVersion: peerHello.minRequiredPartnerVersion,
+                    partnerRole: .host
                 ) {
                 await handleVersionMismatch(mismatch)
                 return
             }
-            // Compatible — now safe to ask for session state.
+            // Compatible — now safe to surface the host as connected and ask for state.
+            isHostConnected = true
             await requestSessionState()
 
         case .hostDisconnected:
@@ -754,42 +762,10 @@ final public class ViewerRelayClient {
 
     // MARK: - Version Compatibility
 
-    /// Result of a version compatibility check between this viewer and a paired host.
-    private enum VersionMismatch {
-        /// Our version is below what the partner requires.
-        case weAreTooOld(required: String)
-        /// The partner's version is below what we require.
-        case partnerTooOld(partnerVersion: String)
-    }
-
-    /// Checks whether a paired host's version info is compatible with this viewer.
-    /// Returns `nil` when both sides are compatible.
-    ///
-    /// An empty partner version is treated as a legacy client and rejected as
-    /// "partner too old", since any build with the versioning feature always
-    /// sends a non-empty version.
-    private func checkPartnerCompatibility(
-        partnerAppVersion: String,
-        partnerMinRequiredOurVersion: String
-    ) -> VersionMismatch? {
-        let ourVersion = VersionCompatibility.currentAppVersion
-        let ourMinRequired = VersionCompatibility.minRequiredHostVersion
-
-        if
-            !partnerMinRequiredOurVersion.isEmpty,
-            !VersionCompatibility.isCompatible(version: ourVersion, minimum: partnerMinRequiredOurVersion) {
-            return .weAreTooOld(required: partnerMinRequiredOurVersion)
-        }
-
-        if !VersionCompatibility.isCompatible(version: partnerAppVersion, minimum: ourMinRequired) {
-            return .partnerTooOld(partnerVersion: partnerAppVersion)
-        }
-
-        return nil
-    }
-
     /// Handles a detected version mismatch by stopping reconnects and surfacing an error.
-    private func handleVersionMismatch(_ mismatch: VersionMismatch) async {
+    /// The mismatch itself is computed by `VersionCompatibility.checkCompatibility`;
+    /// only the user-facing messaging and state transition are viewer-specific.
+    private func handleVersionMismatch(_ mismatch: VersionCompatibility.VersionMismatch) async {
         let hostLabel = connectedHostName ?? "the host"
         let message: String
         switch mismatch {

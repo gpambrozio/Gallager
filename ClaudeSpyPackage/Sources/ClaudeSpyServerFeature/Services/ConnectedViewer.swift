@@ -441,7 +441,11 @@ final public class ConnectedViewer: Identifiable {
                 reconnectionAttempt = 0
                 await updateState(.connected)
                 connectedViewerDeviceName = response.viewerDeviceName
-                isViewerConnected = response.viewerDeviceName != nil
+                // `isViewerConnected` is deliberately NOT set here — it's flipped to
+                // true only after the viewer's peerHello arrives and passes the
+                // compatibility check. Setting it eagerly would surface the peer as
+                // "Connected" in the UI during the handshake window, before we know
+                // whether versions are compatible.
 
                 // Establish E2EE session if viewer is connected and we have their public key.
                 // The relay also fires `.viewerConnected` in this case, which re-establishes
@@ -481,7 +485,9 @@ final public class ConnectedViewer: Identifiable {
         case let .viewerConnected(connectedMessage):
             logger.info("Viewer device connected")
 
-            isViewerConnected = true
+            // `isViewerConnected` stays false until peerHello validation succeeds —
+            // see `.peerHello` below. Keeping the flag off during the handshake
+            // window prevents the UI from flashing "Connected" on mismatch.
 
             // Establish E2EE, then send peerHello. The viewer will reply with its own
             // peerHello; both sides validate versions peer-to-peer and disconnect on
@@ -501,11 +507,16 @@ final public class ConnectedViewer: Identifiable {
                 metadata: ["appVersion": "\(peerHello.appVersion)"]
             )
             if
-                let mismatch = checkPartnerCompatibility(
+                let mismatch = VersionCompatibility.checkCompatibility(
                     partnerAppVersion: peerHello.appVersion,
-                    partnerMinRequiredOurVersion: peerHello.minRequiredPartnerVersion
+                    partnerMinRequiredOurVersion: peerHello.minRequiredPartnerVersion,
+                    partnerRole: .viewer
                 ) {
                 await handleVersionMismatch(mismatch)
+            } else {
+                // Compatible — now safe to surface the viewer as connected; the
+                // session-state push will fire when the viewer requests it.
+                isViewerConnected = true
             }
 
         case .viewerDisconnected:
@@ -552,42 +563,10 @@ final public class ConnectedViewer: Identifiable {
 
     // MARK: - Version Compatibility
 
-    /// Result of a version compatibility check between this host and a paired viewer.
-    private enum VersionMismatch {
-        /// Our version is below what the partner requires.
-        case weAreTooOld(required: String)
-        /// The partner's version is below what we require.
-        case partnerTooOld(partnerVersion: String)
-    }
-
-    /// Checks whether a paired viewer's version info is compatible with this host.
-    /// Returns `nil` when both sides are compatible.
-    ///
-    /// An empty partner version is treated as a legacy client and rejected as
-    /// "partner too old", since any build with the versioning feature always
-    /// sends a non-empty version.
-    private func checkPartnerCompatibility(
-        partnerAppVersion: String,
-        partnerMinRequiredOurVersion: String
-    ) -> VersionMismatch? {
-        let ourVersion = VersionCompatibility.currentAppVersion
-        let ourMinRequired = VersionCompatibility.minRequiredViewerVersion
-
-        if
-            !partnerMinRequiredOurVersion.isEmpty,
-            !VersionCompatibility.isCompatible(version: ourVersion, minimum: partnerMinRequiredOurVersion) {
-            return .weAreTooOld(required: partnerMinRequiredOurVersion)
-        }
-
-        if !VersionCompatibility.isCompatible(version: partnerAppVersion, minimum: ourMinRequired) {
-            return .partnerTooOld(partnerVersion: partnerAppVersion)
-        }
-
-        return nil
-    }
-
     /// Handles a detected version mismatch by stopping reconnects and surfacing an error.
-    private func handleVersionMismatch(_ mismatch: VersionMismatch) async {
+    /// The mismatch itself is computed by `VersionCompatibility.checkCompatibility`;
+    /// only the user-facing messaging and state transition are host-specific.
+    private func handleVersionMismatch(_ mismatch: VersionCompatibility.VersionMismatch) async {
         let message: String
         switch mismatch {
         case let .weAreTooOld(required):

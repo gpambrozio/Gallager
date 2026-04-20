@@ -62,4 +62,53 @@ public enum VersionCompatibility {
         }
         return .orderedSame
     }
+
+    // MARK: - Peer Compatibility
+
+    /// Role of the partner being validated — determines which `minRequired*Version`
+    /// constant to consult when checking whether the partner is too old.
+    public enum PartnerRole: Sendable {
+        case host
+        case viewer
+    }
+
+    /// Result of a version compatibility check between this client and its peer.
+    public enum VersionMismatch: Sendable, Equatable {
+        /// Our version is below what the partner requires of us.
+        case weAreTooOld(required: String)
+        /// The partner's version is below what we require of it.
+        case partnerTooOld(partnerVersion: String)
+    }
+
+    /// Check whether a peer with the given version info is compatible with this
+    /// client. Returns `nil` when both sides are compatible; otherwise returns
+    /// the specific mismatch so the caller can render an appropriate message.
+    ///
+    /// An empty `partnerAppVersion` is treated as incompatible via
+    /// `isCompatible(version:minimum:)`, which rejects empty versions outright.
+    /// An empty `partnerMinRequiredOurVersion` is treated as "partner places no
+    /// requirement on us" and skips the `.weAreTooOld` branch.
+    public static func checkCompatibility(
+        partnerAppVersion: String,
+        partnerMinRequiredOurVersion: String,
+        partnerRole: PartnerRole
+    ) -> VersionMismatch? {
+        let ourVersion = currentAppVersion
+        let ourMinRequired: String = switch partnerRole {
+        case .host: minRequiredHostVersion
+        case .viewer: minRequiredViewerVersion
+        }
+
+        if
+            !partnerMinRequiredOurVersion.isEmpty,
+            !isCompatible(version: ourVersion, minimum: partnerMinRequiredOurVersion) {
+            return .weAreTooOld(required: partnerMinRequiredOurVersion)
+        }
+
+        if !isCompatible(version: partnerAppVersion, minimum: ourMinRequired) {
+            return .partnerTooOld(partnerVersion: partnerAppVersion)
+        }
+
+        return nil
+    }
 }
