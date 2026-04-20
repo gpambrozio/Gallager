@@ -18,6 +18,12 @@ public enum WindowRenameScenario {
         // ── Phase 1: Pair two Mac apps ─────────────────────────
         Shortcut.twoMacPairing
 
+        // Close Settings windows so `openPanesWindow` targets the Panes window
+        // for move/resize (AX's "first window" can otherwise pick Settings).
+        TestStep.macCloseWindow(titled: "Remote Access")
+        TestStep.macCloseWindow(titled: "Remote Hosts", instance: 1)
+        TestStep.wait(seconds: 1)
+
         // ── Phase 2: Create session with two named windows ─────
         TestStep.log("Phase 2: Create session with two named windows")
         TestStep.tmuxCreateSession(name: "e2e-rename", width: 80, height: 24)
