@@ -40,7 +40,7 @@ struct StartProjectCommand: ParsableCommand {
     @Argument(help: "Project path (the directory to open Claude in)")
     var path: String
 
-    @Argument(parsing: .captureForPassthrough, help: "Optional arguments appended to the claude command")
+    @Argument(parsing: .postTerminator, help: "Optional arguments appended to the claude command (pass after `--`)")
     var extraArgs: [String] = []
 
     @OptionGroup var options: GlobalOptions
