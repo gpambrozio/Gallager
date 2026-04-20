@@ -106,6 +106,14 @@ public struct APIPaneInfo: Codable, Sendable {
 
 /// API representation of a Claude project discovered on the host.
 public struct APIProjectInfo: Codable, Sendable {
+    /// Shared ISO8601 formatter to avoid per-call allocation in `toJSONValue()`.
+    /// Note: `nonisolated(unsafe)` is safe here because we never mutate the formatter after creation.
+    private nonisolated(unsafe) static let iso8601: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
     public let id: String
     public let name: String
     public let path: String
@@ -132,9 +140,7 @@ public struct APIProjectInfo: Codable, Sendable {
             "path": .string(path),
         ]
         if let lastUsed {
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            dict["last_used"] = .string(formatter.string(from: lastUsed))
+            dict["last_used"] = .string(Self.iso8601.string(from: lastUsed))
         } else {
             dict["last_used"] = .null
         }

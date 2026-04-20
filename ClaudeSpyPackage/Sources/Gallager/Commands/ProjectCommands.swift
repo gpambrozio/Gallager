@@ -22,6 +22,9 @@ struct ListProjectsCommand: ParsableCommand {
                     case let .string(name) = obj["name"],
                     case let .string(path) = obj["path"] {
                     print("\(name)\t\(path)")
+                } else {
+                    let warning = "warning: skipping project entry missing 'name' or 'path'\n"
+                    FileHandle.standardError.write(Data(warning.utf8))
                 }
             }
         }

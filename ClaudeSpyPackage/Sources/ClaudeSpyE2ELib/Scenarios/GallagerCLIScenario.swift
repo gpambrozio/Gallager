@@ -4,14 +4,18 @@ import Foundation
 ///
 /// Verifies the gallager CLI can control the app via Unix socket by
 /// exercising commands that produce visible UI changes:
-/// 1. ping + list-sessions — verify basic connectivity
-/// 2. new-session — verify new session appears in sidebar
-/// 3. list-panes — find pane ID for explicit targeting
-/// 4. split-pane — verify window splits into two panes
-/// 5. send text — verify text appears in pane
-/// 6. new-window — verify a new tab appears
-/// 7. list-projects — verify mock projects from in-memory scanner are returned
-/// 8. start-project — verify a session is created from a project path
+/// 1. Create tmux session and launch app
+/// 2. Set up CLI access (socket env var + gallager shell function)
+/// 3. ping + list-sessions — verify basic connectivity
+/// 4. Baseline screenshot — single session in sidebar
+/// 5. new-session — verify new session appears in sidebar
+/// 6. list-panes — find pane ID for explicit targeting
+/// 7. split-pane — verify window splits into two panes
+/// 8. send text — verify text appears in pane
+/// 9. new-window — verify a new tab appears
+/// 10. list-projects — verify mock projects from in-memory scanner are returned
+/// 11. start-project — verify a session is created from a project path
+/// 12. start-project with a non-existent path — verify error handling
 ///
 /// Strategy: all CLI commands typed into `cli-test:0` via tmuxSendKeys.
 /// Commands that need to target e2e-api use explicit pane IDs from list-panes.

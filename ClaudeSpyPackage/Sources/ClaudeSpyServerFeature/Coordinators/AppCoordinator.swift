@@ -519,10 +519,10 @@
                     }
                     let runCommand: String
                     if args.isEmpty {
-                        runCommand = claudeCommandPath
+                        runCommand = shellQuoteSingle(claudeCommandPath)
                     } else {
                         let quoted = args.map(shellQuoteSingle).joined(separator: " ")
-                        runCommand = "\(claudeCommandPath) \(quoted)"
+                        runCommand = "\(shellQuoteSingle(claudeCommandPath)) \(quoted)"
                     }
                     let (sessionName, _) = try await tmux.createSession(
                         baseName: url.lastPathComponent,
