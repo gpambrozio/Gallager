@@ -10,12 +10,6 @@ actor PairingService {
     /// Active paired connections
     private var activePairs: [String: Pair] = [:]
 
-    /// Transient per-pair version info reported by the most recent registration.
-    /// Not persisted — resets on server restart and is refreshed on every
-    /// host or viewer registration.
-    private var hostVersions: [String: PartnerVersionInfo] = [:]
-    private var viewerVersions: [String: PartnerVersionInfo] = [:]
-
     /// How long a pairing code remains valid (5 minutes)
     private let codeExpirySeconds: TimeInterval = 300
 
@@ -187,8 +181,6 @@ actor PairingService {
     /// Remove a pair
     func removePair(pairId: String) {
         activePairs.removeValue(forKey: pairId)
-        hostVersions.removeValue(forKey: pairId)
-        viewerVersions.removeValue(forKey: pairId)
         savePairs()
     }
 
@@ -238,40 +230,6 @@ actor PairingService {
         activePairs[pairId] = pair
         savePairs()
         logger.debug("Updated viewer public key for pair", metadata: ["pairId": "\(pairId)"])
-    }
-
-    // MARK: - Version Info (Transient)
-
-    /// Record the most recent host version info for a pair.
-    func updateHostVersion(pairId: String, appVersion: String, minRequiredPartnerVersion: String) {
-        hostVersions[pairId] = PartnerVersionInfo(
-            appVersion: appVersion,
-            minRequiredPartnerVersion: minRequiredPartnerVersion
-        )
-    }
-
-    /// Record the most recent viewer version info for a pair.
-    func updateViewerVersion(pairId: String, appVersion: String, minRequiredPartnerVersion: String) {
-        viewerVersions[pairId] = PartnerVersionInfo(
-            appVersion: appVersion,
-            minRequiredPartnerVersion: minRequiredPartnerVersion
-        )
-    }
-
-    /// Get the last reported host version info for a pair, if any.
-    func getHostVersion(pairId: String) -> PartnerVersionInfo? {
-        hostVersions[pairId]
-    }
-
-    /// Get the last reported viewer version info for a pair, if any.
-    func getViewerVersion(pairId: String) -> PartnerVersionInfo? {
-        viewerVersions[pairId]
-    }
-
-    /// Drop the cached version info for a pair (called when the pair is removed).
-    func clearVersionInfo(pairId: String) {
-        hostVersions.removeValue(forKey: pairId)
-        viewerVersions.removeValue(forKey: pairId)
     }
 
     // MARK: - Push Token Management
@@ -348,10 +306,4 @@ struct PendingPairing {
     let hostPublicKey: String
     let hostPublicKeyId: String
     let createdAt: Date
-}
-
-/// Version info for a paired partner device, captured from the most recent registration.
-struct PartnerVersionInfo {
-    let appVersion: String
-    let minRequiredPartnerVersion: String
 }

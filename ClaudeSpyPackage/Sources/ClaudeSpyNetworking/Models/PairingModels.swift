@@ -149,10 +149,6 @@ public struct RegisterHostMessage: Codable, Sendable {
     public let publicKeyId: String
     /// Username of the host user (e.g., "john")
     public let username: String
-    /// Marketing version of the host app (e.g. "1.23"). Empty if legacy client.
-    public let appVersion: String
-    /// Minimum partner version the host will accept. Empty if legacy client.
-    public let minRequiredPartnerVersion: String
 
     public init(
         pairId: String,
@@ -160,9 +156,7 @@ public struct RegisterHostMessage: Codable, Sendable {
         deviceName: String,
         publicKey: String,
         publicKeyId: String,
-        username: String,
-        appVersion: String = "",
-        minRequiredPartnerVersion: String = ""
+        username: String
     ) {
         self.pairId = pairId
         self.deviceId = deviceId
@@ -170,31 +164,6 @@ public struct RegisterHostMessage: Codable, Sendable {
         self.publicKey = publicKey
         self.publicKeyId = publicKeyId
         self.username = username
-        self.appVersion = appVersion
-        self.minRequiredPartnerVersion = minRequiredPartnerVersion
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case pairId
-        case deviceId
-        case deviceName
-        case publicKey
-        case publicKeyId
-        case username
-        case appVersion
-        case minRequiredPartnerVersion
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.pairId = try container.decode(String.self, forKey: .pairId)
-        self.deviceId = try container.decode(String.self, forKey: .deviceId)
-        self.deviceName = try container.decode(String.self, forKey: .deviceName)
-        self.publicKey = try container.decode(String.self, forKey: .publicKey)
-        self.publicKeyId = try container.decode(String.self, forKey: .publicKeyId)
-        self.username = try container.decode(String.self, forKey: .username)
-        self.appVersion = try container.decodeIfPresent(String.self, forKey: .appVersion) ?? ""
-        self.minRequiredPartnerVersion = try container.decodeIfPresent(String.self, forKey: .minRequiredPartnerVersion) ?? ""
     }
 }
 
@@ -207,48 +176,19 @@ public struct RegisterViewerMessage: Codable, Sendable {
     public let publicKey: String
     /// Unique identifier for the public key
     public let publicKeyId: String
-    /// Marketing version of the viewer app (e.g. "1.23"). Empty if legacy client.
-    public let appVersion: String
-    /// Minimum partner version the viewer will accept. Empty if legacy client.
-    public let minRequiredPartnerVersion: String
 
     public init(
         pairId: String,
         deviceId: String,
         deviceName: String,
         publicKey: String,
-        publicKeyId: String,
-        appVersion: String = "",
-        minRequiredPartnerVersion: String = ""
+        publicKeyId: String
     ) {
         self.pairId = pairId
         self.deviceId = deviceId
         self.deviceName = deviceName
         self.publicKey = publicKey
         self.publicKeyId = publicKeyId
-        self.appVersion = appVersion
-        self.minRequiredPartnerVersion = minRequiredPartnerVersion
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case pairId
-        case deviceId
-        case deviceName
-        case publicKey
-        case publicKeyId
-        case appVersion
-        case minRequiredPartnerVersion
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.pairId = try container.decode(String.self, forKey: .pairId)
-        self.deviceId = try container.decode(String.self, forKey: .deviceId)
-        self.deviceName = try container.decode(String.self, forKey: .deviceName)
-        self.publicKey = try container.decode(String.self, forKey: .publicKey)
-        self.publicKeyId = try container.decode(String.self, forKey: .publicKeyId)
-        self.appVersion = try container.decodeIfPresent(String.self, forKey: .appVersion) ?? ""
-        self.minRequiredPartnerVersion = try container.decodeIfPresent(String.self, forKey: .minRequiredPartnerVersion) ?? ""
     }
 }
 
@@ -261,10 +201,6 @@ public struct HostRegisteredMessage: Codable, Sendable {
     public let viewerPublicKey: String?
     /// Unique identifier for the viewer device's public key (nil if viewer not connected yet)
     public let viewerPublicKeyId: String?
-    /// Marketing version of the paired viewer (nil if viewer not connected or legacy client)
-    public let viewerAppVersion: String?
-    /// Minimum partner version required by the paired viewer (nil if viewer not connected or legacy client)
-    public let viewerMinRequiredPartnerVersion: String?
     public let error: String?
 
     public init(
@@ -272,41 +208,13 @@ public struct HostRegisteredMessage: Codable, Sendable {
         viewerDeviceName: String? = nil,
         viewerPublicKey: String? = nil,
         viewerPublicKeyId: String? = nil,
-        viewerAppVersion: String? = nil,
-        viewerMinRequiredPartnerVersion: String? = nil,
         error: String? = nil
     ) {
         self.success = success
         self.viewerDeviceName = viewerDeviceName
         self.viewerPublicKey = viewerPublicKey
         self.viewerPublicKeyId = viewerPublicKeyId
-        self.viewerAppVersion = viewerAppVersion
-        self.viewerMinRequiredPartnerVersion = viewerMinRequiredPartnerVersion
         self.error = error
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case success
-        case viewerDeviceName
-        case viewerPublicKey
-        case viewerPublicKeyId
-        case viewerAppVersion
-        case viewerMinRequiredPartnerVersion
-        case error
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.success = try container.decode(Bool.self, forKey: .success)
-        self.viewerDeviceName = try container.decodeIfPresent(String.self, forKey: .viewerDeviceName)
-        self.viewerPublicKey = try container.decodeIfPresent(String.self, forKey: .viewerPublicKey)
-        self.viewerPublicKeyId = try container.decodeIfPresent(String.self, forKey: .viewerPublicKeyId)
-        self.viewerAppVersion = try container.decodeIfPresent(String.self, forKey: .viewerAppVersion)
-        self.viewerMinRequiredPartnerVersion = try container.decodeIfPresent(
-            String.self,
-            forKey: .viewerMinRequiredPartnerVersion
-        )
-        self.error = try container.decodeIfPresent(String.self, forKey: .error)
     }
 }
 
@@ -321,10 +229,6 @@ public struct ViewerRegisteredMessage: Codable, Sendable {
     public let hostPublicKeyId: String?
     /// Username of the host user (nil if host not connected yet or not provided)
     public let hostUsername: String?
-    /// Marketing version of the paired host (nil if host not connected or legacy client)
-    public let hostAppVersion: String?
-    /// Minimum partner version required by the paired host (nil if host not connected or legacy client)
-    public let hostMinRequiredPartnerVersion: String?
     public let error: String?
 
     public init(
@@ -333,8 +237,6 @@ public struct ViewerRegisteredMessage: Codable, Sendable {
         hostPublicKey: String? = nil,
         hostPublicKeyId: String? = nil,
         hostUsername: String? = nil,
-        hostAppVersion: String? = nil,
-        hostMinRequiredPartnerVersion: String? = nil,
         error: String? = nil
     ) {
         self.success = success
@@ -342,35 +244,7 @@ public struct ViewerRegisteredMessage: Codable, Sendable {
         self.hostPublicKey = hostPublicKey
         self.hostPublicKeyId = hostPublicKeyId
         self.hostUsername = hostUsername
-        self.hostAppVersion = hostAppVersion
-        self.hostMinRequiredPartnerVersion = hostMinRequiredPartnerVersion
         self.error = error
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case success
-        case hostDeviceName
-        case hostPublicKey
-        case hostPublicKeyId
-        case hostUsername
-        case hostAppVersion
-        case hostMinRequiredPartnerVersion
-        case error
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.success = try container.decode(Bool.self, forKey: .success)
-        self.hostDeviceName = try container.decodeIfPresent(String.self, forKey: .hostDeviceName)
-        self.hostPublicKey = try container.decodeIfPresent(String.self, forKey: .hostPublicKey)
-        self.hostPublicKeyId = try container.decodeIfPresent(String.self, forKey: .hostPublicKeyId)
-        self.hostUsername = try container.decodeIfPresent(String.self, forKey: .hostUsername)
-        self.hostAppVersion = try container.decodeIfPresent(String.self, forKey: .hostAppVersion)
-        self.hostMinRequiredPartnerVersion = try container.decodeIfPresent(
-            String.self,
-            forKey: .hostMinRequiredPartnerVersion
-        )
-        self.error = try container.decodeIfPresent(String.self, forKey: .error)
     }
 }
 

@@ -391,6 +391,23 @@ final public class ViewerRelayClient {
         await send(.requestSessionState)
     }
 
+    /// Send this viewer's peerHello to the host once the E2EE session is up.
+    /// Called right after establishing E2EE on `.hostConnected`.
+    private func sendPeerHello() async {
+        let hello = PeerHelloMessage(
+            appVersion: VersionCompatibility.currentAppVersion,
+            minRequiredPartnerVersion: VersionCompatibility.minRequiredHostVersion
+        )
+        logger.info(
+            "Sending peerHello to host",
+            metadata: [
+                "appVersion": "\(hello.appVersion)",
+                "minRequiredPartnerVersion": "\(hello.minRequiredPartnerVersion)",
+            ]
+        )
+        await sendEncrypted(.peerHello(hello))
+    }
+
     /// Send push notification token to the relay server (iOS only).
     ///
     /// - Parameter token: The APNs device token as a hex string
@@ -464,9 +481,7 @@ final public class ViewerRelayClient {
                 deviceId: deviceId,
                 deviceName: deviceName,
                 publicKey: publicKey,
-                publicKeyId: publicKeyId,
-                appVersion: VersionCompatibility.currentAppVersion,
-                minRequiredPartnerVersion: VersionCompatibility.minRequiredHostVersion
+                publicKeyId: publicKeyId
             )
         )
         await send(registerMessage)
@@ -561,23 +576,14 @@ final public class ViewerRelayClient {
             if response.success {
                 logger.info("Successfully registered with relay server as viewer")
 
-                // If host is known to the server, validate version compatibility
-                if response.hostDeviceName != nil {
-                    if
-                        let mismatch = checkPartnerCompatibility(
-                            partnerAppVersion: response.hostAppVersion ?? "",
-                            partnerMinRequiredOurVersion: response.hostMinRequiredPartnerVersion ?? ""
-                        ) {
-                        await handleVersionMismatch(mismatch)
-                        return
-                    }
-                }
-
                 setState(.connected)
                 connectedHostName = response.hostDeviceName
                 isHostConnected = response.hostDeviceName != nil
 
-                // Establish E2EE session if host is connected and we have their public key
+                // Establish E2EE session if host is connected and we have their public key.
+                // The relay also fires `.hostConnected` in this case, which re-establishes
+                // E2EE and drives the peerHello handshake — so we leave the handshake and
+                // session state request to that path.
                 if
                     let hostPublicKey = response.hostPublicKey,
                     let hostPublicKeyId = response.hostPublicKeyId,
@@ -600,11 +606,6 @@ final public class ViewerRelayClient {
                     } catch {
                         logger.error("Failed to establish E2EE session: \(error)")
                     }
-                }
-
-                // Request session state if host is connected
-                if isHostConnected {
-                    await requestSessionState()
                 }
             } else {
                 logger.error("Registration failed: \(response.error ?? "Unknown error")")
@@ -639,19 +640,14 @@ final public class ViewerRelayClient {
         case let .hostConnected(connectedMessage):
             logger.info("Host device connected")
 
-            if
-                let mismatch = checkPartnerCompatibility(
-                    partnerAppVersion: connectedMessage.appVersion,
-                    partnerMinRequiredOurVersion: connectedMessage.minRequiredPartnerVersion
-                ) {
-                await handleVersionMismatch(mismatch)
-                return
-            }
-
             isHostConnected = true
 
+            // Establish E2EE, then send our peerHello. Session state is requested only
+            // after the host's peerHello arrives and passes the compatibility check;
+            // that happens in the `.peerHello` case below.
             let hostPublicKey = connectedMessage.publicKey
             let hostPublicKeyId = connectedMessage.publicKeyId
+            var e2eeReady = false
             if
                 let keyData = Data(base64Encoded: hostPublicKey),
                 let e2eeService,
@@ -664,6 +660,7 @@ final public class ViewerRelayClient {
                     )
                     partnerPublicKey = hostPublicKey
                     partnerPublicKeyId = hostPublicKeyId
+                    e2eeReady = true
                     logger.info("E2EE session established with host on connect notification")
 
                     if let onPartnerKeyReceived {
@@ -673,7 +670,24 @@ final public class ViewerRelayClient {
                     logger.error("Failed to establish E2EE session: \(error)")
                 }
             }
+            if e2eeReady {
+                await sendPeerHello()
+            }
 
+        case let .peerHello(peerHello):
+            logger.info(
+                "Received peerHello from host",
+                metadata: ["appVersion": "\(peerHello.appVersion)"]
+            )
+            if
+                let mismatch = checkPartnerCompatibility(
+                    partnerAppVersion: peerHello.appVersion,
+                    partnerMinRequiredOurVersion: peerHello.minRequiredPartnerVersion
+                ) {
+                await handleVersionMismatch(mismatch)
+                return
+            }
+            // Compatible — now safe to ask for session state.
             await requestSessionState()
 
         case .hostDisconnected:

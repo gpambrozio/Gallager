@@ -4,7 +4,8 @@ import Foundation
 ///
 /// Both sides should surface a version-mismatch error and stop reconnecting. Pairing
 /// itself still succeeds (the pair record is created) — version enforcement happens
-/// on the first WebSocket registration.
+/// peer-to-peer in the encrypted `peerHello` exchange once both sides are online;
+/// the relay server never sees or touches version info.
 public enum VersionMismatchOldIOSViewerScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Version Mismatch - Old iOS Viewer",
@@ -40,11 +41,11 @@ public enum VersionMismatchOldIOSViewerScenario {
         TestStep.macReadClipboard(storeAs: "pairingCode")
 
         // 6. Enter the code on iOS — the pairing REST call succeeds, but the
-        //    WebSocket register exchange will then surface the version mismatch.
+        //    peer-to-peer `peerHello` exchange that follows will surface the mismatch.
         TestStep.iosType(text: "${pairingCode}")
         TestStep.wait(seconds: 3)
 
-        // 7. Server accepted the pair record (versions are enforced at registration, not pairing)
+        // 7. Server accepted the pair record (versions are enforced in peerHello, not pairing)
         TestStep.verifyServerHasPairings(count: 1)
 
         // 8. Mac host should surface an error referencing the old viewer version.

@@ -252,6 +252,23 @@ final public class ConnectedViewer: Identifiable {
         await sendEncrypted(message)
     }
 
+    /// Send this host's peerHello to the viewer once the E2EE session is up.
+    /// Called right after establishing E2EE on `.viewerConnected`.
+    private func sendPeerHello() async {
+        let hello = PeerHelloMessage(
+            appVersion: VersionCompatibility.currentAppVersion,
+            minRequiredPartnerVersion: VersionCompatibility.minRequiredViewerVersion
+        )
+        logger.info(
+            "Sending peerHello to viewer",
+            metadata: [
+                "appVersion": "\(hello.appVersion)",
+                "minRequiredPartnerVersion": "\(hello.minRequiredPartnerVersion)",
+            ]
+        )
+        await sendEncrypted(.peerHello(hello))
+    }
+
     /// Proactively push current session state to viewer
     public func pushSessionState() async {
         guard state.isConnected, isViewerConnected else {
@@ -336,9 +353,7 @@ final public class ConnectedViewer: Identifiable {
                 deviceName: hostDeviceName,
                 publicKey: publicKey,
                 publicKeyId: publicKeyId,
-                username: username,
-                appVersion: VersionCompatibility.currentAppVersion,
-                minRequiredPartnerVersion: VersionCompatibility.minRequiredViewerVersion
+                username: username
             )
         )
         await send(registerMessage)
@@ -423,24 +438,14 @@ final public class ConnectedViewer: Identifiable {
             if response.success {
                 logger.info("Successfully registered with relay server for viewer: \(viewerName)")
 
-                // If the server already knows about the viewer, validate version compatibility
-                if response.viewerDeviceName != nil {
-                    if
-                        let mismatch = checkPartnerCompatibility(
-                            partnerAppVersion: response.viewerAppVersion ?? "",
-                            partnerMinRequiredOurVersion: response.viewerMinRequiredPartnerVersion ?? ""
-                        ) {
-                        await handleVersionMismatch(mismatch)
-                        return
-                    }
-                }
-
                 reconnectionAttempt = 0
                 await updateState(.connected)
                 connectedViewerDeviceName = response.viewerDeviceName
                 isViewerConnected = response.viewerDeviceName != nil
 
-                // Establish E2EE session if viewer is connected and we have their public key
+                // Establish E2EE session if viewer is connected and we have their public key.
+                // The relay also fires `.viewerConnected` in this case, which re-establishes
+                // E2EE and drives the peerHello handshake.
                 if
                     let viewerPublicKey = response.viewerPublicKey,
                     let viewerPublicKeyId = response.viewerPublicKeyId {
@@ -476,23 +481,32 @@ final public class ConnectedViewer: Identifiable {
         case let .viewerConnected(connectedMessage):
             logger.info("Viewer device connected")
 
-            if
-                let mismatch = checkPartnerCompatibility(
-                    partnerAppVersion: connectedMessage.appVersion,
-                    partnerMinRequiredOurVersion: connectedMessage.minRequiredPartnerVersion
-                ) {
-                await handleVersionMismatch(mismatch)
-                return
-            }
-
             isViewerConnected = true
 
-            await establishE2EEWithPartner(
-                publicKey: connectedMessage.publicKey,
-                keyId: connectedMessage.publicKeyId
-            )
+            // Establish E2EE, then send peerHello. The viewer will reply with its own
+            // peerHello; both sides validate versions peer-to-peer and disconnect on
+            // mismatch. Session state is pushed when the viewer requests it after
+            // completing its own peerHello validation.
+            if
+                await establishE2EEWithPartner(
+                    publicKey: connectedMessage.publicKey,
+                    keyId: connectedMessage.publicKeyId
+                ) {
+                await sendPeerHello()
+            }
 
-            await pushSessionState()
+        case let .peerHello(peerHello):
+            logger.info(
+                "Received peerHello from viewer",
+                metadata: ["appVersion": "\(peerHello.appVersion)"]
+            )
+            if
+                let mismatch = checkPartnerCompatibility(
+                    partnerAppVersion: peerHello.appVersion,
+                    partnerMinRequiredOurVersion: peerHello.minRequiredPartnerVersion
+                ) {
+                await handleVersionMismatch(mismatch)
+            }
 
         case .viewerDisconnected:
             logger.info("Viewer device disconnected")
