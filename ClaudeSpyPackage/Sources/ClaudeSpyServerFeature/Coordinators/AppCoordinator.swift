@@ -739,6 +739,24 @@
                     return .success(for: command.id)
                 }
 
+                // Handle window rename — pushes updated state so connected
+                // viewers see the new tab name.
+                if case let .setWindowName(spec) = command.command {
+                    let trimmed = spec.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else {
+                        return .failure(for: command.id, error: "Window name must not be empty")
+                    }
+                    do {
+                        try await tmux.renameWindow(target: spec.windowId, name: trimmed)
+                        let allPanes = await tmux.refreshPanes()
+                        winManager.updatePaneStates(from: allPanes)
+                        await connectionManager?.pushSessionStateToAll()
+                        return .success(for: command.id)
+                    } catch {
+                        return .failure(for: command.id, error: error.localizedDescription)
+                    }
+                }
+
                 // Handle split pane (needs state refresh after split)
                 if case .splitTmuxPane = command.command {
                     let response = await executor.execute(command)
@@ -983,12 +1001,18 @@
                 let workingDirectory = spec.workingDirectory
                     ?? FileManager.default.homeDirectoryForCurrentUser.path()
 
+                // A non-nil `spec.workingDirectory` means this was a
+                // "create from Claude project" request — that's the only flow
+                // today that supplies a directory. Other entry points (empty
+                // session) leave it nil, so we treat presence as the project
+                // marker and name the first window "claude" accordingly.
                 let (_, paneId) = try await tmuxService.createSession(
                     baseName: spec.sessionName,
                     width: spec.width,
                     height: spec.height,
                     workingDirectory: workingDirectory,
-                    runCommand: runCommand
+                    runCommand: runCommand,
+                    isClaudeProject: spec.workingDirectory != nil
                 )
 
                 try? await Task.sleep(for: .milliseconds(500))
