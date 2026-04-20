@@ -2,6 +2,23 @@
 
 Every `gallager` subcommand wraps a JSON-RPC method sent over a Unix socket. This reference lists the method name, parameters, and response for each command, plus the wire protocol for callers that want to talk to the socket directly.
 
+## Gallager is tmux underneath
+
+Every session, window, and pane the API returns is a real tmux object on the user's tmux server. The IDs are identical to tmux's own identifiers:
+
+| API field | tmux identifier |
+|-----------|-----------------|
+| `Session.id` / `Session.name` | tmux session name (use with `tmux … -t <name>`) |
+| `Window.id` (e.g. `main:0`) | tmux `session:index` target |
+| `Window.sessionId` | tmux session name |
+| `Pane.id` (e.g. `%3`) | tmux pane ID — identical to `$TMUX_PANE` inside the pane |
+| `Pane.windowId` | tmux `session:index` target |
+| `Pane.command` / `Pane.cwd` | tmux `#{pane_current_command}` / `#{pane_current_path}` |
+
+If the API does not expose an operation you need, call `tmux` directly against the same objects — Gallager observes tmux state continuously and the app will reflect the change without an explicit refresh. For example: `tmux rename-window`, `tmux resize-pane -x/-y`, `tmux capture-pane`, `tmux swap-pane`, `tmux join-pane`, `tmux select-layout`, and `tmux set-option` all work on Gallager-managed sessions.
+
+Inside a Gallager-managed pane, `$TMUX` is set by tmux itself, so bare `tmux …` talks to the correct server. From outside a managed pane — or when the user has configured a custom tmux socket — pass `tmux -S <socket>` to match the server Gallager drives.
+
 ## Wire protocol
 
 Newline-delimited JSON-RPC over `AF_UNIX, SOCK_STREAM`. Each message is a single JSON object followed by `\n`. Connections are persistent — a single connection can carry multiple requests.

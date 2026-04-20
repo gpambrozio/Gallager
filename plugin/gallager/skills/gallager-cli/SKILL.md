@@ -1,11 +1,72 @@
 ---
 name: gallager-cli
-description: Control the Gallager macOS app from the command line to manage tmux sessions, windows, panes, send text/keys to terminals, trigger desktop notifications, and open files in the in-app prompt editor. Use this skill whenever the user is working inside a Gallager-managed tmux session and wants to drive the UI from scripts or the shell — creating sessions, switching panes, sending input, notifying when a long-running task finishes, or editing prompts from the current terminal. Trigger on phrases like "open a new tmux window", "send this to the pane", "notify me when build finishes", "split pane", "edit this prompt in Gallager", or any mention of the `gallager` CLI.
+description: Control the Gallager macOS app from the command line to manage tmux sessions, windows, panes, send text/keys to terminals, trigger desktop notifications, and open files in the in-app prompt editor. Gallager is a thin wrapper around tmux — every session/window/pane it exposes is a real tmux object, so when Gallager lacks a command you can fall back to `tmux` directly and the app will pick up the change. Use this skill whenever the user is working inside a Gallager-managed tmux session and wants to drive the UI from scripts or the shell — creating sessions, switching panes, sending input, notifying when a long-running task finishes, or editing prompts from the current terminal. Trigger on phrases like "open a new tmux window", "send this to the pane", "notify me when build finishes", "split pane", "edit this prompt in Gallager", or any mention of the `gallager` CLI.
 ---
 
 # Gallager CLI
 
 `gallager` is a command-line tool that talks to the Gallager macOS app (which manages tmux sessions) over a Unix socket. Use it to drive the app from scripts, terminals, or automated workflows: list/create/close sessions, windows, and panes; send text or key presses; post desktop notifications; and open files in the in-app prompt editor.
+
+## Gallager is tmux underneath
+
+Gallager does not run its own terminal multiplexer — it drives the real `tmux` binary on the user's machine and surfaces the state. That has two practical consequences:
+
+1. **Every ID Gallager hands you is a tmux primitive.** You can paste them straight into `tmux` commands.
+   - Session IDs (e.g. `main`, `work`) are tmux session names → use with `tmux … -t main`.
+   - Window IDs (e.g. `main:0`, `work:1`) are tmux `session:index` targets → use with `tmux … -t main:0`.
+   - Pane IDs (e.g. `%3`, `%17`) are tmux pane IDs → use with `tmux … -t %3`.
+   - Fields like `windowId`, `sessionId` on the returned objects point into the same namespace.
+2. **`tmux` is the escape hatch when `gallager` lacks a command.** Anything `tmux` can do to these sessions, you can do too — rename a window, swap panes, resize by percentage, set options, kill a stuck pane, attach from another terminal, run `tmux capture-pane`, etc. Gallager observes tmux state continuously, so changes you make with `tmux` show up in the app automatically; there's no "refresh" to run.
+
+Prefer the `gallager` subcommand when one exists (it goes through the app and keeps the UI in sync for things like `select-session` that affect the foreground view). Reach for raw `tmux` for operations Gallager doesn't expose.
+
+### Mapping `gallager` to `tmux`
+
+| Gallager output/command | tmux equivalent |
+|---|---|
+| `list-sessions` / `current-session` | `tmux list-sessions`, `tmux display -p '#S'` |
+| `new-session --name foo` | `tmux new-session -d -s foo` |
+| `select-session foo` / `close-session foo` | `tmux switch-client -t foo` / `tmux kill-session -t foo` |
+| `list-windows [--session foo]` | `tmux list-windows [-t foo]` |
+| `new-window` / `select-window foo:1` / `close-window foo:1` | `tmux new-window` / `tmux select-window -t foo:1` / `tmux kill-window -t foo:1` |
+| `list-panes [--window foo:0]` | `tmux list-panes [-t foo:0]` (add `-a` for every pane on the server) |
+| `split-pane right` | `tmux split-window -h` (horizontal = right; `-v` = down) |
+| `select-pane %3` | `tmux select-pane -t %3` |
+| `send "text" --pane %3` | `tmux send-keys -t %3 -l "text"` |
+| `send-key enter --pane %3` | `tmux send-keys -t %3 Enter` |
+| Pane field `command` / `cwd` | `tmux display -p -t %3 '#{pane_current_command}'` / `'#{pane_current_path}'` |
+
+### When you must go straight to tmux
+
+Examples of things `gallager` does not expose but tmux handles fine:
+
+```bash
+# Rename a window or session
+tmux rename-window -t main:1 "logs"
+tmux rename-session -t work "client-work"
+
+# Resize a pane by exact rows/columns (gallager only splits)
+tmux resize-pane -t %5 -x 120 -y 30
+
+# Capture a pane's visible buffer (handy for scraping output)
+tmux capture-pane -t %3 -p
+
+# Swap two panes, join a pane into another window, break a pane out
+tmux swap-pane -s %3 -t %5
+tmux join-pane   -s %3 -t main:1
+tmux break-pane  -s %3
+
+# Toggle zoom, kill a stuck pane, set a layout
+tmux resize-pane -Z -t %3
+tmux kill-pane -t %3
+tmux select-layout -t main:0 tiled
+```
+
+After any of these, Gallager's session/window/pane list updates on its own — no need to tell the app.
+
+### Picking the right tmux server
+
+Inside a Gallager-managed pane, the `$TMUX` env var is already set, so plain `tmux …` talks to the correct server automatically. If you're running `tmux` from *outside* a managed pane (or the user has configured a custom socket in Gallager's settings), pass `-S <socket-path>` to match the server Gallager uses — otherwise you'll hit the user's default tmux server instead. `gallager identify` / `gallager list-sessions` confirm you're looking at the right server.
 
 ## When to reach for it
 
@@ -78,8 +139,8 @@ gallager edit /tmp/prompt.txt
 ## Important details worth knowing
 
 - **`send` sends text literally.** `gallager send "ls"` does *not* press Enter. Use `$'ls\n'` in bash/zsh, or follow up with `gallager send-key enter`.
-- **Context inference uses `$TMUX_PANE`.** If you run `gallager` from outside tmux, session/window/pane context isn't known — pass it explicitly with `--pane`, `--window`, or `--session`.
-- **Socket resolution order**: `--socket` flag → `$GALLAGER_SOCKET` → `$TMPDIR/gallager.sock`. Inside Gallager-managed panes, `$GALLAGER_SOCKET` is set for you.
+- **Context inference uses `$TMUX_PANE`.** If you run `gallager` from outside tmux, session/window/pane context isn't known — pass it explicitly with `--pane`, `--window`, or `--session`. `$TMUX_PANE` is tmux's own env var (set by tmux inside every pane), and its value is exactly the pane ID Gallager reports — that's why the two stay in sync.
+- **Socket resolution order**: `--socket` flag → `$GALLAGER_SOCKET` → `$TMPDIR/gallager.sock`. Inside Gallager-managed panes, `$GALLAGER_SOCKET` is set for you. Note: `$GALLAGER_SOCKET` is Gallager's JSON-RPC socket, separate from the tmux socket `tmux -S` uses.
 - **`gallager edit` blocks.** It returns only after the user submits or cancels the prompt in the app. Great for interactive workflows, wrong for fire-and-forget scripts.
 - **`notify` attaches pane context automatically** when `$TMUX_PANE` is set, so tapping the iOS notification jumps to the right pane.
 
@@ -105,6 +166,16 @@ Chain commands to script multi-step flows:
 gallager new-window --path ~/code/proj
 gallager split-pane right
 gallager send $'tail -f /tmp/build.log\n' --pane %5
+```
+
+Mix `gallager` and `tmux` freely — the IDs are interchangeable:
+
+```bash
+# Use gallager to create, tmux to fine-tune, gallager to drive input
+new_pane=$(gallager split-pane down --json | jq -r '.result.id')
+tmux rename-window -t "$(gallager identify --json | jq -r '.result.window.id')" "build"
+tmux resize-pane -t "$new_pane" -y 15
+gallager send $'make test\n' --pane "$new_pane"
 ```
 
 ## Troubleshooting
