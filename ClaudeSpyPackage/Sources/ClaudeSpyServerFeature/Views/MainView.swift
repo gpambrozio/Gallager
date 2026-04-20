@@ -1557,12 +1557,22 @@ private struct SessionSidebarRow: View {
         // from reading .accessibilityValue directly on the indicator.
         .accessibilityValue(session.sessionName)
         .overlay {
-            if let status = claudeSession?.statusLabel {
-                Text(status)
-                    .font(.system(size: 1))
-                    .opacity(0)
-                    .accessibilityLabel(status)
+            ZStack {
+                if let status = claudeSession?.statusLabel {
+                    Text(status)
+                        .accessibilityLabel(status)
+                }
+                // The project name is rendered by SessionFieldsView, but when the row's
+                // Button combines its children's AX into a single label, that leaf can
+                // drop out intermittently — exposing it as its own hidden label gives
+                // e2e tests a stable element to find.
+                if let projectName = claudeSession?.displayName {
+                    Text(projectName)
+                        .accessibilityLabel(projectName)
+                }
             }
+            .font(.system(size: 1))
+            .opacity(0)
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
@@ -2195,14 +2205,22 @@ private struct RemoteSessionSidebarRow: View {
         // Expose session name to macOS accessibility tree so e2e tests can find sessions
         // regardless of which sidebar fields are configured.
         .accessibilityValue(session.sessionName)
-        // Invisible text exposing session status to macOS accessibility tree for e2e tests.
+        // Invisible text exposing session status and project name to macOS accessibility
+        // tree for e2e tests. The Button that wraps this row can combine children into a
+        // single label, dropping leaf Texts — these hidden labels give tests stable targets.
         .overlay {
-            if let status = claudeSession?.statusLabel {
-                Text(status)
-                    .font(.system(size: 1))
-                    .opacity(0)
-                    .accessibilityLabel(status)
+            ZStack {
+                if let status = claudeSession?.statusLabel {
+                    Text(status)
+                        .accessibilityLabel(status)
+                }
+                if let projectName = claudeSession?.displayName {
+                    Text(projectName)
+                        .accessibilityLabel(projectName)
+                }
             }
+            .font(.system(size: 1))
+            .opacity(0)
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
