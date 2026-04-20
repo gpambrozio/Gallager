@@ -33,9 +33,12 @@ actor RelayService {
                 logger.warning("Host connected but no public key available, skipping notification")
                 return
             }
+            let versionInfo = await pairingService.getHostVersion(pairId: pairId)
             let connectedMessage = ViewerConnectedMessage(
                 publicKey: hostKeyInfo.key,
-                publicKeyId: hostKeyInfo.keyId
+                publicKeyId: hostKeyInfo.keyId,
+                appVersion: versionInfo?.appVersion ?? "",
+                minRequiredPartnerVersion: versionInfo?.minRequiredPartnerVersion ?? ""
             )
             message = .hostConnected(connectedMessage)
         case (.host, false):
@@ -46,9 +49,12 @@ actor RelayService {
                 logger.warning("Viewer connected but no public key available, skipping notification")
                 return
             }
+            let versionInfo = await pairingService.getViewerVersion(pairId: pairId)
             let connectedMessage = ViewerConnectedMessage(
                 publicKey: viewerKeyInfo.key,
-                publicKeyId: viewerKeyInfo.keyId
+                publicKeyId: viewerKeyInfo.keyId,
+                appVersion: versionInfo?.appVersion ?? "",
+                minRequiredPartnerVersion: versionInfo?.minRequiredPartnerVersion ?? ""
             )
             message = .viewerConnected(connectedMessage)
         case (.viewer, false):
@@ -144,24 +150,35 @@ actor RelayService {
             username: registration.username
         )
 
+        // Cache the host's version info so future viewer connections see it
+        await pairingService.updateHostVersion(
+            pairId: pairId,
+            appVersion: registration.appVersion,
+            minRequiredPartnerVersion: registration.minRequiredPartnerVersion
+        )
+
         let viewerDeviceName = await pairingService.getViewerDeviceName(pairId: pairId)
         let isViewerConnected = await connectionHub.isViewerConnected(pairId: pairId)
 
         // Get viewer public key if available
         let viewerKeyInfo = await pairingService.getViewerPublicKey(pairId: pairId)
+        let viewerVersion = await pairingService.getViewerVersion(pairId: pairId)
 
         logger.info("Host registration complete", metadata: [
             "pairId": "\(pairId)",
             "viewerConnected": "\(isViewerConnected)",
             "viewerDeviceName": "\(viewerDeviceName ?? "none")",
             "hasViewerPublicKey": "\(viewerKeyInfo != nil)",
+            "hostAppVersion": "\(registration.appVersion)",
         ])
 
         let response = HostRegisteredMessage(
             success: true,
             viewerDeviceName: viewerDeviceName,
             viewerPublicKey: viewerKeyInfo?.key,
-            viewerPublicKeyId: viewerKeyInfo?.keyId
+            viewerPublicKeyId: viewerKeyInfo?.keyId,
+            viewerAppVersion: viewerVersion?.appVersion,
+            viewerMinRequiredPartnerVersion: viewerVersion?.minRequiredPartnerVersion
         )
 
         await connectionHub.send(.hostRegistered(response), to: pairId, deviceType: .host)
@@ -171,7 +188,9 @@ actor RelayService {
         // when we don't have the public key yet
         let hostConnectedMessage = ViewerConnectedMessage(
             publicKey: registration.publicKey,
-            publicKeyId: registration.publicKeyId
+            publicKeyId: registration.publicKeyId,
+            appVersion: registration.appVersion,
+            minRequiredPartnerVersion: registration.minRequiredPartnerVersion
         )
         logger.info("Notifying viewer that host registered with public key")
         await connectionHub.send(.hostConnected(hostConnectedMessage), to: pairId, deviceType: .viewer)
@@ -181,7 +200,9 @@ actor RelayService {
             logger.info("Notifying host that viewer is connected, requesting session state")
             let connectedMessage = ViewerConnectedMessage(
                 publicKey: viewerKeyInfo.key,
-                publicKeyId: viewerKeyInfo.keyId
+                publicKeyId: viewerKeyInfo.keyId,
+                appVersion: viewerVersion?.appVersion ?? "",
+                minRequiredPartnerVersion: viewerVersion?.minRequiredPartnerVersion ?? ""
             )
             await connectionHub.send(.viewerConnected(connectedMessage), to: pairId, deviceType: .host)
             // Also request current session state from host
@@ -197,18 +218,27 @@ actor RelayService {
             publicKeyId: registration.publicKeyId
         )
 
+        // Cache the viewer's version info so future host connections see it
+        await pairingService.updateViewerVersion(
+            pairId: pairId,
+            appVersion: registration.appVersion,
+            minRequiredPartnerVersion: registration.minRequiredPartnerVersion
+        )
+
         let hostDeviceName = await pairingService.getHostDeviceName(pairId: pairId)
         let hostUsername = await pairingService.getHostUsername(pairId: pairId)
         let isHostConnected = await connectionHub.isHostConnected(pairId: pairId)
 
         // Get host public key if available
         let hostKeyInfo = await pairingService.getHostPublicKey(pairId: pairId)
+        let hostVersion = await pairingService.getHostVersion(pairId: pairId)
 
         logger.info("Viewer registration complete", metadata: [
             "pairId": "\(pairId)",
             "hostConnected": "\(isHostConnected)",
             "hostDeviceName": "\(hostDeviceName ?? "none")",
             "hasHostPublicKey": "\(hostKeyInfo != nil)",
+            "viewerAppVersion": "\(registration.appVersion)",
         ])
 
         let response = ViewerRegisteredMessage(
@@ -216,7 +246,9 @@ actor RelayService {
             hostDeviceName: hostDeviceName,
             hostPublicKey: hostKeyInfo?.key,
             hostPublicKeyId: hostKeyInfo?.keyId,
-            hostUsername: hostUsername
+            hostUsername: hostUsername,
+            hostAppVersion: hostVersion?.appVersion,
+            hostMinRequiredPartnerVersion: hostVersion?.minRequiredPartnerVersion
         )
 
         await connectionHub.send(.viewerRegistered(response), to: pairId, deviceType: .viewer)
@@ -226,7 +258,9 @@ actor RelayService {
         // when we don't have the public key yet
         let viewerConnectedMessage = ViewerConnectedMessage(
             publicKey: registration.publicKey,
-            publicKeyId: registration.publicKeyId
+            publicKeyId: registration.publicKeyId,
+            appVersion: registration.appVersion,
+            minRequiredPartnerVersion: registration.minRequiredPartnerVersion
         )
         logger.info("Notifying host that viewer registered with public key")
         await connectionHub.send(.viewerConnected(viewerConnectedMessage), to: pairId, deviceType: .host)
@@ -236,7 +270,9 @@ actor RelayService {
             logger.info("Notifying viewer that host is connected, requesting session state")
             let connectedMessage = ViewerConnectedMessage(
                 publicKey: hostKeyInfo.key,
-                publicKeyId: hostKeyInfo.keyId
+                publicKeyId: hostKeyInfo.keyId,
+                appVersion: hostVersion?.appVersion ?? "",
+                minRequiredPartnerVersion: hostVersion?.minRequiredPartnerVersion ?? ""
             )
             await connectionHub.send(.hostConnected(connectedMessage), to: pairId, deviceType: .viewer)
             // Also request current session state from host

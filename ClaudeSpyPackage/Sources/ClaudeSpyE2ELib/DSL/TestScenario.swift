@@ -47,8 +47,9 @@ public enum TestStep: Sendable {
 
     // MARK: - iOS Simulator
 
-    /// Launch the iOS app in the simulator
-    case launchIOSApp
+    /// Launch the iOS app in the simulator. Pass optional version overrides to simulate
+    /// old or mismatched app versions for compatibility testing.
+    case launchIOSApp(appVersion: String? = nil, minRequiredPartnerVersion: String? = nil)
     /// Terminate the iOS app
     case terminateIOSApp
     /// Uninstall the iOS app from the simulator
@@ -79,8 +80,9 @@ public enum TestStep: Sendable {
     // are additional instances (e.g. for Mac-to-Mac pairing scenarios).
     // Ports and file paths are derived automatically from the instance number.
 
-    /// Launch the macOS app
-    case launchMacApp(instance: Int = 0)
+    /// Launch the macOS app. Pass optional version overrides to simulate old or mismatched
+    /// app versions for compatibility testing.
+    case launchMacApp(instance: Int = 0, appVersion: String? = nil, minRequiredPartnerVersion: String? = nil)
     /// Terminate the macOS app
     case terminateMacApp(instance: Int = 0)
     /// Activate the macOS app instance so it becomes frontmost with its key window.

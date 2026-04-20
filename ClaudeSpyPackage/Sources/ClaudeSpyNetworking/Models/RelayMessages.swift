@@ -124,10 +124,14 @@ public struct PaneState: Codable, Sendable, Identifiable {
 
     // MARK: - Computed Properties
 
-    public var id: String { paneId }
+    public var id: String {
+        paneId
+    }
 
     /// Window identifier combining session name and window index (e.g., "mysession:0")
-    public var windowId: String { "\(sessionName):\(windowIndex)" }
+    public var windowId: String {
+        "\(sessionName):\(windowIndex)"
+    }
 
     public init(
         paneId: String,
@@ -216,7 +220,9 @@ public struct PushTokenRegisteredMessage: Codable, Sendable {
 /// Information about a discovered Claude project
 public struct ClaudeProjectInfo: Codable, Sendable, Identifiable, Hashable {
     /// Unique identifier (based on path)
-    public var id: String { path }
+    public var id: String {
+        path
+    }
 
     /// Project name (last component of path)
     public let name: String
@@ -244,8 +250,39 @@ public struct ViewerConnectedMessage: Codable, Sendable {
     /// Unique identifier for the public key
     public let publicKeyId: String
 
-    public init(publicKey: String, publicKeyId: String) {
+    /// Marketing version of the connecting partner (empty if legacy client)
+    public let appVersion: String
+
+    /// Minimum partner version required by the connecting partner (empty if legacy client)
+    public let minRequiredPartnerVersion: String
+
+    public init(
+        publicKey: String,
+        publicKeyId: String,
+        appVersion: String = "",
+        minRequiredPartnerVersion: String = ""
+    ) {
         self.publicKey = publicKey
         self.publicKeyId = publicKeyId
+        self.appVersion = appVersion
+        self.minRequiredPartnerVersion = minRequiredPartnerVersion
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case publicKey
+        case publicKeyId
+        case appVersion
+        case minRequiredPartnerVersion
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.publicKey = try container.decode(String.self, forKey: .publicKey)
+        self.publicKeyId = try container.decode(String.self, forKey: .publicKeyId)
+        self.appVersion = try container.decodeIfPresent(String.self, forKey: .appVersion) ?? ""
+        self.minRequiredPartnerVersion = try container.decodeIfPresent(
+            String.self,
+            forKey: .minRequiredPartnerVersion
+        ) ?? ""
     }
 }

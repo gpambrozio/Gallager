@@ -336,7 +336,9 @@ final public class ConnectedViewer: Identifiable {
                 deviceName: hostDeviceName,
                 publicKey: publicKey,
                 publicKeyId: publicKeyId,
-                username: username
+                username: username,
+                appVersion: VersionCompatibility.currentAppVersion,
+                minRequiredPartnerVersion: VersionCompatibility.minRequiredViewerVersion
             )
         )
         await send(registerMessage)
@@ -420,6 +422,19 @@ final public class ConnectedViewer: Identifiable {
 
             if response.success {
                 logger.info("Successfully registered with relay server for viewer: \(viewerName)")
+
+                // If the server already knows about the viewer, validate version compatibility
+                if response.viewerDeviceName != nil {
+                    if
+                        let mismatch = checkPartnerCompatibility(
+                            partnerAppVersion: response.viewerAppVersion ?? "",
+                            partnerMinRequiredOurVersion: response.viewerMinRequiredPartnerVersion ?? ""
+                        ) {
+                        await handleVersionMismatch(mismatch)
+                        return
+                    }
+                }
+
                 reconnectionAttempt = 0
                 await updateState(.connected)
                 connectedViewerDeviceName = response.viewerDeviceName
@@ -460,6 +475,16 @@ final public class ConnectedViewer: Identifiable {
 
         case let .viewerConnected(connectedMessage):
             logger.info("Viewer device connected")
+
+            if
+                let mismatch = checkPartnerCompatibility(
+                    partnerAppVersion: connectedMessage.appVersion,
+                    partnerMinRequiredOurVersion: connectedMessage.minRequiredPartnerVersion
+                ) {
+                await handleVersionMismatch(mismatch)
+                return
+            }
+
             isViewerConnected = true
 
             await establishE2EEWithPartner(
@@ -509,6 +534,59 @@ final public class ConnectedViewer: Identifiable {
         default:
             logger.debug("Received unhandled message type")
         }
+    }
+
+    // MARK: - Version Compatibility
+
+    /// Result of a version compatibility check between this host and a paired viewer.
+    private enum VersionMismatch {
+        /// Our version is below what the partner requires.
+        case weAreTooOld(required: String)
+        /// The partner's version is below what we require.
+        case partnerTooOld(partnerVersion: String)
+    }
+
+    /// Checks whether a paired viewer's version info is compatible with this host.
+    /// Returns `nil` when both sides are compatible.
+    ///
+    /// An empty partner version is treated as a legacy client and rejected as
+    /// "partner too old", since any build with the versioning feature always
+    /// sends a non-empty version.
+    private func checkPartnerCompatibility(
+        partnerAppVersion: String,
+        partnerMinRequiredOurVersion: String
+    ) -> VersionMismatch? {
+        let ourVersion = VersionCompatibility.currentAppVersion
+        let ourMinRequired = VersionCompatibility.minRequiredViewerVersion
+
+        if
+            !partnerMinRequiredOurVersion.isEmpty,
+            !VersionCompatibility.isCompatible(version: ourVersion, minimum: partnerMinRequiredOurVersion) {
+            return .weAreTooOld(required: partnerMinRequiredOurVersion)
+        }
+
+        if !VersionCompatibility.isCompatible(version: partnerAppVersion, minimum: ourMinRequired) {
+            return .partnerTooOld(partnerVersion: partnerAppVersion)
+        }
+
+        return nil
+    }
+
+    /// Handles a detected version mismatch by stopping reconnects and surfacing an error.
+    private func handleVersionMismatch(_ mismatch: VersionMismatch) async {
+        let message: String
+        switch mismatch {
+        case let .weAreTooOld(required):
+            message = "This Mac app is out of date. Viewer \(viewerName) requires version \(required) or later. Please update."
+        case let .partnerTooOld(partnerVersion):
+            let versionText = partnerVersion.isEmpty ? "an older version" : "version \(partnerVersion)"
+            message = "Viewer \(viewerName) is running \(versionText) and cannot connect. Please update the viewer app."
+        }
+
+        logger.error("Version mismatch with viewer \(viewerName): \(message)")
+        shouldReconnect = false
+        await cleanupConnection()
+        await updateState(.error(message))
     }
 
     /// Establish an E2EE session with the partner's public key.

@@ -312,7 +312,7 @@ public actor TestOrchestrator {
             try await serverDriver.stop()
 
         // iOS Simulator
-        case .launchIOSApp:
+        case let .launchIOSApp(appVersion, minRequiredPartnerVersion):
             guard let iosAppPath else {
                 throw OrchestratorError.configurationError("--ios-app-path is required for iOS scenarios")
             }
@@ -321,9 +321,16 @@ public actor TestOrchestrator {
                 await simulatorDriver.setE2ERunnerPath(e2eRunnerPath)
             }
             try await simulatorDriver.installApp(appPath: iosAppPath)
+            var iosArgs = ["--e2e-test", "--server-url", "ws://127.0.0.1:\(serverPort)"]
+            if let appVersion {
+                iosArgs += ["--app-version", appVersion]
+            }
+            if let minRequiredPartnerVersion {
+                iosArgs += ["--min-required-partner-version", minRequiredPartnerVersion]
+            }
             try await simulatorDriver.launchApp(
                 bundleId: iosBundleId(),
-                arguments: ["--e2e-test", "--server-url", "ws://127.0.0.1:\(serverPort)"]
+                arguments: iosArgs
             )
 
         case .terminateIOSApp:
@@ -384,7 +391,7 @@ public actor TestOrchestrator {
             logger.info("=== End iOS UI Tree ===")
 
         // macOS App (all cases use `instance` to select which app instance to target)
-        case let .launchMacApp(instance):
+        case let .launchMacApp(instance, appVersion, minRequiredPartnerVersion):
             let driver = macDriver(for: instance)
             let instanceSocket = tmuxSocketPath(for: instance)
             var arguments = [
@@ -397,6 +404,12 @@ public actor TestOrchestrator {
                 "--push-log", pushLogPath(for: instance),
                 "--clipboard-file", clipboardFilePath(for: instance),
             ]
+            if let appVersion {
+                arguments += ["--app-version", appVersion]
+            }
+            if let minRequiredPartnerVersion {
+                arguments += ["--min-required-partner-version", minRequiredPartnerVersion]
+            }
             if
                 let sampleDir = Bundle.module.resourcePath.map({ $0 + "/SampleFiles" }),
                 FileManager.default.fileExists(atPath: sampleDir) {

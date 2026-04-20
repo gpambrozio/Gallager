@@ -464,7 +464,9 @@ final public class ViewerRelayClient {
                 deviceId: deviceId,
                 deviceName: deviceName,
                 publicKey: publicKey,
-                publicKeyId: publicKeyId
+                publicKeyId: publicKeyId,
+                appVersion: VersionCompatibility.currentAppVersion,
+                minRequiredPartnerVersion: VersionCompatibility.minRequiredHostVersion
             )
         )
         await send(registerMessage)
@@ -558,6 +560,19 @@ final public class ViewerRelayClient {
         case let .viewerRegistered(response):
             if response.success {
                 logger.info("Successfully registered with relay server as viewer")
+
+                // If host is known to the server, validate version compatibility
+                if response.hostDeviceName != nil {
+                    if
+                        let mismatch = checkPartnerCompatibility(
+                            partnerAppVersion: response.hostAppVersion ?? "",
+                            partnerMinRequiredOurVersion: response.hostMinRequiredPartnerVersion ?? ""
+                        ) {
+                        await handleVersionMismatch(mismatch)
+                        return
+                    }
+                }
+
                 setState(.connected)
                 connectedHostName = response.hostDeviceName
                 isHostConnected = response.hostDeviceName != nil
@@ -623,6 +638,16 @@ final public class ViewerRelayClient {
 
         case let .hostConnected(connectedMessage):
             logger.info("Host device connected")
+
+            if
+                let mismatch = checkPartnerCompatibility(
+                    partnerAppVersion: connectedMessage.appVersion,
+                    partnerMinRequiredOurVersion: connectedMessage.minRequiredPartnerVersion
+                ) {
+                await handleVersionMismatch(mismatch)
+                return
+            }
+
             isHostConnected = true
 
             let hostPublicKey = connectedMessage.publicKey
@@ -711,6 +736,60 @@ final public class ViewerRelayClient {
         } catch {
             logger.error("Failed to send WebSocket message: \(error)")
         }
+    }
+
+    // MARK: - Version Compatibility
+
+    /// Result of a version compatibility check between this viewer and a paired host.
+    private enum VersionMismatch {
+        /// Our version is below what the partner requires.
+        case weAreTooOld(required: String)
+        /// The partner's version is below what we require.
+        case partnerTooOld(partnerVersion: String)
+    }
+
+    /// Checks whether a paired host's version info is compatible with this viewer.
+    /// Returns `nil` when both sides are compatible.
+    ///
+    /// An empty partner version is treated as a legacy client and rejected as
+    /// "partner too old", since any build with the versioning feature always
+    /// sends a non-empty version.
+    private func checkPartnerCompatibility(
+        partnerAppVersion: String,
+        partnerMinRequiredOurVersion: String
+    ) -> VersionMismatch? {
+        let ourVersion = VersionCompatibility.currentAppVersion
+        let ourMinRequired = VersionCompatibility.minRequiredHostVersion
+
+        if
+            !partnerMinRequiredOurVersion.isEmpty,
+            !VersionCompatibility.isCompatible(version: ourVersion, minimum: partnerMinRequiredOurVersion) {
+            return .weAreTooOld(required: partnerMinRequiredOurVersion)
+        }
+
+        if !VersionCompatibility.isCompatible(version: partnerAppVersion, minimum: ourMinRequired) {
+            return .partnerTooOld(partnerVersion: partnerAppVersion)
+        }
+
+        return nil
+    }
+
+    /// Handles a detected version mismatch by stopping reconnects and surfacing an error.
+    private func handleVersionMismatch(_ mismatch: VersionMismatch) async {
+        let hostLabel = connectedHostName ?? "the host"
+        let message: String
+        switch mismatch {
+        case let .weAreTooOld(required):
+            message = "This app is out of date. \(hostLabel) requires version \(required) or later. Please update."
+        case let .partnerTooOld(partnerVersion):
+            let versionText = partnerVersion.isEmpty ? "an older version" : "version \(partnerVersion)"
+            message = "\(hostLabel) is running \(versionText) and cannot connect. Ask the host to update."
+        }
+
+        logger.error("Version mismatch with host: \(message)")
+        shouldReconnect = false
+        await cleanupConnection()
+        setState(.error(message))
     }
 
     /// Encrypts and sends a message that should be encrypted.

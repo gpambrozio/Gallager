@@ -1,6 +1,7 @@
 import ClaudeSpyCommon
 import ClaudeSpyEncryption
 import ClaudeSpyFeature
+import ClaudeSpyNetworking
 import Dependencies
 import SwiftUI
 
@@ -13,6 +14,18 @@ struct ClaudeSpyApp: App {
         // Bootstrap logging FIRST, before any Logger instances are created
         // Log level is determined by LOG_LEVEL env var (default: warning)
         LoggingConfiguration.bootstrap()
+
+        // E2E test support: override reported app version and min required partner version
+        if let idx = CommandLine.arguments.firstIndex(of: "--app-version"),
+           idx + 1 < CommandLine.arguments.count
+        {
+            VersionCompatibility.appVersionOverride = CommandLine.arguments[idx + 1]
+        }
+        if let idx = CommandLine.arguments.firstIndex(of: "--min-required-partner-version"),
+           idx + 1 < CommandLine.arguments.count
+        {
+            VersionCompatibility.minRequiredPartnerVersionOverride = CommandLine.arguments[idx + 1]
+        }
 
         // E2E test support: use in-memory storage to avoid polluting real UserDefaults/Keychain
         if CommandLine.arguments.contains("--e2e-test") {

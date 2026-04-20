@@ -61,7 +61,7 @@ public enum TerminalTitleInitialConnectionScenario {
         // Title is already set and stored. iOS can only get it via initial connection.
 
         TestStep.log("Launching iOS app — title was set before iOS exists")
-        TestStep.launchIOSApp
+        TestStep.launchIOSApp()
         TestStep.iosWaitForElement(.labelContains("pairing code"), timeout: 15)
 
         // Generate pairing code on macOS

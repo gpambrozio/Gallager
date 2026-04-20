@@ -125,6 +125,9 @@ public struct ErrorMessage: Codable, Sendable {
     /// Error code sent by the server when a pair ID is no longer valid.
     public static let invalidPairCode = "INVALID_PAIR"
 
+    /// Error code used when the partner's app version is incompatible with ours.
+    public static let versionMismatchCode = "VERSION_MISMATCH"
+
     public static func invalidPair() -> ErrorMessage {
         ErrorMessage(code: invalidPairCode, message: "Pair ID is invalid or expired", recoverable: false)
     }
@@ -135,6 +138,10 @@ public struct ErrorMessage: Codable, Sendable {
 
     public static func commandFailed(_ reason: String) -> ErrorMessage {
         ErrorMessage(code: "COMMAND_FAILED", message: reason)
+    }
+
+    public static func versionMismatch(_ reason: String) -> ErrorMessage {
+        ErrorMessage(code: versionMismatchCode, message: reason, recoverable: false)
     }
 }
 
