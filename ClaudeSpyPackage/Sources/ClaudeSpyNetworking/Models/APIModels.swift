@@ -104,6 +104,50 @@ public struct APIPaneInfo: Codable, Sendable {
     }
 }
 
+/// API representation of a Claude project discovered on the host.
+public struct APIProjectInfo: Codable, Sendable {
+    /// Shared ISO8601 formatter to avoid per-call allocation in `toJSONValue()`.
+    /// Note: `nonisolated(unsafe)` is safe here because we never mutate the formatter after creation.
+    private nonisolated(unsafe) static let iso8601: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    public let id: String
+    public let name: String
+    public let path: String
+    public let lastUsed: Date?
+
+    public init(id: String, name: String, path: String, lastUsed: Date?) {
+        self.id = id
+        self.name = name
+        self.path = path
+        self.lastUsed = lastUsed
+    }
+
+    public init(_ info: ClaudeProjectInfo) {
+        self.id = info.id
+        self.name = info.name
+        self.path = info.path
+        self.lastUsed = info.lastUsed
+    }
+
+    public func toJSONValue() -> [String: JSONValue] {
+        var dict: [String: JSONValue] = [
+            "id": .string(id),
+            "name": .string(name),
+            "path": .string(path),
+        ]
+        if let lastUsed {
+            dict["last_used"] = .string(Self.iso8601.string(from: lastUsed))
+        } else {
+            dict["last_used"] = .null
+        }
+        return dict
+    }
+}
+
 /// API response for the identify command.
 public struct APIIdentifyInfo: Codable, Sendable {
     public let session: APISessionInfo?

@@ -143,6 +143,27 @@ Opens the file in Gallager's in-app prompt editor. **Blocks** until the user sub
 - Params: `{ "pane_id": string, "file_path": string }` (pane_id comes from `$TMUX_PANE`)
 - Result: `{}` (returned when editing completes)
 
+## Projects
+
+### `project.list` — `gallager list-projects`
+Returns the Claude projects discovered on the host (from `~/.claude.json` and any additional configured folders), sorted by most recently used.
+- Params: _(none)_
+- Result:
+```json
+{
+  "projects": [
+    { "id": "/Users/me/code/proj", "name": "proj", "path": "/Users/me/code/proj", "last_used": "2026-04-19T12:34:56.789Z" }
+  ]
+}
+```
+`last_used` is `null` when no session activity has been recorded yet.
+
+### `project.start` — `gallager start-project <path> [-- <args…>]`
+Creates a new tmux session whose working directory is the given project path and runs the configured `claude` command in it. Any extra positional args after `--` are appended verbatim to the claude command line.
+- Params: `{ "path": string, "args"?: [string] }`
+- Result: session info object — `{ "id", "name", "window_count", "is_attached" }`
+- Errors: `not_found` if `path` does not exist or is not a directory.
+
 ## System / utility
 
 ### `system.ping` — `gallager ping`
@@ -168,4 +189,5 @@ Returns session/window/pane for the calling process (uses `$TMUX_PANE` for detec
 | `input.*` | Text and key input |
 | `notification.*` | Desktop notifications |
 | `editor.*` | Prompt editor |
+| `project.*` | Claude project discovery and session bootstrap |
 | `system.*` | Utility / introspection |
