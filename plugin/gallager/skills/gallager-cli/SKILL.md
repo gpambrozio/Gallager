@@ -1,6 +1,6 @@
 ---
 name: gallager-cli
-description: Control the Gallager macOS app from the command line to manage tmux sessions, windows, panes, send text/keys to terminals, trigger desktop notifications, and open files in the in-app prompt editor. Gallager is a thin wrapper around tmux — every session/window/pane it exposes is a real tmux object, so when Gallager lacks a command you can fall back to `tmux` directly and the app will pick up the change. Use this skill whenever the user is working inside a Gallager-managed tmux session and wants to drive the UI from scripts or the shell — creating sessions, switching panes, sending input, notifying when a long-running task finishes, or editing prompts from the current terminal. Trigger on phrases like "open a new tmux window", "send this to the pane", "notify me when build finishes", "split pane", "edit this prompt in Gallager", or any mention of the `gallager` CLI.
+description: Control the Gallager macOS app from the command line to manage tmux sessions, windows, panes, send text/keys to terminals, trigger desktop notifications, and open files in the in-app prompt editor. Use this skill whenever the user is working inside a Gallager-managed tmux session and wants to drive the UI from scripts or the shell — creating sessions, switching panes, sending input, notifying when a long-running task finishes, or editing prompts from the current terminal. Trigger on phrases like "open a new tmux window", "send this to the pane", "notify me when build finishes", "split pane", "edit this prompt in Gallager", or any mention of the `gallager` CLI.
 ---
 
 # Gallager CLI
@@ -45,8 +45,8 @@ Examples of things `gallager` does not expose but tmux handles fine:
 tmux rename-window -t main:1 "logs"
 tmux rename-session -t work "client-work"
 
-# Resize a pane by exact rows/columns (gallager only splits)
-tmux resize-pane -t %5 -x 120 -y 30
+# Resize a pane by percentage (gallager only splits)
+tmux resize-pane -t %5 -x 30% -y 40%
 
 # Capture a pane's visible buffer (handy for scraping output)
 tmux capture-pane -t %3 -p
