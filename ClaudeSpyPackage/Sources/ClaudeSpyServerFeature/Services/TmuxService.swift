@@ -1577,13 +1577,16 @@ final public class TmuxService {
     ///   - baseName: The desired base name for the session
     ///   - width: Terminal width in columns
     ///   - height: Terminal height in rows
+    ///   - extraEnvironment: Additional `KEY=VALUE` strings to set on the session
+    ///     via `-e`, on top of `terminalEnvironmentVars`.
     /// - Returns: Tuple containing the actual session name and the pane ID of the first pane
     public func createSession(
         baseName: String,
         width: Int,
         height: Int,
         workingDirectory: String? = nil,
-        runCommand: String? = nil
+        runCommand: String? = nil,
+        extraEnvironment: [String] = []
     ) async throws -> (sessionName: String, paneId: String) {
         // Get existing session names
         let existingNames = await getExistingSessionNames()
@@ -1594,13 +1597,14 @@ final public class TmuxService {
         // Build command arguments
         // -d: detached, -x: width, -y: height, -c: working directory
         // -e: set environment variables (suppress oh-my-zsh update prompts)
+        let allEnvironmentVars = terminalEnvironmentVars + extraEnvironment
         var args = [
             "new-session",
             "-d",
             "-s", sessionName,
             "-x", String(width),
             "-y", String(height),
-        ] + terminalEnvironmentVars.flatMap { ["-e", $0] }
+        ] + allEnvironmentVars.flatMap { ["-e", $0] }
 
         // Add working directory if specified
         if let workingDirectory, !workingDirectory.isEmpty {

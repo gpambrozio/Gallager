@@ -940,12 +940,19 @@
                 let workingDirectory = spec.workingDirectory
                     ?? FileManager.default.homeDirectoryForCurrentUser.path()
 
+                let extraEnvironment: [String] = if let configDir = spec.claudeConfigDir {
+                    ["CLAUDE_CONFIG_DIR=\(configDir)"]
+                } else {
+                    []
+                }
+
                 let (_, paneId) = try await tmuxService.createSession(
                     baseName: spec.sessionName,
                     width: spec.width,
                     height: spec.height,
                     workingDirectory: workingDirectory,
-                    runCommand: runCommand
+                    runCommand: runCommand,
+                    extraEnvironment: extraEnvironment
                 )
 
                 try? await Task.sleep(for: .milliseconds(500))

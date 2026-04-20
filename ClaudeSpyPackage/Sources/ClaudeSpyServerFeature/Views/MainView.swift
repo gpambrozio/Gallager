@@ -1265,6 +1265,14 @@ public struct MainView: View {
                     nil
                 }
 
+                // When the project lives in a non-default `.claude` folder, point
+                // claude at it via CLAUDE_CONFIG_DIR on the tmux session.
+                let extraEnvironment: [String] = if let configDir = project?.claudeConfigDir {
+                    ["CLAUDE_CONFIG_DIR=\(configDir)"]
+                } else {
+                    []
+                }
+
                 // Calculate optimal dimensions based on available space
                 let dimensions = calculateOptimalTerminalDimensions()
 
@@ -1274,7 +1282,8 @@ public struct MainView: View {
                     width: dimensions.columns,
                     height: dimensions.rows,
                     workingDirectory: workingDirectory,
-                    runCommand: runCommand
+                    runCommand: runCommand,
+                    extraEnvironment: extraEnvironment
                 )
 
                 // Find the window containing the new pane and select it
@@ -1303,7 +1312,8 @@ public struct MainView: View {
             sessionName: sessionName,
             width: dimensions.columns,
             height: dimensions.rows,
-            workingDirectory: project?.path
+            workingDirectory: project?.path,
+            claudeConfigDir: project?.claudeConfigDir
         )
 
         guard let manager = coordinator.viewerConnectionManager else {

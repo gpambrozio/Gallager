@@ -21,7 +21,7 @@ struct PushModelsTests {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let jsonData = try encoder.encode(content)
-        let jsonString = String(data: jsonData, encoding: .utf8)!
+        let jsonString = try #require(String(data: jsonData, encoding: .utf8))
 
         #expect(jsonString.contains("Test Title"))
         #expect(jsonString.contains("Test Body"))
@@ -137,7 +137,7 @@ struct PushModelsTests {
 
         let encoder = JSONEncoder()
         let jsonData = try encoder.encode(payload)
-        let jsonString = String(data: jsonData, encoding: .utf8)!
+        let jsonString = try #require(String(data: jsonData, encoding: .utf8))
 
         #expect(jsonString.contains("test-pair"))
         #expect(jsonString.contains("key-123"))
@@ -345,7 +345,7 @@ struct WebSocketMessageTests {
 
         let encoder = JSONEncoder()
         let jsonData = try encoder.encode(message)
-        let jsonString = String(data: jsonData, encoding: .utf8)!
+        let jsonString = try #require(String(data: jsonData, encoding: .utf8))
 
         #expect(jsonString.contains("encryptedPush"))
         #expect(jsonString.contains("pair-id"))
@@ -466,5 +466,81 @@ struct TerminalStreamMessageTests {
 
         #expect(n1 == n2)
         #expect(n1 != n3)
+    }
+}
+
+@Suite("ClaudeProjectInfo Tests")
+struct ClaudeProjectInfoTests {
+    @Test("Round-trip preserves claudeConfigDir")
+    func roundTripPreservesConfigDir() throws {
+        let original = ClaudeProjectInfo(
+            name: "MyProject",
+            path: "/Users/test/MyProject",
+            lastUsed: Date(timeIntervalSince1970: 1_704_067_200),
+            claudeConfigDir: "/Users/test/work-claude"
+        )
+
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        let data = try encoder.encode(original)
+        let decoded = try decoder.decode(ClaudeProjectInfo.self, from: data)
+
+        #expect(decoded == original)
+        #expect(decoded.claudeConfigDir == "/Users/test/work-claude")
+    }
+
+    @Test("Decodes legacy JSON without claudeConfigDir as nil")
+    func decodesLegacyJSON() throws {
+        let json = """
+        {
+            "name": "LegacyProject",
+            "path": "/Users/test/LegacyProject",
+            "lastUsed": null
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(ClaudeProjectInfo.self, from: Data(json.utf8))
+
+        #expect(decoded.name == "LegacyProject")
+        #expect(decoded.path == "/Users/test/LegacyProject")
+        #expect(decoded.claudeConfigDir == nil)
+    }
+}
+
+@Suite("CreateTmuxSession Tests")
+struct CreateTmuxSessionTests {
+    @Test("Round-trip preserves claudeConfigDir")
+    func roundTripPreservesConfigDir() throws {
+        let original = CreateTmuxSession(
+            sessionName: "work",
+            width: 120,
+            height: 40,
+            workingDirectory: "/Users/test/work",
+            claudeConfigDir: "/Users/test/work-claude"
+        )
+
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(CreateTmuxSession.self, from: data)
+
+        #expect(decoded == original)
+        #expect(decoded.claudeConfigDir == "/Users/test/work-claude")
+    }
+
+    @Test("Decodes legacy JSON without claudeConfigDir as nil")
+    func decodesLegacyJSON() throws {
+        let json = """
+        {
+            "sessionName": "legacy",
+            "width": 80,
+            "height": 24
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(CreateTmuxSession.self, from: Data(json.utf8))
+
+        #expect(decoded.sessionName == "legacy")
+        #expect(decoded.width == 80)
+        #expect(decoded.workingDirectory == nil)
+        #expect(decoded.claudeConfigDir == nil)
     }
 }
