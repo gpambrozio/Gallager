@@ -12,6 +12,7 @@ public struct MainView: View {
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(PairingManager.self) private var pairingManager
     @Environment(\.e2eeService) private var e2eeService: E2EEService?
+    @Environment(\.openSettings) private var openSettings
 
     public init() { }
 
@@ -26,6 +27,8 @@ public struct MainView: View {
     @State private var creatingSelection: NewSessionCreatingState?
     @State private var detailPaneSize: CGSize = .zero
     @State private var closeConfirmation: CloseConfirmation?
+
+    @State private var showingDisconnectConfirmation = false
 
     /// Tracks active session pane IDs for detecting section changes
     @State private var trackedActiveSessionPaneIds: Set<String> = []
@@ -517,6 +520,14 @@ public struct MainView: View {
                                 }
                             }
                         }
+                    },
+                    onRenameWindow: { windowToRename, newName in
+                        Task {
+                            _ = await connection.relayClient.sendCommand(
+                                SetWindowName(windowId: windowToRename.id, name: newName),
+                                paneId: ""
+                            )
+                        }
                     }
                 )
 
@@ -567,6 +578,13 @@ public struct MainView: View {
                                     let newWindow = tmuxService.windows.first(where: { $0.panes.contains(where: { $0.paneId == paneId }) }) {
                                     selectedWindow = newWindow
                                 }
+                            }
+                        },
+                        onRenameWindow: { windowToRename, newName in
+                            Task {
+                                try? await tmuxService.renameWindow(target: windowToRename.id, name: newName)
+                                _ = await tmuxService.refreshPanes()
+                                await coordinator.connectedViewerManager?.pushSessionStateToAll()
                             }
                         },
                         onSelectFileBrowser: {
@@ -732,6 +750,9 @@ public struct MainView: View {
 
             connectionActionButton
         }
+        .onChange(of: coordinator.connectedViewerManager?.combinedState) { _, _ in
+            showingDisconnectConfirmation = false
+        }
     }
 
     @ViewBuilder
@@ -781,14 +802,38 @@ public struct MainView: View {
             .controlSize(.small)
             .help("Open Remote Access settings to pair with iOS")
         } else if combinedState.isConnected {
-            // Connected - show disconnect button
+            // Connected - show disconnect button with confirmation popover
             Button("Disconnect") {
-                Task {
-                    await connectionManager?.disconnectAll()
-                }
+                showingDisconnectConfirmation = true
             }
             .controlSize(.small)
             .help("Disconnect from relay server")
+            .popover(isPresented: $showingDisconnectConfirmation, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Disconnect from relay server?")
+                        .font(.headline)
+                    Text("Paired iOS viewers will stop receiving updates until you reconnect.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Spacer()
+                        Button("Cancel", role: .cancel) {
+                            showingDisconnectConfirmation = false
+                        }
+                        .keyboardShortcut(.cancelAction)
+                        Button("Disconnect", role: .destructive) {
+                            showingDisconnectConfirmation = false
+                            Task {
+                                await connectionManager?.disconnectAll()
+                            }
+                        }
+                        .keyboardShortcut(.defaultAction)
+                    }
+                }
+                .padding(16)
+                .frame(width: 320)
+            }
         } else if case .connecting = combinedState {
             // Connecting - no button
             EmptyView()
@@ -1180,13 +1225,9 @@ public struct MainView: View {
     private func openSettingsToRemoteAccess() {
         // Set the tab to Remote Access before opening settings
         settings.selectedSettingsTab = .remoteAccess
-
-        // Open the Settings window using macOS selector
-        // Note: This uses a private selector that may change in future macOS versions
-        let selector = Selector(("showSettingsWindow:"))
-        if NSApp.responds(to: selector) {
-            NSApp.sendAction(selector, to: nil, from: nil)
-        }
+        NSApp.setActivationPolicy(.regular)
+        openSettings()
+        MenuBarExtraView.bringAppToFront()
     }
 
     // MARK: - New Session
@@ -1274,7 +1315,8 @@ public struct MainView: View {
                     width: dimensions.columns,
                     height: dimensions.rows,
                     workingDirectory: workingDirectory,
-                    runCommand: runCommand
+                    runCommand: runCommand,
+                    isClaudeProject: project != nil
                 )
 
                 // Find the window containing the new pane and select it
@@ -1531,12 +1573,22 @@ private struct SessionSidebarRow: View {
         // from reading .accessibilityValue directly on the indicator.
         .accessibilityValue(session.sessionName)
         .overlay {
-            if let status = claudeSession?.statusLabel {
-                Text(status)
-                    .font(.system(size: 1))
-                    .opacity(0)
-                    .accessibilityLabel(status)
+            ZStack {
+                if let status = claudeSession?.statusLabel {
+                    Text(status)
+                        .accessibilityLabel(status)
+                }
+                // The project name is rendered by SessionFieldsView, but when the row's
+                // Button combines its children's AX into a single label, that leaf can
+                // drop out intermittently — exposing it as its own hidden label gives
+                // e2e tests a stable element to find.
+                if let projectName = claudeSession?.displayName {
+                    Text(projectName)
+                        .accessibilityLabel(projectName)
+                }
             }
+            .font(.system(size: 1))
+            .opacity(0)
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
@@ -1548,7 +1600,7 @@ private struct SessionSidebarRow: View {
 /// Returns the display label for a tmux window tab.
 /// Shared between `WindowTabBar` (local) and `RemoteWindowTabBar` (remote).
 private func windowTabLabel(windowName: String, windowIndex: Int) -> String {
-    if !windowName.isEmpty, Int(windowName) == nil {
+    if !windowName.isEmpty {
         return windowName
     }
     return "\(windowIndex)"
@@ -1565,6 +1617,7 @@ private struct WindowTabBar: View {
     let onSelectWindow: (LocalTmuxWindow) -> Void
     let onCloseWindow: (LocalTmuxWindow) -> Void
     let onNewWindow: () -> Void
+    let onRenameWindow: (LocalTmuxWindow, String) -> Void
     let onSelectFileBrowser: () -> Void
 
     @Environment(MirrorWindowManager.self) private var windowManager
@@ -1650,7 +1703,7 @@ private struct WindowTabBar: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(window.id)
+            .accessibilityLabel("\(window.id) \(windowName)")
             .accessibilityValue(isSelected ? "selected" : "")
 
             Button {
@@ -1676,6 +1729,12 @@ private struct WindowTabBar: View {
                     .frame(height: 2)
             }
         }
+        .modifier(WindowRenamingModifier(
+            currentName: window.windowName,
+            onRename: { newName in
+                onRenameWindow(window, newName)
+            }
+        ))
         .onHover { hovering in
             hoveredWindowId = hovering ? window.id : nil
         }
@@ -1696,6 +1755,7 @@ private struct RemoteWindowTabBar: View {
     let onSelectWindow: (TmuxWindow) -> Void
     let onCloseWindow: (TmuxWindow) -> Void
     let onNewWindow: () -> Void
+    let onRenameWindow: (TmuxWindow, String) -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -1755,7 +1815,7 @@ private struct RemoteWindowTabBar: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(window.id)
+            .accessibilityLabel("\(window.id) \(windowName)")
             .accessibilityValue(isSelected ? "selected" : "")
 
             Button {
@@ -1782,6 +1842,13 @@ private struct RemoteWindowTabBar: View {
                     .frame(height: 2)
             }
         }
+        .modifier(WindowRenamingModifier(
+            currentName: window.windowName,
+            isDisabled: !isHostConnected,
+            onRename: { newName in
+                onRenameWindow(window, newName)
+            }
+        ))
         .onHover { hovering in
             hoveredWindowId = hovering ? window.id : nil
         }
@@ -2169,14 +2236,22 @@ private struct RemoteSessionSidebarRow: View {
         // Expose session name to macOS accessibility tree so e2e tests can find sessions
         // regardless of which sidebar fields are configured.
         .accessibilityValue(session.sessionName)
-        // Invisible text exposing session status to macOS accessibility tree for e2e tests.
+        // Invisible text exposing session status and project name to macOS accessibility
+        // tree for e2e tests. The Button that wraps this row can combine children into a
+        // single label, dropping leaf Texts — these hidden labels give tests stable targets.
         .overlay {
-            if let status = claudeSession?.statusLabel {
-                Text(status)
-                    .font(.system(size: 1))
-                    .opacity(0)
-                    .accessibilityLabel(status)
+            ZStack {
+                if let status = claudeSession?.statusLabel {
+                    Text(status)
+                        .accessibilityLabel(status)
+                }
+                if let projectName = claudeSession?.displayName {
+                    Text(projectName)
+                        .accessibilityLabel(projectName)
+                }
             }
+            .font(.system(size: 1))
+            .opacity(0)
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
