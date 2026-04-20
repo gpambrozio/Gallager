@@ -15,6 +15,16 @@ allowed-tools:
 
 This skill handles E2E test failures reported in the ClaudeSpyTestResults repository. It finds the latest failing report, identifies what broke, and guides the fix.
 
+## How failures are reported
+
+Screenshot mismatches are **non-fatal** in the orchestrator — after a failed screenshot comparison the scenario keeps running, so a single scenario can produce **multiple failed steps**. Only a non-screenshot error (element not found, timeout, assertion failure, etc.) stops the scenario early.
+
+This means each failing scenario may have:
+- One or more screenshot mismatches (scenario ran to completion), OR
+- Zero or more screenshot mismatches followed by a fatal functional error (scenario stopped at that point).
+
+Handle every failed step — don't stop at the first one.
+
 ## Step 1: Find Failures
 
 Run the bundled script to pull latest results and extract failures in one step:
@@ -31,8 +41,13 @@ The script outputs JSON with one of these statuses:
 
 When `status` is `"failures_found"`, the output includes:
 - `metadata` — branch, commit, PR URL
-- `failures[]` — each with `scenarioName`, `error`, `failedStep`, `failedStepDescription`, `type` (`"functional"` or `"screenshot_mismatch"`), and `screenshot` (with paths to actual/baseline/diff images)
-- `message` — human-readable summary
+- `failures[]` — one entry per failed **scenario** (not per step). Each entry has:
+  - `scenarioName`
+  - `error` — the scenario's top-level error (typically from the first failure)
+  - `failedStep` — first failed step number (back-compat field)
+  - `failedSteps[]` — **every** failed step in the scenario, each with `stepNumber`, `description`, `error`, `type` (`"functional"` or `"screenshot_mismatch"`), and `screenshot` (with paths to `actualImage`/`baselineImage`/`diffImage` when applicable)
+  - `hasFatalFailure` — `true` if any failed step was non-screenshot (scenario aborted early)
+- `message` — human-readable summary grouped by scenario
 
 Present the `message` summary to the user.
 
@@ -52,35 +67,43 @@ git checkout <branch>
 
 ## Step 3: Examine Failure Details
 
-For each failed scenario, look at:
+For each failed scenario, walk through **every** entry in `failedSteps[]`:
 
-1. **The failed step** — understand what the test was trying to do
-2. **Screenshot failures** — if `type` is `"screenshot_mismatch"`, view the images using the Read tool (it renders PNGs visually):
+1. **The failed step** — read `description` to understand what the test was trying to do.
+
+2. **Screenshot mismatches** — when `type` is `"screenshot_mismatch"`, view the images using the Read tool (it renders PNGs visually):
    - `screenshot.actualImage` — what the test produced
    - `screenshot.baselineImage` — what was expected
    - `screenshot.diffImage` — visual diff (if available)
 
-3. **Functional failures** — read the error message carefully. Common causes:
+   A scenario may have several screenshot mismatches. If they all share a common visual change (e.g. a moved control, a new element, a color shift), they likely stem from a single underlying cause — check all of them before deciding how to handle the scenario.
+
+3. **Functional failures** — when `type` is `"functional"`, read the error carefully. If `hasFatalFailure` is true, remember the scenario stopped at that step; any later steps that were planned did not run. Common causes:
    - Element not found (UI changed, accessibility label changed)
    - Timeout waiting for element (app state didn't reach expected state)
    - Image size mismatch (window dimensions changed)
    - Assertion failures (stored values don't match)
 
-4. **The scenario source** — find it in `ClaudeSpyPackage/Sources/ClaudeSpyE2ELib/Scenarios/` and read the relevant steps around the failure point.
+4. **The scenario source** — find it in `ClaudeSpyPackage/Sources/ClaudeSpyE2ELib/Scenarios/` and read the relevant steps around each failure point.
 
 ## Step 4: Ask the User How to Proceed
 
-Use the `AskUserQuestion` tool to ask the user:
+Use the `AskUserQuestion` tool to ask the user how to handle each failing scenario. Because a scenario can have multiple failures, present it as a grouped decision per scenario:
 
-> **E2E Failure in "[Scenario Name]"**
+> **E2E Failures in "[Scenario Name]"** ([N] failed step(s))
 >
-> [Brief description of what failed and why, including any screenshot observations]
+> - Step 47: [screenshot_mismatch] viewer-pane-selected (3.0% diff) — [brief visual observation]
+> - Step 69: [screenshot_mismatch] viewer-updated-title (3.6% diff) — [brief visual observation]
+> - Step 75: [functional] timeout waiting for element "Send" — [brief note]
 >
-> How would you like to handle this?
+> How would you like to handle this scenario?
 > 1. **Investigate and fix the bug** — The test is correct but the code has a regression. I'll look at the PR changes to find the cause and fix it.
 > 2. **Update baseline images** — The UI change is intentional. I'll regenerate the baselines for the affected scenarios.
+> 3. **Mixed** — Describe which failures are bugs and which are intentional UI changes.
 
-If there are multiple failed scenarios, present them all together so the user can decide on each one. The user may choose different strategies for different failures.
+If there are multiple failed scenarios, present them all together so the user can decide on each one. The user may choose different strategies for different scenarios.
+
+**Important:** If `hasFatalFailure` is `true`, option 2 alone is not enough — the fatal step must be fixed as well (see Path A). Baseline regeneration won't help a timeout or missing-element error.
 
 ## Step 5: Follow the Chosen Path (see below)
 
@@ -96,9 +119,9 @@ When the user chooses to investigate and fix:
 
 1. **Understand the PR changes** — Run `git diff main...HEAD` to see all changes in the PR. Focus on changes that could affect the failing scenario.
 
-2. **Look at relevant screenshots** — Compare actual vs baseline images to understand visually what changed.
+2. **Look at relevant screenshots** — Compare actual vs baseline images for every screenshot failure to understand visually what changed. Look for common themes across multiple failures in the same scenario — one underlying change often produces several mismatches.
 
-3. **Trace the root cause** — Connect the failing test step to the code change that caused it. Common patterns:
+3. **Trace the root cause** — Connect the failing test steps to the code change that caused them. Common patterns:
    - Layout changes affecting screenshot comparisons
    - Renamed accessibility labels breaking element queries
    - Changed state management affecting UI timing
@@ -111,7 +134,7 @@ When the user chooses to investigate and fix:
    ./scripts/e2e-test.sh --scenario "Scenario Name"
    ```
 
-   If it still fails, iterate.
+   If it still fails, iterate. Remember: a scenario can now report multiple failures in one run, so after each attempt re-read the report and confirm **every** previously failing step now passes — not just the first one.
 
 6. **Keep fixing until the test passes.** Don't stop at the first attempt — read the new error, adjust, and re-run.
 
@@ -124,7 +147,7 @@ When the user confirms the UI change is intentional:
    rm -rf E2ETests/<scenario-directory>/
    ```
 
-   The scenario directory name is the scenario name sanitized (lowercased, spaces to hyphens). Find it with:
+   Deleting the whole directory regenerates every baseline for that scenario, which is usually what you want when multiple screenshots in the same scenario have shifted. The scenario directory name is the scenario name sanitized (lowercased, spaces to hyphens). Find it with:
    ```bash
    ls E2ETests/ | grep -i "<partial-scenario-name>"
    ```
@@ -134,13 +157,13 @@ When the user confirms the UI change is intentional:
    ./scripts/e2e-test.sh --scenario "Scenario Name"
    ```
 
-   The first run creates new baselines and passes automatically.
+   The first run creates new baselines and passes automatically for every screenshot in the scenario.
 
-3. **Review the new baselines** — Read the newly generated PNG files from `E2ETests/<scenario-directory>/` using the Read tool (it renders images). Start with the screenshots that previously failed, then check others to make sure they look reasonable.
+3. **Review the new baselines** — Read the newly generated PNG files from `E2ETests/<scenario-directory>/` using the Read tool (it renders images). Start with every screenshot that previously failed (there may be several), then spot-check the rest to make sure they look reasonable.
 
 4. **Present findings to the user** — Show the new baseline images and explain what they depict. Use AskUserQuestion to ask the user to confirm the new baselines look correct before proceeding.
 
-5. **Once confirmed**, the new baselines are ready. Remove the from git so that ci will re-generate them.
+5. **Once confirmed**, the new baselines are ready. Remove them from git so that CI will re-generate them.
 
 ## Important Notes
 
@@ -149,5 +172,6 @@ When the user confirms the UI change is intentional:
 - If you changed Swift source code or after checking out from git, drop `--skip-build` so the changes get compiled.
 - Screenshot baselines live in `E2ETests/` with numbered prefixes matching scenario registration order in `ClaudeSpyE2ECommand.swift`.
 - The `--scenario` flag accepts the human-readable scenario name (e.g., "Fresh Pairing", "Empty State New Session").
+- **Screenshot mismatches are non-fatal.** A single scenario run can report multiple failed screenshots; treat every entry in `failedSteps[]` as something to resolve, not just the first one.
 - **Baselines are not automatically regenerated** — If existing baselines are present, the test compares against them and fails on mismatch. To regenerate baselines, you must either delete the baseline directory first (`rm -rf E2ETests/<scenario-directory>/`) so the next run creates fresh baselines, or run with `--no-compare` to skip all screenshot comparisons (the test still takes screenshots but won't fail on mismatches).
 - **Never commit screenshot baselines** — Baselines in `E2ETests/` are generated by CI and must not be pushed to GitHub. If changes cause existing baselines to become invalid (e.g., UI changes, new/reordered screenshots), delete the affected baseline directory so CI regenerates them.
