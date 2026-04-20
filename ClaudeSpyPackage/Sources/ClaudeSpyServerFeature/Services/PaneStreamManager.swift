@@ -386,6 +386,44 @@
             return (content, context.stream.width, context.stream.height)
         }
 
+        /// Returns DEC private mode escape sequences to enable the pane's current mouse tracking mode.
+        ///
+        /// `capture-pane` only records text and SGR attributes, not terminal state like mouse
+        /// tracking mode. Remote viewers need these sequences fed into SwiftTerm so their
+        /// terminal reflects the host's mouse mode — otherwise mouse events are treated as local
+        /// selection/scroll until the application redraws and re-emits the enable sequence.
+        ///
+        /// - Parameter paneId: The pane ID to query
+        /// - Returns: Escape sequence bytes (empty if mouse mode is off or the pane is not streaming)
+        public func mouseModeSequences(for paneId: String) async -> Data {
+            guard let context = streams[paneId] else { return Data() }
+            let mode: TmuxService.PaneMouseMode
+            do {
+                mode = try await tmuxService.getPaneMouseMode(context.target)
+            } catch {
+                logger.debug("Failed to query mouse mode, defaulting to off", metadata: [
+                    "paneId": "\(paneId)",
+                    "error": "\(error)",
+                ])
+                return Data()
+            }
+
+            var sequences = ""
+            switch mode {
+            case .standard:
+                sequences += "\u{1b}[?1000h"
+            case .button:
+                sequences += "\u{1b}[?1002h"
+            case .any:
+                sequences += "\u{1b}[?1003h"
+            case .off:
+                return Data()
+            }
+            // SGR encoding is almost always paired with mouse tracking.
+            sequences += "\u{1b}[?1006h"
+            return Data(sequences.utf8)
+        }
+
         /// Disconnect all streams (called on app shutdown).
         public func disconnectAll() async {
             let paneIds = Array(streams.keys)
