@@ -7,6 +7,8 @@ import Foundation
 /// 1. Host adds a description via context menu → iOS and Mac viewer see it
 /// 2. Mac viewer edits the description via context menu → host and iOS see it
 /// 3. Host removes the description → all platforms reflect the removal
+/// 4. Host re-adds a description, is terminated + relaunched, and the
+///    description persists (stored as a tmux `@gallager-description` user option).
 public enum WindowDescriptionSyncScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Window Description Sync",
@@ -64,7 +66,7 @@ public enum WindowDescriptionSyncScenario {
         TestStep.log("Host adding description via context menu")
 
         TestStep.macContextMenuClick(elementTitle: "e2e-desc", menuItem: "Add Description")
-        TestStep.macWaitForElement(titled: "Window Description", timeout: 5)
+        TestStep.macWaitForElement(titled: "Session Description", timeout: 5)
         TestStep.macScreenshot(label: "host-alert-add")
         TestStep.wait(seconds: 0.5)
         TestStep.macPressTab()
@@ -88,7 +90,7 @@ public enum WindowDescriptionSyncScenario {
         TestStep.log("Mac viewer editing description via context menu")
 
         TestStep.macContextMenuClick(elementTitle: "My Test Description", menuItem: "Edit Description", instance: 1)
-        TestStep.macWaitForElement(titled: "Window Description", timeout: 5, instance: 1)
+        TestStep.macWaitForElement(titled: "Session Description", timeout: 5, instance: 1)
         TestStep.macScreenshot(label: "viewer-alert-edit", instance: 1)
         TestStep.wait(seconds: 0.5)
         TestStep.macPressTab(instance: 1)
@@ -124,5 +126,35 @@ public enum WindowDescriptionSyncScenario {
 
         TestStep.iosWaitForElement(.labelContains("DescProject"), timeout: 15)
         TestStep.iosScreenshot(label: "ios-after-remove")
+
+        // ── Phase 8: Restart host to verify the description is persisted ────
+        //
+        // Descriptions are stored as the tmux `@gallager-description` user option,
+        // so they should survive the host app being killed and relaunched.
+        // Viewers are lost on restart (in-memory pairings under --e2e-test), so
+        // this phase only checks the host side.
+
+        TestStep.log("Re-adding description and restarting host to verify persistence")
+
+        TestStep.macContextMenuClick(elementTitle: "e2e-desc", menuItem: "Add Description")
+        TestStep.macWaitForElement(titled: "Session Description", timeout: 5)
+        TestStep.wait(seconds: 0.5)
+        TestStep.macPressTab()
+        TestStep.macType(text: "Persist Across Restart", pressReturn: false)
+        TestStep.macClickButton(titled: "Save")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "Persist Across Restart", timeout: 10)
+        TestStep.macScreenshot(label: "host-before-restart")
+
+        TestStep.terminateMacApp()
+        TestStep.wait(seconds: 2)
+        TestStep.launchMacApp()
+        TestStep.wait(seconds: 3)
+        Shortcut.openPanesWindow()
+
+        // The session row should come back labelled with the persisted description,
+        // hydrated from the tmux user option on the first refresh after launch.
+        TestStep.macWaitForElement(titled: "Persist Across Restart", timeout: 30)
+        TestStep.macScreenshot(label: "host-after-restart")
     }
 }

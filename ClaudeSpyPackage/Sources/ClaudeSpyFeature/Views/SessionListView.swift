@@ -87,9 +87,9 @@
                         onNewSession: {
                             selectedHostForNewSession = host
                         },
-                        onSetDescription: { windowId, description in
+                        onSetDescription: { sessionName, description in
                             Task {
-                                let command = SetWindowDescription(windowId: windowId, description: description)
+                                let command = SetSessionDescription(sessionName: sessionName, description: description)
                                 _ = await connectionManager.sendCommand(command, paneId: "", hostId: host.id)
                             }
                         }
@@ -285,7 +285,7 @@
             }
             .accessibilityValue(claudePaneInSession?.claudeSession?.statusLabel ?? "")
             .modifier(DescriptionEditingModifier(
-                windowId: activeWindow?.id ?? session.sessionName,
+                sessionName: session.sessionName,
                 currentDescription: session.customDescription,
                 isDisabled: connection?.isHostConnected != true,
                 onSetDescription: onSetDescription

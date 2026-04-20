@@ -23,13 +23,13 @@
                 // Explanation
                 explanationSection
 
-                Spacer()
-
                 // Action buttons
                 footerSection
             }
             .padding(24)
-            .frame(width: 450, height: 340)
+            .frame(width: 450)
+            .fixedSize(horizontal: false, vertical: true)
+            .sheetFocusFix()
             .alert("Error", isPresented: $showingError) {
                 Button("OK") { }
             } message: {
