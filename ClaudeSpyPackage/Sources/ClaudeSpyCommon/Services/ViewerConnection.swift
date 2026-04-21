@@ -41,6 +41,12 @@ final public class ViewerConnection: Identifiable {
         relayClient.state.isConnected
     }
 
+    /// Structured version-mismatch result for this host's handshake, or nil when
+    /// the versions are compatible (or no peerHello has been exchanged yet).
+    public var versionMismatch: VersionCompatibility.VersionMismatch? {
+        relayClient.versionMismatch
+    }
+
     // MARK: - Initialization
 
     /// Creates a new connection to a paired host.

@@ -2092,7 +2092,9 @@ private struct RemoteHostSidebarSection: View {
 
     var body: some View {
         Section {
-            if hasContent {
+            if let mismatch = connection?.versionMismatch {
+                RemoteHostVersionMismatchRow(host: host, mismatch: mismatch)
+            } else if hasContent {
                 ForEach(sortedSessions) { session in
                     remoteSessionButton(session)
                 }
@@ -2181,9 +2183,63 @@ private struct RemoteHostSidebarSection: View {
 
     private var hostStatusColor: Color {
         guard let connection else { return .gray }
+        if connection.versionMismatch != nil { return .orange }
         if connection.isHostConnected { return .green }
         if connection.isRelayConnected { return .yellow }
         return .red
+    }
+}
+
+// MARK: - Remote Host Version Mismatch Row
+
+/// Sidebar row shown in a remote host section when the host's peerHello handshake
+/// failed version compatibility. Replaces the "Host offline" caption so the user
+/// can see why this host cannot be reached.
+private struct RemoteHostVersionMismatchRow: View {
+    let host: PairedHost
+    let mismatch: VersionCompatibility.VersionMismatch
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Symbols.arrowUpCircleFill.image
+                .font(.system(size: 16))
+                .foregroundStyle(.orange)
+                .frame(width: 20)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("host-version-mismatch-row")
+    }
+
+    private var title: String {
+        switch mismatch {
+        case .weAreTooOld:
+            "Update this app"
+        case .partnerTooOld:
+            "\(host.displayName) needs updating"
+        }
+    }
+
+    private var detail: String {
+        switch mismatch {
+        case let .weAreTooOld(required):
+            "\(host.displayName) requires version \(required) or later."
+        case let .partnerTooOld(partnerVersion):
+            partnerVersion.isEmpty
+                ? "The host is running an older version and cannot connect."
+                : "The host is running version \(partnerVersion) and cannot connect."
+        }
     }
 }
 

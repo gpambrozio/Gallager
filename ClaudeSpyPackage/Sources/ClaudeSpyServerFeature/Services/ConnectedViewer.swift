@@ -68,6 +68,12 @@ final public class ConnectedViewer: Identifiable {
     /// Name of the connected viewer device (if known)
     public private(set) var connectedViewerDeviceName: String?
 
+    /// Structured version-mismatch result, set when the viewer's peerHello fails
+    /// compatibility and cleared on the next connection attempt. The human-readable
+    /// text is still carried on the `.error` state; this property lets the UI
+    /// render update-required affordances without string parsing.
+    public private(set) var versionMismatch: VersionCompatibility.VersionMismatch?
+
     // MARK: - Private Properties
 
     /// The WebSocket task
@@ -189,6 +195,7 @@ final public class ConnectedViewer: Identifiable {
         self.publicKeyId = publicKeyId
         shouldReconnect = true
         reconnectionAttempt = 0
+        versionMismatch = nil
 
         // Establish E2EE session if we have partner's public key from pairing
         if !partnerPublicKey.isEmpty {
@@ -234,6 +241,7 @@ final public class ConnectedViewer: Identifiable {
         reconnectionDelayTask?.cancel()
         reconnectionDelayTask = nil
         reconnectionAttempt = 0
+        versionMismatch = nil
 
         guard !state.isConnected, state != .connecting else {
             return
@@ -599,6 +607,7 @@ final public class ConnectedViewer: Identifiable {
 
         logger.error("Version mismatch with viewer \(viewerName): \(message)")
         shouldReconnect = false
+        versionMismatch = mismatch
         await cleanupConnection()
         await updateState(.error(message))
     }

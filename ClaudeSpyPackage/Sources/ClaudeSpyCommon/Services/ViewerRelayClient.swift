@@ -66,6 +66,12 @@ final public class ViewerRelayClient {
     /// Name of the connected host device (if known)
     public private(set) var connectedHostName: String?
 
+    /// Structured version-mismatch result, set when the host's peerHello fails
+    /// compatibility and cleared on the next connection attempt. The human-readable
+    /// text is still carried on the `.error` state; this property lets UI render
+    /// update-required affordances without string parsing.
+    public private(set) var versionMismatch: VersionCompatibility.VersionMismatch?
+
     /// The WebSocket task
     private var webSocketTask: URLSessionWebSocketTask?
 
@@ -215,6 +221,7 @@ final public class ViewerRelayClient {
         self.partnerPublicKeyId = partnerPublicKeyId
         shouldReconnect = true
         reconnectionAttempt = 0
+        versionMismatch = nil
 
         // Establish E2EE session if we have partner's public key from pairing
         if let partnerKey = partnerPublicKey, let partnerKeyId = partnerPublicKeyId {
@@ -282,6 +289,7 @@ final public class ViewerRelayClient {
         reconnectionTask?.cancel()
         reconnectionTask = nil
         reconnectionAttempt = 0
+        versionMismatch = nil
 
         guard !state.isConnected, state != .connecting else {
             logger.debug("Already connected or connecting, ignoring enableReconnectAndRetry()")
@@ -799,6 +807,7 @@ final public class ViewerRelayClient {
 
         logger.error("Version mismatch with host: \(message)")
         shouldReconnect = false
+        versionMismatch = mismatch
         await cleanupConnection()
         setState(.error(message))
     }
