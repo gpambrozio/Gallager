@@ -234,8 +234,10 @@
         var body: some View {
             Section {
                 if let mismatch = connection?.versionMismatch {
-                    HostVersionMismatchRow(host: host, mismatch: mismatch)
-                        .accessibilityIdentifier("host-version-mismatch-row")
+                    HostVersionMismatchRow(host: host, mismatch: mismatch) {
+                        Task { await connection?.enableReconnectAndRetry() }
+                    }
+                    .accessibilityIdentifier("host-version-mismatch-row")
                 } else if hasContent {
                     // Claude sessions
                     ForEach(claudeSessions) { session in
@@ -355,8 +357,38 @@
     private struct HostVersionMismatchRow: View {
         let host: PairedHost
         let mismatch: VersionCompatibility.VersionMismatch
+        let onRetry: () -> Void
+
+        @State private var showingRetryDialog = false
 
         var body: some View {
+            Group {
+                if isRetryable {
+                    Button {
+                        showingRetryDialog = true
+                    } label: {
+                        rowContent
+                    }
+                    .buttonStyle(.plain)
+                    .confirmationDialog(
+                        dialogTitle,
+                        isPresented: $showingRetryDialog,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Retry") {
+                            onRetry()
+                        }
+                        Button("Cancel", role: .cancel) { }
+                    } message: {
+                        Text(dialogMessage)
+                    }
+                } else {
+                    rowContent
+                }
+            }
+        }
+
+        private var rowContent: some View {
             HStack(alignment: .top, spacing: 12) {
                 Symbols.arrowUpCircleFill.image
                     .font(.title2)
@@ -376,7 +408,18 @@
                 Spacer(minLength: 0)
             }
             .padding(.vertical, 4)
+            .contentShape(Rectangle())
             .accessibilityElement(children: .combine)
+        }
+
+        /// Retry only makes sense when the partner is the outdated side. If this app
+        /// is the outdated one, the user has to update via the App Store and the
+        /// reconnect will happen on relaunch — a manual retry would just fail again.
+        private var isRetryable: Bool {
+            switch mismatch {
+            case .weAreTooOld: false
+            case .partnerTooOld: true
+            }
         }
 
         private var title: String {
@@ -397,6 +440,14 @@
                     ? "The host is running an older version and cannot connect."
                     : "The host is running version \(partnerVersion) and cannot connect."
             }
+        }
+
+        private var dialogTitle: String {
+            "Retry connection to \(host.displayName)?"
+        }
+
+        private var dialogMessage: String {
+            "If \(host.displayName) was updated to a compatible version, the connection will succeed."
         }
     }
 
