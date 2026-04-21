@@ -58,12 +58,9 @@ public enum VersionMismatchOldMacHostIOSViewerScenario {
         TestStep.macWaitForElement(titled: "requires version 1.23", timeout: 5)
         TestStep.macScreenshot(label: "mac-host-sees-update-prompt", tolerance: 5)
 
-        // 9. iOS viewer should surface the dedicated HostVersionMismatchRow on its
-        //    Paired Hosts screen, naming the host and its outdated version.
-        TestStep.iosTap(.labelContains("Settings"))
-        TestStep.wait(seconds: 0.5)
-        TestStep.iosTap(.labelContains("Paired Hosts"))
-        TestStep.wait(seconds: 0.5)
+        // 9. iOS lands on the Sessions tab after pairing. The host section there
+        //    should surface the HostVersionMismatchRow callout naming the host
+        //    and its outdated version, without any Settings drill-in.
         TestStep.iosWaitForElement(.identifier("host-version-mismatch-row"), timeout: 15)
         TestStep.iosWaitForElement(.labelContains("needs updating"), timeout: 5)
         TestStep.iosWaitForElement(.labelContains("running version 0.1"), timeout: 5)
@@ -76,11 +73,11 @@ public enum VersionMismatchOldMacHostIOSViewerScenario {
         TestStep.macSetAppVersion(appVersion: nil, minRequiredPartnerVersion: nil)
         TestStep.iosSetAppVersion(appVersion: nil, minRequiredPartnerVersion: nil)
 
-        // 11. Both sides should reach a connected state — iOS Paired Hosts row
-        //     loses the mismatch callout; Mac Remote Access shows "Connected"
-        //     once the new peerHello validates.
+        // 11. Both sides should reach a connected state — the Sessions-tab
+        //     callout disappears and the host section collapses to "No active
+        //     sessions"; Mac Remote Access shows "Connected".
         TestStep.iosWaitForElementToDisappear(.identifier("host-version-mismatch-row"), timeout: 20)
-        TestStep.iosWaitForElementToDisappear(.labelContains("running version 0.1"), timeout: 5)
+        TestStep.iosWaitForElement(.labelContains("No active sessions"), timeout: 20)
         TestStep.macWaitForElementToDisappear(titled: "out of date", timeout: 20)
         TestStep.macWaitForElement(titled: "Connected", timeout: 20)
         TestStep.iosScreenshot(label: "ios-after-host-upgrade")

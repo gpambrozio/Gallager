@@ -233,7 +233,10 @@
 
         var body: some View {
             Section {
-                if hasContent {
+                if let mismatch = connection?.versionMismatch {
+                    HostVersionMismatchRow(host: host, mismatch: mismatch)
+                        .accessibilityIdentifier("host-version-mismatch-row")
+                } else if hasContent {
                     // Claude sessions
                     ForEach(claudeSessions) { session in
                         sessionRow(session)
@@ -330,12 +333,69 @@
         private var statusColor: Color {
             guard let connection else { return .gray }
 
+            if connection.versionMismatch != nil {
+                return .orange
+            }
             if connection.isHostConnected {
                 return .green
             } else if connection.isRelayConnected {
                 return .yellow
             } else {
                 return .red
+            }
+        }
+    }
+
+    // MARK: - Host Version Mismatch Row
+
+    /// Callout row rendered inside a host's session section when the host's
+    /// peerHello handshake failed version compatibility. Lives on the Sessions
+    /// tab — the first surface users see — so a "Host offline" caption is never
+    /// the only explanation for an unreachable host.
+    private struct HostVersionMismatchRow: View {
+        let host: PairedHost
+        let mismatch: VersionCompatibility.VersionMismatch
+
+        var body: some View {
+            HStack(alignment: .top, spacing: 12) {
+                Symbols.arrowUpCircleFill.image
+                    .font(.title2)
+                    .foregroundStyle(.orange)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 4)
+            .accessibilityElement(children: .combine)
+        }
+
+        private var title: String {
+            switch mismatch {
+            case .weAreTooOld:
+                "Update this app"
+            case .partnerTooOld:
+                "\(host.displayName) needs updating"
+            }
+        }
+
+        private var detail: String {
+            switch mismatch {
+            case let .weAreTooOld(required):
+                "\(host.displayName) requires version \(required) or later."
+            case let .partnerTooOld(partnerVersion):
+                partnerVersion.isEmpty
+                    ? "The host is running an older version and cannot connect."
+                    : "The host is running version \(partnerVersion) and cannot connect."
             }
         }
     }

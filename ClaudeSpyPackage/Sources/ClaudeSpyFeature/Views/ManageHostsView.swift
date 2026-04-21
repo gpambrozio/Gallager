@@ -1,7 +1,6 @@
 #if os(iOS)
     import ClaudeSpyCommon
     import ClaudeSpyEncryption
-    import ClaudeSpyNetworking
     import Dependencies
     import Logging
     import SwiftUI
@@ -30,10 +29,9 @@
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(settings.pairedHosts) { host in
-                            let connection = connectionManager.connection(for: host.id)
                             HostRowView(
                                 host: host,
-                                connection: connection,
+                                connection: connectionManager.connection(for: host.id),
                                 showUsername: settings.hasDuplicateHostName(for: host)
                             )
                             .accessibilityIdentifier("host-row")
@@ -45,11 +43,6 @@
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 hostToEdit = host
-                            }
-
-                            if let mismatch = connection?.versionMismatch {
-                                HostVersionMismatchRow(host: host, mismatch: mismatch)
-                                    .accessibilityIdentifier("host-version-mismatch-row")
                             }
                         }
                         .onDelete { indexSet in
@@ -203,65 +196,8 @@
                 return "Online"
             } else if connection.isRelayConnected {
                 return "Waiting for host..."
-            } else if connection.versionMismatch != nil {
-                // Details live in HostVersionMismatchRow — keep the row caption short
-                // so the message isn't duplicated above the callout.
-                return "Version mismatch"
             } else {
                 return connection.state.statusText
-            }
-        }
-    }
-
-    // MARK: - Host Version Mismatch Row
-
-    /// Callout row rendered directly below a `HostRowView` when the host's
-    /// peerHello handshake failed version compatibility. Surfaces an explicit
-    /// update affordance rather than a truncated error caption.
-    private struct HostVersionMismatchRow: View {
-        let host: PairedHost
-        let mismatch: VersionCompatibility.VersionMismatch
-
-        var body: some View {
-            HStack(alignment: .top, spacing: 12) {
-                Symbols.arrowUpCircleFill.image
-                    .font(.title2)
-                    .foregroundStyle(.orange)
-                    .accessibilityHidden(true)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(.vertical, 4)
-            .accessibilityElement(children: .combine)
-        }
-
-        private var title: String {
-            switch mismatch {
-            case .weAreTooOld:
-                "Update this app"
-            case .partnerTooOld:
-                "\(host.displayName) needs updating"
-            }
-        }
-
-        private var detail: String {
-            switch mismatch {
-            case let .weAreTooOld(required):
-                "\(host.displayName) requires version \(required) or later."
-            case let .partnerTooOld(partnerVersion):
-                partnerVersion.isEmpty
-                    ? "The host is running an older version and cannot connect."
-                    : "The host is running version \(partnerVersion) and cannot connect."
             }
         }
     }

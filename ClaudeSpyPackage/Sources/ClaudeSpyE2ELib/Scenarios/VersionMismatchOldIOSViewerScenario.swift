@@ -57,14 +57,11 @@ public enum VersionMismatchOldIOSViewerScenario {
         // when the iOS simulator is in play.
         TestStep.macScreenshot(label: "mac-host-rejects-old-ios-viewer", tolerance: 5)
 
-        // 9. Navigate to Settings → Paired Hosts on iOS so the screenshot captures
-        //    the dedicated HostVersionMismatchRow callout rendered under the
-        //    offending host row ("Update this app" + detailed reason).
-        TestStep.wait(seconds: 5)
-        TestStep.iosTap(.labelContains("Settings"))
-        TestStep.wait(seconds: 0.5)
-        TestStep.iosTap(.labelContains("Paired Hosts"))
-        TestStep.wait(seconds: 0.5)
+        // 9. iOS lands on the Sessions tab after pairing. The host section there
+        //    should surface the HostVersionMismatchRow callout ("Update this app"
+        //    + the required version) so the user sees why they can't connect
+        //    without having to drill into Settings.
+        TestStep.wait(seconds: 3)
         TestStep.iosWaitForElement(.identifier("host-version-mismatch-row"), timeout: 15)
         TestStep.iosWaitForElement(.labelContains("Update this app"), timeout: 5)
         TestStep.iosWaitForElement(.labelContains("requires version 1.23"), timeout: 5)
@@ -77,13 +74,13 @@ public enum VersionMismatchOldIOSViewerScenario {
         TestStep.iosSetAppVersion(appVersion: nil, minRequiredPartnerVersion: nil)
         TestStep.macSetAppVersion(appVersion: nil, minRequiredPartnerVersion: nil)
 
-        // 11. Both sides should reach a connected state — iOS Paired Hosts row
-        //     loses the mismatch callout and flips the status back to "Online";
-        //     Mac Remote Access surfaces "Connected".
+        // 11. Both sides should reach a connected state — the Sessions-tab
+        //     callout disappears and the host section collapses to "No active
+        //     sessions" (only rendered when isHostConnected is true); Mac
+        //     Remote Access surfaces "Connected".
         TestStep.iosWaitForElementToDisappear(.identifier("host-version-mismatch-row"), timeout: 20)
-        TestStep.iosWaitForElementToDisappear(.labelContains("out of date"), timeout: 5)
+        TestStep.iosWaitForElement(.labelContains("No active sessions"), timeout: 20)
         TestStep.macWaitForElementToDisappear(titled: "running version 0.1", timeout: 20)
-        TestStep.iosWaitForElement(.labelContains("Online"), timeout: 20)
         TestStep.macWaitForElement(titled: "Connected", timeout: 20)
         TestStep.iosScreenshot(label: "ios-after-upgrade")
         TestStep.macScreenshot(label: "mac-after-ios-upgrade", tolerance: 5)
