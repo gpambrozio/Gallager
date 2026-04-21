@@ -61,7 +61,21 @@ public enum VersionMismatchOldMacViewerScenario {
         TestStep.macWaitForElement(titled: "requires version 1.23", timeout: 5, instance: 1)
         TestStep.macScreenshot(label: "old-viewer-sees-update-prompt", tolerance: 5, instance: 1)
 
-        // 7. Simulate the user "updating" the viewer: clear its version overrides
+        // 7. Close the viewer's Settings window and surface its main Panes
+        //    window so we can verify the dedicated HostVersionMismatchRow
+        //    surfaces in the sidebar. Because this direction is ".weAreTooOld",
+        //    the callout title should read "Update this app".
+        TestStep.macCloseWindow(titled: "Remote Hosts", instance: 1)
+        TestStep.wait(seconds: 0.5)
+        TestStep.macOpenPanesWindow(instance: 1)
+        TestStep.macWaitForElementQuery(
+            .identifier("host-version-mismatch-row"), timeout: 10, instance: 1
+        )
+        TestStep.macWaitForElement(titled: "Update this app", timeout: 5, instance: 1)
+        TestStep.macWaitForElement(titled: "requires version 1.23", timeout: 5, instance: 1)
+        TestStep.macScreenshot(label: "viewer-sidebar-mismatch", tolerance: 5, instance: 1)
+
+        // 8. Simulate the user "updating" the viewer: clear its version overrides
         //    in-process and kick a reconnect. The host is also nudged to reconnect
         //    because `handleVersionMismatch` set its `shouldReconnect = false` too.
         TestStep.macSetAppVersion(
@@ -69,13 +83,17 @@ public enum VersionMismatchOldMacViewerScenario {
         )
         TestStep.macSetAppVersion(appVersion: nil, minRequiredPartnerVersion: nil)
 
-        // 8. Both sides should reach a connected state. Error text disappears on
-        //    viewer and host; "Connected" surfaces in both Remote Access panes.
-        TestStep.macWaitForElementToDisappear(titled: "out of date", timeout: 20, instance: 1)
+        // 9. The sidebar mismatch row disappears on the viewer once the new
+        //    peerHello validates. With no tmux sessions running, the reachable
+        //    host collapses to the "No active sessions" caption. The host still
+        //    proves recovery via its Remote Access "Connected" label.
+        TestStep.macWaitForElementQueryToDisappear(
+            .identifier("host-version-mismatch-row"), timeout: 20, instance: 1
+        )
+        TestStep.macWaitForElement(titled: "No active sessions", timeout: 20, instance: 1)
         TestStep.macWaitForElementToDisappear(titled: "running version 0.1", timeout: 20)
         TestStep.macWaitForElement(titled: "Connected", timeout: 20)
-        TestStep.macWaitForElement(titled: "Connected", timeout: 20, instance: 1)
         TestStep.macScreenshot(label: "host-after-viewer-upgrade", tolerance: 5)
-        TestStep.macScreenshot(label: "viewer-after-upgrade", tolerance: 5, instance: 1)
+        TestStep.macScreenshot(label: "viewer-sidebar-reconnected", tolerance: 5, instance: 1)
     }
 }

@@ -58,14 +58,15 @@ public enum VersionMismatchOldIOSViewerScenario {
         TestStep.macScreenshot(label: "mac-host-rejects-old-ios-viewer", tolerance: 5)
 
         // 9. Navigate to Settings → Paired Hosts on iOS so the screenshot captures
-        //    the detailed "out of date" error instead of just the generic
-        //    "Disconnected" pill on the Sessions tab.
+        //    the dedicated HostVersionMismatchRow callout rendered under the
+        //    offending host row ("Update this app" + detailed reason).
         TestStep.wait(seconds: 5)
         TestStep.iosTap(.labelContains("Settings"))
         TestStep.wait(seconds: 0.5)
         TestStep.iosTap(.labelContains("Paired Hosts"))
         TestStep.wait(seconds: 0.5)
-        TestStep.iosWaitForElement(.labelContains("out of date"), timeout: 15)
+        TestStep.iosWaitForElement(.identifier("host-version-mismatch-row"), timeout: 15)
+        TestStep.iosWaitForElement(.labelContains("Update this app"), timeout: 5)
         TestStep.iosWaitForElement(.labelContains("requires version 1.23"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-version-mismatch-state")
 
@@ -77,9 +78,10 @@ public enum VersionMismatchOldIOSViewerScenario {
         TestStep.macSetAppVersion(appVersion: nil, minRequiredPartnerVersion: nil)
 
         // 11. Both sides should reach a connected state — iOS Paired Hosts row
-        //     flips from the "out of date" error to "Online", Mac Remote Access
-        //     surfaces "Connected".
-        TestStep.iosWaitForElementToDisappear(.labelContains("out of date"), timeout: 20)
+        //     loses the mismatch callout and flips the status back to "Online";
+        //     Mac Remote Access surfaces "Connected".
+        TestStep.iosWaitForElementToDisappear(.identifier("host-version-mismatch-row"), timeout: 20)
+        TestStep.iosWaitForElementToDisappear(.labelContains("out of date"), timeout: 5)
         TestStep.macWaitForElementToDisappear(titled: "running version 0.1", timeout: 20)
         TestStep.iosWaitForElement(.labelContains("Online"), timeout: 20)
         TestStep.macWaitForElement(titled: "Connected", timeout: 20)
