@@ -57,12 +57,16 @@ public enum VersionMismatchOldIOSViewerScenario {
         // when the iOS simulator is in play.
         TestStep.macScreenshot(label: "mac-host-rejects-old-ios-viewer", tolerance: 5)
 
-        // 9. The old side (iOS) should never reach the connected state.
-        //    Assert that the iOS status line explicitly reports "Disconnected" so a
-        //    regression where the viewer reaches "Connected" is caught by the test
-        //    itself, not just visible in the screenshot.
+        // 9. Navigate to Settings → Paired Hosts on iOS so the screenshot captures
+        //    the detailed "out of date" error instead of just the generic
+        //    "Disconnected" pill on the Sessions tab.
         TestStep.wait(seconds: 5)
-        TestStep.iosWaitForElement(.labelContains("Disconnected"), timeout: 5)
+        TestStep.iosTap(.labelContains("Settings"))
+        TestStep.wait(seconds: 0.5)
+        TestStep.iosTap(.labelContains("Paired Hosts"))
+        TestStep.wait(seconds: 0.5)
+        TestStep.iosWaitForElement(.labelContains("out of date"), timeout: 15)
+        TestStep.iosWaitForElement(.labelContains("requires version 1.23"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-version-mismatch-state")
 
         // 10. Simulate the user "updating" the iOS viewer: clear its version
@@ -72,10 +76,13 @@ public enum VersionMismatchOldIOSViewerScenario {
         TestStep.iosSetAppVersion(appVersion: nil, minRequiredPartnerVersion: nil)
         TestStep.macSetAppVersion(appVersion: nil, minRequiredPartnerVersion: nil)
 
-        // 11. Both sides should reach a connected state.
+        // 11. Both sides should reach a connected state — iOS Paired Hosts row
+        //     flips from the "out of date" error to "Online", Mac Remote Access
+        //     surfaces "Connected".
+        TestStep.iosWaitForElementToDisappear(.labelContains("out of date"), timeout: 20)
         TestStep.macWaitForElementToDisappear(titled: "running version 0.1", timeout: 20)
+        TestStep.iosWaitForElement(.labelContains("Online"), timeout: 20)
         TestStep.macWaitForElement(titled: "Connected", timeout: 20)
-        TestStep.iosWaitForElement(.labelContains("Connected"), timeout: 20)
         TestStep.iosScreenshot(label: "ios-after-upgrade")
         TestStep.macScreenshot(label: "mac-after-ios-upgrade", tolerance: 5)
     }
