@@ -409,18 +409,8 @@ struct ToolInputView: View {
                     detailRow("Model:", model)
                 }
 
-            case let .todoWrite(params):
-                headerRow("Manage Todo List")
-                detailRow("Managing:", "\(params.todos.count) todo items")
-
-            case let .exitPlanMode(params):
+            case .exitPlanMode:
                 headerRow("Exit Plan Mode")
-                if let prompts = params.allowedPrompts {
-                    detailRow("Permissions:", "\(prompts.count) requested")
-                }
-                if params.plan != nil {
-                    detailRow("Plan:", "Included")
-                }
 
             case let .webFetch(params):
                 headerRow("Fetch Web Page")
@@ -435,33 +425,6 @@ struct ToolInputView: View {
                 }
                 if let blocked = params.blockedDomains, !blocked.isEmpty {
                     detailRow("Blocked domains:", blocked.joined(separator: ", "))
-                }
-
-            case let .notebookEdit(params):
-                headerRow("Edit Jupyter Notebook")
-                detailRow("Notebook:", params.notebookPath)
-                if let cellId = params.cellId {
-                    detailRow("Cell ID:", cellId)
-                }
-                if let cellType = params.cellType {
-                    detailRow("Cell type:", cellType.rawValue)
-                }
-                if let mode = params.editMode {
-                    detailRow("Mode:", mode.rawValue)
-                }
-
-            case let .skill(params):
-                headerRow("Run Skill")
-                detailRow("Skill:", params.skill)
-                if let args = params.args {
-                    detailRow("Arguments:", args)
-                }
-
-            case let .toolSearch(params):
-                headerRow("Search Tools")
-                detailRow("Query:", params.query)
-                if let maxResults = params.maxResults {
-                    detailRow("Max results:", "\(maxResults)")
                 }
 
             case let .askUserQuestion(params):

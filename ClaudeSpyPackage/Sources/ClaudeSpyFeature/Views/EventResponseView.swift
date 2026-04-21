@@ -43,9 +43,8 @@ extension HookEvent {
                         sendCommand: sendCommand,
                         state: state
                     ))
-                case let .exitPlanMode(params):
+                case .exitPlanMode:
                     return AnyView(ExitPlanModeResponseView(
-                        params: params,
                         isConnected: isConnected,
                         sendCommand: sendCommand,
                         state: state
