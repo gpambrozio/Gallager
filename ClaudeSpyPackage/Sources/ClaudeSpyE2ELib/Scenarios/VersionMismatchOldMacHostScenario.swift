@@ -64,9 +64,11 @@ public enum VersionMismatchOldMacHostScenario {
         // 7. Close the viewer's Settings window and surface its main Panes
         //    window so we can verify the dedicated HostVersionMismatchRow
         //    surfaces in the sidebar, not just in the Remote Hosts settings pane.
+        //    `Shortcut.openPanesWindow` positions and resizes the window so
+        //    sidebar screenshots stay deterministic across runs.
         TestStep.macCloseWindow(titled: "Remote Hosts", instance: 1)
         TestStep.wait(seconds: 0.5)
-        TestStep.macOpenPanesWindow(instance: 1)
+        Shortcut.openPanesWindow(instance: 1)
         TestStep.macWaitForElementQuery(
             .identifier("host-version-mismatch-row"), timeout: 10, instance: 1
         )

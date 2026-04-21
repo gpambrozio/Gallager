@@ -65,9 +65,11 @@ public enum VersionMismatchOldMacViewerScenario {
         //    window so we can verify the dedicated HostVersionMismatchRow
         //    surfaces in the sidebar. Because this direction is ".weAreTooOld",
         //    the callout title should read "Update this app".
+        //    `Shortcut.openPanesWindow` positions and resizes the window so
+        //    sidebar screenshots stay deterministic across runs.
         TestStep.macCloseWindow(titled: "Remote Hosts", instance: 1)
         TestStep.wait(seconds: 0.5)
-        TestStep.macOpenPanesWindow(instance: 1)
+        Shortcut.openPanesWindow(instance: 1)
         TestStep.macWaitForElementQuery(
             .identifier("host-version-mismatch-row"), timeout: 10, instance: 1
         )
