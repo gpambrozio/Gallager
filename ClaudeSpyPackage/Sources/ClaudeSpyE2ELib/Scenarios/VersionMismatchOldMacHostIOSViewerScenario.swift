@@ -68,5 +68,21 @@ public enum VersionMismatchOldMacHostIOSViewerScenario {
         TestStep.iosWaitForElement(.labelContains("running version 0.1"), timeout: 15)
         TestStep.iosWaitForElement(.labelContains("cannot connect"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-viewer-rejects-old-mac-host")
+
+        // 10. Simulate the user "updating" the Mac host: clear its version
+        //     overrides in-process and kick a reconnect. The iOS viewer is also
+        //     nudged to reconnect because `handleVersionMismatch` set its
+        //     `shouldReconnect = false` too.
+        TestStep.macSetAppVersion(appVersion: nil, minRequiredPartnerVersion: nil)
+        TestStep.iosSetAppVersion(appVersion: nil, minRequiredPartnerVersion: nil)
+
+        // 11. Both sides should reach a connected state — iOS Paired Hosts row
+        //     loses the "running version 0.1" error; Mac Remote Access shows
+        //     "Connected" once the new peerHello validates.
+        TestStep.iosWaitForElementToDisappear(.labelContains("running version 0.1"), timeout: 20)
+        TestStep.macWaitForElementToDisappear(titled: "out of date", timeout: 20)
+        TestStep.macWaitForElement(titled: "Connected", timeout: 20)
+        TestStep.iosScreenshot(label: "ios-after-host-upgrade")
+        TestStep.macScreenshot(label: "mac-host-after-upgrade", tolerance: 5)
     }
 }

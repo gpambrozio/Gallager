@@ -64,5 +64,19 @@ public enum VersionMismatchOldIOSViewerScenario {
         TestStep.wait(seconds: 5)
         TestStep.iosWaitForElement(.labelContains("Disconnected"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-version-mismatch-state")
+
+        // 10. Simulate the user "updating" the iOS viewer: clear its version
+        //     overrides in-process and kick a reconnect. The Mac host is also
+        //     nudged to reconnect because `handleVersionMismatch` set its
+        //     `shouldReconnect = false` too.
+        TestStep.iosSetAppVersion(appVersion: nil, minRequiredPartnerVersion: nil)
+        TestStep.macSetAppVersion(appVersion: nil, minRequiredPartnerVersion: nil)
+
+        // 11. Both sides should reach a connected state.
+        TestStep.macWaitForElementToDisappear(titled: "running version 0.1", timeout: 20)
+        TestStep.macWaitForElement(titled: "Connected", timeout: 20)
+        TestStep.iosWaitForElement(.labelContains("Connected"), timeout: 20)
+        TestStep.iosScreenshot(label: "ios-after-upgrade")
+        TestStep.macScreenshot(label: "mac-after-ios-upgrade", tolerance: 5)
     }
 }

@@ -95,6 +95,12 @@ final public class ViewerConnection: Identifiable {
         await relayClient.reconnectImmediately()
     }
 
+    /// Re-enable reconnection after a terminal failure (e.g. version mismatch)
+    /// and immediately attempt to reconnect. Forwards to the relay client.
+    public func enableReconnectAndRetry() async {
+        await relayClient.enableReconnectAndRetry()
+    }
+
     // MARK: - Commands
 
     /// Send a command to this host and wait for response.

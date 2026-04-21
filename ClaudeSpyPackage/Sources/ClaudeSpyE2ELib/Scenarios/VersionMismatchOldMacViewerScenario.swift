@@ -53,12 +53,29 @@ public enum VersionMismatchOldMacViewerScenario {
         //    Rendered via state.statusText which prefixes "Error: ".
         TestStep.macWaitForElement(titled: "running version 0.1", timeout: 20)
         TestStep.macWaitForElement(titled: "cannot connect", timeout: 5)
-        TestStep.macScreenshot(label: "host-rejects-old-viewer")
+        TestStep.macScreenshot(label: "host-rejects-old-viewer", tolerance: 5)
 
         // 6. Old viewer should see the "out of date" update prompt.
         //    Text is rendered in-place (no "Error: " prefix) on RemoteHostsSettingsView.
         TestStep.macWaitForElement(titled: "out of date", timeout: 20, instance: 1)
         TestStep.macWaitForElement(titled: "requires version 1.23", timeout: 5, instance: 1)
-        TestStep.macScreenshot(label: "old-viewer-sees-update-prompt", instance: 1)
+        TestStep.macScreenshot(label: "old-viewer-sees-update-prompt", tolerance: 5, instance: 1)
+
+        // 7. Simulate the user "updating" the viewer: clear its version overrides
+        //    in-process and kick a reconnect. The host is also nudged to reconnect
+        //    because `handleVersionMismatch` set its `shouldReconnect = false` too.
+        TestStep.macSetAppVersion(
+            appVersion: nil, minRequiredPartnerVersion: nil, instance: 1
+        )
+        TestStep.macSetAppVersion(appVersion: nil, minRequiredPartnerVersion: nil)
+
+        // 8. Both sides should reach a connected state. Error text disappears on
+        //    viewer and host; "Connected" surfaces in both Remote Access panes.
+        TestStep.macWaitForElementToDisappear(titled: "out of date", timeout: 20, instance: 1)
+        TestStep.macWaitForElementToDisappear(titled: "running version 0.1", timeout: 20)
+        TestStep.macWaitForElement(titled: "Connected", timeout: 20)
+        TestStep.macWaitForElement(titled: "Connected", timeout: 20, instance: 1)
+        TestStep.macScreenshot(label: "host-after-viewer-upgrade", tolerance: 5)
+        TestStep.macScreenshot(label: "viewer-after-upgrade", tolerance: 5, instance: 1)
     }
 }

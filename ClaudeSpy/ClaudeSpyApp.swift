@@ -42,6 +42,10 @@ struct ClaudeSpyApp: App {
                 $0[PreferencesService.self] = prefs
                 $0[SecretsService.self] = .inMemory()
             }
+
+            #if DEBUG
+                TestAccessibilityServer.startIfNeeded()
+            #endif
         }
     }
 

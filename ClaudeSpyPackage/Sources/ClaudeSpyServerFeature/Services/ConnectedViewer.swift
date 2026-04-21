@@ -222,6 +222,27 @@ final public class ConnectedViewer: Identifiable {
         await performConnect()
     }
 
+    /// Re-enable reconnection after a terminal failure (e.g. version mismatch) and
+    /// immediately attempt to reconnect.
+    ///
+    /// `handleVersionMismatch` sets `shouldReconnect = false` so the host stops
+    /// retrying a broken handshake. E2E scenarios that "upgrade" the host and
+    /// expect the connection to recover call this to flip the flag back on and
+    /// kick a fresh `performConnect`.
+    public func enableReconnectAndRetry() async {
+        shouldReconnect = true
+        reconnectionDelayTask?.cancel()
+        reconnectionDelayTask = nil
+        reconnectionAttempt = 0
+
+        guard !state.isConnected, state != .connecting else {
+            return
+        }
+
+        logger.info("Re-enabling reconnection and retrying for viewer: \(viewerName)")
+        await performConnect()
+    }
+
     // MARK: - Sending Messages
 
     /// Send a hook event to be relayed to viewer (encrypted)

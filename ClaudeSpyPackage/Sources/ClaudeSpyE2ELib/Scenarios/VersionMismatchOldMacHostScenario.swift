@@ -53,12 +53,31 @@ public enum VersionMismatchOldMacHostScenario {
         //    Text is rendered in-place (no "Error: " prefix) on RemoteHostsSettingsView.
         TestStep.macWaitForElement(titled: "running version 0.1", timeout: 20, instance: 1)
         TestStep.macWaitForElement(titled: "cannot connect", timeout: 5, instance: 1)
-        TestStep.macScreenshot(label: "viewer-rejects-old-host", instance: 1)
+        TestStep.macScreenshot(label: "viewer-rejects-old-host", tolerance: 5, instance: 1)
 
         // 6. Host sees "This Mac app is out of date" once the viewer's peerHello
         //    arrives peer-to-peer and carries the viewer's minRequiredHostVersion.
         TestStep.macWaitForElement(titled: "out of date", timeout: 20)
         TestStep.macWaitForElement(titled: "requires version 1.23", timeout: 5)
-        TestStep.macScreenshot(label: "old-host-sees-update-prompt")
+        TestStep.macScreenshot(label: "old-host-sees-update-prompt", tolerance: 5)
+
+        // 7. Simulate the user "updating" the host: clear its version overrides
+        //    in-process and kick a reconnect. The viewer is also nudged to reconnect
+        //    because `handleVersionMismatch` set its `shouldReconnect = false` too.
+        TestStep.macSetAppVersion(appVersion: nil, minRequiredPartnerVersion: nil)
+        TestStep.macSetAppVersion(
+            appVersion: nil, minRequiredPartnerVersion: nil, instance: 1
+        )
+
+        // 8. Both sides should reach a connected state. Error text disappears on
+        //    host and viewer; "Connected" surfaces in both Remote Access panes.
+        TestStep.macWaitForElementToDisappear(titled: "out of date", timeout: 20)
+        TestStep.macWaitForElementToDisappear(
+            titled: "running version 0.1", timeout: 20, instance: 1
+        )
+        TestStep.macWaitForElement(titled: "Connected", timeout: 20)
+        TestStep.macWaitForElement(titled: "Connected", timeout: 20, instance: 1)
+        TestStep.macScreenshot(label: "host-after-upgrade", tolerance: 5)
+        TestStep.macScreenshot(label: "viewer-after-host-upgrade", tolerance: 5, instance: 1)
     }
 }

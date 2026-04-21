@@ -207,6 +207,17 @@ final public class ConnectedViewerManager {
         }
     }
 
+    /// Re-enable reconnection on every viewer that stopped after a terminal
+    /// failure (e.g. version mismatch) and retry. Used by E2E scenarios that
+    /// simulate an in-place "upgrade" of the app's reported version.
+    public func enableReconnectAndRetryAll() async {
+        logger.info("Enabling reconnect and retrying for all viewers")
+
+        for connection in connections.values {
+            await connection.enableReconnectAndRetry()
+        }
+    }
+
     // MARK: - Broadcasting
 
     /// Send a hook event to all connected viewers.

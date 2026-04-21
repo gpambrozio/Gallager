@@ -321,7 +321,10 @@ public actor TestOrchestrator {
                 await simulatorDriver.setE2ERunnerPath(e2eRunnerPath)
             }
             try await simulatorDriver.installApp(appPath: iosAppPath)
-            var iosArgs = ["--e2e-test", "--server-url", "ws://127.0.0.1:\(serverPort)"]
+            var iosArgs = [
+                "--e2e-test", "--server-url", "ws://127.0.0.1:\(serverPort)",
+                "--test-accessibility-port", "\(SimulatorDriver.defaultTestAccessibilityPort)",
+            ]
             if let appVersion {
                 iosArgs += ["--app-version", appVersion]
             }
@@ -377,6 +380,12 @@ public actor TestOrchestrator {
             let value = try await simulatorDriver.readClipboard()
             context.set(storeAs, value: value)
             logger.info("Stored iOS clipboard as '\(storeAs)': \(value)")
+
+        case let .iosSetAppVersion(appVersion, minRequiredPartnerVersion):
+            try await simulatorDriver.setAppVersion(
+                appVersion: appVersion,
+                minRequiredPartnerVersion: minRequiredPartnerVersion
+            )
 
         case .iosLogUI:
             let elements = await simulatorDriver.describeUI()
@@ -467,6 +476,12 @@ public actor TestOrchestrator {
 
         case let .macUnpair(instance):
             try await macDriver(for: instance).unpair()
+
+        case let .macSetAppVersion(appVersion, minRequiredPartnerVersion, instance):
+            try await macDriver(for: instance).setAppVersion(
+                appVersion: appVersion,
+                minRequiredPartnerVersion: minRequiredPartnerVersion
+            )
 
         case let .macReadClipboard(storeAs, instance):
             let clipboardPath = clipboardFilePath(for: instance)

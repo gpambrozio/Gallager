@@ -72,6 +72,10 @@ public enum TestStep: Sendable {
     case iosLogUI
     /// Read the iOS simulator clipboard and store in context
     case iosReadClipboard(storeAs: String)
+    /// Update the iOS app's `VersionCompatibility` overrides at runtime and kick
+    /// a reconnect. `nil` clears the override; a non-nil value replaces it. Used
+    /// by version-mismatch scenarios to simulate an in-place "app update".
+    case iosSetAppVersion(appVersion: String?, minRequiredPartnerVersion: String?)
 
     // MARK: - macOS App
     //
@@ -119,6 +123,12 @@ public enum TestStep: Sendable {
     case macContextMenuClick(elementTitle: String, menuItem: String, instance: Int = 0)
     /// Trigger unpair on the first paired viewer via test HTTP endpoint
     case macUnpair(instance: Int = 0)
+    /// Update the macOS app's `VersionCompatibility` overrides at runtime and kick
+    /// a reconnect. `nil` clears the override; a non-nil value replaces it. Used
+    /// by version-mismatch scenarios to simulate an in-place "app update".
+    case macSetAppVersion(
+        appVersion: String?, minRequiredPartnerVersion: String?, instance: Int = 0
+    )
     /// Read the clipboard and store in context
     case macReadClipboard(storeAs: String, instance: Int = 0)
     /// Wait for a text element to appear in the macOS app's accessibility tree

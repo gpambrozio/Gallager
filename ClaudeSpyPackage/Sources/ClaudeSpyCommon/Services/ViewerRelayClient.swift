@@ -270,6 +270,27 @@ final public class ViewerRelayClient {
         await performConnect()
     }
 
+    /// Re-enable reconnection after a terminal failure (e.g. version mismatch) and
+    /// immediately attempt to reconnect.
+    ///
+    /// `handleVersionMismatch` sets `shouldReconnect = false` so the client stops
+    /// retrying a broken handshake. E2E scenarios that "upgrade" the peer and then
+    /// expect the connection to recover call this to flip the flag back on and
+    /// trigger a fresh `performConnect`.
+    public func enableReconnectAndRetry() async {
+        shouldReconnect = true
+        reconnectionTask?.cancel()
+        reconnectionTask = nil
+        reconnectionAttempt = 0
+
+        guard !state.isConnected, state != .connecting else {
+            logger.debug("Already connected or connecting, ignoring enableReconnectAndRetry()")
+            return
+        }
+
+        await performConnect()
+    }
+
     // MARK: - Sending Messages
 
     /// Send a command and wait for response with type-safe return type.
