@@ -75,17 +75,24 @@ public enum VersionMismatchOldMacHostScenario {
         TestStep.macScreenshot(label: "viewer-sidebar-mismatch", tolerance: 5, instance: 1)
 
         // 8. Simulate the user "updating" the host: clear its version overrides
-        //    in-process and kick a reconnect. The viewer is also nudged to reconnect
-        //    because `handleVersionMismatch` set its `shouldReconnect = false` too.
+        //    in-process. The host's notification observer kicks its host-side
+        //    connections back to the relay so the viewer's Retry below can
+        //    actually find a peer to handshake with.
         TestStep.macSetAppVersion(appVersion: nil, minRequiredPartnerVersion: nil)
-        TestStep.macSetAppVersion(
-            appVersion: nil, minRequiredPartnerVersion: nil, instance: 1
-        )
+        TestStep.wait(seconds: 2)
 
-        // 9. The sidebar mismatch row disappears on the viewer once the new
-        //    peerHello validates. With no tmux sessions running, the reachable
-        //    host collapses to the "No active sessions" caption. The host still
-        //    proves recovery via its Remote Access "Connected" label.
+        // 9. Drive the new Retry affordance on the viewer side: tap the
+        //    version-mismatch row to open the popover, then click Retry. This
+        //    replaces the old notification-driven viewer auto-retry — the only
+        //    way the viewer recovers now is the explicit UI action.
+        TestStep.macClickButton(titled: "needs updating", instance: 1)
+        TestStep.wait(seconds: 1)
+        TestStep.macClickButton(titled: "Retry", instance: 1)
+
+        // 10. The sidebar mismatch row disappears on the viewer once the new
+        //     peerHello validates. With no tmux sessions running, the reachable
+        //     host collapses to the "No active sessions" caption. The host still
+        //     proves recovery via its Remote Access "Connected" label.
         TestStep.macWaitForElementQueryToDisappear(
             .identifier("host-version-mismatch-row"), timeout: 20, instance: 1
         )

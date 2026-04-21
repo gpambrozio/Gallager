@@ -64,18 +64,6 @@
             .onChange(of: scenePhase) { _, newPhase in
                 handleScenePhaseChange(newPhase)
             }
-            #if DEBUG
-            .onReceive(NotificationCenter.default.publisher(
-                    for: .init("com.claudespy.e2e.reconnectHosts")
-                )) { _ in
-                    // E2E only: a test-driven version-override change just happened,
-                    // so re-enable reconnect on all connections (version mismatch
-                    // earlier set shouldReconnect = false).
-                    Task { @MainActor in
-                        await connectionManager?.enableReconnectAndRetryAll()
-                    }
-                }
-            #endif
         }
 
         /// Handle scene phase changes to manage background task lifecycle.

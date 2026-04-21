@@ -362,63 +362,43 @@
         @State private var showingRetryDialog = false
 
         var body: some View {
-            Group {
-                if isRetryable {
-                    Button {
-                        showingRetryDialog = true
-                    } label: {
-                        rowContent
+            Button {
+                showingRetryDialog = true
+            } label: {
+                HStack(alignment: .top, spacing: 12) {
+                    Symbols.arrowUpCircleFill.image
+                        .font(.title2)
+                        .foregroundStyle(.orange)
+                        .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .buttonStyle(.plain)
-                    .confirmationDialog(
-                        dialogTitle,
-                        isPresented: $showingRetryDialog,
-                        titleVisibility: .visible
-                    ) {
-                        Button("Retry") {
-                            onRetry()
-                        }
-                        Button("Cancel", role: .cancel) { }
-                    } message: {
-                        Text(dialogMessage)
-                    }
-                } else {
-                    rowContent
+
+                    Spacer(minLength: 0)
                 }
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
             }
-        }
-
-        private var rowContent: some View {
-            HStack(alignment: .top, spacing: 12) {
-                Symbols.arrowUpCircleFill.image
-                    .font(.title2)
-                    .foregroundStyle(.orange)
-                    .accessibilityHidden(true)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
             .accessibilityElement(children: .combine)
-        }
-
-        /// Retry only makes sense when the partner is the outdated side. If this app
-        /// is the outdated one, the user has to update via the App Store and the
-        /// reconnect will happen on relaunch — a manual retry would just fail again.
-        private var isRetryable: Bool {
-            switch mismatch {
-            case .weAreTooOld: false
-            case .partnerTooOld: true
+            .confirmationDialog(
+                dialogTitle,
+                isPresented: $showingRetryDialog,
+                titleVisibility: .visible
+            ) {
+                Button("Retry") {
+                    onRetry()
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text(dialogMessage)
             }
         }
 
@@ -443,11 +423,21 @@
         }
 
         private var dialogTitle: String {
-            "Retry connection to \(host.displayName)?"
+            switch mismatch {
+            case .weAreTooOld:
+                "Retry connection?"
+            case .partnerTooOld:
+                "Retry connection to \(host.displayName)?"
+            }
         }
 
         private var dialogMessage: String {
-            "If \(host.displayName) was updated to a compatible version, the connection will succeed."
+            switch mismatch {
+            case .weAreTooOld:
+                "Try again after updating this app to a compatible version."
+            case .partnerTooOld:
+                "If \(host.displayName) was updated to a compatible version, the connection will succeed."
+            }
         }
     }
 

@@ -75,18 +75,27 @@ public enum VersionMismatchOldMacViewerScenario {
         TestStep.macWaitForElement(titled: "requires version 1.23", timeout: 5, instance: 1)
         TestStep.macScreenshot(label: "viewer-sidebar-mismatch", tolerance: 5, instance: 1)
 
-        // 8. Simulate the user "updating" the viewer: clear its version overrides
-        //    in-process and kick a reconnect. The host is also nudged to reconnect
-        //    because `handleVersionMismatch` set its `shouldReconnect = false` too.
+        // 8. Simulate the user "updating" the viewer: clear its version
+        //    overrides. Also nudge instance 0 — its version isn't overridden but
+        //    `macSetAppVersion` triggers the host-side notification observer,
+        //    which brings the host's relay session back online so the viewer's
+        //    Retry can find a peer to handshake with.
         TestStep.macSetAppVersion(
             appVersion: nil, minRequiredPartnerVersion: nil, instance: 1
         )
         TestStep.macSetAppVersion(appVersion: nil, minRequiredPartnerVersion: nil)
+        TestStep.wait(seconds: 2)
 
-        // 9. The sidebar mismatch row disappears on the viewer once the new
-        //    peerHello validates. With no tmux sessions running, the reachable
-        //    host collapses to the "No active sessions" caption. The host still
-        //    proves recovery via its Remote Access "Connected" label.
+        // 9. Drive the new Retry affordance on the viewer side. This direction
+        //    is `.weAreTooOld`, so the row title is "Update this app".
+        TestStep.macClickButton(titled: "Update this app", instance: 1)
+        TestStep.wait(seconds: 1)
+        TestStep.macClickButton(titled: "Retry", instance: 1)
+
+        // 10. The sidebar mismatch row disappears on the viewer once the new
+        //     peerHello validates. With no tmux sessions running, the reachable
+        //     host collapses to the "No active sessions" caption. The host still
+        //     proves recovery via its Remote Access "Connected" label.
         TestStep.macWaitForElementQueryToDisappear(
             .identifier("host-version-mismatch-row"), timeout: 20, instance: 1
         )

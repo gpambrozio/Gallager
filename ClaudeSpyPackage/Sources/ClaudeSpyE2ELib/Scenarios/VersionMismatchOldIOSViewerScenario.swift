@@ -68,13 +68,21 @@ public enum VersionMismatchOldIOSViewerScenario {
         TestStep.iosScreenshot(label: "ios-version-mismatch-state")
 
         // 10. Simulate the user "updating" the iOS viewer: clear its version
-        //     overrides in-process and kick a reconnect. The Mac host is also
-        //     nudged to reconnect because `handleVersionMismatch` set its
-        //     `shouldReconnect = false` too.
+        //     overrides. Also nudge the Mac host so its host-side notification
+        //     observer brings the relay session back online for the upcoming
+        //     iOS Retry to land on a real peer.
         TestStep.iosSetAppVersion(appVersion: nil, minRequiredPartnerVersion: nil)
         TestStep.macSetAppVersion(appVersion: nil, minRequiredPartnerVersion: nil)
+        TestStep.wait(seconds: 2)
 
-        // 11. Both sides should reach a connected state — the Sessions-tab
+        // 11. Drive the new Retry affordance on iOS. This direction is
+        //     `.weAreTooOld` (iOS is the outdated side), so the row title is
+        //     "Update this app"; tapping it opens the confirmation dialog.
+        TestStep.iosTap(.identifier("host-version-mismatch-row"))
+        TestStep.wait(seconds: 1)
+        TestStep.iosTap(.label("Retry"))
+
+        // 12. Both sides should reach a connected state — the Sessions-tab
         //     callout disappears and the host section collapses to "No active
         //     sessions" (only rendered when isHostConnected is true); Mac
         //     Remote Access surfaces "Connected".

@@ -943,8 +943,12 @@
 
         /// E2E only: observe `com.claudespy.e2e.reconnectViewers`, posted by
         /// `TestAccessibilityServer` after a test-driven version-override change.
-        /// Forwards to both connection managers so an existing viewer pairing or
-        /// reverse-direction host connection can resume after a version mismatch.
+        /// Forwards to the host-role connection manager so the host can rejoin
+        /// the relay after `handleVersionMismatch` closed its WebSocket.
+        ///
+        /// Viewer-role retry now goes through the explicit Retry affordance on
+        /// the version-mismatch row UI; scenarios drive that instead of relying
+        /// on this listener.
         private func startE2EReconnectObserver() {
             e2eReconnectObserverTask = Task { [weak self] in
                 let notifications = NotificationCenter.default.notifications(
@@ -953,7 +957,6 @@
                 for await _ in notifications {
                     guard !Task.isCancelled else { break }
                     await self?.connectedViewerManager?.enableReconnectAndRetryAll()
-                    await self?.viewerConnectionManager?.enableReconnectAndRetryAll()
                 }
             }
         }

@@ -8,8 +8,10 @@
         /// in-process access (mirror of the macOS `TestAccessibilityServer`).
         ///
         /// Currently only handles:
-        /// - `/reconnect` — Updates optional `VersionCompatibility` overrides and
-        ///   posts a NotificationCenter event so `ContentView` can kick a reconnect.
+        /// - `/reconnect` — Updates optional `VersionCompatibility` overrides so the
+        ///   next peerHello handshake reports different versions. The actual
+        ///   reconnect is driven by the user (or E2E) tapping the Retry button on
+        ///   the version-mismatch row; no NotificationCenter fan-out happens here.
         ///
         /// Only active when the app is launched with `--e2e-test`.
         @MainActor
@@ -93,9 +95,6 @@
                                 VersionCompatibility.minRequiredPartnerVersionOverride =
                                     minRequired.isEmpty ? nil : minRequired
                             }
-                            NotificationCenter.default.post(
-                                name: .init("com.claudespy.e2e.reconnectHosts"), object: nil
-                            )
                             let response = Data(
                                 "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
                                     .utf8)
