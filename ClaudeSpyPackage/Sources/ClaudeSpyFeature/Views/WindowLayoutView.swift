@@ -56,6 +56,12 @@
         /// Error message from failed commands (close window/session)
         @State private var commandError: String?
 
+        /// Rename-window alert state: the window being renamed (if any).
+        @State private var renamingWindow: TmuxWindow?
+
+        /// Text bound to the rename-window alert field.
+        @State private var renameWindowText = ""
+
         /// All windows in this session
         private var sessionWindows: [TmuxWindow] {
             sessionStore.windows(for: hostId).filter { $0.sessionName == sessionName }
@@ -141,6 +147,16 @@
                             Label("New Window", symbol: .plus)
                         }
                         .disabled(!relayClient.isHostConnected)
+
+                        if let window {
+                            Button {
+                                renameWindowText = window.windowName
+                                renamingWindow = window
+                            } label: {
+                                Label("Rename Window", symbol: .pencil)
+                            }
+                            .disabled(!relayClient.isHostConnected)
+                        }
 
                         if let window, sessionWindows.count > 1 {
                             Divider()
@@ -264,6 +280,31 @@
                 if let error = commandError {
                     Text(error)
                 }
+            }
+            // Intentionally inline rather than using `WindowRenamingModifier`:
+            // iOS attaches rename via a `Menu` inside the tab (see WindowTabBar),
+            // not a `contextMenu`, so the alert lives on the enclosing view and
+            // `renamingWindow`/`renameWindowText` bridge the Menu tap to it.
+            .alert("Rename Window", isPresented: .init(
+                get: { renamingWindow != nil },
+                set: { if !$0 { renamingWindow = nil } }
+            )) {
+                TextField("Window Name", text: $renameWindowText)
+                Button("Save") {
+                    let trimmed = renameWindowText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if let target = renamingWindow, !trimmed.isEmpty {
+                        Task {
+                            _ = await relayClient.sendCommand(
+                                SetWindowName(windowId: target.id, name: trimmed),
+                                paneId: ""
+                            )
+                        }
+                    }
+                    renamingWindow = nil
+                }
+                Button("Cancel", role: .cancel) { renamingWindow = nil }
+            } message: {
+                Text("Enter a new name for this window")
             }
             .task {
                 // Default to the active window in the session
@@ -583,8 +624,8 @@
         // MARK: - Window Tab Label
 
         private func windowTabLabel(for win: TmuxWindow) -> String {
-            if !win.windowName.isEmpty, Int(win.windowName) == nil {
-                return "\(win.windowIndex): \(win.windowName)"
+            if !win.windowName.isEmpty {
+                return win.windowName
             }
             return "Window \(win.windowIndex)"
         }

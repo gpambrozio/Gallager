@@ -6,6 +6,45 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.23</title>
+         <sparkle:version>23</sparkle:version>
+         <sparkle:shortVersionString>1.23</sparkle:shortVersionString>
+         <pubDate>Sun, 19 Apr 2026 21:18:10 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.23
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Editable tmux window names</strong> — Tab bars now allow renaming tmux windows directly, without dropping to the terminal.</li>
+<li><strong>gallager CLI skill</strong> — A new skill integrates the `gallager` command-line tool, with an optional zsh completion installer for tab-complete support.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Smart plugin install prompt</strong> — The app now checks whether the `claude` binary is present before offering to install the plugin, avoiding a confusing prompt on systems where Claude Code is not installed.</li>
+<li><strong>Session-level custom descriptions</strong> — Custom pane descriptions are now persisted per session, so they survive reconnects and session switches.</li>
+<li><strong>Mouse mode sync on stream start</strong> — Remote viewers now receive the correct mouse mode state immediately when a stream begins, rather than waiting for the next mode change.</li>
+<li><strong>Pane state isolated by host</strong> — Viewer pane state is now keyed by both pair ID and pane ID, preventing state collisions when monitoring panes across multiple hosts.</li>
+<li><strong>Improved log visibility</strong> — OSLog messages from the app are no longer double-redacted, making diagnostics easier to read in Console.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Generate Pair button and toolbar disconnect</strong> — Fixed a bug where the Generate Pair button and the confirm toolbar did not behave correctly in certain states.</li>
+<li><strong>File explorer refresh</strong> — The file explorer now correctly updates when new files are created in a watched directory.</li>
+<li><strong>Code editor reliability</strong> — Fixed several issues in the code editor: text was not always persisted, key events were not forwarded correctly, and terminal focus was not restored after editing.</li>
+<li><strong>Text selection in markdown viewer</strong> — Text can now be selected and copied from the markdown file viewer.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.23.dmg"
+                    sparkle:edSignature="c2QzTnGyDHK1RMla0rCEpklHzdnK2wFHz/vOjYOxMmGeZ0T6VmhiyYcCZrgQkI6PYoo4haGNarKgALP3N7tNCg=="
+                    length="28718572"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.22</title>
          <sparkle:version>22</sparkle:version>
          <sparkle:shortVersionString>1.22</sparkle:shortVersionString>

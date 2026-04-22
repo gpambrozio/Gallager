@@ -262,6 +262,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         MultiWindowTabsScenario.scenario,
         MultiWindowTabsIOSScenario.scenario,
         MultiWindowTabsMacViewerScenario.scenario,
+        WindowRenameScenario.scenario,
         MouseSupportScenario.scenario,
         RemoteMouseSupportScenario.scenario,
         FileBrowserScenario.scenario,

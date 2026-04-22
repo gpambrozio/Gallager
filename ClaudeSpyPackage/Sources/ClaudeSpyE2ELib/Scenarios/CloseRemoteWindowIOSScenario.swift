@@ -46,8 +46,8 @@ public enum CloseRemoteWindowIOSScenario {
         TestStep.iosTap(.labelContains("ios-close"))
         TestStep.wait(seconds: 1)
         TestStep.iosScreenshot(label: "ios-window-menu-two-windows")
-        // Tap window 1 ("1: other") in the menu
-        TestStep.iosTap(.labelContains("1: other"))
+        // Tap window 1 ("other") in the menu — label is the window name only
+        TestStep.iosTap(.labelContains("other"))
         TestStep.wait(seconds: 3)
         TestStep.iosWaitForElement(.labelContains("ios-close:1"), timeout: 5)
 

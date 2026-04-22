@@ -13,6 +13,13 @@
         case remote(hostId: String, hostName: String, paneId: String)
     }
 
+    /// POSIX-shell single-quote a string so it survives word-splitting and expansion.
+    /// Wraps the value in single quotes and escapes embedded single quotes via `'\''`.
+    @Sendable
+    private func shellQuoteSingle(_ s: String) -> String {
+        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     /// Coordinates app-level services and their interactions for the macOS app.
     ///
     /// This class centralizes all service initialization, event wiring, and state synchronization
@@ -267,6 +274,8 @@
             let winManager = windowManager
             let editorManager = editorSessionManager
             let notificationService = terminalNotificationService
+            let scanner = projectScanner
+            let claudeCommandPath = settings.claudeCommandPath
 
             let router = LiveAPIRequestRouter(
                 onSessionList: { [tmux] in
@@ -494,6 +503,40 @@
                             )
                         ).toJSONValue()
                     }
+                },
+                onProjectList: { [scanner] in
+                    let projects = await scanner.scanProjects()
+                    return projects.map { APIProjectInfo($0).toJSONValue() }
+                },
+                onProjectStart: { [tmux, claudeCommandPath] path, args in
+                    let url = URL(fileURLWithPath: path).standardizedFileURL
+                    var isDirectory: ObjCBool = false
+                    guard
+                        FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+                        isDirectory.boolValue
+                    else {
+                        throw APIError.notFound("Path does not exist or is not a directory: \(path)")
+                    }
+                    let runCommand: String
+                    if args.isEmpty {
+                        runCommand = shellQuoteSingle(claudeCommandPath)
+                    } else {
+                        let quoted = args.map(shellQuoteSingle).joined(separator: " ")
+                        runCommand = "\(shellQuoteSingle(claudeCommandPath)) \(quoted)"
+                    }
+                    let (sessionName, _) = try await tmux.createSession(
+                        baseName: url.lastPathComponent,
+                        width: 200,
+                        height: 50,
+                        workingDirectory: url.path,
+                        runCommand: runCommand
+                    )
+                    return APISessionInfo(
+                        id: sessionName,
+                        name: sessionName,
+                        windowCount: 1,
+                        isAttached: false
+                    ).toJSONValue()
                 }
             )
             liveRouter = router
@@ -694,6 +737,24 @@
                 if case let .setSessionDescription(spec) = command.command {
                     winManager.setSessionDescription(spec.description, for: spec.sessionName)
                     return .success(for: command.id)
+                }
+
+                // Handle window rename — pushes updated state so connected
+                // viewers see the new tab name.
+                if case let .setWindowName(spec) = command.command {
+                    let trimmed = spec.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else {
+                        return .failure(for: command.id, error: "Window name must not be empty")
+                    }
+                    do {
+                        try await tmux.renameWindow(target: spec.windowId, name: trimmed)
+                        let allPanes = await tmux.refreshPanes()
+                        winManager.updatePaneStates(from: allPanes)
+                        await connectionManager?.pushSessionStateToAll()
+                        return .success(for: command.id)
+                    } catch {
+                        return .failure(for: command.id, error: error.localizedDescription)
+                    }
                 }
 
                 // Handle split pane (needs state refresh after split)
@@ -946,13 +1007,19 @@
                     []
                 }
 
+                // A non-nil `spec.workingDirectory` means this was a
+                // "create from Claude project" request — that's the only flow
+                // today that supplies a directory. Other entry points (empty
+                // session) leave it nil, so we treat presence as the project
+                // marker and name the first window "claude" accordingly.
                 let (_, paneId) = try await tmuxService.createSession(
                     baseName: spec.sessionName,
                     width: spec.width,
                     height: spec.height,
                     workingDirectory: workingDirectory,
                     runCommand: runCommand,
-                    extraEnvironment: extraEnvironment
+                    extraEnvironment: extraEnvironment,
+                    isClaudeProject: spec.workingDirectory != nil
                 )
 
                 try? await Task.sleep(for: .milliseconds(500))

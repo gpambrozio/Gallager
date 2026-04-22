@@ -372,6 +372,67 @@ gallager notify --title "Alert" --subtitle "CI" --body "Tests failed on main"
 
 ---
 
+### Projects
+
+#### `list-projects`
+
+List all Claude Code projects discovered on the host. Projects are gathered from `~/.claude.json` and any additional folders configured under **Settings → Additional Claude Folders**, then sorted by most recently used.
+
+```bash
+gallager list-projects
+gallager list-projects --json | jq -r '.result.projects[].path'
+```
+
+Default output is `<name>\t<path>` per line. Use `--json` for the full record (including `last_used`).
+
+**JSON-RPC**
+- Method: `project.list`
+- Params: _(none)_
+- Response:
+```json
+{
+  "id": "10",
+  "ok": true,
+  "result": {
+    "projects": [
+      { "id": "/Users/me/code/foo", "name": "foo", "path": "/Users/me/code/foo", "last_used": "2026-04-19T12:34:56.789Z" },
+      { "id": "/Users/me/code/bar", "name": "bar", "path": "/Users/me/code/bar", "last_used": null }
+    ]
+  }
+}
+```
+
+---
+
+#### `start-project <path> [-- <args…>]`
+
+Create a new tmux session for a Claude project and run `claude` in it. The session is named after the last path component, the working directory is set to `<path>`, and the configured claude command (default `claude`, see **Settings → Claude command**) is launched in the new pane.
+
+Any positional arguments after `--` are appended verbatim to the claude command line — useful for `--resume`, `--continue`, model selection, etc.
+
+```bash
+gallager start-project ~/code/foo
+gallager start-project ~/code/foo -- --resume
+gallager start-project ~/code/foo -- --model claude-sonnet-4-6
+```
+
+Unlike `new-session --path`, this command **always** runs claude regardless of the **Auto-run Claude in project folders** setting.
+
+**JSON-RPC**
+- Method: `project.start`
+- Params: `{ "path": "~/code/foo", "args": ["--resume"] }` _(args is optional)_
+- Response:
+```json
+{
+  "id": "11",
+  "ok": true,
+  "result": { "id": "foo", "name": "foo", "windowCount": 1, "isAttached": false }
+}
+```
+- Errors: `not_found` if `path` does not exist or is not a directory.
+
+---
+
 ### Editor
 
 #### `edit <file>`
@@ -433,6 +494,7 @@ gallager capabilities --json | jq '.result.methods[]'
       "input.send_text", "input.send_key",
       "notification.create",
       "editor.open",
+      "project.list", "project.start",
       "system.ping", "system.capabilities", "system.identify"
     ]
   }
@@ -521,6 +583,7 @@ Methods follow a `domain.action` convention:
 | `input.*` | Text and key input |
 | `notification.*` | Desktop notifications |
 | `editor.*` | Prompt editor |
+| `project.*` | Claude project discovery and session bootstrap |
 | `system.*` | Utility / introspection |
 
 ---
