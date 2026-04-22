@@ -66,6 +66,10 @@ struct GeneralSettingsView: View {
     /// Folder whose plugin install prompt is currently being shown, if any.
     @State private var pluginSetupFolder: ClaudeFolderIdentifier?
 
+    /// Bumped after a custom-folder plugin setup sheet is dismissed so each
+    /// folder row re-checks its plugin installation status.
+    @State private var pluginStatusRefreshID = UUID()
+
     var body: some View {
         @Bindable var settings = settings
 
@@ -212,20 +216,11 @@ struct GeneralSettingsView: View {
                 }
 
                 ForEach(settings.additionalClaudeFolders, id: \.self) { folder in
-                    HStack {
-                        Text(abbreviatePath(folder))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .help(folder)
-                        Spacer()
-                        Button {
-                            settings.removeClaudeFolder(folder)
-                        } label: {
-                            Symbols.minusCircleFill.image
-                                .foregroundStyle(.red)
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Remove this folder")
+                    ClaudeFolderRow(
+                        folder: folder,
+                        refreshTrigger: pluginStatusRefreshID
+                    ) { url in
+                        pluginSetupFolder = ClaudeFolderIdentifier(url: url)
                     }
                 }
 
@@ -271,7 +266,12 @@ struct GeneralSettingsView: View {
         } message: {
             Text(loginItemErrorMessage)
         }
-        .sheet(item: $pluginSetupFolder) { folder in
+        .sheet(
+            item: $pluginSetupFolder,
+            onDismiss: {
+                pluginStatusRefreshID = UUID()
+            }
+        ) { folder in
             CustomFolderPluginSetupView(configDir: folder.url)
         }
     }
@@ -283,6 +283,113 @@ private struct ClaudeFolderIdentifier: Identifiable {
     let url: URL
     var id: String {
         url.path
+    }
+}
+
+/// Row in the custom Claude folders list.
+///
+/// Owns a ``PluginService`` scoped to ``folder`` so the plugin install
+/// status is checked and displayed inline. When the plugin isn't yet
+/// installed, the Install Plugin button asks the parent view to open the
+/// shared ``CustomFolderPluginSetupView`` — the same sheet used when the
+/// user first adds a folder. `refreshTrigger` is bumped by the parent
+/// after that sheet dismisses so each row re-checks its state.
+private struct ClaudeFolderRow: View {
+    let folder: String
+    let refreshTrigger: UUID
+    let onInstallRequested: (URL) -> Void
+
+    @Environment(AppSettings.self) private var settings
+
+    @State private var pluginService: PluginService
+
+    init(
+        folder: String,
+        refreshTrigger: UUID,
+        onInstallRequested: @escaping (URL) -> Void
+    ) {
+        self.folder = folder
+        self.refreshTrigger = refreshTrigger
+        self.onInstallRequested = onInstallRequested
+        self._pluginService = State(
+            initialValue: PluginService(configDir: URL(fileURLWithPath: folder))
+        )
+    }
+
+    var body: some View {
+        HStack {
+            Text(abbreviatePath(folder))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(folder)
+
+            pluginStatusView
+
+            Spacer()
+
+            Button {
+                settings.removeClaudeFolder(folder)
+            } label: {
+                Symbols.minusCircleFill.image
+                    .foregroundStyle(.red)
+            }
+            .buttonStyle(.borderless)
+            .help("Remove this folder")
+        }
+        .task(id: folder + refreshTrigger.uuidString) {
+            await checkPlugin()
+        }
+    }
+
+    @ViewBuilder
+    private var pluginStatusView: some View {
+        switch pluginService.state {
+        case .unknown,
+             .checking,
+             .checkingClaude:
+            ProgressView()
+                .controlSize(.small)
+        case let .installed(version):
+            Label("Plugin installed", symbol: .checkmarkCircleFill)
+                .font(.caption)
+                .foregroundStyle(.green)
+                .help("Gallager plugin v\(version) is installed for this folder")
+        case .notInstalled:
+            Button {
+                onInstallRequested(URL(fileURLWithPath: folder))
+            } label: {
+                Label("Install Plugin", symbol: .arrowDown)
+            }
+            .controlSize(.small)
+        case let .installationFailed(reason):
+            Button {
+                onInstallRequested(URL(fileURLWithPath: folder))
+            } label: {
+                Label("Install Plugin", symbol: .arrowDown)
+            }
+            .controlSize(.small)
+            .help("Previous attempt failed: \(reason)")
+        case .claudeNotInstalled:
+            Label("Claude Code not found", symbol: .exclamationmarkTriangle)
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .help("Install Claude Code to use the plugin in this folder")
+        case .installing:
+            HStack(spacing: 4) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Installing…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func checkPlugin() async {
+        guard await pluginService.findClaude() != nil else {
+            return
+        }
+        await pluginService.checkInstallation()
     }
 }
 

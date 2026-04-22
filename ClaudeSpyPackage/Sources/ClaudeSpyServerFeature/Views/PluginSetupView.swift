@@ -420,7 +420,7 @@
         /// appears the detected path is written to settings and the plugin
         /// installation check runs.
         private func runSetupFlow() async {
-            if let path = pluginService.findClaude() {
+            if let path = await pluginService.findClaude() {
                 settings.claudeCommandPath = path
                 await pluginService.checkInstallation()
                 return
@@ -429,7 +429,7 @@
             // Poll for claude while dialog is open
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
-                if let path = claudeLocator.find() {
+                if let path = await claudeLocator.find() {
                     settings.claudeCommandPath = path
                     await pluginService.checkInstallation()
                     return

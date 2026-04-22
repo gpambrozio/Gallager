@@ -102,9 +102,9 @@
         /// Claude Code. Call this before `checkInstallation()` to ensure the
         /// plugin flow has a usable CLI.
         @discardableResult
-        public func findClaude() -> String? {
+        public func findClaude() async -> String? {
             state = .checkingClaude
-            if let path = claudeLocator.find() {
+            if let path = await claudeLocator.find() {
                 logger.info("Found claude at: \(path)")
                 return path
             } else {
