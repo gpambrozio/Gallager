@@ -399,14 +399,23 @@ struct ToolInputView: View {
                     detailRow("Description:", desc, maxLines: 3)
                 }
 
+            case let .monitor(params):
+                headerRow("Monitor Process")
+                detailRow("Command:", params.command, maxLines: 3)
+                detailRow("Description:", params.description, maxLines: 2)
+                if let timeoutMs = params.timeoutMs {
+                    detailRow("Timeout:", "\(timeoutMs)ms")
+                }
+
             case let .agent(params):
                 headerRow("Run Agent")
-                if let subagentType = params.subagentType {
-                    detailRow("Type:", subagentType)
-                }
+                detailRow("Type:", params.subagentType)
                 detailRow("Task:", params.description)
                 if let model = params.model {
                     detailRow("Model:", model)
+                }
+                if let mode = params.mode {
+                    detailRow("Mode:", mode.rawValue)
                 }
 
             case let .todoWrite(params):
@@ -418,8 +427,17 @@ struct ToolInputView: View {
                 if let prompts = params.allowedPrompts {
                     detailRow("Permissions:", "\(prompts.count) requested")
                 }
-                if params.plan != nil {
-                    detailRow("Plan:", "Included")
+
+            case let .taskOutput(params):
+                headerRow("Task Output")
+                detailRow("Task:", params.taskId)
+                detailRow("Blocking:", params.block ? "Yes" : "No")
+                detailRow("Timeout:", "\(params.timeout)ms")
+
+            case let .taskStop(params):
+                headerRow("Stop Task")
+                if let taskId = params.taskId {
+                    detailRow("Task:", taskId)
                 }
 
             case let .webFetch(params):
@@ -475,6 +493,30 @@ struct ToolInputView: View {
                 headerRow("MCP Tool")
                 detailRow("Server:", params.server)
                 detailRow("Tool:", params.tool)
+
+            case let .listMcpResources(params):
+                headerRow("List MCP Resources")
+                if let server = params.server {
+                    detailRow("Server:", server)
+                }
+
+            case let .readMcpResource(params):
+                headerRow("Read MCP Resource")
+                detailRow("Server:", params.server)
+                detailRow("URI:", params.uri)
+
+            case let .config(params):
+                headerRow("Configuration")
+                detailRow("Setting:", params.setting)
+
+            case let .enterWorktree(params):
+                headerRow("Enter Worktree")
+                if let name = params.name {
+                    detailRow("Name:", name)
+                }
+                if let path = params.path {
+                    detailRow("Path:", path)
+                }
 
             case let .other(name, _):
                 headerRow(name)

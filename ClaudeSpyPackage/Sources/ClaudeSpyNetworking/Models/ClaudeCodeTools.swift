@@ -14,11 +14,16 @@ public enum ClaudeCodeTool: Sendable, Equatable {
 
     // Execution
     case bash(BashParameters)
+    case monitor(MonitorParameters)
 
     // Subagents & Planning
     case agent(AgentParameters)
     case todoWrite(TodoWriteParameters)
     case exitPlanMode(ExitPlanModeParameters)
+
+    // Task Management
+    case taskOutput(TaskOutputParameters)
+    case taskStop(TaskStopParameters)
 
     // Web Operations
     case webFetch(WebFetchParameters)
@@ -38,6 +43,14 @@ public enum ClaudeCodeTool: Sendable, Equatable {
 
     // MCP Tools (mcp__<server>__<tool>)
     case mcp(MCPToolParameters)
+    case listMcpResources(ListMcpResourcesParameters)
+    case readMcpResource(ReadMcpResourceParameters)
+
+    // Configuration
+    case config(ConfigParameters)
+
+    // Worktree
+    case enterWorktree(EnterWorktreeParameters)
 
     // Fallback for unknown tools
     case other(String, [String: AnyCodable])
@@ -50,9 +63,12 @@ public enum ClaudeCodeTool: Sendable, Equatable {
         case .grep: "Grep"
         case .glob: "Glob"
         case .bash: "Bash"
+        case .monitor: "Monitor"
         case .agent: "Agent"
         case .todoWrite: "TodoWrite"
         case .exitPlanMode: "ExitPlanMode"
+        case .taskOutput: "TaskOutput"
+        case .taskStop: "TaskStop"
         case .webFetch: "WebFetch"
         case .webSearch: "WebSearch"
         case .notebookEdit: "NotebookEdit"
@@ -60,6 +76,10 @@ public enum ClaudeCodeTool: Sendable, Equatable {
         case .toolSearch: "ToolSearch"
         case .askUserQuestion: "AskUserQuestion"
         case let .mcp(params): params.fullToolName
+        case .listMcpResources: "ListMcpResources"
+        case .readMcpResource: "ReadMcpResource"
+        case .config: "Config"
+        case .enterWorktree: "EnterWorktree"
         case let .other(name, _): name
         }
     }
@@ -79,12 +99,18 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             params.pattern
         case let .bash(params):
             params.command
+        case let .monitor(params):
+            params.command
         case let .agent(params):
             params.description
         case .todoWrite:
             nil
         case .exitPlanMode:
             nil
+        case let .taskOutput(params):
+            params.taskId
+        case let .taskStop(params):
+            params.taskId
         case let .webFetch(params):
             params.url
         case let .webSearch(params):
@@ -99,6 +125,14 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             params.questions.first?.question
         case let .mcp(params):
             params.tool
+        case let .listMcpResources(params):
+            params.server
+        case let .readMcpResource(params):
+            params.uri
+        case let .config(params):
+            params.setting
+        case let .enterWorktree(params):
+            params.name ?? params.path
         case .other:
             nil
         }
@@ -124,12 +158,18 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             return try .glob(container.decode(GlobParameters.self))
         case "Bash":
             return try .bash(container.decode(BashParameters.self))
-        case "Agent":
+        case "Monitor":
+            return try .monitor(container.decode(MonitorParameters.self))
+        case "Agent", "Task":
             return try .agent(container.decode(AgentParameters.self))
         case "TodoWrite":
             return try .todoWrite(container.decode(TodoWriteParameters.self))
         case "ExitPlanMode":
             return try .exitPlanMode(container.decode(ExitPlanModeParameters.self))
+        case "TaskOutput":
+            return try .taskOutput(container.decode(TaskOutputParameters.self))
+        case "TaskStop":
+            return try .taskStop(container.decode(TaskStopParameters.self))
         case "WebFetch":
             return try .webFetch(container.decode(WebFetchParameters.self))
         case "WebSearch":
@@ -142,6 +182,14 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             return try .toolSearch(container.decode(ToolSearchParameters.self))
         case "AskUserQuestion":
             return try .askUserQuestion(container.decode(AskUserQuestionParameters.self))
+        case "ListMcpResources":
+            return try .listMcpResources(container.decode(ListMcpResourcesParameters.self))
+        case "ReadMcpResource":
+            return try .readMcpResource(container.decode(ReadMcpResourceParameters.self))
+        case "Config":
+            return try .config(container.decode(ConfigParameters.self))
+        case "EnterWorktree":
+            return try .enterWorktree(container.decode(EnterWorktreeParameters.self))
         default:
             if let name = toolName, name.hasPrefix("mcp__") {
                 return try .mcp(container.decode(MCPToolParameters.self))
@@ -240,45 +288,66 @@ public struct GlobParameters: Codable, Sendable, Equatable {
 public struct BashParameters: Codable, Sendable, Equatable {
     public let command: String
     public let description: String?
-    /// Timeout in milliseconds (default: 120000, max: 600000)
     public let timeout: Int?
     public let runInBackground: Bool?
+    public let dangerouslyDisableSandbox: Bool?
 
     enum CodingKeys: String, CodingKey {
         case command
         case description
         case timeout
         case runInBackground = "run_in_background"
+        case dangerouslyDisableSandbox
     }
 
     public init(
         command: String,
         description: String? = nil,
         timeout: Int? = nil,
-        runInBackground: Bool? = nil
+        runInBackground: Bool? = nil,
+        dangerouslyDisableSandbox: Bool? = nil
     ) {
         self.command = command
         self.description = description
         self.timeout = timeout
         self.runInBackground = runInBackground
+        self.dangerouslyDisableSandbox = dangerouslyDisableSandbox
     }
 }
 
 public struct AgentParameters: Codable, Sendable, Equatable {
     public let prompt: String
     public let description: String
-    public let subagentType: String?
+    public let subagentType: String
     public let model: String?
-    public let isolation: String?
+    public let resume: String?
     public let runInBackground: Bool?
+    public let maxTurns: Int?
+    public let name: String?
+    public let teamName: String?
+    public let mode: AgentMode?
+    public let isolation: String?
+
+    public enum AgentMode: String, Codable, Sendable, Equatable {
+        case acceptEdits
+        case bypassPermissions
+        case `default`
+        case dontAsk
+        case plan
+    }
 
     enum CodingKeys: String, CodingKey {
         case prompt
         case description
         case subagentType = "subagent_type"
         case model
-        case isolation
+        case resume
         case runInBackground = "run_in_background"
+        case maxTurns = "max_turns"
+        case name
+        case teamName = "team_name"
+        case mode
+        case isolation
     }
 }
 
@@ -307,20 +376,14 @@ public struct TodoWriteParameters: Codable, Sendable, Equatable {
 }
 
 public struct ExitPlanModeParameters: Codable, Sendable, Equatable {
-    /// The markdown plan content (may be nil if not provided)
-    public let plan: String?
-    /// Prompt-based permissions requested for plan implementation
     public let allowedPrompts: [AllowedPrompt]?
 
-    public init(plan: String?, allowedPrompts: [AllowedPrompt]?) {
-        self.plan = plan
+    public init(allowedPrompts: [AllowedPrompt]?) {
         self.allowedPrompts = allowedPrompts
     }
 
     public struct AllowedPrompt: Codable, Sendable, Equatable {
-        /// The tool this prompt applies to (e.g., "Bash")
         public let tool: String
-        /// Semantic description of the action (e.g., "run tests")
         public let prompt: String
 
         public init(tool: String, prompt: String) {
@@ -416,12 +479,69 @@ public struct AskUserQuestionParameters: Codable, Sendable, Equatable {
     public struct AskUserQuestionOption: Codable, Sendable, Equatable {
         public let label: String
         public let description: String?
+        public let preview: String?
 
-        public init(label: String, description: String?) {
+        public init(label: String, description: String?, preview: String? = nil) {
             self.label = label
             self.description = description
+            self.preview = preview
         }
     }
+}
+
+public struct MonitorParameters: Codable, Sendable, Equatable {
+    public let command: String
+    public let description: String
+    public let timeoutMs: Int?
+    public let persistent: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case command
+        case description
+        case timeoutMs = "timeout_ms"
+        case persistent
+    }
+}
+
+public struct TaskOutputParameters: Codable, Sendable, Equatable {
+    public let taskId: String
+    public let block: Bool
+    public let timeout: Int
+
+    enum CodingKeys: String, CodingKey {
+        case taskId = "task_id"
+        case block
+        case timeout
+    }
+}
+
+public struct TaskStopParameters: Codable, Sendable, Equatable {
+    public let taskId: String?
+    public let shellId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case taskId = "task_id"
+        case shellId = "shell_id"
+    }
+}
+
+public struct ListMcpResourcesParameters: Codable, Sendable, Equatable {
+    public let server: String?
+}
+
+public struct ReadMcpResourceParameters: Codable, Sendable, Equatable {
+    public let server: String
+    public let uri: String
+}
+
+public struct ConfigParameters: Codable, Sendable, Equatable {
+    public let setting: String
+    public let value: AnyCodable?
+}
+
+public struct EnterWorktreeParameters: Codable, Sendable, Equatable {
+    public let name: String?
+    public let path: String?
 }
 
 public struct MCPToolParameters: Codable, Sendable, Equatable {
@@ -458,11 +578,17 @@ extension ClaudeCodeTool: Codable {
             try container.encode(params)
         case let .bash(params):
             try container.encode(params)
+        case let .monitor(params):
+            try container.encode(params)
         case let .agent(params):
             try container.encode(params)
         case let .todoWrite(params):
             try container.encode(params)
         case let .exitPlanMode(params):
+            try container.encode(params)
+        case let .taskOutput(params):
+            try container.encode(params)
+        case let .taskStop(params):
             try container.encode(params)
         case let .webFetch(params):
             try container.encode(params)
@@ -477,6 +603,14 @@ extension ClaudeCodeTool: Codable {
         case let .askUserQuestion(params):
             try container.encode(params)
         case let .mcp(params):
+            try container.encode(params)
+        case let .listMcpResources(params):
+            try container.encode(params)
+        case let .readMcpResource(params):
+            try container.encode(params)
+        case let .config(params):
+            try container.encode(params)
+        case let .enterWorktree(params):
             try container.encode(params)
         case let .other(_, dictionary):
             try container.encode(dictionary)
