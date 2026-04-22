@@ -323,9 +323,9 @@ private struct ClaudeFolderRow: View {
                 .truncationMode(.middle)
                 .help(folder)
 
-            Spacer()
-
             pluginStatusView
+
+            Spacer()
 
             Button {
                 settings.removeClaudeFolder(folder)
