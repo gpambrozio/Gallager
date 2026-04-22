@@ -336,7 +336,7 @@ private struct ClaudeFolderRow: View {
             .buttonStyle(.borderless)
             .help("Remove this folder")
         }
-        .task(id: refreshTrigger) {
+        .task(id: folder + refreshTrigger.uuidString) {
             await checkPlugin()
         }
     }
@@ -354,14 +354,21 @@ private struct ClaudeFolderRow: View {
                 .font(.caption)
                 .foregroundStyle(.green)
                 .help("Gallager plugin v\(version) is installed for this folder")
-        case .notInstalled,
-             .installationFailed:
+        case .notInstalled:
             Button {
                 onInstallRequested(URL(fileURLWithPath: folder))
             } label: {
                 Label("Install Plugin", symbol: .arrowDown)
             }
             .controlSize(.small)
+        case let .installationFailed(reason):
+            Button {
+                onInstallRequested(URL(fileURLWithPath: folder))
+            } label: {
+                Label("Install Plugin", symbol: .arrowDown)
+            }
+            .controlSize(.small)
+            .help("Previous attempt failed: \(reason)")
         case .claudeNotInstalled:
             Label("Claude Code not found", symbol: .exclamationmarkTriangle)
                 .font(.caption)
@@ -379,7 +386,7 @@ private struct ClaudeFolderRow: View {
     }
 
     private func checkPlugin() async {
-        guard pluginService.findClaude() != nil else {
+        guard await pluginService.findClaude() != nil else {
             return
         }
         await pluginService.checkInstallation()

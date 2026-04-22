@@ -57,7 +57,7 @@
             .sheetFocusFix()
             .task {
                 guard !skipAutoCheck else { return }
-                guard let path = pluginService.findClaude() else {
+                guard let path = await pluginService.findClaude() else {
                     // `findClaude` already transitioned state to
                     // `.claudeNotInstalled`, which the UI handles.
                     return

@@ -103,7 +103,7 @@
         /// Checks for claude, then the plugin. Polls for claude when it's
         /// missing so the UI reacts as soon as the user installs it.
         private func runCheckFlow() async {
-            if let path = pluginService.findClaude() {
+            if let path = await pluginService.findClaude() {
                 settings.claudeCommandPath = path
                 await pluginService.checkInstallation()
                 return
@@ -111,7 +111,7 @@
 
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
-                if let path = claudeLocator.find() {
+                if let path = await claudeLocator.find() {
                     settings.claudeCommandPath = path
                     await pluginService.checkInstallation()
                     return

@@ -394,7 +394,7 @@ struct TmuxPaneMirrorApp: App {
         if !coordinator.settings.hasCompletedPluginSetup {
             // If claude isn't installed, jump straight to the setup sheet so
             // the user can follow the install flow.
-            if let path = coordinator.pluginService.findClaude() {
+            if let path = await coordinator.pluginService.findClaude() {
                 coordinator.settings.claudeCommandPath = path
                 await coordinator.pluginService.checkInstallation()
             } else {
