@@ -72,6 +72,11 @@ public enum WebSocketMessage: Codable, Sendable {
 
     // MARK: - Bidirectional
 
+    /// Peer-to-peer hello exchanged end-to-end after E2EE is established.
+    /// Carries each client's version info so peers can gate the session on
+    /// compatibility without the relay server seeing or touching versions.
+    case peerHello(PeerHelloMessage)
+
     /// Ping to keep connection alive
     case ping
 
@@ -164,6 +169,7 @@ public extension WebSocketMessage {
         case hostConnected
         case hostDisconnected
         case unpaired
+        case peerHello
         case ping
         case pong
         case error
@@ -223,6 +229,9 @@ public extension WebSocketMessage {
             self = .hostDisconnected
         case .unpaired:
             self = .unpaired
+        case .peerHello:
+            let payload = try container.decode(PeerHelloMessage.self, forKey: .payload)
+            self = .peerHello(payload)
         case .ping:
             self = .ping
         case .pong:
@@ -290,6 +299,9 @@ public extension WebSocketMessage {
             try container.encode(MessageType.hostDisconnected, forKey: .type)
         case .unpaired:
             try container.encode(MessageType.unpaired, forKey: .type)
+        case let .peerHello(payload):
+            try container.encode(MessageType.peerHello, forKey: .type)
+            try container.encode(payload, forKey: .payload)
         case .ping:
             try container.encode(MessageType.ping, forKey: .type)
         case .pong:
@@ -326,6 +338,7 @@ public extension WebSocketMessage {
         case .hostConnected: MessageType.hostConnected.rawValue
         case .hostDisconnected: MessageType.hostDisconnected.rawValue
         case .unpaired: MessageType.unpaired.rawValue
+        case .peerHello: MessageType.peerHello.rawValue
         case .ping: MessageType.ping.rawValue
         case .pong: MessageType.pong.rawValue
         case .error: MessageType.error.rawValue
@@ -345,7 +358,8 @@ public extension WebSocketMessage {
              .sessionState,
              .command,
              .commandResponse,
-             .terminalStream:
+             .terminalStream,
+             .peerHello:
             true
         default:
             false

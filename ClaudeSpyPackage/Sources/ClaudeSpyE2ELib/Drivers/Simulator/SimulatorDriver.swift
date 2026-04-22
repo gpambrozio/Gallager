@@ -14,6 +14,10 @@ public actor SimulatorDriver {
     /// Path to the derived data containing the built XCTest runner
     private var e2eRunnerDerivedDataPath: String?
 
+    /// Default port for the in-app `TestAccessibilityServer` on iOS.
+    /// Chosen above the Mac range so parallel Mac instances don't collide.
+    public static let defaultTestAccessibilityPort: UInt16 = 18_090
+
     public init() { }
 
     // MARK: - Simulator Lifecycle
@@ -414,6 +418,26 @@ public actor SimulatorDriver {
         )
 
         return result.stdoutString
+    }
+
+    // MARK: - Version Override
+
+    /// Update the iOS app's `VersionCompatibility` overrides at runtime and kick a
+    /// reconnect. `nil` clears the override (so the app reports its bundle version
+    /// / default minimum); a non-nil value sets the override to that string.
+    public func setAppVersion(appVersion: String?, minRequiredPartnerVersion: String?) async throws {
+        logger.info(
+            "Updating iOS version overrides: app=\(appVersion ?? "<clear>") min=\(minRequiredPartnerVersion ?? "<clear>")"
+        )
+        let success = try await IOSAppHTTPClient.setAppVersion(
+            appVersion: appVersion,
+            minRequiredPartnerVersion: minRequiredPartnerVersion,
+            port: Self.defaultTestAccessibilityPort
+        )
+        if !success {
+            throw SimulatorDriverError.configurationError(
+                "iOS reconnect endpoint returned failure")
+        }
     }
 
     // MARK: - Private

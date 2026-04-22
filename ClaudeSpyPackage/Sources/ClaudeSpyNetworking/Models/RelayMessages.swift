@@ -1,5 +1,23 @@
 import Foundation
 
+// MARK: - Peer Handshake
+
+/// First encrypted message each peer sends to its partner after E2EE is
+/// established. Carries version info used for compatibility gating without
+/// involving the relay server.
+public struct PeerHelloMessage: Codable, Sendable {
+    /// Marketing version of the sending peer (e.g. "1.23").
+    public let appVersion: String
+
+    /// Minimum partner version the sending peer is willing to talk to.
+    public let minRequiredPartnerVersion: String
+
+    public init(appVersion: String, minRequiredPartnerVersion: String) {
+        self.appVersion = appVersion
+        self.minRequiredPartnerVersion = minRequiredPartnerVersion
+    }
+}
+
 // MARK: - Hook Event Relay
 
 /// A hook event wrapped for relay through the external server

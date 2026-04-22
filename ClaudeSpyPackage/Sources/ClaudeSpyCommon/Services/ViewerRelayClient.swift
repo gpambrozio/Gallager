@@ -66,6 +66,12 @@ final public class ViewerRelayClient {
     /// Name of the connected host device (if known)
     public private(set) var connectedHostName: String?
 
+    /// Structured version-mismatch result, set when the host's peerHello fails
+    /// compatibility and cleared on the next connection attempt. The human-readable
+    /// text is still carried on the `.error` state; this property lets UI render
+    /// update-required affordances without string parsing.
+    public private(set) var versionMismatch: VersionCompatibility.VersionMismatch?
+
     /// The WebSocket task
     private var webSocketTask: URLSessionWebSocketTask?
 
@@ -215,6 +221,7 @@ final public class ViewerRelayClient {
         self.partnerPublicKeyId = partnerPublicKeyId
         shouldReconnect = true
         reconnectionAttempt = 0
+        versionMismatch = nil
 
         // Establish E2EE session if we have partner's public key from pairing
         if let partnerKey = partnerPublicKey, let partnerKeyId = partnerPublicKeyId {
@@ -267,6 +274,28 @@ final public class ViewerRelayClient {
         reconnectionTask = nil
 
         reconnectionAttempt = 0
+        await performConnect()
+    }
+
+    /// Re-enable reconnection after a terminal failure (e.g. version mismatch) and
+    /// immediately attempt to reconnect.
+    ///
+    /// `handleVersionMismatch` sets `shouldReconnect = false` so the client stops
+    /// retrying a broken handshake. E2E scenarios that "upgrade" the peer and then
+    /// expect the connection to recover call this to flip the flag back on and
+    /// trigger a fresh `performConnect`.
+    public func enableReconnectAndRetry() async {
+        shouldReconnect = true
+        reconnectionTask?.cancel()
+        reconnectionTask = nil
+        reconnectionAttempt = 0
+        versionMismatch = nil
+
+        guard !state.isConnected, state != .connecting else {
+            logger.debug("Already connected or connecting, ignoring enableReconnectAndRetry()")
+            return
+        }
+
         await performConnect()
     }
 
@@ -389,6 +418,23 @@ final public class ViewerRelayClient {
         }
 
         await send(.requestSessionState)
+    }
+
+    /// Send this viewer's peerHello to the host once the E2EE session is up.
+    /// Called right after establishing E2EE on `.hostConnected`.
+    private func sendPeerHello() async {
+        let hello = PeerHelloMessage(
+            appVersion: VersionCompatibility.currentAppVersion,
+            minRequiredPartnerVersion: VersionCompatibility.minRequiredHostVersion
+        )
+        logger.info(
+            "Sending peerHello to host",
+            metadata: [
+                "appVersion": "\(hello.appVersion)",
+                "minRequiredPartnerVersion": "\(hello.minRequiredPartnerVersion)",
+            ]
+        )
+        await sendEncrypted(.peerHello(hello))
     }
 
     /// Send push notification token to the relay server (iOS only).
@@ -558,11 +604,18 @@ final public class ViewerRelayClient {
         case let .viewerRegistered(response):
             if response.success {
                 logger.info("Successfully registered with relay server as viewer")
+
                 setState(.connected)
                 connectedHostName = response.hostDeviceName
-                isHostConnected = response.hostDeviceName != nil
+                // `isHostConnected` is deliberately NOT set here — a mismatched host
+                // would otherwise surface as "Connected" in the UI until peerHello
+                // validation completes and flips state to `.error`. The flag is
+                // raised only after a compatible peerHello arrives (below).
 
-                // Establish E2EE session if host is connected and we have their public key
+                // Establish E2EE session if host is connected and we have their public key.
+                // The relay also fires `.hostConnected` in this case, which re-establishes
+                // E2EE and drives the peerHello handshake — so we leave the handshake and
+                // session state request to that path.
                 if
                     let hostPublicKey = response.hostPublicKey,
                     let hostPublicKeyId = response.hostPublicKeyId,
@@ -585,11 +638,6 @@ final public class ViewerRelayClient {
                     } catch {
                         logger.error("Failed to establish E2EE session: \(error)")
                     }
-                }
-
-                // Request session state if host is connected
-                if isHostConnected {
-                    await requestSessionState()
                 }
             } else {
                 logger.error("Registration failed: \(response.error ?? "Unknown error")")
@@ -623,10 +671,18 @@ final public class ViewerRelayClient {
 
         case let .hostConnected(connectedMessage):
             logger.info("Host device connected")
-            isHostConnected = true
 
+            // `isHostConnected` is NOT flipped to true here — it is set only after
+            // the host's peerHello arrives and passes the compatibility check.
+            // Otherwise the UI would flash "Connected" before the handshake resolves
+            // on a version mismatch.
+
+            // Establish E2EE, then send our peerHello. Session state is requested only
+            // after the host's peerHello arrives and passes the compatibility check;
+            // that happens in the `.peerHello` case below.
             let hostPublicKey = connectedMessage.publicKey
             let hostPublicKeyId = connectedMessage.publicKeyId
+            var e2eeReady = false
             if
                 let keyData = Data(base64Encoded: hostPublicKey),
                 let e2eeService,
@@ -639,6 +695,7 @@ final public class ViewerRelayClient {
                     )
                     partnerPublicKey = hostPublicKey
                     partnerPublicKeyId = hostPublicKeyId
+                    e2eeReady = true
                     logger.info("E2EE session established with host on connect notification")
 
                     if let onPartnerKeyReceived {
@@ -648,7 +705,26 @@ final public class ViewerRelayClient {
                     logger.error("Failed to establish E2EE session: \(error)")
                 }
             }
+            if e2eeReady {
+                await sendPeerHello()
+            }
 
+        case let .peerHello(peerHello):
+            logger.info(
+                "Received peerHello from host",
+                metadata: ["appVersion": "\(peerHello.appVersion)"]
+            )
+            if
+                let mismatch = VersionCompatibility.checkCompatibility(
+                    partnerAppVersion: peerHello.appVersion,
+                    partnerMinRequiredOurVersion: peerHello.minRequiredPartnerVersion,
+                    partnerRole: .host
+                ) {
+                await handleVersionMismatch(mismatch)
+                return
+            }
+            // Compatible — now safe to surface the host as connected and ask for state.
+            isHostConnected = true
             await requestSessionState()
 
         case .hostDisconnected:
@@ -711,6 +787,29 @@ final public class ViewerRelayClient {
         } catch {
             logger.error("Failed to send WebSocket message: \(error)")
         }
+    }
+
+    // MARK: - Version Compatibility
+
+    /// Handles a detected version mismatch by stopping reconnects and surfacing an error.
+    /// The mismatch itself is computed by `VersionCompatibility.checkCompatibility`;
+    /// only the user-facing messaging and state transition are viewer-specific.
+    private func handleVersionMismatch(_ mismatch: VersionCompatibility.VersionMismatch) async {
+        let hostLabel = connectedHostName ?? "the host"
+        let message: String
+        switch mismatch {
+        case let .weAreTooOld(required):
+            message = "This app is out of date. \(hostLabel) requires version \(required) or later. Please update."
+        case let .partnerTooOld(partnerVersion):
+            let versionText = partnerVersion.isEmpty ? "an older version" : "version \(partnerVersion)"
+            message = "\(hostLabel) is running \(versionText) and cannot connect. Ask the host to update."
+        }
+
+        logger.error("Version mismatch with host: \(message)")
+        shouldReconnect = false
+        versionMismatch = mismatch
+        await cleanupConnection()
+        setState(.error(message))
     }
 
     /// Encrypts and sends a message that should be encrypted.

@@ -41,6 +41,12 @@ final public class ViewerConnection: Identifiable {
         relayClient.state.isConnected
     }
 
+    /// Structured version-mismatch result for this host's handshake, or nil when
+    /// the versions are compatible (or no peerHello has been exchanged yet).
+    public var versionMismatch: VersionCompatibility.VersionMismatch? {
+        relayClient.versionMismatch
+    }
+
     // MARK: - Initialization
 
     /// Creates a new connection to a paired host.
@@ -93,6 +99,12 @@ final public class ViewerConnection: Identifiable {
     /// Immediately attempt to reconnect (used when app becomes active)
     public func reconnectImmediately() async {
         await relayClient.reconnectImmediately()
+    }
+
+    /// Re-enable reconnection after a terminal failure (e.g. version mismatch)
+    /// and immediately attempt to reconnect. Forwards to the relay client.
+    public func enableReconnectAndRetry() async {
+        await relayClient.enableReconnectAndRetry()
     }
 
     // MARK: - Commands

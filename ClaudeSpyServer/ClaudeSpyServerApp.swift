@@ -1,5 +1,6 @@
 import ClaudeSpyCommon
 import ClaudeSpyEncryption
+import ClaudeSpyNetworking
 import ClaudeSpyServerFeature
 import Dependencies
 import SwiftUI
@@ -25,6 +26,19 @@ struct TmuxPaneMirrorApp: App {
         // Bootstrap logging FIRST, before any Logger instances are created
         // Log level is determined by LOG_LEVEL env var (default: warning)
         LoggingConfiguration.bootstrap()
+
+        // E2E test support: override reported app version and minimum partner version.
+        // Applied before the E2E branch so scenarios hitting either path see the override.
+        if let idx = CommandLine.arguments.firstIndex(of: "--app-version"),
+           idx + 1 < CommandLine.arguments.count
+        {
+            VersionCompatibility.appVersionOverride = CommandLine.arguments[idx + 1]
+        }
+        if let idx = CommandLine.arguments.firstIndex(of: "--min-required-partner-version"),
+           idx + 1 < CommandLine.arguments.count
+        {
+            VersionCompatibility.minRequiredPartnerVersionOverride = CommandLine.arguments[idx + 1]
+        }
 
         // E2E test support: use in-memory storage to avoid polluting real UserDefaults/Keychain
         if CommandLine.arguments.contains("--e2e-test") {

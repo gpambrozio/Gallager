@@ -38,6 +38,32 @@ enum MacAppHTTPClient {
         return body == "ok"
     }
 
+    /// Update the in-process `VersionCompatibility` overrides and kick a reconnect.
+    ///
+    /// Both parameters are always sent. A `nil` value clears the override so the
+    /// app falls back to its bundle version / default minimum. A non-nil value
+    /// sets the override to that string.
+    @discardableResult
+    static func setAppVersion(
+        appVersion: String?,
+        minRequiredPartnerVersion: String?,
+        port: UInt16 = defaultPort
+    ) async throws -> Bool {
+        var components = URLComponents(string: "http://127.0.0.1:\(port)/reconnect")!
+        components.queryItems = [
+            URLQueryItem(name: "appVersion", value: appVersion ?? ""),
+            URLQueryItem(name: "minRequiredPartnerVersion", value: minRequiredPartnerVersion ?? ""),
+        ]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let body = String(data: data, encoding: .utf8) ?? ""
+        logger.info(
+            "HTTP reconnect appVersion=\(appVersion ?? "<clear>") minRequiredPartnerVersion=\(minRequiredPartnerVersion ?? "<clear>"): \(body)"
+        )
+        return body == "ok"
+    }
+
     /// Send a hook event to the macOS app's real hook server (`/api/hooks`).
     /// Reads the hook server port from the given port file (defaults to `~/.claudespy-port`).
     @discardableResult
