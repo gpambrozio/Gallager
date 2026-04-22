@@ -472,11 +472,23 @@ public struct CreateTmuxSession: CommandSpec, Equatable {
     /// Optional working directory to start the session in
     public let workingDirectory: String?
 
-    public init(sessionName: String, width: Int, height: Int, workingDirectory: String? = nil) {
+    /// Optional `CLAUDE_CONFIG_DIR` value to set on the session. Used when the
+    /// project being launched was discovered under a non-default `.claude` folder
+    /// so that `claude` picks up the right config.
+    public let claudeConfigDir: String?
+
+    public init(
+        sessionName: String,
+        width: Int,
+        height: Int,
+        workingDirectory: String? = nil,
+        claudeConfigDir: String? = nil
+    ) {
         self.sessionName = sessionName
         self.width = width
         self.height = height
         self.workingDirectory = workingDirectory
+        self.claudeConfigDir = claudeConfigDir
     }
 
     public var commandType: CommandType {
@@ -806,13 +818,15 @@ public enum CommandType: Codable, Sendable, Equatable {
         sessionName: String,
         width: Int,
         height: Int,
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        claudeConfigDir: String? = nil
     ) -> CommandType {
         .createTmuxSession(CreateTmuxSession(
             sessionName: sessionName,
             width: width,
             height: height,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            claudeConfigDir: claudeConfigDir
         ))
     }
 

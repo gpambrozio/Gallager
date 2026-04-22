@@ -174,7 +174,8 @@
                 sessionName: sessionName,
                 width: settings.newSessionWidth,
                 height: settings.newSessionHeight,
-                workingDirectory: project?.path
+                workingDirectory: project?.path,
+                claudeConfigDir: project?.claudeConfigDir
             )
 
             // paneId is not used for session creation, pass empty string

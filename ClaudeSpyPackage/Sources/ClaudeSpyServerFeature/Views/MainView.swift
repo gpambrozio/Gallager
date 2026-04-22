@@ -1306,6 +1306,12 @@ public struct MainView: View {
                     nil
                 }
 
+                let extraEnvironment: [String] = if let configDir = project?.claudeConfigDir {
+                    ["CLAUDE_CONFIG_DIR=\(configDir)"]
+                } else {
+                    []
+                }
+
                 // Calculate optimal dimensions based on available space
                 let dimensions = calculateOptimalTerminalDimensions()
 
@@ -1316,6 +1322,7 @@ public struct MainView: View {
                     height: dimensions.rows,
                     workingDirectory: workingDirectory,
                     runCommand: runCommand,
+                    extraEnvironment: extraEnvironment,
                     isClaudeProject: project != nil
                 )
 
@@ -1345,7 +1352,8 @@ public struct MainView: View {
             sessionName: sessionName,
             width: dimensions.columns,
             height: dimensions.rows,
-            workingDirectory: project?.path
+            workingDirectory: project?.path,
+            claudeConfigDir: project?.claudeConfigDir
         )
 
         guard let manager = coordinator.viewerConnectionManager else {

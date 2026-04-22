@@ -1032,6 +1032,12 @@
                 let workingDirectory = spec.workingDirectory
                     ?? FileManager.default.homeDirectoryForCurrentUser.path()
 
+                let extraEnvironment: [String] = if let configDir = spec.claudeConfigDir {
+                    ["CLAUDE_CONFIG_DIR=\(configDir)"]
+                } else {
+                    []
+                }
+
                 // A non-nil `spec.workingDirectory` means this was a
                 // "create from Claude project" request — that's the only flow
                 // today that supplies a directory. Other entry points (empty
@@ -1043,6 +1049,7 @@
                     height: spec.height,
                     workingDirectory: workingDirectory,
                     runCommand: runCommand,
+                    extraEnvironment: extraEnvironment,
                     isClaudeProject: spec.workingDirectory != nil
                 )
 
