@@ -98,6 +98,8 @@
         /// Task for observing system wake notifications.
         @ObservationIgnored
         private var wakeObserverTask: Task<Void, Never>?
+        @ObservationIgnored
+        private var e2eReconnectObserverTask: Task<Void, Never>?
 
         @ObservationIgnored
         @Dependency(PreferencesService.self) private var preferences
@@ -246,6 +248,14 @@
 
             // Wire terminal notification tap handling
             setupNotificationTapHandler()
+
+            // E2E only: listen for test-driven "reconnect" requests that follow a
+            // simulated version-override change.
+            #if DEBUG
+                if CommandLine.arguments.contains("--e2e-test") {
+                    startE2EReconnectObserver()
+                }
+            #endif
         }
 
         // MARK: - Private Setup Methods
@@ -931,6 +941,26 @@
             }
         }
 
+        /// E2E only: observe `com.claudespy.e2e.reconnectViewers`, posted by
+        /// `TestAccessibilityServer` after a test-driven version-override change.
+        /// Forwards to the host-role connection manager so the host can rejoin
+        /// the relay after `handleVersionMismatch` closed its WebSocket.
+        ///
+        /// Viewer-role retry now goes through the explicit Retry affordance on
+        /// the version-mismatch row UI; scenarios drive that instead of relying
+        /// on this listener.
+        private func startE2EReconnectObserver() {
+            e2eReconnectObserverTask = Task { [weak self] in
+                let notifications = NotificationCenter.default.notifications(
+                    named: .init("com.claudespy.e2e.reconnectViewers")
+                )
+                for await _ in notifications {
+                    guard !Task.isCancelled else { break }
+                    await self?.connectedViewerManager?.enableReconnectAndRetryAll()
+                }
+            }
+        }
+
         /// Wires the notification tap handler on the delegate directly.
         /// Always opens the panes view with the tapped session selected.
         private func setupNotificationTapHandler() {
@@ -964,6 +994,7 @@
 
         deinit {
             wakeObserverTask?.cancel()
+            e2eReconnectObserverTask?.cancel()
         }
 
         private static func handleStartStream(
@@ -1001,6 +1032,12 @@
                 let workingDirectory = spec.workingDirectory
                     ?? FileManager.default.homeDirectoryForCurrentUser.path()
 
+                let extraEnvironment: [String] = if let configDir = spec.claudeConfigDir {
+                    ["CLAUDE_CONFIG_DIR=\(configDir)"]
+                } else {
+                    []
+                }
+
                 // A non-nil `spec.workingDirectory` means this was a
                 // "create from Claude project" request — that's the only flow
                 // today that supplies a directory. Other entry points (empty
@@ -1012,6 +1049,7 @@
                     height: spec.height,
                     workingDirectory: workingDirectory,
                     runCommand: runCommand,
+                    extraEnvironment: extraEnvironment,
                     isClaudeProject: spec.workingDirectory != nil
                 )
 

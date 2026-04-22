@@ -1,5 +1,23 @@
 import Foundation
 
+// MARK: - Peer Handshake
+
+/// First encrypted message each peer sends to its partner after E2EE is
+/// established. Carries version info used for compatibility gating without
+/// involving the relay server.
+public struct PeerHelloMessage: Codable, Sendable {
+    /// Marketing version of the sending peer (e.g. "1.23").
+    public let appVersion: String
+
+    /// Minimum partner version the sending peer is willing to talk to.
+    public let minRequiredPartnerVersion: String
+
+    public init(appVersion: String, minRequiredPartnerVersion: String) {
+        self.appVersion = appVersion
+        self.minRequiredPartnerVersion = minRequiredPartnerVersion
+    }
+}
+
 // MARK: - Hook Event Relay
 
 /// A hook event wrapped for relay through the external server
@@ -124,10 +142,14 @@ public struct PaneState: Codable, Sendable, Identifiable {
 
     // MARK: - Computed Properties
 
-    public var id: String { paneId }
+    public var id: String {
+        paneId
+    }
 
     /// Window identifier combining session name and window index (e.g., "mysession:0")
-    public var windowId: String { "\(sessionName):\(windowIndex)" }
+    public var windowId: String {
+        "\(sessionName):\(windowIndex)"
+    }
 
     public init(
         paneId: String,
@@ -216,7 +238,9 @@ public struct PushTokenRegisteredMessage: Codable, Sendable {
 /// Information about a discovered Claude project
 public struct ClaudeProjectInfo: Codable, Sendable, Identifiable, Hashable {
     /// Unique identifier (based on path)
-    public var id: String { path }
+    public var id: String {
+        path
+    }
 
     /// Project name (last component of path)
     public let name: String
@@ -227,10 +251,16 @@ public struct ClaudeProjectInfo: Codable, Sendable, Identifiable, Hashable {
     /// Timestamp of last activity in this project (for sorting by recency)
     public let lastUsed: Date?
 
-    public init(name: String, path: String, lastUsed: Date? = nil) {
+    /// Custom `CLAUDE_CONFIG_DIR` for this project, if the project was discovered
+    /// in a non-default `.claude` folder. `nil` when the project lives in the
+    /// default `~/.claude` location.
+    public let claudeConfigDir: String?
+
+    public init(name: String, path: String, lastUsed: Date? = nil, claudeConfigDir: String? = nil) {
         self.name = name
         self.path = path
         self.lastUsed = lastUsed
+        self.claudeConfigDir = claudeConfigDir
     }
 }
 

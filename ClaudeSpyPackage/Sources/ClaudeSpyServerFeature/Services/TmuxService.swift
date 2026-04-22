@@ -1637,6 +1637,8 @@ final public class TmuxService {
     ///   - baseName: The desired base name for the session
     ///   - width: Terminal width in columns
     ///   - height: Terminal height in rows
+    ///   - extraEnvironment: Additional `KEY=VALUE` strings to set on the session
+    ///     via `-e`, on top of `terminalEnvironmentVars`.
     ///   - isClaudeProject: When `true`, the first window is named `"claude"`.
     ///     Otherwise it's named `"terminal 1"`. The explicit name also disables
     ///     tmux's automatic-rename so the tab doesn't track the running command.
@@ -1647,6 +1649,7 @@ final public class TmuxService {
         height: Int,
         workingDirectory: String? = nil,
         runCommand: String? = nil,
+        extraEnvironment: [String] = [],
         isClaudeProject: Bool = false
     ) async throws -> (sessionName: String, paneId: String) {
         // Get existing session names
@@ -1661,6 +1664,7 @@ final public class TmuxService {
         // -n: name the first window up front so the tab doesn't briefly show
         //     the shell command name before we rename it
         let firstWindowName = isClaudeProject ? "claude" : "terminal 1"
+        let allEnvironmentVars = terminalEnvironmentVars + extraEnvironment
         var args = [
             "new-session",
             "-d",
@@ -1668,7 +1672,7 @@ final public class TmuxService {
             "-n", firstWindowName,
             "-x", String(width),
             "-y", String(height),
-        ] + terminalEnvironmentVars.flatMap { ["-e", $0] }
+        ] + allEnvironmentVars.flatMap { ["-e", $0] }
 
         // Add working directory if specified
         if let workingDirectory, !workingDirectory.isEmpty {

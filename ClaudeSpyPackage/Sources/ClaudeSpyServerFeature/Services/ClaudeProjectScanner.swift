@@ -85,7 +85,10 @@
 
                     if
                         let project = validateProject(
-                            at: projectURL, data: data, sessionBasePath: scanRoot.sessionBasePath
+                            at: projectURL,
+                            data: data,
+                            sessionBasePath: scanRoot.sessionBasePath,
+                            claudeConfigDir: scanRoot.claudeConfigDir
                         ) {
                         if let existing = projectsByPath[project.path] {
                             // Keep the entry with the most recent lastUsed date
@@ -124,12 +127,16 @@
         private struct ScanRoot {
             let configPath: URL
             let sessionBasePath: URL
+            /// The value to use for `CLAUDE_CONFIG_DIR` when launching a project
+            /// discovered under this root. `nil` for the default home location.
+            let claudeConfigDir: String?
         }
 
         /// Returns all root folders to scan: the home directory plus any additional configured folders.
         ///
         /// The home directory uses `~/.claude.json` and `~/.claude/projects/`.
-        /// Additional folders use `<folder>/.claude.json` and `<folder>/projects/`.
+        /// Additional folders use `<folder>/.claude.json` and `<folder>/projects/`,
+        /// matching the layout Claude Code uses when `CLAUDE_CONFIG_DIR=<folder>`.
         private func allScanRoots() -> [ScanRoot] {
             let home = fileManager.homeDirectoryForCurrentUser.standardizedFileURL
             var roots = [
@@ -137,7 +144,8 @@
                     configPath: home.appendingPathComponent(".claude.json"),
                     sessionBasePath: home
                         .appendingPathComponent(".claude")
-                        .appendingPathComponent("projects")
+                        .appendingPathComponent("projects"),
+                    claudeConfigDir: nil
                 ),
             ]
 
@@ -148,7 +156,8 @@
                     let url = URL(fileURLWithPath: path).standardizedFileURL
                     let root = ScanRoot(
                         configPath: url.appendingPathComponent(".claude.json"),
-                        sessionBasePath: url.appendingPathComponent("projects")
+                        sessionBasePath: url.appendingPathComponent("projects"),
+                        claudeConfigDir: url.path
                     )
                     if !roots.contains(where: { $0.configPath == root.configPath }) {
                         roots.append(root)
@@ -196,7 +205,12 @@
             }
         }
 
-        private func validateProject(at url: URL, data: [String: Any], sessionBasePath: URL) -> ClaudeProjectInfo? {
+        private func validateProject(
+            at url: URL,
+            data: [String: Any],
+            sessionBasePath: URL,
+            claudeConfigDir: String?
+        ) -> ClaudeProjectInfo? {
             var isDirectory: ObjCBool = false
             guard
                 fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
@@ -218,7 +232,12 @@
             let name = url.lastPathComponent
             let lastUsed = getLastUsedTimestamp(projectPath: url.path, sessionBasePath: sessionBasePath)
 
-            return ClaudeProjectInfo(name: name, path: url.path, lastUsed: lastUsed)
+            return ClaudeProjectInfo(
+                name: name,
+                path: url.path,
+                lastUsed: lastUsed,
+                claudeConfigDir: claudeConfigDir
+            )
         }
 
         private func getLastUsedTimestamp(projectPath: String, sessionBasePath: URL) -> Date? {
