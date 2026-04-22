@@ -500,6 +500,25 @@ public actor MacOSDriver {
         }
     }
 
+    // MARK: - Version Override
+
+    /// Update the app's `VersionCompatibility` overrides at runtime and kick a
+    /// reconnect. `nil` clears the override (so the app reports its bundle version
+    /// / default minimum); a non-nil value sets the override to that string.
+    public func setAppVersion(appVersion: String?, minRequiredPartnerVersion: String?) async throws {
+        logger.info(
+            "Updating Mac version overrides: app=\(appVersion ?? "<clear>") min=\(minRequiredPartnerVersion ?? "<clear>")"
+        )
+        let success = try await MacAppHTTPClient.setAppVersion(
+            appVersion: appVersion,
+            minRequiredPartnerVersion: minRequiredPartnerVersion,
+            port: testAccessibilityPort
+        )
+        if !success {
+            throw MacOSDriverError.elementNotFound("reconnect endpoint returned failure")
+        }
+    }
+
     // MARK: - Hook Events
 
     /// Send a hook event to the macOS app's real hook server (`/api/hooks`).

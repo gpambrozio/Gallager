@@ -233,7 +233,12 @@
 
         var body: some View {
             Section {
-                if hasContent {
+                if let mismatch = connection?.versionMismatch {
+                    HostVersionMismatchRow(host: host, mismatch: mismatch) {
+                        Task { await connection?.enableReconnectAndRetry() }
+                    }
+                    .accessibilityIdentifier("host-version-mismatch-row")
+                } else if hasContent {
                     // Claude sessions
                     ForEach(claudeSessions) { session in
                         sessionRow(session)
@@ -330,12 +335,108 @@
         private var statusColor: Color {
             guard let connection else { return .gray }
 
+            if connection.versionMismatch != nil {
+                return .orange
+            }
             if connection.isHostConnected {
                 return .green
             } else if connection.isRelayConnected {
                 return .yellow
             } else {
                 return .red
+            }
+        }
+    }
+
+    // MARK: - Host Version Mismatch Row
+
+    /// Callout row rendered inside a host's session section when the host's
+    /// peerHello handshake failed version compatibility. Lives on the Sessions
+    /// tab — the first surface users see — so a "Host offline" caption is never
+    /// the only explanation for an unreachable host.
+    private struct HostVersionMismatchRow: View {
+        let host: PairedHost
+        let mismatch: VersionCompatibility.VersionMismatch
+        let onRetry: () -> Void
+
+        @State private var showingRetryDialog = false
+
+        var body: some View {
+            Button {
+                showingRetryDialog = true
+            } label: {
+                HStack(alignment: .top, spacing: 12) {
+                    Symbols.arrowUpCircleFill.image
+                        .font(.title2)
+                        .foregroundStyle(.orange)
+                        .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .confirmationDialog(
+                dialogTitle,
+                isPresented: $showingRetryDialog,
+                titleVisibility: .visible
+            ) {
+                Button("Retry") {
+                    onRetry()
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text(dialogMessage)
+            }
+        }
+
+        private var title: String {
+            switch mismatch {
+            case .weAreTooOld:
+                "Update this app"
+            case .partnerTooOld:
+                "\(host.displayName) needs updating"
+            }
+        }
+
+        private var detail: String {
+            switch mismatch {
+            case let .weAreTooOld(required):
+                "\(host.displayName) requires version \(required) or later."
+            case let .partnerTooOld(partnerVersion):
+                partnerVersion.isEmpty
+                    ? "The host is running an older version and cannot connect."
+                    : "The host is running version \(partnerVersion) and cannot connect."
+            }
+        }
+
+        private var dialogTitle: String {
+            switch mismatch {
+            case .weAreTooOld:
+                "Retry connection?"
+            case .partnerTooOld:
+                "Retry connection to \(host.displayName)?"
+            }
+        }
+
+        private var dialogMessage: String {
+            switch mismatch {
+            case .weAreTooOld:
+                "Try again after updating this app to a compatible version."
+            case .partnerTooOld:
+                "If \(host.displayName) was updated to a compatible version, the connection will succeed."
             }
         }
     }

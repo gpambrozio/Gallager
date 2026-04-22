@@ -68,6 +68,12 @@ final public class ConnectedViewer: Identifiable {
     /// Name of the connected viewer device (if known)
     public private(set) var connectedViewerDeviceName: String?
 
+    /// Structured version-mismatch result, set when the viewer's peerHello fails
+    /// compatibility and cleared on the next connection attempt. The human-readable
+    /// text is still carried on the `.error` state; this property lets the UI
+    /// render update-required affordances without string parsing.
+    public private(set) var versionMismatch: VersionCompatibility.VersionMismatch?
+
     // MARK: - Private Properties
 
     /// The WebSocket task
@@ -189,6 +195,7 @@ final public class ConnectedViewer: Identifiable {
         self.publicKeyId = publicKeyId
         shouldReconnect = true
         reconnectionAttempt = 0
+        versionMismatch = nil
 
         // Establish E2EE session if we have partner's public key from pairing
         if !partnerPublicKey.isEmpty {
@@ -222,6 +229,28 @@ final public class ConnectedViewer: Identifiable {
         await performConnect()
     }
 
+    /// Re-enable reconnection after a terminal failure (e.g. version mismatch) and
+    /// immediately attempt to reconnect.
+    ///
+    /// `handleVersionMismatch` sets `shouldReconnect = false` so the host stops
+    /// retrying a broken handshake. E2E scenarios that "upgrade" the host and
+    /// expect the connection to recover call this to flip the flag back on and
+    /// kick a fresh `performConnect`.
+    public func enableReconnectAndRetry() async {
+        shouldReconnect = true
+        reconnectionDelayTask?.cancel()
+        reconnectionDelayTask = nil
+        reconnectionAttempt = 0
+        versionMismatch = nil
+
+        guard !state.isConnected, state != .connecting else {
+            return
+        }
+
+        logger.info("Re-enabling reconnection and retrying for viewer: \(viewerName)")
+        await performConnect()
+    }
+
     // MARK: - Sending Messages
 
     /// Send a hook event to be relayed to viewer (encrypted)
@@ -250,6 +279,23 @@ final public class ConnectedViewer: Identifiable {
 
         let message = WebSocketMessage.terminalStream(streamMessage)
         await sendEncrypted(message)
+    }
+
+    /// Send this host's peerHello to the viewer once the E2EE session is up.
+    /// Called right after establishing E2EE on `.viewerConnected`.
+    private func sendPeerHello() async {
+        let hello = PeerHelloMessage(
+            appVersion: VersionCompatibility.currentAppVersion,
+            minRequiredPartnerVersion: VersionCompatibility.minRequiredViewerVersion
+        )
+        logger.info(
+            "Sending peerHello to viewer",
+            metadata: [
+                "appVersion": "\(hello.appVersion)",
+                "minRequiredPartnerVersion": "\(hello.minRequiredPartnerVersion)",
+            ]
+        )
+        await sendEncrypted(.peerHello(hello))
     }
 
     /// Proactively push current session state to viewer
@@ -420,12 +466,19 @@ final public class ConnectedViewer: Identifiable {
 
             if response.success {
                 logger.info("Successfully registered with relay server for viewer: \(viewerName)")
+
                 reconnectionAttempt = 0
                 await updateState(.connected)
                 connectedViewerDeviceName = response.viewerDeviceName
-                isViewerConnected = response.viewerDeviceName != nil
+                // `isViewerConnected` is deliberately NOT set here — it's flipped to
+                // true only after the viewer's peerHello arrives and passes the
+                // compatibility check. Setting it eagerly would surface the peer as
+                // "Connected" in the UI during the handshake window, before we know
+                // whether versions are compatible.
 
-                // Establish E2EE session if viewer is connected and we have their public key
+                // Establish E2EE session if viewer is connected and we have their public key.
+                // The relay also fires `.viewerConnected` in this case, which re-establishes
+                // E2EE and drives the peerHello handshake.
                 if
                     let viewerPublicKey = response.viewerPublicKey,
                     let viewerPublicKeyId = response.viewerPublicKeyId {
@@ -460,14 +513,40 @@ final public class ConnectedViewer: Identifiable {
 
         case let .viewerConnected(connectedMessage):
             logger.info("Viewer device connected")
-            isViewerConnected = true
 
-            await establishE2EEWithPartner(
-                publicKey: connectedMessage.publicKey,
-                keyId: connectedMessage.publicKeyId
+            // `isViewerConnected` stays false until peerHello validation succeeds —
+            // see `.peerHello` below. Keeping the flag off during the handshake
+            // window prevents the UI from flashing "Connected" on mismatch.
+
+            // Establish E2EE, then send peerHello. The viewer will reply with its own
+            // peerHello; both sides validate versions peer-to-peer and disconnect on
+            // mismatch. Session state is pushed when the viewer requests it after
+            // completing its own peerHello validation.
+            if
+                await establishE2EEWithPartner(
+                    publicKey: connectedMessage.publicKey,
+                    keyId: connectedMessage.publicKeyId
+                ) {
+                await sendPeerHello()
+            }
+
+        case let .peerHello(peerHello):
+            logger.info(
+                "Received peerHello from viewer",
+                metadata: ["appVersion": "\(peerHello.appVersion)"]
             )
-
-            await pushSessionState()
+            if
+                let mismatch = VersionCompatibility.checkCompatibility(
+                    partnerAppVersion: peerHello.appVersion,
+                    partnerMinRequiredOurVersion: peerHello.minRequiredPartnerVersion,
+                    partnerRole: .viewer
+                ) {
+                await handleVersionMismatch(mismatch)
+            } else {
+                // Compatible — now safe to surface the viewer as connected; the
+                // session-state push will fire when the viewer requests it.
+                isViewerConnected = true
+            }
 
         case .viewerDisconnected:
             logger.info("Viewer device disconnected")
@@ -509,6 +588,28 @@ final public class ConnectedViewer: Identifiable {
         default:
             logger.debug("Received unhandled message type")
         }
+    }
+
+    // MARK: - Version Compatibility
+
+    /// Handles a detected version mismatch by stopping reconnects and surfacing an error.
+    /// The mismatch itself is computed by `VersionCompatibility.checkCompatibility`;
+    /// only the user-facing messaging and state transition are host-specific.
+    private func handleVersionMismatch(_ mismatch: VersionCompatibility.VersionMismatch) async {
+        let message: String
+        switch mismatch {
+        case let .weAreTooOld(required):
+            message = "This Mac app is out of date. Viewer \(viewerName) requires version \(required) or later. Please update."
+        case let .partnerTooOld(partnerVersion):
+            let versionText = partnerVersion.isEmpty ? "an older version" : "version \(partnerVersion)"
+            message = "Viewer \(viewerName) is running \(versionText) and cannot connect. Please update the viewer app."
+        }
+
+        logger.error("Version mismatch with viewer \(viewerName): \(message)")
+        shouldReconnect = false
+        versionMismatch = mismatch
+        await cleanupConnection()
+        await updateState(.error(message))
     }
 
     /// Establish an E2EE session with the partner's public key.

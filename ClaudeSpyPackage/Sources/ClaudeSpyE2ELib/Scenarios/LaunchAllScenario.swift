@@ -15,7 +15,7 @@ public enum LaunchAllScenario {
         TestStep.verifyServerHealth
 
         // 3. Launch iOS in simulator
-        TestStep.launchIOSApp
+        TestStep.launchIOSApp()
         TestStep.wait(seconds: 3)
 
         // 4. Launch macOS app

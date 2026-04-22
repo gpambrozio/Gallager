@@ -18,7 +18,7 @@ public enum FreshPairingScenario {
         TestStep.launchMacApp()
 
         // 4. Launch iOS in simulator
-        TestStep.launchIOSApp
+        TestStep.launchIOSApp()
         TestStep.iosWaitForElement(.labelContains("pairing code"), timeout: 15)
         TestStep.iosScreenshot(label: "ios-pairing-view")
 
