@@ -689,6 +689,16 @@ main() {
 
     rm -rf "$BUILD_DIR"
 
+    if [ "$SKIP_UPLOAD" != true ]; then
+        echo ""
+        log_info "Starting TestFlight release for iOS..."
+        if "$SCRIPT_DIR/testflight.sh" --yes; then
+            log_success "TestFlight release complete"
+        else
+            log_warning "TestFlight release failed — run '$SCRIPT_DIR/testflight.sh' manually"
+        fi
+    fi
+
     echo ""
     echo "=========================================="
     echo "  Release Complete!"

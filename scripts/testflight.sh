@@ -452,6 +452,101 @@ upload_to_testflight() {
 }
 
 # =====================================================
+# Generate changelog, wait for build to be ready, set What to Test
+# =====================================================
+WHATS_NEW_SET=false
+
+# Arg 1: prompt_user ("true" to prompt before waiting, "false" to skip)
+# Returns 0 on success, 1 on failure. Exits 0 if the user cancels at the prompt.
+build_changelog_and_set() {
+    local prompt_user="$1"
+
+    # Step 1: Generate changelog with Claude up front
+    log_info "Generating changelog..."
+    local changelog
+    changelog=$(generate_changelog)
+    if [ -z "$changelog" ]; then
+        log_warning "No commits found for changelog"
+        return 1
+    fi
+
+    echo ""
+    echo "Changelog:"
+    echo "$changelog"
+    echo ""
+
+    local build_number
+    build_number=$(get_build_number)
+
+    if [ "$prompt_user" = true ] && [ "$AUTO_YES" != true ]; then
+        read -p "Wait for build $build_number to be ready and set as 'What to Test'? (y/N) " -n 1 -r
+        echo ""
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            log_info "Cancelled"
+            exit 0
+        fi
+    fi
+
+    # Step 2: Wait for the build to reach VALID
+    log_info "Looking up app..."
+    local app_id
+    app_id=$(find_app_id)
+
+    log_info "Waiting for build $build_number to finish processing on App Store Connect..."
+    log_info "(polling every minute — Ctrl+C to stop)"
+
+    local max_attempts=90  # ~90 minutes
+    local attempt=0
+    local build_id=""
+    local last_state=""
+
+    while [ $attempt -lt $max_attempts ]; do
+        local response
+        response=$(asc_get "/builds?filter[app]=${app_id}&filter[version]=${build_number}&fields[builds]=version,processingState")
+
+        local state
+        state=$(echo "$response" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if d.get('data'):
+        print(d['data'][0]['attributes']['processingState'])
+except Exception:
+    pass
+" 2>/dev/null)
+
+        if [ "$state" = "VALID" ]; then
+            build_id=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin)['data'][0]['id'])" 2>/dev/null)
+            log_success "Build $build_number is ready (ID: $build_id)"
+            break
+        fi
+
+        if [ "$state" != "$last_state" ]; then
+            if [ -n "$state" ]; then
+                log_info "Build $build_number state: $state"
+            else
+                log_info "Build $build_number not yet visible on App Store Connect"
+            fi
+            last_state="$state"
+        fi
+
+        sleep 60
+        attempt=$((attempt + 1))
+    done
+
+    if [ -z "$build_id" ]; then
+        log_warning "Build did not reach VALID state after $max_attempts minutes."
+        log_warning "Run '$0 --set-changelog' later to retry."
+        return 1
+    fi
+
+    # Step 3: Set What to Test
+    set_whats_new "$build_id" "$changelog"
+    WHATS_NEW_SET=true
+    return 0
+}
+
+# =====================================================
 # Main
 # =====================================================
 main() {
@@ -474,37 +569,9 @@ main() {
 
         log_info "Version: $version (build $build_number)"
 
-        local changelog
-        changelog=$(generate_changelog)
-        if [ -z "$changelog" ]; then
-            log_error "No commits found for changelog"
+        if ! build_changelog_and_set true; then
+            log_error "Failed to set changelog for build $build_number"
         fi
-
-        echo ""
-        echo "Changelog:"
-        echo "$changelog"
-        echo ""
-
-        if [ "$AUTO_YES" != true ]; then
-            read -p "Set this as 'What to Test' for build $build_number? (y/N) " -n 1 -r
-            echo ""
-            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                log_info "Cancelled"
-                exit 0
-            fi
-        fi
-
-        log_info "Looking up app..."
-        local app_id
-        app_id=$(find_app_id)
-        log_info "App ID: $app_id"
-
-        log_info "Looking up build $build_number..."
-        local build_id
-        build_id=$(find_build_id "$app_id" "$build_number")
-        log_info "Build ID: $build_id"
-
-        set_whats_new "$build_id" "$changelog"
 
         echo ""
         log_success "What to Test updated for build $build_number"
@@ -532,6 +599,9 @@ main() {
     build_archive
     export_archive
     upload_to_testflight
+    if [ "$SKIP_UPLOAD" != true ]; then
+        build_changelog_and_set false || true
+    fi
 
     echo ""
     echo "=========================================="
@@ -545,10 +615,13 @@ main() {
         echo "To upload manually:"
         echo "  xcrun altool --upload-app --type ios --file $EXPORT_PATH/*.ipa \\"
         echo "    --apiKey YOUR_KEY --apiIssuer YOUR_ISSUER"
+    elif [ "$WHATS_NEW_SET" = true ]; then
+        echo ""
+        echo "Build is live on TestFlight with 'What to Test' notes set."
     else
         echo ""
-        echo "The build should appear in TestFlight within a few minutes."
-        echo "Check App Store Connect for processing status."
+        echo "Build uploaded but 'What to Test' notes were not set."
+        echo "Run '$0 --set-changelog' later to set them."
     fi
     echo ""
 }
