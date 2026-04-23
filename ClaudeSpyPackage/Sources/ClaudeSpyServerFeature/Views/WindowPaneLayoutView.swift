@@ -123,6 +123,7 @@ struct WindowPaneLayoutView: View {
         let isSingle: Bool
 
         @Environment(MirrorWindowManager.self) private var windowManager
+        @Environment(TmuxService.self) private var tmuxService
         @State private var isHovering = false
 
         var body: some View {
@@ -144,60 +145,20 @@ struct WindowPaneLayoutView: View {
                 PaneEditorOverlay(paneId: paneState.paneId)
             }
             .overlay(alignment: .topTrailing) {
-                PaneSplitButtons(paneTarget: paneInfo.paneId)
-                    .opacity(isHovering ? 1 : 0)
-                    .animation(.easeInOut(duration: 0.15), value: isHovering)
+                PaneSplitButtons { direction in
+                    do {
+                        _ = try await tmuxService.splitPane(
+                            paneInfo.paneId,
+                            horizontal: direction == .horizontal
+                        )
+                    } catch {
+                        print("Failed to split pane: \(error)")
+                    }
+                }
+                .opacity(isHovering ? 1 : 0)
+                .animation(.easeInOut(duration: 0.15), value: isHovering)
             }
             .onHover { isHovering = $0 }
-        }
-    }
-
-    // MARK: - Split Buttons
-
-    /// Overlay buttons for splitting a pane horizontally or vertically.
-    /// Shown on hover in the top-right corner of each pane.
-    private struct PaneSplitButtons: View {
-        let paneTarget: String
-
-        @Environment(TmuxService.self) private var tmuxService
-
-        var body: some View {
-            HStack(spacing: 2) {
-                Button {
-                    Task { await splitPane(horizontal: true) }
-                } label: {
-                    Symbols.rectangleSplit2x1Fill.image
-                }
-                .help("Split Horizontal")
-
-                Button {
-                    Task { await splitPane(horizontal: false) }
-                } label: {
-                    Symbols.rectangleSplit1x2Fill.image
-                }
-                .help("Split Vertical")
-            }
-            .buttonStyle(.borderless)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(4)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
-            .padding(4)
-            .onHover { hovering in
-                if hovering {
-                    NSCursor.arrow.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
-        }
-
-        private func splitPane(horizontal: Bool) async {
-            do {
-                _ = try await tmuxService.splitPane(paneTarget, horizontal: horizontal)
-            } catch {
-                print("Failed to split pane: \(error)")
-            }
         }
     }
 
