@@ -55,30 +55,12 @@ struct RemoteWindowPaneLayoutView: View {
 
         return ProportionalTileLayout(rects: positioned.map(\.rect)) {
             ForEach(positioned) { pane in
-                RemoteTerminalContainerView(
-                    paneId: pane.paneState.paneId,
-                    hostName: connection.hostName,
+                RemotePaneTileView(
+                    paneState: pane.paneState,
                     connection: connection,
                     settings: settings,
-                    showStatusBar: false,
-                    isEditorActive: pane.paneState.editorSession != nil
+                    isSingle: isSingle
                 )
-                .overlay {
-                    if !isSingle {
-                        Rectangle()
-                            .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
-                    }
-                }
-                .overlay {
-                    if let editorInfo = pane.paneState.editorSession {
-                        RemotePaneEditorOverlay(
-                            sessionId: editorInfo.sessionId,
-                            initialContent: editorInfo.content,
-                            connection: connection,
-                            paneId: pane.paneState.paneId
-                        )
-                    }
-                }
                 .id(pane.id)
             }
         }
@@ -140,6 +122,58 @@ struct RemoteWindowPaneLayoutView: View {
                     paneId: pane.paneId
                 )
             }
+        }
+    }
+
+    // MARK: - Pane Tile
+
+    /// Wraps a remote terminal pane with hover-triggered split buttons,
+    /// mirroring the local `PaneTileView` so remote panes get the same
+    /// top-right split controls as local panes.
+    private struct RemotePaneTileView: View {
+        let paneState: PaneState
+        let connection: ViewerConnection
+        let settings: AppSettings
+        let isSingle: Bool
+
+        @State private var isHovering = false
+
+        var body: some View {
+            RemoteTerminalContainerView(
+                paneId: paneState.paneId,
+                hostName: connection.hostName,
+                connection: connection,
+                settings: settings,
+                showStatusBar: false,
+                isEditorActive: paneState.editorSession != nil
+            )
+            .overlay {
+                if !isSingle {
+                    Rectangle()
+                        .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
+                }
+            }
+            .overlay {
+                if let editorInfo = paneState.editorSession {
+                    RemotePaneEditorOverlay(
+                        sessionId: editorInfo.sessionId,
+                        initialContent: editorInfo.content,
+                        connection: connection,
+                        paneId: paneState.paneId
+                    )
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                PaneSplitButtons { direction in
+                    _ = await connection.sendCommand(
+                        SplitTmuxPane(direction: direction),
+                        paneId: paneState.paneId
+                    )
+                }
+                .opacity(isHovering ? 1 : 0)
+                .animation(.easeInOut(duration: 0.15), value: isHovering)
+            }
+            .onHover { isHovering = $0 }
         }
     }
 
