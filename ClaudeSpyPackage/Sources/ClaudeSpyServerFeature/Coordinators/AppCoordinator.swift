@@ -307,7 +307,7 @@
                 onSessionCreate: { [tmux] name, path in
                     let baseName = name ?? "main"
                     let workingDirectory = path ?? FileManager.default.homeDirectoryForCurrentUser.path
-                    let (sessionName, paneId) = try await tmux.createSession(
+                    let (sessionName, _) = try await tmux.createSession(
                         baseName: baseName,
                         width: 200,
                         height: 50,

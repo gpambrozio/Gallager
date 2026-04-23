@@ -436,7 +436,7 @@ public extension FileSystemLoadingService {
                         }
                         if !wasAlreadyActive {
                             dirContinuation.withLock { continuation in
-                                continuation?.yield()
+                                _ = continuation?.yield()
                             }
                         }
                     }
