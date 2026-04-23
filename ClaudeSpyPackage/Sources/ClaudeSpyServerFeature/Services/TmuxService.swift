@@ -1255,9 +1255,14 @@ final public class TmuxService {
     ///   - workingDirectory: Optional working directory for the new window
     /// - Returns: The pane ID of the new window's first pane
     public func newWindow(sessionName: String, workingDirectory: String? = nil) async throws -> String {
+        // Trailing colon tells tmux "target session with window unspecified" so it auto-picks
+        // the next free index. Without it, tmux fills the target from the best-attached
+        // client's current window and new-window then tries that exact index — which fails
+        // with "index N in use" whenever a control-mode client is focused on an existing
+        // window (i.e. always, for us).
         var args = [
             "new-window",
-            "-t", sessionName,
+            "-t", "\(sessionName):",
             "-P", "-F", "#{pane_id}:#{window_index}",
         ] + terminalEnvironmentVars.flatMap { ["-e", $0] }
 
