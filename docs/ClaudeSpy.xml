@@ -6,6 +6,34 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.24</title>
+         <sparkle:version>24</sparkle:version>
+         <sparkle:shortVersionString>1.24</sparkle:shortVersionString>
+         <pubDate>Wed, 22 Apr 2026 14:26:28 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.24
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>New CLI commands</strong>: Added `list-projects` and `start-project` commands to the `gallager` CLI, letting you enumerate and launch projects directly from the terminal.</li>
+<li><strong>Plugin status per Claude folder</strong>: Each custom Claude folder now displays whether the ClaudeSpy plugin is installed, making it easier to see which folders are wired up for monitoring.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Guided plugin setup</strong>: When you add a custom Claude folder, the app now offers to install the ClaudeSpy plugin into it, streamlining initial configuration.</li>
+<li><strong>Custom folder environment</strong>: Projects launched from a custom `.claude` folder now have `CLAUDE_CONFIG_DIR` set automatically, so Claude Code uses the correct configuration for that folder.</li>
+<li><strong>Version compatibility enforcement</strong>: Connections between the Mac host and iOS viewer are now rejected when either side is running an incompatible version, with a clear message instead of a silent mismatch or subtle failure.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.24.dmg"
+                    sparkle:edSignature="H7aS90JKLs+OHg4oww2/3PkrAVhNkqNGT8RuYAlwEl+wrPsJRr7rhT86q8Af0SiEHgmvK1sRas7Y39nyT3ckCQ=="
+                    length="28865544"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.23</title>
          <sparkle:version>23</sparkle:version>
          <sparkle:shortVersionString>1.23</sparkle:shortVersionString>
