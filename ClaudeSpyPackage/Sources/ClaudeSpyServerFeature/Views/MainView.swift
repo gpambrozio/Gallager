@@ -567,16 +567,16 @@ public struct MainView: View {
                         },
                         onNewWindow: {
                             Task {
-                                let currentPath = window.activePane?.currentPath
-                                let paneId = try? await tmuxService.newWindow(
-                                    sessionName: session.sessionName,
-                                    workingDirectory: currentPath
-                                )
-                                // Select the newly created window
-                                if
-                                    let paneId,
-                                    let newWindow = tmuxService.windows.first(where: { $0.panes.contains(where: { $0.paneId == paneId }) }) {
-                                    selectedWindow = newWindow
+                                do {
+                                    let paneId = try await tmuxService.newWindow(
+                                        sessionName: session.sessionName,
+                                        workingDirectory: window.activePane?.currentPath
+                                    )
+                                    if let newWindow = tmuxService.windows.first(where: { $0.panes.contains(where: { $0.paneId == paneId }) }) {
+                                        selectedWindow = newWindow
+                                    }
+                                } catch {
+                                    attachError = "Failed to create window: \(error.localizedDescription)"
                                 }
                             }
                         },
