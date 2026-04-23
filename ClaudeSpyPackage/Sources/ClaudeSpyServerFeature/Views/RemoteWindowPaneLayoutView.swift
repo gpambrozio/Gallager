@@ -164,62 +164,16 @@ struct RemoteWindowPaneLayoutView: View {
                 }
             }
             .overlay(alignment: .topTrailing) {
-                RemotePaneSplitButtons(connection: connection, paneId: paneState.paneId)
-                    .opacity(isHovering ? 1 : 0)
-                    .animation(.easeInOut(duration: 0.15), value: isHovering)
+                PaneSplitButtons { direction in
+                    _ = await connection.sendCommand(
+                        SplitTmuxPane(direction: direction),
+                        paneId: paneState.paneId
+                    )
+                }
+                .opacity(isHovering ? 1 : 0)
+                .animation(.easeInOut(duration: 0.15), value: isHovering)
             }
             .onHover { isHovering = $0 }
-        }
-    }
-
-    // MARK: - Split Buttons
-
-    /// Overlay buttons for splitting a remote pane horizontally or vertically.
-    /// Shown on hover in the top-right corner of each pane.
-    /// Mirrors local `PaneSplitButtons` but routes the split through `ViewerConnection`.
-    private struct RemotePaneSplitButtons: View {
-        let connection: ViewerConnection
-        let paneId: String
-
-        @State private var isSplitting = false
-
-        var body: some View {
-            HStack(spacing: 2) {
-                Button {
-                    Task { await splitPane(direction: .horizontal) }
-                } label: {
-                    Symbols.rectangleSplit2x1Fill.image
-                }
-                .help("Split Horizontal")
-
-                Button {
-                    Task { await splitPane(direction: .vertical) }
-                } label: {
-                    Symbols.rectangleSplit1x2Fill.image
-                }
-                .help("Split Vertical")
-            }
-            .buttonStyle(.borderless)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(4)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
-            .padding(4)
-            .disabled(isSplitting)
-            .onHover { hovering in
-                if hovering {
-                    NSCursor.arrow.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
-        }
-
-        private func splitPane(direction: SplitDirection) async {
-            guard !isSplitting else { return }
-            isSplitting = true
-            defer { isSplitting = false }
-            _ = await connection.sendCommand(SplitTmuxPane(direction: direction), paneId: paneId)
         }
     }
 
