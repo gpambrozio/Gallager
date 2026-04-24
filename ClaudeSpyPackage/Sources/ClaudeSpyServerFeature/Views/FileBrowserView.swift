@@ -18,14 +18,20 @@ private let skippedNavigatorEntries: Set = [
 /// A file opened as its own tab to the right of the file explorer tab.
 /// Identified by a stable UUID so re-opens select the existing tab and
 /// deletion state can be tracked without losing the tab.
+///
+/// `directoryPath` is the file-browser root that originated the tab; the path
+/// header renders relative to this so the displayed path stays stable when the
+/// user switches to a sibling tmux window with a different cwd.
 struct OpenFileTab: Identifiable, Equatable {
     let id: UUID
     let path: String
+    let directoryPath: String
     var isDeleted: Bool
 
-    init(id: UUID = UUID(), path: String, isDeleted: Bool = false) {
+    init(id: UUID = UUID(), path: String, directoryPath: String, isDeleted: Bool = false) {
         self.id = id
         self.path = path
+        self.directoryPath = directoryPath
         self.isDeleted = isDeleted
     }
 
@@ -62,9 +68,17 @@ final class FileBrowserState {
     var selectedSearchPath: String?
     /// Cached search results matching the current query.
     var cachedSearchResults: [FileSearchResult] = []
+}
+
+/// Open-file-tab state scoped to a tmux session, so tabs and selection survive
+/// switches between windows in the same session.
+@Observable
+@MainActor
+final class SessionFileTabsState {
     /// Files opened as their own tabs via the "Open in New Tab" context menu.
     var openFileTabs: [OpenFileTab] = []
-    /// When non-nil, the content area shows this file tab instead of the tree.
+    /// When non-nil, the content area shows this file tab instead of the tree
+    /// or terminal.
     var selectedFileTabId: UUID?
 }
 
@@ -120,6 +134,9 @@ private struct ResizableDivider: View {
 struct FileBrowserView: View {
     let directoryPath: String
     @Bindable var state: FileBrowserState
+    /// Session-scoped tab strip. Updated here only to refresh deletion flags
+    /// for tabs whose file lives under `directoryPath`.
+    @Bindable var sessionTabs: SessionFileTabsState
     /// Called when the user picks "Open in New Tab" on a file in the context menu.
     let onOpenFileInNewTab: (String) -> Void
 
@@ -129,7 +146,7 @@ struct FileBrowserView: View {
 
     var body: some View {
         if let viewState = state.viewState {
-            loadedContent(viewState: viewState)
+            fileBrowserContent(viewState: viewState)
                 .task(id: directoryPath) {
                     if state.loadedPath != directoryPath {
                         await loadTree()
@@ -172,19 +189,6 @@ struct FileBrowserView: View {
                 .task(id: directoryPath) {
                     await loadTree()
                 }
-        }
-    }
-
-    @ViewBuilder
-    private func loadedContent(
-        viewState: FileNavigatorViewState<TextFileContents>
-    ) -> some View {
-        if
-            let selectedTabId = state.selectedFileTabId,
-            let tab = state.openFileTabs.first(where: { $0.id == selectedTabId }) {
-            OpenFileTabContentView(tab: tab, directoryPath: directoryPath)
-        } else {
-            fileBrowserContent(viewState: viewState)
         }
     }
 
@@ -233,13 +237,19 @@ struct FileBrowserView: View {
 
     /// Marks open file tabs whose underlying file is no longer present in `allFiles`
     /// as deleted, and clears the flag for tabs whose files came back (e.g., restored).
+    /// Only tabs originating from this view's directory are evaluated, so tabs opened
+    /// from a different directory aren't falsely flagged when the user is viewing
+    /// another window's tree.
     private func refreshOpenFileTabDeletionState() {
-        guard !state.openFileTabs.isEmpty else { return }
+        guard !sessionTabs.openFileTabs.isEmpty else { return }
         let existingPaths = Set(state.allFiles.map(\.fullPath))
-        for index in state.openFileTabs.indices {
-            let shouldBeDeleted = !existingPaths.contains(state.openFileTabs[index].path)
-            if state.openFileTabs[index].isDeleted != shouldBeDeleted {
-                state.openFileTabs[index].isDeleted = shouldBeDeleted
+        let dirPrefix = directoryPath + "/"
+        for index in sessionTabs.openFileTabs.indices {
+            let tab = sessionTabs.openFileTabs[index]
+            guard tab.path.hasPrefix(dirPrefix) else { continue }
+            let shouldBeDeleted = !existingPaths.contains(tab.path)
+            if tab.isDeleted != shouldBeDeleted {
+                sessionTabs.openFileTabs[index].isDeleted = shouldBeDeleted
             }
         }
     }
@@ -580,7 +590,6 @@ private extension View {
 /// Renders the file's path header + live content, or a "file deleted" placeholder.
 struct OpenFileTabContentView: View {
     let tab: OpenFileTab
-    let directoryPath: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -600,6 +609,7 @@ struct OpenFileTabContentView: View {
     }
 
     private var pathHeader: some View {
+        let directoryPath = tab.directoryPath
         let relativePath = tab.path.hasPrefix(directoryPath + "/")
             ? String(tab.path.dropFirst(directoryPath.count + 1))
             : tab.name
