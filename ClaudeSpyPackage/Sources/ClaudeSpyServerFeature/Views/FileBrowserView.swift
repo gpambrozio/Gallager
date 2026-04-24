@@ -15,6 +15,25 @@ private let skippedNavigatorEntries: Set = [
     ".TemporaryItems", ".DocumentRevisions-V100",
 ]
 
+/// A file opened as its own tab to the right of the file explorer tab.
+/// Identified by a stable UUID so re-opens select the existing tab and
+/// deletion state can be tracked without losing the tab.
+struct OpenFileTab: Identifiable, Equatable {
+    let id: UUID
+    let path: String
+    var isDeleted: Bool
+
+    init(id: UUID = UUID(), path: String, isDeleted: Bool = false) {
+        self.id = id
+        self.path = path
+        self.isDeleted = isDeleted
+    }
+
+    var name: String {
+        (path as NSString).lastPathComponent
+    }
+}
+
 /// Cached state for a file browser, keyed by window ID.
 /// Stored in MainView so it survives tab/session switches.
 @Observable
@@ -43,6 +62,10 @@ final class FileBrowserState {
     var selectedSearchPath: String?
     /// Cached search results matching the current query.
     var cachedSearchResults: [FileSearchResult] = []
+    /// Files opened as their own tabs via the "Open in New Tab" context menu.
+    var openFileTabs: [OpenFileTab] = []
+    /// When non-nil, the content area shows this file tab instead of the tree.
+    var selectedFileTabId: UUID?
 }
 
 /// A draggable vertical divider for resizing adjacent views.
@@ -97,6 +120,8 @@ private struct ResizableDivider: View {
 struct FileBrowserView: View {
     let directoryPath: String
     @Bindable var state: FileBrowserState
+    /// Called when the user picks "Open in New Tab" on a file in the context menu.
+    let onOpenFileInNewTab: (String) -> Void
 
     @Dependency(FileSystemLoadingService.self) private var fileSystemService
 
@@ -104,7 +129,7 @@ struct FileBrowserView: View {
 
     var body: some View {
         if let viewState = state.viewState {
-            fileBrowserContent(viewState: viewState)
+            loadedContent(viewState: viewState)
                 .task(id: directoryPath) {
                     if state.loadedPath != directoryPath {
                         await loadTree()
@@ -117,6 +142,10 @@ struct FileBrowserView: View {
                         ) {
                             state.allFiles.append(contentsOf: batch)
                         }
+                        // Only after the initial collection finishes do we know which
+                        // files actually exist; calling this mid-stream would wrongly
+                        // flag tabs as deleted against a partial allFiles snapshot.
+                        refreshOpenFileTabDeletionState()
                     }
                 }
                 .task(id: state.loadedFolderPaths) {
@@ -131,6 +160,7 @@ struct FileBrowserView: View {
                             refreshed.append(contentsOf: batch)
                         }
                         state.allFiles = refreshed
+                        refreshOpenFileTabDeletionState()
                     }
                 }
                 .onChange(of: viewState.expansions) {
@@ -142,6 +172,19 @@ struct FileBrowserView: View {
                 .task(id: directoryPath) {
                     await loadTree()
                 }
+        }
+    }
+
+    @ViewBuilder
+    private func loadedContent(
+        viewState: FileNavigatorViewState<TextFileContents>
+    ) -> some View {
+        if
+            let selectedTabId = state.selectedFileTabId,
+            let tab = state.openFileTabs.first(where: { $0.id == selectedTabId }) {
+            OpenFileTabContentView(tab: tab, directoryPath: directoryPath)
+        } else {
+            fileBrowserContent(viewState: viewState)
         }
     }
 
@@ -185,6 +228,19 @@ struct FileBrowserView: View {
             let sel = existing.selection,
             state.reverseIds[sel] == nil {
             existing.selection = nil
+        }
+    }
+
+    /// Marks open file tabs whose underlying file is no longer present in `allFiles`
+    /// as deleted, and clears the flag for tabs whose files came back (e.g., restored).
+    private func refreshOpenFileTabDeletionState() {
+        guard !state.openFileTabs.isEmpty else { return }
+        let existingPaths = Set(state.allFiles.map(\.fullPath))
+        for index in state.openFileTabs.indices {
+            let shouldBeDeleted = !existingPaths.contains(state.openFileTabs[index].path)
+            if state.openFileTabs[index].isDeleted != shouldBeDeleted {
+                state.openFileTabs[index].isDeleted = shouldBeDeleted
+            }
         }
     }
 
@@ -307,6 +363,40 @@ struct FileBrowserView: View {
 
     // MARK: - File Browser Content
 
+    private func fileRowLabel(name: String, itemId: UUID) -> some View {
+        Label {
+            Text(name)
+                .font(.callout)
+        } icon: {
+            Symbols.docPlaintextFill.image
+                .foregroundStyle(.secondary)
+        }
+        .fileTreeContextMenu(
+            itemId: itemId,
+            directoryPath: directoryPath,
+            reverseIds: state.reverseIds,
+            isDirectory: false,
+            onOpenFileInNewTab: onOpenFileInNewTab
+        )
+    }
+
+    private func folderRowLabel(name: String, itemId: UUID) -> some View {
+        Label {
+            Text(name)
+                .font(.callout)
+        } icon: {
+            Symbols.folderFill.image
+                .foregroundStyle(.blue)
+        }
+        .fileTreeContextMenu(
+            itemId: itemId,
+            directoryPath: directoryPath,
+            reverseIds: state.reverseIds,
+            isDirectory: true,
+            onOpenFileInNewTab: onOpenFileInNewTab
+        )
+    }
+
     @ViewBuilder
     private func fileBrowserContent(
         viewState: FileNavigatorViewState<TextFileContents>
@@ -326,32 +416,10 @@ struct FileBrowserView: View {
                             parent: .constant(nil),
                             viewState: viewState,
                             fileLabel: { cursor, _, proxy in
-                                Label {
-                                    Text(cursor.name)
-                                        .font(.callout)
-                                } icon: {
-                                    Symbols.docPlaintextFill.image
-                                        .foregroundStyle(.secondary)
-                                }
-                                .fileTreeContextMenu(
-                                    itemId: proxy.id,
-                                    directoryPath: directoryPath,
-                                    reverseIds: state.reverseIds
-                                )
+                                fileRowLabel(name: cursor.name, itemId: proxy.id)
                             },
                             folderLabel: { cursor, _, folder in
-                                Label {
-                                    Text(cursor.name)
-                                        .font(.callout)
-                                } icon: {
-                                    Symbols.folderFill.image
-                                        .foregroundStyle(.blue)
-                                }
-                                .fileTreeContextMenu(
-                                    itemId: folder.wrappedValue.id,
-                                    directoryPath: directoryPath,
-                                    reverseIds: state.reverseIds
-                                )
+                                folderRowLabel(name: cursor.name, itemId: folder.wrappedValue.id)
                             }
                         )
                         .navigatorFilter { !skippedNavigatorEntries.contains($0) }
@@ -464,7 +532,9 @@ private extension View {
     func fileTreeContextMenu(
         itemId: UUID,
         directoryPath: String,
-        reverseIds: [UUID: String]
+        reverseIds: [UUID: String],
+        isDirectory: Bool,
+        onOpenFileInNewTab: @escaping (String) -> Void
     ) -> some View {
         let fullPath = reverseIds[itemId]
         let relativePath = fullPath.map { String($0.dropFirst(directoryPath.count + 1)) }
@@ -473,6 +543,11 @@ private extension View {
             if let fullPath {
                 Button("Open") {
                     NSWorkspace.shared.open(URL(fileURLWithPath: fullPath))
+                }
+                if !isDirectory {
+                    Button("Open in New Tab") {
+                        onOpenFileInNewTab(fullPath)
+                    }
                 }
                 Button("Open in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: fullPath)])
@@ -488,10 +563,6 @@ private extension View {
                         clipboard.setString(relativePath)
                     }
                 }
-                let isDirectory = (
-                    try? URL(fileURLWithPath: fullPath)
-                        .resourceValues(forKeys: [.isDirectoryKey])
-                )?.isDirectory == true
                 if !isDirectory {
                     Button("Copy") {
                         @Dependency(ClipboardClient.self) var clipboard
@@ -500,6 +571,43 @@ private extension View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Open File Tab Content View
+
+/// The content view shown when the user selects an open file tab.
+/// Renders the file's path header + live content, or a "file deleted" placeholder.
+struct OpenFileTabContentView: View {
+    let tab: OpenFileTab
+    let directoryPath: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            pathHeader
+            Divider()
+            if tab.isDeleted {
+                ContentUnavailableView(
+                    "File Deleted",
+                    symbol: .docPlaintextFill,
+                    description: "The file \(tab.name) has been removed from disk."
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                LiveFileContentView(filePath: tab.path)
+            }
+        }
+    }
+
+    private var pathHeader: some View {
+        let relativePath = tab.path.hasPrefix(directoryPath + "/")
+            ? String(tab.path.dropFirst(directoryPath.count + 1))
+            : tab.name
+        let directoryName = URL(fileURLWithPath: directoryPath).lastPathComponent
+        return Text(directoryName + "/" + relativePath)
+            .font(.system(.caption, design: .monospaced))
+            .foregroundStyle(.secondary)
+            .padding(8)
     }
 }
 

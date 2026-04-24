@@ -160,11 +160,16 @@ public struct MainView: View {
                 requestCloseRemoteWindow(remoteWindow, hostId: remote.hostId)
                 return
             }
-            // Close local tab
-            guard
-                let window = selectedWindow,
-                !fileBrowserActiveWindowIds.contains(window.id)
-            else { return }
+            guard let window = selectedWindow else { return }
+            // If a file tab is selected, Cmd-W closes that tab first.
+            if
+                fileBrowserActiveWindowIds.contains(window.id),
+                let selectedTabId = fileBrowserStates[window.id]?.selectedFileTabId {
+                closeOpenFileTab(selectedTabId, windowId: window.id)
+                return
+            }
+            // The file browser tab itself has no close action — do nothing.
+            guard !fileBrowserActiveWindowIds.contains(window.id) else { return }
             requestCloseWindow(window)
         }
         .onChange(of: windowManager.pendingSessionCount) {
@@ -549,14 +554,22 @@ public struct MainView: View {
             )
         } else if let window = selectedWindow {
             let session = tmuxService.sessions.first(where: { $0.windows.contains(where: { $0.id == window.id }) })
+            let browserState = fileBrowserStates[window.id]
+            let directoryPath = window.activePane?.currentPath ?? NSHomeDirectory()
             VStack(spacing: 0) {
                 if let session {
                     WindowTabBar(
                         session: session,
                         selectedWindow: window,
-                        isFileBrowserSelected: fileBrowserActiveWindowIds.contains(window.id),
+                        isFileBrowserSelected: fileBrowserActiveWindowIds.contains(window.id)
+                            && browserState?.selectedFileTabId == nil,
+                        openFileTabs: browserState?.openFileTabs ?? [],
+                        selectedFileTabId: fileBrowserActiveWindowIds.contains(window.id)
+                            ? browserState?.selectedFileTabId
+                            : nil,
                         onSelectWindow: { newWindow in
                             fileBrowserActiveWindowIds.remove(window.id)
+                            fileBrowserStates[window.id]?.selectedFileTabId = nil
                             selectedWindow = newWindow
                             Task {
                                 try? await tmuxService.selectWindow(newWindow.id)
@@ -592,16 +605,30 @@ public struct MainView: View {
                             if fileBrowserStates[window.id] == nil {
                                 fileBrowserStates[window.id] = FileBrowserState()
                             }
+                            fileBrowserStates[window.id]?.selectedFileTabId = nil
+                        },
+                        onSelectFileTab: { tabId in
+                            fileBrowserActiveWindowIds.insert(window.id)
+                            if fileBrowserStates[window.id] == nil {
+                                fileBrowserStates[window.id] = FileBrowserState()
+                            }
+                            fileBrowserStates[window.id]?.selectedFileTabId = tabId
+                        },
+                        onCloseFileTab: { tabId in
+                            closeOpenFileTab(tabId, windowId: window.id)
                         }
                     )
                 }
 
                 if
                     fileBrowserActiveWindowIds.contains(window.id),
-                    let browserState = fileBrowserStates[window.id] {
+                    let browserState {
                     FileBrowserView(
-                        directoryPath: window.activePane?.currentPath ?? NSHomeDirectory(),
-                        state: browserState
+                        directoryPath: directoryPath,
+                        state: browserState,
+                        onOpenFileInNewTab: { path in
+                            openFileInNewTab(path: path, windowId: window.id)
+                        }
                     )
                 } else {
                     WindowPaneLayoutView(window: window)
@@ -1070,6 +1097,7 @@ public struct MainView: View {
                 selectedRemoteSession = nil
                 selectedRemoteWindowId = nil
                 fileBrowserActiveWindowIds.remove(window.id)
+                fileBrowserStates[window.id]?.selectedFileTabId = nil
             }
         case let .remote(hostId, hostName, paneId):
             // Find the session name for this pane from the session store
@@ -1127,6 +1155,38 @@ public struct MainView: View {
                     localProcesses: processes
                 )
             }
+        }
+    }
+
+    // MARK: - File Browser Tabs
+
+    /// Opens a file in a new tab next to the file browser, or selects the existing
+    /// tab if the file is already open. Newly opened tabs become the active view.
+    private func openFileInNewTab(path: String, windowId: String) {
+        if fileBrowserStates[windowId] == nil {
+            fileBrowserStates[windowId] = FileBrowserState()
+        }
+        guard let browserState = fileBrowserStates[windowId] else { return }
+
+        fileBrowserActiveWindowIds.insert(windowId)
+
+        if let existing = browserState.openFileTabs.first(where: { $0.path == path }) {
+            browserState.selectedFileTabId = existing.id
+            return
+        }
+        let newTab = OpenFileTab(path: path)
+        browserState.openFileTabs.append(newTab)
+        browserState.selectedFileTabId = newTab.id
+    }
+
+    /// Removes a file tab. If the closed tab was selected, falls back to the file
+    /// browser view. Leaves the window-level file browser mode unchanged so the
+    /// user sees the tree after closing the last tab.
+    private func closeOpenFileTab(_ tabId: UUID, windowId: String) {
+        guard let browserState = fileBrowserStates[windowId] else { return }
+        browserState.openFileTabs.removeAll { $0.id == tabId }
+        if browserState.selectedFileTabId == tabId {
+            browserState.selectedFileTabId = nil
         }
     }
 
@@ -1622,11 +1682,15 @@ private struct WindowTabBar: View {
     let session: LocalTmuxSession
     let selectedWindow: LocalTmuxWindow
     let isFileBrowserSelected: Bool
+    let openFileTabs: [OpenFileTab]
+    let selectedFileTabId: UUID?
     let onSelectWindow: (LocalTmuxWindow) -> Void
     let onCloseWindow: (LocalTmuxWindow) -> Void
     let onNewWindow: () -> Void
     let onRenameWindow: (LocalTmuxWindow, String) -> Void
     let onSelectFileBrowser: () -> Void
+    let onSelectFileTab: (UUID) -> Void
+    let onCloseFileTab: (UUID) -> Void
 
     @Environment(MirrorWindowManager.self) private var windowManager
 
@@ -1672,6 +1736,10 @@ private struct WindowTabBar: View {
                 .accessibilityLabel("Files")
                 .accessibilityValue(isFileBrowserSelected ? "selected" : "")
 
+                ForEach(openFileTabs) { tab in
+                    openFileTabView(tab)
+                }
+
                 Spacer()
             }
             .padding(.horizontal, 8)
@@ -1683,6 +1751,7 @@ private struct WindowTabBar: View {
     }
 
     @State private var hoveredWindowId: String?
+    @State private var hoveredFileTabId: UUID?
 
     private func windowTab(_ window: LocalTmuxWindow) -> some View {
         let isSelected = window.id == selectedWindow.id && !isFileBrowserSelected
@@ -1750,6 +1819,63 @@ private struct WindowTabBar: View {
 
     private func tabLabel(for window: LocalTmuxWindow) -> String {
         windowTabLabel(windowName: window.windowName, windowIndex: window.windowIndex)
+    }
+
+    @ViewBuilder
+    private func openFileTabView(_ tab: OpenFileTab) -> some View {
+        let isSelected = tab.id == selectedFileTabId
+        let isHovered = hoveredFileTabId == tab.id
+
+        HStack(spacing: 0) {
+            Button {
+                onSelectFileTab(tab.id)
+            } label: {
+                HStack(spacing: 4) {
+                    Symbols.docPlaintextFill.image
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                    Text(tab.name)
+                        .font(.system(.caption, design: .monospaced))
+                        .lineLimit(1)
+                        .strikethrough(tab.isDeleted, color: .secondary)
+                }
+                .padding(.leading, 12)
+                .padding(.trailing, 4)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("File tab: \(tab.name)")
+            .accessibilityValue(isSelected ? "selected" : "")
+
+            Button {
+                onCloseFileTab(tab.id)
+            } label: {
+                Symbols.xmark.image
+                    .font(.system(size: 8, weight: .bold))
+                    .frame(width: 14, height: 14)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .opacity(isSelected || isHovered ? 1 : 0)
+            .help("Close tab")
+            .padding(.trailing, 6)
+            .accessibilityLabel("Close file tab: \(tab.name)")
+        }
+        .foregroundStyle(isSelected ? .primary : .secondary)
+        .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+        .overlay(alignment: .bottom) {
+            if isSelected {
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(height: 2)
+            }
+        }
+        .onHover { hovering in
+            hoveredFileTabId = hovering ? tab.id : nil
+        }
     }
 }
 
