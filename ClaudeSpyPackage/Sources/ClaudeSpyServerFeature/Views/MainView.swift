@@ -1163,10 +1163,8 @@ public struct MainView: View {
     /// Opens a file in a new tab next to the file browser, or selects the existing
     /// tab if the file is already open. Newly opened tabs become the active view.
     private func openFileInNewTab(path: String, windowId: String) {
-        if fileBrowserStates[windowId] == nil {
-            fileBrowserStates[windowId] = FileBrowserState()
-        }
-        guard let browserState = fileBrowserStates[windowId] else { return }
+        let browserState = fileBrowserStates[windowId] ?? FileBrowserState()
+        fileBrowserStates[windowId] = browserState
 
         fileBrowserActiveWindowIds.insert(windowId)
 
@@ -1182,6 +1180,12 @@ public struct MainView: View {
     /// Removes a file tab. If the closed tab was selected, falls back to the file
     /// browser view. Leaves the window-level file browser mode unchanged so the
     /// user sees the tree after closing the last tab.
+    ///
+    /// Invariant: this must be the only code path that removes entries from
+    /// `openFileTabs`. Any bulk mutation that bypasses this method must also
+    /// clear `selectedFileTabId` when the selected tab is removed, otherwise
+    /// the id will dangle and `loadedContent` will silently fall back to the
+    /// tree view without surfacing an error.
     private func closeOpenFileTab(_ tabId: UUID, windowId: String) {
         guard let browserState = fileBrowserStates[windowId] else { return }
         browserState.openFileTabs.removeAll { $0.id == tabId }
