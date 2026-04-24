@@ -130,6 +130,69 @@
         }
     }
 
+    // MARK: - Block Parsing Tests
+
+    @Suite("Block Parsing")
+    struct BlockParsingTests {
+        /// Regression: `%error` used to only set a flag without resolving the queued
+        /// continuation. The next `%end` would then pop the wrong entry and subsequent
+        /// commands would drift, eventually timing out after ~5s — visible to users as
+        /// a blank terminal after closing a tmux window.
+        @Test("`%error` resolves queued command with isError=true")
+        func errorBlockResolvesPendingCommand() async throws {
+            let client = TmuxControlClient()
+            await client.testMarkInitialAttachHandled()
+
+            async let first = client.testEnqueueCommand(id: 1)
+            async let second = client.testEnqueueCommand(id: 2)
+            // Ensure both continuations are queued before feeding responses.
+            try await Task.sleep(for: .milliseconds(50))
+            #expect(await client.testPendingCommandCount == 2)
+
+            let chunk = Data("""
+            %begin 1000 100 1
+            can't find pane: %1
+            %error 1000 100 1
+            %begin 1001 101 1
+            %end 1001 101 1
+
+            """.utf8)
+            await client.testProcessIncomingData(chunk)
+
+            let firstResponse = try await first
+            let secondResponse = try await second
+            #expect(firstResponse.commandNumber == 100)
+            #expect(firstResponse.isError == true)
+            #expect(firstResponse.output == "can't find pane: %1")
+            #expect(secondResponse.commandNumber == 101)
+            #expect(secondResponse.isError == false)
+            #expect(await client.testPendingCommandCount == 0)
+        }
+
+        @Test("`%end` resolves queued command with isError=false")
+        func endBlockResolvesPendingCommand() async throws {
+            let client = TmuxControlClient()
+            await client.testMarkInitialAttachHandled()
+
+            async let first = client.testEnqueueCommand(id: 1)
+            try await Task.sleep(for: .milliseconds(50))
+
+            let chunk = Data("""
+            %begin 1000 100 1
+            output-line
+            %end 1000 100 1
+
+            """.utf8)
+            await client.testProcessIncomingData(chunk)
+
+            let response = try await first
+            #expect(response.commandNumber == 100)
+            #expect(response.isError == false)
+            #expect(response.output == "output-line")
+            #expect(await client.testPendingCommandCount == 0)
+        }
+    }
+
     // MARK: - PipePaneReader Tests
 
     @Suite("PipePaneReader Tests")

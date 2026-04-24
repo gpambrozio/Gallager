@@ -456,6 +456,20 @@ actor TmuxControlClient {
 
     private func parseEndBlock(_ line: String) {
         // Format: %end <timestamp> <command-number> <flags>
+        finalizeBlock(line: line, isError: currentCommandIsError)
+    }
+
+    private func parseErrorBlock(_ line: String) {
+        // Format: %error <timestamp> <command-number> <flags>
+        // tmux uses %error as the block terminator for failed commands (in place of %end).
+        // Resolve the queued entry with an error response so the caller unblocks immediately;
+        // otherwise the next command's %end would silently pop this queue slot, misaligning
+        // every subsequent response and eventually causing 5-second timeouts.
+        finalizeBlock(line: line, isError: true)
+    }
+
+    /// Shared handling for `%end` and `%error` — both terminate a command block.
+    private func finalizeBlock(line: String, isError: Bool) {
         let parts = line.split(separator: " ")
         guard
             parts.count >= 3,
@@ -465,7 +479,7 @@ actor TmuxControlClient {
         let response = CommandResponse(
             commandNumber: tmuxCommandNumber,
             output: currentCommandOutput.joined(separator: "\n"),
-            isError: currentCommandIsError
+            isError: isError
         )
 
         // Skip the initial attach response (flagged in parseBeginBlock)
@@ -477,8 +491,8 @@ actor TmuxControlClient {
         }
 
         // Pop the front of the FIFO queue — tmux responds in the same order
-        // we wrote commands to stdin. Every %begin/%end after the initial attach
-        // corresponds 1:1 with a sendCommand() call.
+        // we wrote commands to stdin. Every %begin/%end or %begin/%error after the
+        // initial attach corresponds 1:1 with a sendCommand() call.
         if !pendingCommandQueue.isEmpty {
             let entry = pendingCommandQueue.removeFirst()
             entry.continuation.resume(returning: response)
@@ -486,11 +500,6 @@ actor TmuxControlClient {
 
         currentCommandNumber = nil
         currentCommandOutput = []
-    }
-
-    private func parseErrorBlock(_ line: String) {
-        // Format: %error <timestamp> <command-number> <flags>
-        currentCommandIsError = true
     }
 
     // MARK: - Session and Exit Parsing
@@ -539,5 +548,30 @@ actor TmuxControlClient {
         process = nil
         stdin = nil
         stdoutPipe = nil
+    }
+
+    // MARK: - Test Hooks
+
+    /// Feeds synthetic control-mode bytes through the parser. Tests only.
+    func testProcessIncomingData(_ data: Data) async {
+        await processIncomingData(data)
+    }
+
+    /// Enqueues a continuation that would be resumed by a `%end` or `%error` block.
+    /// Returns the resolved response (or throws on error/timeout). Tests only.
+    func testEnqueueCommand(id: Int) async throws -> CommandResponse {
+        try await withCheckedThrowingContinuation { continuation in
+            pendingCommandQueue.append((id: id, continuation: continuation))
+        }
+    }
+
+    /// Number of pending commands awaiting a response. Tests only.
+    var testPendingCommandCount: Int {
+        pendingCommandQueue.count
+    }
+
+    /// Bypass the initial attach-response skip so tests can feed normal blocks. Tests only.
+    func testMarkInitialAttachHandled() {
+        receivedInitialResponse = true
     }
 }
