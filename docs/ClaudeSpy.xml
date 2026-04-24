@@ -6,6 +6,39 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.25</title>
+         <sparkle:version>25</sparkle:version>
+         <sparkle:shortVersionString>1.25</sparkle:shortVersionString>
+         <pubDate>Thu, 23 Apr 2026 15:07:04 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.25
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Split pane controls in remote sessions (macOS)</strong>: Added split pane buttons to remote sessions on macOS, making it easier to manage tmux pane layouts directly from the remote view.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Blank terminal after closing tab-bar window</strong>: Resolved an issue where the terminal could appear blank after closing a tab-bar window.</li>
+<li><strong>Tab-bar "+" button failures</strong>: Fixed an error where the "+" tab-bar button would fail with an "index N in use" message when creating new tabs.</li>
+<li><strong>Build warnings</strong>: Cleaned up unused-value build warnings in the server feature module.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Streamlined release process</strong>: TestFlight "What to Test" notes are now set automatically and chained from the release script, reducing manual steps when shipping new builds.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.25.dmg"
+                    sparkle:edSignature="DbGEOctkKsMd3h0BuItSvAk4t8BLGBLIPvdCio5eSbvQw45cm9r2eH7+mgPeI2Y7wiTd2z26oyJ0GhWRJcOpAg=="
+                    length="28883009"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.24</title>
          <sparkle:version>24</sparkle:version>
          <sparkle:shortVersionString>1.24</sparkle:shortVersionString>
