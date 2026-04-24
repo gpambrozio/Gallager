@@ -54,6 +54,10 @@ public extension HookAction {
             .arrowTriangleBranch
         case .taskCreated:
             .folderBadgePlus
+        case .userPromptExpansion:
+            .textBubbleFill
+        case .postToolBatch:
+            .wrenchAndScrewdriver
         case .unknown:
             .questionmark
         }
@@ -110,6 +114,10 @@ public extension HookAction {
             .red
         case .taskCreated:
             .green
+        case .userPromptExpansion:
+            .cyan
+        case .postToolBatch:
+            .blue
         case .unknown:
             .gray
         }
