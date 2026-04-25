@@ -623,9 +623,23 @@ public struct MainView: View {
                             if fileBrowserStates[window.id] == nil {
                                 fileBrowserStates[window.id] = FileBrowserState()
                             }
+                            if sessionFileTabsStates[session.sessionName] == nil {
+                                sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
+                            }
                             sessionFileTabsStates[session.sessionName]?.selectedFileTabId = nil
                         },
                         onSelectFileTab: { tabId in
+                            // Ensure FileBrowserView is mounted for the current
+                            // window so its tree-scan tasks keep refreshing
+                            // tab deletion state while the file tab is the
+                            // active view.
+                            fileBrowserActiveWindowIds.insert(window.id)
+                            if fileBrowserStates[window.id] == nil {
+                                fileBrowserStates[window.id] = FileBrowserState()
+                            }
+                            if sessionFileTabsStates[session.sessionName] == nil {
+                                sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
+                            }
                             sessionFileTabsStates[session.sessionName]?.selectedFileTabId = tabId
                         },
                         onCloseFileTab: { tabId in
@@ -634,21 +648,21 @@ public struct MainView: View {
                     )
                 }
 
-                if let selectedFileTab {
-                    OpenFileTabContentView(tab: selectedFileTab)
-                } else if
+                if
                     isFileBrowserActive,
                     let browserState,
-                    let session {
+                    let session,
+                    let sessionTabs = sessionFileTabsStates[session.sessionName] {
                     FileBrowserView(
                         directoryPath: directoryPath,
                         state: browserState,
-                        sessionTabs: sessionTabsState(for: session.sessionName),
+                        sessionTabs: sessionTabs,
                         onOpenFileInNewTab: { path in
                             openFileInNewTab(
                                 path: path,
                                 directoryPath: directoryPath,
-                                sessionName: session.sessionName
+                                sessionName: session.sessionName,
+                                windowId: window.id
                             )
                         }
                     )
@@ -1187,22 +1201,29 @@ public struct MainView: View {
 
     // MARK: - File Browser Tabs
 
-    /// Returns the session-scoped file-tab state, creating it on first use.
-    private func sessionTabsState(for sessionName: String) -> SessionFileTabsState {
-        if let existing = sessionFileTabsStates[sessionName] {
-            return existing
-        }
-        let new = SessionFileTabsState()
-        sessionFileTabsStates[sessionName] = new
-        return new
-    }
-
     /// Opens a file in a new tab next to the file browser, or selects the existing
     /// tab if the file is already open. Newly opened tabs become the active view.
     /// Tabs are scoped to the tmux session so they remain visible when the user
     /// switches between windows in the same session.
-    private func openFileInNewTab(path: String, directoryPath: String, sessionName: String) {
-        let tabs = sessionTabsState(for: sessionName)
+    ///
+    /// Also ensures `fileBrowserActiveWindowIds` contains `windowId` so the
+    /// FileBrowserView for that window stays mounted while the file tab is
+    /// selected — its `directoryChanges` task is what drives tab deletion
+    /// state, so it must continue running underneath the visible file content.
+    private func openFileInNewTab(
+        path: String,
+        directoryPath: String,
+        sessionName: String,
+        windowId: String
+    ) {
+        fileBrowserActiveWindowIds.insert(windowId)
+        if fileBrowserStates[windowId] == nil {
+            fileBrowserStates[windowId] = FileBrowserState()
+        }
+        if sessionFileTabsStates[sessionName] == nil {
+            sessionFileTabsStates[sessionName] = SessionFileTabsState()
+        }
+        guard let tabs = sessionFileTabsStates[sessionName] else { return }
         if let existing = tabs.openFileTabs.first(where: { $0.path == path }) {
             tabs.selectedFileTabId = existing.id
             return

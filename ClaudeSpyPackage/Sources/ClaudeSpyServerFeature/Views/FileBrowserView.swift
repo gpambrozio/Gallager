@@ -146,7 +146,7 @@ struct FileBrowserView: View {
 
     var body: some View {
         if let viewState = state.viewState {
-            fileBrowserContent(viewState: viewState)
+            loadedContent(viewState: viewState)
                 .task(id: directoryPath) {
                     if state.loadedPath != directoryPath {
                         await loadTree()
@@ -232,6 +232,23 @@ struct FileBrowserView: View {
             let sel = existing.selection,
             state.reverseIds[sel] == nil {
             existing.selection = nil
+        }
+    }
+
+    /// Routes the visible content based on session-level tab selection. If a file
+    /// tab is selected, that file's contents render here while the tree itself
+    /// stays mounted underneath so its `directoryChanges` task keeps refreshing
+    /// `allFiles` (and therefore the tabs' deletion state).
+    @ViewBuilder
+    private func loadedContent(
+        viewState: FileNavigatorViewState<TextFileContents>
+    ) -> some View {
+        if
+            let selectedTabId = sessionTabs.selectedFileTabId,
+            let tab = sessionTabs.openFileTabs.first(where: { $0.id == selectedTabId }) {
+            OpenFileTabContentView(tab: tab)
+        } else {
+            fileBrowserContent(viewState: viewState)
         }
     }
 
