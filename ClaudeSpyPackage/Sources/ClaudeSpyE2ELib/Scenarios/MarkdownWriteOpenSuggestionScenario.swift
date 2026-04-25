@@ -109,8 +109,10 @@ public enum MarkdownWriteOpenSuggestionScenario {
         TestStep.macScreenshot(label: "mac-suggestion-bar-after-no")
 
         // ── Phase 5: Plan-style path shows generic label ─────────
-        // Plans live in `.../plans/` with random hash filenames, so the bar
-        // labels them "Want to open the plan?" instead of the random name.
+        // Plans live OUTSIDE the project (typically a temp dir) with random
+        // hash filenames, so the bar labels them "Want to open the plan?"
+        // instead of the random name. A `plans/` folder *inside* the project
+        // would be treated as project documentation and use its filename.
         TestStep.log("Phase 5: Plan-style path uses 'the plan' label, not the random filename")
 
         TestStep.macSendHookEvent(
@@ -121,7 +123,7 @@ public enum MarkdownWriteOpenSuggestionScenario {
                 "timestamp": "2026-04-25T10:02:00.000000Z",
                 "tool_name": "Write",
                 "tool_input": {
-                    "file_path": "/Users/test/MyProject/plans/8f3c2d.md",
+                    "file_path": "/tmp/claude-plans/8f3c2d.md",
                     "content": "# Plan"
                 },
                 "tool_response": {}
