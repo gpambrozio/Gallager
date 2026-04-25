@@ -478,7 +478,6 @@ struct AskUserQuestionResponseView: View {
                 // (Claude Code engages Other on input), then Space + Down +
                 // Enter to commit and advance past it.
                 b.navigate(down: question.options.count - pos)
-                b.pause()
                 b.append(.text(other))
                 b.append(.space)
                 b.append(.down)
