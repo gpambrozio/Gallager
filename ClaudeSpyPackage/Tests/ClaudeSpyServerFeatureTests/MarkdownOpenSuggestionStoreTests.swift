@@ -132,4 +132,28 @@ struct MarkdownOpenSuggestionStoreTests {
         store.sessionRemoved(sessionName: "s")
         #expect(store.suggestionsBySession["s"] == nil)
     }
+
+    @Test("UserPromptSubmit auto-dismisses the suggestion after the configured delay")
+    func userPromptSubmitAutoDismisses() async throws {
+        let store = MarkdownOpenSuggestionStore(autoDismissDelay: .milliseconds(20))
+        try store.handleHookEvent(writeEvent(filePath: "/p/a.md"), sessionName: "s")
+        try store.handleHookEvent(promptEvent(), sessionName: "s")
+        // Suggestion should still be present immediately after the prompt.
+        #expect(store.suggestionsBySession["s"] != nil)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(store.suggestionsBySession["s"] == nil)
+    }
+
+    @Test("Subsequent UserPromptSubmit does not reset the auto-dismiss timer")
+    func subsequentPromptDoesNotResetTimer() async throws {
+        let store = MarkdownOpenSuggestionStore(autoDismissDelay: .milliseconds(50))
+        try store.handleHookEvent(writeEvent(filePath: "/p/a.md"), sessionName: "s")
+        try store.handleHookEvent(promptEvent(), sessionName: "s")
+        // Wait roughly half the delay, then fire another prompt — should NOT extend the timer.
+        try await Task.sleep(for: .milliseconds(30))
+        try store.handleHookEvent(promptEvent(), sessionName: "s")
+        // After enough total time has passed since the *first* prompt, the suggestion should be gone.
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(store.suggestionsBySession["s"] == nil)
+    }
 }

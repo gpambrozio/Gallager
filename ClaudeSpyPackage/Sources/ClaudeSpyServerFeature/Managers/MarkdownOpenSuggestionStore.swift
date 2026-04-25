@@ -36,7 +36,7 @@ public struct MarkdownOpenSuggestion: Identifiable, Equatable, Sendable {
 
     /// Filename portion of the path, used in the prompt label for non-plan files.
     public var fileName: String {
-        (filePath as NSString).lastPathComponent
+        URL(fileURLWithPath: filePath).lastPathComponent
     }
 }
 
@@ -50,9 +50,11 @@ final public class MarkdownOpenSuggestionStore {
     @ObservationIgnored
     private var dismissalTasks: [String: Task<Void, Never>] = [:]
 
-    private let autoDismissDelay: Duration = .seconds(60)
+    private let autoDismissDelay: Duration
 
-    public init() { }
+    public init(autoDismissDelay: Duration = .seconds(60)) {
+        self.autoDismissDelay = autoDismissDelay
+    }
 
     deinit {
         for task in dismissalTasks.values {
@@ -106,7 +108,7 @@ final public class MarkdownOpenSuggestionStore {
                 Self.isMarkdownPath(params.filePath)
             else { return }
             let directoryPath = event.projectPath
-                ?? (params.filePath as NSString).deletingLastPathComponent
+                ?? URL(fileURLWithPath: params.filePath).deletingLastPathComponent().path
             suggest(MarkdownOpenSuggestion(
                 filePath: params.filePath,
                 directoryPath: directoryPath,

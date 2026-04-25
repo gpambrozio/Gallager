@@ -11,6 +11,7 @@ public struct MainView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(PairingManager.self) private var pairingManager
+    @Environment(MarkdownOpenSuggestionStore.self) private var markdownOpenSuggestionStore
     @Environment(\.e2eeService) private var e2eeService: E2EEService?
     @Environment(\.openSettings) private var openSettings
 
@@ -106,9 +107,9 @@ public struct MainView: View {
             }
 
             // Clear pending markdown-open suggestions for removed sessions.
-            for sessionName in coordinator.markdownOpenSuggestionStore.suggestionsBySession.keys
+            for sessionName in markdownOpenSuggestionStore.suggestionsBySession.keys
                 where !currentSessionNames.contains(sessionName) {
-                coordinator.markdownOpenSuggestionStore.sessionRemoved(sessionName: sessionName)
+                markdownOpenSuggestionStore.sessionRemoved(sessionName: sessionName)
             }
 
             guard let selected = selectedWindow else { return }
@@ -658,7 +659,7 @@ public struct MainView: View {
                                 sessionName: session.sessionName,
                                 windowId: window.id
                             )
-                            coordinator.markdownOpenSuggestionStore.dismiss(sessionName: session.sessionName)
+                            markdownOpenSuggestionStore.dismiss(sessionName: session.sessionName)
                         }
                     )
                 }
