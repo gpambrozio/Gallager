@@ -81,6 +81,9 @@
         /// Persists in-progress edits for remote viewer editor overlays, keyed by session UUID.
         public let remoteEditorContentStore: RemoteEditorContentStore
 
+        /// Holds "Claude wrote a markdown file — open it?" prompts per tmux session.
+        public let markdownOpenSuggestionStore: MarkdownOpenSuggestionStore
+
         // MARK: - Private Services
 
         @ObservationIgnored
@@ -155,6 +158,7 @@
             let editorManager = EditorSessionManager()
             self.editorSessionManager = editorManager
             self.remoteEditorContentStore = RemoteEditorContentStore()
+            self.markdownOpenSuggestionStore = MarkdownOpenSuggestionStore()
 
             // Create window manager with editor session manager
             self.windowManager = MirrorWindowManager(
@@ -211,6 +215,13 @@
                 // Handle locally
                 await windowManager.handleHookEvent(event)
 
+                if let paneId = event.tmuxPane {
+                    let sessionName = await resolveSessionName(forPaneId: paneId)
+                    if let sessionName, !sessionName.isEmpty {
+                        await markdownOpenSuggestionStore.handleHookEvent(event, sessionName: sessionName)
+                    }
+                }
+
                 // Update sleep prevention based on new session count
                 await updateSleepPrevention()
 
@@ -256,6 +267,17 @@
                     startE2EReconnectObserver()
                 }
             #endif
+        }
+
+        /// Resolves the tmux session name for a pane. Tries `paneStates` first
+        /// (populated for panes the windowManager has already seen), then falls
+        /// back to the live `tmuxService.panes` snapshot so events that arrive
+        /// before the pane has been mirrored still get matched to a session.
+        private func resolveSessionName(forPaneId paneId: String) -> String? {
+            if let name = windowManager.paneStates[paneId]?.sessionName, !name.isEmpty {
+                return name
+            }
+            return tmuxService.panes.first(where: { $0.paneId == paneId })?.sessionName
         }
 
         // MARK: - Private Setup Methods

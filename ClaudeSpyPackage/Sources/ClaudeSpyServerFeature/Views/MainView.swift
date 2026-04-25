@@ -105,6 +105,12 @@ public struct MainView: View {
                 sessionFileTabsStates.removeValue(forKey: key)
             }
 
+            // Clear pending markdown-open suggestions for removed sessions.
+            for sessionName in coordinator.markdownOpenSuggestionStore.suggestionsBySession.keys
+                where !currentSessionNames.contains(sessionName) {
+                coordinator.markdownOpenSuggestionStore.sessionRemoved(sessionName: sessionName)
+            }
+
             guard let selected = selectedWindow else { return }
             let currentWindows = tmuxService.windows
             if let updated = currentWindows.first(where: { $0.id == selected.id }) {
@@ -644,6 +650,15 @@ public struct MainView: View {
                         },
                         onCloseFileTab: { tabId in
                             closeOpenFileTab(tabId, sessionName: session.sessionName)
+                        },
+                        onAcceptOpenSuggestion: { suggestion in
+                            openFileInNewTab(
+                                path: suggestion.filePath,
+                                directoryPath: suggestion.directoryPath,
+                                sessionName: session.sessionName,
+                                windowId: window.id
+                            )
+                            coordinator.markdownOpenSuggestionStore.dismiss(sessionName: session.sessionName)
                         }
                     )
                 }
@@ -1756,8 +1771,10 @@ private struct WindowTabBar: View {
     let onSelectFileBrowser: () -> Void
     let onSelectFileTab: (UUID) -> Void
     let onCloseFileTab: (UUID) -> Void
+    let onAcceptOpenSuggestion: (MarkdownOpenSuggestion) -> Void
 
     @Environment(MirrorWindowManager.self) private var windowManager
+    @Environment(MarkdownOpenSuggestionStore.self) private var openSuggestionStore
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -1803,6 +1820,10 @@ private struct WindowTabBar: View {
 
                 ForEach(openFileTabs) { tab in
                     openFileTabView(tab)
+                }
+
+                if let suggestion = openSuggestionStore.suggestionsBySession[session.sessionName] {
+                    openSuggestionBar(suggestion)
                 }
 
                 Spacer()
@@ -1941,6 +1962,42 @@ private struct WindowTabBar: View {
         .onHover { hovering in
             hoveredFileTabId = hovering ? tab.id : nil
         }
+    }
+
+    @ViewBuilder
+    private func openSuggestionBar(_ suggestion: MarkdownOpenSuggestion) -> some View {
+        let label = suggestion.isPlan
+            ? "Want to open the plan?"
+            : "Want to open \(suggestion.fileName)?"
+        HStack(spacing: 6) {
+            Symbols.docPlaintextFill.image
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(label)
+                .font(.caption)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: 240)
+            Button("Yes") {
+                onAcceptOpenSuggestion(suggestion)
+            }
+            .controlSize(.mini)
+            .accessibilityLabel("Open suggested file: Yes")
+            Button("No") {
+                openSuggestionStore.dismiss(sessionName: session.sessionName)
+            }
+            .controlSize(.mini)
+            .accessibilityLabel("Open suggested file: No")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.accentColor.opacity(0.1))
+        )
+        .padding(.leading, 8)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(label)
     }
 }
 
