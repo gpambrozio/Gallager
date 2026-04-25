@@ -8,13 +8,12 @@ public extension HookEventMessage {
         if
             case let .permissionRequest(body) = event.action,
             case let .askUserQuestion(params) = body.toolInput {
-            let title = "Claude is waiting for answer on \(projectName)"
-            let body: String = if params.questions.count == 1, let only = params.questions.first {
+            let detail: String = if params.questions.count == 1, let only = params.questions.first {
                 only.question
             } else {
                 "Claude has \(params.questions.count) questions"
             }
-            return (title: title, body: body)
+            return (title: "Claude wants answers", body: "\(projectName): \(detail)")
         }
 
         let body: String
