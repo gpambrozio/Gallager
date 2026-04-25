@@ -48,6 +48,10 @@ public struct MainView: View {
     @State private var fileBrowserActiveWindowIds: Set<String> = []
     /// Cached file browser state per window ID (tree, selection, sidebar width)
     @State private var fileBrowserStates: [String: FileBrowserState] = [:]
+    /// Cached open-file-tab strip per session (keyed by `sessionName`).
+    /// Lives one level above `fileBrowserStates` so tabs persist when the user
+    /// switches between windows in the same session.
+    @State private var sessionFileTabsStates: [String: SessionFileTabsState] = [:]
 
     public var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -93,6 +97,12 @@ public struct MainView: View {
             for key in fileBrowserStates.keys where !currentWindowIds.contains(key) {
                 fileBrowserStates.removeValue(forKey: key)
                 fileBrowserActiveWindowIds.remove(key)
+            }
+
+            // Clean up session-scoped file tab state for sessions that no longer exist
+            let currentSessionNames = Set(tmuxService.sessions.map(\.sessionName))
+            for key in sessionFileTabsStates.keys where !currentSessionNames.contains(key) {
+                sessionFileTabsStates.removeValue(forKey: key)
             }
 
             guard let selected = selectedWindow else { return }
@@ -160,11 +170,19 @@ public struct MainView: View {
                 requestCloseRemoteWindow(remoteWindow, hostId: remote.hostId)
                 return
             }
-            // Close local tab
-            guard
-                let window = selectedWindow,
-                !fileBrowserActiveWindowIds.contains(window.id)
-            else { return }
+            guard let window = selectedWindow else { return }
+            let sessionName = tmuxService.sessions
+                .first(where: { $0.windows.contains(where: { $0.id == window.id }) })?
+                .sessionName
+            // If a file tab is selected, Cmd-W closes that tab first.
+            if
+                let sessionName,
+                let selectedTabId = sessionFileTabsStates[sessionName]?.selectedFileTabId {
+                closeOpenFileTab(selectedTabId, sessionName: sessionName)
+                return
+            }
+            // The file browser tab itself has no close action — do nothing.
+            guard !fileBrowserActiveWindowIds.contains(window.id) else { return }
             requestCloseWindow(window)
         }
         .onChange(of: windowManager.pendingSessionCount) {
@@ -549,14 +567,27 @@ public struct MainView: View {
             )
         } else if let window = selectedWindow {
             let session = tmuxService.sessions.first(where: { $0.windows.contains(where: { $0.id == window.id }) })
+            let browserState = fileBrowserStates[window.id]
+            let directoryPath = window.activePane?.currentPath ?? NSHomeDirectory()
+            let sessionTabs = session.flatMap { sessionFileTabsStates[$0.sessionName] }
+            let selectedFileTab: OpenFileTab? = {
+                guard let sessionTabs, let id = sessionTabs.selectedFileTabId else { return nil }
+                return sessionTabs.openFileTabs.first(where: { $0.id == id })
+            }()
+            let isFileBrowserActive = fileBrowserActiveWindowIds.contains(window.id)
+            let isAnyFileViewActive = isFileBrowserActive || selectedFileTab != nil
             VStack(spacing: 0) {
                 if let session {
                     WindowTabBar(
                         session: session,
                         selectedWindow: window,
-                        isFileBrowserSelected: fileBrowserActiveWindowIds.contains(window.id),
+                        isFileBrowserSelected: isFileBrowserActive && selectedFileTab == nil,
+                        isAnyFileViewActive: isAnyFileViewActive,
+                        openFileTabs: sessionTabs?.openFileTabs ?? [],
+                        selectedFileTabId: sessionTabs?.selectedFileTabId,
                         onSelectWindow: { newWindow in
                             fileBrowserActiveWindowIds.remove(window.id)
+                            sessionFileTabsStates[session.sessionName]?.selectedFileTabId = nil
                             selectedWindow = newWindow
                             Task {
                                 try? await tmuxService.selectWindow(newWindow.id)
@@ -592,16 +623,48 @@ public struct MainView: View {
                             if fileBrowserStates[window.id] == nil {
                                 fileBrowserStates[window.id] = FileBrowserState()
                             }
+                            if sessionFileTabsStates[session.sessionName] == nil {
+                                sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
+                            }
+                            sessionFileTabsStates[session.sessionName]?.selectedFileTabId = nil
+                        },
+                        onSelectFileTab: { tabId in
+                            // Ensure FileBrowserView is mounted for the current
+                            // window so its tree-scan tasks keep refreshing
+                            // tab deletion state while the file tab is the
+                            // active view.
+                            fileBrowserActiveWindowIds.insert(window.id)
+                            if fileBrowserStates[window.id] == nil {
+                                fileBrowserStates[window.id] = FileBrowserState()
+                            }
+                            if sessionFileTabsStates[session.sessionName] == nil {
+                                sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
+                            }
+                            sessionFileTabsStates[session.sessionName]?.selectedFileTabId = tabId
+                        },
+                        onCloseFileTab: { tabId in
+                            closeOpenFileTab(tabId, sessionName: session.sessionName)
                         }
                     )
                 }
 
                 if
-                    fileBrowserActiveWindowIds.contains(window.id),
-                    let browserState = fileBrowserStates[window.id] {
+                    isFileBrowserActive,
+                    let browserState,
+                    let session,
+                    let sessionTabs = sessionFileTabsStates[session.sessionName] {
                     FileBrowserView(
-                        directoryPath: window.activePane?.currentPath ?? NSHomeDirectory(),
-                        state: browserState
+                        directoryPath: directoryPath,
+                        state: browserState,
+                        sessionTabs: sessionTabs,
+                        onOpenFileInNewTab: { path in
+                            openFileInNewTab(
+                                path: path,
+                                directoryPath: directoryPath,
+                                sessionName: session.sessionName,
+                                windowId: window.id
+                            )
+                        }
                     )
                 } else {
                     WindowPaneLayoutView(window: window)
@@ -1070,6 +1133,12 @@ public struct MainView: View {
                 selectedRemoteSession = nil
                 selectedRemoteWindowId = nil
                 fileBrowserActiveWindowIds.remove(window.id)
+                if
+                    let sessionName = tmuxService.sessions
+                        .first(where: { $0.windows.contains(where: { $0.id == window.id }) })?
+                        .sessionName {
+                    sessionFileTabsStates[sessionName]?.selectedFileTabId = nil
+                }
             }
         case let .remote(hostId, hostName, paneId):
             // Find the session name for this pane from the session store
@@ -1127,6 +1196,56 @@ public struct MainView: View {
                     localProcesses: processes
                 )
             }
+        }
+    }
+
+    // MARK: - File Browser Tabs
+
+    /// Opens a file in a new tab next to the file browser, or selects the existing
+    /// tab if the file is already open. Newly opened tabs become the active view.
+    /// Tabs are scoped to the tmux session so they remain visible when the user
+    /// switches between windows in the same session.
+    ///
+    /// Also ensures `fileBrowserActiveWindowIds` contains `windowId` so the
+    /// FileBrowserView for that window stays mounted while the file tab is
+    /// selected — its `directoryChanges` task is what drives tab deletion
+    /// state, so it must continue running underneath the visible file content.
+    private func openFileInNewTab(
+        path: String,
+        directoryPath: String,
+        sessionName: String,
+        windowId: String
+    ) {
+        fileBrowserActiveWindowIds.insert(windowId)
+        if fileBrowserStates[windowId] == nil {
+            fileBrowserStates[windowId] = FileBrowserState()
+        }
+        if sessionFileTabsStates[sessionName] == nil {
+            sessionFileTabsStates[sessionName] = SessionFileTabsState()
+        }
+        guard let tabs = sessionFileTabsStates[sessionName] else { return }
+        if let existing = tabs.openFileTabs.first(where: { $0.path == path }) {
+            tabs.selectedFileTabId = existing.id
+            return
+        }
+        let newTab = OpenFileTab(path: path, directoryPath: directoryPath)
+        tabs.openFileTabs.append(newTab)
+        tabs.selectedFileTabId = newTab.id
+    }
+
+    /// Removes a file tab. If the closed tab was selected, clears the selection so
+    /// the content area falls back to the file tree (when active) or the terminal.
+    ///
+    /// Invariant: this must be the only code path that removes entries from
+    /// `openFileTabs`. Any bulk mutation that bypasses this method must also
+    /// clear `selectedFileTabId` when the selected tab is removed, otherwise
+    /// the id will dangle and the content area will render `OpenFileTabContentView`
+    /// against a stale tab.
+    private func closeOpenFileTab(_ tabId: UUID, sessionName: String) {
+        guard let tabs = sessionFileTabsStates[sessionName] else { return }
+        tabs.openFileTabs.removeAll { $0.id == tabId }
+        if tabs.selectedFileTabId == tabId {
+            tabs.selectedFileTabId = nil
         }
     }
 
@@ -1621,12 +1740,22 @@ private func windowTabLabel(windowName: String, windowIndex: Int) -> String {
 private struct WindowTabBar: View {
     let session: LocalTmuxSession
     let selectedWindow: LocalTmuxWindow
+    /// True only when the Files (tree) tab is the active view — i.e. the file browser
+    /// is open and no file tab is currently selected.
     let isFileBrowserSelected: Bool
+    /// True when any non-terminal view is showing (file tree OR a file tab). Used to
+    /// deselect the underlying tmux window tab so it doesn't render as concurrently
+    /// selected with a file view.
+    let isAnyFileViewActive: Bool
+    let openFileTabs: [OpenFileTab]
+    let selectedFileTabId: UUID?
     let onSelectWindow: (LocalTmuxWindow) -> Void
     let onCloseWindow: (LocalTmuxWindow) -> Void
     let onNewWindow: () -> Void
     let onRenameWindow: (LocalTmuxWindow, String) -> Void
     let onSelectFileBrowser: () -> Void
+    let onSelectFileTab: (UUID) -> Void
+    let onCloseFileTab: (UUID) -> Void
 
     @Environment(MirrorWindowManager.self) private var windowManager
 
@@ -1672,6 +1801,10 @@ private struct WindowTabBar: View {
                 .accessibilityLabel("Files")
                 .accessibilityValue(isFileBrowserSelected ? "selected" : "")
 
+                ForEach(openFileTabs) { tab in
+                    openFileTabView(tab)
+                }
+
                 Spacer()
             }
             .padding(.horizontal, 8)
@@ -1683,9 +1816,10 @@ private struct WindowTabBar: View {
     }
 
     @State private var hoveredWindowId: String?
+    @State private var hoveredFileTabId: UUID?
 
     private func windowTab(_ window: LocalTmuxWindow) -> some View {
-        let isSelected = window.id == selectedWindow.id && !isFileBrowserSelected
+        let isSelected = window.id == selectedWindow.id && !isAnyFileViewActive
         let isHovered = hoveredWindowId == window.id
         let hasClaude = window.panes.contains { windowManager.paneStates[$0.paneId]?.claudeSession != nil }
         let windowName = tabLabel(for: window)
@@ -1750,6 +1884,63 @@ private struct WindowTabBar: View {
 
     private func tabLabel(for window: LocalTmuxWindow) -> String {
         windowTabLabel(windowName: window.windowName, windowIndex: window.windowIndex)
+    }
+
+    @ViewBuilder
+    private func openFileTabView(_ tab: OpenFileTab) -> some View {
+        let isSelected = tab.id == selectedFileTabId
+        let isHovered = hoveredFileTabId == tab.id
+
+        HStack(spacing: 0) {
+            Button {
+                onSelectFileTab(tab.id)
+            } label: {
+                HStack(spacing: 4) {
+                    Symbols.docPlaintextFill.image
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                    Text(tab.name)
+                        .font(.system(.caption, design: .monospaced))
+                        .lineLimit(1)
+                        .strikethrough(tab.isDeleted, color: .secondary)
+                }
+                .padding(.leading, 12)
+                .padding(.trailing, 4)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("File tab: \(tab.name)")
+            .accessibilityValue(isSelected ? "selected" : "")
+
+            Button {
+                onCloseFileTab(tab.id)
+            } label: {
+                Symbols.xmark.image
+                    .font(.system(size: 8, weight: .bold))
+                    .frame(width: 14, height: 14)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .opacity(isSelected || isHovered ? 1 : 0)
+            .help("Close tab")
+            .padding(.trailing, 6)
+            .accessibilityLabel("Close file tab: \(tab.name)")
+        }
+        .foregroundStyle(isSelected ? .primary : .secondary)
+        .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+        .overlay(alignment: .bottom) {
+            if isSelected {
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(height: 2)
+            }
+        }
+        .onHover { hovering in
+            hoveredFileTabId = hovering ? tab.id : nil
+        }
     }
 }
 
