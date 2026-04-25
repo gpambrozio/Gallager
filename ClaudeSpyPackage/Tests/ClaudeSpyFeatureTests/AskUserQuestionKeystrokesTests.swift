@@ -38,7 +38,9 @@ struct AskUserQuestionKeystrokesTests {
         AskUserQuestionKeystrokes.build(for: params, answers: answers, delayMs: delay)
     }
 
-    private var d: TmuxKey { .delay(delay) }
+    private var d: TmuxKey {
+        .delay(delay)
+    }
 
     // MARK: - Single-select
 
@@ -74,10 +76,6 @@ struct AskUserQuestionKeystrokesTests {
         // The per-question Enter is the submit; nothing after it.
         #expect(keys.last == d)
         #expect(keys[keys.count - 2] == .enter)
-        #expect(!keys.contains { key in
-            // No second enter beyond the per-question one
-            if case .enter = key { return false } else { return false }
-        })
         #expect(keys.filter { $0 == .enter }.count == 1)
     }
 

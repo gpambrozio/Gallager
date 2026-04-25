@@ -146,7 +146,6 @@ struct AskUserQuestionResponseView: View {
 
     // MARK: - Question Content
 
-    @ViewBuilder
     private func questionContent(_ question: AskUserQuestionParameters.AskUserQuestion) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             // Progress indicator
@@ -166,7 +165,7 @@ struct AskUserQuestionResponseView: View {
             // Multi-select next button
             if
                 question.multiSelect
-                && (!selectedOptions.isEmpty || !customInputText.isEmpty)
+                && hasMultiSelectAnswer
                 && !showingCustomInput {
                 nextQuestionButton
             }
@@ -201,7 +200,6 @@ struct AskUserQuestionResponseView: View {
         }
     }
 
-    @ViewBuilder
     private func optionsList(_ question: AskUserQuestionParameters.AskUserQuestion) -> some View {
         VStack(spacing: 8) {
             ForEach(Array(question.options.enumerated()), id: \.offset) { index, option in
@@ -353,7 +351,12 @@ struct AskUserQuestionResponseView: View {
         }
         .buttonStyle(.borderedProminent)
         .buttonBorderShape(.roundedRectangle(radius: 12))
-        .disabled(!isConnected || (selectedOptions.isEmpty && customInputText.isEmpty))
+        .disabled(!isConnected || !hasMultiSelectAnswer)
+    }
+
+    private var hasMultiSelectAnswer: Bool {
+        !selectedOptions.isEmpty
+            || !customInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // MARK: - Actions
