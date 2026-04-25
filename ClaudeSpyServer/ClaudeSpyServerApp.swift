@@ -186,6 +186,11 @@ struct TmuxPaneMirrorApp: App {
                 // Pending file: hangs on first load, succeeds on second.
                 // Dynamic entries appear in the tree after the pending file loads.
                 fakeTree["loading.txt"] = .file(.pendingText("This file loaded successfully!\n"))
+                // Ephemeral file: disappears from the tree after its content is read,
+                // so scenarios can exercise "file deleted while tab is open" behaviour.
+                fakeTree["ephemeral.txt"] = .file(
+                    .ephemeralText("This file is about to disappear.\n")
+                )
                 let dynamicEntries: [String: FakeEntry] = [
                     "generated": .folder([
                         "output.txt": .file(.text("Generated content.\n")),
