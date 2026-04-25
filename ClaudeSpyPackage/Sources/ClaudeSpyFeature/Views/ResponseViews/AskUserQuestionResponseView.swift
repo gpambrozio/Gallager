@@ -4,24 +4,23 @@ import SwiftUI
 
 // MARK: - Question Answer
 
-/// Represents an answer to a question - either selected option indices or custom text
-private enum QuestionAnswer {
-    case selected(Set<Int>)
-    case custom(String)
+/// Represents an answer to a question. Multi-select questions can carry both
+/// selected option indices and custom "Other" text in the same answer.
+private struct QuestionAnswer {
+    var selectedIndices: Set<Int> = []
+    var customText: String?
 
-    /// Returns the display text for this answer given the question's options
+    var isEmpty: Bool { selectedIndices.isEmpty && customText == nil }
+
     func displayText(for question: AskUserQuestionParameters.AskUserQuestion) -> String {
-        switch self {
-        case let .selected(indices):
-            let sortedIndices = indices.sorted()
-            let labels = sortedIndices.compactMap { index -> String? in
-                guard index < question.options.count else { return nil }
-                return question.options[index].label
-            }
-            return labels.joined(separator: ", ")
-        case let .custom(text):
-            return "Other: \(text)"
+        var parts: [String] = []
+        let labels = selectedIndices.sorted().compactMap { index -> String? in
+            guard index < question.options.count else { return nil }
+            return question.options[index].label
         }
+        if !labels.isEmpty { parts.append(labels.joined(separator: ", ")) }
+        if let customText { parts.append("Other: \(customText)") }
+        return parts.joined(separator: ", ")
     }
 }
 
@@ -187,7 +186,10 @@ struct AskUserQuestionResponseView: View {
             otherOptionSection
 
             // Multi-select next button
-            if question.multiSelect && !selectedOptions.isEmpty && !showingCustomInput {
+            if
+                question.multiSelect
+                && (!selectedOptions.isEmpty || !customInputText.isEmpty)
+                && !showingCustomInput {
                 nextQuestionButton
             }
         }
@@ -332,16 +334,29 @@ struct AskUserQuestionResponseView: View {
             } label: {
                 HStack(spacing: 12) {
                     Symbols.pencilLine.image
-                        .foregroundStyle(.secondary)
-                    Text("Other...")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(customInputText.isEmpty ? Color.secondary : Color.blue)
+                    if customInputText.isEmpty {
+                        Text("Other...")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Other: \(customInputText)")
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                            .multilineTextAlignment(.leading)
+                    }
                     Spacer()
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.05)))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.2), lineWidth: 1))
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(customInputText.isEmpty ? Color.gray.opacity(0.05) : Color.blue.opacity(0.1))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(customInputText.isEmpty ? Color.gray.opacity(0.2) : Color.blue, lineWidth: 1)
+                )
             }
             .buttonStyle(.plain)
             .disabled(!isConnected)
@@ -357,14 +372,14 @@ struct AskUserQuestionResponseView: View {
         }
         .buttonStyle(.borderedProminent)
         .buttonBorderShape(.roundedRectangle(radius: 12))
-        .disabled(!isConnected || selectedOptions.isEmpty)
+        .disabled(!isConnected || (selectedOptions.isEmpty && customInputText.isEmpty))
     }
 
     // MARK: - Actions
 
     private func selectSingleOption(_ index: Int) {
         // Save the answer and advance to next question
-        collectedAnswers[currentQuestionIndex] = .selected([index])
+        collectedAnswers[currentQuestionIndex] = QuestionAnswer(selectedIndices: [index])
         advanceToNextQuestion()
     }
 
@@ -377,23 +392,36 @@ struct AskUserQuestionResponseView: View {
     }
 
     private func saveMultiSelectAndAdvance() {
-        guard !selectedOptions.isEmpty else { return }
-        collectedAnswers[currentQuestionIndex] = .selected(selectedOptions)
+        let trimmed = customInputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let other = trimmed.isEmpty ? nil : trimmed
+        guard !selectedOptions.isEmpty || other != nil else { return }
+        collectedAnswers[currentQuestionIndex] = QuestionAnswer(
+            selectedIndices: selectedOptions,
+            customText: other
+        )
         advanceToNextQuestion()
     }
 
     private func saveCustomInput() {
         let trimmed = customInputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        collectedAnswers[currentQuestionIndex] = .custom(trimmed)
-        customInputText = ""
+        customInputText = trimmed
         showingCustomInput = false
         isTextFieldFocused = false
+
+        // Multi-select keeps the saved text alongside any toggled options;
+        // single-select treats "Other" as the sole answer and advances.
+        if currentQuestion?.multiSelect == true {
+            return
+        }
+        collectedAnswers[currentQuestionIndex] = QuestionAnswer(customText: trimmed)
         advanceToNextQuestion()
     }
 
     private func advanceToNextQuestion() {
         currentQuestionIndex += 1
         selectedOptions = []
+        customInputText = ""
+        showingCustomInput = false
     }
 
     private func startOver() {
@@ -407,49 +435,89 @@ struct AskUserQuestionResponseView: View {
     private func confirmAndSubmit() async {
         state.isSending = true
 
-        // Build keystrokes for all answers
+        // Build keystrokes for all answers.
+        // Claude Code's AskUserQuestion prompt navigates with arrow keys, not numbers:
+        // option N is reached by (N-1) down arrows from the top, then Enter selects it.
+        // "Other" sits after the listed options, so it takes options.count down arrows.
         var keystrokes: [TmuxKey] = []
 
         for questionIndex in 0..<questions.count {
-            guard let answer = collectedAnswers[questionIndex] else { continue }
+            guard let answer = collectedAnswers[questionIndex], !answer.isEmpty else { continue }
             let question = questions[questionIndex]
 
-            switch answer {
-            case let .selected(indices):
-                if question.multiSelect {
-                    // For multi-select, send each selection individually with tab after
-                    for index in indices {
-                        keystrokes.append(.text("\(index + 1)"))
-                        keystrokes.append(.delay(500))
-                    }
-                    keystrokes.append(.right)
-                    keystrokes.append(.delay(500))
-                } else {
-                    // For single select, just send the number
-                    if let index = indices.first {
-                        keystrokes.append(.text("\(index + 1)"))
-                        keystrokes.append(.delay(500))
-                    }
+            if question.multiSelect {
+                // Enter toggles the highlighted option without moving the cursor,
+                // so navigate from the previous position each time.
+                var currentPos = 0
+                for index in answer.selectedIndices.sorted() {
+                    keystrokes.append(contentsOf: downArrows(count: index - currentPos))
+                    keystrokes.append(.enter)
+                    keystrokes.append(.delay(200))
+                    currentPos = index
                 }
-            case let .custom(text):
-                // Send "Other" option number, then text, delay, Enter, delay
-                let otherOptionNumber = question.options.count + 1
-                keystrokes.append(.text("\(otherOptionNumber)"))
-                keystrokes.append(.text(text))
-                keystrokes.append(.delay(500))
+                if let other = answer.customText {
+                    // Walk down from the last toggled position to "Other"
+                    // (which sits one slot past the last listed option),
+                    // type the text first (Claude Code engages Other on
+                    // input), then commit with Enter, then Down + Enter
+                    // to advance past it.
+                    keystrokes.append(contentsOf: downArrows(count: question.options.count - currentPos))
+                    keystrokes.append(.delay(200))
+                    keystrokes.append(.text(other))
+                    keystrokes.append(.delay(200))
+                    keystrokes.append(.space)
+                    keystrokes.append(.delay(200))
+                    keystrokes.append(.down)
+                    keystrokes.append(.delay(200))
+                    keystrokes.append(.enter)
+                    keystrokes.append(.delay(200))
+                } else {
+                    keystrokes.append(.right)
+                    keystrokes.append(.delay(200))
+                }
+            } else if let index = answer.selectedIndices.first {
+                keystrokes.append(contentsOf: downArrows(count: index))
                 keystrokes.append(.enter)
-                keystrokes.append(.delay(500))
+                keystrokes.append(.delay(200))
+            } else if let other = answer.customText {
+                // Single-select "Other": navigate past all listed options,
+                // type the text, then Enter.
+                keystrokes.append(contentsOf: downArrows(count: question.options.count))
+                keystrokes.append(.text(other))
+                keystrokes.append(.delay(200))
+                keystrokes.append(.enter)
+                keystrokes.append(.delay(200))
             }
         }
 
-        // Final enter to submit all answers
-        keystrokes.append(.enter)
+        // A trailing Enter is needed to submit the batch unless the prompt
+        // is a single single-select question (whose own Enter already
+        // submits). Multi-question prompts and any multi-select question
+        // both require the explicit confirmation. The leading delay lets
+        // the last commit settle before the submit fires.
+        let needsTrailingEnter = questions.count > 1 || questions.contains(where: \.multiSelect)
+        if needsTrailingEnter {
+            keystrokes.append(.delay(200))
+            keystrokes.append(.enter)
+        }
 
-        // Send all keystrokes at once
         await sendCommand(.sendKeystroke(keystrokes))
 
         state.isSending = false
         state.response = .allQuestionsAnswered
+    }
+
+    /// Builds `count` down-arrow keystrokes, each followed by a delay so the
+    /// terminal has time to update the highlight before the next keystroke
+    /// (an enter, another arrow, or text) is processed.
+    private func downArrows(count: Int) -> [TmuxKey] {
+        guard count > 0 else { return [] }
+        var keys: [TmuxKey] = []
+        for _ in 0..<count {
+            keys.append(.down)
+            keys.append(.delay(200))
+        }
+        return keys
     }
 }
 
