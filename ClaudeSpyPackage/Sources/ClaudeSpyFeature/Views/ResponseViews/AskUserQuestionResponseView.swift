@@ -435,89 +435,92 @@ struct AskUserQuestionResponseView: View {
     private func confirmAndSubmit() async {
         state.isSending = true
 
-        // Build keystrokes for all answers.
-        // Claude Code's AskUserQuestion prompt navigates with arrow keys, not numbers:
-        // option N is reached by (N-1) down arrows from the top, then Enter selects it.
-        // "Other" sits after the listed options, so it takes options.count down arrows.
-        var keystrokes: [TmuxKey] = []
-
-        for questionIndex in 0..<questions.count {
-            guard let answer = collectedAnswers[questionIndex], !answer.isEmpty else { continue }
-            let question = questions[questionIndex]
-
-            if question.multiSelect {
-                // Enter toggles the highlighted option without moving the cursor,
-                // so navigate from the previous position each time.
-                var currentPos = 0
-                for index in answer.selectedIndices.sorted() {
-                    keystrokes.append(contentsOf: downArrows(count: index - currentPos))
-                    keystrokes.append(.enter)
-                    keystrokes.append(.delay(200))
-                    currentPos = index
-                }
-                if let other = answer.customText {
-                    // Walk down from the last toggled position to "Other"
-                    // (which sits one slot past the last listed option),
-                    // type the text first (Claude Code engages Other on
-                    // input), then commit with Enter, then Down + Enter
-                    // to advance past it.
-                    keystrokes.append(contentsOf: downArrows(count: question.options.count - currentPos))
-                    keystrokes.append(.delay(200))
-                    keystrokes.append(.text(other))
-                    keystrokes.append(.delay(200))
-                    keystrokes.append(.space)
-                    keystrokes.append(.delay(200))
-                    keystrokes.append(.down)
-                    keystrokes.append(.delay(200))
-                    keystrokes.append(.enter)
-                    keystrokes.append(.delay(200))
-                } else {
-                    keystrokes.append(.right)
-                    keystrokes.append(.delay(200))
-                }
-            } else if let index = answer.selectedIndices.first {
-                keystrokes.append(contentsOf: downArrows(count: index))
-                keystrokes.append(.enter)
-                keystrokes.append(.delay(200))
-            } else if let other = answer.customText {
-                // Single-select "Other": navigate past all listed options,
-                // type the text, then Enter.
-                keystrokes.append(contentsOf: downArrows(count: question.options.count))
-                keystrokes.append(.text(other))
-                keystrokes.append(.delay(200))
-                keystrokes.append(.enter)
-                keystrokes.append(.delay(200))
-            }
+        // Claude Code's AskUserQuestion prompt navigates with arrow keys, not
+        // numbers: option N is reached by (N-1) down arrows from the top, then
+        // Enter selects it. "Other" sits one slot past the listed options.
+        // Every state-changing keystroke is followed by a short delay so the
+        // terminal has time to react before the next one fires.
+        var b = KeystrokeBuilder(delayMs: 200)
+        for (index, question) in questions.enumerated() {
+            guard let answer = collectedAnswers[index], !answer.isEmpty else { continue }
+            appendAnswer(answer, for: question, into: &b)
+        }
+        // The per-question commit doesn't submit a multi-question batch or a
+        // multi-select question; only a single single-select question is
+        // self-submitting. Everything else needs an explicit trailing Enter.
+        if questions.count > 1 || questions.contains(where: \.multiSelect) {
+            b.pause()
+            b.append(.enter)
         }
 
-        // A trailing Enter is needed to submit the batch unless the prompt
-        // is a single single-select question (whose own Enter already
-        // submits). Multi-question prompts and any multi-select question
-        // both require the explicit confirmation. The leading delay lets
-        // the last commit settle before the submit fires.
-        let needsTrailingEnter = questions.count > 1 || questions.contains(where: \.multiSelect)
-        if needsTrailingEnter {
-            keystrokes.append(.delay(200))
-            keystrokes.append(.enter)
-        }
-
-        await sendCommand(.sendKeystroke(keystrokes))
+        await sendCommand(.sendKeystroke(b.keys))
 
         state.isSending = false
         state.response = .allQuestionsAnswered
     }
 
-    /// Builds `count` down-arrow keystrokes, each followed by a delay so the
-    /// terminal has time to update the highlight before the next keystroke
-    /// (an enter, another arrow, or text) is processed.
-    private func downArrows(count: Int) -> [TmuxKey] {
-        guard count > 0 else { return [] }
-        var keys: [TmuxKey] = []
-        for _ in 0..<count {
-            keys.append(.down)
-            keys.append(.delay(200))
+    private func appendAnswer(
+        _ answer: QuestionAnswer,
+        for question: AskUserQuestionParameters.AskUserQuestion,
+        into b: inout KeystrokeBuilder
+    ) {
+        if question.multiSelect {
+            // Enter toggles the highlighted option without moving the cursor,
+            // so each toggle navigates incrementally from the previous one.
+            var pos = 0
+            for index in answer.selectedIndices.sorted() {
+                b.navigate(down: index - pos)
+                b.append(.enter)
+                pos = index
+            }
+            if let other = answer.customText {
+                // Walk past the listed options to "Other", type the text
+                // (Claude Code engages Other on input), then Space + Down +
+                // Enter to commit and advance past it.
+                b.navigate(down: question.options.count - pos)
+                b.pause()
+                b.append(.text(other))
+                b.append(.space)
+                b.append(.down)
+                b.append(.enter)
+            } else {
+                b.append(.right)
+            }
+        } else if let index = answer.selectedIndices.first {
+            b.navigate(down: index)
+            b.append(.enter)
+        } else if let other = answer.customText {
+            b.navigate(down: question.options.count)
+            b.append(.text(other))
+            b.append(.enter)
         }
-        return keys
+    }
+}
+
+// MARK: - Keystroke Builder
+
+/// Accumulates `TmuxKey` values, inserting a delay after every state-changing
+/// keystroke so the receiving terminal can process each one before the next.
+private struct KeystrokeBuilder {
+    let delayMs: Int
+    private(set) var keys: [TmuxKey] = []
+
+    mutating func append(_ key: TmuxKey) {
+        keys.append(key)
+        keys.append(.delay(delayMs))
+    }
+
+    /// Inserts an extra delay without a preceding keystroke.
+    mutating func pause() {
+        keys.append(.delay(delayMs))
+    }
+
+    /// Appends `count` down-arrow keystrokes, each followed by a delay.
+    mutating func navigate(down count: Int) {
+        guard count > 0 else { return }
+        for _ in 0..<count {
+            append(.down)
+        }
     }
 }
 
