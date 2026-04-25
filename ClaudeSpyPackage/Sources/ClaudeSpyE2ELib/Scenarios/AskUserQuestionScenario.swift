@@ -8,22 +8,29 @@ import Foundation
 /// Phase 3 — three questions (multi-select, single-select, multi-select) to
 /// exercise the multi-question flow with the trailing-Enter rule.
 ///
+/// Right before each Confirm tap a small Python keystroke logger is started
+/// in the tmux pane. After Confirm the resulting keystrokes flow through the
+/// relay to the Mac and into the pane; the logger records each one and emits
+/// a single `SEQUENCE: ...` line that the test asserts against. This proves
+/// not only that the iOS UI advances correctly but that the expected bytes
+/// actually land in tmux.
+///
 /// All three phases share one pairing/tmux setup to keep the run cheap.
 public enum AskUserQuestionScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Ask User Question",
         tags: ["hooks", "ask-user-question"]
     ) {
-        // Fresh pairing + tmux + SessionStart hook on session-1
         ClaudeSessionsShowScenario.scenario
 
-        // Open the session detail view once; subsequent phases reuse it.
+        TestStep.injectScript(name: "keystroke_logger.py")
+
         TestStep.iosTap(.labelContains("MyProject"))
         TestStep.wait(seconds: 5)
         TestStep.iosWaitForElement(.labelContains("Commands"), timeout: 15)
 
         // ──────────────────────────────────────────────────────────
-        // Phase 1: single-select with Other
+        // Phase 1: single-select with Other  →  expected: D D D T<Mango> E
         // ──────────────────────────────────────────────────────────
 
         TestStep.macSendHookEvent(
@@ -70,14 +77,34 @@ public enum AskUserQuestionScenario {
         TestStep.iosWaitForElement(.labelContains("Other: Mango"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-aq-p1-summary")
 
+        // Start the logger right before Confirm so it's reading stdin when
+        // the keystrokes arrive (rather than idling out beforehand).
+        Shortcut.tmuxRunCommand(
+            target: "session-1:0",
+            command: "python3 $TMPDIR/keystroke_logger.py"
+        )
+        TestStep.wait(seconds: 1)
+
         TestStep.iosTap(.labelContains("Confirm"))
         TestStep.wait(seconds: 2)
 
         TestStep.iosWaitForElement(.labelContains("All questions answered"), timeout: 5)
+
+        // Wait for the keystrokes to flow and the logger to idle out
+        // (its IDLE_TIMEOUT is 3 s).
+        TestStep.wait(seconds: 5)
+        // Capture screenshot first so the terminal pane (including the
+        // logger's SEQUENCE line) is preserved even if the assert fails.
         TestStep.iosScreenshot(label: "ios-aq-p1-done")
+        TestStep.tmuxCapturePaneContent(target: "session-1:0", storeAs: "phase1Sequence")
+        TestStep.assertStoredContains(
+            key: "phase1Sequence",
+            substring: "SEQUENCE: D D D T<Mango> E"
+        )
 
         // ──────────────────────────────────────────────────────────
         // Phase 2: multi-select with options + Other
+        // expected: E D D E D D T<Onyx> S D E E
         // ──────────────────────────────────────────────────────────
 
         TestStep.macSendHookEvent(
@@ -137,14 +164,28 @@ public enum AskUserQuestionScenario {
         TestStep.iosWaitForElement(.labelContains("Other: Onyx"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-aq-p2-summary")
 
+        Shortcut.tmuxRunCommand(
+            target: "session-1:0",
+            command: "python3 $TMPDIR/keystroke_logger.py"
+        )
+        TestStep.wait(seconds: 1)
+
         TestStep.iosTap(.labelContains("Confirm"))
         TestStep.wait(seconds: 2)
 
         TestStep.iosWaitForElement(.labelContains("All questions answered"), timeout: 5)
+
+        TestStep.wait(seconds: 5)
         TestStep.iosScreenshot(label: "ios-aq-p2-done")
+        TestStep.tmuxCapturePaneContent(target: "session-1:0", storeAs: "phase2Sequence")
+        TestStep.assertStoredContains(
+            key: "phase2Sequence",
+            substring: "SEQUENCE: E D D E D D T<Onyx> S D E E"
+        )
 
         // ──────────────────────────────────────────────────────────
         // Phase 3: 2 multi-select + 1 single-select
+        // expected: E D D E R D E E D E R E
         // ──────────────────────────────────────────────────────────
 
         TestStep.macSendHookEvent(
@@ -228,10 +269,23 @@ public enum AskUserQuestionScenario {
         TestStep.iosWaitForElement(.labelContains("Slack"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-aq-p3-summary")
 
+        Shortcut.tmuxRunCommand(
+            target: "session-1:0",
+            command: "python3 $TMPDIR/keystroke_logger.py"
+        )
+        TestStep.wait(seconds: 1)
+
         TestStep.iosTap(.labelContains("Confirm"))
         TestStep.wait(seconds: 2)
 
         TestStep.iosWaitForElement(.labelContains("All questions answered"), timeout: 5)
+
+        TestStep.wait(seconds: 5)
         TestStep.iosScreenshot(label: "ios-aq-p3-done")
+        TestStep.tmuxCapturePaneContent(target: "session-1:0", storeAs: "phase3Sequence")
+        TestStep.assertStoredContains(
+            key: "phase3Sequence",
+            substring: "SEQUENCE: E D D E R D E E D E R E"
+        )
     }
 }
