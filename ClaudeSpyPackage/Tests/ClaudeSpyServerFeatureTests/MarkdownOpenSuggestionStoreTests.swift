@@ -86,6 +86,52 @@ struct MarkdownOpenSuggestionStoreTests {
         #expect(store.suggestionsBySession["s"]?.isPlan == false)
     }
 
+    @Test("Files inside the project are NOT plans even with `plans/` parent or `plan.md` name")
+    func filesInsideProjectAreNotPlans() throws {
+        let store = MarkdownOpenSuggestionStore()
+        // `plans/` directory inside the project — project documentation, not a Claude plan.
+        try store.handleHookEvent(
+            writeEvent(filePath: "/repo/plans/feature.md", projectPath: "/repo"),
+            sessionName: "s"
+        )
+        #expect(store.suggestionsBySession["s"]?.isPlan == false)
+
+        // Bare `plan.md` checked into the project root.
+        try store.handleHookEvent(
+            writeEvent(filePath: "/repo/plan.md", projectPath: "/repo"),
+            sessionName: "s"
+        )
+        #expect(store.suggestionsBySession["s"]?.isPlan == false)
+
+        // `plan-foo.md` deeper inside the project.
+        try store.handleHookEvent(
+            writeEvent(filePath: "/repo/docs/plan-overview.md", projectPath: "/repo"),
+            sessionName: "s"
+        )
+        #expect(store.suggestionsBySession["s"]?.isPlan == false)
+    }
+
+    @Test("Files outside the project still tag as plans when projectPath is set")
+    func filesOutsideProjectStillTagAsPlans() throws {
+        let store = MarkdownOpenSuggestionStore()
+        try store.handleHookEvent(
+            writeEvent(filePath: "/tmp/plans/8f3c.md", projectPath: "/repo"),
+            sessionName: "s"
+        )
+        #expect(store.suggestionsBySession["s"]?.isPlan == true)
+    }
+
+    @Test("Sibling directories with shared prefix are not treated as inside the project")
+    func siblingPrefixIsNotInsideProject() throws {
+        let store = MarkdownOpenSuggestionStore()
+        // `/repo-other/plan.md` must NOT be considered inside `/repo`.
+        try store.handleHookEvent(
+            writeEvent(filePath: "/repo-other/plan.md", projectPath: "/repo"),
+            sessionName: "s"
+        )
+        #expect(store.suggestionsBySession["s"]?.isPlan == true)
+    }
+
     @Test("`projectPath` populates the suggestion's directoryPath, fall back to file's parent")
     func directoryPathFromProjectPath() throws {
         let store = MarkdownOpenSuggestionStore()

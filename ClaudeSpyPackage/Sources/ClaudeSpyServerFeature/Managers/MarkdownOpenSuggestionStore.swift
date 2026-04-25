@@ -113,7 +113,7 @@ final public class MarkdownOpenSuggestionStore {
                 filePath: params.filePath,
                 directoryPath: directoryPath,
                 sessionName: sessionName,
-                isPlan: Self.isPlanPath(params.filePath)
+                isPlan: Self.isPlanPath(params.filePath, projectPath: event.projectPath)
             ))
         case .userPromptSubmit:
             userSubmittedPrompt(sessionName: sessionName)
@@ -128,17 +128,37 @@ final public class MarkdownOpenSuggestionStore {
         return lower.hasSuffix(".md") || lower.hasSuffix(".markdown")
     }
 
-    /// True when the file is recognisably a plan: either the immediate parent
-    /// directory is `plans/`, or the basename is `plan` / `plan-foo` / `plan_foo`.
-    /// Distinct from `planning.md` or `planet.md` which are treated as ordinary
-    /// markdown so their filename is shown to the user.
-    private static func isPlanPath(_ path: String) -> Bool {
+    /// True when the file is recognisably a Claude-generated plan: either the
+    /// immediate parent directory is `plans/`, or the basename is `plan` /
+    /// `plan-foo` / `plan_foo`. Distinct from `planning.md` or `planet.md`
+    /// which are treated as ordinary markdown so their filename is shown.
+    ///
+    /// Files that live inside the current project's folder are never plans —
+    /// a `plans/` directory or `plan.md` checked into the repo is project
+    /// documentation, not a transient Claude plan.
+    private static func isPlanPath(_ path: String, projectPath: String?) -> Bool {
+        if let projectPath, isPath(path, inside: projectPath) {
+            return false
+        }
         let url = URL(fileURLWithPath: path)
         let parent = url.deletingLastPathComponent().lastPathComponent.lowercased()
         if parent == "plans" { return true }
         let basename = url.deletingPathExtension().lastPathComponent.lowercased()
         if basename == "plan" { return true }
         return basename.hasPrefix("plan-") || basename.hasPrefix("plan_")
+    }
+
+    /// True when `path` resolves to a location strictly inside `parent`.
+    /// Both inputs are standardized so `..` segments and trailing slashes
+    /// don't affect the comparison; `/foo/bar` is correctly rejected as a
+    /// child of `/foo/ba`.
+    private static func isPath(_ path: String, inside parent: String) -> Bool {
+        let normalizedPath = URL(fileURLWithPath: path).standardized.path
+        let normalizedParent = URL(fileURLWithPath: parent).standardized.path
+        let parentWithSlash = normalizedParent.hasSuffix("/")
+            ? normalizedParent
+            : normalizedParent + "/"
+        return normalizedPath.hasPrefix(parentWithSlash)
     }
 
     private func cancelDismissalTask(for sessionName: String) {
