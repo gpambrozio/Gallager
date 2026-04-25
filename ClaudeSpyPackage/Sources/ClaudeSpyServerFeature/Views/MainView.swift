@@ -1973,7 +1973,7 @@ private struct WindowTabBar: View {
         HStack(spacing: 6) {
             Symbols.docPlaintextFill.image
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.accentColor)
             Text(label)
                 .font(.caption)
                 .lineLimit(1)
@@ -1994,7 +1994,11 @@ private struct WindowTabBar: View {
         .padding(.vertical, 4)
         .background(
             RoundedRectangle(cornerRadius: 4)
-                .fill(Color.accentColor.opacity(0.1))
+                .fill(Color.accentColor.opacity(0.25))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .strokeBorder(Color.accentColor.opacity(0.5), lineWidth: 1)
         )
         .padding(.leading, 8)
         .accessibilityElement(children: .contain)
