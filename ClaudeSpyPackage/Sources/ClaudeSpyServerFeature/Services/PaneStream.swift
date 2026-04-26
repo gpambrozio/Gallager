@@ -143,8 +143,6 @@
                 )
 
                 // Step 2: Capture initial state via control mode
-                // Use paneId (stable) rather than target — with `renumber-windows on`
-                // a stale target invalidates capture-pane after a sibling kill.
                 let initialContent = try await tmuxService.capturePaneViaControlMode(
                     paneId: paneId,
                     height: height,

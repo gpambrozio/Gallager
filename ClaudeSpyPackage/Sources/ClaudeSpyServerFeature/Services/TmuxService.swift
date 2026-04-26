@@ -476,7 +476,7 @@ final public class TmuxService {
     /// are precisely ordered relative to live data — eliminating the H5 timing gap.
     ///
     /// - Parameters:
-    ///   - target: The pane target
+    ///   - paneId: The stable tmux pane id (e.g. `%3`)
     ///   - height: Known pane height (from previous query)
     ///   - controlClientManager: The manager to send commands through
     ///   - sessionName: The session name for the control client
