@@ -4,7 +4,7 @@ import Foundation
 /// A pending "open this markdown file?" prompt attached to a tmux session.
 ///
 /// Created when a `Write` PostToolUse hook lands a markdown file. Cleared when
-/// the user accepts/dismisses, or 60 seconds after the user submits a new prompt.
+/// the user accepts/dismisses, or 30 seconds after the user submits a new prompt.
 public struct MarkdownOpenSuggestion: Identifiable, Equatable, Sendable {
     public let id: UUID
     /// Absolute path of the markdown file Claude wrote.
@@ -41,7 +41,7 @@ public struct MarkdownOpenSuggestion: Identifiable, Equatable, Sendable {
 }
 
 /// Tracks "open this markdown file?" prompts per tmux session and times them out
-/// 60 seconds after the user submits a new prompt.
+/// 30 seconds after the user submits a new prompt.
 @Observable
 @MainActor
 final public class MarkdownOpenSuggestionStore {
@@ -52,7 +52,7 @@ final public class MarkdownOpenSuggestionStore {
 
     private let autoDismissDelay: Duration
 
-    public init(autoDismissDelay: Duration = .seconds(60)) {
+    public init(autoDismissDelay: Duration = .seconds(30)) {
         self.autoDismissDelay = autoDismissDelay
     }
 
@@ -75,9 +75,9 @@ final public class MarkdownOpenSuggestionStore {
         cancelDismissalTask(for: sessionName)
     }
 
-    /// Starts a one-shot 60-second auto-dismiss timer the first time the user
+    /// Starts a one-shot 30-second auto-dismiss timer the first time the user
     /// submits a prompt while a suggestion is pending. Subsequent prompts do
-    /// not reset the timer — the suggestion goes away ~60s after the first
+    /// not reset the timer — the suggestion goes away ~30s after the first
     /// new prompt regardless of how chatty the user gets.
     public func userSubmittedPrompt(sessionName: String) {
         guard suggestionsBySession[sessionName] != nil else { return }
