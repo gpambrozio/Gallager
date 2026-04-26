@@ -3,6 +3,19 @@ public extension HookEventMessage {
     func buildNotification() -> (title: String, body: String)? {
         let projectName = projectName ?? "Claude Code"
 
+        // AskUserQuestion gets a dedicated, more descriptive notification
+        // (the question text or a count) instead of the generic permission copy.
+        if
+            case let .permissionRequest(body) = event.action,
+            case let .askUserQuestion(params) = body.toolInput {
+            let detail: String = if params.questions.count == 1, let only = params.questions.first {
+                only.question
+            } else {
+                "Claude has \(params.questions.count) questions"
+            }
+            return (title: "Claude wants answers", body: "\(projectName): \(detail)")
+        }
+
         let body: String
 
         switch event.action {

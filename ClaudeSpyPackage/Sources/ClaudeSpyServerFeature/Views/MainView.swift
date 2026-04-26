@@ -11,6 +11,7 @@ public struct MainView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(PairingManager.self) private var pairingManager
+    @Environment(MarkdownOpenSuggestionStore.self) private var markdownOpenSuggestionStore
     @Environment(\.e2eeService) private var e2eeService: E2EEService?
     @Environment(\.openSettings) private var openSettings
 
@@ -103,6 +104,12 @@ public struct MainView: View {
             let currentSessionNames = Set(tmuxService.sessions.map(\.sessionName))
             for key in sessionFileTabsStates.keys where !currentSessionNames.contains(key) {
                 sessionFileTabsStates.removeValue(forKey: key)
+            }
+
+            // Clear pending markdown-open suggestions for removed sessions.
+            for sessionName in markdownOpenSuggestionStore.suggestionsBySession.keys
+                where !currentSessionNames.contains(sessionName) {
+                markdownOpenSuggestionStore.sessionRemoved(sessionName: sessionName)
             }
 
             guard let selected = selectedWindow else { return }
@@ -644,6 +651,15 @@ public struct MainView: View {
                         },
                         onCloseFileTab: { tabId in
                             closeOpenFileTab(tabId, sessionName: session.sessionName)
+                        },
+                        onAcceptOpenSuggestion: { suggestion in
+                            openFileInNewTab(
+                                path: suggestion.filePath,
+                                directoryPath: suggestion.directoryPath,
+                                sessionName: session.sessionName,
+                                windowId: window.id
+                            )
+                            markdownOpenSuggestionStore.dismiss(sessionName: session.sessionName)
                         }
                     )
                 }
@@ -1794,8 +1810,10 @@ private struct WindowTabBar: View {
     let onSelectFileBrowser: () -> Void
     let onSelectFileTab: (UUID) -> Void
     let onCloseFileTab: (UUID) -> Void
+    let onAcceptOpenSuggestion: (MarkdownOpenSuggestion) -> Void
 
     @Environment(MirrorWindowManager.self) private var windowManager
+    @Environment(MarkdownOpenSuggestionStore.self) private var openSuggestionStore
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -1841,6 +1859,10 @@ private struct WindowTabBar: View {
 
                 ForEach(openFileTabs) { tab in
                     openFileTabView(tab)
+                }
+
+                if let suggestion = openSuggestionStore.suggestionsBySession[session.sessionName] {
+                    openSuggestionBar(suggestion)
                 }
 
                 Spacer()
@@ -1979,6 +2001,46 @@ private struct WindowTabBar: View {
         .onHover { hovering in
             hoveredFileTabId = hovering ? tab.id : nil
         }
+    }
+
+    @ViewBuilder
+    private func openSuggestionBar(_ suggestion: MarkdownOpenSuggestion) -> some View {
+        let label = suggestion.isPlan
+            ? "Want to open the plan?"
+            : "Want to open \(suggestion.fileName)?"
+        HStack(spacing: 6) {
+            Symbols.docPlaintextFill.image
+                .font(.caption2)
+                .foregroundStyle(Color.accentColor)
+            Text(label)
+                .font(.caption)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: 240)
+            Button("Yes") {
+                onAcceptOpenSuggestion(suggestion)
+            }
+            .controlSize(.mini)
+            .accessibilityLabel("Open suggested file: Yes")
+            Button("No") {
+                openSuggestionStore.dismiss(sessionName: session.sessionName)
+            }
+            .controlSize(.mini)
+            .accessibilityLabel("Open suggested file: No")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.accentColor.opacity(0.25))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .strokeBorder(Color.accentColor.opacity(0.5), lineWidth: 1)
+        )
+        .padding(.leading, 8)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(label)
     }
 }
 
