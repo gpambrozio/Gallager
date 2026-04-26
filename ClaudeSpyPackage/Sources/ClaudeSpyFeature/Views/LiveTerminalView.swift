@@ -102,6 +102,10 @@
                     responseView
                         .padding()
                         .background(Color(.systemGroupedBackground))
+                        // Force a fresh view identity per event so per-event
+                        // @State (e.g. AskUserQuestion's collected answers) is
+                        // discarded when a new hook event replaces the prior one.
+                        .id(responseState.event.id)
 
                     Divider()
                 }
