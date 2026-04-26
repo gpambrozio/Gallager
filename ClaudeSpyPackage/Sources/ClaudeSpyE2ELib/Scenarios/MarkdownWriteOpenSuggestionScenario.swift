@@ -123,7 +123,7 @@ public enum MarkdownWriteOpenSuggestionScenario {
                 "timestamp": "2026-04-25T10:02:00.000000Z",
                 "tool_name": "Write",
                 "tool_input": {
-                    "file_path": "\(NSTemporaryDirectory())claude-plans/8f3c2d.md",
+                    "file_path": "\(NSTemporaryDirectory())plans/8f3c2d.md",
                     "content": "# Plan"
                 },
                 "tool_response": {}
