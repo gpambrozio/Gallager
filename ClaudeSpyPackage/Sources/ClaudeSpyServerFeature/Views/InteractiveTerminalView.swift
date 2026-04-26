@@ -315,6 +315,13 @@
         /// Callback invoked when the terminal title changes (via OSC 0 or OSC 2 escape sequences).
         var onTitleChange: (@MainActor (String) -> Void)?
 
+        /// Callback invoked when the user clicks a URL in the terminal. The
+        /// callback should return `true` if it handled the URL (and the
+        /// terminal view should do nothing further) or `false` to fall back to
+        /// `NSWorkspace.shared.open(_:)`. When the callback is `nil`, all URLs
+        /// are forwarded to `NSWorkspace`.
+        var onOpenURL: (@MainActor (URL) -> Bool)?
+
         /// When false, the terminal won't auto-grab focus on window add or window-becomes-key.
         /// Used in multi-pane layouts where multiple terminals share one window.
         var autoFocusEnabled = true
@@ -1009,15 +1016,22 @@
         private func gridPosition(for point: NSPoint) -> (col: Int, row: Int)? {
             guard cellSize.width > 0, cellSize.height > 0 else { return nil }
 
-            // Convert point to terminal view coordinates (accounting for horizontal scroll offset)
+            // Translate the click into terminalView's own bottom-left coordinate
+            // space. When dimensions are locked (tmux pane), terminalView is
+            // pinned to the top of the InteractiveTerminalView with
+            // `frame.origin.y = bounds.height - frame.height`, so accounting
+            // for the offset is required — otherwise clicks near the visual top
+            // map below row 0 and get clamped, hiding the real row.
+            let terminalLocalY = point.y - terminalView.frame.origin.y
             let terminalPoint = NSPoint(
                 x: point.x + horizontalOffset,
-                y: point.y
+                y: terminalLocalY
             )
 
             let terminal = terminalView.getTerminal()
 
-            // SwiftTerm uses flipped coordinates (origin at top-left for content)
+            // SwiftTerm rows count down from the visual top; AppKit's local y
+            // counts up from the bottom, so subtract from frame.height.
             let col = Int(terminalPoint.x / cellSize.width)
             let row = Int((terminalView.frame.height - terminalPoint.y) / cellSize.height)
 
@@ -1168,6 +1182,20 @@
             guard let pos = gridPosition(for: point) else { return false }
             let terminal = terminalView.getTerminal()
             let closures = urlClosures(for: terminal)
+
+            // First check the raw OSC 8 payload at the click position. This
+            // catches `file://` links (which `TerminalURLDetector` filters out
+            // for remote-session safety) so the local terminal can route them
+            // through `onOpenURL` and open the file in a new tab.
+            if
+                let payload = closures.cellPayload(pos.col, pos.row),
+                let urlString = Self.urlFromOSC8PayloadAllowingFileScheme(payload),
+                let url = URL(string: urlString) {
+                openURL(url)
+                return true
+            }
+
+            // Fall back to the regular detector (http/https/ftp via regex or OSC 8).
             if
                 let url = TerminalURLDetector.urlAt(
                     col: pos.col,
@@ -1177,10 +1205,36 @@
                     cellPayload: closures.cellPayload
                 ),
                 let nsURL = URL(string: url) {
-                NSWorkspace.shared.open(nsURL)
+                openURL(nsURL)
                 return true
             }
             return false
+        }
+
+        /// Opens a URL by giving `onOpenURL` first chance to handle it. Falls
+        /// back to `NSWorkspace.shared.open` when the callback is absent or
+        /// declines to handle the URL.
+        private func openURL(_ url: URL) {
+            if onOpenURL?(url) == true { return }
+            NSWorkspace.shared.open(url)
+        }
+
+        /// Extracts the URL portion of a SwiftTerm OSC 8 payload without
+        /// filtering by scheme. SwiftTerm strips the leading `OSC 8 ;` and
+        /// stores the bytes that follow, so the payload looks like
+        /// `<params>;<URL>` — `;https://...` when params are empty, or
+        /// `key=val;https://...` when params are present. We split on the
+        /// first `;` to peel off the params and return the rest verbatim.
+        ///
+        /// Used by the click handler so `file://` links from the local
+        /// terminal can be routed to the in-app file tab while the public
+        /// `TerminalURLDetector` keeps its `file://`-rejecting policy for
+        /// remote-session safety.
+        private static func urlFromOSC8PayloadAllowingFileScheme(_ payload: String) -> String? {
+            guard let separator = payload.firstIndex(of: ";") else { return nil }
+            let url = payload[payload.index(after: separator)...]
+            guard !url.isEmpty else { return nil }
+            return String(url)
         }
 
         // MARK: - URL Underlines
@@ -1465,7 +1519,7 @@
 
         func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
             if let url = URL(string: link) {
-                NSWorkspace.shared.open(url)
+                openURL(url)
             }
         }
 

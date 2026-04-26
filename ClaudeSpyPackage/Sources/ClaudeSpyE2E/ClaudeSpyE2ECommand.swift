@@ -237,6 +237,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         RapidKeystrokeOrderScenario.scenario,
         StopHookSummaryScenario.scenario,
         TerminalLinksScenario.scenario,
+        TerminalFileLinkScenario.scenario,
         TerminalTitleMacToMacScenario.scenario,
         TerminalTitleMacToIOSScenario.scenario,
         TerminalTitleInitialConnectionScenario.scenario,
