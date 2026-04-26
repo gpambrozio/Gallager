@@ -235,11 +235,12 @@ public enum TerminalURLDetector {
         return String(url)
     }
 
+    private static let trailingPunctuation: Set<Character> = [".", ",", ";", ":", "!", "?"]
+
     /// Removes trailing punctuation that commonly follows URLs in text but isn't part of the URL.
     private static func cleanTrailingPunctuation(_ url: String) -> String {
         var result = url
-        let trailingChars: Set<Character> = [".", ",", ";", ":", "!", "?"]
-        while let last = result.last, trailingChars.contains(last) {
+        while let last = result.last, trailingPunctuation.contains(last) {
             result.removeLast()
         }
         // Handle matched brackets/parens: if URL ends with ) but has no matching (

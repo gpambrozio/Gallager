@@ -165,6 +165,18 @@
         }
 
         override func mouseDown(with event: NSEvent) {
+            // In mouse mode, suppress the press if the click lands on an OSC 8
+            // hyperlink we'll handle. Otherwise SwiftTerm forwards a mouse-press
+            // SGR sequence to the terminal app (e.g. Claude Code), which can
+            // open the file from the press event before our `handleURLClick`
+            // runs in `mouseUp`.
+            if
+                let interactive = interactiveView,
+                interactive.isMouseModeActive,
+                interactive.isClickOnURL(at: interactive.convert(event.locationInWindow, from: nil)) {
+                onMouseDown?()
+                return
+            }
             terminalView?.mouseDown(with: event)
             onMouseDown?()
         }
@@ -210,20 +222,25 @@
         override func mouseUp(with event: NSEvent) {
             lastDragPosition = nil
 
-            // When mouse mode is active, skip URL detection and auto-copy —
-            // the terminal app owns mouse interaction.
-            if interactiveView?.isMouseModeActive == true {
-                terminalView?.mouseUp(with: event)
-                return
-            }
-
-            // Check for plain-text URL click before forwarding to SwiftTerm.
+            // Check for URL click first, even when mouse mode is active. This
+            // lets OSC 8 hyperlinks (esp. file://) emitted by TUI applications
+            // like Claude Code route through our `onOpenURL` handler instead
+            // of being delivered as a mouse-release SGR sequence to the
+            // terminal app.
             if let interactive = interactiveView {
                 let point = interactive.convert(event.locationInWindow, from: nil)
                 if interactive.handleURLClick(at: point) {
                     return
                 }
             }
+
+            // No URL at the click point. In mouse mode, the terminal app owns
+            // the click — forward to SwiftTerm and skip auto-copy.
+            if interactiveView?.isMouseModeActive == true {
+                terminalView?.mouseUp(with: event)
+                return
+            }
+
             terminalView?.mouseUp(with: event)
 
             // Auto-copy selection to clipboard when mouse is released
@@ -1203,6 +1220,23 @@
                 return true
             }
             return false
+        }
+
+        /// Whether the given point lies on a URL we'd handle. Used to suppress
+        /// mouse-mode propagation so terminal apps (e.g. Claude Code) don't act
+        /// on the click before our `handleURLClick` runs in `mouseUp`.
+        fileprivate func isClickOnURL(at point: NSPoint) -> Bool {
+            guard let pos = gridPosition(for: point) else { return false }
+            let terminal = terminalView.getTerminal()
+            let closures = urlClosures(for: terminal)
+            return TerminalURLDetector.urlAt(
+                col: pos.col,
+                row: pos.row,
+                cols: terminal.cols,
+                lineText: closures.lineText,
+                cellPayload: closures.cellPayload,
+                allowedSchemes: TerminalURLDetector.defaultAllowedSchemes.union(["file"])
+            ) != nil
         }
 
         /// Opens a URL by giving `onOpenURL` first chance to handle it. Falls
