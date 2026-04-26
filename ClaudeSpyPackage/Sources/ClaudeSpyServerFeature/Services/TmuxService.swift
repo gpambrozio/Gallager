@@ -483,29 +483,35 @@ final public class TmuxService {
     ///   - scrollbackMultiplier: How many times the visible height to capture as scrollback
     /// - Returns: Terminal data for scrollback + visible area
     public func capturePaneViaControlMode(
-        _ target: String,
+        paneId: String,
         height: Int,
         controlClientManager: TmuxControlClientManager,
         sessionName: String,
         scrollbackMultiplier: Int = 3
     ) async throws -> Data {
+        // Address the pane by its stable tmux pane ID rather than a
+        // session:window.pane target string. With `renumber-windows on`,
+        // window indices are reassigned synchronously when sibling windows
+        // are killed, which invalidates a stale target captured before the
+        // kill — leading to `%error` from `capture-pane` and a blank mirror
+        // until the user navigates away and back.
         let scrollbackLines = height * scrollbackMultiplier
 
         let scrollbackResponse = try await controlClientManager.sendCommand(
-            "capture-pane -t '\(target)' -p -e -S -\(scrollbackLines) -E -1",
+            "capture-pane -t '\(paneId)' -p -e -S -\(scrollbackLines) -E -1",
             sessionName: sessionName
         )
 
         let visibleResponse = try await controlClientManager.sendCommand(
-            "capture-pane -t '\(target)' -p -e",
+            "capture-pane -t '\(paneId)' -p -e",
             sessionName: sessionName
         )
 
         guard !visibleResponse.isError else {
-            throw TmuxError.invalidPane(target: target)
+            throw TmuxError.invalidPane(target: paneId)
         }
         let cursorResponse = try await controlClientManager.sendCommand(
-            "display-message -t '\(target)' -p '#{cursor_x},#{cursor_y},#{cursor_flag}'",
+            "display-message -t '\(paneId)' -p '#{cursor_x},#{cursor_y},#{cursor_flag}'",
             sessionName: sessionName
         )
 
