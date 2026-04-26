@@ -1178,31 +1178,25 @@
         }
 
         /// Called by the scroll overlay on click — opens URL if one is at the click position.
+        ///
+        /// `file://` is included in the allowed schemes here (in addition to the
+        /// default http/https/ftp) so OSC 8 file links from the local terminal
+        /// can be routed through `onOpenURL` and open as an in-app file tab.
+        /// `TerminalURLDetector` still rejects `file://` by default for the
+        /// hover/highlight rendering path (which can run against remote panes
+        /// where opening local files would be unsafe).
         fileprivate func handleURLClick(at point: NSPoint) -> Bool {
             guard let pos = gridPosition(for: point) else { return false }
             let terminal = terminalView.getTerminal()
             let closures = urlClosures(for: terminal)
-
-            // First check the raw OSC 8 payload at the click position. This
-            // catches `file://` links (which `TerminalURLDetector` filters out
-            // for remote-session safety) so the local terminal can route them
-            // through `onOpenURL` and open the file in a new tab.
-            if
-                let payload = closures.cellPayload(pos.col, pos.row),
-                let urlString = Self.urlFromOSC8PayloadAllowingFileScheme(payload),
-                let url = URL(string: urlString) {
-                openURL(url)
-                return true
-            }
-
-            // Fall back to the regular detector (http/https/ftp via regex or OSC 8).
             if
                 let url = TerminalURLDetector.urlAt(
                     col: pos.col,
                     row: pos.row,
                     cols: terminal.cols,
                     lineText: closures.lineText,
-                    cellPayload: closures.cellPayload
+                    cellPayload: closures.cellPayload,
+                    allowedSchemes: TerminalURLDetector.defaultAllowedSchemes.union(["file"])
                 ),
                 let nsURL = URL(string: url) {
                 openURL(nsURL)
@@ -1217,24 +1211,6 @@
         private func openURL(_ url: URL) {
             if onOpenURL?(url) == true { return }
             NSWorkspace.shared.open(url)
-        }
-
-        /// Extracts the URL portion of a SwiftTerm OSC 8 payload without
-        /// filtering by scheme. SwiftTerm strips the leading `OSC 8 ;` and
-        /// stores the bytes that follow, so the payload looks like
-        /// `<params>;<URL>` — `;https://...` when params are empty, or
-        /// `key=val;https://...` when params are present. We split on the
-        /// first `;` to peel off the params and return the rest verbatim.
-        ///
-        /// Used by the click handler so `file://` links from the local
-        /// terminal can be routed to the in-app file tab while the public
-        /// `TerminalURLDetector` keeps its `file://`-rejecting policy for
-        /// remote-session safety.
-        private static func urlFromOSC8PayloadAllowingFileScheme(_ payload: String) -> String? {
-            guard let separator = payload.firstIndex(of: ";") else { return nil }
-            let url = payload[payload.index(after: separator)...]
-            guard !url.isEmpty else { return nil }
-            return String(url)
         }
 
         // MARK: - URL Underlines
