@@ -281,6 +281,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         VersionMismatchOldMacHostScenario.scenario,
         VersionMismatchOldMacViewerScenario.scenario,
         VersionMismatchOldMacHostIOSViewerScenario.scenario,
+        AskUserQuestionScenario.scenario,
         MarkdownWriteOpenSuggestionScenario.scenario,
     ]
 
