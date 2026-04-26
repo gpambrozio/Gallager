@@ -2,14 +2,21 @@ import Foundation
 
 /// E2E scenario: File Browser
 ///
-/// Exercises all file browser features added in issue #257 and #289:
+/// Exercises all file browser features added in issue #257, #289, and #398:
 /// 1. Tab activation/deactivation and initial empty state
 /// 2. Text, markdown, HTML, image, PDF, video, and unsupported file viewers
 /// 3. Lazy-loading folder expansion at multiple depth levels
 /// 4. Context menu with clipboard assertions (Copy Path, Copy Relative Path)
 /// 5. State persistence across tab toggle (expansion, selection, sidebar width)
 /// 6. File search with matching results, no results, and persistence across tab switch
-/// 7. State isolation on window switch (file browser does not leak to other windows)
+/// 7. State isolation on window switch (file browser tree does not leak to other windows)
+/// 8. Open in New Tab: context menu opens the file in a tab next to the file browser,
+///    supports switching/closing tabs, and keeps the tab open with a strikethrough
+///    filename when the underlying file is deleted externally.
+/// 9. While a file tab is selected, the underlying tmux window tab is NOT also
+///    rendered as selected (regression guard for PR #399 issue 1).
+/// 10. File tabs are session-scoped and persist when switching between tmux
+///     windows in the same session (regression guard for PR #399 issue 2).
 ///
 /// Regression guards:
 /// - Nested NavigationSplitView layout gap (ee55599)
@@ -255,21 +262,152 @@ public enum FileBrowserScenario {
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "README.md", timeout: 5)
 
-        // ── Phase 18: State Reset on Window Switch ───────────────
-        TestStep.log("Phase 18: File browser resets on window switch")
+        // ── Phase 18: Open File in New Tab (context menu) ────────
+        TestStep.log("Phase 18: Open in New Tab context menu item creates a file tab")
 
-        // Create a second tmux window
+        // Right-click hello.txt → "Open in New Tab"
+        TestStep.macContextMenuClick(elementTitle: "hello.txt", menuItem: "Open in New Tab")
+        TestStep.wait(seconds: 2)
+        // Tab appears to the right of the Files tab with our accessibility label
+        TestStep.macWaitForElement(titled: "File tab: hello.txt", timeout: 5)
+        TestStep.macScreenshot(label: "mac-file-tab-opened")
+
+        // ── Phase 19: Switch back to file browser then to file tab ─
+        TestStep.log("Phase 19: Switch between Files tab and the new file tab")
+
+        // Click Files tab → tree should be visible again
+        TestStep.macClickButton(titled: "Files")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElement(titled: "README.md", timeout: 5)
+        TestStep.macScreenshot(label: "mac-file-tab-back-to-browser")
+
+        // Click the file tab → file content should be visible again
+        TestStep.macClickButton(titled: "File tab: hello.txt")
+        TestStep.wait(seconds: 1)
+        TestStep.macScreenshot(label: "mac-file-tab-reselected")
+
+        // ── Phase 20: Open a second file in another tab ──────────
+        TestStep.log("Phase 20: Second file tab opens alongside the first")
+
+        // Go back to the browser so the tree is visible for the right-click
+        TestStep.macClickButton(titled: "Files")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElement(titled: "README.md", timeout: 5)
+
+        TestStep.macContextMenuClick(elementTitle: "README.md", menuItem: "Open in New Tab")
+        TestStep.wait(seconds: 2)
+        // Both tabs should now be in the bar
+        TestStep.macWaitForElement(titled: "File tab: hello.txt", timeout: 5)
+        TestStep.macWaitForElement(titled: "File tab: README.md", timeout: 5)
+        TestStep.macScreenshot(label: "mac-two-file-tabs")
+
+        // ── Phase 21: Close a file tab ───────────────────────────
+        TestStep.log("Phase 21: Closing a tab removes only that tab")
+
+        // Select hello.txt tab first so its close button becomes visible
+        TestStep.macClickButton(titled: "File tab: hello.txt")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Close file tab: hello.txt")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementToDisappear(titled: "File tab: hello.txt", timeout: 5)
+        TestStep.macWaitForElement(titled: "File tab: README.md", timeout: 5)
+        TestStep.macScreenshot(label: "mac-file-tab-closed")
+
+        // ── Phase 22: Deleted file keeps tab open with strikethrough ─
+        TestStep.log("Phase 22: Deleted file keeps tab open with strikethrough filename")
+
+        // Go back to the browser to pick ephemeral.txt from the tree
+        TestStep.macClickButton(titled: "Files")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElement(titled: "ephemeral.txt", timeout: 5)
+
+        TestStep.macContextMenuClick(elementTitle: "ephemeral.txt", menuItem: "Open in New Tab")
+        TestStep.wait(seconds: 2)
+        // Tab is created and the ephemeral read signals deletion — the tab stays
+        // put showing a "File Deleted" placeholder.
+        TestStep.macWaitForElement(titled: "File tab: ephemeral.txt", timeout: 5)
+        TestStep.macWaitForElement(titled: "File Deleted", timeout: 5)
+        TestStep.macScreenshot(label: "mac-file-tab-deleted-strikethrough")
+
+        // Close the ephemeral.txt tab so "ephemeral.txt" only comes from the
+        // tree in the next assertion; if deletion propagated correctly the tree
+        // no longer has a row for it either.
+        TestStep.macClickButton(titled: "Close file tab: ephemeral.txt")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementToDisappear(titled: "File tab: ephemeral.txt", timeout: 5)
+        TestStep.macClickButton(titled: "Files")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementToDisappear(titled: "ephemeral.txt", timeout: 5)
+
+        // Clean up the remaining README.md tab so we don't carry state into the next phase.
+        TestStep.macClickButton(titled: "File tab: README.md")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Close file tab: README.md")
+        TestStep.wait(seconds: 1)
+
+        // ── Phase 23: Window tab visual state with a file tab selected ─
+        //
+        // Regression guard for PR #399 issue 1: before the fix, selecting a file
+        // tab also painted the underlying tmux window tab as selected (both got
+        // the accent background + underline). The screenshot here is the
+        // assertion — the terminal tab must not show the selected styling while
+        // the file tab is the active view.
+        TestStep.log("Phase 23: Selected file tab does not paint the window tab as selected")
+
+        TestStep.macContextMenuClick(elementTitle: "hello.txt", menuItem: "Open in New Tab")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "File tab: hello.txt", timeout: 5)
+        TestStep.macScreenshot(label: "mac-file-tab-selected-window-tab-deselected")
+
+        // ── Phase 24: File tabs persist across window switch (session-scoped) ─
+        //
+        // Regression guard for PR #399 issue 2: before the fix, openFileTabs
+        // lived on per-window FileBrowserState so switching tmux windows wiped
+        // the tab strip. The wait-for-element assertion fails on the broken
+        // version; the screenshots verify the visual state.
+        //
+        // This phase also implicitly verifies that the file browser tree is
+        // still per-window (it does NOT auto-follow into the new window), which
+        // was the original Phase 23 regression check.
+        TestStep.log("Phase 24: File tabs persist across tmux window switch within a session")
+
+        // Create a second tmux window in the same session
         Shortcut.tmuxRunCommand(target: "filebrowse:0.0", command: "tmux new-window -t filebrowse")
         TestStep.wait(seconds: 3)
         Shortcut.tmuxRunCommand(target: "filebrowse:1.0", command: "echo '=== WINDOW 1 ==='")
         TestStep.wait(seconds: 2)
 
-        // Click the new window tab — should show terminal, not file browser
+        // Switch to window 1 — file tab must still be visible in the bar, but
+        // the content area should show the terminal (window-switch clears the
+        // file-tab selection) and NOT the file browser tree (which is per-window).
         TestStep.macClickButton(titled: "filebrowse:1")
         TestStep.wait(seconds: 2)
-        TestStep.macScreenshot(label: "mac-window-switch-no-file-browser")
+        TestStep.macWaitForElement(titled: "File tab: hello.txt", timeout: 5)
+        TestStep.macWaitForElementToDisappear(titled: "README.md", timeout: 3)
+        TestStep.macScreenshot(label: "mac-window-switch-tab-persists")
 
-        // Clean up
+        // Click the file tab while on window 1 — file content should display.
+        // The path header shows the path relative to the window-0 directory
+        // (the originating directoryPath stored on the tab), which is the
+        // session's project root.
+        TestStep.macClickButton(titled: "File tab: hello.txt")
+        TestStep.wait(seconds: 1)
+        TestStep.macScreenshot(label: "mac-file-tab-from-other-window")
+
+        // Switch back to window 0 — file tab still visible, terminal restored.
+        TestStep.macClickButton(titled: "filebrowse:0")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "File tab: hello.txt", timeout: 5)
+        TestStep.macScreenshot(label: "mac-window-switch-back-tab-persists")
+
+        // Close the tab so we don't carry state past the scenario.
+        TestStep.macClickButton(titled: "File tab: hello.txt")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "Close file tab: hello.txt")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementToDisappear(titled: "File tab: hello.txt", timeout: 5)
+
+        // Tear down both windows.
         Shortcut.tmuxRunCommand(target: "filebrowse:1.0", command: "exit")
         TestStep.wait(seconds: 2)
         Shortcut.tmuxRunCommand(target: "filebrowse:0.0", command: "exit")

@@ -126,9 +126,11 @@ public struct ClaudeSession: Codable, Sendable {
              .preToolUse,
              .postToolUse,
              .postToolUseFailure,
+             .postToolBatch,
              .permissionRequest,
              .permissionDenied,
              .userPromptSubmit,
+             .userPromptExpansion,
              .subagentStart,
              .subagentStop,
              .teammateIdle,
@@ -178,11 +180,13 @@ public struct HookEvent: Identifiable, Codable, Sendable, Equatable {
     public var isWorking: Bool? {
         switch action {
         case .userPromptSubmit,
+             .userPromptExpansion,
              .preToolUse,
              .permissionRequest,
              .permissionDenied,
              .postToolUse,
              .postToolUseFailure,
+             .postToolBatch,
              .subagentStart,
              .subagentStop,
              .taskCreated,
@@ -1033,6 +1037,50 @@ public struct TaskCreatedBody: HookBodyProtocol {
     }
 }
 
+public struct UserPromptExpansionBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public let expansionType: String?
+    public let commandName: String?
+    public let commandArgs: String?
+    public let commandSource: String?
+    public let prompt: String?
+    public var shouldSendToServer: Bool { true }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+        case expansionType = "expansion_type"
+        case commandName = "command_name"
+        case commandArgs = "command_args"
+        case commandSource = "command_source"
+        case prompt
+    }
+}
+
+public struct PostToolBatchBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public var shouldSendToServer: Bool { false }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+    }
+}
+
 // MARK: - Yolo Mode Support
 
 public extension PermissionRequestBody {
@@ -1234,6 +1282,8 @@ public enum HookAction: Codable, Sendable {
     case worktreeCreate(WorktreeCreateBody)
     case worktreeRemove(WorktreeRemoveBody)
     case taskCreated(TaskCreatedBody)
+    case userPromptExpansion(UserPromptExpansionBody)
+    case postToolBatch(PostToolBatchBody)
     case unknown(CommonHookFields)
 
     private enum CodingKeys: String, CodingKey {
@@ -1268,6 +1318,8 @@ public enum HookAction: Codable, Sendable {
         case worktreeCreate
         case worktreeRemove
         case taskCreated
+        case userPromptExpansion
+        case postToolBatch
         case unknown
     }
 
@@ -1354,6 +1406,12 @@ public enum HookAction: Codable, Sendable {
         case .taskCreated:
             let body = try container.decode(TaskCreatedBody.self, forKey: .body)
             self = .taskCreated(body)
+        case .userPromptExpansion:
+            let body = try container.decode(UserPromptExpansionBody.self, forKey: .body)
+            self = .userPromptExpansion(body)
+        case .postToolBatch:
+            let body = try container.decode(PostToolBatchBody.self, forKey: .body)
+            self = .postToolBatch(body)
         case .unknown:
             let body = try container.decode(CommonHookFields.self, forKey: .body)
             self = .unknown(body)
@@ -1442,6 +1500,12 @@ public enum HookAction: Codable, Sendable {
         case let .taskCreated(body):
             try container.encode(ActionType.taskCreated, forKey: .type)
             try container.encode(body, forKey: .body)
+        case let .userPromptExpansion(body):
+            try container.encode(ActionType.userPromptExpansion, forKey: .type)
+            try container.encode(body, forKey: .body)
+        case let .postToolBatch(body):
+            try container.encode(ActionType.postToolBatch, forKey: .type)
+            try container.encode(body, forKey: .body)
         case let .unknown(body):
             try container.encode(ActionType.unknown, forKey: .type)
             try container.encode(body, forKey: .body)
@@ -1477,6 +1541,8 @@ public enum HookAction: Codable, Sendable {
         case let .worktreeCreate(body): body
         case let .worktreeRemove(body): body
         case let .taskCreated(body): body
+        case let .userPromptExpansion(body): body
+        case let .postToolBatch(body): body
         case let .unknown(body): body
         }
     }
@@ -1554,6 +1620,10 @@ public enum HookAction: Codable, Sendable {
             "Worktree Removed"
         case let .taskCreated(body):
             "Task Created: \(body.taskSubject ?? "Unknown")"
+        case let .userPromptExpansion(body):
+            "Expansion: \(body.commandName ?? "Unknown")"
+        case .postToolBatch:
+            "Tool Batch Complete"
         case let .unknown(body):
             body.hookEventName
         }
@@ -1613,6 +1683,10 @@ public enum HookAction: Codable, Sendable {
             body.worktreePath
         case let .taskCreated(body):
             body.taskDescription
+        case let .userPromptExpansion(body):
+            body.prompt
+        case .postToolBatch:
+            nil
         case .unknown:
             nil
         }
@@ -1704,6 +1778,12 @@ public enum HookAction: Codable, Sendable {
         case "TaskCreated":
             let body = try decoder.decode(TaskCreatedBody.self, from: jsonData)
             return .taskCreated(body)
+        case "UserPromptExpansion":
+            let body = try decoder.decode(UserPromptExpansionBody.self, from: jsonData)
+            return .userPromptExpansion(body)
+        case "PostToolBatch":
+            let body = try decoder.decode(PostToolBatchBody.self, from: jsonData)
+            return .postToolBatch(body)
         default:
             return .unknown(common)
         }
