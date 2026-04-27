@@ -351,6 +351,24 @@ public actor SimulatorDriver {
         )
     }
 
+    /// Swipe between two raw simulator coordinates via the XCTest runner's
+    /// touch synthesis. Direction and distance are fully controlled by the
+    /// caller — useful for testing pan-driven UI like terminal scrolling
+    /// where the gesture trajectory is what's being verified.
+    public func swipe(
+        fromX: CGFloat,
+        fromY: CGFloat,
+        toX: CGFloat,
+        toY: CGFloat,
+        duration: TimeInterval
+    ) async throws {
+        try await SimulatorHTTPClient.swipe(
+            startX: fromX, startY: fromY,
+            endX: toX, endY: toY,
+            duration: duration
+        )
+    }
+
     /// Perform a custom accessibility action on an element.
     public func performCustomAction(query: ElementQuery, action: String) async throws -> Bool {
         do {

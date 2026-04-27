@@ -1,4 +1,8 @@
-import sys, os, re, tty, termios, select
+import sys, os, re, tty, termios, select, shutil
+
+# Optional --wide flag appends a recognizable ruler line filling the terminal
+# width, so visual diffs of horizontal-scroll behavior are unambiguous.
+wide = '--wide' in sys.argv
 
 old_settings = termios.tcgetattr(sys.stdin)
 tty.setraw(sys.stdin)
@@ -15,6 +19,18 @@ try:
     drag_col = 0
     drag_row = 0
 
+    wide_line = ''
+    if wide:
+        cols = max(40, shutil.get_terminal_size().columns)
+        # 'WIDE>' prefix + repeating '0123456789|' chunks + '<END' suffix,
+        # padded/truncated so the line exactly fills the terminal width
+        # without wrapping. The '|' markers every 10 chars give an obvious
+        # visual reference for how far horizontal scrolling has moved.
+        body_target = cols - len('WIDE>') - len('<END')
+        chunk = '0123456789|'
+        body = (chunk * ((body_target // len(chunk)) + 1))[:body_target]
+        wide_line = 'WIDE>' + body + '<END'
+
     def render():
         lines = [
             'MOUSE-TEST-APP',
@@ -27,6 +43,8 @@ try:
             'DRAG-ROW:%d' % drag_row,
             'STATUS:READY',
         ]
+        if wide_line:
+            lines.append(wide_line)
         os.write(1, b'\033[H')
         for line in lines:
             os.write(1, (line + '\033[K\r\n').encode())

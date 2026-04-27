@@ -363,6 +363,13 @@ public actor TestOrchestrator {
             let element = try await simulatorDriver.waitForElement(matching: query, timeout: 5)
             try await simulatorDriver.swipeLeft(on: element)
 
+        case let .iosSwipe(fromX, fromY, toX, toY, duration):
+            try await simulatorDriver.swipe(
+                fromX: fromX, fromY: fromY,
+                toX: toX, toY: toY,
+                duration: duration
+            )
+
         case let .iosWaitForElementToDisappear(query, timeout):
             try await simulatorDriver.waitForElementToDisappear(matching: query, timeout: timeout)
 
