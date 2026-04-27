@@ -64,6 +64,10 @@
         private var urlHighlightLayer: CALayer?
         private var urlUnderlineLayers: [CALayer] = []
 
+        /// Cached cell size to avoid recomputing CoreText measurements on every
+        /// pan-gesture callback (60–120 Hz). Invalidated whenever the font changes.
+        private var cachedCellSize: CGSize?
+
         /// Cached OSC 8 payloads extracted from SwiftTerm cells before clearing.
         /// Structure: [absoluteBufferRow: [col: payloadString]]
         /// Keyed by absolute buffer row so lookups remain correct after scrolling.
@@ -120,6 +124,16 @@
         override func layoutSubviews() {
             super.layoutSubviews()
             updateURLUnderlines()
+        }
+
+        /// Returns the cached cell size, recalculating only on first access or after invalidation.
+        /// Used by hot paths (pan/scroll callbacks) where `FontMetrics.calculateCellSize`'s
+        /// CoreText measurements would otherwise run at refresh rate.
+        private var cellSize: CGSize {
+            if let cached = cachedCellSize { return cached }
+            let size = FontMetrics.calculateCellSize(font: font as CTFont)
+            cachedCellSize = size
+            return size
         }
 
         /// Scrolls the inner terminal (SwiftTerm's scrollback) to the bottom.
@@ -265,6 +279,29 @@
             return super.gestureRecognizerShouldBegin(gestureRecognizer)
         }
 
+        /// Overrides SwiftTerm's mouse-mode handler to make its `panMouseGesture`
+        /// require our `mouseModePanGesture` to fail.
+        ///
+        /// SwiftTerm enables its own `panMouseGesture` in `enableMousePanGesture()`
+        /// when mouse mode activates. Its handler fires `sharedMouseEvent`
+        /// (button-press + motion + release SGR sequences) on every drag —
+        /// running simultaneously with our gesture it would generate spurious
+        /// events alongside each scroll wheel sequence. Requiring it (and any
+        /// other non-scroll-view pan SwiftTerm may add) to fail ensures only
+        /// one recognizer fires per drag.
+        override func mouseModeChanged(source: Terminal) {
+            super.mouseModeChanged(source: source)
+            guard source.mouseMode != .off, let mouseModePanGesture else { return }
+            for gesture in gestureRecognizers ?? [] {
+                guard
+                    let pan = gesture as? UIPanGestureRecognizer,
+                    pan !== mouseModePanGesture,
+                    pan !== panGestureRecognizer
+                else { continue }
+                pan.require(toFail: mouseModePanGesture)
+            }
+        }
+
         @objc
         private func handleMouseModePan(_ gesture: UIPanGestureRecognizer) {
             switch gesture.state {
@@ -302,7 +339,6 @@
             }
             mouseModeAccumulatedY += deltaY
 
-            let cellSize = FontMetrics.calculateCellSize(font: font as CTFont)
             let lineThreshold = max(cellSize.height, 1)
             var lines = 0
             while abs(mouseModeAccumulatedY) >= lineThreshold {
@@ -334,7 +370,6 @@
         /// Returns absolute buffer row indices suitable for `getScrollInvariantLine(row:)`,
         /// so both viewport and scrollback rows work for URL detection.
         private func gridPosition(for point: CGPoint) -> (col: Int, row: Int)? {
-            let cellSize = FontMetrics.calculateCellSize(font: font as CTFont)
             guard cellSize.width > 0, cellSize.height > 0 else { return nil }
 
             let terminal = getTerminal()
@@ -403,8 +438,6 @@
         }
 
         private func showURLHighlight(row: Int, startCol: Int, endCol: Int) {
-            let cellSize = FontMetrics.calculateCellSize(font: font as CTFont)
-
             // row is an absolute buffer row — use directly for content-space positioning.
             let x = CGFloat(startCol) * cellSize.width
             let y = CGFloat(row) * cellSize.height
@@ -490,7 +523,6 @@
             urlUnderlineLayers.removeAll()
 
             let terminal = getTerminal()
-            let cellSize = FontMetrics.calculateCellSize(font: font as CTFont)
             guard cellSize.width > 0, cellSize.height > 0 else { return }
             let yDisp = terminal.buffer.yDisp
 
