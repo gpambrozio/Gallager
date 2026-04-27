@@ -16,7 +16,14 @@ import Foundation
 /// scheduling of `@MainActor` continuations).
 @MainActor
 final public class KeystrokeDebouncer {
-    private static let debounceInterval: Duration = .milliseconds(8)
+    /// Window in which consecutive keystrokes are batched into a single send.
+    /// Must exceed the worst-case inter-key gap of any expected source —
+    /// notably AppleScript's `keystroke` synthesis, which can pause up to
+    /// ~15 ms between chars on a loaded system. A short window splits long
+    /// strings across multiple WebSocket commands and exposes a race where
+    /// the trailing batch can be lost en route to the host (see the Rapid
+    /// Keystroke Order e2e flake).
+    private static let debounceInterval: Duration = .milliseconds(30)
 
     private let paneId: String
     private let relayClient: ViewerRelayClient

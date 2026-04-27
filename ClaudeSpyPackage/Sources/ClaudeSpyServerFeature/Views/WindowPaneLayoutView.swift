@@ -16,6 +16,7 @@ struct PositionedPane: Identifiable {
 /// `TerminalContainerView` instances in the correct split arrangement.
 struct WindowPaneLayoutView: View {
     let window: LocalTmuxWindow
+    var onOpenURL: TerminalOpenURLHandler?
 
     @Environment(AppSettings.self) private var settings
     @Environment(MirrorWindowManager.self) private var windowManager
@@ -69,7 +70,8 @@ struct WindowPaneLayoutView: View {
                     PaneTileView(
                         paneState: paneState,
                         paneInfo: pane.paneInfo,
-                        isSingle: isSingle
+                        isSingle: isSingle,
+                        onOpenURL: onOpenURL
                     )
                     .id(pane.id)
                 }
@@ -121,6 +123,7 @@ struct WindowPaneLayoutView: View {
         let paneState: PaneState
         let paneInfo: PaneInfo
         let isSingle: Bool
+        var onOpenURL: TerminalOpenURLHandler?
 
         @Environment(MirrorWindowManager.self) private var windowManager
         @Environment(TmuxService.self) private var tmuxService
@@ -133,7 +136,8 @@ struct WindowPaneLayoutView: View {
                 onStateChange: { _, _, _ in },
                 onTitleChange: { title in
                     windowManager.updateTerminalTitle(paneId: paneState.paneId, title: title)
-                }
+                },
+                onOpenURL: onOpenURL
             )
             .overlay {
                 if !isSingle {

@@ -683,7 +683,17 @@ public struct MainView: View {
                         }
                     )
                 } else {
-                    WindowPaneLayoutView(window: window)
+                    WindowPaneLayoutView(
+                        window: window,
+                        onOpenURL: { url in
+                            handleTerminalURLClick(
+                                url,
+                                directoryPath: directoryPath,
+                                session: session,
+                                window: window
+                            )
+                        }
+                    )
                 }
             }
             .id(window.id)
@@ -1247,6 +1257,34 @@ public struct MainView: View {
         let newTab = OpenFileTab(path: path, directoryPath: directoryPath)
         tabs.openFileTabs.append(newTab)
         tabs.selectedFileTabId = newTab.id
+    }
+
+    /// Routes a URL clicked in the terminal. When `openClickedFileInNewTab` is
+    /// enabled and the URL is a `file://` link, the file is opened as a new tab
+    /// next to the file browser. Returns `true` in that case so the caller
+    /// knows not to fall back to `NSWorkspace.shared.open`. Non-file URLs and
+    /// clicks made while the setting is off return `false` so the system
+    /// browser handles them as before.
+    private func handleTerminalURLClick(
+        _ url: URL,
+        directoryPath: String,
+        session: LocalTmuxSession?,
+        window: LocalTmuxWindow
+    ) -> Bool {
+        guard
+            settings.openClickedFileInNewTab,
+            url.isFileURL,
+            let session
+        else {
+            return false
+        }
+        openFileInNewTab(
+            path: url.path,
+            directoryPath: directoryPath,
+            sessionName: session.sessionName,
+            windowId: window.id
+        )
+        return true
     }
 
     /// Removes a file tab. If the closed tab was selected, clears the selection so
