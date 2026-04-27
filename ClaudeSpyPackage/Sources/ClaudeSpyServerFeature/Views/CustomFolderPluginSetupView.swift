@@ -57,6 +57,16 @@
             .sheetFocusFix()
             .task {
                 guard !skipAutoCheck else { return }
+                // Don't overwrite the user's configured `claudeCommandPath`
+                // here. This sheet is reached after the initial plugin
+                // setup (the user is adding or fixing an extra Claude
+                // folder), so the global path has already been chosen and
+                // potentially customized — re-running auto-detection would
+                // silently change it back to a default common location.
+                if settings.hasCompletedPluginSetup {
+                    await pluginService.checkInstallation()
+                    return
+                }
                 guard let path = await pluginService.findClaude() else {
                     // `findClaude` already transitioned state to
                     // `.claudeNotInstalled`, which the UI handles.
