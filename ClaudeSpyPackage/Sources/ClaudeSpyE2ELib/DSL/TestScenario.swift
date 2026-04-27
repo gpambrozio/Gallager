@@ -64,6 +64,10 @@ public enum TestStep: Sendable {
     case iosType(text: String)
     /// Swipe left on an iOS UI element
     case iosSwipeLeft(ElementQuery)
+    /// Perform a swipe gesture between two raw simulator coordinates. Useful
+    /// for testing pan-driven UI like terminal scrolling where the gesture
+    /// direction and distance matter, not the targeted element.
+    case iosSwipe(fromX: CGFloat, fromY: CGFloat, toX: CGFloat, toY: CGFloat, duration: TimeInterval = 0.3)
     /// Wait for an iOS UI element to disappear
     case iosWaitForElementToDisappear(ElementQuery, timeout: TimeInterval = 10)
     /// Take an iOS screenshot, optionally comparing against a stored baseline
