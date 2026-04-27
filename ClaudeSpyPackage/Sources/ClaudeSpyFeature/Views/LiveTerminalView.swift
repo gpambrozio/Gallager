@@ -167,7 +167,6 @@
         }
 
         /// Overlay button for keyboard toggle when navigation bar is hidden
-        @ViewBuilder
         private var keyboardOverlayButton: some View {
             Button {
                 isInteractive.toggle()
@@ -202,6 +201,9 @@
                         isInteractive: effectiveInteractive,
                         onInput: { keys in
                             coordinator.enqueueKeySend(keys: keys, relayClient: relayClient)
+                        },
+                        onRawInput: { data in
+                            coordinator.enqueueRawInput(data: data, relayClient: relayClient)
                         }
                     )
                 } else {
@@ -323,6 +325,16 @@
                 keystrokeDebouncer = KeystrokeDebouncer(paneId: paneId, relayClient: relayClient)
             }
             keystrokeDebouncer?.enqueue(keys)
+        }
+
+        /// Forwards raw bytes (e.g., SGR mouse escape sequences) to the host via the relay.
+        /// Routes through the same debouncer as keystrokes so order is preserved with
+        /// any in-flight typed input.
+        func enqueueRawInput(data: Data, relayClient: ViewerRelayClient) {
+            if keystrokeDebouncer == nil {
+                keystrokeDebouncer = KeystrokeDebouncer(paneId: paneId, relayClient: relayClient)
+            }
+            keystrokeDebouncer?.enqueueRawInput(data)
         }
 
         func handleStreamMessage(_ message: TerminalStreamMessage) {
@@ -459,6 +471,9 @@
         /// Callback when user types (keys are ready for relay transmission)
         let onInput: @MainActor ([TmuxKey]) -> Void
 
+        /// Callback for raw escape sequences (e.g., SGR mouse events) ready for relay transmission
+        let onRawInput: @MainActor (Data) -> Void
+
         func makeUIView(context: Context) -> UIScrollView {
             // Calculate cell size using FontMetrics (matches SwiftTerm's computeFontDimensions)
             let cellSize = FontMetrics.calculateCellSize(
@@ -487,6 +502,7 @@
 
             // Wire up input callback
             terminalView.onInput = onInput
+            terminalView.onRawInput = onRawInput
 
             // Create scroll view for horizontal and vertical scrolling.
             // The terminal view is sized to match the terminal content exactly.
@@ -502,6 +518,9 @@
             scrollView.alwaysBounceVertical = false
             scrollView.alwaysBounceHorizontal = false
             context.coordinator.outerScrollView = scrollView
+
+            // Let our mouse-mode pan win over tall-terminal vertical scrolling.
+            terminalView.attachOuterScrollPanGesture(scrollView.panGestureRecognizer)
 
             let widthConstraint = terminalView.widthAnchor.constraint(equalToConstant: exactWidth)
             widthConstraint.priority = .defaultHigh

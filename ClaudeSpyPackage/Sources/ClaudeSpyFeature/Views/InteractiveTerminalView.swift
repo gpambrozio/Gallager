@@ -28,6 +28,10 @@
         /// Marked @MainActor for Swift 6 strict concurrency safety.
         var onInput: (@MainActor ([TmuxKey]) -> Void)?
 
+        /// Callback invoked for raw escape sequences (e.g., SGR mouse events) that must be
+        /// sent to tmux as-is, bypassing TmuxKey conversion.
+        var onRawInput: (@MainActor (Data) -> Void)?
+
         /// Callback invoked when the terminal title changes (via OSC 0 or OSC 2 escape sequences).
         var onTitleChange: (@MainActor (String) -> Void)?
 
@@ -41,6 +45,20 @@
 
         /// When true, blocks all contentOffset changes to preserve scroll position
         private var blockScrollChanges = false
+
+        /// Pan gesture used to synthesize SGR mouse scroll events when the host has
+        /// tmux mouse mode enabled. Only begins when `isMouseModeActive` is true.
+        private var mouseModePanGesture: UIPanGestureRecognizer?
+
+        /// Outer scroll view's pan gesture (from `TerminalStreamContainerView`).
+        /// Stored so we can require it to fail to ours when mouse mode is active —
+        /// otherwise tall-terminal vertical scrolling would steal the drag.
+        private weak var outerScrollPanGesture: UIPanGestureRecognizer?
+
+        /// Accumulated translation since the last emitted scroll event. Pan gestures
+        /// deliver translations at refresh rate; we accumulate and emit one SGR
+        /// event per cell-height crossed so the rate matches what the user sees.
+        private var mouseModeAccumulatedY: CGFloat = 0
 
         /// Highlight layer shown over detected URL during long-press
         private var urlHighlightLayer: CALayer?
@@ -61,6 +79,7 @@
             // here — cursor visibility (DECTCEM ?25l/?25h) handles show/hide instead.
             caretViewTracksFocus = false
             setupURLLongPress()
+            setupMouseModePan()
         }
 
         @available(*, unavailable)
@@ -195,6 +214,119 @@
             tap.require(toFail: longPress)
             tap.delegate = self
             addGestureRecognizer(tap)
+        }
+
+        // MARK: - Mouse Mode Scrolling
+
+        /// True when the host terminal currently has tmux mouse mode enabled.
+        /// Mirrors the macOS check so SGR escape sequences only synthesize
+        /// when the remote app is actually listening for them.
+        var isMouseModeActive: Bool {
+            getTerminal().mouseMode != .off
+        }
+
+        /// Adds a single-finger pan gesture that synthesizes SGR scroll wheel
+        /// events when mouse mode is active. The gesture's delegate gates
+        /// `shouldBegin` on `isMouseModeActive` so normal scrolling is preserved
+        /// when the host isn't in mouse mode.
+        private func setupMouseModePan() {
+            let pan = UIPanGestureRecognizer(target: self, action: #selector(handleMouseModePan))
+            pan.maximumNumberOfTouches = 1
+            pan.cancelsTouchesInView = false
+            pan.delegate = self
+            // Block SwiftTerm's own scrollback pan when ours engages — they share
+            // the same view so without this both fire and the buffer scrolls
+            // visually while we're sending mouse events.
+            panGestureRecognizer.require(toFail: pan)
+            addGestureRecognizer(pan)
+            mouseModePanGesture = pan
+        }
+
+        /// Called by the container view to register the outer scroll view's pan
+        /// gesture. We make it require ours to fail so a vertical drag in mouse
+        /// mode doesn't get hijacked by tall-terminal scrolling.
+        func attachOuterScrollPanGesture(_ pan: UIPanGestureRecognizer) {
+            outerScrollPanGesture = pan
+            if let mouseModePanGesture {
+                pan.require(toFail: mouseModePanGesture)
+            }
+        }
+
+        /// Gates the mouse-mode pan on `isMouseModeActive` so normal scrolling
+        /// still works when the host doesn't have tmux mouse mode enabled.
+        ///
+        /// Implemented as an `override` rather than via `UIGestureRecognizerDelegate`
+        /// because `UIScrollView` already implements this method and Swift forbids
+        /// extension overrides.
+        override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            if gestureRecognizer === mouseModePanGesture {
+                return isMouseModeActive
+            }
+            return super.gestureRecognizerShouldBegin(gestureRecognizer)
+        }
+
+        @objc
+        private func handleMouseModePan(_ gesture: UIPanGestureRecognizer) {
+            switch gesture.state {
+            case .began:
+                mouseModeAccumulatedY = 0
+            case .changed:
+                let translation = gesture.translation(in: self)
+                gesture.setTranslation(.zero, in: self)
+                emitMouseModeScrollEvents(deltaY: translation.y, at: gesture.location(in: self))
+            case .ended,
+                 .cancelled,
+                 .failed:
+                mouseModeAccumulatedY = 0
+            default:
+                break
+            }
+        }
+
+        /// Translates accumulated pan movement into batched SGR scroll wheel
+        /// sequences and forwards them via `onRawInput`.
+        ///
+        /// Touch deltas are in points; one cell-height of pixel scroll becomes
+        /// one line event so the rate matches what the user sees visually
+        /// (mirrors the macOS trackpad path in `ScrollEventOverlay.scrollWheel`).
+        ///
+        /// "Drag finger down" (translation.y > 0) reveals older content above —
+        /// that's a scroll-up event (button 64). "Drag finger up" sends scroll
+        /// down (button 65). This matches natural-scrolling expectations.
+        private func emitMouseModeScrollEvents(deltaY: CGFloat, at location: CGPoint) {
+            guard deltaY != 0 else { return }
+
+            // Reset accumulator on direction change for responsive reversal.
+            if (mouseModeAccumulatedY > 0) != (deltaY > 0) {
+                mouseModeAccumulatedY = 0
+            }
+            mouseModeAccumulatedY += deltaY
+
+            let cellSize = FontMetrics.calculateCellSize(font: font as CTFont)
+            let lineThreshold = max(cellSize.height, 1)
+            var lines = 0
+            while abs(mouseModeAccumulatedY) >= lineThreshold {
+                lines += 1
+                mouseModeAccumulatedY -= mouseModeAccumulatedY > 0 ? lineThreshold : -lineThreshold
+            }
+            guard lines > 0 else { return }
+
+            let terminal = getTerminal()
+            let cols = terminal.cols
+            let rows = terminal.rows
+            guard cellSize.width > 0, cellSize.height > 0, cols > 0, rows > 0 else { return }
+
+            let col = min(max(0, Int(location.x / cellSize.width)), cols - 1)
+            let visibleY = location.y - contentOffset.y
+            let row = min(max(0, Int(visibleY / cellSize.height)), rows - 1)
+
+            // Button 64 = scroll up (older content), 65 = scroll down (newer).
+            // Drag finger down (deltaY > 0) → reveal older content → scroll up.
+            let button = deltaY > 0 ? 64 : 65
+            // SGR format: ESC [ < Cb ; Cx ; Cy M  (1-indexed coordinates)
+            let singleEvent = "\u{1b}[<\(button);\(col + 1);\(row + 1)M"
+            let batch = String(repeating: singleEvent, count: lines)
+            onRawInput?(Data(batch.utf8))
         }
 
         /// Converts a content-space point to a grid position (col, absoluteRow).
@@ -412,9 +544,9 @@
 
     // MARK: - TerminalViewDelegate
 
-    // SwiftTerm's TerminalViewDelegate is not marked Sendable, but all delegate methods
-    // are called on the main thread from UIKit. We use @preconcurrency to bridge to
-    // Swift 6 strict concurrency while acknowledging this UIKit threading guarantee.
+    /// SwiftTerm's TerminalViewDelegate is not marked Sendable, but all delegate methods
+    /// are called on the main thread from UIKit. We use @preconcurrency to bridge to
+    /// Swift 6 strict concurrency while acknowledging this UIKit threading guarantee.
     extension InteractiveTerminalView: @preconcurrency TerminalViewDelegate {
         func send(source: TerminalView, data: ArraySlice<UInt8>) {
             // Defense-in-depth: DA queries are stripped from the feed on the macOS host,
