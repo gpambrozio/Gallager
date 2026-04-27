@@ -2,6 +2,7 @@ import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import Dependencies
 import Foundation
+import Logging
 
 /// Manages pane state, hook events, and session tracking.
 @Observable
@@ -23,6 +24,7 @@ final public class MirrorWindowManager {
     @ObservationIgnored
     @Dependency(ProcessRunner.self) private var processRunner
 
+    private let logger = Logger(label: "com.claudespy.mirrorwindowmanager")
     private let settings: AppSettings
     private let tmuxService: TmuxService
 
@@ -50,7 +52,23 @@ final public class MirrorWindowManager {
     /// Creates new entries for newly discovered panes, updates metadata for existing panes,
     /// and removes entries for panes that no longer exist (cleaning up associated state).
     ///
+    /// Defense-in-depth: refuses to wipe a non-empty `paneStates` from an empty
+    /// `panes` argument. The producer-side guards in `TmuxService.refreshPanes()`
+    /// already disambiguate transient tmux errors from real server-down events,
+    /// but if any of those guards are wrong (or a new caller passes `[]` by
+    /// mistake) we don't want to silently destroy `claudeSession` data that can
+    /// only be recovered from hook events. Stale entries get cleaned up the
+    /// next time a non-empty pane list arrives — `currentPaneIds` set membership
+    /// handles that automatically.
     public func updatePaneStates(from panes: [PaneInfo]) {
+        if panes.isEmpty && !paneStates.isEmpty {
+            logger.warning("updatePaneStates called with empty panes — refusing to wipe non-empty state", metadata: [
+                "existingPaneCount": "\(paneStates.count)",
+                "existingClaudeSessionCount": "\(paneStates.values.filter { $0.claudeSession != nil }.count)",
+            ])
+            return
+        }
+
         let currentPaneIds = Set(panes.map(\.paneId))
 
         // Update or create entries for current panes

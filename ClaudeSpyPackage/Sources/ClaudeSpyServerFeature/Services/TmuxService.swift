@@ -210,13 +210,23 @@ final public class TmuxService {
 
             guard result.isSuccess else {
                 if isNoServerError(result.stderrString) {
+                    if !panes.isEmpty {
+                        logger.warning("tmux list-panes returned no-server error — clearing panes", metadata: [
+                            "stderr": "\(result.stderrString)",
+                            "exitCode": "\(result.exitCode)",
+                            "oldPaneCount": "\(panes.count)",
+                        ])
+                    }
                     panes = []
                     return panes
                 }
                 // Connection errors are ambiguous: check if the socket is actually gone
                 // (server genuinely exited, e.g. last session closed) vs. transient
                 if isConnectionError(result.stderrString) && isServerSocketMissing {
-                    logger.info("tmux socket missing after connection error — server exited, clearing panes")
+                    logger.warning("tmux list-panes connection error + socket missing — clearing panes", metadata: [
+                        "stderr": "\(result.stderrString)",
+                        "oldPaneCount": "\(panes.count)",
+                    ])
                     panes = []
                     return panes
                 }
@@ -255,14 +265,38 @@ final public class TmuxService {
                 seen.insert(pane.paneId)
                 return true
             }
+
+            // list-panes succeeded but yielded zero panes despite the previous
+            // refresh having state. tmux can return success with empty/partial
+            // stdout under odd conditions; log loudly so we can tell this path
+            // apart from the failure paths above.
+            if panes.isEmpty && !oldPanes.isEmpty {
+                logger.warning("tmux list-panes succeeded but parsed 0 panes — clearing panes", metadata: [
+                    "rawLineCount": "\(lines.count)",
+                    "parsedPaneCount": "\(allPanes.count)",
+                    "stdoutPrefix": "\(String(result.stdoutString.prefix(200)))",
+                    "oldPaneCount": "\(oldPanes.count)",
+                ])
+            }
         } catch TmuxError.noServerRunning {
-            // Tmux has no sessions - this is legitimate, not an error
+            // Tmux has no sessions - this is legitimate, not an error.
+            // Log when this wipes a previously non-empty pane list so we can
+            // distinguish a real "user closed everything" event from a
+            // false-positive disambiguation in checkAvailability().
+            if !panes.isEmpty {
+                logger.warning("tmux noServerRunning thrown from checkAvailability — clearing panes", metadata: [
+                    "oldPaneCount": "\(panes.count)",
+                ])
+            }
             lastError = nil
             panes = []
         } catch {
             // Check if the socket is gone — if so, the server genuinely exited
             if isServerSocketMissing {
-                logger.info("tmux socket missing after error — server exited, clearing panes")
+                logger.warning("tmux refresh threw error + socket missing — clearing panes", metadata: [
+                    "error": "\(error.localizedDescription)",
+                    "oldPaneCount": "\(panes.count)",
+                ])
                 lastError = nil
                 panes = []
             } else {
