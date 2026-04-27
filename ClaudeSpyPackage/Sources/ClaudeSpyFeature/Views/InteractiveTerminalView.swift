@@ -64,8 +64,10 @@
         private var urlHighlightLayer: CALayer?
         private var urlUnderlineLayers: [CALayer] = []
 
-        /// Cached cell size to avoid recomputing CoreText measurements on every
-        /// pan-gesture callback (60–120 Hz). Invalidated whenever the font changes.
+        /// Cell size cached on first access to avoid recomputing CoreText
+        /// measurements on every pan-gesture callback (60–120 Hz). The font
+        /// is fixed at `init` so no invalidation is currently wired up; if a
+        /// runtime font change is ever added, clear this from the setter.
         private var cachedCellSize: CGSize?
 
         /// Cached OSC 8 payloads extracted from SwiftTerm cells before clearing.
@@ -279,6 +281,12 @@
                 // need to reach the outer scroll view for native horizontal
                 // scrolling of wide terminal content. Tie / no-movement defaults
                 // to vertical so straight-down drags trigger wheel events.
+                //
+                // Translation captures how far the finger has moved (slow
+                // steady drag); velocity captures a fast flick that's barely
+                // moved yet. Mixing the two terms isn't dimensionally clean,
+                // but the comparison is symmetric across axes so it correctly
+                // classifies both gesture styles.
                 let translation = mouseModePanGesture.translation(in: self)
                 let velocity = mouseModePanGesture.velocity(in: self)
                 let dx = abs(translation.x) + abs(velocity.x)
