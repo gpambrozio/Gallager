@@ -517,6 +517,12 @@
             scrollView.showsVerticalScrollIndicator = false
             scrollView.alwaysBounceVertical = false
             scrollView.alwaysBounceHorizontal = false
+            // Lock to one axis once a drag direction is established so a
+            // horizontal scroll can't accidentally start scrolling vertically
+            // when the user's finger drifts off-axis mid-pan. Diagonal initial
+            // drags fall through to the coordinator's stricter mouse-mode lock.
+            scrollView.isDirectionalLockEnabled = true
+            scrollView.delegate = context.coordinator
             context.coordinator.outerScrollView = scrollView
 
             // Let our mouse-mode pan win over tall-terminal vertical scrolling.
@@ -609,12 +615,21 @@
         }
 
         @MainActor
-        final class Coordinator {
+        final class Coordinator: NSObject, UIScrollViewDelegate {
             var terminalView: InteractiveTerminalView?
             weak var outerScrollView: UIScrollView?
             var cellSize: CGSize = .zero
             var widthConstraint: NSLayoutConstraint?
             var heightConstraint: NSLayoutConstraint?
+
+            /// Y offset captured at the start of a user drag. Used to lock
+            /// vertical scrolling while mouse mode is active — vertical pans
+            /// belong to `mouseModePanGesture` (wheel events), so the outer
+            /// scroll view should only scroll horizontally during mouse mode.
+            /// Diagonal drags would otherwise scroll both axes once the outer
+            /// scroll view picks them up (`isDirectionalLockEnabled` doesn't
+            /// engage for diagonal starts per Apple's documented behavior).
+            private var dragInitialOffsetY: CGFloat?
 
             func handleResize(width: Int, height: Int) {
                 guard let terminalView else { return }
@@ -624,6 +639,28 @@
 
                 let newHeight = CGFloat(height) * cellSize.height
                 heightConstraint?.constant = newHeight
+            }
+
+            func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+                dragInitialOffsetY = scrollView.contentOffset.y
+            }
+
+            func scrollViewDidScroll(_ scrollView: UIScrollView) {
+                guard
+                    scrollView.isDragging || scrollView.isDecelerating,
+                    let initialY = dragInitialOffsetY,
+                    terminalView?.isMouseModeActive == true,
+                    scrollView.contentOffset.y != initialY
+                else { return }
+                scrollView.contentOffset.y = initialY
+            }
+
+            func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+                dragInitialOffsetY = nil
+            }
+
+            func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+                if !decelerate { dragInitialOffsetY = nil }
             }
         }
     }
