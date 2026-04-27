@@ -154,6 +154,9 @@ struct GeneralSettingsView: View {
                 Toggle("Auto-copy selected text", isOn: $settings.autoCopyOnSelect)
                     .help("Automatically copy selected text to the clipboard when the mouse is released")
 
+                Toggle("Open clicked file links in a new tab", isOn: $settings.openClickedFileInNewTab)
+                    .help("When a file:// link is clicked in the terminal, open the file in a new tab instead of the system default browser")
+
                 Toggle("Prevent sleep during active sessions", isOn: $settings.preventSleepDuringSessions)
                     .help("Keep host awake while Claude Code sessions are running")
 

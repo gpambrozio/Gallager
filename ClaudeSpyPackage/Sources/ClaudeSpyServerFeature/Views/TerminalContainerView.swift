@@ -12,6 +12,10 @@ typealias TerminalStateChangeHandler = @MainActor (StreamState, Int, Int) -> Voi
 /// Callback type for reporting terminal title changes to parent view
 typealias TerminalTitleChangeHandler = @MainActor (String) -> Void
 
+/// Callback type for handling URL clicks in the terminal. Returns `true` if the
+/// callback handled the URL, `false` to fall back to `NSWorkspace.shared.open`.
+typealias TerminalOpenURLHandler = @MainActor (URL) -> Bool
+
 // MARK: - Terminal Container View
 
 /// A self-contained SwiftUI view that mirrors a tmux pane.
@@ -29,6 +33,7 @@ struct TerminalContainerView: NSViewRepresentable {
     var autoFocus = true
     let onStateChange: TerminalStateChangeHandler?
     let onTitleChange: TerminalTitleChangeHandler?
+    var onOpenURL: TerminalOpenURLHandler?
 
     @Environment(AppSettings.self) private var settings
     @Environment(TmuxService.self) private var tmuxService
@@ -60,6 +65,10 @@ struct TerminalContainerView: NSViewRepresentable {
             onTitleChange: onTitleChange
         )
 
+        // URL-click handler is set on every layout pass so it picks up fresh
+        // state captured by parent closures (window/session selection).
+        coordinator.terminalView.onOpenURL = onOpenURL
+
         return coordinator.terminalView
     }
 
@@ -83,6 +92,10 @@ struct TerminalContainerView: NSViewRepresentable {
 
         // Update settings if changed
         coordinator.updateSettings(settings)
+
+        // Re-bind the URL click handler so closures captured here reflect the
+        // current parent state on every layout pass.
+        nsView.onOpenURL = onOpenURL
 
         // Update container size on layout changes
         coordinator.updateContainerSize(nsView.frame.size)

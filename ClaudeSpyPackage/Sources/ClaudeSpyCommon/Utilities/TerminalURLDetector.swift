@@ -42,6 +42,14 @@ public enum TerminalURLDetector {
         public let source: Source
     }
 
+    /// Schemes considered safe to render and open by default. `file://` is
+    /// excluded so OSC 8 hyperlinks emitted by a remote tmux session can't
+    /// trick a viewer into opening local files. Callers running against a
+    /// trusted local terminal (e.g. the host app's click handler) may pass
+    /// a wider set via the `allowedSchemes:` parameter on `detectURLs` /
+    /// `urlAt`.
+    public static let defaultAllowedSchemes: Set<String> = ["http", "https", "ftp"]
+
     /// Finds all URLs in a terminal row by combining OSC 8 hyperlink payloads and regex detection.
     ///
     /// OSC 8 links take priority: any regex-detected URL whose range overlaps an OSC 8 link is discarded.
@@ -51,14 +59,25 @@ public enum TerminalURLDetector {
     ///   - cols: The number of columns in the terminal line (for payload scanning).
     ///   - lineText: Closure that returns the text content of a terminal line, or `nil` if the row is invalid.
     ///   - cellPayload: Closure that returns the OSC 8 hyperlink URL for a cell, or `nil` if none.
+    ///   - allowedSchemes: Set of URL schemes that are accepted from OSC 8
+    ///     payloads. Defaults to `defaultAllowedSchemes`. The plain-text regex
+    ///     match always uses the built-in http/https/ftp scheme list — this
+    ///     only widens detection for explicit OSC 8 hyperlinks.
     /// - Returns: Detected URLs with their column ranges, sorted by start column.
     public static func detectURLs(
         row: Int,
         cols: Int,
         lineText: (Int) -> String?,
-        cellPayload: (Int, Int) -> String?
+        cellPayload: (Int, Int) -> String?,
+        allowedSchemes: Set<String> = defaultAllowedSchemes
     ) -> [DetectedURL] {
-        let oscURLs = detectOSC8URLs(row: row, cols: cols, lineText: lineText, cellPayload: cellPayload)
+        let oscURLs = detectOSC8URLs(
+            row: row,
+            cols: cols,
+            lineText: lineText,
+            cellPayload: cellPayload,
+            allowedSchemes: allowedSchemes
+        )
         let regexURLs = detectRegexURLs(row: row, lineText: lineText)
 
         guard !oscURLs.isEmpty else { return regexURLs }
@@ -92,16 +111,23 @@ public enum TerminalURLDetector {
     ///   - cols: The number of columns in the terminal line.
     ///   - lineText: Closure that returns the text content of a terminal line.
     ///   - cellPayload: Closure that returns the OSC 8 hyperlink URL for a cell, or `nil`.
+    ///   - allowedSchemes: Set of URL schemes that are accepted from the OSC 8
+    ///     payload at this position. Defaults to `defaultAllowedSchemes`. Pass
+    ///     a wider set (e.g. including `"file"`) when running against a trusted
+    ///     local terminal that wants to handle additional schemes itself.
     /// - Returns: The URL string if one exists at the given position, otherwise `nil`.
     public static func urlAt(
         col: Int,
         row: Int,
         cols: Int,
         lineText: (Int) -> String?,
-        cellPayload: (Int, Int) -> String?
+        cellPayload: (Int, Int) -> String?,
+        allowedSchemes: Set<String> = defaultAllowedSchemes
     ) -> String? {
         // Check OSC 8 first (higher priority)
-        if let payload = cellPayload(col, row), let url = urlFromOSC8Payload(payload) {
+        if
+            let payload = cellPayload(col, row),
+            let url = urlFromOSC8Payload(payload, allowedSchemes: allowedSchemes) {
             return url
         }
         // Fall back to regex
@@ -124,7 +150,8 @@ public enum TerminalURLDetector {
         row: Int,
         cols: Int,
         lineText: (Int) -> String?,
-        cellPayload: (Int, Int) -> String?
+        cellPayload: (Int, Int) -> String?,
+        allowedSchemes: Set<String>
     ) -> [DetectedURL] {
         var results: [DetectedURL] = []
         var col = 0
@@ -134,7 +161,7 @@ public enum TerminalURLDetector {
         while col < cols {
             guard
                 let payload = cellPayload(col, row), !payload.isEmpty,
-                let url = urlFromOSC8Payload(payload) else {
+                let url = urlFromOSC8Payload(payload, allowedSchemes: allowedSchemes) else {
                 col += 1
                 continue
             }
@@ -183,25 +210,21 @@ public enum TerminalURLDetector {
         }
     }
 
-    /// Allowed URL schemes for OSC 8 hyperlinks.
-    /// Matches the regex detector's policy — file:// is excluded to prevent opening local files
-    /// from remote terminal sessions.
-    private static let allowedSchemes: Set<String> = ["http", "https", "ftp"]
-
     /// Extracts the URL from a SwiftTerm OSC 8 payload string.
     ///
-    /// SwiftTerm stores OSC 8 payloads in the format `;params;URL` (the content after `8` in
-    /// `ESC ] 8 ; params ; URL ST`). We split on at most 2 semicolons (the format starts with
-    /// `;params;`) so URLs containing semicolons are preserved intact.
+    /// SwiftTerm strips the leading `OSC 8 ;` (the code/data separator) before
+    /// storing the payload, so the bytes saved on the cell look like
+    /// `<params>;<URL>` — for example `;https://example.com` when params are
+    /// empty, or `key=val;https://example.com` when params are present.
+    /// We split on the first `;` to peel off the params and keep any
+    /// semicolons inside the URL intact.
     ///
-    /// Only URLs with allowed schemes (http, https, ftp) are returned — matching the regex
-    /// detector's security policy.
-    private static func urlFromOSC8Payload(_ payload: String) -> String? {
-        // Payload format: ";params;URL" — split with maxSplits: 2 to preserve semicolons in the URL
-        let parts = payload.split(separator: ";", maxSplits: 2, omittingEmptySubsequences: false)
-        // parts[0] is empty (before first ;), parts[1] is params, parts[2] is URL
-        guard parts.count >= 3 else { return nil }
-        let url = parts[2]
+    /// Only URLs whose scheme is in `allowedSchemes` are returned. `file://`
+    /// is excluded by default — pass it explicitly when running against a
+    /// trusted local terminal that wants to handle file links.
+    private static func urlFromOSC8Payload(_ payload: String, allowedSchemes: Set<String>) -> String? {
+        guard let separator = payload.firstIndex(of: ";") else { return nil }
+        let url = payload[payload.index(after: separator)...]
         guard !url.isEmpty else { return nil }
         // Validate scheme matches allowed list
         guard
@@ -212,11 +235,12 @@ public enum TerminalURLDetector {
         return String(url)
     }
 
+    private static let trailingPunctuation: Set<Character> = [".", ",", ";", ":", "!", "?"]
+
     /// Removes trailing punctuation that commonly follows URLs in text but isn't part of the URL.
     private static func cleanTrailingPunctuation(_ url: String) -> String {
         var result = url
-        let trailingChars: Set<Character> = [".", ",", ";", ":", "!", "?"]
-        while let last = result.last, trailingChars.contains(last) {
+        while let last = result.last, trailingPunctuation.contains(last) {
             result.removeLast()
         }
         // Handle matched brackets/parens: if URL ends with ) but has no matching (

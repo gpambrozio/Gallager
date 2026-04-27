@@ -165,6 +165,18 @@
         }
 
         override func mouseDown(with event: NSEvent) {
+            // In mouse mode, suppress the press if the click lands on an OSC 8
+            // hyperlink we'll handle. Otherwise SwiftTerm forwards a mouse-press
+            // SGR sequence to the terminal app (e.g. Claude Code), which can
+            // open the file from the press event before our `handleURLClick`
+            // runs in `mouseUp`.
+            if
+                let interactive = interactiveView,
+                interactive.isMouseModeActive,
+                interactive.isClickOnURL(at: interactive.convert(event.locationInWindow, from: nil)) {
+                onMouseDown?()
+                return
+            }
             terminalView?.mouseDown(with: event)
             onMouseDown?()
         }
@@ -210,20 +222,25 @@
         override func mouseUp(with event: NSEvent) {
             lastDragPosition = nil
 
-            // When mouse mode is active, skip URL detection and auto-copy —
-            // the terminal app owns mouse interaction.
-            if interactiveView?.isMouseModeActive == true {
-                terminalView?.mouseUp(with: event)
-                return
-            }
-
-            // Check for plain-text URL click before forwarding to SwiftTerm.
+            // Check for URL click first, even when mouse mode is active. This
+            // lets OSC 8 hyperlinks (esp. file://) emitted by TUI applications
+            // like Claude Code route through our `onOpenURL` handler instead
+            // of being delivered as a mouse-release SGR sequence to the
+            // terminal app.
             if let interactive = interactiveView {
                 let point = interactive.convert(event.locationInWindow, from: nil)
                 if interactive.handleURLClick(at: point) {
                     return
                 }
             }
+
+            // No URL at the click point. In mouse mode, the terminal app owns
+            // the click — forward to SwiftTerm and skip auto-copy.
+            if interactiveView?.isMouseModeActive == true {
+                terminalView?.mouseUp(with: event)
+                return
+            }
+
             terminalView?.mouseUp(with: event)
 
             // Auto-copy selection to clipboard when mouse is released
@@ -314,6 +331,13 @@
 
         /// Callback invoked when the terminal title changes (via OSC 0 or OSC 2 escape sequences).
         var onTitleChange: (@MainActor (String) -> Void)?
+
+        /// Callback invoked when the user clicks a URL in the terminal. The
+        /// callback should return `true` if it handled the URL (and the
+        /// terminal view should do nothing further) or `false` to fall back to
+        /// `NSWorkspace.shared.open(_:)`. When the callback is `nil`, all URLs
+        /// are forwarded to `NSWorkspace`.
+        var onOpenURL: (@MainActor (URL) -> Bool)?
 
         /// When false, the terminal won't auto-grab focus on window add or window-becomes-key.
         /// Used in multi-pane layouts where multiple terminals share one window.
@@ -1009,15 +1033,22 @@
         private func gridPosition(for point: NSPoint) -> (col: Int, row: Int)? {
             guard cellSize.width > 0, cellSize.height > 0 else { return nil }
 
-            // Convert point to terminal view coordinates (accounting for horizontal scroll offset)
+            // Translate the click into terminalView's own bottom-left coordinate
+            // space. When dimensions are locked (tmux pane), terminalView is
+            // pinned to the top of the InteractiveTerminalView with
+            // `frame.origin.y = bounds.height - frame.height`, so accounting
+            // for the offset is required — otherwise clicks near the visual top
+            // map below row 0 and get clamped, hiding the real row.
+            let terminalLocalY = point.y - terminalView.frame.origin.y
             let terminalPoint = NSPoint(
                 x: point.x + horizontalOffset,
-                y: point.y
+                y: terminalLocalY
             )
 
             let terminal = terminalView.getTerminal()
 
-            // SwiftTerm uses flipped coordinates (origin at top-left for content)
+            // SwiftTerm rows count down from the visual top; AppKit's local y
+            // counts up from the bottom, so subtract from frame.height.
             let col = Int(terminalPoint.x / cellSize.width)
             let row = Int((terminalView.frame.height - terminalPoint.y) / cellSize.height)
 
@@ -1164,6 +1195,13 @@
         }
 
         /// Called by the scroll overlay on click — opens URL if one is at the click position.
+        ///
+        /// `file://` is included in the allowed schemes here (in addition to the
+        /// default http/https/ftp) so OSC 8 file links from the local terminal
+        /// can be routed through `onOpenURL` and open as an in-app file tab.
+        /// `TerminalURLDetector` still rejects `file://` by default for the
+        /// hover/highlight rendering path (which can run against remote panes
+        /// where opening local files would be unsafe).
         fileprivate func handleURLClick(at point: NSPoint) -> Bool {
             guard let pos = gridPosition(for: point) else { return false }
             let terminal = terminalView.getTerminal()
@@ -1174,13 +1212,39 @@
                     row: pos.row,
                     cols: terminal.cols,
                     lineText: closures.lineText,
-                    cellPayload: closures.cellPayload
+                    cellPayload: closures.cellPayload,
+                    allowedSchemes: TerminalURLDetector.defaultAllowedSchemes.union(["file"])
                 ),
                 let nsURL = URL(string: url) {
-                NSWorkspace.shared.open(nsURL)
+                openURL(nsURL)
                 return true
             }
             return false
+        }
+
+        /// Whether the given point lies on a URL we'd handle. Used to suppress
+        /// mouse-mode propagation so terminal apps (e.g. Claude Code) don't act
+        /// on the click before our `handleURLClick` runs in `mouseUp`.
+        fileprivate func isClickOnURL(at point: NSPoint) -> Bool {
+            guard let pos = gridPosition(for: point) else { return false }
+            let terminal = terminalView.getTerminal()
+            let closures = urlClosures(for: terminal)
+            return TerminalURLDetector.urlAt(
+                col: pos.col,
+                row: pos.row,
+                cols: terminal.cols,
+                lineText: closures.lineText,
+                cellPayload: closures.cellPayload,
+                allowedSchemes: TerminalURLDetector.defaultAllowedSchemes.union(["file"])
+            ) != nil
+        }
+
+        /// Opens a URL by giving `onOpenURL` first chance to handle it. Falls
+        /// back to `NSWorkspace.shared.open` when the callback is absent or
+        /// declines to handle the URL.
+        private func openURL(_ url: URL) {
+            if onOpenURL?(url) == true { return }
+            NSWorkspace.shared.open(url)
         }
 
         // MARK: - URL Underlines
@@ -1465,7 +1529,7 @@
 
         func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
             if let url = URL(string: link) {
-                NSWorkspace.shared.open(url)
+                openURL(url)
             }
         }
 

@@ -237,6 +237,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         RapidKeystrokeOrderScenario.scenario,
         StopHookSummaryScenario.scenario,
         TerminalLinksScenario.scenario,
+        TerminalFileLinkScenario.scenario,
         TerminalTitleMacToMacScenario.scenario,
         TerminalTitleMacToIOSScenario.scenario,
         TerminalTitleInitialConnectionScenario.scenario,
@@ -283,6 +284,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         VersionMismatchOldMacHostIOSViewerScenario.scenario,
         AskUserQuestionScenario.scenario,
         MarkdownWriteOpenSuggestionScenario.scenario,
+        TerminalFileLinkMouseModeScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {

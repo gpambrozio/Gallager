@@ -183,6 +183,12 @@ final public class AppSettings {
         didSet { preferences.setBool(alwaysAutoResize, Keys.alwaysAutoResize) }
     }
 
+    /// Whether clicking a file:// link in the terminal opens the file in a new tab
+    /// instead of forwarding the URL to the system (which would open it in the browser).
+    public var openClickedFileInNewTab: Bool = Defaults.openClickedFileInNewTab {
+        didSet { preferences.setBool(openClickedFileInNewTab, Keys.openClickedFileInNewTab) }
+    }
+
     /// Delay before attempting reconnection (in seconds)
     public var reconnectDelay: Int = Defaults.reconnectDelay {
         didSet { preferences.setInt(reconnectDelay, Keys.reconnectDelay) }
@@ -308,6 +314,7 @@ final public class AppSettings {
         self.preventSleepDuringSessions = preferences.optionalBool(Keys.preventSleepDuringSessions) ?? Defaults.preventSleepDuringSessions
         self.autoCopyOnSelect = preferences.optionalBool(Keys.autoCopyOnSelect) ?? Defaults.autoCopyOnSelect
         self.alwaysAutoResize = preferences.optionalBool(Keys.alwaysAutoResize) ?? Defaults.alwaysAutoResize
+        self.openClickedFileInNewTab = preferences.optionalBool(Keys.openClickedFileInNewTab) ?? Defaults.openClickedFileInNewTab
         self.reconnectDelay = preferences.optionalInt(Keys.reconnectDelay) ?? Defaults.reconnectDelay
         self.tmuxPath = preferences.string(Keys.tmuxPath) ?? Defaults.tmuxPath
         self.tmuxSocket = preferences.string(Keys.tmuxSocket) ?? Defaults.tmuxSocket
@@ -373,6 +380,7 @@ final public class AppSettings {
         case preventSleepDuringSessions
         case autoCopyOnSelect
         case alwaysAutoResize
+        case openClickedFileInNewTab
         case reconnectDelay
         case tmuxPath
         case tmuxSocket
@@ -414,6 +422,7 @@ final public class AppSettings {
         static let preventSleepDuringSessions = true
         static let autoCopyOnSelect = true
         static let alwaysAutoResize = true
+        static let openClickedFileInNewTab = true
         static let reconnectDelay = 2
         static let tmuxPath = "/opt/homebrew/bin/tmux"
         static let tmuxSocket = ""
