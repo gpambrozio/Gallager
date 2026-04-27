@@ -167,7 +167,6 @@
         }
 
         /// Overlay button for keyboard toggle when navigation bar is hidden
-        @ViewBuilder
         private var keyboardOverlayButton: some View {
             Button {
                 isInteractive.toggle()
@@ -202,6 +201,9 @@
                         isInteractive: effectiveInteractive,
                         onInput: { keys in
                             coordinator.enqueueKeySend(keys: keys, relayClient: relayClient)
+                        },
+                        onRawInput: { data in
+                            coordinator.enqueueRawInput(data: data, relayClient: relayClient)
                         }
                     )
                 } else {
@@ -323,6 +325,16 @@
                 keystrokeDebouncer = KeystrokeDebouncer(paneId: paneId, relayClient: relayClient)
             }
             keystrokeDebouncer?.enqueue(keys)
+        }
+
+        /// Forwards raw bytes (e.g., SGR mouse escape sequences) to the host via the relay.
+        /// Routes through the same debouncer as keystrokes so order is preserved with
+        /// any in-flight typed input.
+        func enqueueRawInput(data: Data, relayClient: ViewerRelayClient) {
+            if keystrokeDebouncer == nil {
+                keystrokeDebouncer = KeystrokeDebouncer(paneId: paneId, relayClient: relayClient)
+            }
+            keystrokeDebouncer?.enqueueRawInput(data)
         }
 
         func handleStreamMessage(_ message: TerminalStreamMessage) {
@@ -459,6 +471,9 @@
         /// Callback when user types (keys are ready for relay transmission)
         let onInput: @MainActor ([TmuxKey]) -> Void
 
+        /// Callback for raw escape sequences (e.g., SGR mouse events) ready for relay transmission
+        let onRawInput: @MainActor (Data) -> Void
+
         func makeUIView(context: Context) -> UIScrollView {
             // Calculate cell size using FontMetrics (matches SwiftTerm's computeFontDimensions)
             let cellSize = FontMetrics.calculateCellSize(
@@ -487,6 +502,7 @@
 
             // Wire up input callback
             terminalView.onInput = onInput
+            terminalView.onRawInput = onRawInput
 
             // Create scroll view for horizontal and vertical scrolling.
             // The terminal view is sized to match the terminal content exactly.
@@ -501,7 +517,16 @@
             scrollView.showsVerticalScrollIndicator = false
             scrollView.alwaysBounceVertical = false
             scrollView.alwaysBounceHorizontal = false
+            // Lock to one axis once a drag direction is established so a
+            // horizontal scroll can't accidentally start scrolling vertically
+            // when the user's finger drifts off-axis mid-pan. Diagonal initial
+            // drags fall through to the coordinator's stricter mouse-mode lock.
+            scrollView.isDirectionalLockEnabled = true
+            scrollView.delegate = context.coordinator
             context.coordinator.outerScrollView = scrollView
+
+            // Let our mouse-mode pan win over tall-terminal vertical scrolling.
+            terminalView.attachOuterScrollPanGesture(scrollView.panGestureRecognizer)
 
             let widthConstraint = terminalView.widthAnchor.constraint(equalToConstant: exactWidth)
             widthConstraint.priority = .defaultHigh
@@ -590,12 +615,21 @@
         }
 
         @MainActor
-        final class Coordinator {
+        final class Coordinator: NSObject, UIScrollViewDelegate {
             var terminalView: InteractiveTerminalView?
             weak var outerScrollView: UIScrollView?
             var cellSize: CGSize = .zero
             var widthConstraint: NSLayoutConstraint?
             var heightConstraint: NSLayoutConstraint?
+
+            /// Y offset captured at the start of a user drag. Used to lock
+            /// vertical scrolling while mouse mode is active — vertical pans
+            /// belong to `mouseModePanGesture` (wheel events), so the outer
+            /// scroll view should only scroll horizontally during mouse mode.
+            /// Diagonal drags would otherwise scroll both axes once the outer
+            /// scroll view picks them up (`isDirectionalLockEnabled` doesn't
+            /// engage for diagonal starts per Apple's documented behavior).
+            private var dragInitialOffsetY: CGFloat?
 
             func handleResize(width: Int, height: Int) {
                 guard let terminalView else { return }
@@ -605,6 +639,28 @@
 
                 let newHeight = CGFloat(height) * cellSize.height
                 heightConstraint?.constant = newHeight
+            }
+
+            func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+                dragInitialOffsetY = scrollView.contentOffset.y
+            }
+
+            func scrollViewDidScroll(_ scrollView: UIScrollView) {
+                guard
+                    scrollView.isDragging || scrollView.isDecelerating,
+                    let initialY = dragInitialOffsetY,
+                    terminalView?.isMouseModeActive == true,
+                    scrollView.contentOffset.y != initialY
+                else { return }
+                scrollView.contentOffset.y = initialY
+            }
+
+            func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+                dragInitialOffsetY = nil
+            }
+
+            func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+                if !decelerate { dragInitialOffsetY = nil }
             }
         }
     }
