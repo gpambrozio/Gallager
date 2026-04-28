@@ -51,7 +51,7 @@ struct MetricsServiceTests {
             viewersConnected: 1,
             uptimeSeconds: 42
         )
-        let body = await service.render(snapshot: snapshot, buildVersion: "test-1.0")
+        let body = await service.render(snapshot: snapshot, buildVersion: "test-v1")
 
         #expect(body.contains("# HELP claudespy_messages_relayed_total"))
         #expect(body.contains("# TYPE claudespy_messages_relayed_total counter"))
@@ -61,7 +61,7 @@ struct MetricsServiceTests {
         #expect(body.contains("claudespy_ws_connections{device_type=\"host\"} 2"))
         #expect(body.contains("claudespy_ws_connections{device_type=\"viewer\"} 1"))
         #expect(body.contains("claudespy_uptime_seconds 42"))
-        #expect(body.contains("claudespy_build_info{version=\"test-1.0\"} 1"))
+        #expect(body.contains("claudespy_build_info{version=\"test-v1\"} 1"))
     }
 }
 
