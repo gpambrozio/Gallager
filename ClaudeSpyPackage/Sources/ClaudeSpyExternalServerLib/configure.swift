@@ -19,6 +19,7 @@ public func configure(_ app: Application) async throws {
     // Initialize core services
     let pairingService = PairingService()
     let connectionHub = ConnectionHub()
+    let metricsService = MetricsService()
 
     // Determine APNs environment from APNS_ENVIRONMENT variable (defaults to development)
     // Use "production" only when iOS app is distributed via App Store/TestFlight
@@ -28,6 +29,7 @@ public func configure(_ app: Application) async throws {
     let apnsService = await APNsService(
         pairingService: pairingService,
         connectionHub: connectionHub,
+        metricsService: metricsService,
         environment: apnsEnvironment
     )
 
@@ -35,7 +37,8 @@ public func configure(_ app: Application) async throws {
     let relayService = RelayService(
         pairingService: pairingService,
         connectionHub: connectionHub,
-        apnsService: apnsService
+        apnsService: apnsService,
+        metricsService: metricsService
     )
 
     // Store services in app storage
@@ -43,6 +46,8 @@ public func configure(_ app: Application) async throws {
     app.storage[ConnectionHubKey.self] = connectionHub
     app.storage[APNsServiceKey.self] = apnsService
     app.storage[RelayServiceKey.self] = relayService
+    app.storage[MetricsServiceKey.self] = metricsService
+    app.storage[ProcessStartTimeKey.self] = Date()
 
     // Register routes
     try routes(app)
@@ -64,6 +69,14 @@ struct RelayServiceKey: StorageKey {
 
 struct APNsServiceKey: StorageKey {
     typealias Value = APNsService
+}
+
+struct MetricsServiceKey: StorageKey {
+    typealias Value = MetricsService
+}
+
+struct ProcessStartTimeKey: StorageKey {
+    typealias Value = Date
 }
 
 // MARK: - Application Extensions (Internal)
@@ -92,6 +105,13 @@ extension Application {
 
     var apnsService: APNsService? {
         storage[APNsServiceKey.self]
+    }
+
+    var metricsService: MetricsService {
+        guard let service = storage[MetricsServiceKey.self] else {
+            fatalError("MetricsService not configured. Call configure(_:) first.")
+        }
+        return service
     }
 }
 

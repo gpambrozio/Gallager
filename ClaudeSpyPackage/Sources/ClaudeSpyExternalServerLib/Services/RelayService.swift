@@ -7,16 +7,19 @@ actor RelayService {
     private let pairingService: PairingService
     private let connectionHub: ConnectionHub
     private let apnsService: APNsService?
+    private let metricsService: MetricsService
     private let logger = Logger(label: "relay-service")
 
     init(
         pairingService: PairingService,
         connectionHub: ConnectionHub,
-        apnsService: APNsService?
+        apnsService: APNsService?,
+        metricsService: MetricsService
     ) {
         self.pairingService = pairingService
         self.connectionHub = connectionHub
         self.apnsService = apnsService
+        self.metricsService = metricsService
     }
 
     // MARK: - Connection Notifications
@@ -71,6 +74,7 @@ actor RelayService {
 
         case let .encrypted(encryptedMessage):
             // Pass through encrypted messages - server cannot decrypt or see message type
+            await metricsService.incrementMessagesRelayed()
             logger.info("Relaying encrypted message to viewer")
             await connectionHub.send(.encrypted(encryptedMessage), to: pairId, deviceType: .viewer)
 
@@ -114,6 +118,7 @@ actor RelayService {
         case let .encrypted(encryptedMessage):
             // Pass through encrypted messages to host - server cannot decrypt or see message type
             if await connectionHub.isHostConnected(pairId: pairId) {
+                await metricsService.incrementMessagesRelayed()
                 logger.info("Relaying encrypted message to host")
                 await connectionHub.send(.encrypted(encryptedMessage), to: pairId, deviceType: .host)
             } else {
