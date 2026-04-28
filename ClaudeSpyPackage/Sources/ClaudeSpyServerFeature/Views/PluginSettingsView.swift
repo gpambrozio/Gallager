@@ -102,7 +102,18 @@
 
         /// Checks for claude, then the plugin. Polls for claude when it's
         /// missing so the UI reacts as soon as the user installs it.
+        ///
+        /// Once the user has finished the initial plugin setup the configured
+        /// `claudeCommandPath` is treated as authoritative — they may have
+        /// changed it (or pointed it at a non-default install location), and
+        /// re-running auto-detection here would silently overwrite that
+        /// choice. After setup, only the plugin status is refreshed.
         private func runCheckFlow() async {
+            if settings.hasCompletedPluginSetup {
+                await pluginService.checkInstallation()
+                return
+            }
+
             if let path = await pluginService.findClaude() {
                 settings.claudeCommandPath = path
                 await pluginService.checkInstallation()
