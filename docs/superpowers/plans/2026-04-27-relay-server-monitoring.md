@@ -1006,7 +1006,7 @@ git commit -m "Add installer script for node_exporter and Alloy"
 
 ### Task 12: Service account + token for grizzly
 
-- [ ] **Step 1:** Open `${GRAFANA_URL}/admin/serviceaccounts/create`
+- [ ] **Step 1:** Open `${GRAFANA_URL}/org/serviceaccounts`
 
 - [ ] **Step 2:** Name `grizzly`, role `Admin` (needed to manage alert rules + contact points).
 
