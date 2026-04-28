@@ -486,18 +486,15 @@ upload_to_ftp() {
     local dmg_name
     dmg_name=$(basename "$dmg_path")
 
-    # Upload DMG and appcast.xml, then point Gallager.dmg at the new release
+    # Upload DMG (versioned + canonical) and appcast.xml
     lftp -c "
 set ssl:verify-certificate false;
 set cmd:fail-exit true;
 open ftp://$FTP_USER:$FTP_PASS@$FTP_HOST;
 cd $FTP_REMOTE_DIR;
 put -O . '$dmg_path';
+put '$dmg_path' -o 'Gallager.dmg';
 put -O . '$APPCAST_FILE';
-set cmd:fail-exit false;
-rm 'Gallager.dmg';
-set cmd:fail-exit true;
-ln -s '$dmg_name' 'Gallager.dmg';
 " || log_error "FTP upload failed"
 
     log_success "Uploaded $dmg_name and appcast.xml to $FTP_HOST"
