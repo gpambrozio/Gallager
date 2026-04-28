@@ -408,6 +408,7 @@
                     scrollbackOutput: nil,
                     visibleOutput: visibleOutput,
                     cursorOutput: cursorOutput,
+                    width: 80,
                     height: 10
                 )
 
@@ -457,6 +458,7 @@
                     scrollbackOutput: nil,
                     visibleOutput: visibleOutput,
                     cursorOutput: cursorOutput,
+                    width: 80,
                     height: 10
                 )
 
@@ -471,6 +473,55 @@
                 #expect(bgRow0Start != .defaultColor, "Row 0 col 0 must have bg, got: \(bgRow0Start)")
                 #expect(bgRow0Mid != .defaultColor, "Row 0 col 40 must have bg, got: \(bgRow0Mid)")
                 #expect(bgRow0End != .defaultColor, "Row 0 col 79 must have bg, got: \(bgRow0End)")
+            }
+
+            @Test("Full-row underline band is preserved when capture trims trailing styled spaces (#352)")
+            @MainActor
+            func underlineBandSurvivesTrimmedCapture() {
+                let service = TmuxService()
+                // Same shape as the bg-band test, but with underline (`\e[4m`)
+                // instead of bg color. Underline is *not* a BCE attribute — EL
+                // can't paint it on cleared cells — so the fix relies on
+                // padding the row with explicit spaces under the line's active
+                // SGR. Without padding (the prior `\e[K`-only fix), this row
+                // would render plain.
+                let visibleLines = [
+                    "\u{1b}[4m", // trimmed underlined row — only the SGR setter remains
+                    "\u{1b}[0m> Input",
+                ]
+                let visibleOutput = visibleLines.joined(separator: "\n")
+                let cursorOutput = "8,1,1"
+
+                let data = service.processCapturePaneForStreaming(
+                    scrollbackOutput: nil,
+                    visibleOutput: visibleOutput,
+                    cursorOutput: cursorOutput,
+                    width: 80,
+                    height: 10
+                )
+
+                let (terminal, _) = makeTerminal(cols: 80, rows: 10)
+                terminal.feed(byteArray: Array(data))
+
+                // Every cell on row 0 should carry the underline attribute,
+                // including cells the capture didn't enumerate explicitly.
+                func underlined(col: Int) -> Bool {
+                    guard let line = terminal.getLine(row: 0) else { return false }
+                    return line[col].attribute.style.contains(.underline)
+                }
+                #expect(underlined(col: 0), "Row 0 col 0 must be underlined")
+                #expect(underlined(col: 40), "Row 0 col 40 must be underlined")
+                #expect(underlined(col: 79), "Row 0 col 79 must be underlined")
+
+                // Row 1 must not inherit the underline once `\e[0m` reset it.
+                guard let row1 = terminal.getLine(row: 1) else {
+                    Issue.record("Row 1 missing")
+                    return
+                }
+                #expect(
+                    !row1[20].attribute.style.contains(.underline),
+                    "Row 1 col 20 must not be underlined"
+                )
             }
         }
 
@@ -741,11 +792,12 @@
                 scrollbackOutput: nil,
                 visibleOutput: "line1\nline2",
                 cursorOutput: "0,0,1",
+                width: 80,
                 height: 24
             )
             let str = try #require(String(data: result, encoding: .utf8))
             #expect(str.contains("\u{1b}[H")) // Home position
-            #expect(str.contains("\u{1b}[K")) // Per-line erase-to-EOL
+            #expect(str.contains("\u{1b}[J")) // Trailing erase-below
             #expect(str.contains("line1"))
             #expect(str.contains("line2"))
         }
@@ -758,12 +810,14 @@
                 scrollbackOutput: nil,
                 visibleOutput: "line1\nline2\n",
                 cursorOutput: "0,0,1",
+                width: 80,
                 height: 24
             )
             let withoutNewline = service.processCapturePaneForStreaming(
                 scrollbackOutput: nil,
                 visibleOutput: "line1\nline2",
                 cursorOutput: "0,0,1",
+                width: 80,
                 height: 24
             )
             // Both should produce the same output
@@ -777,6 +831,7 @@
                 scrollbackOutput: nil,
                 visibleOutput: "line1\nline2\nline3",
                 cursorOutput: "5,1,1",
+                width: 80,
                 height: 24
             )
             let str = try #require(String(data: result, encoding: .utf8))
@@ -796,6 +851,7 @@
                 scrollbackOutput: scrollbackLines.joined(separator: "\n"),
                 visibleOutput: "visible line",
                 cursorOutput: "0,0,1",
+                width: 80,
                 height: 5
             )
             let str = try #require(String(data: result, encoding: .utf8))
@@ -816,6 +872,7 @@
                 scrollbackOutput: nil,
                 visibleOutput: "line1\nline2",
                 cursorOutput: "0,10,1",
+                width: 80,
                 height: 24
             )
             let str = try #require(String(data: result, encoding: .utf8))
@@ -832,6 +889,7 @@
                 scrollbackOutput: nil,
                 visibleOutput: "line1\nline2",
                 cursorOutput: "0,0,0",
+                width: 80,
                 height: 24
             )
             let str = try #require(String(data: result, encoding: .utf8))
@@ -845,6 +903,7 @@
                 scrollbackOutput: nil,
                 visibleOutput: "line1\nline2",
                 cursorOutput: "0,0,1",
+                width: 80,
                 height: 24
             )
             let str = try #require(String(data: result, encoding: .utf8))
@@ -859,6 +918,7 @@
                 scrollbackOutput: nil,
                 visibleOutput: "line1\nline2",
                 cursorOutput: "0,0",
+                width: 80,
                 height: 24
             )
             let str = try #require(String(data: result, encoding: .utf8))
@@ -906,6 +966,7 @@
                 scrollbackOutput: scrollbackOutput,
                 visibleOutput: visibleOutput,
                 cursorOutput: cursorOutput,
+                width: cols,
                 height: rows
             )
 
@@ -989,6 +1050,7 @@
                 scrollbackOutput: nil,
                 visibleOutput: visibleOutput,
                 cursorOutput: cursorOutput,
+                width: cols,
                 height: tmuxRows
             )
 
@@ -1051,6 +1113,7 @@
                 scrollbackOutput: scrollbackOutput,
                 visibleOutput: visibleOutput,
                 cursorOutput: cursorOutput,
+                width: cols,
                 height: rows
             )
 
@@ -1112,6 +1175,7 @@
                 scrollbackOutput: scrollbackOutput,
                 visibleOutput: visibleOutput,
                 cursorOutput: cursorOutput,
+                width: cols,
                 height: tmuxRows
             )
 
@@ -1313,6 +1377,7 @@
                 scrollbackOutput: nil,
                 visibleOutput: visibleOutput,
                 cursorOutput: "0,6,1",
+                width: cols,
                 height: rows
             )
 
@@ -1543,6 +1608,7 @@
                 scrollbackOutput: scrollbackOutput,
                 visibleOutput: visibleOutput,
                 cursorOutput: cursorOutput,
+                width: 80,
                 height: height
             )
 
@@ -1604,6 +1670,7 @@
                 scrollbackOutput: scrollbackOutput,
                 visibleOutput: visibleOutput,
                 cursorOutput: cursorOutput,
+                width: 80,
                 height: height
             )
 
@@ -1657,6 +1724,7 @@
                 scrollbackOutput: scrollbackOutput,
                 visibleOutput: visibleOutput,
                 cursorOutput: "2,1,1",
+                width: 80,
                 height: height
             )
 
@@ -1716,6 +1784,7 @@
                 scrollbackOutput: scrollbackOutput,
                 visibleOutput: visibleOutput,
                 cursorOutput: "2,17,1",
+                width: 80,
                 height: height
             )
 
@@ -1780,6 +1849,7 @@
                 scrollbackOutput: scrollbackOutput,
                 visibleOutput: visibleOutput,
                 cursorOutput: cursorOutput,
+                width: 80,
                 height: height
             )
 
