@@ -6,6 +6,43 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.26</title>
+         <sparkle:version>26</sparkle:version>
+         <sparkle:shortVersionString>1.26</sparkle:shortVersionString>
+         <pubDate>Tue, 28 Apr 2026 09:49:09 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.26
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Markdown file suggestion bar</strong>: A new suggestion bar makes it easy to open the markdown file currently referenced in the terminal.</li>
+<li><strong>Open in New Tab</strong>: Added an "Open in New Tab" context menu action to the file explorer for quicker navigation between files.</li>
+<li><strong>File link handling</strong>: Clicking `file://` links in the terminal now opens them in a new tab instead of leaving the terminal.</li>
+<li><strong>New hook events</strong>: Added support for `UserPromptExpansion` and `PostToolBatch` hook events, expanding visibility into Claude Code activity.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>iOS drag-to-scroll</strong>: Drag-to-scroll now works on iOS when the host session has tmux mouse mode enabled, making it easier to navigate scrollback on touch devices.</li>
+<li><strong>AskUserQuestion keystrokes</strong>: Fixed keystroke handling so remote input correctly drives Claude Code's AskUserQuestion prompt UI.</li>
+<li><strong>Custom Claude command path preserved</strong>: Plugin setup no longer overwrites a user-configured custom path to the `claude` command.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li>Fixed a background color bleed in terminal rendering that could leave stray styling after capture-pane rebuilds.</li>
+<li>Fixed an issue where the terminal could appear blank after closing a sibling tmux window.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.26.dmg"
+                    sparkle:edSignature="g0DlQwRdDRU8umN+uxToNxBf4hzZB342mMT9v+Mkurj6ciCFmAdC9vxBNh1pPBUnb9EC26/bUaK/PES9yLMNCQ=="
+                    length="28967923"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.25</title>
          <sparkle:version>25</sparkle:version>
          <sparkle:shortVersionString>1.25</sparkle:shortVersionString>
