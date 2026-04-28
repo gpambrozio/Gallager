@@ -18,7 +18,7 @@ struct HookNotificationAskUserQuestionTests {
                 multiSelect: false
             )
         }
-        return AskUserQuestionParameters(questions: questions, answers: nil)
+        return AskUserQuestionParameters(questions: questions)
     }
 
     private func message(

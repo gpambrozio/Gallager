@@ -447,7 +447,6 @@ extension AskUserQuestionParameters {
                     multiSelect: false
                 ),
             ],
-            answers: nil
         )
     }
 
@@ -478,7 +477,6 @@ extension AskUserQuestionParameters {
                     multiSelect: true
                 ),
             ],
-            answers: nil
         )
     }
 
@@ -520,7 +518,6 @@ extension AskUserQuestionParameters {
                     multiSelect: false
                 ),
             ],
-            answers: nil
         )
     }
 }

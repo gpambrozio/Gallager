@@ -28,7 +28,7 @@ struct AskUserQuestionKeystrokesTests {
     }
 
     private func params(_ questions: AskUserQuestionParameters.AskUserQuestion...) -> AskUserQuestionParameters {
-        AskUserQuestionParameters(questions: questions, answers: nil)
+        AskUserQuestionParameters(questions: questions)
     }
 
     private func build(

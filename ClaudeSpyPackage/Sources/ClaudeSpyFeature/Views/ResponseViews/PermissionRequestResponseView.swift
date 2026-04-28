@@ -418,9 +418,6 @@ struct ToolInputView: View {
                 if let prompts = params.allowedPrompts {
                     detailRow("Permissions:", "\(prompts.count) requested")
                 }
-                if params.plan != nil {
-                    detailRow("Plan:", "Included")
-                }
 
             case let .webFetch(params):
                 headerRow("Fetch Web Page")
@@ -450,18 +447,39 @@ struct ToolInputView: View {
                     detailRow("Mode:", mode.rawValue)
                 }
 
-            case let .skill(params):
-                headerRow("Run Skill")
-                detailRow("Skill:", params.skill)
-                if let args = params.args {
-                    detailRow("Arguments:", args)
+            case let .monitor(params):
+                headerRow("Monitor")
+                detailRow("Command:", params.command, maxLines: 3)
+                detailRow("Description:", params.description, maxLines: 2)
+
+            case let .taskOutput(params):
+                headerRow("Task Output")
+                detailRow("Task ID:", params.taskId)
+
+            case let .taskStop(params):
+                headerRow("Stop Task")
+                if let taskId = params.taskId {
+                    detailRow("Task ID:", taskId)
                 }
 
-            case let .toolSearch(params):
-                headerRow("Search Tools")
-                detailRow("Query:", params.query)
-                if let maxResults = params.maxResults {
-                    detailRow("Max results:", "\(maxResults)")
+            case let .listMcpResources(params):
+                headerRow("List MCP Resources")
+                if let server = params.server {
+                    detailRow("Server:", server)
+                }
+
+            case let .readMcpResource(params):
+                headerRow("Read MCP Resource")
+                detailRow("Server:", params.server)
+                detailRow("URI:", params.uri)
+
+            case let .enterWorktree(params):
+                headerRow("Enter Worktree")
+                if let name = params.name {
+                    detailRow("Name:", name)
+                }
+                if let path = params.path {
+                    detailRow("Path:", path)
                 }
 
             case let .askUserQuestion(params):
