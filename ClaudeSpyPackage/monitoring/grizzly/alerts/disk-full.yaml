@@ -1,0 +1,42 @@
+apiVersion: grizzly.grafana.com/v1alpha1
+kind: AlertRuleGroup
+metadata:
+  folder: ClaudeSpy
+  name: relay-disk
+spec:
+  title: relay-disk
+  interval: 5m
+  rules:
+    - uid: disk-full
+      title: Root filesystem > 80% used
+      condition: B
+      data:
+        - refId: A
+          relativeTimeRange: { from: 600, to: 0 }
+          datasourceUid: ${PROM_DS_UID}
+          model:
+            expr: |
+              100 * (1 - (
+                node_filesystem_avail_bytes{instance="hetzner-1",mountpoint="/"}
+                /
+                node_filesystem_size_bytes{instance="hetzner-1",mountpoint="/"}
+              ))
+            instant: true
+            refId: A
+        - refId: B
+          datasourceUid: __expr__
+          model:
+            type: threshold
+            refId: B
+            expression: A
+            conditions:
+              - evaluator: { type: gt, params: [80] }
+                operator: { type: and }
+      noDataState: NoData
+      execErrState: Error
+      for: 30m
+      annotations:
+        summary: "Root filesystem above 80% used"
+        description: "Investigate large files: `du -shx /var/lib/docker/* | sort -h`."
+      labels:
+        severity: warning

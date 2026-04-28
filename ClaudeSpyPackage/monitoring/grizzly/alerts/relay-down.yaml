@@ -1,0 +1,37 @@
+apiVersion: grizzly.grafana.com/v1alpha1
+kind: AlertRuleGroup
+metadata:
+  folder: ClaudeSpy
+  name: relay-availability
+spec:
+  title: relay-availability
+  interval: 1m
+  rules:
+    - uid: relay-down
+      title: Relay down
+      condition: B
+      data:
+        - refId: A
+          relativeTimeRange: { from: 300, to: 0 }
+          datasourceUid: ${PROM_DS_UID}
+          model:
+            expr: up{job="claudespy-relay"}
+            instant: true
+            refId: A
+        - refId: B
+          datasourceUid: __expr__
+          model:
+            type: threshold
+            refId: B
+            expression: A
+            conditions:
+              - evaluator: { type: lt, params: [1] }
+                operator: { type: and }
+      noDataState: Alerting
+      execErrState: Alerting
+      for: 2m
+      annotations:
+        summary: "Relay scrape failing for 2 minutes"
+        description: "Prometheus cannot scrape /metrics on the Hetzner relay. Check `systemctl status alloy` and the Vapor container."
+      labels:
+        severity: critical
