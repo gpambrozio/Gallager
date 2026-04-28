@@ -672,34 +672,42 @@ final public class TmuxService {
         // for the visible content to be drawn from the top.
         output += "\u{1b}[H" // Cursor to home (row 1, col 1)
 
-        // Output visible lines sequentially, clearing each line before writing.
-        // After the LF scroll above, Part 1 is in the scrollback buffer, so the
-        // visible area is empty — we clear each line defensively and draw Part 2.
-        // Filter each line to keep only color codes (remove cursor positioning that could interfere).
+        // Output visible lines sequentially. Filter each line to keep only color
+        // codes (remove cursor positioning that could interfere).
         //
-        // The leading `\e[0m` before each `\e[2K` is load-bearing: EL (Erase in
-        // Line) is a BCE (Background Color Erase) operation — it clears cells
-        // using the *current* SGR state. If a prior line ended with a non-default
-        // bg setter (e.g., tmux's `capture-pane` keeps a leading `\e[44m` on a
-        // row whose trailing bg-colored spaces were trimmed), the next `\e[2K`
-        // would paint the row with that bg, and any cells past the new content
-        // would inherit it. Resetting first guarantees `\e[2K` clears with
-        // default attributes (issue #411).
+        // Erase ordering: EL (`\e[K`) and ED (`\e[J`) are BCE (Background Color
+        // Erase) — they paint cleared cells with the *current* SGR background.
+        // We exploit that:
+        //
+        //   1. Write the line content first. Any leading bg setter from
+        //      `capture-pane` (e.g., `\e[44m`) is now active.
+        //   2. Emit `\e[K` to erase from the cursor to end of line. The line's
+        //      own bg fills the trailing cells, preserving full-row bg bands
+        //      even when `capture-pane` trims the trailing styled spaces (just
+        //      a leading `\e[44m` is enough — `\e[K` paints the rest blue).
+        //   3. Emit `\e[0m` to reset SGR before the `\r\n`. Without this, a
+        //      bg setter from row N persists and the next iteration's `\e[K`
+        //      (or the trailing `\e[J`) leaks that bg onto rows that should
+        //      be plain (the original symptom of issue #411).
+        //
+        // This pattern handles both extremes: rows whose bg the capture fully
+        // describes (band survives), and rows where capture left only a leading
+        // setter (band still rendered via the post-content EL).
         for index in 0..<linesToOutput {
-            output += "\u{1b}[0m\u{1b}[2K" // Reset SGR, then clear current line
             if index < visibleLines.count {
                 output += filterToColorCodesOnly(visibleLines[index])
             }
-            // Add newline after each line except the last
+            output += "\u{1b}[K" // Erase to EOL with this line's SGR (preserves bg band)
+            output += "\u{1b}[0m" // Reset before newline so bg can't leak forward
             if index < linesToOutput - 1 {
                 output += "\r\n"
             }
         }
 
         // Clear any remaining lines below the visible content
-        // (in case terminal has more rows than visible lines).
-        // Same BCE concern as above — reset before ED so default bg is used.
-        output += "\u{1b}[0m\u{1b}[J" // Reset SGR, then clear from cursor to end of screen
+        // (in case terminal has more rows than visible lines). SGR was reset
+        // after the final line above, so ED clears with default attributes.
+        output += "\u{1b}[J"
 
         // Position cursor using relative movement from the last drawn line.
         // After drawing `linesToOutput` lines, the cursor is on the last line.

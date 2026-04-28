@@ -435,6 +435,43 @@
                     "Row 2 col 20 must have default bg, got: \(bgRow2)"
                 )
             }
+
+            @Test("Full-row bg band is preserved when capture trims trailing bg spaces (#411)")
+            @MainActor
+            func backgroundBandSurvivesTrimmedCapture() {
+                let service = TmuxService()
+                // Same trimmed-row shape as `backgroundDoesNotLeakViaEraseLine`
+                // (row 0 captured as a lone `\e[44m`), but here we assert the
+                // *positive* side: the band must still render across the entire
+                // row. The fix achieves this by writing content first, then
+                // emitting `\e[K` so EL erases with the line's active bg —
+                // even when capture-pane left no spaces to draw.
+                let visibleLines = [
+                    "\u{1b}[44m", // trimmed bg-blue row — only the SGR setter remains
+                    "\u{1b}[0m> Input",
+                ]
+                let visibleOutput = visibleLines.joined(separator: "\n")
+                let cursorOutput = "8,1,1"
+
+                let data = service.processCapturePaneForStreaming(
+                    scrollbackOutput: nil,
+                    visibleOutput: visibleOutput,
+                    cursorOutput: cursorOutput,
+                    height: 10
+                )
+
+                let (terminal, _) = makeTerminal(cols: 80, rows: 10)
+                terminal.feed(byteArray: Array(data))
+
+                // Every cell on row 0 should carry the bg-blue attribute,
+                // including cells the capture didn't enumerate explicitly.
+                let bgRow0Start = getBgColor(terminal, col: 0, row: 0)
+                let bgRow0Mid = getBgColor(terminal, col: 40, row: 0)
+                let bgRow0End = getBgColor(terminal, col: 79, row: 0)
+                #expect(bgRow0Start != .defaultColor, "Row 0 col 0 must have bg, got: \(bgRow0Start)")
+                #expect(bgRow0Mid != .defaultColor, "Row 0 col 40 must have bg, got: \(bgRow0Mid)")
+                #expect(bgRow0End != .defaultColor, "Row 0 col 79 must have bg, got: \(bgRow0End)")
+            }
         }
 
         // MARK: - H9: OSC sequences in filterToColorCodesOnly
@@ -708,7 +745,7 @@
             )
             let str = try #require(String(data: result, encoding: .utf8))
             #expect(str.contains("\u{1b}[H")) // Home position
-            #expect(str.contains("\u{1b}[2K")) // Line clear
+            #expect(str.contains("\u{1b}[K")) // Per-line erase-to-EOL
             #expect(str.contains("line1"))
             #expect(str.contains("line2"))
         }

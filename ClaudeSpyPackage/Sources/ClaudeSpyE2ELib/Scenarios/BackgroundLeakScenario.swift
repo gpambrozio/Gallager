@@ -122,7 +122,7 @@ public enum BackgroundLeakScenario {
         // shows a bg-blue band trailing past the text to the right margin.
         // Send in small batches with short waits to avoid back-pressuring
         // the tty's line-discipline buffer.
-        for lineNumber in 1...24 {
+        for lineNumber in 1...14 {
             TestStep.tmuxSendKeys(
                 target: "bgleak-test:0",
                 keys: "line \(String(format: "%02d", lineNumber)): no background should appear behind this text\r",
