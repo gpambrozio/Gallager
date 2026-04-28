@@ -228,8 +228,10 @@ Here are the commits since the last release:
 $commits
 
 Requirements:
-- Only include changes relevant to the iOS app or that could indirectly affect it (e.g. shared networking, encryption, server relay changes)
-- Skip commits that only affect the macOS app, build scripts, CI, or docs
+- ONLY include changes that directly affect the user experience on iOS (new features, behavior changes, bug fixes users would notice, performance improvements)
+- ONLY include changes from shared layers (networking, encryption, server relay) if they have a visible effect on the iOS app
+- SKIP anything that does not affect users: CI/CD changes, build scripts, internal refactoring, code cleanup, dependency updates, tests, docs, tooling, release scripts, macOS-only changes, server infrastructure changes invisible to users
+- If a commit is ambiguous, err on the side of omitting it
 - Group changes by category (New Features, Improvements, Bug Fixes) if applicable
 - Explain what each change means for testers — what to look for, what might break
 - Keep it concise but informative — this is TestFlight, not a press release
@@ -238,7 +240,7 @@ Requirements:
 - Do NOT include ANY preamble, commentary, thinking, or meta-text — start directly with the content
 - Do NOT add URLs, links, or 'for more information' sections
 - Output ONLY the What to Test content itself
-- If no commits are relevant to iOS, output: No iOS-relevant changes in this build."
+- If no user-facing iOS changes exist, output: No user-facing changes in this build."
 
     local notes
     notes=$(claude -p "$prompt" 2>/dev/null) || {

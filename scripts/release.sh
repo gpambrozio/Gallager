@@ -568,6 +568,9 @@ Here are the commits since the last release:
 $commits
 
 Requirements:
+- ONLY include changes that directly affect the user experience (new features, behavior changes, bug fixes users would notice, performance improvements)
+- SKIP anything that does not affect users: CI/CD changes, build scripts, internal refactoring, code cleanup, dependency updates, tests, docs, tooling, release scripts, server infrastructure changes invisible to users
+- If a commit is ambiguous, err on the side of omitting it
 - Group changes by category (Features, Improvements, Bug Fixes) if applicable
 - Explain what each change means for users (not just the technical details)
 - Keep it concise but informative
@@ -578,6 +581,7 @@ Requirements:
 - Do NOT add any URLs or links
 - Do NOT add 'for more information' sections or footer content
 - Do NOT assume or mention who built the app
+- If no user-facing changes exist, output only: No user-facing changes in this release.
 - Output ONLY the release notes content itself"
 
     local release_notes
