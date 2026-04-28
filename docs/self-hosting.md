@@ -260,6 +260,22 @@ DELETE /api/pairing/:pairId   # Remove pairing
 WS /api/ws?pairId=xxx&deviceType=mac|ios&deviceId=xxx
 ```
 
+### Metrics (Optional)
+```
+GET /metrics    # Prometheus text exposition, requires Bearer METRICS_TOKEN
+```
+
+## Monitoring (Optional)
+
+The relay can push metrics to Grafana Cloud (free tier) for dashboards and Discord alerts. See [docs/monitoring.md](monitoring.md) for the full setup. Quick summary:
+
+1. Set `METRICS_TOKEN` in `.env` (generate with `openssl rand -hex 32`).
+2. Sign up for Grafana Cloud and grab a metrics-write token.
+3. Run `monitoring/agents/install.sh` on the VM (installs `node_exporter` + Grafana Alloy as systemd services).
+4. Apply the dashboards/alerts from `monitoring/grizzly/` with `grr apply`.
+
+The `/metrics` endpoint is bound to localhost (via `127.0.0.1:8080:8080`) and gated by a bearer token, so it is not exposed publicly.
+
 ## Security Considerations
 
 ### Data Privacy
