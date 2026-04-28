@@ -3,13 +3,14 @@ services:
     build: .
     container_name: claudespy-relay
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     env_file:
       - .env
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-warning}
       - PAIRING_CODE_EXPIRY_SECONDS=${PAIRING_CODE_EXPIRY_SECONDS:-300}
       - DATA_DIRECTORY=/data
+      - METRICS_TOKEN=${METRICS_TOKEN:-}
       # APNs configuration - set these for push notification support
       # Get these values from your Apple Developer account
       - APNS_KEY_PATH=${APNS_KEY_PATH:-/secrets/AuthKey.p8}

@@ -1,0 +1,25 @@
+[Unit]
+Description=Prometheus node_exporter
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=node_exporter
+Group=node_exporter
+Type=simple
+ExecStart=/usr/local/bin/node_exporter \
+  --web.listen-address=127.0.0.1:9100 \
+  --collector.disable-defaults \
+  --collector.cpu \
+  --collector.diskstats \
+  --collector.filesystem \
+  --collector.loadavg \
+  --collector.meminfo \
+  --collector.netdev \
+  --collector.uname \
+  --collector.systemd
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

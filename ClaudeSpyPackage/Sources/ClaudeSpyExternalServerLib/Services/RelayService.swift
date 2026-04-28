@@ -7,16 +7,19 @@ actor RelayService {
     private let pairingService: PairingService
     private let connectionHub: ConnectionHub
     private let apnsService: APNsService?
+    private let metricsService: MetricsService
     private let logger = Logger(label: "relay-service")
 
     init(
         pairingService: PairingService,
         connectionHub: ConnectionHub,
-        apnsService: APNsService?
+        apnsService: APNsService?,
+        metricsService: MetricsService
     ) {
         self.pairingService = pairingService
         self.connectionHub = connectionHub
         self.apnsService = apnsService
+        self.metricsService = metricsService
     }
 
     // MARK: - Connection Notifications
@@ -70,9 +73,17 @@ actor RelayService {
             await handleHostRegistration(registration, pairId: pairId)
 
         case let .encrypted(encryptedMessage):
-            // Pass through encrypted messages - server cannot decrypt or see message type
-            logger.info("Relaying encrypted message to viewer")
-            await connectionHub.send(.encrypted(encryptedMessage), to: pairId, deviceType: .viewer)
+            // Pass through encrypted messages - server cannot decrypt or see message type.
+            // Only count successfully-relayable messages: gate on the peer being connected,
+            // matching the symmetric viewer→host branch below. Otherwise we'd inflate the
+            // counter when the peer is offline (push notifications go out via `.encryptedPush`).
+            if await connectionHub.isViewerConnected(pairId: pairId) {
+                await metricsService.incrementMessagesRelayed()
+                logger.info("Relaying encrypted message to viewer")
+                await connectionHub.send(.encrypted(encryptedMessage), to: pairId, deviceType: .viewer)
+            } else {
+                logger.debug("Viewer not connected, dropping encrypted relay message")
+            }
 
         case let .encryptedPush(payload):
             // Encrypted push notification - forward to APNs if viewer is not connected
@@ -114,6 +125,7 @@ actor RelayService {
         case let .encrypted(encryptedMessage):
             // Pass through encrypted messages to host - server cannot decrypt or see message type
             if await connectionHub.isHostConnected(pairId: pairId) {
+                await metricsService.incrementMessagesRelayed()
                 logger.info("Relaying encrypted message to host")
                 await connectionHub.send(.encrypted(encryptedMessage), to: pairId, deviceType: .host)
             } else {

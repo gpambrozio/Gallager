@@ -1,0 +1,13 @@
+apiVersion: grizzly.grafana.com/v1alpha1
+kind: AlertNotificationPolicy
+metadata:
+  name: notification-policy
+spec:
+  receiver: discord-alerts
+  group_by:
+    - alertname
+    - instance
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes: []

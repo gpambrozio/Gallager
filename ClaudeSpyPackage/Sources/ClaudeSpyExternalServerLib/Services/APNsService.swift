@@ -12,6 +12,7 @@ actor APNsService {
     private let client: APNSClient<JSONDecoder, JSONEncoder>?
     private let pairingService: PairingService
     private let connectionHub: ConnectionHub
+    private let metricsService: MetricsService
     private let logger = Logger(label: "apns-service")
     private let bundleId: String
 
@@ -20,6 +21,7 @@ actor APNsService {
     init(
         pairingService: PairingService,
         connectionHub: ConnectionHub,
+        metricsService: MetricsService,
         keyPath: String? = nil,
         keyId: String? = nil,
         teamId: String? = nil,
@@ -28,6 +30,7 @@ actor APNsService {
     ) async {
         self.pairingService = pairingService
         self.connectionHub = connectionHub
+        self.metricsService = metricsService
         self.bundleId = bundleId
             ?? ProcessInfo.processInfo.environment["APNS_BUNDLE_ID"]
             ?? "com.yourcompany.ClaudeSpy"
@@ -147,6 +150,7 @@ actor APNsService {
                 notification,
                 deviceToken: deviceToken
             )
+            await metricsService.incrementPushNotifications()
             logger.info("Encrypted push notification sent", metadata: [
                 "pairId": "\(pairId)",
             ])

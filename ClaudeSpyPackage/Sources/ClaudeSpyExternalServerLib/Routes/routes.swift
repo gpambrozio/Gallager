@@ -7,6 +7,10 @@ func routes(_ app: Application) throws {
         HealthResponse(status: "ok")
     }
 
+    // Prometheus metrics endpoint at root (NOT under /api).
+    // Authenticated via METRICS_TOKEN bearer header — see MetricsController.
+    try app.register(collection: MetricsController())
+
     // API routes group
     let api = app.grouped("api")
 
