@@ -8,13 +8,13 @@ check-env:
 	@: $${DISCORD_WEBHOOK_URL:?DISCORD_WEBHOOK_URL must be set}
 
 apply: check-env
-	$(GRR) apply
+	$(GRR) apply .
 
 diff: check-env
-	$(GRR) diff
+	$(GRR) diff .
 
 pull: check-env
-	$(GRR) pull -d ./pulled
+	$(GRR) pull . -d ./pulled
 
 lint:
 	$(GRR) lint
