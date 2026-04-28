@@ -9,7 +9,40 @@
 
 ## Initial Setup
 
-See the implementation plan at `docs/superpowers/plans/2026-04-27-relay-server-monitoring.md`, Phases 3–5, for the one-time bootstrap (Grafana Cloud account, service-account token, Discord webhook, agent install on VM).
+One-time bootstrap. Detailed steps in the plan at `docs/superpowers/plans/2026-04-27-relay-server-monitoring.md` (Phases 3–5). Track progress here:
+
+### Grafana Cloud (Phase 3)
+- [ ] Sign up at <https://grafana.com/auth/sign-up/create-user>; create stack `claudespy` in a region near Hetzner.
+- [ ] From "Send Metrics" → "Hosted Prometheus": save `GRAFANA_PROM_URL` and `GRAFANA_PROM_USER`.
+- [ ] Create access policy `claudespy-alloy-write` with scope `metrics:write`; save the token as `GRAFANA_PROM_TOKEN`.
+- [ ] Save the stack's Grafana URL as `GRAFANA_URL`.
+- [ ] Create service account `grizzly` (Admin role); save its token as `GRAFANA_SA_TOKEN` (= `GRAFANA_TOKEN` in `.env`).
+- [ ] Generate `METRICS_TOKEN` with `openssl rand -hex 32`; add it to `/opt/claudespy/.env` on the Hetzner VM and redeploy the relay.
+- [ ] Verify `/metrics` from inside the VM: `curl -H "Authorization: Bearer $METRICS_TOKEN" http://127.0.0.1:8080/metrics | head`.
+- [ ] Verify external port is closed: `curl http://$DEPLOY_HOST:8080/metrics` should refuse connection (not 401).
+- [ ] `scp -r ClaudeSpyPackage/monitoring/agents root@$DEPLOY_HOST:/opt/claudespy-monitoring`.
+- [ ] Run installer with all four env vars: `ssh root@$DEPLOY_HOST METRICS_TOKEN=… GRAFANA_PROM_URL=… GRAFANA_PROM_USER=… GRAFANA_PROM_TOKEN=… bash /opt/claudespy-monitoring/install.sh`.
+- [ ] Confirm both services active: `systemctl is-active node_exporter alloy`.
+- [ ] In Grafana Explore, query `claudespy_active_pairs` and `node_filesystem_avail_bytes` to confirm data is flowing.
+
+### Discord (Phase 4)
+- [ ] Create private channel `#claudespy-alerts` on a Discord server you control.
+- [ ] Add webhook named `Grafana`; save URL as `DISCORD_WEBHOOK_URL`.
+- [ ] Smoke-test: `curl -X POST -H 'Content-Type: application/json' -d '{"content":"hello"}' "$DISCORD_WEBHOOK_URL"`.
+
+### grizzly config-as-code (Phase 5)
+- [ ] `brew install grafana/grafana/grizzly`.
+- [ ] `cd ClaudeSpyPackage/monitoring/grizzly && cp .env.example .env`; fill in `GRAFANA_URL`, `GRAFANA_TOKEN`, `DISCORD_WEBHOOK_URL`.
+- [ ] Pull current state to discover the Prometheus datasource UID: `set -a; . .env; set +a; make pull && grep -r 'uid:' pulled/Datasource*` — set `PROM_DS_UID` in `.env`, then `rm -rf pulled`.
+- [ ] `make apply` — applies contact point, notification policy, and all four alert rules.
+- [ ] In Grafana UI → Alerting → Contact points → `discord-alerts` → Test. Verify message in `#claudespy-alerts`.
+- [ ] Build the Relay Overview dashboard in the Grafana UI (panel queries listed in the plan, Task 23).
+- [ ] `mkdir -p pulled && grr pull -t Dashboard -d ./pulled && mv ./pulled/dashboards/*.json dashboards/relay.json && rm -rf pulled`. Commit `dashboards/relay.json`.
+- [ ] `make apply` again — should report `unchanged` for the dashboard (round-trip works).
+
+### Smoke test (Phase 6 / Task 24)
+- [ ] `ssh root@$DEPLOY_HOST 'docker stop claudespy-relay'`. Wait 3 min. Expect a Discord alert.
+- [ ] `ssh root@$DEPLOY_HOST 'docker start claudespy-relay'`. Wait 1–2 min. Expect a Discord "resolved" message.
 
 ## Daily life
 
