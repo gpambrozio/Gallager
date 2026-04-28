@@ -19,6 +19,7 @@ public func configure(_ app: Application) async throws {
     // Initialize core services
     let pairingService = PairingService()
     let connectionHub = ConnectionHub()
+    let metricsService = MetricsService()
 
     // Determine APNs environment from APNS_ENVIRONMENT variable (defaults to development)
     // Use "production" only when iOS app is distributed via App Store/TestFlight
@@ -28,6 +29,7 @@ public func configure(_ app: Application) async throws {
     let apnsService = await APNsService(
         pairingService: pairingService,
         connectionHub: connectionHub,
+        metricsService: metricsService,
         environment: apnsEnvironment
     )
 
@@ -35,7 +37,8 @@ public func configure(_ app: Application) async throws {
     let relayService = RelayService(
         pairingService: pairingService,
         connectionHub: connectionHub,
-        apnsService: apnsService
+        apnsService: apnsService,
+        metricsService: metricsService
     )
 
     // Store services in app storage
@@ -43,6 +46,29 @@ public func configure(_ app: Application) async throws {
     app.storage[ConnectionHubKey.self] = connectionHub
     app.storage[APNsServiceKey.self] = apnsService
     app.storage[RelayServiceKey.self] = relayService
+    app.storage[MetricsServiceKey.self] = metricsService
+    // Use ContinuousClock so /metrics uptime is monotonic (immune to wall-clock jumps).
+    app.storage[ProcessStartTimeKey.self] = ContinuousClock.now
+
+    // Bearer token for /metrics endpoint.
+    //   nil  → endpoint disabled (all requests get 401)
+    //   set  → must be at least 32 characters; shorter values fatalError at boot
+    //          to fail-loud rather than ship a brute-forceable production deploy.
+    let rawToken = (ProcessInfo.processInfo.environment["METRICS_TOKEN"] ?? "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    let metricsToken: String?
+    if rawToken.isEmpty {
+        app.logger.warning("METRICS_TOKEN not set — /metrics endpoint will reject all requests")
+        metricsToken = nil
+    } else if rawToken.count < 32 {
+        fatalError(
+            "METRICS_TOKEN must be at least 32 characters (got \(rawToken.count)). " +
+                "Generate with: openssl rand -hex 32"
+        )
+    } else {
+        metricsToken = rawToken
+    }
+    app.storage[MetricsTokenKey.self] = metricsToken
 
     // Register routes
     try routes(app)
@@ -64,6 +90,19 @@ struct RelayServiceKey: StorageKey {
 
 struct APNsServiceKey: StorageKey {
     typealias Value = APNsService
+}
+
+struct MetricsServiceKey: StorageKey {
+    typealias Value = MetricsService
+}
+
+struct ProcessStartTimeKey: StorageKey {
+    typealias Value = ContinuousClock.Instant
+}
+
+struct MetricsTokenKey: StorageKey {
+    /// `nil` means the `/metrics` endpoint is disabled (all requests get 401).
+    typealias Value = String?
 }
 
 // MARK: - Application Extensions (Internal)
@@ -92,6 +131,18 @@ extension Application {
 
     var apnsService: APNsService? {
         storage[APNsServiceKey.self]
+    }
+
+    var metricsService: MetricsService {
+        guard let service = storage[MetricsServiceKey.self] else {
+            fatalError("MetricsService not configured. Call configure(_:) first.")
+        }
+        return service
+    }
+
+    /// `nil` when the `/metrics` endpoint is disabled (no `METRICS_TOKEN` in env).
+    var metricsToken: String? {
+        storage[MetricsTokenKey.self] ?? nil
     }
 }
 

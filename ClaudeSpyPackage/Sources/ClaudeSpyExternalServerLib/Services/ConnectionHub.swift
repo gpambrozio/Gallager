@@ -3,6 +3,12 @@ import Foundation
 import Logging
 import Vapor
 
+/// Aggregate count of active WebSocket connections, partitioned by device type.
+struct ConnectionCounts: Sendable {
+    let host: Int
+    let viewer: Int
+}
+
 /// Manages active WebSocket connections for paired devices
 actor ConnectionHub {
     /// Active connections indexed by pairId and deviceType
@@ -93,6 +99,21 @@ actor ConnectionHub {
     /// Check if viewer is connected for a pair
     func isViewerConnected(pairId: String) -> Bool {
         connections[pairId]?[.viewer] != nil
+    }
+
+    /// Aggregate count of active connections by device type across all pairs.
+    ///
+    /// O(pairs); fine while pair counts stay small. If this becomes hot, swap
+    /// the iteration for cached `host`/`viewer` fields maintained inside
+    /// `register` / `unregister` / `disconnectAll`.
+    func connectionCounts() -> ConnectionCounts {
+        var host = 0
+        var viewer = 0
+        for pairConnections in connections.values {
+            if pairConnections[.host] != nil { host += 1 }
+            if pairConnections[.viewer] != nil { viewer += 1 }
+        }
+        return ConnectionCounts(host: host, viewer: viewer)
     }
 
     /// Get connection for a specific device
