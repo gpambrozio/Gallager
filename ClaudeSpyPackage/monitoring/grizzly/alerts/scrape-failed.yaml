@@ -13,7 +13,7 @@ spec:
       data:
         - refId: A
           relativeTimeRange: { from: 600, to: 0 }
-          datasourceUid: ${PROM_DS_UID}
+          datasourceUid: grafanacloud-prom
           model:
             # Messages relayed per second over 5m
             expr: rate(claudespy_messages_relayed_total[5m])

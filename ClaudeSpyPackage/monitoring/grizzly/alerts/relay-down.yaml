@@ -13,7 +13,7 @@ spec:
       data:
         - refId: A
           relativeTimeRange: { from: 300, to: 0 }
-          datasourceUid: ${PROM_DS_UID}
+          datasourceUid: grafanacloud-prom
           model:
             expr: up{job="claudespy-relay"}
             instant: true
