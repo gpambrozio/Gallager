@@ -1,0 +1,18 @@
+[Unit]
+Description=Grafana Alloy
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=alloy
+Group=alloy
+Type=simple
+EnvironmentFile=/etc/alloy/alloy.env
+ExecStart=/usr/bin/alloy run /etc/alloy/config.alloy \
+  --storage.path=/var/lib/alloy \
+  --server.http.listen-addr=127.0.0.1:12345
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
