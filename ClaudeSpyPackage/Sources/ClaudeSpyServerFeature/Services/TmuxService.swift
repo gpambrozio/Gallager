@@ -307,8 +307,12 @@ final public class TmuxService {
         if listSessionsSucceeded && sessionLines.isEmpty {
             return .empty(reason: "list-panes empty + list-sessions confirms no sessions (rawLines=\(lines.count) parsed=\(parsed.count))")
         }
+        // Use `.debugDescription` so any ANSI/control bytes in the glitched
+        // stdout are escaped (e.g. `\u{1B}`) instead of leaking into the
+        // structured log line raw.
+        let stdoutPrefix = String(result.stdoutString.prefix(200)).debugDescription
         return .keep(
-            reason: "list-panes empty + list-sessions inconclusive (sessionCount=\(sessionLines.count) sessionsSucceeded=\(listSessionsSucceeded) rawLines=\(lines.count) parsed=\(parsed.count) stdoutPrefix=\(String(result.stdoutString.prefix(200))))",
+            reason: "list-panes empty + list-sessions inconclusive (sessionCount=\(sessionLines.count) sessionsSucceeded=\(listSessionsSucceeded) rawLines=\(lines.count) parsed=\(parsed.count) stdoutPrefix=\(stdoutPrefix))",
             lastError: nil
         )
     }
