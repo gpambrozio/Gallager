@@ -49,6 +49,13 @@ public func configure(_ app: Application) async throws {
     app.storage[MetricsServiceKey.self] = metricsService
     app.storage[ProcessStartTimeKey.self] = Date()
 
+    // Bearer token for /metrics endpoint. Empty = endpoint rejects all requests.
+    let metricsToken = ProcessInfo.processInfo.environment["METRICS_TOKEN"] ?? ""
+    if metricsToken.isEmpty {
+        app.logger.warning("METRICS_TOKEN not set — /metrics endpoint will reject all requests")
+    }
+    app.storage[MetricsTokenKey.self] = metricsToken
+
     // Register routes
     try routes(app)
 }
@@ -77,6 +84,10 @@ struct MetricsServiceKey: StorageKey {
 
 struct ProcessStartTimeKey: StorageKey {
     typealias Value = Date
+}
+
+struct MetricsTokenKey: StorageKey {
+    typealias Value = String
 }
 
 // MARK: - Application Extensions (Internal)
@@ -112,6 +123,10 @@ extension Application {
             fatalError("MetricsService not configured. Call configure(_:) first.")
         }
         return service
+    }
+
+    var metricsToken: String {
+        storage[MetricsTokenKey.self] ?? ""
     }
 }
 
