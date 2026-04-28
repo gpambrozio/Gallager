@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Testing
 @testable import ClaudeSpyExternalServerLib
 
@@ -47,5 +48,16 @@ struct MetricsServiceTests {
         #expect(body.contains("claudespy_ws_connections{device_type=\"viewer\"} 1"))
         #expect(body.contains("claudespy_uptime_seconds 42"))
         #expect(body.contains("claudespy_build_info{version=\"test-1.0\"} 1"))
+    }
+}
+
+@Suite("ConnectionHub aggregate counts")
+struct ConnectionHubCountsTests {
+    @Test("connectionCounts returns zero for empty hub")
+    func emptyHub() async {
+        let hub = ConnectionHub()
+        let counts = await hub.connectionCounts()
+        #expect(counts.host == 0)
+        #expect(counts.viewer == 0)
     }
 }

@@ -95,6 +95,17 @@ actor ConnectionHub {
         connections[pairId]?[.viewer] != nil
     }
 
+    /// Aggregate count of active connections by device type across all pairs.
+    func connectionCounts() -> (host: Int, viewer: Int) {
+        var host = 0
+        var viewer = 0
+        for (_, pairConnections) in connections {
+            if pairConnections[.host] != nil { host += 1 }
+            if pairConnections[.viewer] != nil { viewer += 1 }
+        }
+        return (host, viewer)
+    }
+
     /// Get connection for a specific device
     func getConnection(pairId: String, deviceType: DeviceType) -> Connection? {
         connections[pairId]?[deviceType]
