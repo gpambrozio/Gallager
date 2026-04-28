@@ -4,8 +4,8 @@
 // ==========================================
 // Versioning
 // ==========================================
-MARKETING_VERSION = 1.25
-CURRENT_PROJECT_VERSION = 25
+MARKETING_VERSION = 1.26
+CURRENT_PROJECT_VERSION = 26
 
 // ==========================================
 // Build Performance
