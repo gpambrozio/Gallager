@@ -35,10 +35,9 @@ One-time bootstrap. Detailed steps in the plan at `docs/superpowers/plans/2026-0
 - [x] `cd ClaudeSpyPackage/monitoring/grizzly && cp .env.example .env`; fill in `GRAFANA_URL`, `GRAFANA_TOKEN`, `DISCORD_WEBHOOK_URL`.
 - [x] Pull current state to discover the Prometheus datasource UID (`grafanacloud-prom`); updated all alert YAMLs and `.env`.
 - [x] Applied contact point (`discord-alerts`) and notification policy via `grr apply`. Alert rules applied via Grafana provisioning API (grr 0.7.1 has a bug with AlertRuleGroup).
-- [ ] In Grafana UI → Alerting → Contact points → `discord-alerts` → Test. Verify message in `#claudespy-alerts`.
-- [ ] Build the Relay Overview dashboard in the Grafana UI (panel queries listed in the plan, Task 23).
-- [ ] `mkdir -p pulled && grr pull -t Dashboard -d ./pulled && mv ./pulled/dashboards/*.json dashboards/relay.json && rm -rf pulled`. Commit `dashboards/relay.json`.
-- [ ] `make apply` again — should report `unchanged` for the dashboard (round-trip works).
+- [x] In Grafana UI → Alerting → Contact points → `discord-alerts` → Test. Verified message in `#claudespy-alerts`.
+- [x] Build the Relay Overview dashboard via Grafana API; pulled back as `dashboards/relay.yaml` via `grr pull`.
+- [x] Committed `dashboards/relay.yaml`.
 
 ### Smoke test (Phase 6 / Task 24)
 - [ ] `ssh root@$DEPLOY_HOST 'docker stop claudespy-relay'`. Wait 3 min. Expect a Discord alert.

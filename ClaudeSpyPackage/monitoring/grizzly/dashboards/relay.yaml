@@ -1,0 +1,193 @@
+apiVersion: grizzly.grafana.com/v1alpha1
+kind: Dashboard
+metadata:
+    folder: bfkfjdmfq6whsa
+    name: 61c88d0e-2b63-4951-9da0-3e1ba80f1dc4
+spec:
+    panels:
+        - gridPos:
+            h: 4
+            w: 4
+            x: 0
+            "y": 0
+          id: 1
+          options:
+            colorMode: background
+            orientation: auto
+            reduceOptions:
+                calcs:
+                    - lastNotNull
+            textMode: auto
+          targets:
+            - datasource:
+                uid: grafanacloud-prom
+              expr: claudespy_active_pairs
+              instant: true
+              refId: A
+          title: Active Pairs
+          type: stat
+        - gridPos:
+            h: 4
+            w: 4
+            x: 4
+            "y": 0
+          id: 2
+          options:
+            colorMode: background
+            orientation: auto
+            reduceOptions:
+                calcs:
+                    - lastNotNull
+            textMode: auto
+          targets:
+            - datasource:
+                uid: grafanacloud-prom
+              expr: claudespy_ws_connections{device_type="host"}
+              instant: true
+              refId: A
+          title: Host Connections
+          type: stat
+        - gridPos:
+            h: 4
+            w: 4
+            x: 8
+            "y": 0
+          id: 3
+          options:
+            colorMode: background
+            orientation: auto
+            reduceOptions:
+                calcs:
+                    - lastNotNull
+            textMode: auto
+          targets:
+            - datasource:
+                uid: grafanacloud-prom
+              expr: claudespy_ws_connections{device_type="viewer"}
+              instant: true
+              refId: A
+          title: Viewer Connections
+          type: stat
+        - fieldConfig:
+            defaults:
+                unit: s
+          gridPos:
+            h: 4
+            w: 4
+            x: 12
+            "y": 0
+          id: 4
+          options:
+            colorMode: value
+            orientation: auto
+            reduceOptions:
+                calcs:
+                    - lastNotNull
+            textMode: auto
+            unit: s
+          targets:
+            - datasource:
+                uid: grafanacloud-prom
+              expr: claudespy_uptime_seconds
+              instant: true
+              refId: A
+          title: Uptime
+          type: stat
+        - fieldConfig:
+            defaults:
+                unit: reqps
+          gridPos:
+            h: 8
+            w: 12
+            x: 0
+            "y": 4
+          id: 5
+          targets:
+            - datasource:
+                uid: grafanacloud-prom
+              expr: rate(claudespy_messages_relayed_total[5m])
+              legendFormat: relay rate
+              refId: A
+          title: Messages/sec Relayed
+          type: timeseries
+        - fieldConfig:
+            defaults:
+                unit: reqps
+          gridPos:
+            h: 8
+            w: 12
+            x: 12
+            "y": 4
+          id: 6
+          targets:
+            - datasource:
+                uid: grafanacloud-prom
+              expr: rate(claudespy_push_notifications_total[5m])
+              legendFormat: push rate
+              refId: A
+          title: Push Notifications/sec
+          type: timeseries
+        - fieldConfig:
+            defaults:
+                max: 100
+                min: 0
+                thresholds:
+                    steps:
+                        - color: green
+                          value: 0
+                        - color: yellow
+                          value: 75
+                        - color: red
+                          value: 90
+                unit: percent
+          gridPos:
+            h: 8
+            w: 12
+            x: 0
+            "y": 12
+          id: 7
+          targets:
+            - datasource:
+                uid: grafanacloud-prom
+              expr: 100 * (1 - (node_memory_MemAvailable_bytes{instance="hetzner-1"} / node_memory_MemTotal_bytes{instance="hetzner-1"}))
+              legendFormat: memory %
+              refId: A
+          title: Memory Usage %
+          type: timeseries
+        - fieldConfig:
+            defaults:
+                max: 100
+                min: 0
+                thresholds:
+                    steps:
+                        - color: green
+                          value: 0
+                        - color: yellow
+                          value: 75
+                        - color: red
+                          value: 90
+                unit: percent
+          gridPos:
+            h: 8
+            w: 12
+            x: 12
+            "y": 12
+          id: 8
+          targets:
+            - datasource:
+                uid: grafanacloud-prom
+              expr: 100 * (1 - (node_filesystem_avail_bytes{instance="hetzner-1",mountpoint="/"} / node_filesystem_size_bytes{instance="hetzner-1",mountpoint="/"}))
+              legendFormat: disk %
+              refId: A
+          title: Disk Usage %
+          type: timeseries
+    refresh: 30s
+    schemaVersion: 38
+    tags:
+        - claudespy
+    time:
+        from: now-1h
+        to: now
+    timezone: browser
+    title: Relay Overview
+    uid: 61c88d0e-2b63-4951-9da0-3e1ba80f1dc4
