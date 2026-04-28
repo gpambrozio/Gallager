@@ -268,15 +268,34 @@ final public class TmuxService {
 
             // list-panes succeeded but yielded zero panes despite the previous
             // refresh having state. tmux can return success with empty/partial
-            // stdout under odd conditions; log loudly so we can tell this path
-            // apart from the failure paths above.
+            // stdout under odd conditions; disambiguate against list-sessions
+            // before trusting the wipe. Sessions present + zero panes is a
+            // tmux glitch (a session always has at least one pane), so we keep
+            // the old panes and let the next refresh reconcile.
             if panes.isEmpty && !oldPanes.isEmpty {
-                logger.warning("tmux list-panes succeeded but parsed 0 panes — clearing panes", metadata: [
-                    "rawLineCount": "\(lines.count)",
-                    "parsedPaneCount": "\(allPanes.count)",
-                    "stdoutPrefix": "\(String(result.stdoutString.prefix(200)))",
-                    "oldPaneCount": "\(oldPanes.count)",
-                ])
+                let sessionCheck = try? await runTmuxCommand(["list-sessions", "-F", "#{session_id}"])
+                let sessionLines = sessionCheck?.stdoutString
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .split(separator: "\n") ?? []
+                let serverHasSessions = (sessionCheck?.isSuccess ?? false) && !sessionLines.isEmpty
+
+                if serverHasSessions {
+                    logger.warning("tmux list-panes succeeded but parsed 0 panes — sessions still exist, keeping old panes", metadata: [
+                        "rawLineCount": "\(lines.count)",
+                        "parsedPaneCount": "\(allPanes.count)",
+                        "stdoutPrefix": "\(String(result.stdoutString.prefix(200)))",
+                        "oldPaneCount": "\(oldPanes.count)",
+                        "sessionCount": "\(sessionLines.count)",
+                    ])
+                    panes = oldPanes
+                } else {
+                    logger.warning("tmux list-panes succeeded but parsed 0 panes — no sessions, clearing panes", metadata: [
+                        "rawLineCount": "\(lines.count)",
+                        "parsedPaneCount": "\(allPanes.count)",
+                        "stdoutPrefix": "\(String(result.stdoutString.prefix(200)))",
+                        "oldPaneCount": "\(oldPanes.count)",
+                    ])
+                }
             }
         } catch TmuxError.noServerRunning {
             // Tmux has no sessions - this is legitimate, not an error.
