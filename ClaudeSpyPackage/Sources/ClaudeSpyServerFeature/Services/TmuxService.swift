@@ -756,16 +756,16 @@ final public class TmuxService {
         return Data(output.utf8)
     }
 
-    /// Counts visible (cursor-advancing) characters in a `filterToColorCodesOnly`
+    /// Counts visible (cursor-advancing) columns in a `filterToColorCodesOnly`
     /// result, skipping CSI/OSC escape sequences.
     ///
     /// Used by `processCapturePaneForStreaming` to compute how many spaces to
-    /// pad a captured line up to the pane width. Approximates each grapheme as
-    /// one column — accurate for ASCII and most box drawing, but does not
-    /// account for wide (CJK) or zero-width characters. That's acceptable here
-    /// because over-padding past the right margin is harmless (terminal clips
-    /// or wraps; the next iteration starts with `\r\n`) and under-padding
-    /// is rare enough in practice that the trailing `\e[J` cleanup suffices.
+    /// pad a captured line up to the pane width. Each grapheme is measured via
+    /// `displayWidth(of:)` so wide characters (CJK, emoji) count as 2 and
+    /// combining marks count as 0 — matching SwiftTerm's column accounting.
+    /// Over-padding causes the line to wrap, which silently consumes a row of
+    /// the rebuilt screen and shifts subsequent rows out of place, so the
+    /// width must be tracked accurately.
     func countVisibleColumns(_ filtered: String) -> Int {
         var count = 0
         var i = filtered.startIndex
@@ -813,7 +813,7 @@ final public class TmuxService {
                     i = filtered.index(after: next)
                 }
             } else {
-                count += 1
+                count += Self.displayWidth(of: char)
                 i = filtered.index(after: i)
             }
         }
