@@ -44,6 +44,12 @@
         return line[col].attribute.fg
     }
 
+    /// Gets the background color attribute at a specific position
+    private func getBgColor(_ terminal: Terminal, col: Int, row: Int) -> Attribute.Color {
+        guard let line = terminal.getLine(row: row) else { return .defaultColor }
+        return line[col].attribute.bg
+    }
+
     // MARK: - Tests
 
     @Suite("Terminal Rendering - Garbled Output Investigation")
@@ -371,6 +377,64 @@
                     "Line 2 inherits SGR state from line 1 (no reset between visible lines)"
                 )
             }
+
+            @Test("Background SGR does not leak into next line via EL clear (#411)")
+            @MainActor
+            func backgroundDoesNotLeakViaEraseLine() {
+                let service = TmuxService()
+                // Simulates tmux capture-pane output for a pane where row 0 has
+                // 80 cells of bg-blue (a status bar filling the row). tmux's
+                // `capture-pane -p` trims trailing cells even when they have a
+                // non-default attribute, leaving a lone `\e[44m` SGR setter on
+                // that row. Row 1 has plain text starting with `\e[0m` to reset
+                // before the default-attribute content.
+                //
+                // Without the fix: the for-loop that writes visible lines emits
+                // `\r\n` after row 0's `\e[44m`, leaving SwiftTerm's SGR state
+                // at "bg blue". The next iteration emits `\e[2K` (Erase in Line)
+                // which clears with the CURRENT background — painting row 1
+                // entirely blue. The subsequent `\e[0m> Input` content writes
+                // the prompt with default attributes, but the cells AFTER the
+                // prompt remain blue, producing the user-visible bug.
+                let visibleLines = [
+                    "\u{1b}[44m", // 80 trimmed bg-blue spaces — only the SGR setter remains
+                    "\u{1b}[0m> Input",
+                    "Hello",
+                ]
+                let visibleOutput = visibleLines.joined(separator: "\n")
+                let cursorOutput = "0,2,1" // cursor on the 'Hello' line
+
+                let data = service.processCapturePaneForStreaming(
+                    scrollbackOutput: nil,
+                    visibleOutput: visibleOutput,
+                    cursorOutput: cursorOutput,
+                    height: 10
+                )
+
+                let (terminal, _) = makeTerminal(cols: 80, rows: 10)
+                terminal.feed(byteArray: Array(data))
+
+                // Verify the prompt content is on row 1
+                let row1Text = getRowText(terminal, row: 1)
+                #expect(row1Text.contains("> Input"), "Row 1 should have prompt: '\(row1Text)'")
+
+                // The cells AFTER the prompt content on row 1 must have default
+                // background. Without the fix, col 20 (well past "> Input") has
+                // bg blue from the leaked clear.
+                let bgAfterPrompt = getBgColor(terminal, col: 20, row: 1)
+                #expect(
+                    bgAfterPrompt == .defaultColor,
+                    "Row 1 col 20 must have default bg, not leaked bg blue, got: \(bgAfterPrompt)"
+                )
+
+                // Row 2 ('Hello') should also be default — covers the case where
+                // the leak compounds across multiple lines.
+                let bgRow2 = getBgColor(terminal, col: 20, row: 2)
+                #expect(
+                    bgRow2 == .defaultColor,
+                    "Row 2 col 20 must have default bg, got: \(bgRow2)"
+                )
+            }
         }
 
         // MARK: - H9: OSC sequences in filterToColorCodesOnly
@@ -634,7 +698,7 @@
     @MainActor
     struct CaptureProcessingTests {
         @Test("Produces valid output with nil scrollback")
-        func nilScrollback() async {
+        func nilScrollback() throws {
             let service = TmuxService()
             let result = service.processCapturePaneForStreaming(
                 scrollbackOutput: nil,
@@ -642,7 +706,7 @@
                 cursorOutput: "0,0,1",
                 height: 24
             )
-            let str = String(data: result, encoding: .utf8)!
+            let str = try #require(String(data: result, encoding: .utf8))
             #expect(str.contains("\u{1b}[H")) // Home position
             #expect(str.contains("\u{1b}[2K")) // Line clear
             #expect(str.contains("line1"))
@@ -650,7 +714,7 @@
         }
 
         @Test("Handles trailing newline in visible output")
-        func trailingNewline() async {
+        func trailingNewline() {
             let service = TmuxService()
             // Subprocess output has trailing newline, control mode may not
             let withNewline = service.processCapturePaneForStreaming(
@@ -670,7 +734,7 @@
         }
 
         @Test("Cursor position is included in output")
-        func cursorPosition() async {
+        func cursorPosition() throws {
             let service = TmuxService()
             let result = service.processCapturePaneForStreaming(
                 scrollbackOutput: nil,
@@ -678,7 +742,7 @@
                 cursorOutput: "5,1,1",
                 height: 24
             )
-            let str = String(data: result, encoding: .utf8)!
+            let str = try #require(String(data: result, encoding: .utf8))
             // Cursor at row 1 (0-indexed), 3 lines output.
             // After drawing 3 lines cursor is on line 3. Move up 3-1-1=1 line, col 6.
             #expect(str.contains("\u{1b}[1A")) // move up 1
@@ -686,7 +750,7 @@
         }
 
         @Test("Scrollback content is included with SGR resets")
-        func scrollbackIncluded() async {
+        func scrollbackIncluded() throws {
             let service = TmuxService()
             // Scrollback must have >= height lines to be included (otherwise
             // it's treated as stale post-clear content and suppressed).
@@ -697,7 +761,7 @@
                 cursorOutput: "0,0,1",
                 height: 5
             )
-            let str = String(data: result, encoding: .utf8)!
+            let str = try #require(String(data: result, encoding: .utf8))
             #expect(str.contains("scrollback line 1"))
             #expect(str.contains("visible line"))
             // Scrollback should have SGR resets
@@ -705,7 +769,7 @@
         }
 
         @Test("Cursor beyond visible lines pads output to reach cursor row")
-        func cursorBeyondVisibleLines() async {
+        func cursorBeyondVisibleLines() throws {
             let service = TmuxService()
             // Cursor at row 10 but only 2 lines of content.
             // capture-pane trims trailing empty lines, so this is normal when
@@ -717,7 +781,7 @@
                 cursorOutput: "0,10,1",
                 height: 24
             )
-            let str = String(data: result, encoding: .utf8)!
+            let str = try #require(String(data: result, encoding: .utf8))
             // linesToOutput = max(11, 2) = 11. After drawing 11 lines (2 content + 9 blank),
             // cursor is on line 11. effectiveCursorY = 10, linesUp = 11-1-10 = 0.
             #expect(str.contains("\u{1b}[1G")) // column 1
@@ -725,7 +789,7 @@
         }
 
         @Test("Hidden cursor flag emits DECTCEM hide sequence")
-        func hiddenCursorFlag() async {
+        func hiddenCursorFlag() throws {
             let service = TmuxService()
             let result = service.processCapturePaneForStreaming(
                 scrollbackOutput: nil,
@@ -733,12 +797,12 @@
                 cursorOutput: "0,0,0",
                 height: 24
             )
-            let str = String(data: result, encoding: .utf8)!
+            let str = try #require(String(data: result, encoding: .utf8))
             #expect(str.hasSuffix("\u{1b}[?25l"))
         }
 
         @Test("Visible cursor flag does not emit hide sequence")
-        func visibleCursorFlag() async {
+        func visibleCursorFlag() throws {
             let service = TmuxService()
             let result = service.processCapturePaneForStreaming(
                 scrollbackOutput: nil,
@@ -746,12 +810,12 @@
                 cursorOutput: "0,0,1",
                 height: 24
             )
-            let str = String(data: result, encoding: .utf8)!
+            let str = try #require(String(data: result, encoding: .utf8))
             #expect(!str.contains("\u{1b}[?25l"))
         }
 
         @Test("Missing cursor flag defaults to visible (no hide sequence)")
-        func missingCursorFlag() async {
+        func missingCursorFlag() throws {
             let service = TmuxService()
             // Legacy format without cursor_flag — should default to visible
             let result = service.processCapturePaneForStreaming(
@@ -760,7 +824,7 @@
                 cursorOutput: "0,0",
                 height: 24
             )
-            let str = String(data: result, encoding: .utf8)!
+            let str = try #require(String(data: result, encoding: .utf8))
             #expect(!str.contains("\u{1b}[?25l"))
         }
 
@@ -1077,7 +1141,7 @@
     @Suite("Emoji width handling in tables")
     struct EmojiWidthTests {
         @Test("Emoji characters occupy 2 columns in SwiftTerm")
-        func emojiOccupiesTwoColumns() {
+        func emojiOccupiesTwoColumns() throws {
             let (terminal, _) = makeTerminal(cols: 80, rows: 10)
 
             // Feed a line: "A🔴B" — if 🔴 is 2 cols wide, B should be at col 4
@@ -1090,13 +1154,13 @@
             #expect(cursorCol == 4, "Cursor should be at col 4 after A+🔴+B, got \(cursorCol)")
 
             // Check that B is at col 3
-            let line = terminal.getLine(row: 0)!
+            let line = try #require(terminal.getLine(row: 0))
             let bChar = line[3].getCharacter()
             #expect(bChar == "B", "Col 3 should have 'B', got '\(bChar)'")
         }
 
         @Test("Various emoji all occupy 2 columns")
-        func variousEmojiWidth() {
+        func variousEmojiWidth() throws {
             let (terminal, _) = makeTerminal(cols: 80, rows: 10)
 
             let emoji: [(String, Character)] = [
@@ -1110,7 +1174,7 @@
                 terminal.feed(text: "\u{1b}[\(i + 1);1H") // move to row
                 terminal.feed(text: "X\(emojiStr)Y")
 
-                let line = terminal.getLine(row: i)!
+                let line = try #require(terminal.getLine(row: i))
 
                 // X at col 0, emoji at col 1-2, Y at col 3
                 let xChar = line[0].getCharacter()
@@ -1122,7 +1186,7 @@
         }
 
         @Test("Table with emoji renders with aligned columns")
-        func tableWithEmojiAlignment() {
+        func tableWithEmojiAlignment() throws {
             let (terminal, _) = makeTerminal(cols: 40, rows: 10)
 
             // Build a small table:
@@ -1152,10 +1216,10 @@
 
             // The ┬ on the top border and ┼ on the separator should be at the same column.
             // ┌(0) + 6 dashes(1-6) + ┬(7) → col 7
-            let topLine = terminal.getLine(row: 0)!
-            let sepLine = terminal.getLine(row: 2)!
-            let dataLine1 = terminal.getLine(row: 3)!
-            let dataLine2 = terminal.getLine(row: 4)!
+            let topLine = try #require(terminal.getLine(row: 0))
+            let sepLine = try #require(terminal.getLine(row: 2))
+            let dataLine1 = try #require(terminal.getLine(row: 3))
+            let dataLine2 = try #require(terminal.getLine(row: 4))
 
             // Check that ┬ and ┼ are at col 7
             let topSep = topLine[7].getCharacter()
@@ -1188,7 +1252,7 @@
 
         @Test("Table with emoji via processCapturePaneForStreaming")
         @MainActor
-        func tableWithEmojiViaCapture() {
+        func tableWithEmojiViaCapture() throws {
             let service = TmuxService()
             let cols = 40
             let rows = 10
@@ -1219,8 +1283,8 @@
             terminal.feed(byteArray: Array(initialData))
 
             // Verify column alignment after going through the capture pipeline
-            let topLine = terminal.getLine(row: 0)!
-            let dataLine1 = terminal.getLine(row: 3)!
+            let topLine = try #require(terminal.getLine(row: 0))
+            let dataLine1 = try #require(terminal.getLine(row: 3))
 
             let topSep = topLine[7].getCharacter()
             let data1Sep = dataLine1[7].getCharacter()
@@ -1405,7 +1469,7 @@
     struct ClearScreenRecaptureTests {
         @Test("After clear, recapture visible area shows only prompt — not scrollback")
         @MainActor
-        func clearRecaptureShowsOnlyPrompt() {
+        func clearRecaptureShowsOnlyPrompt() throws {
             // Simulate: user ran `seq 1 10` then `clear` in a 24-row terminal.
             // After clear, tmux state:
             //   Scrollback: history including "$ clear"
@@ -1447,7 +1511,7 @@
 
             // Feed into a SwiftTerm terminal of the same height
             let (terminal, _) = makeTerminal(cols: 80, rows: height)
-            terminal.feed(text: String(data: data, encoding: .utf8)!)
+            try terminal.feed(text: #require(String(data: data, encoding: .utf8)))
 
             // The visible buffer should show the prompt at rows 0-1, rest empty.
             // "$ clear" must NOT appear in the visible area — it should be in scrollback only.
@@ -1474,7 +1538,7 @@
 
         @Test("After clear, scrollback is NOT output (stale content suppressed)")
         @MainActor
-        func clearRecaptureOmitsScrollback() {
+        func clearRecaptureOmitsScrollback() throws {
             // When scrollback capture has fewer lines than visible capture (typical
             // after `clear`), scrollback should be suppressed entirely.
             let service = TmuxService()
@@ -1509,7 +1573,7 @@
             // Use an OVERSIZED terminal so all content is visible (no scrollback)
             let oversizedRows = 200
             let (terminal, _) = makeTerminal(cols: 80, rows: oversizedRows)
-            terminal.feed(text: String(data: data, encoding: .utf8)!)
+            try terminal.feed(text: #require(String(data: data, encoding: .utf8)))
 
             // Collect all non-empty rows
             var allContent: [String] = []
@@ -1529,7 +1593,7 @@
 
         @Test("After clear with large scrollback, scrollback is still suppressed")
         @MainActor
-        func clearRecaptureWithLargeScrollback() {
+        func clearRecaptureWithLargeScrollback() throws {
             // seq 1 100 && clear in a 40-row terminal: scrollback has >100 lines
             // but the visible area is mostly empty (just prompt).
             let service = TmuxService()
@@ -1561,7 +1625,7 @@
 
             let oversizedRows = 300
             let (terminal, _) = makeTerminal(cols: 80, rows: oversizedRows)
-            terminal.feed(text: String(data: data, encoding: .utf8)!)
+            try terminal.feed(text: #require(String(data: data, encoding: .utf8)))
 
             var allContent: [String] = []
             for row in 0..<oversizedRows {
@@ -1577,7 +1641,7 @@
 
         @Test("After clear + screen re-fill, stale scrollback is suppressed via line count")
         @MainActor
-        func clearThenFillScreenSuppressesScrollback() {
+        func clearThenFillScreenSuppressesScrollback() throws {
             // Scenario: user runs `clear`, then a script that fills the screen
             // (e.g., python3 draw_table.py which also does \e[2J internally).
             // The visible area is full (screenWasCleared = false), but the
@@ -1620,7 +1684,7 @@
 
             let oversizedRows = 200
             let (terminal, _) = makeTerminal(cols: 80, rows: oversizedRows)
-            terminal.feed(text: String(data: data, encoding: .utf8)!)
+            try terminal.feed(text: #require(String(data: data, encoding: .utf8)))
 
             var allContent: [String] = []
             for row in 0..<oversizedRows {
@@ -1650,7 +1714,7 @@
 
         @Test("Scrollback IS output when there is genuine scrollback content")
         @MainActor
-        func scrollbackOutputWhenContentExceedsVisible() {
+        func scrollbackOutputWhenContentExceedsVisible() throws {
             // When scrollback capture has MORE lines than visible (typical for
             // `seq 1 200`), scrollback should be output normally (not suppressed
             // by the screenWasCleared heuristic). The scrollback data is written
@@ -1683,7 +1747,7 @@
             )
 
             // Verify the raw output includes scrollback data
-            let rawStr = String(data: data, encoding: .utf8)!
+            let rawStr = try #require(String(data: data, encoding: .utf8))
             #expect(rawStr.contains("Line 1"), "Raw output should have early scrollback content")
             #expect(rawStr.contains("Line 100"), "Raw output should have deep scrollback content")
 

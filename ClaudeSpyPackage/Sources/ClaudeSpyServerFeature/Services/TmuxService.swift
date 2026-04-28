@@ -675,9 +675,18 @@ final public class TmuxService {
         // Output visible lines sequentially, clearing each line before writing.
         // After the LF scroll above, Part 1 is in the scrollback buffer, so the
         // visible area is empty — we clear each line defensively and draw Part 2.
-        // Filter each line to keep only color codes (remove cursor positioning that could interfere)
+        // Filter each line to keep only color codes (remove cursor positioning that could interfere).
+        //
+        // The leading `\e[0m` before each `\e[2K` is load-bearing: EL (Erase in
+        // Line) is a BCE (Background Color Erase) operation — it clears cells
+        // using the *current* SGR state. If a prior line ended with a non-default
+        // bg setter (e.g., tmux's `capture-pane` keeps a leading `\e[44m` on a
+        // row whose trailing bg-colored spaces were trimmed), the next `\e[2K`
+        // would paint the row with that bg, and any cells past the new content
+        // would inherit it. Resetting first guarantees `\e[2K` clears with
+        // default attributes (issue #411).
         for index in 0..<linesToOutput {
-            output += "\u{1b}[2K" // Clear current line
+            output += "\u{1b}[0m\u{1b}[2K" // Reset SGR, then clear current line
             if index < visibleLines.count {
                 output += filterToColorCodesOnly(visibleLines[index])
             }
@@ -688,8 +697,9 @@ final public class TmuxService {
         }
 
         // Clear any remaining lines below the visible content
-        // (in case terminal has more rows than visible lines)
-        output += "\u{1b}[J" // Clear from cursor to end of screen
+        // (in case terminal has more rows than visible lines).
+        // Same BCE concern as above — reset before ED so default bg is used.
+        output += "\u{1b}[0m\u{1b}[J" // Reset SGR, then clear from cursor to end of screen
 
         // Position cursor using relative movement from the last drawn line.
         // After drawing `linesToOutput` lines, the cursor is on the last line.
