@@ -19,7 +19,7 @@ struct MetricsController: RouteCollection {
         guard
             !expected.isEmpty,
             let header = req.headers.bearerAuthorization?.token,
-            header == expected else {
+            Self.constantTimeEquals(header, expected) else {
             throw Abort(.unauthorized)
         }
 
@@ -45,5 +45,18 @@ struct MetricsController: RouteCollection {
             parameters: ["version": "0.0.4"]
         )
         return Response(status: .ok, headers: headers, body: .init(string: body))
+    }
+
+    /// Compare two strings byte-wise without short-circuiting, to avoid
+    /// leaking the secret length / prefix via timing side channels.
+    private static func constantTimeEquals(_ a: String, _ b: String) -> Bool {
+        let aBytes = Array(a.utf8)
+        let bBytes = Array(b.utf8)
+        guard aBytes.count == bBytes.count else { return false }
+        var diff: UInt8 = 0
+        for i in 0..<aBytes.count {
+            diff |= aBytes[i] ^ bBytes[i]
+        }
+        return diff == 0
     }
 }

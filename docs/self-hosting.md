@@ -274,7 +274,7 @@ The relay can push metrics to Grafana Cloud (free tier) for dashboards and Disco
 3. Run `monitoring/agents/install.sh` on the VM (installs `node_exporter` + Grafana Alloy as systemd services).
 4. Apply the dashboards/alerts from `monitoring/grizzly/` with `grr apply`.
 
-The `/metrics` endpoint is bound to localhost (via `127.0.0.1:8080:8080`) and gated by a bearer token, so it is not exposed publicly.
+The `/metrics` endpoint is gated by a bearer token (`METRICS_TOKEN`). In the default Docker deployment the relay's port is published only on `127.0.0.1:8080:8080`, so `/metrics` is not externally reachable; if you build and run the binary directly without Docker, restrict access via firewall or reverse proxy in addition to the token.
 
 ## Security Considerations
 
