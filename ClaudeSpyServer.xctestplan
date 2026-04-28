@@ -15,6 +15,7 @@
       "identifier" : "815F9E5C2F09BFF8003791F7",
       "name" : "ClaudeSpyServer"
     },
+    "automaticScreenshotLifetime" : "deleteOnSuccess",
     "userAttachmentLifetime" : "deleteOnSuccess"
   },
   "testTargets" : [

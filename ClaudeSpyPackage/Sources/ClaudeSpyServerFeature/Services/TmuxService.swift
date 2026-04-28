@@ -478,7 +478,7 @@ final public class TmuxService {
         _ target: String,
         scrollbackMultiplier: Int = 3
     ) async throws -> Data {
-        let (_, height) = try await getPaneDimensions(target)
+        let (width, height) = try await getPaneDimensions(target)
         let scrollbackLines = height * scrollbackMultiplier
 
         let scrollbackResult = try await runTmuxCommand(
@@ -498,6 +498,7 @@ final public class TmuxService {
             scrollbackOutput: scrollbackResult.isSuccess ? scrollbackResult.stdoutString : nil,
             visibleOutput: visibleResult.stdoutString,
             cursorOutput: cursorResult.stdoutString,
+            width: width,
             height: height
         )
     }
@@ -518,6 +519,7 @@ final public class TmuxService {
     /// - Returns: Terminal data for scrollback + visible area
     public func capturePaneViaControlMode(
         paneId: String,
+        width: Int,
         height: Int,
         controlClientManager: TmuxControlClientManager,
         sessionName: String,
@@ -553,6 +555,7 @@ final public class TmuxService {
             scrollbackOutput: scrollbackResponse.isError ? nil : scrollbackResponse.output,
             visibleOutput: visibleResponse.output,
             cursorOutput: cursorResponse.output,
+            width: width,
             height: height
         )
     }
@@ -567,6 +570,7 @@ final public class TmuxService {
         scrollbackOutput: String?,
         visibleOutput: String,
         cursorOutput: String,
+        width: Int,
         height: Int
     ) -> Data {
         // Parse cursor position and visibility flag
@@ -672,24 +676,49 @@ final public class TmuxService {
         // for the visible content to be drawn from the top.
         output += "\u{1b}[H" // Cursor to home (row 1, col 1)
 
-        // Output visible lines sequentially, clearing each line before writing.
-        // After the LF scroll above, Part 1 is in the scrollback buffer, so the
-        // visible area is empty — we clear each line defensively and draw Part 2.
-        // Filter each line to keep only color codes (remove cursor positioning that could interfere)
+        // Output visible lines sequentially. Filter each line to keep only color
+        // codes (remove cursor positioning that could interfere).
+        //
+        // Pad-to-width strategy: write each line's content, then explicit spaces
+        // up to the pane width, then reset SGR before the newline. This handles
+        // every case where `capture-pane` trims trailing styled cells:
+        //
+        //   - bg-color band: padding spaces inherit the line's bg setter, so
+        //     a row captured as bare `\e[44m` (trailing spaces trimmed) renders
+        //     edge-to-edge blue (issue #411).
+        //   - underline / italic / fg-color band: same — the padding spaces
+        //     each carry the line's full SGR state, including attributes that
+        //     EL/ED can't paint via BCE (issue #352-style trims).
+        //   - normal content: padding fills with default-attribute spaces.
+        //
+        // EL (`\e[K`) and ED (`\e[J`) are BCE only — they paint cleared cells
+        // with the *current* bg, but cannot apply non-bg attributes. Writing
+        // real spaces under the active SGR is what preserves underline bands
+        // and other non-bg styling on trimmed rows.
+        //
+        // Resetting SGR before each `\r\n` (and before the trailing `\e[J`)
+        // is still load-bearing: without it, a bg/underline setter from row
+        // N leaks into subsequent rows that should be plain.
         for index in 0..<linesToOutput {
-            output += "\u{1b}[2K" // Clear current line
+            var visibleColumns = 0
             if index < visibleLines.count {
-                output += filterToColorCodesOnly(visibleLines[index])
+                let filtered = filterToColorCodesOnly(visibleLines[index])
+                output += filtered
+                visibleColumns = countVisibleColumns(filtered)
             }
-            // Add newline after each line except the last
+            if visibleColumns < width {
+                output += String(repeating: " ", count: width - visibleColumns)
+            }
+            output += "\u{1b}[0m" // Reset before newline so SGR can't leak forward
             if index < linesToOutput - 1 {
                 output += "\r\n"
             }
         }
 
         // Clear any remaining lines below the visible content
-        // (in case terminal has more rows than visible lines)
-        output += "\u{1b}[J" // Clear from cursor to end of screen
+        // (in case terminal has more rows than visible lines). SGR was reset
+        // after the final line above, so ED clears with default attributes.
+        output += "\u{1b}[J"
 
         // Position cursor using relative movement from the last drawn line.
         // After drawing `linesToOutput` lines, the cursor is on the last line.
@@ -725,6 +754,70 @@ final public class TmuxService {
         }
 
         return Data(output.utf8)
+    }
+
+    /// Counts visible (cursor-advancing) columns in a `filterToColorCodesOnly`
+    /// result, skipping CSI/OSC escape sequences.
+    ///
+    /// Used by `processCapturePaneForStreaming` to compute how many spaces to
+    /// pad a captured line up to the pane width. Each grapheme is measured via
+    /// `displayWidth(of:)` so wide characters (CJK, emoji) count as 2 and
+    /// combining marks count as 0 — matching SwiftTerm's column accounting.
+    /// Over-padding causes the line to wrap, which silently consumes a row of
+    /// the rebuilt screen and shifts subsequent rows out of place, so the
+    /// width must be tracked accurately.
+    func countVisibleColumns(_ filtered: String) -> Int {
+        var count = 0
+        var i = filtered.startIndex
+        while i < filtered.endIndex {
+            let char = filtered[i]
+            if char == "\u{1b}", filtered.index(after: i) < filtered.endIndex {
+                let next = filtered.index(after: i)
+                if filtered[next] == "[" {
+                    // CSI: ESC [ ... <terminator @–~>
+                    var end = filtered.index(after: next)
+                    while end < filtered.endIndex {
+                        let c = filtered[end]
+                        if c >= "@" && c <= "~" {
+                            i = filtered.index(after: end)
+                            break
+                        }
+                        end = filtered.index(after: end)
+                    }
+                    if end >= filtered.endIndex {
+                        i = filtered.endIndex
+                    }
+                } else if filtered[next] == "]" {
+                    // OSC: ESC ] ... BEL or ESC \
+                    var end = filtered.index(after: next)
+                    while end < filtered.endIndex {
+                        if filtered[end] == "\u{07}" {
+                            i = filtered.index(after: end)
+                            break
+                        }
+                        if filtered[end] == "\u{1b}" {
+                            let after = filtered.index(after: end)
+                            if after < filtered.endIndex, filtered[after] == "\\" {
+                                i = filtered.index(after: after)
+                                break
+                            }
+                        }
+                        end = filtered.index(after: end)
+                    }
+                    if end >= filtered.endIndex {
+                        i = filtered.endIndex
+                    }
+                } else {
+                    // 2-byte non-CSI escape (rare here — filterToColorCodesOnly
+                    // mostly strips these, but stay defensive)
+                    i = filtered.index(after: next)
+                }
+            } else {
+                count += Self.displayWidth(of: char)
+                i = filtered.index(after: i)
+            }
+        }
+        return count
     }
 
     /// Filters ANSI escape codes, keeping only SGR (color/style) codes.
