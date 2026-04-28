@@ -145,6 +145,7 @@
                 // Step 2: Capture initial state via control mode
                 let initialContent = try await tmuxService.capturePaneViaControlMode(
                     paneId: paneId,
+                    width: width,
                     height: height,
                     controlClientManager: controlClientManager,
                     sessionName: sessionName

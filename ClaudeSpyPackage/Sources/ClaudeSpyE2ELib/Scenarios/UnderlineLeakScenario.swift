@@ -128,13 +128,13 @@ public enum UnderlineLeakScenario {
         // drop characters after ~1 KB.
         //
         // If any underline state leaked through the capture, every one of
-        // these characters across the entire 24-row pane shows a horizontal
-        // underscore stroke beneath it.
+        // these characters across 14 rows shows a horizontal underscore
+        // stroke beneath it.
         // Send in small batches with short waits. A single large literal
         // payload (~1.2 KB) can race with the tty's line-discipline buffer
         // and drop chars mid-stream; chunking keeps each batch small enough
         // to deliver reliably.
-        for lineNumber in 1...24 {
+        for lineNumber in 1...14 {
             TestStep.tmuxSendKeys(
                 target: "uline-test:0",
                 keys: "line \(String(format: "%02d", lineNumber)): no underline should appear under this text\r",

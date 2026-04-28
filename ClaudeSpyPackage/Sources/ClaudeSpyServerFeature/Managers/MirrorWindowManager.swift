@@ -52,21 +52,20 @@ final public class MirrorWindowManager {
     /// Creates new entries for newly discovered panes, updates metadata for existing panes,
     /// and removes entries for panes that no longer exist (cleaning up associated state).
     ///
-    /// Defense-in-depth: refuses to wipe a non-empty `paneStates` from an empty
-    /// `panes` argument. The producer-side guards in `TmuxService.refreshPanes()`
-    /// already disambiguate transient tmux errors from real server-down events,
-    /// but if any of those guards are wrong (or a new caller passes `[]` by
-    /// mistake) we don't want to silently destroy `claudeSession` data that can
-    /// only be recovered from hook events. Stale entries get cleaned up the
-    /// next time a non-empty pane list arrives — `currentPaneIds` set membership
-    /// handles that automatically.
+    /// An empty `panes` argument is a legitimate signal that the tmux server has
+    /// no panes (e.g. the user just closed the last session and the server
+    /// exited). When that happens we must clear `paneStates` so the UI stops
+    /// showing stale sessions; refusing to clear leaves the just-closed session
+    /// pinned in the session list and tab bars indefinitely. The producer-side
+    /// guards in `TmuxService.refreshPanes()` only set `panes = []` on
+    /// confident server-down paths, so we trust them here. Surprising wipes
+    /// are still observable via the warnings below and the producer-side logs.
     public func updatePaneStates(from panes: [PaneInfo]) {
         if panes.isEmpty && !paneStates.isEmpty {
-            logger.warning("updatePaneStates called with empty panes — refusing to wipe non-empty state", metadata: [
+            logger.warning("updatePaneStates clearing non-empty state from empty panes", metadata: [
                 "existingPaneCount": "\(paneStates.count)",
                 "existingClaudeSessionCount": "\(paneStates.values.filter { $0.claudeSession != nil }.count)",
             ])
-            return
         }
 
         let currentPaneIds = Set(panes.map(\.paneId))
