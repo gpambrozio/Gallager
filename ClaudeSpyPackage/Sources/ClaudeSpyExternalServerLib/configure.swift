@@ -47,12 +47,26 @@ public func configure(_ app: Application) async throws {
     app.storage[APNsServiceKey.self] = apnsService
     app.storage[RelayServiceKey.self] = relayService
     app.storage[MetricsServiceKey.self] = metricsService
-    app.storage[ProcessStartTimeKey.self] = Date()
+    // Use ContinuousClock so /metrics uptime is monotonic (immune to wall-clock jumps).
+    app.storage[ProcessStartTimeKey.self] = ContinuousClock.now
 
-    // Bearer token for /metrics endpoint. Empty = endpoint rejects all requests.
-    let metricsToken = ProcessInfo.processInfo.environment["METRICS_TOKEN"] ?? ""
-    if metricsToken.isEmpty {
+    // Bearer token for /metrics endpoint.
+    //   nil  → endpoint disabled (all requests get 401)
+    //   set  → must be at least 32 characters; shorter values fatalError at boot
+    //          to fail-loud rather than ship a brute-forceable production deploy.
+    let rawToken = (ProcessInfo.processInfo.environment["METRICS_TOKEN"] ?? "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    let metricsToken: String?
+    if rawToken.isEmpty {
         app.logger.warning("METRICS_TOKEN not set — /metrics endpoint will reject all requests")
+        metricsToken = nil
+    } else if rawToken.count < 32 {
+        fatalError(
+            "METRICS_TOKEN must be at least 32 characters (got \(rawToken.count)). " +
+                "Generate with: openssl rand -hex 32"
+        )
+    } else {
+        metricsToken = rawToken
     }
     app.storage[MetricsTokenKey.self] = metricsToken
 
@@ -83,11 +97,12 @@ struct MetricsServiceKey: StorageKey {
 }
 
 struct ProcessStartTimeKey: StorageKey {
-    typealias Value = Date
+    typealias Value = ContinuousClock.Instant
 }
 
 struct MetricsTokenKey: StorageKey {
-    typealias Value = String
+    /// `nil` means the `/metrics` endpoint is disabled (all requests get 401).
+    typealias Value = String?
 }
 
 // MARK: - Application Extensions (Internal)
@@ -125,8 +140,9 @@ extension Application {
         return service
     }
 
-    var metricsToken: String {
-        storage[MetricsTokenKey.self] ?? ""
+    /// `nil` when the `/metrics` endpoint is disabled (no `METRICS_TOKEN` in env).
+    var metricsToken: String? {
+        storage[MetricsTokenKey.self] ?? nil
     }
 }
 

@@ -6,8 +6,8 @@ private let buildVersion = "dev"
 
 /// Exposes Prometheus-format metrics at `GET /metrics`.
 ///
-/// Requires `Authorization: Bearer <METRICS_TOKEN>`. If `METRICS_TOKEN` is empty
-/// (unset at startup), every request is rejected with 401.
+/// Requires `Authorization: Bearer <METRICS_TOKEN>`. If `METRICS_TOKEN` is unset,
+/// every request is rejected with 401.
 struct MetricsController: RouteCollection {
     func boot(routes: RoutesBuilder) throws {
         routes.get("metrics", use: handle)
@@ -15,21 +15,28 @@ struct MetricsController: RouteCollection {
 
     @Sendable
     private func handle(req: Request) async throws -> Response {
-        let expected = req.application.metricsToken
         guard
-            !expected.isEmpty,
+            let expected = req.application.metricsToken,
             let header = req.headers.bearerAuthorization?.token,
             Self.constantTimeEquals(header, expected) else {
             throw Abort(.unauthorized)
         }
 
         let metrics = req.application.metricsService
-        let pairs = await req.application.pairingService.activePairCount
-        let counts = await req.application.connectionHub.connectionCounts()
-        let start = req.application.storage[ProcessStartTimeKey.self] ?? Date()
-        let uptime = Int(Date().timeIntervalSince(start))
 
-        let snapshot = MetricsSnapshot(
+        // Run independent actor reads concurrently — Prometheus scrapes every 15s
+        // and these touch different actors with no ordering requirement.
+        async let pairs = req.application.pairingService.activePairCount
+        async let counts = req.application.connectionHub.connectionCounts()
+
+        guard let start = req.application.storage[ProcessStartTimeKey.self] else {
+            fatalError("ProcessStartTimeKey not configured. Call configure(_:) first.")
+        }
+        // ContinuousClock is monotonic, so uptime is immune to wall-clock jumps
+        // (NTP step, manual clock change).
+        let uptime = Int((ContinuousClock.now - start).components.seconds)
+
+        let snapshot = await MetricsSnapshot(
             activePairs: pairs,
             hostsConnected: counts.host,
             viewersConnected: counts.viewer,
@@ -50,12 +57,12 @@ struct MetricsController: RouteCollection {
     /// Compare two strings byte-wise without short-circuiting, to avoid
     /// leaking the secret length / prefix via timing side channels.
     private static func constantTimeEquals(_ a: String, _ b: String) -> Bool {
-        let aBytes = Array(a.utf8)
-        let bBytes = Array(b.utf8)
-        guard aBytes.count == bBytes.count else { return false }
+        let aUTF8 = a.utf8
+        let bUTF8 = b.utf8
+        guard aUTF8.count == bUTF8.count else { return false }
         var diff: UInt8 = 0
-        for i in 0..<aBytes.count {
-            diff |= aBytes[i] ^ bBytes[i]
+        for (x, y) in zip(aUTF8, bUTF8) {
+            diff |= x ^ y
         }
         return diff == 0
     }

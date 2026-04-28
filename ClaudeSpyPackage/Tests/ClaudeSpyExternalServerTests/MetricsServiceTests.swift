@@ -26,6 +26,20 @@ struct MetricsServiceTests {
         #expect(await service.pushNotificationsTotal == 1)
     }
 
+    @Test("render escapes \\, \", and newline in buildVersion label value")
+    func renderEscapesBuildVersion() async {
+        let service = MetricsService()
+        let snapshot = MetricsSnapshot(
+            activePairs: 0,
+            hostsConnected: 0,
+            viewersConnected: 0,
+            uptimeSeconds: 0
+        )
+        // Hostile input: every char that would break the Prometheus label syntax.
+        let body = await service.render(snapshot: snapshot, buildVersion: #"a"b\c\#nd"#)
+        #expect(body.contains(#"claudespy_build_info{version="a\"b\\c\nd"} 1"#))
+    }
+
     @Test("render returns Prometheus text format with all metrics")
     func renderFormat() async {
         let service = MetricsService()

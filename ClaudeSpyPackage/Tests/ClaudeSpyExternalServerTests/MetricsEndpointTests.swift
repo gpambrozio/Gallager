@@ -9,7 +9,9 @@ import VaporTesting
 /// which mutates process-global state and would race under parallel execution.
 @Suite("Metrics endpoint", .serialized)
 struct MetricsEndpointTests {
-    private static let token = "test-metrics-token"
+    /// Production tokens must be ≥ 32 characters (enforced in `configure.swift`).
+    /// 64 hex chars matches `openssl rand -hex 32` output, the documented happy path.
+    private static let token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
     private func withConfiguredApp(
         _ test: (Application) async throws -> Void
@@ -24,6 +26,8 @@ struct MetricsEndpointTests {
         defer {
             try? FileManager.default.removeItem(at: tempDir)
             unsetenv("DATA_DIRECTORY")
+            // Symmetric cleanup: avoid leaking process-env state into other suites.
+            unsetenv("METRICS_TOKEN")
         }
         try await withApp(configure: configure, test)
     }
@@ -59,7 +63,10 @@ struct MetricsEndpointTests {
                 headers: ["Authorization": "Bearer \(Self.token)"]
             ) { res in
                 #expect(res.status == .ok)
-                #expect(res.headers.contentType?.description.contains("text/plain") == true)
+                let contentType = res.headers.contentType
+                #expect(contentType?.type == "text")
+                #expect(contentType?.subType == "plain")
+                #expect(contentType?.parameters["version"] == "0.0.4")
                 let body = res.body.string
                 #expect(body.contains("claudespy_active_pairs 0"))
                 #expect(body.contains("claudespy_ws_connections{device_type=\"host\"} 0"))

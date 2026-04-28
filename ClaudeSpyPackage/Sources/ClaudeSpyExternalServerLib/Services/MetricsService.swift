@@ -50,8 +50,25 @@ actor MetricsService {
 
         lines.append("# HELP claudespy_build_info Build version (always 1).")
         lines.append("# TYPE claudespy_build_info gauge")
-        lines.append("claudespy_build_info{version=\"\(buildVersion)\"} 1")
+        lines.append("claudespy_build_info{version=\"\(Self.escapeLabelValue(buildVersion))\"} 1")
 
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// Escape a Prometheus label value per the text exposition format:
+    /// backslash, double-quote, and newline must be escaped.
+    /// https://prometheus.io/docs/instrumenting/exposition_formats/#text-format-details
+    static func escapeLabelValue(_ value: String) -> String {
+        var out = ""
+        out.reserveCapacity(value.count)
+        for ch in value {
+            switch ch {
+            case "\\": out += "\\\\"
+            case "\"": out += "\\\""
+            case "\n": out += "\\n"
+            default: out.append(ch)
+            }
+        }
+        return out
     }
 }
