@@ -661,7 +661,7 @@ public struct MainView: View {
                                 sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
                             }
                             sessionFileTabsStates[session.sessionName]?.selectedFileTabId = nil
-                            fileBrowserStates[window.id]?.viewState?.selection = fileBrowserStates[window.id]?.stableIds[path]
+                            fileBrowserStates[window.id]?.pendingRevealPath = path
                         },
                         onAcceptOpenSuggestion: { suggestion in
                             openFileInNewTab(
