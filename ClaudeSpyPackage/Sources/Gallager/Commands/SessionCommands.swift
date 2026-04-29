@@ -119,3 +119,69 @@ struct CloseSessionCommand: ParsableCommand {
         printResponse(response, json: options.json)
     }
 }
+
+struct SessionStateCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "session-state",
+        abstract: "Override the displayed state of a tmux session in the sidebar",
+        discussion: """
+        Sets a synthetic state on the session's pane (or every pane in a target
+        session). The override stays in place until cleared explicitly or until
+        a Claude hook event for the same pane changes the underlying state.
+
+        States: working, idle, waiting, clear
+        Aliases: "waiting-for-input", "attention" (waiting); "none" (clear).
+        """
+    )
+
+    @Argument(help: "State to apply: working, idle, waiting, or clear")
+    var state: String
+
+    @OptionGroup var options: GlobalOptions
+
+    func run() throws {
+        var params: [String: JSONValue] = ["state": .string(state)]
+        if let pane = options.pane { params["pane_id"] = .string(pane) }
+        if let session = options.session { params["session_id"] = .string(session) }
+        let response = try executeRequest(
+            method: "session.set_state",
+            params: params,
+            options: options
+        )
+        if options.json {
+            printResponse(response, json: true)
+        } else if
+            let result = response.result,
+            case let .int(applied) = result["applied_to"] {
+            let canonical = Self.canonicalState(for: state)
+            if applied == 0 {
+                print("No matching panes found.")
+            } else if canonical == "clear" {
+                print("Cleared state on \(applied) pane(s).")
+            } else {
+                print("Set state '\(canonical)' on \(applied) pane(s).")
+            }
+        }
+    }
+
+    /// Maps the user-supplied state argument (and supported aliases) to the
+    /// canonical name used in the sidebar so the success message stays in sync
+    /// regardless of which alias or casing the caller typed.
+    private static func canonicalState(for raw: String) -> String {
+        switch raw.lowercased() {
+        case "clear",
+             "none":
+            return "clear"
+        case "working":
+            return "working"
+        case "idle":
+            return "idle"
+        case "waiting",
+             "waiting-for-input",
+             "attention":
+            return "waiting"
+        default:
+            return raw.lowercased()
+        }
+    }
+}

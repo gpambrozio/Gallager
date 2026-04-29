@@ -99,6 +99,7 @@ gallager new-session --name work --path ~/code/proj
 gallager select-session work
 gallager current-session
 gallager close-session work
+gallager session-state working --session work    # working | idle | waiting | clear
 
 # Windows (default to current session)
 gallager list-windows
@@ -150,6 +151,7 @@ gallager start-project ~/code/proj -- --resume   # forwards `--resume` to claude
 - **`gallager edit` blocks.** It returns only after the user submits or cancels the prompt in the app. Great for interactive workflows, wrong for fire-and-forget scripts.
 - **`notify` attaches pane context automatically** when `$TMUX_PANE` is set, so tapping the iOS notification jumps to the right pane.
 - **`start-project` always runs `claude`.** Unlike `new-session --path`, which only auto-runs claude when the **Auto-run Claude in project folders** setting is on, `start-project` always launches the configured claude command in the new pane. Pass extra arguments after `--` to forward them (e.g. `start-project ~/code/foo -- --resume`).
+- **`session-state` is a CLI override.** It flips the sidebar indicator (`working`, `idle`, `waiting`, `clear`) without changing the underlying tmux/Claude state — useful when scripting fake activity for demos or marking a manual workflow as needing attention. The override is wiped automatically when a Claude hook event for the same pane updates working/notification state, so live sessions revert to reality on their own. Target with `--pane`, `--session`, or leave both off to mark the active pane.
 
 ## Composing with other tools
 

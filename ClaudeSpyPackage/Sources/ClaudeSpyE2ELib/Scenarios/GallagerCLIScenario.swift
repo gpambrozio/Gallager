@@ -16,6 +16,8 @@ import Foundation
 /// 10. list-projects — verify mock projects from in-memory scanner are returned
 /// 11. start-project — verify a session is created from a project path
 /// 12. start-project with a non-existent path — verify error handling
+/// 13. session-state working/waiting/idle/clear — verify sidebar icons switch
+/// 14. hook event overrides CLI state — verify hook activity wins
 ///
 /// Strategy: all CLI commands typed into `cli-test:0` via tmuxSendKeys.
 /// Commands that need to target e2e-api use explicit pane IDs from list-panes.
@@ -161,5 +163,75 @@ public enum GallagerCLIScenario {
         TestStep.wait(seconds: 2)
         TestStep.readFile(path: "/tmp/e2e-cli-start-err.txt", storeAs: "startErrResult")
         TestStep.assertStoredContains(key: "startErrResult", substring: "Path does not exist")
+
+        // 13. session-state — override the e2e-api session indicator from the CLI.
+        // The session has no Claude attached, so the baseline shows the terminal
+        // icon. After each set we wait for the matching status label to surface in
+        // the accessibility tree (the row exposes statusLabel as hidden text).
+
+        // Capture the original e2e-api pane ID so phase 14 can target it with a hook.
+        TestStep.tmuxStorePaneId(target: "e2e-api:0.0", storeAs: "apiPaneId")
+
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager session-state working --session e2e-api > /tmp/e2e-cli-state-working.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-state-working.txt", storeAs: "stateWorkingResult")
+        TestStep.assertStoredContains(key: "stateWorkingResult", substring: "Set state 'working'")
+        TestStep.macWaitForElement(titled: "Working", timeout: 10)
+        TestStep.macScreenshot(label: "mac-state-working")
+
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager session-state waiting --session e2e-api"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "Waiting for input", timeout: 10)
+        TestStep.macScreenshot(label: "mac-state-waiting")
+
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager session-state idle --session e2e-api"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "Idle", timeout: 10)
+        TestStep.macScreenshot(label: "mac-state-idle")
+
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager session-state clear --session e2e-api"#
+        )
+        TestStep.wait(seconds: 2)
+        // No status label in the row now — terminal icon returns. Confirm the
+        // previous "Idle" hint is gone before snapping the cleared screenshot.
+        TestStep.macWaitForElementToDisappear(titled: "Idle", timeout: 10)
+        TestStep.macScreenshot(label: "mac-state-cleared")
+
+        // 14. hook events override CLI state — re-set "idle" then deliver a
+        // UserPromptSubmit. The hook flips the session to Working and clears
+        // the CLI override.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager session-state idle --session e2e-api"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "Idle", timeout: 10)
+
+        TestStep.macSendHookEvent(
+            json: """
+            {
+                "hook_event_name": "UserPromptSubmit",
+                "session_id": "e2e-api-hook",
+                "timestamp": "2026-04-28T10:00:00.000000Z",
+                "prompt": "kick off a task"
+            }
+            """,
+            tmuxPane: "${apiPaneId}",
+            projectPath: "/tmp/e2e-api"
+        )
+        TestStep.wait(seconds: 3)
+        TestStep.macWaitForElement(titled: "Working", timeout: 10)
+        TestStep.macScreenshot(label: "mac-hook-overrides-cli")
     }
 }
