@@ -231,7 +231,15 @@ struct TmuxPaneMirrorApp: App {
             #endif
         }
 
-        _coordinator = State(initialValue: AppCoordinator())
+        let coord = AppCoordinator()
+        _coordinator = State(initialValue: coord)
+        // Wire cleanup before any delegate calls can fire. applicationShouldTerminate
+        // returns .terminateNow when onShouldTerminate is nil; setting it here (in
+        // @MainActor init) ensures it is never nil when the delegate is invoked —
+        // SwiftUI can call NSApp.terminate during scene setup on .regular-policy apps.
+        shutdownDelegate.onShouldTerminate = {
+            await coord.shutdown()
+        }
     }
 
     var body: some Scene {
@@ -380,11 +388,6 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator)
         } label: {
             MenuBarLabel(pendingCount: totalPendingSessionCount)
-                .onAppear {
-                    shutdownDelegate.onShouldTerminate = { [coordinator] in
-                        await coordinator.shutdown()
-                    }
-                }
                 .task(id: showingTmuxInstallGuide) {
                     guard !showingTmuxInstallGuide else { return }
                     await coordinator.setupAllServices()

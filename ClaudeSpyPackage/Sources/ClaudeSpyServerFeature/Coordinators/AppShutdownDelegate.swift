@@ -37,6 +37,7 @@
         ) -> NSApplication.TerminateReply {
             guard let cleanup = onShouldTerminate else { return .terminateNow }
 
+            didReply = false
             logger.info("applicationShouldTerminate: running async cleanup")
             // Race the cleanup against a hard deadline. Whichever finishes
             // first calls `replyOnce()`; the second call is a no-op. This
