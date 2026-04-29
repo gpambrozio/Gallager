@@ -286,6 +286,7 @@ private struct HostRow: View {
             switch connection.state {
             case .connected where connection.isHostConnected:
                 Text("Connected")
+                    .accessibilityLabel("Host connected")
             case .connected:
                 Text("Waiting for host")
             case .connecting:
