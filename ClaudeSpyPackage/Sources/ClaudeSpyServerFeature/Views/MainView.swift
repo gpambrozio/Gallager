@@ -652,6 +652,17 @@ public struct MainView: View {
                         onCloseFileTab: { tabId in
                             closeOpenFileTab(tabId, sessionName: session.sessionName)
                         },
+                        onShowInFileExplorer: { path in
+                            fileBrowserActiveWindowIds.insert(window.id)
+                            if fileBrowserStates[window.id] == nil {
+                                fileBrowserStates[window.id] = FileBrowserState()
+                            }
+                            if sessionFileTabsStates[session.sessionName] == nil {
+                                sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
+                            }
+                            sessionFileTabsStates[session.sessionName]?.selectedFileTabId = nil
+                            fileBrowserStates[window.id]?.pendingRevealPath = path
+                        },
                         onAcceptOpenSuggestion: { suggestion in
                             openFileInNewTab(
                                 path: suggestion.filePath,
@@ -1697,6 +1708,18 @@ private struct SessionSidebarRow: View {
         return nil
     }
 
+    /// CLI-driven state override, if any pane in the session has one set.
+    private var cliSessionState: CLISessionState? {
+        for window in session.windows {
+            for pane in window.panes {
+                if let state = windowManager.paneStates[pane.paneId]?.cliSessionState {
+                    return state
+                }
+            }
+        }
+        return nil
+    }
+
     /// The first non-empty terminal title found across all windows
     private var terminalTitle: String? {
         for window in session.windows {
@@ -1723,7 +1746,11 @@ private struct SessionSidebarRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            if let claudeSession {
+            if let cliSessionState {
+                SessionStatusIndicator(cliState: cliSessionState)
+                    .font(.system(size: 16))
+                    .frame(width: 20)
+            } else if let claudeSession {
                 SessionStatusIndicator(session: claudeSession)
                     .font(.system(size: 16))
                     .frame(width: 20)
@@ -1755,7 +1782,7 @@ private struct SessionSidebarRow: View {
         .accessibilityValue(session.sessionName)
         .overlay {
             ZStack {
-                if let status = claudeSession?.statusLabel {
+                if let status = cliSessionState?.statusLabel ?? claudeSession?.statusLabel {
                     Text(status)
                         .accessibilityLabel(status)
                 }
@@ -1810,6 +1837,7 @@ private struct WindowTabBar: View {
     let onSelectFileBrowser: () -> Void
     let onSelectFileTab: (UUID) -> Void
     let onCloseFileTab: (UUID) -> Void
+    let onShowInFileExplorer: (String) -> Void
     let onAcceptOpenSuggestion: (MarkdownOpenSuggestion) -> Void
 
     @Environment(MirrorWindowManager.self) private var windowManager
@@ -1998,6 +2026,13 @@ private struct WindowTabBar: View {
                     .frame(height: 2)
             }
         }
+        .fileContextMenu(
+            fullPath: tab.path,
+            directoryPath: tab.directoryPath,
+            isDirectory: false,
+            onOpenFileInNewTab: nil,
+            onShowInFileExplorer: onShowInFileExplorer
+        )
         .onHover { hovering in
             hoveredFileTabId = hovering ? tab.id : nil
         }
@@ -2620,9 +2655,21 @@ private struct RemoteSessionSidebarRow: View {
             .first
     }
 
+    /// CLI-driven state override propagated from the host, if any.
+    private var cliSessionState: CLISessionState? {
+        session.windows
+            .flatMap(\.panes)
+            .compactMap(\.cliSessionState)
+            .first
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            if let claudeSession {
+            if let cliSessionState {
+                SessionStatusIndicator(cliState: cliSessionState)
+                    .font(.system(size: 16))
+                    .frame(width: 20)
+            } else if let claudeSession {
                 SessionStatusIndicator(session: claudeSession)
                     .font(.system(size: 16))
                     .frame(width: 20)
@@ -2656,7 +2703,7 @@ private struct RemoteSessionSidebarRow: View {
         // single label, dropping leaf Texts — these hidden labels give tests stable targets.
         .overlay {
             ZStack {
-                if let status = claudeSession?.statusLabel {
+                if let status = cliSessionState?.statusLabel ?? claudeSession?.statusLabel {
                     Text(status)
                         .accessibilityLabel(status)
                 }
