@@ -84,7 +84,7 @@ public enum TerminalTitleInitialConnectionScenario {
         TestStep.verifyServerHasPairings(count: 1)
         TestStep.waitForHostConnected(timeout: 15)
         TestStep.waitForViewerConnected(timeout: 15)
-        TestStep.macWaitForElement(titled: "Connected", timeout: 15)
+        TestStep.macWaitForElement(titled: "Viewer connected", timeout: 15)
 
         // ── Phase 5: iOS viewer connects to the session ──────────────
 

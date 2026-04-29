@@ -4,7 +4,9 @@ import Foundation
 ///
 /// Tests both plain-text URL detection (via regex) and OSC 8 hyperlink escape
 /// sequence detection. Verifies that links are visible (underlined) in mirrored
-/// terminal sessions on both macOS and iOS.
+/// terminal sessions on both macOS and iOS, and that the underlines disappear
+/// once the host enables mouse tracking — since the remote terminal app then
+/// owns clicks, links must not look interactive.
 ///
 /// **Setup:** Pairs devices first, then creates a tmux session, emits plain-text
 /// URLs and OSC 8 hyperlinks, and verifies they render on both macOS and iOS.
@@ -81,5 +83,36 @@ public enum TerminalLinksScenario {
 
         // Screenshot showing links rendered with underlines on iOS
         TestStep.iosScreenshot(label: "ios-terminal-links", compare: false)
+
+        // ── Verify underlines disappear once mouse mode is active ──
+        // Enabling SGR mouse tracking (DECSET 1002) flips the host terminal
+        // into the state TUI apps like Claude Code use. While that's active
+        // the remote app owns clicks, so neither the macOS nor the iOS viewer
+        // should keep rendering link underlines (which would suggest the
+        // links are still interactive). The encoding is omitted purely to
+        // keep the typed command short.
+
+        TestStep.log("Enabling mouse mode and verifying underlines disappear")
+        Shortcut.tmuxRunCommand(
+            target: "links-test:0",
+            command: #"printf '\e[?1002h'"#
+        )
+        TestStep.wait(seconds: 1)
+
+        // Same three URL lines remain in the buffer; only the underline
+        // overlay should change. iOS first, since it currently has focus.
+        TestStep.iosScreenshot(label: "ios-terminal-links-mouse-mode", compare: false)
+
+        Shortcut.openPanesWindow()
+        TestStep.macClickButton(titled: "links-test")
+        TestStep.wait(seconds: 1)
+        TestStep.macScreenshot(label: "mac-terminal-links-mouse-mode", compare: false)
+
+        // Disable mouse mode again so we don't bleed state into later scenarios.
+        Shortcut.tmuxRunCommand(
+            target: "links-test:0",
+            command: #"printf '\e[?1002l'"#
+        )
+        TestStep.wait(seconds: 0.5)
     }
 }
