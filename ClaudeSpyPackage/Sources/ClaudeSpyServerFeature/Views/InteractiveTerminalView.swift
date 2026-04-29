@@ -1222,6 +1222,12 @@
         /// When mouse mode is active the underlines are cleared and redrawing
         /// is skipped: the terminal app owns clicks, so links shouldn't appear
         /// interactive while their clicks would be consumed as mouse events.
+        ///
+        /// Note: this wrapper view doesn't subclass `TerminalView`, so it has no
+        /// `mouseModeChanged` override. Existing underlines are cleared on the
+        /// next layout pass (`rangeChanged`/`scrolled`), unlike iOS which
+        /// repaints immediately. In practice TUIs always redraw when toggling
+        /// mouse tracking, so the latency isn't user-visible.
         private func updateURLUnderlines() {
             for layer in urlUnderlineLayers {
                 layer.removeFromSuperlayer()
