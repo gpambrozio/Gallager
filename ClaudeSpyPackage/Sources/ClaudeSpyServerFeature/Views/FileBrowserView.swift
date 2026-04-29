@@ -68,6 +68,10 @@ final class FileBrowserState {
     var selectedSearchPath: String?
     /// Cached search results matching the current query.
     var cachedSearchResults: [FileSearchResult] = []
+    /// When set, the navigator expands every ancestor folder, selects this path,
+    /// and clears the value. Used by "Show in File Explorer" so a tab can route
+    /// the user back to the tree even when the containing folders are collapsed.
+    var pendingRevealPath: String?
 }
 
 /// Open-file-tab state scoped to a tmux session, so tabs and selection survive
@@ -183,6 +187,9 @@ struct FileBrowserView: View {
                 .onChange(of: viewState.expansions) {
                     handleExpansionChange(viewState: viewState)
                 }
+                .task(id: state.pendingRevealPath) {
+                    await revealPendingPathIfNeeded()
+                }
         } else {
             ProgressView("Loading files...")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -268,6 +275,46 @@ struct FileBrowserView: View {
             if tab.isDeleted != shouldBeDeleted {
                 sessionTabs.openFileTabs[index].isDeleted = shouldBeDeleted
             }
+        }
+    }
+
+    /// Reveals `state.pendingRevealPath` by loading and expanding each ancestor
+    /// folder, then selects the leaf. Clears the pending value when done so the
+    /// task only fires once per request.
+    private func revealPendingPathIfNeeded() async {
+        guard let target = state.pendingRevealPath else { return }
+        defer { state.pendingRevealPath = nil }
+        guard target.hasPrefix(directoryPath + "/") else { return }
+
+        let relative = String(target.dropFirst(directoryPath.count + 1))
+        let parts = relative.split(separator: "/").map(String.init)
+        guard !parts.isEmpty else { return }
+
+        var ancestor = directoryPath
+        var ancestorPaths: [String] = []
+        for part in parts.dropLast() {
+            ancestor += "/" + part
+            ancestorPaths.append(ancestor)
+        }
+
+        var needsLoad = false
+        for path in ancestorPaths where !state.loadedFolderPaths.contains(path) {
+            state.loadedFolderPaths.insert(path)
+            needsLoad = true
+        }
+        if needsLoad {
+            loadTreeTask?.cancel()
+            await loadTree()
+        }
+
+        for path in ancestorPaths {
+            if let id = state.stableIds[path] {
+                state.viewState?.expansions[id] = true
+            }
+        }
+
+        if let leafId = state.stableIds[target] {
+            state.viewState?.selection = leafId
         }
     }
 
@@ -398,10 +445,9 @@ struct FileBrowserView: View {
             Symbols.docPlaintextFill.image
                 .foregroundStyle(.secondary)
         }
-        .fileTreeContextMenu(
-            itemId: itemId,
+        .fileContextMenu(
+            fullPath: state.reverseIds[itemId],
             directoryPath: directoryPath,
-            reverseIds: state.reverseIds,
             isDirectory: false,
             onOpenFileInNewTab: onOpenFileInNewTab
         )
@@ -415,10 +461,9 @@ struct FileBrowserView: View {
             Symbols.folderFill.image
                 .foregroundStyle(.blue)
         }
-        .fileTreeContextMenu(
-            itemId: itemId,
+        .fileContextMenu(
+            fullPath: state.reverseIds[itemId],
             directoryPath: directoryPath,
-            reverseIds: state.reverseIds,
             isDirectory: true,
             onOpenFileInNewTab: onOpenFileInNewTab
         )
@@ -549,54 +594,6 @@ struct FileBrowserView: View {
                 symbol: .docPlaintextFill,
                 description: "Choose a file from the navigator to view its contents."
             )
-        }
-    }
-}
-
-// MARK: - File Tree Context Menu
-
-private extension View {
-    func fileTreeContextMenu(
-        itemId: UUID,
-        directoryPath: String,
-        reverseIds: [UUID: String],
-        isDirectory: Bool,
-        onOpenFileInNewTab: @escaping (String) -> Void
-    ) -> some View {
-        let fullPath = reverseIds[itemId]
-        let relativePath = fullPath.map { String($0.dropFirst(directoryPath.count + 1)) }
-
-        return contextMenu {
-            if let fullPath {
-                Button("Open") {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: fullPath))
-                }
-                if !isDirectory {
-                    Button("Open in New Tab") {
-                        onOpenFileInNewTab(fullPath)
-                    }
-                }
-                Button("Open in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: fullPath)])
-                }
-                Divider()
-                Button("Copy Path") {
-                    @Dependency(ClipboardClient.self) var clipboard
-                    clipboard.setString(fullPath)
-                }
-                if let relativePath {
-                    Button("Copy Relative Path") {
-                        @Dependency(ClipboardClient.self) var clipboard
-                        clipboard.setString(relativePath)
-                    }
-                }
-                if !isDirectory {
-                    Button("Copy") {
-                        @Dependency(ClipboardClient.self) var clipboard
-                        clipboard.setFileURL(URL(fileURLWithPath: fullPath))
-                    }
-                }
-            }
         }
     }
 }
