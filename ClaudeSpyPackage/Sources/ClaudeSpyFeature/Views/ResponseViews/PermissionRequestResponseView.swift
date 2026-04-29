@@ -401,9 +401,7 @@ struct ToolInputView: View {
 
             case let .agent(params):
                 headerRow("Run Agent")
-                if let subagentType = params.subagentType {
-                    detailRow("Type:", subagentType)
-                }
+                detailRow("Type:", params.subagentType)
                 detailRow("Task:", params.description)
                 if let model = params.model {
                     detailRow("Model:", model)
@@ -470,6 +468,52 @@ struct ToolInputView: View {
                 ForEach(Array(params.questions.enumerated()), id: \.offset) { index, question in
                     detailRow("\(index + 1).", question.question, maxLines: 2)
                 }
+
+            case let .monitor(params):
+                headerRow("Monitor Command")
+                detailRow("Command:", params.command, maxLines: 3)
+                detailRow("Description:", params.description, maxLines: 3)
+                if let timeout = params.timeoutMs {
+                    detailRow("Timeout:", "\(timeout) ms")
+                }
+                if let persistent = params.persistent, persistent {
+                    detailRow("Mode:", "Persistent")
+                }
+
+            case let .taskOutput(params):
+                headerRow("Get Task Output")
+                detailRow("Task ID:", params.taskId)
+                detailRow("Block:", params.block ? "Yes" : "No")
+                detailRow("Timeout:", "\(params.timeout)")
+
+            case let .taskStop(params):
+                headerRow("Stop Task")
+                if let taskId = params.taskId {
+                    detailRow("Task ID:", taskId)
+                }
+                if let shellId = params.shellId {
+                    detailRow("Shell ID:", shellId)
+                }
+
+            case let .enterWorktree(params):
+                headerRow("Enter Worktree")
+                if let name = params.name {
+                    detailRow("Name:", name)
+                }
+                if let path = params.path {
+                    detailRow("Path:", path)
+                }
+
+            case let .listMcpResources(params):
+                headerRow("List MCP Resources")
+                if let server = params.server {
+                    detailRow("Server:", server)
+                }
+
+            case let .readMcpResource(params):
+                headerRow("Read MCP Resource")
+                detailRow("Server:", params.server)
+                detailRow("URI:", params.uri)
 
             case let .mcp(params):
                 headerRow("MCP Tool")

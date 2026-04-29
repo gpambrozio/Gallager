@@ -14,6 +14,7 @@ public enum ClaudeCodeTool: Sendable, Equatable {
 
     // Execution
     case bash(BashParameters)
+    case monitor(MonitorParameters)
 
     // Subagents & Planning
     case agent(AgentParameters)
@@ -36,6 +37,17 @@ public enum ClaudeCodeTool: Sendable, Equatable {
     // User Interaction
     case askUserQuestion(AskUserQuestionParameters)
 
+    // Background Tasks
+    case taskOutput(TaskOutputParameters)
+    case taskStop(TaskStopParameters)
+
+    // Worktrees
+    case enterWorktree(EnterWorktreeParameters)
+
+    // MCP Resources
+    case listMcpResources(ListMcpResourcesParameters)
+    case readMcpResource(ReadMcpResourceParameters)
+
     // MCP Tools (mcp__<server>__<tool>)
     case mcp(MCPToolParameters)
 
@@ -50,6 +62,7 @@ public enum ClaudeCodeTool: Sendable, Equatable {
         case .grep: "Grep"
         case .glob: "Glob"
         case .bash: "Bash"
+        case .monitor: "Monitor"
         case .agent: "Agent"
         case .todoWrite: "TodoWrite"
         case .exitPlanMode: "ExitPlanMode"
@@ -59,6 +72,11 @@ public enum ClaudeCodeTool: Sendable, Equatable {
         case .skill: "Skill"
         case .toolSearch: "ToolSearch"
         case .askUserQuestion: "AskUserQuestion"
+        case .taskOutput: "TaskOutput"
+        case .taskStop: "TaskStop"
+        case .enterWorktree: "EnterWorktree"
+        case .listMcpResources: "ListMcpResourcesTool"
+        case .readMcpResource: "ReadMcpResourceTool"
         case let .mcp(params): params.fullToolName
         case let .other(name, _): name
         }
@@ -79,6 +97,8 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             params.pattern
         case let .bash(params):
             params.command
+        case let .monitor(params):
+            params.command
         case let .agent(params):
             params.description
         case .todoWrite:
@@ -97,6 +117,16 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             params.query
         case let .askUserQuestion(params):
             params.questions.first?.question
+        case let .taskOutput(params):
+            params.taskId
+        case let .taskStop(params):
+            params.taskId ?? params.shellId
+        case let .enterWorktree(params):
+            params.name ?? params.path
+        case let .listMcpResources(params):
+            params.server
+        case let .readMcpResource(params):
+            params.uri
         case let .mcp(params):
             params.tool
         case .other:
@@ -124,6 +154,8 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             return try .glob(container.decode(GlobParameters.self))
         case "Bash":
             return try .bash(container.decode(BashParameters.self))
+        case "Monitor":
+            return try .monitor(container.decode(MonitorParameters.self))
         case "Agent":
             return try .agent(container.decode(AgentParameters.self))
         case "TodoWrite":
@@ -142,6 +174,16 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             return try .toolSearch(container.decode(ToolSearchParameters.self))
         case "AskUserQuestion":
             return try .askUserQuestion(container.decode(AskUserQuestionParameters.self))
+        case "TaskOutput":
+            return try .taskOutput(container.decode(TaskOutputParameters.self))
+        case "TaskStop":
+            return try .taskStop(container.decode(TaskStopParameters.self))
+        case "EnterWorktree":
+            return try .enterWorktree(container.decode(EnterWorktreeParameters.self))
+        case "ListMcpResourcesTool":
+            return try .listMcpResources(container.decode(ListMcpResourcesParameters.self))
+        case "ReadMcpResourceTool":
+            return try .readMcpResource(container.decode(ReadMcpResourceParameters.self))
         default:
             if let name = toolName, name.hasPrefix("mcp__") {
                 return try .mcp(container.decode(MCPToolParameters.self))
@@ -243,42 +285,120 @@ public struct BashParameters: Codable, Sendable, Equatable {
     /// Timeout in milliseconds (default: 120000, max: 600000)
     public let timeout: Int?
     public let runInBackground: Bool?
+    public let dangerouslyDisableSandbox: Bool?
 
     enum CodingKeys: String, CodingKey {
         case command
         case description
         case timeout
         case runInBackground = "run_in_background"
+        case dangerouslyDisableSandbox
     }
 
     public init(
         command: String,
         description: String? = nil,
         timeout: Int? = nil,
-        runInBackground: Bool? = nil
+        runInBackground: Bool? = nil,
+        dangerouslyDisableSandbox: Bool? = nil
     ) {
         self.command = command
         self.description = description
         self.timeout = timeout
         self.runInBackground = runInBackground
+        self.dangerouslyDisableSandbox = dangerouslyDisableSandbox
+    }
+}
+
+public struct MonitorParameters: Codable, Sendable, Equatable {
+    public let command: String
+    public let description: String
+    public let timeoutMs: Int?
+    public let persistent: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case command
+        case description
+        case timeoutMs = "timeout_ms"
+        case persistent
+    }
+
+    public init(
+        command: String,
+        description: String,
+        timeoutMs: Int? = nil,
+        persistent: Bool? = nil
+    ) {
+        self.command = command
+        self.description = description
+        self.timeoutMs = timeoutMs
+        self.persistent = persistent
     }
 }
 
 public struct AgentParameters: Codable, Sendable, Equatable {
     public let prompt: String
     public let description: String
-    public let subagentType: String?
+    public let subagentType: String
     public let model: String?
-    public let isolation: String?
+    public let resume: String?
     public let runInBackground: Bool?
+    public let maxTurns: Int?
+    public let name: String?
+    public let teamName: String?
+    public let mode: AgentMode?
+    public let isolation: Isolation?
+
+    public enum AgentMode: String, Codable, Sendable, Equatable {
+        case acceptEdits
+        case bypassPermissions
+        case `default`
+        case dontAsk
+        case plan
+    }
+
+    public enum Isolation: String, Codable, Sendable, Equatable {
+        case worktree
+    }
 
     enum CodingKeys: String, CodingKey {
         case prompt
         case description
         case subagentType = "subagent_type"
         case model
-        case isolation
+        case resume
         case runInBackground = "run_in_background"
+        case maxTurns = "max_turns"
+        case name
+        case teamName = "team_name"
+        case mode
+        case isolation
+    }
+
+    public init(
+        prompt: String,
+        description: String,
+        subagentType: String,
+        model: String? = nil,
+        resume: String? = nil,
+        runInBackground: Bool? = nil,
+        maxTurns: Int? = nil,
+        name: String? = nil,
+        teamName: String? = nil,
+        mode: AgentMode? = nil,
+        isolation: Isolation? = nil
+    ) {
+        self.prompt = prompt
+        self.description = description
+        self.subagentType = subagentType
+        self.model = model
+        self.resume = resume
+        self.runInBackground = runInBackground
+        self.maxTurns = maxTurns
+        self.name = name
+        self.teamName = teamName
+        self.mode = mode
+        self.isolation = isolation
     }
 }
 
@@ -416,11 +536,75 @@ public struct AskUserQuestionParameters: Codable, Sendable, Equatable {
     public struct AskUserQuestionOption: Codable, Sendable, Equatable {
         public let label: String
         public let description: String?
+        public let preview: String?
 
-        public init(label: String, description: String?) {
+        public init(label: String, description: String? = nil, preview: String? = nil) {
             self.label = label
             self.description = description
+            self.preview = preview
         }
+    }
+}
+
+public struct TaskOutputParameters: Codable, Sendable, Equatable {
+    public let taskId: String
+    public let block: Bool
+    public let timeout: Int
+
+    enum CodingKeys: String, CodingKey {
+        case taskId = "task_id"
+        case block
+        case timeout
+    }
+
+    public init(taskId: String, block: Bool, timeout: Int) {
+        self.taskId = taskId
+        self.block = block
+        self.timeout = timeout
+    }
+}
+
+public struct TaskStopParameters: Codable, Sendable, Equatable {
+    public let taskId: String?
+    /// Deprecated: use taskId
+    public let shellId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case taskId = "task_id"
+        case shellId = "shell_id"
+    }
+
+    public init(taskId: String? = nil, shellId: String? = nil) {
+        self.taskId = taskId
+        self.shellId = shellId
+    }
+}
+
+public struct EnterWorktreeParameters: Codable, Sendable, Equatable {
+    public let name: String?
+    public let path: String?
+
+    public init(name: String? = nil, path: String? = nil) {
+        self.name = name
+        self.path = path
+    }
+}
+
+public struct ListMcpResourcesParameters: Codable, Sendable, Equatable {
+    public let server: String?
+
+    public init(server: String? = nil) {
+        self.server = server
+    }
+}
+
+public struct ReadMcpResourceParameters: Codable, Sendable, Equatable {
+    public let server: String
+    public let uri: String
+
+    public init(server: String, uri: String) {
+        self.server = server
+        self.uri = uri
     }
 }
 
@@ -458,6 +642,8 @@ extension ClaudeCodeTool: Codable {
             try container.encode(params)
         case let .bash(params):
             try container.encode(params)
+        case let .monitor(params):
+            try container.encode(params)
         case let .agent(params):
             try container.encode(params)
         case let .todoWrite(params):
@@ -475,6 +661,16 @@ extension ClaudeCodeTool: Codable {
         case let .toolSearch(params):
             try container.encode(params)
         case let .askUserQuestion(params):
+            try container.encode(params)
+        case let .taskOutput(params):
+            try container.encode(params)
+        case let .taskStop(params):
+            try container.encode(params)
+        case let .enterWorktree(params):
+            try container.encode(params)
+        case let .listMcpResources(params):
+            try container.encode(params)
+        case let .readMcpResource(params):
             try container.encode(params)
         case let .mcp(params):
             try container.encode(params)
