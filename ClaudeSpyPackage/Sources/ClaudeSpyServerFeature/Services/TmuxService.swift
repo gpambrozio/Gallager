@@ -5,25 +5,32 @@ import Logging
 /// Errors that can occur when interacting with tmux
 enum TmuxError: Error, LocalizedError {
     case tmuxNotFound
-    case noServerRunning
     case invalidPane(target: String)
     case commandFailed(message: String)
-    case permissionDenied
 
     var errorDescription: String? {
         switch self {
         case .tmuxNotFound:
             return "tmux is not installed or not in PATH"
-        case .noServerRunning:
-            return "No tmux server running. Start tmux first."
         case let .invalidPane(target):
             return "Pane '\(target)' not found"
         case let .commandFailed(message):
             return "tmux command failed: \(message)"
-        case .permissionDenied:
-            return "Permission denied accessing tmux"
         }
     }
+}
+
+/// Outcome of a single refresh attempt against tmux. Encapsulates the decision
+/// of whether to assign new panes, clear stored state, or preserve the current
+/// state — keeping the mutation point in `refreshPanes` to a single switch so
+/// `panes` is never written to an intermediate `[]` value mid-refresh.
+private enum RefreshOutcome {
+    /// list-panes succeeded with parseable output. Use these panes verbatim.
+    case assign([PaneInfo])
+    /// Tmux server confirmed to have no panes/sessions. Clear stored state.
+    case empty(reason: String)
+    /// Couldn't confidently determine state. Preserve current panes.
+    case keep(reason: String, lastError: String?)
 }
 
 /// Whether a tmux stderr message definitively indicates no server is running (or no sessions exist).
@@ -148,32 +155,16 @@ final public class TmuxService {
 
     // MARK: - tmux Commands
 
-    /// Checks if tmux is available and a server is running
-    public func checkAvailability() async throws {
-        // Check if tmux exists
-        guard FileManager.default.isExecutableFile(atPath: tmuxPath) else {
-            throw TmuxError.tmuxNotFound
-        }
-
-        // Check if server is running
-        let result = try await runTmuxCommand(["list-sessions"])
-        if !result.isSuccess {
-            if isNoServerError(result.stderrString) {
-                throw TmuxError.noServerRunning
-            }
-            // Connection errors with a missing socket mean the server genuinely exited
-            if isConnectionError(result.stderrString) && isServerSocketMissing {
-                throw TmuxError.noServerRunning
-            }
-            if result.stderrString.lowercased().contains("permission denied") {
-                throw TmuxError.permissionDenied
-            }
-        }
-    }
-
-    /// Refreshes the list of available panes across all sessions
-    /// Updates the internal `panes` array and returns the result
-    /// - Returns: The refreshed list of panes
+    /// Refreshes the list of available panes across all sessions.
+    ///
+    /// Internally delegates the "what state is tmux in?" decision to
+    /// `queryRefreshOutcome`, which folds every observable signal (process
+    /// errors, stderr classification, socket presence, list-sessions
+    /// confirmation) into one of three outcomes: assign new panes, clear
+    /// stored state, or preserve current state. This function only chooses
+    /// what to write — and writes `panes` exactly once — so observers never
+    /// see an intermediate empty-list value mid-refresh.
+    /// - Returns: The refreshed list of panes.
     @discardableResult
     public func refreshPanes() async -> [PaneInfo] {
         guard !isRefreshing else { return panes }
@@ -193,123 +184,137 @@ final public class TmuxService {
             }
         }
 
-        do {
-            try await checkAvailability()
-
-            // Get sessions with attached clients to prefer them during deduplication
-            let attachedSessions = await getAttachedSessionNames()
-            attachedSessionNames = attachedSessions
-
-            let format = "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_title}|#{window_layout}|#{window_name}|#{window_active}|#{\(Self.descriptionOptionKey)}"
-
-            let result = try await runTmuxCommand([
-                "list-panes",
-                "-a",
-                "-F", format,
-            ])
-
-            guard result.isSuccess else {
-                if isNoServerError(result.stderrString) {
-                    if !panes.isEmpty {
-                        logger.warning("tmux list-panes returned no-server error — clearing panes", metadata: [
-                            "stderr": "\(result.stderrString)",
-                            "exitCode": "\(result.exitCode)",
-                            "oldPaneCount": "\(panes.count)",
-                        ])
-                    }
-                    panes = []
-                    return panes
-                }
-                // Connection errors are ambiguous: check if the socket is actually gone
-                // (server genuinely exited, e.g. last session closed) vs. transient
-                if isConnectionError(result.stderrString) && isServerSocketMissing {
-                    logger.warning("tmux list-panes connection error + socket missing — clearing panes", metadata: [
-                        "stderr": "\(result.stderrString)",
-                        "oldPaneCount": "\(panes.count)",
-                    ])
-                    panes = []
-                    return panes
-                }
-                logger.warning("tmux list-panes failed (keeping old panes)", metadata: [
-                    "stderr": "\(result.stderrString)",
-                    "exitCode": "\(result.exitCode)",
-                    "oldPaneCount": "\(panes.count)",
-                ])
-                lastError = result.stderrString
-                return panes
-            }
-
-            let lines = result.stdoutString
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .split(separator: "\n")
-                .map(String.init)
-
-            // Parse panes and sort so attached sessions come first
-            let allPanes = lines.compactMap { PaneInfo(fromTmuxOutput: $0) }
-            let sortedPanes = allPanes.sorted { pane1, pane2 in
-                let pane1Attached = attachedSessions.contains(pane1.sessionName)
-                let pane2Attached = attachedSessions.contains(pane2.sessionName)
-                // Attached sessions come first
-                if pane1Attached != pane2Attached {
-                    return pane1Attached
-                }
-                return false // Preserve original order otherwise
-            }
-
-            // Deduplicate by paneId - attached session versions will be kept
-            var seen = Set<String>()
-            panes = sortedPanes.filter { pane in
-                if seen.contains(pane.paneId) {
-                    return false
-                }
-                seen.insert(pane.paneId)
-                return true
-            }
-
-            // list-panes succeeded but yielded zero panes despite the previous
-            // refresh having state. tmux can return success with empty/partial
-            // stdout under odd conditions; log loudly so we can tell this path
-            // apart from the failure paths above.
-            if panes.isEmpty && !oldPanes.isEmpty {
-                logger.warning("tmux list-panes succeeded but parsed 0 panes — clearing panes", metadata: [
-                    "rawLineCount": "\(lines.count)",
-                    "parsedPaneCount": "\(allPanes.count)",
-                    "stdoutPrefix": "\(String(result.stdoutString.prefix(200)))",
+        guard FileManager.default.isExecutableFile(atPath: tmuxPath) else {
+            if !oldPanes.isEmpty {
+                logger.warning("tmux refresh: clearing panes", metadata: [
+                    "reason": "tmux binary not found at \(tmuxPath)",
                     "oldPaneCount": "\(oldPanes.count)",
                 ])
             }
-        } catch TmuxError.noServerRunning {
-            // Tmux has no sessions - this is legitimate, not an error.
-            // Log when this wipes a previously non-empty pane list so we can
-            // distinguish a real "user closed everything" event from a
-            // false-positive disambiguation in checkAvailability().
-            if !panes.isEmpty {
-                logger.warning("tmux noServerRunning thrown from checkAvailability — clearing panes", metadata: [
-                    "oldPaneCount": "\(panes.count)",
-                ])
-            }
-            lastError = nil
             panes = []
-        } catch {
-            // Check if the socket is gone — if so, the server genuinely exited
-            if isServerSocketMissing {
-                logger.warning("tmux refresh threw error + socket missing — clearing panes", metadata: [
-                    "error": "\(error.localizedDescription)",
-                    "oldPaneCount": "\(panes.count)",
+            return panes
+        }
+
+        // Get sessions with attached clients to prefer them during deduplication
+        let attachedSessions = await getAttachedSessionNames()
+        attachedSessionNames = attachedSessions
+
+        switch await queryRefreshOutcome(attachedSessions: attachedSessions) {
+        case let .assign(newPanes):
+            panes = newPanes
+        case let .empty(reason):
+            if !oldPanes.isEmpty {
+                logger.warning("tmux refresh: clearing panes", metadata: [
+                    "reason": "\(reason)",
+                    "oldPaneCount": "\(oldPanes.count)",
                 ])
-                lastError = nil
-                panes = []
-            } else {
-                // Socket still exists — transient failure, keep old panes
-                logger.warning("tmux refresh failed transiently (keeping old panes)", metadata: [
-                    "error": "\(error.localizedDescription)",
-                    "oldPaneCount": "\(panes.count)",
-                ])
-                lastError = error.localizedDescription
             }
+            panes = []
+        case let .keep(reason, err):
+            if !oldPanes.isEmpty {
+                logger.warning("tmux refresh: keeping old panes", metadata: [
+                    "reason": "\(reason)",
+                    "oldPaneCount": "\(oldPanes.count)",
+                ])
+            }
+            lastError = err
+            // panes intentionally untouched — observers see no change
         }
 
         return panes
+    }
+
+    /// Queries tmux and folds every signal into a single `RefreshOutcome`.
+    ///
+    /// Decision flow:
+    /// 1. Run `list-panes -a`. If it parses to a non-empty list → `.assign`.
+    /// 2. Process-level throw or non-success exit:
+    ///    - `isNoServerError` stderr → `.empty` (tmux explicitly says so).
+    ///    - `isConnectionError` stderr + socket missing → `.empty`.
+    ///    - Process throw + socket missing → `.empty`.
+    ///    - Anything else → `.keep` (transient — preserve panes).
+    /// 3. Success but parsed empty → ask tmux directly via `list-sessions`:
+    ///    - Success + zero rows → `.empty` (server confirms no sessions).
+    ///    - Anything else → `.keep` (tmux glitched on list-panes; sessions
+    ///      always have at least one pane, so non-empty list-sessions means
+    ///      list-panes lied).
+    private func queryRefreshOutcome(attachedSessions: Set<String>) async -> RefreshOutcome {
+        let format = "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_title}|#{window_layout}|#{window_name}|#{window_active}|#{\(Self.descriptionOptionKey)}"
+
+        let result: ProcessResult
+        do {
+            result = try await runTmuxCommand(["list-panes", "-a", "-F", format])
+        } catch {
+            if isServerSocketMissing {
+                return .empty(reason: "list-panes threw + socket missing (\(error.localizedDescription))")
+            }
+            return .keep(
+                reason: "list-panes threw + socket present (\(error.localizedDescription))",
+                lastError: error.localizedDescription
+            )
+        }
+
+        if !result.isSuccess {
+            let stderr = result.stderrString
+            if isNoServerError(stderr) {
+                return .empty(reason: "list-panes: no-server (stderr=\(stderr) exit=\(result.exitCode))")
+            }
+            if isConnectionError(stderr) && isServerSocketMissing {
+                return .empty(reason: "list-panes: connection error + socket missing (stderr=\(stderr))")
+            }
+            return .keep(
+                reason: "list-panes failed (stderr=\(stderr) exit=\(result.exitCode))",
+                lastError: stderr
+            )
+        }
+
+        // Success — parse, sort by attached-first, deduplicate by pane id.
+        let lines = result.stdoutString
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: "\n")
+            .map(String.init)
+        let parsed = lines.compactMap { PaneInfo(fromTmuxOutput: $0) }
+        let sorted = parsed.sorted { pane1, pane2 in
+            let pane1Attached = attachedSessions.contains(pane1.sessionName)
+            let pane2Attached = attachedSessions.contains(pane2.sessionName)
+            if pane1Attached != pane2Attached {
+                return pane1Attached
+            }
+            return false
+        }
+        var seen = Set<String>()
+        let deduped = sorted.filter { pane in
+            if seen.contains(pane.paneId) {
+                return false
+            }
+            seen.insert(pane.paneId)
+            return true
+        }
+
+        if !deduped.isEmpty {
+            return .assign(deduped)
+        }
+
+        // list-panes returned success with empty/unparseable stdout. Confirm
+        // against list-sessions — every session has at least one pane, so
+        // sessions-exist + zero panes is definitionally a tmux glitch.
+        let sessionCheck = try? await runTmuxCommand(["list-sessions", "-F", "#{session_id}"])
+        let sessionLines = sessionCheck?.stdoutString
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: "\n") ?? []
+        let listSessionsSucceeded = sessionCheck?.isSuccess == true
+
+        if listSessionsSucceeded && sessionLines.isEmpty {
+            return .empty(reason: "list-panes empty + list-sessions confirms no sessions (rawLines=\(lines.count) parsed=\(parsed.count))")
+        }
+        // Use `.debugDescription` so any ANSI/control bytes in the glitched
+        // stdout are escaped (e.g. `\u{1B}`) instead of leaking into the
+        // structured log line raw.
+        let stdoutPrefix = String(result.stdoutString.prefix(200)).debugDescription
+        return .keep(
+            reason: "list-panes empty + list-sessions inconclusive (sessionCount=\(sessionLines.count) sessionsSucceeded=\(listSessionsSucceeded) rawLines=\(lines.count) parsed=\(parsed.count) stdoutPrefix=\(stdoutPrefix))",
+            lastError: nil
+        )
     }
 
     /// Detects tmux panes that have a running Claude Code process as a descendant.
