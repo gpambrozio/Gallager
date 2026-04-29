@@ -38,6 +38,26 @@ public actor TestOrchestrator {
         public let success: Bool
         public let error: String?
         public let screenshot: ScreenshotResult?
+        /// Diagnostic screenshots captured when a non-screenshot-comparison
+        /// step fails. Empty for passing steps and for screenshot-comparison
+        /// failures (which already carry baseline/actual/diff in `screenshot`).
+        public let failureScreenshots: [FailureScreenshot]
+
+        public init(
+            stepNumber: Int,
+            description: String,
+            success: Bool,
+            error: String?,
+            screenshot: ScreenshotResult?,
+            failureScreenshots: [FailureScreenshot] = []
+        ) {
+            self.stepNumber = stepNumber
+            self.description = description
+            self.success = success
+            self.error = error
+            self.screenshot = screenshot
+            self.failureScreenshots = failureScreenshots
+        }
     }
 
     /// Result of a screenshot comparison
@@ -49,6 +69,23 @@ public actor TestOrchestrator {
         public let diffPercentage: Double?
         public let passed: Bool
         public let baselineCreated: Bool
+    }
+
+    /// Diagnostic screenshot captured at the moment a step fails. Unlike
+    /// `ScreenshotResult`, there is no baseline or diff — just a snapshot of
+    /// the current UI state to help understand what went wrong.
+    public struct FailureScreenshot: Sendable, Codable {
+        /// Identifies which app this captures, e.g. `"ios"`, `"mac"`,
+        /// `"mac2"` (for the second macOS instance). Used as the screenshot
+        /// label / display title in reports.
+        public let target: String
+        /// Filesystem path where the PNG was written.
+        public let path: String
+
+        public init(target: String, path: String) {
+            self.target = target
+            self.path = path
+        }
     }
 
     /// Result of running a scenario
@@ -141,19 +178,33 @@ public actor TestOrchestrator {
                 logger.error("  FAILED at step \(stepNumber): \(error)")
                 // Extract screenshot result from mismatch errors
                 let screenshotResult: ScreenshotResult?
+                let failureScreenshots: [FailureScreenshot]
                 if case let OrchestratorError.screenshotMismatch(result, _) = error {
                     screenshotResult = result
+                    // Screenshot-comparison failures already include actual /
+                    // baseline / diff — no extra diagnostic capture needed.
+                    failureScreenshots = []
                 } else {
                     screenshotResult = nil
+                    failureScreenshots = await captureFailureScreenshots(
+                        for: step,
+                        stepNumber: stepNumber
+                    )
                 }
                 stepResults.append(StepResult(
                     stepNumber: stepNumber,
                     description: "\(step)",
                     success: false,
                     error: error.localizedDescription,
-                    screenshot: screenshotResult
+                    screenshot: screenshotResult,
+                    failureScreenshots: failureScreenshots
                 ))
-                await reporter?.stepFailed(stepNumber, error: error.localizedDescription, screenshot: screenshotResult)
+                await reporter?.stepFailed(
+                    stepNumber,
+                    error: error.localizedDescription,
+                    screenshot: screenshotResult,
+                    failureScreenshots: failureScreenshots
+                )
 
                 if firstFailedStep == nil {
                     firstFailedStep = stepNumber
@@ -958,6 +1009,77 @@ public actor TestOrchestrator {
         }
 
         return screenshotResult
+    }
+
+    // MARK: - Failure Screenshots
+
+    /// Capture diagnostic screenshots from running platforms after a step fails.
+    /// Best-effort: any single capture that throws is logged and skipped so the
+    /// orchestrator can still report the original failure with whatever
+    /// screenshots succeeded.
+    private func captureFailureScreenshots(
+        for step: TestStep,
+        stepNumber: Int
+    ) async -> [FailureScreenshot] {
+        let scope = step.failureScope
+        var captures: [FailureScreenshot] = []
+
+        // iOS sim — captured for `.ios` and `.universal` if the sim is booted.
+        if scope == .ios || scope == .universal {
+            let booted = await simulatorDriver.isBooted
+            if booted {
+                let path = failureScreenshotPath(stepNumber: stepNumber, target: "ios")
+                do {
+                    _ = try await simulatorDriver.screenshot(output: path)
+                    captures.append(FailureScreenshot(target: "ios", path: path))
+                } catch {
+                    logger.warning("  Failed to capture iOS failure screenshot: \(error)")
+                }
+            }
+        }
+
+        // macOS — captured for `.macOS(N)` (just that instance) and
+        // `.universal` (every instance). Only instances whose drivers we've
+        // already created are considered: anything not in `macDrivers` was
+        // never launched.
+        let macTargets: [Int]
+        switch scope {
+        case let .macOS(instance):
+            macTargets = [instance]
+        case .universal:
+            macTargets = macDrivers.keys.sorted()
+        case .ios:
+            macTargets = []
+        }
+        for instance in macTargets {
+            guard let driver = macDrivers[instance] else { continue }
+            let launched = await driver.isLaunched
+            guard launched else { continue }
+            let label = macTargetLabel(for: instance)
+            let path = failureScreenshotPath(stepNumber: stepNumber, target: label)
+            do {
+                try await driver.screenshot(output: path)
+                captures.append(FailureScreenshot(target: label, path: path))
+            } catch {
+                logger.warning("  Failed to capture \(label) failure screenshot: \(error)")
+            }
+        }
+
+        return captures
+    }
+
+    /// Build a path for a failure screenshot scoped to the current scenario.
+    private func failureScreenshotPath(stepNumber: Int, target: String) -> String {
+        let scenarioName = context.resolve("${scenarioName}")
+        let filename = String(format: "failure-step-%02d-%@.png", stepNumber, target)
+        return "\(screenshotsDir)/\(scenarioName)/\(filename)"
+    }
+
+    /// Display label for a macOS app instance. Instance 0 is `mac`; instance
+    /// N>0 is `macN+1` to match the user-facing instance numbering used in
+    /// `MacOSDriver` log labels (`e2e.macos-driver-2` for the second instance).
+    private func macTargetLabel(for instance: Int) -> String {
+        instance == 0 ? "mac" : "mac\(instance + 1)"
     }
 
     /// Copy a screenshot to a destination, creating parent directories and overwriting if needed.

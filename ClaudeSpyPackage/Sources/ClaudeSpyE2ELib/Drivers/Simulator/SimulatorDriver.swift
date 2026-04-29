@@ -20,6 +20,12 @@ public actor SimulatorDriver {
 
     public init() { }
 
+    /// Whether a simulator has been booted by this driver.
+    /// Used by the orchestrator to decide whether to attempt failure screenshots.
+    public var isBooted: Bool {
+        udid != nil
+    }
+
     // MARK: - Simulator Lifecycle
 
     /// Boot a simulator by name, returning its UDID
@@ -454,7 +460,8 @@ public actor SimulatorDriver {
         )
         if !success {
             throw SimulatorDriverError.configurationError(
-                "iOS reconnect endpoint returned failure")
+                "iOS reconnect endpoint returned failure"
+            )
         }
     }
 

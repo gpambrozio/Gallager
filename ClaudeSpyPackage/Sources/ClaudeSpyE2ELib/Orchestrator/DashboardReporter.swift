@@ -64,7 +64,12 @@ final public class DashboardReporter: TestProgressReporter, @unchecked Sendable 
         enqueue(["type": "e2e", "event": "step-completed", "scenario": currentScenarioName, "stepNumber": stepNumber])
     }
 
-    public func stepFailed(_ stepNumber: Int, error: String, screenshot: TestOrchestrator.ScreenshotResult?) async {
+    public func stepFailed(
+        _ stepNumber: Int,
+        error: String,
+        screenshot: TestOrchestrator.ScreenshotResult?,
+        failureScreenshots: [TestOrchestrator.FailureScreenshot]
+    ) async {
         enqueue(["type": "e2e", "event": "step-failed", "scenario": currentScenarioName, "stepNumber": stepNumber, "error": error])
     }
 
