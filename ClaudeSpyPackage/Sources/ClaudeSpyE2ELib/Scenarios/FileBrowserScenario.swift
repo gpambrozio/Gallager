@@ -17,6 +17,9 @@ import Foundation
 ///    rendered as selected (regression guard for PR #399 issue 1).
 /// 10. File tabs are session-scoped and persist when switching between tmux
 ///     windows in the same session (regression guard for PR #399 issue 2).
+/// 11. Right-clicking an open file tab shows the same context menu as the file
+///     navigator (issue #415) — `Copy Path` and `Copy Relative Path` round-trip
+///     through the clipboard prove the shared menu component is wired up.
 ///
 /// Regression guards:
 /// - Nested NavigationSplitView layout gap (ee55599)
@@ -301,8 +304,26 @@ public enum FileBrowserScenario {
         TestStep.macWaitForElement(titled: "File tab: README.md", timeout: 5)
         TestStep.macScreenshot(label: "mac-two-file-tabs")
 
-        // ── Phase 21: Close a file tab ───────────────────────────
-        TestStep.log("Phase 21: Closing a tab removes only that tab")
+        // ── Phase 21: Right-click context menu on file tab (issue #415) ─
+        TestStep.log("Phase 21: Right-clicking a file tab shows the shared file context menu")
+
+        // Copy Path on the open file tab — proves the same menu component
+        // surfaces on tabs and that the action wires up to the right path.
+        TestStep.macContextMenuClick(elementTitle: "File tab: hello.txt", menuItem: "Copy Path")
+        TestStep.wait(seconds: 1)
+        TestStep.macReadClipboard(storeAs: "tabCopiedPath")
+        TestStep.assertStoredContains(key: "tabCopiedPath", substring: "hello.txt")
+
+        // Copy Relative Path on the open file tab — relative path is the file
+        // name only since hello.txt sits at the directory root.
+        TestStep.macContextMenuClick(elementTitle: "File tab: hello.txt", menuItem: "Copy Relative Path")
+        TestStep.wait(seconds: 1)
+        TestStep.macReadClipboard(storeAs: "tabCopiedRelPath")
+        TestStep.assertStoredContains(key: "tabCopiedRelPath", substring: "hello.txt")
+        TestStep.assertStoredNotContains(key: "tabCopiedRelPath", substring: "/")
+
+        // ── Phase 22: Close a file tab ───────────────────────────
+        TestStep.log("Phase 22: Closing a tab removes only that tab")
 
         // Select hello.txt tab first so its close button becomes visible
         TestStep.macClickButton(titled: "File tab: hello.txt")
@@ -313,8 +334,8 @@ public enum FileBrowserScenario {
         TestStep.macWaitForElement(titled: "File tab: README.md", timeout: 5)
         TestStep.macScreenshot(label: "mac-file-tab-closed")
 
-        // ── Phase 22: Deleted file keeps tab open with strikethrough ─
-        TestStep.log("Phase 22: Deleted file keeps tab open with strikethrough filename")
+        // ── Phase 23: Deleted file keeps tab open with strikethrough ─
+        TestStep.log("Phase 23: Deleted file keeps tab open with strikethrough filename")
 
         // Go back to the browser to pick ephemeral.txt from the tree
         TestStep.macClickButton(titled: "Files")
@@ -345,21 +366,21 @@ public enum FileBrowserScenario {
         TestStep.macClickButton(titled: "Close file tab: README.md")
         TestStep.wait(seconds: 1)
 
-        // ── Phase 23: Window tab visual state with a file tab selected ─
+        // ── Phase 24: Window tab visual state with a file tab selected ─
         //
         // Regression guard for PR #399 issue 1: before the fix, selecting a file
         // tab also painted the underlying tmux window tab as selected (both got
         // the accent background + underline). The screenshot here is the
         // assertion — the terminal tab must not show the selected styling while
         // the file tab is the active view.
-        TestStep.log("Phase 23: Selected file tab does not paint the window tab as selected")
+        TestStep.log("Phase 24: Selected file tab does not paint the window tab as selected")
 
         TestStep.macContextMenuClick(elementTitle: "hello.txt", menuItem: "Open in New Tab")
         TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "File tab: hello.txt", timeout: 5)
         TestStep.macScreenshot(label: "mac-file-tab-selected-window-tab-deselected")
 
-        // ── Phase 24: File tabs persist across window switch (session-scoped) ─
+        // ── Phase 25: File tabs persist across window switch (session-scoped) ─
         //
         // Regression guard for PR #399 issue 2: before the fix, openFileTabs
         // lived on per-window FileBrowserState so switching tmux windows wiped
@@ -369,7 +390,7 @@ public enum FileBrowserScenario {
         // This phase also implicitly verifies that the file browser tree is
         // still per-window (it does NOT auto-follow into the new window), which
         // was the original Phase 23 regression check.
-        TestStep.log("Phase 24: File tabs persist across tmux window switch within a session")
+        TestStep.log("Phase 25: File tabs persist across tmux window switch within a session")
 
         // Create a second tmux window in the same session
         Shortcut.tmuxRunCommand(target: "filebrowse:0.0", command: "tmux new-window -t filebrowse")

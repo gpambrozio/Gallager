@@ -1998,6 +1998,12 @@ private struct WindowTabBar: View {
                     .frame(height: 2)
             }
         }
+        .fileContextMenu(
+            fullPath: tab.path,
+            directoryPath: tab.directoryPath,
+            isDirectory: false,
+            onOpenFileInNewTab: nil
+        )
         .onHover { hovering in
             hoveredFileTabId = hovering ? tab.id : nil
         }

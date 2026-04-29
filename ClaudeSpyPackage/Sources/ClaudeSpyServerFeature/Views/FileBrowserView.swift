@@ -398,10 +398,9 @@ struct FileBrowserView: View {
             Symbols.docPlaintextFill.image
                 .foregroundStyle(.secondary)
         }
-        .fileTreeContextMenu(
-            itemId: itemId,
+        .fileContextMenu(
+            fullPath: state.reverseIds[itemId],
             directoryPath: directoryPath,
-            reverseIds: state.reverseIds,
             isDirectory: false,
             onOpenFileInNewTab: onOpenFileInNewTab
         )
@@ -415,10 +414,9 @@ struct FileBrowserView: View {
             Symbols.folderFill.image
                 .foregroundStyle(.blue)
         }
-        .fileTreeContextMenu(
-            itemId: itemId,
+        .fileContextMenu(
+            fullPath: state.reverseIds[itemId],
             directoryPath: directoryPath,
-            reverseIds: state.reverseIds,
             isDirectory: true,
             onOpenFileInNewTab: onOpenFileInNewTab
         )
@@ -549,54 +547,6 @@ struct FileBrowserView: View {
                 symbol: .docPlaintextFill,
                 description: "Choose a file from the navigator to view its contents."
             )
-        }
-    }
-}
-
-// MARK: - File Tree Context Menu
-
-private extension View {
-    func fileTreeContextMenu(
-        itemId: UUID,
-        directoryPath: String,
-        reverseIds: [UUID: String],
-        isDirectory: Bool,
-        onOpenFileInNewTab: @escaping (String) -> Void
-    ) -> some View {
-        let fullPath = reverseIds[itemId]
-        let relativePath = fullPath.map { String($0.dropFirst(directoryPath.count + 1)) }
-
-        return contextMenu {
-            if let fullPath {
-                Button("Open") {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: fullPath))
-                }
-                if !isDirectory {
-                    Button("Open in New Tab") {
-                        onOpenFileInNewTab(fullPath)
-                    }
-                }
-                Button("Open in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: fullPath)])
-                }
-                Divider()
-                Button("Copy Path") {
-                    @Dependency(ClipboardClient.self) var clipboard
-                    clipboard.setString(fullPath)
-                }
-                if let relativePath {
-                    Button("Copy Relative Path") {
-                        @Dependency(ClipboardClient.self) var clipboard
-                        clipboard.setString(relativePath)
-                    }
-                }
-                if !isDirectory {
-                    Button("Copy") {
-                        @Dependency(ClipboardClient.self) var clipboard
-                        clipboard.setFileURL(URL(fileURLWithPath: fullPath))
-                    }
-                }
-            }
         }
     }
 }
