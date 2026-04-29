@@ -156,5 +156,15 @@ public enum WindowDescriptionSyncScenario {
         // hydrated from the tmux user option on the first refresh after launch.
         TestStep.macWaitForElement(titled: "Persist Across Restart", timeout: 30)
         TestStep.macScreenshot(label: "host-after-restart")
+
+        // TEMP: Force a universal-scope assertion failure AFTER the host has been
+        // terminated and relaunched in Phase 8. This exercises the relaunch path —
+        // verifies that MacOSDriver.appPID is updated by launchMacApp so isLaunched
+        // still reports true, and that all three platforms (iOS + relaunched mac
+        // host + mac viewer) get screenshotted. PR #426 — revert before merging.
+        TestStep.assertStoredContains(
+            key: "paneId",
+            substring: "__INTENTIONAL_FAILURE_SCREENSHOT_TEST__"
+        )
     }
 }

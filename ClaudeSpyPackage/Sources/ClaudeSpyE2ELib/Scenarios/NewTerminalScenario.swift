@@ -27,5 +27,12 @@ public enum NewTerminalScenario {
         // 5. Verify the terminal connected (the "Connecting to terminal..." text should disappear)
         TestStep.iosWaitForElementToDisappear(.labelContains("Connecting to terminal"), timeout: 15)
         TestStep.iosScreenshot(label: "ios-new-terminal")
+
+        // TEMP: Force an iOS-scope failure to verify the orchestrator captures
+        // a single iOS failure screenshot (PR #426). Revert before merging.
+        TestStep.iosWaitForElement(
+            .label("__INTENTIONAL_FAILURE_SCREENSHOT_TEST__"),
+            timeout: 3
+        )
     }
 }

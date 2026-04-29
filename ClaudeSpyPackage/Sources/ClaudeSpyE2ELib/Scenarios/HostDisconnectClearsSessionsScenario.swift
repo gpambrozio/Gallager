@@ -54,5 +54,14 @@ public enum HostDisconnectClearsSessionsScenario {
         // 9. Verify Mac viewer no longer shows the remote session
         TestStep.macWaitForElementToDisappear(titled: "work-session", timeout: 15, instance: 1)
         TestStep.macScreenshot(label: "viewer-sessions-after-disconnect", compare: false, instance: 1)
+
+        // TEMP: Force a macOS instance-1-scope failure (iOS + mac0 are also alive,
+        // but scope must restrict capture to the viewer only). PR #426 — revert
+        // before merging.
+        TestStep.macWaitForElement(
+            titled: "__INTENTIONAL_FAILURE_SCREENSHOT_TEST__",
+            timeout: 3,
+            instance: 1
+        )
     }
 }

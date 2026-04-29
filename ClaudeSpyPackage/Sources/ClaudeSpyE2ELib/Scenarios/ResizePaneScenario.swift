@@ -147,5 +147,12 @@ public enum ResizePaneScenario {
         TestStep.assertStoredNotEqual(key: "phase4Width", otherKey: "phase2Width")
         TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "mac-resize-pane-switch-auto-resize")
+
+        // TEMP: Force a macOS instance-0-scope failure to verify the orchestrator
+        // captures a single mac failure screenshot (PR #426). Revert before merging.
+        TestStep.macWaitForElement(
+            titled: "__INTENTIONAL_FAILURE_SCREENSHOT_TEST__",
+            timeout: 3
+        )
     }
 }
