@@ -257,13 +257,5 @@ public enum MarkHandledScenario {
         TestStep.iosScreenshot(label: "ios-working-after-permission")
         TestStep.macScreenshot(label: "host-working-final")
         TestStep.macScreenshot(label: "viewer-working-final", instance: 1)
-
-        // TEMP: Force a universal-scope assertion failure with all three platforms
-        // (iOS + mac host + mac viewer) alive, so the orchestrator captures three
-        // failure screenshots. PR #426 — revert before merging.
-        TestStep.assertStoredContains(
-            key: "paneId",
-            substring: "__INTENTIONAL_FAILURE_SCREENSHOT_TEST__"
-        )
     }
 }
