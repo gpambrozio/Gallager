@@ -165,18 +165,6 @@
         }
 
         override func mouseDown(with event: NSEvent) {
-            // In mouse mode, suppress the press if the click lands on an OSC 8
-            // hyperlink we'll handle. Otherwise SwiftTerm forwards a mouse-press
-            // SGR sequence to the terminal app (e.g. Claude Code), which can
-            // open the file from the press event before our `handleURLClick`
-            // runs in `mouseUp`.
-            if
-                let interactive = interactiveView,
-                interactive.isMouseModeActive,
-                interactive.isClickOnURL(at: interactive.convert(event.locationInWindow, from: nil)) {
-                onMouseDown?()
-                return
-            }
             terminalView?.mouseDown(with: event)
             onMouseDown?()
         }
@@ -222,23 +210,19 @@
         override func mouseUp(with event: NSEvent) {
             lastDragPosition = nil
 
-            // Check for URL click first, even when mouse mode is active. This
-            // lets OSC 8 hyperlinks (esp. file://) emitted by TUI applications
-            // like Claude Code route through our `onOpenURL` handler instead
-            // of being delivered as a mouse-release SGR sequence to the
-            // terminal app.
+            // In mouse mode, the terminal app owns clicks — forward to
+            // SwiftTerm without URL detection so links don't intercept clicks
+            // the remote app expects to handle.
+            if interactiveView?.isMouseModeActive == true {
+                terminalView?.mouseUp(with: event)
+                return
+            }
+
             if let interactive = interactiveView {
                 let point = interactive.convert(event.locationInWindow, from: nil)
                 if interactive.handleURLClick(at: point) {
                     return
                 }
-            }
-
-            // No URL at the click point. In mouse mode, the terminal app owns
-            // the click — forward to SwiftTerm and skip auto-copy.
-            if interactiveView?.isMouseModeActive == true {
-                terminalView?.mouseUp(with: event)
-                return
             }
 
             terminalView?.mouseUp(with: event)
@@ -1222,23 +1206,6 @@
             return false
         }
 
-        /// Whether the given point lies on a URL we'd handle. Used to suppress
-        /// mouse-mode propagation so terminal apps (e.g. Claude Code) don't act
-        /// on the click before our `handleURLClick` runs in `mouseUp`.
-        fileprivate func isClickOnURL(at point: NSPoint) -> Bool {
-            guard let pos = gridPosition(for: point) else { return false }
-            let terminal = terminalView.getTerminal()
-            let closures = urlClosures(for: terminal)
-            return TerminalURLDetector.urlAt(
-                col: pos.col,
-                row: pos.row,
-                cols: terminal.cols,
-                lineText: closures.lineText,
-                cellPayload: closures.cellPayload,
-                allowedSchemes: TerminalURLDetector.defaultAllowedSchemes.union(["file"])
-            ) != nil
-        }
-
         /// Opens a URL by giving `onOpenURL` first chance to handle it. Falls
         /// back to `NSWorkspace.shared.open` when the callback is absent or
         /// declines to handle the URL.
@@ -1251,11 +1218,17 @@
 
         /// Scans visible rows for URLs and draws persistent underline decorations.
         /// Called when terminal content changes or scrolls.
+        ///
+        /// When mouse mode is active the underlines are cleared and redrawing
+        /// is skipped: the terminal app owns clicks, so links shouldn't appear
+        /// interactive while their clicks would be consumed as mouse events.
         private func updateURLUnderlines() {
             for layer in urlUnderlineLayers {
                 layer.removeFromSuperlayer()
             }
             urlUnderlineLayers.removeAll()
+
+            if isMouseModeActive { return }
 
             let terminal = terminalView.getTerminal()
             guard cellSize.width > 0, cellSize.height > 0 else { return }
@@ -1528,6 +1501,12 @@
         }
 
         func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
+            // Defense-in-depth: ignore SwiftTerm's own link-open requests while
+            // mouse mode is active. Our overlay already routes around them
+            // (OSC 8 payloads are cleared and the click overlay forwards to
+            // the terminal), but if SwiftTerm ever surfaces a regex-matched
+            // implicit link via this delegate the same suppression applies.
+            guard !isMouseModeActive else { return }
             if let url = URL(string: link) {
                 openURL(url)
             }
