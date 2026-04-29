@@ -77,10 +77,10 @@
             return sessionWindows.first(where: \.isWindowActive) ?? sessionWindows.first
         }
 
-        /// Navigation title: matches the first line of the session's sidebar row.
-        /// Order mirrors `SessionRowView`/`TerminalRowView`:
+        /// Navigation title using the same priority order as `SessionRowView`/`TerminalRowView`:
         /// custom description, then Claude project name, then current folder name,
         /// then any detected terminal title, then the tmux session name.
+        /// Note: OSC titles come from locally-captured `terminalTitles` (real-time), not relay-provided pane state.
         private var navigationTitle: String {
             if let desc = window?.customDescription { return desc }
             // Claude project name (matches `SessionRowView` headline for Claude sessions)

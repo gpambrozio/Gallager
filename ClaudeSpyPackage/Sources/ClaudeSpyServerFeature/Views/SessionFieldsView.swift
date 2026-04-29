@@ -136,6 +136,38 @@ struct SessionSortData {
         }
         return sessionName
     }
+
+    /// Builds sort data for a remote `TmuxSession` using the relay-provided pane state.
+    static func forRemoteSession(
+        _ session: TmuxSession,
+        sidebarFields: [SidebarField],
+        sidebarTerminalFields: [SidebarField],
+        homeDirectory: String?
+    ) -> SessionSortData {
+        let claudeSession = session.windows.flatMap(\.panes).compactMap(\.claudeSession).first
+        let activePane = session.activeWindow?.activePane
+        let terminalTitle = session.windows.flatMap(\.panes).compactMap(\.terminalTitle).first { !$0.isEmpty }
+        let fields = claudeSession != nil ? sidebarFields : sidebarTerminalFields
+        let label = primaryLabel(
+            fields: fields,
+            customDescription: session.customDescription,
+            projectName: claudeSession?.displayName,
+            sessionName: session.sessionName,
+            terminalTitle: terminalTitle,
+            command: activePane?.command,
+            currentPath: activePane?.currentPath,
+            gitBranch: activePane?.gitBranch,
+            homeDirectory: homeDirectory
+        )
+        return SessionSortData(
+            sessionName: session.sessionName,
+            primaryLabel: label,
+            hasClaude: claudeSession != nil,
+            statusPriority: statusPriority(for: claudeSession),
+            statusPriorityIdleFirst: statusPriorityIdleFirst(for: claudeSession),
+            latestEventTimestamp: claudeSession?.latestEvent?.timestamp
+        )
+    }
 }
 
 extension SidebarSortMode {

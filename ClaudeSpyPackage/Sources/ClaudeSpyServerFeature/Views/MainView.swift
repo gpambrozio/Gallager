@@ -307,38 +307,21 @@ public struct MainView: View {
         return nil
     }
 
-    /// Computes the primary sidebar label for a remote session matching `RemoteHostSidebarSection.sortedSessions`.
+    /// Computes the primary sidebar label for a remote session using the same logic as `RemoteHostSidebarSection.sortedSessions`.
     private func remoteSessionPrimaryLabel(hostId: String, sessionName: String) -> String? {
         guard let sessionStore = coordinator.remoteSessionStore else { return nil }
         guard let session = sessionStore.sessions(for: hostId).first(where: { $0.sessionName == sessionName }) else {
             return nil
         }
-
-        let claudeSession = session.windows
-            .flatMap(\.panes)
-            .compactMap(\.claudeSession)
-            .first
-        let activePane = session.activeWindow?.activePane
-        let terminalTitle = session.windows
-            .flatMap(\.panes)
-            .compactMap(\.terminalTitle)
-            .first { !$0.isEmpty }
-
-        let fields = claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields
-
-        return SessionSortData.primaryLabel(
-            fields: fields,
-            customDescription: session.customDescription,
-            projectName: claudeSession?.displayName,
-            sessionName: session.sessionName,
-            terminalTitle: terminalTitle,
-            command: activePane?.command,
-            currentPath: activePane?.currentPath,
-            gitBranch: activePane?.gitBranch,
+        return SessionSortData.forRemoteSession(
+            session,
+            sidebarFields: settings.sidebarFields,
+            sidebarTerminalFields: settings.sidebarTerminalFields,
             homeDirectory: sessionStore.homeDirectoryByHost[hostId]
-        )
+        ).primaryLabel
     }
 
+    /// Scans the full session (all windows) to match the session-level sidebar row — not the selected window.
     private func localSessionSortData(_ session: LocalTmuxSession) -> SessionSortData {
         let claudeSession: ClaudeSession? = session.windows.lazy
             .flatMap(\.panes)
@@ -2398,39 +2381,11 @@ private struct RemoteHostSidebarSection: View {
 
     private var sortedSessions: [TmuxSession] {
         settings.sidebarSortMode.sorted(tmuxSessions) { session in
-            let claudeSession = session.windows
-                .flatMap(\.panes)
-                .compactMap(\.claudeSession)
-                .first
-            let activePane = session.activeWindow?.activePane
-
-            // Scan all windows for terminal title (matches RemoteSessionSidebarRow)
-            let terminalTitle = session.windows
-                .flatMap(\.panes)
-                .compactMap(\.terminalTitle)
-                .first { !$0.isEmpty }
-
-            let fields = claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields
-
-            let primaryLabel = SessionSortData.primaryLabel(
-                fields: fields,
-                customDescription: session.customDescription,
-                projectName: claudeSession?.displayName,
-                sessionName: session.sessionName,
-                terminalTitle: terminalTitle,
-                command: activePane?.command,
-                currentPath: activePane?.currentPath,
-                gitBranch: activePane?.gitBranch,
+            SessionSortData.forRemoteSession(
+                session,
+                sidebarFields: settings.sidebarFields,
+                sidebarTerminalFields: settings.sidebarTerminalFields,
                 homeDirectory: sessionStore.homeDirectoryByHost[host.id]
-            )
-
-            return SessionSortData(
-                sessionName: session.sessionName,
-                primaryLabel: primaryLabel,
-                hasClaude: claudeSession != nil,
-                statusPriority: SessionSortData.statusPriority(for: claudeSession),
-                statusPriorityIdleFirst: SessionSortData.statusPriorityIdleFirst(for: claudeSession),
-                latestEventTimestamp: claudeSession?.latestEvent?.timestamp
             )
         }
     }
