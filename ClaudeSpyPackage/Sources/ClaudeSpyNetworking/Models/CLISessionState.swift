@@ -21,32 +21,38 @@ public enum CLISessionState: String, Codable, Sendable, CaseIterable {
 
     /// Parses a CLI string into either a concrete state or an explicit clear.
     /// Accepts the raw value and a small set of aliases so the CLI matches the
-    /// vocabulary users already see in the sidebar.
+    /// vocabulary users already see in the sidebar. Returns `nil` for inputs
+    /// that don't match any known state or alias.
     public static func parse(_ raw: String) -> ParseResult? {
         switch raw.lowercased() {
         case "clear",
              "none":
-            return ParseResult(value: nil)
+            return .clear
         case CLISessionState.working.rawValue:
-            return ParseResult(value: .working)
+            return .set(.working)
         case CLISessionState.idle.rawValue:
-            return ParseResult(value: .idle)
+            return .set(.idle)
         case CLISessionState.waiting.rawValue,
              "waiting-for-input",
              "attention":
-            return ParseResult(value: .waiting)
+            return .set(.waiting)
         default:
             return nil
         }
     }
 
     /// Result of parsing a CLI state argument.
-    /// `value == nil` means the caller asked to clear the override.
-    public struct ParseResult: Sendable, Equatable {
-        public let value: CLISessionState?
+    public enum ParseResult: Sendable, Equatable {
+        case set(CLISessionState)
+        case clear
 
-        public init(value: CLISessionState?) {
-            self.value = value
+        /// Canonical lowercased name for the parsed state, suitable for
+        /// echoing back to the user.
+        public var canonicalName: String {
+            switch self {
+            case let .set(state): state.rawValue
+            case .clear: "clear"
+            }
         }
     }
 }

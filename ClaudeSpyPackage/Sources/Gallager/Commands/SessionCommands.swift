@@ -153,13 +153,35 @@ struct SessionStateCommand: ParsableCommand {
         } else if
             let result = response.result,
             case let .int(applied) = result["applied_to"] {
+            let canonical = Self.canonicalState(for: state)
             if applied == 0 {
                 print("No matching panes found.")
-            } else if state.lowercased() == "clear" {
+            } else if canonical == "clear" {
                 print("Cleared state on \(applied) pane(s).")
             } else {
-                print("Set state '\(state)' on \(applied) pane(s).")
+                print("Set state '\(canonical)' on \(applied) pane(s).")
             }
+        }
+    }
+
+    /// Maps the user-supplied state argument (and supported aliases) to the
+    /// canonical name used in the sidebar so the success message stays in sync
+    /// regardless of which alias or casing the caller typed.
+    private static func canonicalState(for raw: String) -> String {
+        switch raw.lowercased() {
+        case "clear",
+             "none":
+            return "clear"
+        case "working":
+            return "working"
+        case "idle":
+            return "idle"
+        case "waiting",
+             "waiting-for-input",
+             "attention":
+            return "waiting"
+        default:
+            return raw.lowercased()
         }
     }
 }

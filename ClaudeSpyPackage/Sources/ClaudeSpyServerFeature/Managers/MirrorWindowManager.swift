@@ -176,7 +176,19 @@ final public class MirrorWindowManager {
             paneStates[paneId]?.claudeSession = nil
             paneStates[paneId]?.yoloMode = false
             // Drop the CLI override too — the session it was decorating is gone.
-            paneStates[paneId]?.cliSessionState = nil
+            // Mirror the working/notification path above and clear every sibling
+            // pane in the same tmux session, since `session.set_state --session`
+            // can stamp the override across all of them. Otherwise siblings keep
+            // a stale override after Claude exits in one pane and no further
+            // hook events arrive to clear them.
+            let sessionName = paneStates[paneId]?.sessionName
+            if let sessionName, !sessionName.isEmpty {
+                for (otherId, state) in paneStates where state.sessionName == sessionName {
+                    paneStates[otherId]?.cliSessionState = nil
+                }
+            } else {
+                paneStates[paneId]?.cliSessionState = nil
+            }
 
             // Close the pane when Claude exits normally (user quit at prompt)
             if settings.closePaneOnSessionEnd && body.reason == .promptInputExit {
