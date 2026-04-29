@@ -34,7 +34,7 @@ public enum Shortcut {
             tags: ["shortcut"]
         ) {
             TestStep.macOpenPanesWindow(instance: instance)
-            TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5, instance: instance)
+            TestStep.macWaitForWindow(titled: "Gallager", timeout: 5, instance: instance)
             TestStep.wait(seconds: 1)
             TestStep.macMoveWindow(x: 10, y: 10, instance: instance)
             TestStep.macResizeWindow(width: 1_000, height: 600, instance: instance)

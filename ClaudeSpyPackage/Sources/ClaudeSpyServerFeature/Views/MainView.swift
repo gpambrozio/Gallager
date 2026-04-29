@@ -67,7 +67,7 @@ public struct MainView: View {
                 }
         }
         .navigationSplitViewStyle(.balanced)
-        .navigationTitle(selectedSessionTitle ?? "Available Windows")
+        .navigationTitle(selectedSessionTitle ?? "Gallager")
         .toolbar {
             toolbarContent
         }
