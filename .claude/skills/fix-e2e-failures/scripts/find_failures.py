@@ -94,6 +94,7 @@ def _step_failure_detail(step: dict, images_dir: str) -> dict:
         "error": step.get("error"),
         "type": "functional",
         "screenshot": None,
+        "failureScreenshots": [],
     }
     ss = step.get("screenshot")
     if ss and not ss.get("passed"):
@@ -105,6 +106,18 @@ def _step_failure_detail(step: dict, images_dir: str) -> dict:
             "baselineImage": os.path.join(images_dir, f"{ss['baselineHash']}.png") if ss.get("baselineHash") else None,
             "diffImage": os.path.join(images_dir, f"{ss['diffHash']}.png") if ss.get("diffHash") else None,
         }
+    # Diagnostic screenshots captured at the moment a non-comparison step
+    # fails (one per running platform — iOS sim, mac host, mac viewers).
+    # Only present on functional failures; screenshot-mismatch steps already
+    # have actual/baseline/diff in `screenshot`.
+    for fs in step.get("failureScreenshots") or []:
+        image_hash = fs.get("imageHash")
+        if not image_hash:
+            continue
+        detail["failureScreenshots"].append({
+            "target": fs.get("target", ""),
+            "image": os.path.join(images_dir, f"{image_hash}.png"),
+        })
     return detail
 
 
@@ -160,6 +173,8 @@ def build_summary(entry: dict, report: dict, failures: list[dict]) -> str:
                 lines.append(f"    Screenshot: {ss['label']} ({ss['diffPercentage']}% diff)")
             if s.get("error"):
                 lines.append(f"    Error: {s['error']}")
+            for fs in s.get("failureScreenshots") or []:
+                lines.append(f"    Failure screenshot ({fs['target']}): {fs['image']}")
         if f["hasFatalFailure"]:
             lines.append("  (scenario stopped early at first non-screenshot error)")
         lines.append("")

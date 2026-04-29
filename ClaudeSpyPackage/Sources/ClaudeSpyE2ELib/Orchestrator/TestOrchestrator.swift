@@ -1070,9 +1070,8 @@ public actor TestOrchestrator {
 
     /// Build a path for a failure screenshot scoped to the current scenario.
     private func failureScreenshotPath(stepNumber: Int, target: String) -> String {
-        let scenarioName = context.resolve("${scenarioName}")
         let filename = String(format: "failure-step-%02d-%@.png", stepNumber, target)
-        return "\(screenshotsDir)/\(scenarioName)/\(filename)"
+        return "\(scenarioDir(in: screenshotsDir))/\(filename)"
     }
 
     /// Display label for a macOS app instance. Instance 0 is `mac`; instance
@@ -1101,14 +1100,20 @@ public actor TestOrchestrator {
 
     /// Build the full path for a screenshot file, scoped to the current scenario
     private func screenshotPath(for label: String) -> String {
-        let scenarioName = context.resolve("${scenarioName}")
-        return "\(screenshotsDir)/\(scenarioName)/\(label).png"
+        "\(scenarioDir(in: screenshotsDir))/\(label).png"
     }
 
     /// Build the full path for a baseline file, scoped to the current scenario
     private func baselinePath(for label: String) -> String {
+        "\(scenarioDir(in: baselinesDir))/\(label).png"
+    }
+
+    /// Per-scenario subdirectory under a base dir (screenshots, baselines,
+    /// failure screenshots — all share this layout). Centralized so the layout
+    /// only needs to change in one place.
+    private func scenarioDir(in baseDir: String) -> String {
         let scenarioName = context.resolve("${scenarioName}")
-        return "\(baselinesDir)/\(scenarioName)/\(label).png"
+        return "\(baseDir)/\(scenarioName)"
     }
 
     /// Convert a scenario name into a safe directory name
