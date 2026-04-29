@@ -13,6 +13,7 @@ struct TmuxPaneMirrorApp: App {
     @State private var showingPluginSetup = false
     @State private var showingLaunchAtLoginPrompt = false
     @State private var updaterController: UpdaterController
+    @NSApplicationDelegateAdaptor private var shutdownDelegate: AppShutdownDelegate
 
     init() {
         let isE2E = CommandLine.arguments.contains("--e2e-test")
@@ -380,6 +381,12 @@ struct TmuxPaneMirrorApp: App {
         } label: {
             MenuBarLabel(pendingCount: totalPendingSessionCount)
                 .task(id: showingTmuxInstallGuide) {
+                    // Wire the shutdown handler before potentially returning,
+                    // so a quit during the tmux install guide still gets a
+                    // chance to clean up any pipe-panes started later.
+                    shutdownDelegate.onShouldTerminate = { [coordinator] in
+                        await coordinator.shutdown()
+                    }
                     guard !showingTmuxInstallGuide else { return }
                     await coordinator.setupAllServices()
                 }
