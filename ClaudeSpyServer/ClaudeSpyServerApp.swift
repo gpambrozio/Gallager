@@ -380,13 +380,12 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator)
         } label: {
             MenuBarLabel(pendingCount: totalPendingSessionCount)
-                .task(id: showingTmuxInstallGuide) {
-                    // Wire the shutdown handler before potentially returning,
-                    // so a quit during the tmux install guide still gets a
-                    // chance to clean up any pipe-panes started later.
+                .onAppear {
                     shutdownDelegate.onShouldTerminate = { [coordinator] in
                         await coordinator.shutdown()
                     }
+                }
+                .task(id: showingTmuxInstallGuide) {
                     guard !showingTmuxInstallGuide else { return }
                     await coordinator.setupAllServices()
                 }

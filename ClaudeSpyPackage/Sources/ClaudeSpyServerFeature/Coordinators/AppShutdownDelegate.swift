@@ -19,15 +19,16 @@
     final public class AppShutdownDelegate: NSObject, NSApplicationDelegate {
         /// Async cleanup to run before the app terminates. Set this once at
         /// startup; if `nil` at quit time, AppKit terminates immediately.
-        public var onShouldTerminate: (@MainActor @Sendable () async -> Void)?
+        public var onShouldTerminate: (@MainActor () async -> Void)?
 
         /// Maximum time to wait for cleanup before forcing termination.
-        public var shutdownTimeout: Duration = .seconds(3)
+        public let shutdownTimeout: Duration
 
         private var didReply = false
         private let logger = Logger(label: "com.claudespy.shutdown")
 
-        public override init() {
+        public init(shutdownTimeout: Duration = .seconds(3)) {
+            self.shutdownTimeout = shutdownTimeout
             super.init()
         }
 
