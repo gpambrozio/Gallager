@@ -127,8 +127,8 @@ public enum Shortcut {
         TestStep.verifyServerHasPairings(count: 1)
         TestStep.waitForHostConnected(timeout: 15)
         TestStep.waitForViewerConnected(timeout: 15)
-        TestStep.macWaitForElement(titled: "Connected", timeout: 15)
-        TestStep.macWaitForElement(titled: "Connected", timeout: 15, instance: 1)
+        TestStep.macWaitForElement(titled: "Viewer connected", timeout: 15)
+        TestStep.macWaitForElement(titled: "Host connected", timeout: 15, instance: 1)
     }
 
     // MARK: - tmux Commands
@@ -289,6 +289,6 @@ public enum Shortcut {
         TestStep.macType(text: "${viewerPairingCode}", pressReturn: true, instance: 1)
         TestStep.wait(seconds: 5)
 
-        TestStep.macWaitForElement(titled: "Connected", timeout: 15, instance: 1)
+        TestStep.macWaitForElement(titled: "Host connected", timeout: 15, instance: 1)
     }
 }

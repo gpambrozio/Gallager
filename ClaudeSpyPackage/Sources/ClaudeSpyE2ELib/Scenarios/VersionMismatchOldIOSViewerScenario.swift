@@ -89,7 +89,7 @@ public enum VersionMismatchOldIOSViewerScenario {
         TestStep.iosWaitForElementToDisappear(.identifier("host-version-mismatch-row"), timeout: 20)
         TestStep.iosWaitForElement(.labelContains("No active sessions"), timeout: 20)
         TestStep.macWaitForElementToDisappear(titled: "running version 0.1", timeout: 20)
-        TestStep.macWaitForElement(titled: "Connected", timeout: 20)
+        TestStep.macWaitForElement(titled: "Viewer connected", timeout: 20)
         TestStep.iosScreenshot(label: "ios-after-upgrade")
         TestStep.macScreenshot(label: "mac-after-ios-upgrade", tolerance: 5)
     }
