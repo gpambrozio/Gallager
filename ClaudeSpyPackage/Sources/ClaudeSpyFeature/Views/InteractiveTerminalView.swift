@@ -329,6 +329,9 @@
                 else { continue }
                 pan.isEnabled = !active
             }
+            // Re-run underline rendering: enabling mouse mode hides them,
+            // disabling it brings them back.
+            setNeedsLayout()
         }
 
         @objc
@@ -415,6 +418,11 @@
 
         @objc
         private func handleURLTap(_ gesture: UITapGestureRecognizer) {
+            // In mouse mode the remote terminal app owns taps — synthesized
+            // mouse events flow through the pan path. Skip URL handling so
+            // links don't compete with the app's own click semantics.
+            guard !isMouseModeActive else { return }
+
             let point = gesture.location(in: self)
             guard let pos = gridPosition(for: point) else { return }
 
@@ -435,6 +443,10 @@
 
         @objc
         private func handleURLLongPress(_ gesture: UILongPressGestureRecognizer) {
+            // In mouse mode the remote terminal app owns presses, so the
+            // long-press action sheet shouldn't appear over interactive UI.
+            guard !isMouseModeActive else { return }
+
             switch gesture.state {
             case .began:
                 let point = gesture.location(in: self)
@@ -545,11 +557,17 @@
 
         /// Scans visible rows for URLs and draws persistent underline decorations.
         /// Positions use absolute content-space coordinates so underlines scroll with text.
+        ///
+        /// When mouse mode is active the underlines are cleared and redrawing
+        /// is skipped: the remote terminal app owns taps, so links shouldn't
+        /// appear interactive while their taps are consumed as mouse events.
         private func updateURLUnderlines() {
             for underline in urlUnderlineLayers {
                 underline.removeFromSuperlayer()
             }
             urlUnderlineLayers.removeAll()
+
+            if isMouseModeActive { return }
 
             let terminal = getTerminal()
             guard cellSize.width > 0, cellSize.height > 0 else { return }
@@ -638,6 +656,11 @@
         }
 
         func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
+            // Defense-in-depth: ignore SwiftTerm's own link-open requests while
+            // mouse mode is active. Our gesture handlers already short-circuit
+            // on `isMouseModeActive`; this guard catches the implicit
+            // regex-link path SwiftTerm exposes through this delegate.
+            guard !isMouseModeActive else { return }
             if let url = URL(string: link) {
                 UIApplication.shared.open(url)
             }
