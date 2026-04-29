@@ -275,12 +275,15 @@
             let activePaneInSession = activeWindow?.activePane ?? activeWindow?.panes.first
             // Find the first pane with a Claude session (may differ from the active pane)
             let claudePaneInSession = session.windows.flatMap(\.panes).first(where: { $0.claudeSession != nil })
+            // CLI-driven state override propagated from the host, if any pane has one set.
+            let cliSessionState = session.windows.flatMap(\.panes).compactMap(\.cliSessionState).first
 
             NavigationLink(value: SessionNavigation(sessionName: session.sessionName, hostId: host.id)) {
                 if let claudePane = claudePaneInSession, let claudeSession = claudePane.claudeSession {
                     SessionRowView(
                         paneId: claudePane.paneId,
                         session: claudeSession,
+                        cliSessionState: cliSessionState,
                         isActive: sessionStore.isPaneActive(paneId: claudePane.paneId, hostId: host.id),
                         customDescription: session.customDescription,
                         windowCount: session.windows.count
@@ -289,7 +292,7 @@
                     TerminalRowView(pane: pane, windowCount: session.windows.count)
                 }
             }
-            .accessibilityValue(claudePaneInSession?.claudeSession?.statusLabel ?? "")
+            .accessibilityValue(cliSessionState?.statusLabel ?? claudePaneInSession?.claudeSession?.statusLabel ?? "")
             .modifier(DescriptionEditingModifier(
                 sessionName: session.sessionName,
                 currentDescription: session.customDescription,
@@ -447,14 +450,21 @@
     struct SessionRowView: View {
         let paneId: String
         let session: ClaudeSession
+        var cliSessionState: CLISessionState?
         let isActive: Bool
         var customDescription: String?
         var windowCount = 1
 
         var body: some View {
             HStack(alignment: .top, spacing: 12) {
-                SessionStatusIndicator(session: session)
-                    .frame(width: 20, height: 20)
+                Group {
+                    if let cliSessionState {
+                        SessionStatusIndicator(cliState: cliSessionState)
+                    } else {
+                        SessionStatusIndicator(session: session)
+                    }
+                }
+                .frame(width: 20, height: 20)
 
                 VStack(alignment: .leading, spacing: 4) {
                     // Custom description shown prominently if set
@@ -539,10 +549,16 @@
 
         var body: some View {
             HStack(alignment: .top, spacing: 12) {
-                // Terminal icon instead of activity indicator
-                Symbols.terminal.image
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20, height: 20)
+                Group {
+                    if let cliState = pane.cliSessionState {
+                        SessionStatusIndicator(cliState: cliState)
+                    } else {
+                        // Terminal icon instead of activity indicator
+                        Symbols.terminal.image
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(width: 20, height: 20)
 
                 VStack(alignment: .leading, spacing: 4) {
                     // Custom description shown prominently if set

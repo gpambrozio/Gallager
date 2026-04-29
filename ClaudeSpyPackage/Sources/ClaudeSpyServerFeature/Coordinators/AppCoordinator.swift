@@ -376,6 +376,44 @@
                 onSessionClose: { [tmux] sessionId in
                     try await tmux.killSession(sessionId)
                 },
+                onSessionSetState: { [tmux, winManager, weak self] state, paneId, sessionId in
+                    guard let parsed = CLISessionState.parse(state) else {
+                        throw APIError.notFound(
+                            "Unknown state '\(state)'. Use working, idle, waiting, or clear."
+                        )
+                    }
+                    let override: CLISessionState? = switch parsed {
+                    case let .set(value): value
+                    case .clear: nil
+                    }
+                    let panes = await tmux.refreshPanes()
+                    return await MainActor.run { () -> Int in
+                        // Reconcile pane metadata so setCLISessionState finds tracked
+                        // entries (sessionName etc.) for hook-driven sibling clearing.
+                        winManager.updatePaneStates(from: panes)
+
+                        let targets: [String]
+                        if let paneId, panes.contains(where: { $0.paneId == paneId }) {
+                            targets = [paneId]
+                        } else if let sessionId {
+                            let matching = panes.filter { $0.sessionName == sessionId }
+                            targets = matching.map(\.paneId)
+                        } else {
+                            let active = panes.first(where: { $0.isActive && $0.isWindowActive })
+                            targets = active.map { [$0.paneId] } ?? []
+                        }
+                        var applied = 0
+                        for target in targets where winManager.setCLISessionState(override, for: target) {
+                            applied += 1
+                        }
+                        if applied > 0 {
+                            Task {
+                                await self?.connectedViewerManager?.pushSessionStateToAll()
+                            }
+                        }
+                        return applied
+                    }
+                },
                 onWindowList: { [tmux] sessionId in
                     let panes = await tmux.refreshPanes()
                     let allWindows = LocalTmuxWindow.groupPanes(panes)

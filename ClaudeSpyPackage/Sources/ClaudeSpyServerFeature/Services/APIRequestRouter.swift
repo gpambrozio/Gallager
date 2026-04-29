@@ -37,6 +37,7 @@
         "session.select",
         "session.current",
         "session.close",
+        "session.set_state",
         "window.list",
         "window.create",
         "window.select",
@@ -65,6 +66,7 @@
         let onSessionSelect: (@Sendable (String) async throws -> Void)?
         let onSessionCurrent: (@Sendable () async -> [String: JSONValue]?)?
         let onSessionClose: (@Sendable (String) async throws -> Void)?
+        let onSessionSetState: (@Sendable (String, String?, String?) async throws -> Int)?
 
         let onWindowList: (@Sendable (String?) async -> [[String: JSONValue]])?
         let onWindowCreate: (@Sendable (String?, String?) async throws -> [String: JSONValue])?
@@ -93,6 +95,7 @@
             onSessionSelect: (@Sendable (String) async throws -> Void)? = nil,
             onSessionCurrent: (@Sendable () async -> [String: JSONValue]?)? = nil,
             onSessionClose: (@Sendable (String) async throws -> Void)? = nil,
+            onSessionSetState: (@Sendable (String, String?, String?) async throws -> Int)? = nil,
             onWindowList: (@Sendable (String?) async -> [[String: JSONValue]])? = nil,
             onWindowCreate: (@Sendable (String?, String?) async throws -> [String: JSONValue])? = nil,
             onWindowSelect: (@Sendable (String) async throws -> Void)? = nil,
@@ -113,6 +116,7 @@
             self.onSessionSelect = onSessionSelect
             self.onSessionCurrent = onSessionCurrent
             self.onSessionClose = onSessionClose
+            self.onSessionSetState = onSessionSetState
             self.onWindowList = onWindowList
             self.onWindowCreate = onWindowCreate
             self.onWindowSelect = onWindowSelect
@@ -187,6 +191,20 @@
                     }
                     try await onSessionClose?(sessionId)
                     return .ok(id: id)
+
+                case "session.set_state":
+                    guard let state = params["state"]?.stringValue else {
+                        return .invalidParams(id: id, "state required (working, idle, waiting, or clear)")
+                    }
+                    let paneId = params["pane_id"]?.stringValue
+                    let sessionId = params["session_id"]?.stringValue
+                    guard let callback = onSessionSetState else {
+                        return .internalError(id: id, "Session set_state not available")
+                    }
+                    let appliedTo = try await callback(state, paneId, sessionId)
+                    return JSONRPCResponse(id: id, result: [
+                        "applied_to": .int(appliedTo),
+                    ])
 
                 // MARK: - Windows
 

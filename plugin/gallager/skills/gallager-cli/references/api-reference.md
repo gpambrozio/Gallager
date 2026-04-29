@@ -75,6 +75,14 @@ Newline-delimited JSON-RPC over `AF_UNIX, SOCK_STREAM`. Each message is a single
 - Params: `{ "session_id": string }`
 - Result: `{}`
 
+### `session.set_state` — `gallager session-state <state>`
+- Params: `{ "state": "working" | "idle" | "waiting" | "clear", "pane_id"?: string, "session_id"?: string }`
+- Result: `{ "applied_to": int }` — number of panes whose override was updated.
+- With both `pane_id` and `session_id` omitted, the active pane is targeted. A
+  Claude hook event whose `isWorking` is non-nil or that would trigger a
+  notification clears the override for the same pane, so live sessions revert to
+  hook-driven state on their own.
+
 ## Windows
 
 ### `window.list` — `gallager list-windows [--session]`
