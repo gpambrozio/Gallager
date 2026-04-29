@@ -652,6 +652,17 @@ public struct MainView: View {
                         onCloseFileTab: { tabId in
                             closeOpenFileTab(tabId, sessionName: session.sessionName)
                         },
+                        onShowInFileExplorer: { path in
+                            fileBrowserActiveWindowIds.insert(window.id)
+                            if fileBrowserStates[window.id] == nil {
+                                fileBrowserStates[window.id] = FileBrowserState()
+                            }
+                            if sessionFileTabsStates[session.sessionName] == nil {
+                                sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
+                            }
+                            sessionFileTabsStates[session.sessionName]?.selectedFileTabId = nil
+                            fileBrowserStates[window.id]?.viewState?.selection = fileBrowserStates[window.id]?.stableIds[path]
+                        },
                         onAcceptOpenSuggestion: { suggestion in
                             openFileInNewTab(
                                 path: suggestion.filePath,
@@ -1810,6 +1821,7 @@ private struct WindowTabBar: View {
     let onSelectFileBrowser: () -> Void
     let onSelectFileTab: (UUID) -> Void
     let onCloseFileTab: (UUID) -> Void
+    let onShowInFileExplorer: (String) -> Void
     let onAcceptOpenSuggestion: (MarkdownOpenSuggestion) -> Void
 
     @Environment(MirrorWindowManager.self) private var windowManager
@@ -2002,7 +2014,8 @@ private struct WindowTabBar: View {
             fullPath: tab.path,
             directoryPath: tab.directoryPath,
             isDirectory: false,
-            onOpenFileInNewTab: nil
+            onOpenFileInNewTab: nil,
+            onShowInFileExplorer: onShowInFileExplorer
         )
         .onHover { hovering in
             hoveredFileTabId = hovering ? tab.id : nil

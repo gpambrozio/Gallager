@@ -4,21 +4,20 @@ import Dependencies
 import SwiftUI
 
 extension View {
-    /// Shared right-click context menu for files, used by both the file
-    /// navigator tree (`FileBrowserView`) and the open-file tabs in
-    /// `WindowTabBar`. Centralizing the items here keeps the two menus in
-    /// sync — adding an item here surfaces it in both places automatically.
-    ///
-    /// Pass `nil` for `onOpenFileInNewTab` when the file is already shown as
-    /// a tab; the "Open in New Tab" item is then suppressed in the same way
-    /// it's suppressed for directories.
+    /// Pass `nil` for `onOpenFileInNewTab` when the file is already shown as a tab;
+    /// the "Open in New Tab" item is then suppressed, matching the directory behaviour.
     func fileContextMenu(
         fullPath: String?,
         directoryPath: String,
         isDirectory: Bool,
-        onOpenFileInNewTab: ((String) -> Void)? = nil
+        onOpenFileInNewTab: ((String) -> Void)? = nil,
+        onShowInFileExplorer: ((String) -> Void)? = nil
     ) -> some View {
-        let relativePath = fullPath.map { String($0.dropFirst(directoryPath.count + 1)) }
+        let relativePath = fullPath.flatMap {
+            $0.hasPrefix(directoryPath + "/")
+                ? String($0.dropFirst(directoryPath.count + 1))
+                : nil
+        }
 
         return contextMenu {
             if let fullPath {
@@ -28,6 +27,11 @@ extension View {
                 if !isDirectory, let onOpenFileInNewTab {
                     Button("Open in New Tab") {
                         onOpenFileInNewTab(fullPath)
+                    }
+                }
+                if !isDirectory, let onShowInFileExplorer {
+                    Button("Show in File Explorer") {
+                        onShowInFileExplorer(fullPath)
                     }
                 }
                 Button("Open in Finder") {
