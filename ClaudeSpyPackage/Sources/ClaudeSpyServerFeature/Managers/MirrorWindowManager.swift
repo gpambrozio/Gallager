@@ -152,6 +152,22 @@ final public class MirrorWindowManager {
     public func handleHookEvent(_ event: HookEvent) async {
         guard let paneId = event.tmuxPane else { return }
 
+        // A hook event that updates working/notification state wins over any
+        // CLI-driven override so subsequent hook activity is reflected. The
+        // sidebar aggregates state across every pane in the session, so clear
+        // the override on every sibling pane — not just the one this event
+        // targeted — otherwise the row keeps reading from a stale sibling.
+        if event.isWorking != nil || event.wouldTriggerNotification {
+            let sessionName = paneStates[paneId]?.sessionName
+            if let sessionName, !sessionName.isEmpty {
+                for (otherId, state) in paneStates where state.sessionName == sessionName {
+                    paneStates[otherId]?.cliSessionState = nil
+                }
+            } else {
+                paneStates[paneId]?.cliSessionState = nil
+            }
+        }
+
         // Track active session based on event type
         switch event.action {
         case let .sessionEnd(body):
@@ -159,6 +175,8 @@ final public class MirrorWindowManager {
             updateSession(paneId: paneId) { $0.addEvent(event) }
             paneStates[paneId]?.claudeSession = nil
             paneStates[paneId]?.yoloMode = false
+            // Drop the CLI override too — the session it was decorating is gone.
+            paneStates[paneId]?.cliSessionState = nil
 
             // Close the pane when Claude exits normally (user quit at prompt)
             if settings.closePaneOnSessionEnd && body.reason == .promptInputExit {
@@ -253,6 +271,25 @@ final public class MirrorWindowManager {
     public func markSessionHandled(paneId: String) {
         guard paneStates[paneId]?.claudeSession?.needsAttention == true else { return }
         paneStates[paneId]?.claudeSession?.markHandled()
+    }
+
+    // MARK: - CLI Session State Override
+
+    /// Sets the CLI-driven session state override for a pane. Pass `nil` to
+    /// clear the override and revert to whatever the underlying Claude session
+    /// (or absence of one) reports. No-op if the pane isn't tracked yet —
+    /// callers should refresh tmux state first so `sessionName` is populated;
+    /// otherwise the session-wide hook clearing in `handleHookEvent` can't
+    /// match siblings.
+    /// - Parameters:
+    ///   - state: The override to apply, or `nil` to clear.
+    ///   - paneId: The pane to apply the override to.
+    /// - Returns: `true` when an existing pane was updated.
+    @discardableResult
+    public func setCLISessionState(_ state: CLISessionState?, for paneId: String) -> Bool {
+        guard paneStates[paneId] != nil else { return false }
+        paneStates[paneId]?.cliSessionState = state
+        return true
     }
 
     // MARK: - Yolo Mode
