@@ -67,7 +67,7 @@ public struct MainView: View {
                 }
         }
         .navigationSplitViewStyle(.balanced)
-        .navigationTitle("Available Windows")
+        .navigationTitle(selectedSessionTitle ?? "Available Windows")
         .toolbar {
             toolbarContent
         }
@@ -291,6 +291,52 @@ public struct MainView: View {
                 localNewSessionPopover
             }
         }
+    }
+
+    /// Primary label for the currently selected session, used as the navigation title.
+    /// Returns nil when nothing is selected so the default fallback can be shown.
+    private var selectedSessionTitle: String? {
+        if let remote = selectedRemoteSession {
+            return remoteSessionPrimaryLabel(hostId: remote.hostId, sessionName: remote.sessionName)
+        }
+        if
+            let window = selectedWindow,
+            let session = tmuxService.sessions.first(where: { $0.windows.contains { $0.id == window.id } }) {
+            return localSessionSortData(session).primaryLabel
+        }
+        return nil
+    }
+
+    /// Computes the primary sidebar label for a remote session matching `RemoteHostSidebarSection.sortedSessions`.
+    private func remoteSessionPrimaryLabel(hostId: String, sessionName: String) -> String? {
+        guard let sessionStore = coordinator.remoteSessionStore else { return nil }
+        guard let session = sessionStore.sessions(for: hostId).first(where: { $0.sessionName == sessionName }) else {
+            return nil
+        }
+
+        let claudeSession = session.windows
+            .flatMap(\.panes)
+            .compactMap(\.claudeSession)
+            .first
+        let activePane = session.activeWindow?.activePane
+        let terminalTitle = session.windows
+            .flatMap(\.panes)
+            .compactMap(\.terminalTitle)
+            .first { !$0.isEmpty }
+
+        let fields = claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields
+
+        return SessionSortData.primaryLabel(
+            fields: fields,
+            customDescription: session.customDescription,
+            projectName: claudeSession?.displayName,
+            sessionName: session.sessionName,
+            terminalTitle: terminalTitle,
+            command: activePane?.command,
+            currentPath: activePane?.currentPath,
+            gitBranch: activePane?.gitBranch,
+            homeDirectory: sessionStore.homeDirectoryByHost[hostId]
+        )
     }
 
     private func localSessionSortData(_ session: LocalTmuxSession) -> SessionSortData {
