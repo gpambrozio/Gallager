@@ -27,7 +27,15 @@
         private var didReply = false
         private let logger = Logger(label: "com.claudespy.shutdown")
 
-        public init(shutdownTimeout: Duration = .seconds(3)) {
+        // `@NSApplicationDelegateAdaptor` instantiates via Objective-C `init()`,
+        // which doesn't see Swift default arguments — so we need an explicit
+        // zero-arg initializer.
+        public override init() {
+            self.shutdownTimeout = .seconds(3)
+            super.init()
+        }
+
+        public init(shutdownTimeout: Duration) {
             self.shutdownTimeout = shutdownTimeout
             super.init()
         }
