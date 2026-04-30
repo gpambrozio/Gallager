@@ -685,25 +685,24 @@ final public class TmuxService {
         // codes (remove cursor positioning that could interfere).
         //
         // Pad-to-width strategy: write each line's content, then explicit spaces
-        // up to the pane width, then reset SGR before the newline. This handles
-        // every case where `capture-pane` trims trailing styled cells:
+        // up to `width - 1` columns (one less than the pane width), then `\e[K`
+        // to clear the trailing cell with BCE, then reset SGR before `\r\n`.
+        // This preserves trimmed-capture styling on the padded cells (issue
+        // #411 bg bands, issue #352 underline / italic / fg-color bands) while
+        // leaving the cursor strictly inside the right margin — never in the
+        // xterm pending-wrap state.
         //
-        //   - bg-color band: padding spaces inherit the line's bg setter, so
-        //     a row captured as bare `\e[44m` (trailing spaces trimmed) renders
-        //     edge-to-edge blue (issue #411).
-        //   - underline / italic / fg-color band: same — the padding spaces
-        //     each carry the line's full SGR state, including attributes that
-        //     EL/ED can't paint via BCE (issue #352-style trims).
-        //   - normal content: padding fills with default-attribute spaces.
-        //
-        // EL (`\e[K`) and ED (`\e[J`) are BCE only — they paint cleared cells
-        // with the *current* bg, but cannot apply non-bg attributes. Writing
-        // real spaces under the active SGR is what preserves underline bands
-        // and other non-bg styling on trimmed rows.
-        //
-        // Resetting SGR before each `\r\n` (and before the trailing `\e[J`)
-        // is still load-bearing: without it, a bg/underline setter from row
-        // N leaks into subsequent rows that should be plain.
+        // Why one column short of `width`: padding to exactly `width` puts the
+        // cursor at column `width` (the pending-wrap position). If SwiftTerm's
+        // actual cols is even one less than `width` (resize-timing race during
+        // attach), the trailing pad space wraps into the next visual row
+        // BEFORE the `\r\n` advances the cursor a SECOND time — producing a
+        // blank row between every pair of content rows on the rebuilt screen
+        // (issue #429). Padding to `width - 1` keeps the cursor at the next-to-
+        // last column, where `\e[K` paints only the final cell with BCE; this
+        // costs styling preservation on a single edge cell of trimmed rows but
+        // never wraps under any plausible cols mismatch of one column.
+        let padTarget = max(0, width - 1)
         for index in 0..<linesToOutput {
             var visibleColumns = 0
             if index < visibleLines.count {
@@ -711,9 +710,10 @@ final public class TmuxService {
                 output += filtered
                 visibleColumns = countVisibleColumns(filtered)
             }
-            if visibleColumns < width {
-                output += String(repeating: " ", count: width - visibleColumns)
+            if visibleColumns < padTarget {
+                output += String(repeating: " ", count: padTarget - visibleColumns)
             }
+            output += "\u{1b}[K" // BCE-clear the trailing cell (preserves bg band)
             output += "\u{1b}[0m" // Reset before newline so SGR can't leak forward
             if index < linesToOutput - 1 {
                 output += "\r\n"

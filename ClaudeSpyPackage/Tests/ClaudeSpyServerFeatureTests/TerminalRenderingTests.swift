@@ -485,6 +485,13 @@
                 // padding the row with explicit spaces under the line's active
                 // SGR. Without padding (the prior `\e[K`-only fix), this row
                 // would render plain.
+                //
+                // Note: padding stops one column short of `width` to avoid
+                // pending-wrap issues that caused issue #429. The trailing
+                // edge cell (col `width - 1`) is BCE-cleared by `\e[K` and
+                // does not carry the underline attribute — an acceptable
+                // single-cell loss in exchange for robust rendering under
+                // any 1-column cols mismatch.
                 let visibleLines = [
                     "\u{1b}[4m", // trimmed underlined row — only the SGR setter remains
                     "\u{1b}[0m> Input",
@@ -503,15 +510,17 @@
                 let (terminal, _) = makeTerminal(cols: 80, rows: 10)
                 terminal.feed(byteArray: Array(data))
 
-                // Every cell on row 0 should carry the underline attribute,
-                // including cells the capture didn't enumerate explicitly.
+                // Every cell from col 0 up to col `width - 2` (= 78) on row 0
+                // should carry the underline attribute — including cells the
+                // capture didn't enumerate explicitly. Col 79 is the trailing
+                // BCE-cleared edge cell and is not asserted.
                 func underlined(col: Int) -> Bool {
                     guard let line = terminal.getLine(row: 0) else { return false }
                     return line[col].attribute.style.contains(.underline)
                 }
                 #expect(underlined(col: 0), "Row 0 col 0 must be underlined")
                 #expect(underlined(col: 40), "Row 0 col 40 must be underlined")
-                #expect(underlined(col: 79), "Row 0 col 79 must be underlined")
+                #expect(underlined(col: 78), "Row 0 col 78 must be underlined")
 
                 // Row 1 must not inherit the underline once `\e[0m` reset it.
                 guard let row1 = terminal.getLine(row: 1) else {
@@ -1880,5 +1889,79 @@
                 Issue.record("Terminal scrollback buffer is empty — LF scroll did not push content")
             }
         }
+
+        @Test("Issue #429 — pad-to-width must not cause double-spacing on cols mismatch")
+        @MainActor
+        func issue429NoBlankRowsOnColsMismatch() throws {
+            // Reproduces the symptom from issue #429: the visible-area rebuild
+            // pads each line to exactly `width` characters. If SwiftTerm's
+            // actual cols is even one column smaller than `width`, every line
+            // wraps into the next visual row, then the trailing `\r\n` advances
+            // the cursor a SECOND time — producing a blank row between every
+            // pair of content rows.
+            //
+            // This test simulates the cols mismatch by feeding the rebuild
+            // output (computed for width 80) into a SwiftTerm sized to 79 cols.
+            // Asserts that no blank rows appear between consecutive content
+            // rows in the rendered visible area.
+            let service = TmuxService()
+            let height = 24
+            let rebuildWidth = 80
+            let mirrorCols = rebuildWidth - 1 // 79
+
+            // Visible: paired log entries filling the pane.
+            var visibleLines: [String] = []
+            for i in 0..<height {
+                if i.isMultiple(of: 2) {
+                    visibleLines.append("[entry \(i)] Checking for work...")
+                } else {
+                    visibleLines.append("[entry \(i)] Nothing to do")
+                }
+            }
+
+            let data = service.processCapturePaneForStreaming(
+                scrollbackOutput: nil,
+                visibleOutput: visibleLines.joined(separator: "\n"),
+                cursorOutput: "0,\(height - 1),1",
+                width: rebuildWidth,
+                height: height
+            )
+            let str = try #require(String(data: data, encoding: .utf8))
+
+            let (terminal, _) = makeTerminal(cols: mirrorCols, rows: height)
+            terminal.feed(text: str)
+
+            // Walk every row in the buffer (visible + scrollback) and find
+            // blank rows interleaved between content rows.
+            var rowKinds: [(row: Int, isBlank: Bool, text: String)] = []
+            for row in -200..<200 {
+                guard let line = terminal.getScrollInvariantLine(row: row) else { continue }
+                var text = ""
+                for col in 0..<terminal.cols {
+                    text += String(line[col].getCharacter())
+                }
+                let cleaned = text.filter { $0 != "\0" }.trimmingCharacters(in: .whitespaces)
+                rowKinds.append((row: row, isBlank: cleaned.isEmpty, text: cleaned))
+            }
+
+            guard
+                let firstContent = rowKinds.firstIndex(where: { !$0.isBlank }),
+                let lastContent = rowKinds.lastIndex(where: { !$0.isBlank })
+            else {
+                Issue.record("No content rows found")
+                return
+            }
+
+            let blanksBetween = rowKinds[firstContent...lastContent].count(where: \.isBlank)
+            if blanksBetween > 0 {
+                let excerpt = rowKinds[firstContent...lastContent]
+                    .prefix(15)
+                    .map { "row \($0.row): " + ($0.isBlank ? "<BLANK>" : "'\($0.text)'") }
+                    .joined(separator: "\n")
+                Issue.record("Found \(blanksBetween) blank rows between content rows on cols mismatch (rebuild=\(rebuildWidth), term=\(mirrorCols)). First 15 rows:\n\(excerpt)")
+            }
+            #expect(blanksBetween == 0, "Expected no blank rows between content rows even when SwiftTerm cols (\(mirrorCols)) < rebuild width (\(rebuildWidth)), got \(blanksBetween) blank rows")
+        }
     }
+
 #endif
