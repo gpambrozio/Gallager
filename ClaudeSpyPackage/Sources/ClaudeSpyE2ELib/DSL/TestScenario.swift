@@ -102,6 +102,9 @@ public enum TestStep: Sendable {
     case macCloseWindow(titled: String, instance: Int = 0)
     /// Wait for a macOS window
     case macWaitForWindow(titled: String, timeout: TimeInterval = 5, instance: Int = 0)
+    /// Wait for any top-level macOS window whose title equals the given string exactly.
+    /// Use when asserting on `navigationTitle` to avoid substring collisions.
+    case macAssertWindowTitle(equals: String, timeout: TimeInterval = 5, instance: Int = 0)
     /// Select a Settings tab
     case macSelectSettingsTab(String, instance: Int = 0)
     /// Click a button by title

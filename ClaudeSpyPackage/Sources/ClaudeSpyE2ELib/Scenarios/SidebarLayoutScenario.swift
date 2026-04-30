@@ -130,6 +130,14 @@ public enum SidebarLayoutScenario {
 
         TestStep.macScreenshot(label: "default-layout")
 
+        // Select alpha-project so the navigation title binds to its primary label.
+        // With default fields (Custom Description, Project Name, ...) and no
+        // custom description set, the first non-empty field is Project Name —
+        // so the window title should become "AlphaProject".
+        TestStep.macCGClick(titled: "AlphaProject")
+        TestStep.wait(seconds: 1)
+        TestStep.macAssertWindowTitle(equals: "AlphaProject", timeout: 5)
+
         // ── Phase 2: Change fields to show Session Name + Command ─
 
         TestStep.log("Phase 2: Change fields to Session Name + Command only")
@@ -186,6 +194,11 @@ public enum SidebarLayoutScenario {
         TestStep.macWaitForElement(titled: "gamma-project", timeout: 5)
         TestStep.macWaitForElement(titled: "delta-terminal", timeout: 5)
 
+        // The alpha session selected in Phase 1 is still selected; with the new
+        // field config (Tmux Session Name + Command) the navigation title should
+        // live-update from "AlphaProject" to "alpha-project".
+        TestStep.macAssertWindowTitle(equals: "alpha-project", timeout: 5)
+
         TestStep.macScreenshot(label: "layout-session-command")
 
         // ── Phase 3: Restore to Project Name + Session Name ──────
@@ -233,6 +246,9 @@ public enum SidebarLayoutScenario {
         TestStep.macWaitForElement(titled: "AlphaProject", timeout: 5)
         TestStep.macWaitForElement(titled: "BetaProject", timeout: 5)
         TestStep.macWaitForElement(titled: "GammaProject", timeout: 5)
+
+        // Title flips back to "AlphaProject" with Project Name first again.
+        TestStep.macAssertWindowTitle(equals: "AlphaProject", timeout: 5)
 
         TestStep.macScreenshot(label: "layout-project-session")
 

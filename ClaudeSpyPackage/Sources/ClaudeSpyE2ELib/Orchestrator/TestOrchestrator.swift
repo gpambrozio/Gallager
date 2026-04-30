@@ -499,6 +499,9 @@ public actor TestOrchestrator {
         case let .macWaitForWindow(titled, timeout, instance):
             try await macDriver(for: instance).waitForWindow(titled: titled, timeout: timeout)
 
+        case let .macAssertWindowTitle(equals, timeout, instance):
+            try await macDriver(for: instance).waitForWindowTitle(equals: equals, timeout: timeout)
+
         case let .macSelectSettingsTab(tab, instance):
             try await macDriver(for: instance).selectSettingsTab(tab)
 
