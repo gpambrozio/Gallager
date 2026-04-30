@@ -1338,6 +1338,7 @@ public struct MainView: View {
     private func closeOpenFileTab(_ tabId: UUID, sessionName: String) {
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
         tabs.openFileTabs.removeAll { $0.id == tabId }
+        tabs.scrollOffsets.removeValue(forKey: tabId)
         if tabs.selectedFileTabId == tabId {
             tabs.selectedFileTabId = nil
         }

@@ -2,7 +2,7 @@ import Foundation
 
 /// E2E scenario: File Browser
 ///
-/// Exercises all file browser features added in issue #257, #289, and #398:
+/// Exercises all file browser features added in issue #257, #289, #398, and #429:
 /// 1. Tab activation/deactivation and initial empty state
 /// 2. Text, markdown, HTML, image, PDF, video, and unsupported file viewers
 /// 3. Lazy-loading folder expansion at multiple depth levels
@@ -22,6 +22,8 @@ import Foundation
 ///     through the clipboard prove the shared menu component is wired up.
 /// 12. "Show in File Explorer" on a file tab routes the user back to the tree,
 ///     auto-expanding any collapsed ancestor folders and selecting the file.
+/// 13. A long file's scroll position is preserved when switching to another
+///     window or session and returning (issue #429).
 ///
 /// Regression guards:
 /// - Nested NavigationSplitView layout gap (ee55599)
@@ -488,6 +490,72 @@ public enum FileBrowserScenario {
         TestStep.macClickButton(titled: "Close file tab: hello.txt")
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "File tab: hello.txt", timeout: 5)
+
+        // ── Phase 27: Scroll position persists across tab and session switches ─
+        //
+        // Regression guard for issue #429: opening a long file in a tab,
+        // scrolling down, then switching to another tmux window or session
+        // and returning used to drop the user back to the top of the file.
+        // The tab now stores its scroll offset on `SessionFileTabsState`,
+        // so the saved position must be restored on re-mount in both cases.
+        //
+        // The "BOTTOM MARKER" string is what we assert against — `long.md`
+        // is laid out so that string only appears in the screenshot when
+        // the scroll position has been preserved at the bottom of the file.
+        TestStep.log("Phase 27: Scroll position preserved across tab/session switch")
+
+        // Open `long.md` from the file browser tree as its own tab.
+        TestStep.macClickButton(titled: "Files")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElement(titled: "long.md", timeout: 5)
+        TestStep.macContextMenuClick(elementTitle: "long.md", menuItem: "Open in New Tab")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "File tab: long.md", timeout: 5)
+        // Initial render — scrolled to the very top, BOTTOM MARKER is offscreen.
+        TestStep.macWaitForElementQuery(.anyTextMatches("Scroll Preservation Test"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-scroll-preserve-top")
+
+        // Scroll down enough to reach the bottom of the file. Using a
+        // CGEvent scroll wheel (negative deltaY = down) at the window
+        // centre, which lands inside the markdown viewer.
+        TestStep.macScrollWheel(deltaY: -10, count: 40)
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementQuery(.anyTextMatches("BOTTOM MARKER"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-scroll-preserve-bottom-initial")
+
+        // Switch to the terminal window tab, then back to the file tab.
+        // The bottom of the file must still be on screen.
+        TestStep.macClickButton(titled: "filebrowse:0")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "File tab: long.md")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElementQuery(.anyTextMatches("BOTTOM MARKER"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-scroll-preserve-after-tab-switch")
+
+        // Create a second tmux session, switch to it, then back to the
+        // original session. The file tab must still be scrolled to the
+        // bottom — `SessionFileTabsState` is keyed by session, so the
+        // scroll offset survives the round-trip.
+        TestStep.tmuxCreateSession(name: "scrollalt", width: 160, height: 50)
+        Shortcut.tmuxRunCommand(target: "scrollalt:0.0", command: "echo '=== ALT SESSION ==='")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "scrollalt", timeout: 5)
+        TestStep.macClickButton(titled: "scrollalt")
+        TestStep.wait(seconds: 2)
+        // Return to the original session and re-select the long.md tab.
+        TestStep.macClickButton(titled: "filebrowse")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "File tab: long.md")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElementQuery(.anyTextMatches("BOTTOM MARKER"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-scroll-preserve-after-session-switch")
+
+        // Clean up: close the long.md tab and the second session.
+        TestStep.macClickButton(titled: "Close file tab: long.md")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementToDisappear(titled: "File tab: long.md", timeout: 5)
+        Shortcut.tmuxRunCommand(target: "scrollalt:0.0", command: "exit")
+        TestStep.wait(seconds: 2)
 
         // Tear down both windows.
         Shortcut.tmuxRunCommand(target: "filebrowse:1.0", command: "exit")

@@ -184,6 +184,12 @@ struct TmuxPaneMirrorApp: App {
                     "settings.json": .file(.text("{ \"model\": \"opus\" }\n")),
                 ])
                 fakeTree[".DS_Store"] = .file(.unsupported())
+                // Long markdown file used by the scroll-preservation phase to
+                // verify that the user's scroll position is restored after
+                // tab/session switches. Numbered lines make it visually
+                // obvious in the screenshot which part of the file is on
+                // screen at any moment.
+                fakeTree["long.md"] = .file(.markdown(longMarkdownContent))
                 // Pending file: hangs on first load, succeeds on second.
                 // Dynamic entries appear in the tree after the pending file loads.
                 fakeTree["loading.txt"] = .file(.pendingText("This file loaded successfully!\n"))
@@ -439,6 +445,25 @@ struct TmuxPaneMirrorApp: App {
         showingLaunchAtLoginPrompt = true
     }
 }
+
+/// Long markdown content for the file browser's scroll-preservation E2E phase.
+/// Numbered lines and a "BOTTOM" marker make it easy to see in screenshots
+/// which part of the file is on screen.
+private let longMarkdownContent: String = {
+    var lines: [String] = ["# Scroll Preservation Test", ""]
+    lines.append("This file is intentionally tall so the file viewer must")
+    lines.append("scroll. The numbered lines below make the visible region")
+    lines.append("recognisable in screenshot baselines.")
+    lines.append("")
+    for index in 1 ... 120 {
+        lines.append("Line \(index): The quick brown fox jumps over the lazy dog.")
+    }
+    lines.append("")
+    lines.append("## BOTTOM MARKER")
+    lines.append("")
+    lines.append("If you can read this line, you are at the bottom of the file.")
+    return lines.joined(separator: "\n")
+}()
 
 /// Menu item that opens the custom About window.
 ///
