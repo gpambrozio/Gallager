@@ -15,6 +15,9 @@ Issue: #343
 - Notification command (desktop notification via TerminalNotificationService)
 - Editor command (absorbs GallagerEditor binary)
 - Utility commands (ping, capabilities, identify)
+- Session-state override (`session-state` — flips the sidebar indicator between
+  working/idle/waiting/clear; cleared automatically when a hook event updates
+  the underlying session)
 
 ### Excluded (sidebar metadata — deferred)
 - Status pills, progress bars, log entries
@@ -136,6 +139,9 @@ Newline-delimited JSON over Unix domain socket (`AF_UNIX, SOCK_STREAM`). Each me
 | `session.select` | `gallager select-session <id>` | `{ session_id: string }` | `{ ok: true }` |
 | `session.current` | `gallager current-session` | — | `SessionInfo` |
 | `session.close` | `gallager close-session <id>` | `{ session_id: string }` | `{ ok: true }` |
+| `session.set_state` | `gallager session-state <state>` | `{ state: "working"\|"idle"\|"waiting"\|"clear", pane_id?: string, session_id?: string }` | `{ applied_to: int }` |
+
+`session.set_state` writes a CLI override onto a pane's `PaneState`. With no `pane_id`/`session_id` it targets the active pane. The override stays in place until cleared explicitly (`clear`) or until a Claude hook event for the same pane updates working/notification state.
 
 ### Window Commands
 

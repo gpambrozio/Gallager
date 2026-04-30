@@ -100,7 +100,7 @@ public enum VersionMismatchOldMacHostScenario {
         )
         TestStep.macWaitForElement(titled: "No active sessions", timeout: 20, instance: 1)
         TestStep.macWaitForElementToDisappear(titled: "out of date", timeout: 20)
-        TestStep.macWaitForElement(titled: "Connected", timeout: 20)
+        TestStep.macWaitForElement(titled: "Viewer connected", timeout: 20)
         TestStep.macScreenshot(label: "host-after-upgrade", tolerance: 5)
         TestStep.macScreenshot(label: "viewer-sidebar-reconnected", tolerance: 5, instance: 1)
     }

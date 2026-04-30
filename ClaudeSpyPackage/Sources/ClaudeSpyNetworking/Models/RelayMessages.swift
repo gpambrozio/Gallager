@@ -135,6 +135,13 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// Whether yolo mode is enabled (auto-approve permissions)
     public var yoloMode: Bool
 
+    // MARK: - CLI Session State Override
+
+    /// Pane state set via the gallager CLI's `session-state` command.
+    /// Overrides the indicator shown in the sidebar until cleared, either
+    /// explicitly or by a hook event that updates the underlying session.
+    public var cliSessionState: CLISessionState?
+
     // MARK: - Editor Session
 
     /// Active prompt editor session (Ctrl-G), if any
@@ -170,6 +177,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         gitBranch: String? = nil,
         claudeSession: ClaudeSession? = nil,
         yoloMode: Bool = false,
+        cliSessionState: CLISessionState? = nil,
         editorSession: EditorSessionInfo? = nil
     ) {
         self.paneId = paneId
@@ -190,6 +198,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         self.gitBranch = gitBranch
         self.claudeSession = claudeSession
         self.yoloMode = yoloMode
+        self.cliSessionState = cliSessionState
         self.editorSession = editorSession
     }
 }

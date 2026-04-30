@@ -20,6 +20,18 @@ public actor SimulatorDriver {
 
     public init() { }
 
+    /// Whether `boot()` has assigned a UDID to this driver.
+    ///
+    /// This is a *driver-state* check, not a liveness check — the simulator
+    /// could have been shut down externally or crashed since boot, and this
+    /// would still return true. It exists so the orchestrator can avoid
+    /// attempting a failure screenshot before the sim has been booted at all;
+    /// genuine liveness is delegated to the downstream `screenshot()` call,
+    /// which throws if the sim is no longer reachable.
+    public var isBooted: Bool {
+        udid != nil
+    }
+
     // MARK: - Simulator Lifecycle
 
     /// Boot a simulator by name, returning its UDID
@@ -454,7 +466,8 @@ public actor SimulatorDriver {
         )
         if !success {
             throw SimulatorDriverError.configurationError(
-                "iOS reconnect endpoint returned failure")
+                "iOS reconnect endpoint returned failure"
+            )
         }
     }
 

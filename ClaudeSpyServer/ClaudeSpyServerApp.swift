@@ -13,6 +13,7 @@ struct TmuxPaneMirrorApp: App {
     @State private var showingPluginSetup = false
     @State private var showingLaunchAtLoginPrompt = false
     @State private var updaterController: UpdaterController
+    @NSApplicationDelegateAdaptor private var shutdownDelegate: AppShutdownDelegate
 
     init() {
         let isE2E = CommandLine.arguments.contains("--e2e-test")
@@ -230,7 +231,15 @@ struct TmuxPaneMirrorApp: App {
             #endif
         }
 
-        _coordinator = State(initialValue: AppCoordinator())
+        let coord = AppCoordinator()
+        _coordinator = State(initialValue: coord)
+        // Wire cleanup before any delegate calls can fire. applicationShouldTerminate
+        // returns .terminateNow when onShouldTerminate is nil; setting it here (in
+        // @MainActor init) ensures it is never nil when the delegate is invoked —
+        // SwiftUI can call NSApp.terminate during scene setup on .regular-policy apps.
+        shutdownDelegate.onShouldTerminate = {
+            await coord.shutdown()
+        }
     }
 
     var body: some Scene {

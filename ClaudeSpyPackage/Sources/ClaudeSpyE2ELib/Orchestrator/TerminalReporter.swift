@@ -74,7 +74,12 @@ final public class TerminalReporter: TestProgressReporter, @unchecked Sendable {
         }
     }
 
-    public func stepFailed(_ stepNumber: Int, error: String, screenshot: TestOrchestrator.ScreenshotResult?) async {
+    public func stepFailed(
+        _ stepNumber: Int,
+        error: String,
+        screenshot: TestOrchestrator.ScreenshotResult?,
+        failureScreenshots: [TestOrchestrator.FailureScreenshot]
+    ) async {
         clearCurrentLine()
         if let ss = screenshot {
             writeScreenshotResult(ss)
@@ -84,6 +89,12 @@ final public class TerminalReporter: TestProgressReporter, @unchecked Sendable {
         writeln("\(marker) \(stepInfo)")
         let errorText = styled("       \(error)", .red)
         writeln(errorText)
+        for capture in failureScreenshots {
+            let camera = styled("  [failure screenshot]", .dim)
+            let target = styled(capture.target, .yellow)
+            let path = styled(capture.path, .dim)
+            writeln("\(camera) \(target): \(path)")
+        }
     }
 
     public func scenarioCompleted(_ result: TestOrchestrator.ScenarioResult) async {
