@@ -103,7 +103,13 @@ public enum TerminalLinksScenario {
         // overlay should change. iOS first, since it currently has focus.
         TestStep.iosScreenshot(label: "ios-terminal-links-mouse-mode", compare: false)
 
-        Shortcut.openPanesWindow()
+        // Refocus the macOS Panes window. The "links-test" session is still
+        // selected from earlier, so the window title now reflects its primary
+        // sidebar label ("~" — the abbreviated home directory) rather than
+        // the default "Gallager" fallback.
+        TestStep.macOpenPanesWindow()
+        TestStep.macWaitForWindow(titled: "~", timeout: 5)
+        TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "links-test")
         TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "mac-terminal-links-mouse-mode", compare: false)

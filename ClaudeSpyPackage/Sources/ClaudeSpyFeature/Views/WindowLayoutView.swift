@@ -77,21 +77,9 @@
             return sessionWindows.first(where: \.isWindowActive) ?? sessionWindows.first
         }
 
-        /// Navigation title using the same priority order as `SessionRowView`/`TerminalRowView`:
-        /// custom description, then Claude project name, then current folder name,
-        /// then any detected terminal title, then the tmux session name.
-        /// Note: OSC titles come from locally-captured `terminalTitles` (real-time), not relay-provided pane state.
+        /// Navigation title: prefer custom description, then active pane's terminal title, then session name
         private var navigationTitle: String {
             if let desc = window?.customDescription { return desc }
-            // Claude project name (matches `SessionRowView` headline for Claude sessions)
-            if let projectName = window?.panes.compactMap({ $0.claudeSession?.displayName }).first {
-                return projectName
-            }
-            // Current working directory's folder name (matches `TerminalRowView` headline for plain terminals)
-            if
-                let path = window?.activePane?.currentPath, !path.isEmpty {
-                return URL(fileURLWithPath: path).lastPathComponent
-            }
             // Use the locally-captured OSC title first (updates in real-time)
             if let activeId = activePaneId, let title = terminalTitles[activeId] { return title }
             // For single-pane windows, use that pane's title even if not "active" yet
