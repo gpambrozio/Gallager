@@ -497,6 +497,16 @@ When a comparison fails, a diff image is saved alongside the baseline with a `_d
 ClaudeSpyE2E --baselines-dir /path/to/baselines ...
 ```
 
+## Failure screenshots
+
+When a step fails for a reason other than a screenshot comparison (e.g. an element never appears, an assertion fails, an HTTP request errors out), the orchestrator captures a diagnostic screenshot of the running platform(s) so the report shows the UI state at the moment of failure.
+
+- **iOS-targeted steps** (`iosTap`, `iosWaitForElement`, ...) capture the iOS simulator only.
+- **macOS-targeted steps** (`macClickButton`, `macWaitForWindow`, ...) capture the targeted instance only.
+- **Universal steps** (assertions, server, tmux, generic helpers) capture the iOS simulator and every running macOS instance — whichever component caused the failure is included.
+
+Captures are best-effort: if a platform isn't running, or the screenshot itself fails, the orchestrator logs a warning and continues so the original failure is still surfaced. The PNGs are saved alongside scenario screenshots as `failure-step-NN-<target>.png` and uploaded to the results repository's content-addressable image store.
+
 ## Test report generation
 
 The `e2e-report.sh` script runs all E2E scenarios, collects results and screenshots, and publishes a report to the [ClaudeSpyTestResults](https://github.com/gpambrozio/ClaudeSpyTestResults) repository.
@@ -553,7 +563,7 @@ ClaudeSpyTestResults/
 
 Each `report.json` contains:
 - **metadata** — branch, commit, commit message, PR number/URL, timestamp
-- **scenarios** — array of scenario results, each with steps that include screenshot hashes (`imageHash`, `baselineHash`, `diffHash`), pass/fail status, and diff percentages
+- **scenarios** — array of scenario results, each with steps that include screenshot hashes (`imageHash`, `baselineHash`, `diffHash`), pass/fail status, and diff percentages. Failed non-comparison steps additionally include `failureScreenshots`: an array of `{ target, imageHash }` entries for each captured platform.
 
 ### Viewing results
 
