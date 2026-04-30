@@ -281,6 +281,9 @@ struct FileBrowserView: View {
             let shouldBeDeleted = !existingPaths.contains(tab.path)
             if tab.isDeleted != shouldBeDeleted {
                 sessionTabs.openFileTabs[index].isDeleted = shouldBeDeleted
+                if shouldBeDeleted {
+                    sessionTabs.scrollOffsets.removeValue(forKey: tab.id)
+                }
             }
         }
     }
@@ -846,10 +849,13 @@ private struct MarkdownContentView: View {
                 // scrolled file, then settle on the saved offset.
                 let target = scrollY.wrappedValue
                 try? await Task.sleep(for: .milliseconds(100))
+                guard !Task.isCancelled else { return }
                 scrollPosition.scrollTo(y: target + 4)
                 try? await Task.sleep(for: .milliseconds(50))
+                guard !Task.isCancelled else { return }
                 scrollPosition.scrollTo(y: target)
                 try? await Task.sleep(for: .milliseconds(50))
+                guard !Task.isCancelled else { return }
                 isTrackingUserScroll = true
             }
         }
@@ -905,7 +911,7 @@ private struct ScrollPreservingTextView: NSViewRepresentable {
         // size; doing this synchronously in makeNSView would clamp to 0
         // because the text view hasn't measured itself yet.
         let initialOffset = scrollY.wrappedValue
-        DispatchQueue.main.async {
+        Task { @MainActor in
             coordinator.applyOffset(initialOffset, on: scrollView)
         }
 
