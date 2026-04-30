@@ -341,6 +341,26 @@ public enum FileBrowserScenario {
         // file browser so we can right-click helper.swift in the tree.
         TestStep.macClickButton(titled: "Files")
         TestStep.wait(seconds: 1)
+
+        // Collapse the `docs` folder before reaching for helper.swift. With
+        // the long.md/long.txt fixtures added for issue #429, the tree now
+        // has 19 rows when src+utils+docs are all expanded — one more than
+        // the viewport — so helper.swift's AX element ends up just past the
+        // bottom edge. `waitForElement` finds it, but `rightClick` posts a
+        // CGEvent at its off-screen centre and misses. Closing `docs`
+        // reclaims the `guide.md` row so helper.swift fits on screen.
+        //
+        // Selecting photo.png first moves the right-pane file path header
+        // away from `ci/docs/guide.md`. Otherwise the next macClickButton
+        // would match the "docs" substring inside the header value and
+        // never reach the disclosure caret on the folder row. We avoid
+        // hello.txt and README.md here because they are also currently
+        // open as file tabs and the tab labels also contain those names.
+        TestStep.macCGClick(titled: "photo.png")
+        TestStep.wait(seconds: 1)
+        TestStep.macClickButton(titled: "docs")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementToDisappear(titled: "guide.md", timeout: 3)
         TestStep.macWaitForElement(titled: "helper.swift", timeout: 5)
 
         // Open src/utils/helper.swift in a new tab.
