@@ -50,6 +50,8 @@ public extension TestStep {
             return .macOS(instance: instance)
         case let .macWaitForWindow(_, _, instance):
             return .macOS(instance: instance)
+        case let .macAssertWindowTitle(_, _, instance):
+            return .macOS(instance: instance)
         case let .macSelectSettingsTab(_, instance):
             return .macOS(instance: instance)
         case let .macClickButton(_, instance):

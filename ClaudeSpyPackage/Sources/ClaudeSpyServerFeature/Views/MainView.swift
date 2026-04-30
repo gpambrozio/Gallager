@@ -67,7 +67,7 @@ public struct MainView: View {
                 }
         }
         .navigationSplitViewStyle(.balanced)
-        .navigationTitle("Available Windows")
+        .navigationTitle(selectedSessionTitle ?? "Gallager")
         .toolbar {
             toolbarContent
         }
@@ -293,6 +293,35 @@ public struct MainView: View {
         }
     }
 
+    /// Primary label for the currently selected session, used as the navigation title.
+    /// Returns nil when nothing is selected so the default fallback can be shown.
+    private var selectedSessionTitle: String? {
+        if let remote = selectedRemoteSession {
+            return remoteSessionPrimaryLabel(hostId: remote.hostId, sessionName: remote.sessionName)
+        }
+        if
+            let window = selectedWindow,
+            let session = tmuxService.sessions.first(where: { $0.windows.contains { $0.id == window.id } }) {
+            return localSessionSortData(session).primaryLabel
+        }
+        return nil
+    }
+
+    /// Computes the primary sidebar label for a remote session using the same logic as `RemoteHostSidebarSection.sortedSessions`.
+    private func remoteSessionPrimaryLabel(hostId: String, sessionName: String) -> String? {
+        guard let sessionStore = coordinator.remoteSessionStore else { return nil }
+        guard let session = sessionStore.sessions(for: hostId).first(where: { $0.sessionName == sessionName }) else {
+            return nil
+        }
+        return SessionSortData.forRemoteSession(
+            session,
+            sidebarFields: settings.sidebarFields,
+            sidebarTerminalFields: settings.sidebarTerminalFields,
+            homeDirectory: sessionStore.homeDirectoryByHost[hostId]
+        ).primaryLabel
+    }
+
+    /// Scans the full session (all windows) to match the session-level sidebar row — not the selected window.
     private func localSessionSortData(_ session: LocalTmuxSession) -> SessionSortData {
         let claudeSession: ClaudeSession? = session.windows.lazy
             .flatMap(\.panes)
@@ -2387,39 +2416,11 @@ private struct RemoteHostSidebarSection: View {
 
     private var sortedSessions: [TmuxSession] {
         settings.sidebarSortMode.sorted(tmuxSessions) { session in
-            let claudeSession = session.windows
-                .flatMap(\.panes)
-                .compactMap(\.claudeSession)
-                .first
-            let activePane = session.activeWindow?.activePane
-
-            // Scan all windows for terminal title (matches RemoteSessionSidebarRow)
-            let terminalTitle = session.windows
-                .flatMap(\.panes)
-                .compactMap(\.terminalTitle)
-                .first { !$0.isEmpty }
-
-            let fields = claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields
-
-            let primaryLabel = SessionSortData.primaryLabel(
-                fields: fields,
-                customDescription: session.customDescription,
-                projectName: claudeSession?.displayName,
-                sessionName: session.sessionName,
-                terminalTitle: terminalTitle,
-                command: activePane?.command,
-                currentPath: activePane?.currentPath,
-                gitBranch: activePane?.gitBranch,
+            SessionSortData.forRemoteSession(
+                session,
+                sidebarFields: settings.sidebarFields,
+                sidebarTerminalFields: settings.sidebarTerminalFields,
                 homeDirectory: sessionStore.homeDirectoryByHost[host.id]
-            )
-
-            return SessionSortData(
-                sessionName: session.sessionName,
-                primaryLabel: primaryLabel,
-                hasClaude: claudeSession != nil,
-                statusPriority: SessionSortData.statusPriority(for: claudeSession),
-                statusPriorityIdleFirst: SessionSortData.statusPriorityIdleFirst(for: claudeSession),
-                latestEventTimestamp: claudeSession?.latestEvent?.timestamp
             )
         }
     }

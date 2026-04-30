@@ -38,7 +38,7 @@ public enum YoloModeAutoApproveScenario {
 
         // Verify macOS also reflects yolo mode enabled
         TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
+        TestStep.macWaitForWindow(titled: "Gallager", timeout: 5)
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "session-1")
         TestStep.wait(seconds: 1)

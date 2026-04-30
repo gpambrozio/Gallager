@@ -29,7 +29,7 @@ public enum YoloModeStateSyncScenario {
 
         // 6. Open the macOS Panes window and select the session pane
         TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
+        TestStep.macWaitForWindow(titled: "Gallager", timeout: 5)
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "session-1")
         TestStep.wait(seconds: 1)

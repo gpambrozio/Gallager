@@ -84,6 +84,18 @@ enum MacOSAccessibility {
         windows(appPID: appPID).contains { $0.title.contains(titled) }
     }
 
+    /// Check if any top-level window has a title that matches exactly.
+    /// Used to assert on `navigationTitle` precisely (no substring collisions
+    /// with other windows or in-window text).
+    static func windowExists(appPID: pid_t, titledExactly title: String) -> Bool {
+        windows(appPID: appPID).contains { $0.title == title }
+    }
+
+    /// Returns the titles of all top-level windows. Useful for diagnostics.
+    static func windowTitles(appPID: pid_t) -> [String] {
+        windows(appPID: appPID).map(\.title)
+    }
+
     /// Close a window by title via its AXCloseButton attribute.
     @discardableResult
     static func closeWindow(appPID: pid_t, titled: String) -> Bool {

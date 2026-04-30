@@ -12,14 +12,6 @@ struct MirrorWindowView: View {
     @State private var streamState: StreamState = .disconnected
     @State private var streamWidth: Int?
     @State private var streamHeight: Int?
-    @State private var terminalTitle: String?
-
-    private var windowTitle: String {
-        if let terminalTitle, !terminalTitle.isEmpty {
-            return terminalTitle
-        }
-        return "Mirror: \(paneState.paneId) (\(paneState.target))"
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,7 +23,6 @@ struct MirrorWindowView: View {
                     streamHeight = height
                 },
                 onTitleChange: { title in
-                    terminalTitle = title
                     windowManager.updateTerminalTitle(paneId: paneState.paneId, title: title)
                 }
             )
@@ -42,13 +33,6 @@ struct MirrorWindowView: View {
 
             if settings.showStatusBar {
                 statusBar
-            }
-        }
-        .navigationTitle(windowTitle)
-        .onAppear {
-            // Restore previously detected title when view is recreated (e.g., switching panes in sidebar)
-            if terminalTitle == nil, let savedTitle = windowManager.paneStates[paneState.paneId]?.terminalTitle {
-                terminalTitle = savedTitle
             }
         }
     }

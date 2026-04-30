@@ -136,6 +136,19 @@ public actor MacOSDriver {
         }
     }
 
+    /// Wait for a top-level window whose title equals `title` exactly.
+    /// Asserts on `navigationTitle` without substring ambiguity.
+    public func waitForWindowTitle(equals title: String, timeout: TimeInterval = 5) async throws {
+        let pid = try requirePID()
+        try await Polling.waitUntil(
+            description: "window with title equal to \"\(title)\"",
+            timeout: timeout,
+            pollInterval: 0.5
+        ) {
+            MacOSAccessibility.windowExists(appPID: pid, titledExactly: title)
+        }
+    }
+
     /// Select a tab in the Settings window by clicking it via AX.
     public func selectSettingsTab(_ tabName: String) async throws {
         let pid = try requirePID()
