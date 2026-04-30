@@ -22,17 +22,29 @@ private let skippedNavigatorEntries: Set = [
 /// `directoryPath` is the file-browser root that originated the tab; the path
 /// header renders relative to this so the displayed path stays stable when the
 /// user switches to a sibling tmux window with a different cwd.
+///
+/// `originWindowId` is the tmux window that initiated the tab open via a
+/// terminal click. When set, closing the tab returns the user to that
+/// terminal instead of falling back to the file browser tree.
 struct OpenFileTab: Identifiable, Equatable {
     let id: UUID
     let path: String
     let directoryPath: String
     var isDeleted: Bool
+    var originWindowId: String?
 
-    init(id: UUID = UUID(), path: String, directoryPath: String, isDeleted: Bool = false) {
+    init(
+        id: UUID = UUID(),
+        path: String,
+        directoryPath: String,
+        isDeleted: Bool = false,
+        originWindowId: String? = nil
+    ) {
         self.id = id
         self.path = path
         self.directoryPath = directoryPath
         self.isDeleted = isDeleted
+        self.originWindowId = originWindowId
     }
 
     var name: String {
