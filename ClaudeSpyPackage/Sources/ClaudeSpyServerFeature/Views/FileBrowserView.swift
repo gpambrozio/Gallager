@@ -797,11 +797,12 @@ private struct AVPlayerViewRepresentable: NSViewRepresentable {
 /// Workaround for https://github.com/gonzalezreal/textual/issues/49: Textual's selection
 /// overlay uses preference-driven geometry that isn't coherent on first layout inside a
 /// SwiftUI `ScrollView`, so selection only becomes live after the user manually scrolls.
-/// The `.task` nudges the scroll offset by 4 points and back to reproduce that manual
-/// scroll, and the `minHeight` pegged to the container guarantees the content is always
-/// taller than the viewport so the nudge actually moves the offset — even for markdown
-/// short enough to fit without scrolling. Remove this nudge once the upstream issue is
-/// fixed.
+/// The `.task` reproduces that scroll: when restoring to a non-zero saved offset, the
+/// scroll-to-target itself is enough; when the target is zero, we nudge to 4 and back
+/// so the offset actually moves. The `minHeight` pegged to the container guarantees the
+/// content is always taller than the viewport so the zero-target nudge has somewhere to
+/// go — even for markdown short enough to fit without scrolling. Remove this dance once
+/// the upstream issue is fixed.
 ///
 /// `savedScrollY` is an optional binding owned by an open file tab. When set, the view
 /// restores its scroll position from the binding on first appearance and updates it on
@@ -844,16 +845,20 @@ private struct MarkdownContentView: View {
             .textual.textSelection(.enabled)
             .task(id: text) {
                 // Capture the saved offset before the initial layout fires
-                // any scroll notifications. Nudge near that offset so the
-                // visible jump is small even for users returning to a deeply
-                // scrolled file, then settle on the saved offset.
+                // any scroll notifications. For a non-zero target, the
+                // scroll itself activates the Textual selection overlay; for
+                // a zero target we nudge to 4 first, then settle on 0.
                 let target = scrollY.wrappedValue
                 try? await Task.sleep(for: .milliseconds(100))
                 guard !Task.isCancelled else { return }
-                scrollPosition.scrollTo(y: target + 4)
-                try? await Task.sleep(for: .milliseconds(50))
-                guard !Task.isCancelled else { return }
-                scrollPosition.scrollTo(y: target)
+                if target == 0 {
+                    scrollPosition.scrollTo(y: 4)
+                    try? await Task.sleep(for: .milliseconds(50))
+                    guard !Task.isCancelled else { return }
+                    scrollPosition.scrollTo(y: 0)
+                } else {
+                    scrollPosition.scrollTo(y: target)
+                }
                 try? await Task.sleep(for: .milliseconds(50))
                 guard !Task.isCancelled else { return }
                 isTrackingUserScroll = true
