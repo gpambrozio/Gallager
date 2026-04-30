@@ -190,6 +190,11 @@ struct TmuxPaneMirrorApp: App {
                 // obvious in the screenshot which part of the file is on
                 // screen at any moment.
                 fakeTree["long.md"] = .file(.markdown(longMarkdownContent))
+                // Long plain-text file used by the scroll-preservation phase
+                // to verify that the text viewer (a separate SwiftUI
+                // implementation from the markdown viewer) also restores the
+                // saved offset on tab/session switches.
+                fakeTree["long.txt"] = .file(.text(longPlainTextContent))
                 // Pending file: hangs on first load, succeeds on second.
                 // Dynamic entries appear in the tree after the pending file loads.
                 fakeTree["loading.txt"] = .file(.pendingText("This file loaded successfully!\n"))
@@ -460,6 +465,27 @@ private let longMarkdownContent: String = {
     }
     lines.append("")
     lines.append("## BOTTOM MARKER")
+    lines.append("")
+    lines.append("If you can read this line, you are at the bottom of the file.")
+    return lines.joined(separator: "\n")
+}()
+
+/// Plain-text counterpart to `longMarkdownContent`. The text viewer uses a
+/// different SwiftUI implementation from the markdown viewer, so the
+/// scroll-preservation E2E phase exercises both paths against their own
+/// fixtures. The marker string is distinct so screenshot baselines and AX
+/// queries don't conflict if both files happen to be open simultaneously.
+private let longPlainTextContent: String = {
+    var lines: [String] = ["=== Scroll Preservation Test (Plain Text) ===", ""]
+    lines.append("This file is intentionally tall so the file viewer must")
+    lines.append("scroll. The numbered lines below make the visible region")
+    lines.append("recognisable in screenshot baselines.")
+    lines.append("")
+    for index in 1 ... 120 {
+        lines.append("Line \(index): The quick brown fox jumps over the lazy dog.")
+    }
+    lines.append("")
+    lines.append("=== TEXT BOTTOM MARKER ===")
     lines.append("")
     lines.append("If you can read this line, you are at the bottom of the file.")
     return lines.joined(separator: "\n")

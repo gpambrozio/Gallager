@@ -23,7 +23,9 @@ import Foundation
 /// 12. "Show in File Explorer" on a file tab routes the user back to the tree,
 ///     auto-expanding any collapsed ancestor folders and selecting the file.
 /// 13. A long file's scroll position is preserved when switching to another
-///     window or session and returning (issue #429).
+///     window or session and returning (issue #429). Both the markdown
+///     viewer and the plain-text viewer are exercised since they use
+///     different SwiftUI implementations.
 ///
 /// Regression guards:
 /// - Nested NavigationSplitView layout gap (ee55599)
@@ -555,6 +557,67 @@ public enum FileBrowserScenario {
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "File tab: long.md", timeout: 5)
         Shortcut.tmuxRunCommand(target: "scrollalt:0.0", command: "exit")
+        TestStep.wait(seconds: 2)
+
+        // ── Phase 28: Scroll position persists for the plain-text viewer ─
+        //
+        // Mirrors Phase 27 against `long.txt`. The plain-text viewer
+        // (`PlainTextContentView`) is a separate SwiftUI implementation from
+        // the markdown viewer, so the same persistence guarantee needs its
+        // own coverage. The "TEXT BOTTOM MARKER" string is unique to the
+        // plain-text fixture so the assertion only matches when the viewer
+        // is actually scrolled to the bottom.
+        TestStep.log("Phase 28: Scroll position preserved for the plain-text viewer")
+
+        // Open `long.txt` from the file browser tree as its own tab.
+        TestStep.macClickButton(titled: "Files")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElement(titled: "long.txt", timeout: 5)
+        TestStep.macContextMenuClick(elementTitle: "long.txt", menuItem: "Open in New Tab")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "File tab: long.txt", timeout: 5)
+        // Initial render — scrolled to the very top, TEXT BOTTOM MARKER is
+        // offscreen.
+        TestStep.macWaitForElementQuery(.anyTextMatches("Scroll Preservation Test (Plain Text)"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-text-scroll-preserve-top")
+
+        // Scroll to the bottom of the file.
+        TestStep.macScrollWheel(deltaY: -10, count: 40)
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementQuery(.anyTextMatches("TEXT BOTTOM MARKER"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-text-scroll-preserve-bottom-initial")
+
+        // Switch to the terminal window tab, then back to the file tab.
+        // The bottom of the file must still be on screen.
+        TestStep.macClickButton(titled: "filebrowse:0")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "File tab: long.txt")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElementQuery(.anyTextMatches("TEXT BOTTOM MARKER"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-text-scroll-preserve-after-tab-switch")
+
+        // Session round-trip. A second session was already exercised in
+        // Phase 27; we create a fresh one here so this phase remains
+        // self-contained and re-runs cleanly even after Phase 27 changes.
+        TestStep.tmuxCreateSession(name: "scrolltxt", width: 160, height: 50)
+        Shortcut.tmuxRunCommand(target: "scrolltxt:0.0", command: "echo '=== TXT ALT SESSION ==='")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "scrolltxt", timeout: 5)
+        TestStep.macClickButton(titled: "scrolltxt")
+        TestStep.wait(seconds: 2)
+        // Return to the original session and re-select the long.txt tab.
+        TestStep.macClickButton(titled: "filebrowse")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "File tab: long.txt")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElementQuery(.anyTextMatches("TEXT BOTTOM MARKER"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-text-scroll-preserve-after-session-switch")
+
+        // Clean up: close the long.txt tab and the second session.
+        TestStep.macClickButton(titled: "Close file tab: long.txt")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementToDisappear(titled: "File tab: long.txt", timeout: 5)
+        Shortcut.tmuxRunCommand(target: "scrolltxt:0.0", command: "exit")
         TestStep.wait(seconds: 2)
 
         // Tear down both windows.
