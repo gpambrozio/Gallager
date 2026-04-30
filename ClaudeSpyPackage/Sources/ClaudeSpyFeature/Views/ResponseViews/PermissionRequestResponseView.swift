@@ -85,9 +85,11 @@ struct PermissionRequestResponseView: View {
 
     private func responseFeedback(_ response: ResponseType) -> some View {
         HStack {
-            (response.feedbackColor == .green ? Symbols.checkmarkCircleFill.image :
-                response.feedbackColor == .red ? Symbols.xmarkCircleFill.image : Symbols.arrowUpCircleFill.image)
-                .foregroundStyle(response.feedbackColor)
+            (
+                response.feedbackColor == .green ? Symbols.checkmarkCircleFill.image :
+                    response.feedbackColor == .red ? Symbols.xmarkCircleFill.image : Symbols.arrowUpCircleFill.image
+            )
+            .foregroundStyle(response.feedbackColor)
             Text(response.feedbackMessage)
                 .foregroundStyle(.secondary)
             Spacer()
@@ -401,7 +403,9 @@ struct ToolInputView: View {
 
             case let .agent(params):
                 headerRow("Run Agent")
-                detailRow("Type:", params.subagentType)
+                if let subagentType = params.subagentType {
+                    detailRow("Type:", subagentType)
+                }
                 detailRow("Task:", params.description)
                 if let model = params.model {
                     detailRow("Model:", model)

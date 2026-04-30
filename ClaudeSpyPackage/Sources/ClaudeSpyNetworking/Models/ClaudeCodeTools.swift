@@ -25,33 +25,33 @@ public enum ClaudeCodeTool: Sendable, Equatable {
     case webFetch(WebFetchParameters)
     case webSearch(WebSearchParameters)
 
-    // Jupyter Notebooks
+    /// Jupyter Notebooks
     case notebookEdit(NotebookEditParameters)
 
-    // Skills (formerly Slash Commands)
+    /// Skills (formerly Slash Commands)
     case skill(SkillParameters)
 
-    // Tool Discovery
+    /// Tool Discovery
     case toolSearch(ToolSearchParameters)
 
-    // User Interaction
+    /// User Interaction
     case askUserQuestion(AskUserQuestionParameters)
 
     // Background Tasks
     case taskOutput(TaskOutputParameters)
     case taskStop(TaskStopParameters)
 
-    // Worktrees
+    /// Worktrees
     case enterWorktree(EnterWorktreeParameters)
 
     // MCP Resources
     case listMcpResources(ListMcpResourcesParameters)
     case readMcpResource(ReadMcpResourceParameters)
 
-    // MCP Tools (mcp__<server>__<tool>)
+    /// MCP Tools (mcp__<server>__<tool>)
     case mcp(MCPToolParameters)
 
-    // Fallback for unknown tools
+    /// Fallback for unknown tools
     case other(String, [String: AnyCodable])
 
     public var toolName: String {
@@ -339,7 +339,7 @@ public struct MonitorParameters: Codable, Sendable, Equatable {
 public struct AgentParameters: Codable, Sendable, Equatable {
     public let prompt: String
     public let description: String
-    public let subagentType: String
+    public let subagentType: String?
     public let model: String?
     public let resume: String?
     public let runInBackground: Bool?
@@ -349,16 +349,60 @@ public struct AgentParameters: Codable, Sendable, Equatable {
     public let mode: AgentMode?
     public let isolation: Isolation?
 
-    public enum AgentMode: String, Codable, Sendable, Equatable {
+    public enum AgentMode: Codable, Sendable, Equatable {
         case acceptEdits
         case bypassPermissions
         case `default`
         case dontAsk
         case plan
+        case unknown(String)
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            let raw = try container.decode(String.self)
+            switch raw {
+            case "acceptEdits": self = .acceptEdits
+            case "bypassPermissions": self = .bypassPermissions
+            case "default": self = .default
+            case "dontAsk": self = .dontAsk
+            case "plan": self = .plan
+            default: self = .unknown(raw)
+            }
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.singleValueContainer()
+            switch self {
+            case .acceptEdits: try container.encode("acceptEdits")
+            case .bypassPermissions: try container.encode("bypassPermissions")
+            case .default: try container.encode("default")
+            case .dontAsk: try container.encode("dontAsk")
+            case .plan: try container.encode("plan")
+            case let .unknown(raw): try container.encode(raw)
+            }
+        }
     }
 
-    public enum Isolation: String, Codable, Sendable, Equatable {
+    public enum Isolation: Codable, Sendable, Equatable {
         case worktree
+        case unknown(String)
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            let raw = try container.decode(String.self)
+            switch raw {
+            case "worktree": self = .worktree
+            default: self = .unknown(raw)
+            }
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.singleValueContainer()
+            switch self {
+            case .worktree: try container.encode("worktree")
+            case let .unknown(raw): try container.encode(raw)
+            }
+        }
     }
 
     enum CodingKeys: String, CodingKey {
@@ -378,7 +422,7 @@ public struct AgentParameters: Codable, Sendable, Equatable {
     public init(
         prompt: String,
         description: String,
-        subagentType: String,
+        subagentType: String? = nil,
         model: String? = nil,
         resume: String? = nil,
         runInBackground: Bool? = nil,
