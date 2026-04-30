@@ -706,7 +706,7 @@ private struct LiveFileContentView: View {
                     }
                 case .text:
                     if let text {
-                        ScrollPreservingTextView(text: text, savedScrollY: scrollOffsetY)
+                        PlainTextContentView(text: text, savedScrollY: scrollOffsetY)
                     }
                 case .unsupported:
                     ContentUnavailableView(
@@ -862,124 +862,58 @@ private struct MarkdownContentView: View {
     }
 }
 
-/// Wraps `NSScrollView`/`NSTextView` for read-only file display so the scroll
-/// offset can be controlled by an external binding and survive view recreation.
+/// Renders plain monospaced text in a `ScrollView` with selection enabled.
 ///
-/// SwiftUI's `TextEditor` keeps its scroll position in private state; when the
-/// surrounding view is destroyed and rebuilt (e.g. switching tmux windows or
-/// sessions and returning), that state is lost and the file jumps back to the
-/// top. Driving `NSScrollView`'s clip view directly lets us restore the saved
-/// offset on `makeNSView` and report user scrolls back through `savedScrollY`.
+/// `savedScrollY` is an optional binding owned by an open file tab. When set,
+/// the view restores its scroll position from the binding on first appearance
+/// and updates it on every user scroll, so switching tabs/sessions and
+/// returning preserves the position. When `nil`, an internal `@State` provides
+/// ephemeral storage.
 ///
-/// When `savedScrollY` is `nil`, an internal `@State` provides ephemeral
-/// storage and the view behaves like the previous read-only `TextEditor`.
-private struct ScrollPreservingTextView: NSViewRepresentable {
+/// Trade-off vs. `TextEditor`/`NSTextView`: there's no native cmd-F find bar,
+/// and `Text` lays out the entire string up-front (so very large files render
+/// slower than `NSTextView`'s glyph-range layout would).
+private struct PlainTextContentView: View {
     let text: String
     var savedScrollY: Binding<CGFloat>?
 
+    @State private var scrollPosition = ScrollPosition(edge: .top)
     @State private var localScrollY: CGFloat = 0
+    /// Set to `true` after the initial restore completes. Until then, scroll
+    /// notifications from layout/restore are ignored so they don't overwrite
+    /// the saved offset with intermediate values (0 → restore).
+    @State private var isTrackingUserScroll = false
 
     private var scrollY: Binding<CGFloat> {
         savedScrollY ?? $localScrollY
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSTextView.scrollableTextView()
-        guard let textView = scrollView.documentView as? NSTextView else {
-            return scrollView
+    var body: some View {
+        ScrollView {
+            Text(text)
+                .font(.system(.body, design: .monospaced))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .padding()
         }
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.isRichText = false
-        textView.usesFontPanel = false
-        textView.usesFindBar = true
-        textView.drawsBackground = false
-        textView.backgroundColor = .clear
-        textView.font = .monospacedSystemFont(
-            ofSize: NSFont.systemFontSize, weight: .regular
-        )
-        textView.string = text
-
-        scrollView.drawsBackground = false
-        scrollView.backgroundColor = .clear
-
-        let coordinator = context.coordinator
-        coordinator.binding = scrollY
-        coordinator.attach(to: scrollView)
-
-        // Restore the saved offset once layout has produced a real document
-        // size; doing this synchronously in makeNSView would clamp to 0
-        // because the text view hasn't measured itself yet.
-        let initialOffset = scrollY.wrappedValue
-        Task { @MainActor in
-            coordinator.applyOffset(initialOffset, on: scrollView)
+        .scrollPosition($scrollPosition)
+        .onScrollGeometryChange(for: CGFloat.self) { proxy in
+            proxy.contentOffset.y
+        } action: { _, newValue in
+            guard isTrackingUserScroll else { return }
+            scrollY.wrappedValue = newValue
         }
-
-        return scrollView
-    }
-
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NSTextView else { return }
-        if textView.string != text {
-            textView.string = text
-        }
-        context.coordinator.binding = scrollY
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
-        coordinator.detach()
-    }
-
-    final class Coordinator {
-        var binding: Binding<CGFloat>?
-        private var observation: NSObjectProtocol?
-        /// Suppresses change notifications during programmatic restore so the
-        /// initial scroll-to-saved-offset doesn't re-broadcast as a user
-        /// scroll back to the binding.
-        private var isApplyingOffset = false
-
-        func attach(to scrollView: NSScrollView) {
-            let clipView = scrollView.contentView
-            clipView.postsBoundsChangedNotifications = true
-            // queue: nil means the observer fires synchronously on the
-            // posting thread (always main for AppKit notifications), which
-            // is what makes `isApplyingOffset` actually gate the
-            // programmatic-scroll path. With `queue: .main` the observer
-            // is dispatched async and runs after `applyOffset` has cleared
-            // the flag, leaving no protection against rebroadcast.
-            observation = NotificationCenter.default.addObserver(
-                forName: NSView.boundsDidChangeNotification,
-                object: clipView,
-                queue: nil
-            ) { [weak self] _ in
-                guard let self, !self.isApplyingOffset else { return }
-                self.binding?.wrappedValue = clipView.bounds.origin.y
-            }
-        }
-
-        func applyOffset(_ offset: CGFloat, on scrollView: NSScrollView) {
-            isApplyingOffset = true
-            let clipView = scrollView.contentView
-            clipView.scroll(to: NSPoint(x: 0, y: offset))
-            scrollView.reflectScrolledClipView(clipView)
-            isApplyingOffset = false
-        }
-
-        func detach() {
-            if let observation {
-                NotificationCenter.default.removeObserver(observation)
-            }
-            observation = nil
-        }
-
-        deinit {
-            if let observation {
-                NotificationCenter.default.removeObserver(observation)
-            }
+        .task(id: text) {
+            // Wait for the initial layout to produce a real content size
+            // before scrolling; doing this synchronously would clamp to 0
+            // because the Text hasn't measured itself yet.
+            let target = scrollY.wrappedValue
+            try? await Task.sleep(for: .milliseconds(100))
+            guard !Task.isCancelled else { return }
+            scrollPosition.scrollTo(y: target)
+            try? await Task.sleep(for: .milliseconds(50))
+            guard !Task.isCancelled else { return }
+            isTrackingUserScroll = true
         }
     }
 }
