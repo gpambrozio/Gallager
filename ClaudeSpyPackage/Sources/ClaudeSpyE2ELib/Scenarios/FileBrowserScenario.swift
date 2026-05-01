@@ -521,6 +521,18 @@ public enum FileBrowserScenario {
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "File tab: hello.txt", timeout: 5)
 
+        // ── Persistent alt session for Phases 27-31 ──────────────
+        //
+        // The five scroll-preservation phases each verify a session round
+        // trip. Creating + tearing down an alt tmux session per phase costs
+        // ~5s × 5 = ~25s of test runtime; instead we set up a single
+        // `scrollalt` here and reuse it for every session round trip. The
+        // session is destroyed at the end of the scenario.
+        TestStep.tmuxCreateSession(name: "scrollalt", width: 160, height: 50)
+        Shortcut.tmuxRunCommand(target: "scrollalt:0.0", command: "echo '=== ALT SESSION ==='")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "scrollalt", timeout: 5)
+
         // ── Phase 27: Scroll position persists across tab and session switches ─
         //
         // Regression guard for issue #429: opening a long file in a tab,
@@ -532,7 +544,9 @@ public enum FileBrowserScenario {
         // The "BOTTOM MARKER" string is what we assert against — `long.md`
         // is laid out so that string only appears in the screenshot when
         // the scroll position has been preserved at the bottom of the file.
-        TestStep.log("Phase 27: Scroll position preserved across tab/session switch")
+        //
+        // Tab round trip uses `filebrowse:0` (window 0's terminal tab).
+        TestStep.log("Phase 27: Scroll position preserved across tab/session switch (markdown, window 0)")
 
         // Open `long.md` from the file browser tree as its own tab.
         TestStep.macClickButton(titled: "Files")
@@ -553,8 +567,7 @@ public enum FileBrowserScenario {
         TestStep.macWaitForElementQuery(.anyTextMatches("BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-scroll-preserve-bottom-initial")
 
-        // Switch to the terminal window tab, then back to the file tab.
-        // The bottom of the file must still be on screen.
+        // Tab round trip via window 0's terminal.
         TestStep.macClickButton(titled: "filebrowse:0")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "File tab: long.md")
@@ -562,17 +575,9 @@ public enum FileBrowserScenario {
         TestStep.macWaitForElementQuery(.anyTextMatches("BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-scroll-preserve-after-tab-switch")
 
-        // Create a second tmux session, switch to it, then back to the
-        // original session. The file tab must still be scrolled to the
-        // bottom — `SessionFileTabsState` is keyed by session, so the
-        // scroll offset survives the round-trip.
-        TestStep.tmuxCreateSession(name: "scrollalt", width: 160, height: 50)
-        Shortcut.tmuxRunCommand(target: "scrollalt:0.0", command: "echo '=== ALT SESSION ==='")
-        TestStep.wait(seconds: 2)
-        TestStep.macWaitForElement(titled: "scrollalt", timeout: 5)
+        // Session round trip via the persistent `scrollalt`.
         TestStep.macClickButton(titled: "scrollalt")
         TestStep.wait(seconds: 2)
-        // Return to the original session and re-select the long.md tab.
         TestStep.macClickButton(titled: "filebrowse")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "File tab: long.md")
@@ -580,12 +585,11 @@ public enum FileBrowserScenario {
         TestStep.macWaitForElementQuery(.anyTextMatches("BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-scroll-preserve-after-session-switch")
 
-        // Clean up: close the long.md tab and the second session.
+        // Close the tab — the scroll offset is dropped by the tab close
+        // handler, so the next phase re-opens with a fresh state.
         TestStep.macClickButton(titled: "Close file tab: long.md")
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "File tab: long.md", timeout: 5)
-        Shortcut.tmuxRunCommand(target: "scrollalt:0.0", command: "exit")
-        TestStep.wait(seconds: 2)
 
         // ── Phase 28: Scroll position persists for the plain-text viewer ─
         //
@@ -595,7 +599,12 @@ public enum FileBrowserScenario {
         // own coverage. The "TEXT BOTTOM MARKER" string is unique to the
         // plain-text fixture so the assertion only matches when the viewer
         // is actually scrolled to the bottom.
-        TestStep.log("Phase 28: Scroll position preserved for the plain-text viewer")
+        //
+        // Tab round trip uses `filebrowse:1` (window 1) instead of
+        // `filebrowse:0` — earlier versions of the file-tab restoration
+        // didn't preserve scroll when the user returned via a sibling
+        // window's terminal, only when they returned via the same window.
+        TestStep.log("Phase 28: Scroll position preserved for the plain-text viewer (window 1)")
 
         // Open `long.txt` from the file browser tree as its own tab.
         TestStep.macClickButton(titled: "Files")
@@ -604,8 +613,6 @@ public enum FileBrowserScenario {
         TestStep.macContextMenuClick(elementTitle: "long.txt", menuItem: "Open in New Tab")
         TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "File tab: long.txt", timeout: 5)
-        // Initial render — scrolled to the very top, TEXT BOTTOM MARKER is
-        // offscreen.
         TestStep.macWaitForElementQuery(.anyTextMatches("Scroll Preservation Test (Plain Text)"), timeout: 5)
         TestStep.macScreenshot(label: "mac-text-scroll-preserve-top")
 
@@ -615,25 +622,18 @@ public enum FileBrowserScenario {
         TestStep.macWaitForElementQuery(.anyTextMatches("TEXT BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-text-scroll-preserve-bottom-initial")
 
-        // Switch to the terminal window tab, then back to the file tab.
-        // The bottom of the file must still be on screen.
-        TestStep.macClickButton(titled: "filebrowse:0")
+        // Tab round trip via window 1's terminal — exercises the
+        // "returning from a different window" code path.
+        TestStep.macClickButton(titled: "filebrowse:1")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "File tab: long.txt")
         TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.anyTextMatches("TEXT BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-text-scroll-preserve-after-tab-switch")
 
-        // Session round-trip. A second session was already exercised in
-        // Phase 27; we create a fresh one here so this phase remains
-        // self-contained and re-runs cleanly even after Phase 27 changes.
-        TestStep.tmuxCreateSession(name: "scrolltxt", width: 160, height: 50)
-        Shortcut.tmuxRunCommand(target: "scrolltxt:0.0", command: "echo '=== TXT ALT SESSION ==='")
+        // Session round trip via the shared `scrollalt`.
+        TestStep.macClickButton(titled: "scrollalt")
         TestStep.wait(seconds: 2)
-        TestStep.macWaitForElement(titled: "scrolltxt", timeout: 5)
-        TestStep.macClickButton(titled: "scrolltxt")
-        TestStep.wait(seconds: 2)
-        // Return to the original session and re-select the long.txt tab.
         TestStep.macClickButton(titled: "filebrowse")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "File tab: long.txt")
@@ -641,12 +641,10 @@ public enum FileBrowserScenario {
         TestStep.macWaitForElementQuery(.anyTextMatches("TEXT BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-text-scroll-preserve-after-session-switch")
 
-        // Clean up: close the long.txt tab and the second session.
+        // Close the tab so the next phase starts fresh.
         TestStep.macClickButton(titled: "Close file tab: long.txt")
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "File tab: long.txt", timeout: 5)
-        Shortcut.tmuxRunCommand(target: "scrolltxt:0.0", command: "exit")
-        TestStep.wait(seconds: 2)
 
         // ── Phase 29: Detail pane scroll preservation ────────────
         //
@@ -681,8 +679,9 @@ public enum FileBrowserScenario {
         TestStep.macWaitForElementQuery(.anyTextMatches("BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-detail-scroll-preserve-bottom-initial")
 
-        // Tab round trip: terminal → Files. Detail pane is rebuilt and must
-        // restore the saved offset from `state.scrollOffsets`.
+        // Tab round trip via window 0's terminal → back to Files. Detail
+        // pane is rebuilt and must restore the saved offset from
+        // `state.scrollOffsets`.
         TestStep.macClickButton(titled: "filebrowse:0")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "Files")
@@ -690,13 +689,9 @@ public enum FileBrowserScenario {
         TestStep.macWaitForElementQuery(.anyTextMatches("BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-detail-scroll-preserve-after-tab-switch")
 
-        // Session round trip via a fresh alt session. State is keyed by
+        // Session round trip via the shared `scrollalt`. State is keyed by
         // session, so the offset survives leaving and returning to filebrowse.
-        TestStep.tmuxCreateSession(name: "scrolldetail", width: 160, height: 50)
-        Shortcut.tmuxRunCommand(target: "scrolldetail:0.0", command: "echo '=== DETAIL ALT SESSION ==='")
-        TestStep.wait(seconds: 2)
-        TestStep.macWaitForElement(titled: "scrolldetail", timeout: 5)
-        TestStep.macClickButton(titled: "scrolldetail")
+        TestStep.macClickButton(titled: "scrollalt")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "filebrowse")
         TestStep.wait(seconds: 2)
@@ -704,9 +699,6 @@ public enum FileBrowserScenario {
         TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.anyTextMatches("BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-detail-scroll-preserve-after-session-switch")
-
-        Shortcut.tmuxRunCommand(target: "scrolldetail:0.0", command: "exit")
-        TestStep.wait(seconds: 2)
 
         // ── Phase 30: HTML viewer scroll preservation ────────────
         //
@@ -716,7 +708,10 @@ public enum FileBrowserScenario {
         // `webViewOnScrollGeometryChange`. The "HTML BOTTOM MARKER" `<h1>` at
         // the end of `page.html` only renders on screen once the WebView has
         // scrolled all the way down.
-        TestStep.log("Phase 30: HTML viewer preserves scroll across tab/session switches")
+        //
+        // Tab round trip uses `filebrowse:1` to exercise the cross-window
+        // return path for the WebView restore.
+        TestStep.log("Phase 30: HTML viewer preserves scroll (window 1)")
 
         TestStep.macWaitForElement(titled: "page.html", timeout: 5)
         TestStep.macContextMenuClick(elementTitle: "page.html", menuItem: "Open in New Tab")
@@ -734,20 +729,16 @@ public enum FileBrowserScenario {
         TestStep.macWaitForElementQuery(.anyTextMatches("HTML BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-html-scroll-preserve-bottom-initial")
 
-        // Tab round trip.
-        TestStep.macClickButton(titled: "filebrowse:0")
+        // Tab round trip via window 1's terminal.
+        TestStep.macClickButton(titled: "filebrowse:1")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "File tab: page.html")
         TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.anyTextMatches("HTML BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-html-scroll-preserve-after-tab-switch")
 
-        // Session round trip.
-        TestStep.tmuxCreateSession(name: "scrollhtml", width: 160, height: 50)
-        Shortcut.tmuxRunCommand(target: "scrollhtml:0.0", command: "echo '=== HTML ALT SESSION ==='")
-        TestStep.wait(seconds: 2)
-        TestStep.macWaitForElement(titled: "scrollhtml", timeout: 5)
-        TestStep.macClickButton(titled: "scrollhtml")
+        // Session round trip via the shared `scrollalt`.
+        TestStep.macClickButton(titled: "scrollalt")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "filebrowse")
         TestStep.wait(seconds: 2)
@@ -756,12 +747,10 @@ public enum FileBrowserScenario {
         TestStep.macWaitForElementQuery(.anyTextMatches("HTML BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-html-scroll-preserve-after-session-switch")
 
-        // Clean up: close the page.html tab and the alt session.
+        // Close the tab so the next phase starts fresh.
         TestStep.macClickButton(titled: "Close file tab: page.html")
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "File tab: page.html", timeout: 5)
-        Shortcut.tmuxRunCommand(target: "scrollhtml:0.0", command: "exit")
-        TestStep.wait(seconds: 2)
 
         // ── Phase 31: PDF viewer scroll preservation ─────────────
         //
@@ -791,7 +780,7 @@ public enum FileBrowserScenario {
         TestStep.macWaitForElementQuery(.anyTextMatches("Buildable Folders"), timeout: 5)
         TestStep.macScreenshot(label: "mac-pdf-scroll-preserve-bottom-initial")
 
-        // Tab round trip.
+        // Tab round trip via window 0's terminal.
         TestStep.macClickButton(titled: "filebrowse:0")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "File tab: document.pdf")
@@ -799,12 +788,8 @@ public enum FileBrowserScenario {
         TestStep.macWaitForElementQuery(.anyTextMatches("Buildable Folders"), timeout: 5)
         TestStep.macScreenshot(label: "mac-pdf-scroll-preserve-after-tab-switch")
 
-        // Session round trip.
-        TestStep.tmuxCreateSession(name: "scrollpdf", width: 160, height: 50)
-        Shortcut.tmuxRunCommand(target: "scrollpdf:0.0", command: "echo '=== PDF ALT SESSION ==='")
-        TestStep.wait(seconds: 2)
-        TestStep.macWaitForElement(titled: "scrollpdf", timeout: 5)
-        TestStep.macClickButton(titled: "scrollpdf")
+        // Session round trip via the shared `scrollalt`.
+        TestStep.macClickButton(titled: "scrollalt")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "filebrowse")
         TestStep.wait(seconds: 2)
@@ -813,12 +798,10 @@ public enum FileBrowserScenario {
         TestStep.macWaitForElementQuery(.anyTextMatches("Buildable Folders"), timeout: 5)
         TestStep.macScreenshot(label: "mac-pdf-scroll-preserve-after-session-switch")
 
-        // Clean up: close the document.pdf tab and the alt session.
+        // Close the tab so the next phase starts fresh.
         TestStep.macClickButton(titled: "Close file tab: document.pdf")
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "File tab: document.pdf", timeout: 5)
-        Shortcut.tmuxRunCommand(target: "scrollpdf:0.0", command: "exit")
-        TestStep.wait(seconds: 2)
 
         // ── Phase 32: File browser state shared across windows ───
         //
@@ -895,7 +878,9 @@ public enum FileBrowserScenario {
         TestStep.macWaitForElementQuery(.anyTextMatches("@main"), timeout: 5)
         TestStep.macScreenshot(label: "mac-cross-window-state-window0-restored")
 
-        // Tear down both windows.
+        // Tear down the persistent alt session and both filebrowse windows.
+        Shortcut.tmuxRunCommand(target: "scrollalt:0.0", command: "exit")
+        TestStep.wait(seconds: 2)
         Shortcut.tmuxRunCommand(target: "filebrowse:1.0", command: "exit")
         TestStep.wait(seconds: 2)
         Shortcut.tmuxRunCommand(target: "filebrowse:0.0", command: "exit")
