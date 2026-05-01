@@ -69,15 +69,6 @@ public enum MirrorAttachExtraNewlinesScenario {
 
         // Screenshot the transient state — the rebuilt visible area
         // should show double-spaced log entries on the buggy code path.
-        TestStep.macScreenshot(label: "mac-attach-during-resize", compare: false)
-
-        // Wait for everything to settle and screenshot again.
-        TestStep.wait(seconds: 3)
-        TestStep.macScreenshot(label: "mac-after-settle", compare: false)
-
-        // Scroll up to surface scrollback for visual confirmation.
-        TestStep.macScrollUp(pages: 2)
-        TestStep.wait(seconds: 1)
-        TestStep.macScreenshot(label: "mac-scrollback", compare: false)
+        TestStep.macScreenshot(label: "mac-attach-during-resize")
     }
 }
