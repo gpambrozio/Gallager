@@ -479,19 +479,19 @@
             @MainActor
             func underlineBandSurvivesTrimmedCapture() {
                 let service = TmuxService()
-                // Same shape as the bg-band test, but with underline (`\e[4m`)
-                // instead of bg color. Underline is *not* a BCE attribute — EL
-                // can't paint it on cleared cells — so the fix relies on
-                // padding the row with explicit spaces under the line's active
-                // SGR. Without padding (the prior `\e[K`-only fix), this row
-                // would render plain.
+                // tmux's `capture-pane -p` emits a lone `\e[4m` for a row whose
+                // trailing underlined cells were trimmed (e.g. a full-width
+                // underlined separator). Underline is NOT a BCE attribute —
+                // `\e[K`'s eraseAttr strips style, so `\e[K` alone would lose
+                // the band on the rebuild. `lineHasNonBgSGRActiveAtEnd` detects
+                // the unreset non-bg setter and pads with explicit spaces under
+                // the active SGR, putting the underline attribute on every
+                // padded cell.
                 //
-                // Note: padding stops one column short of `width` to avoid
-                // pending-wrap issues that caused issue #429. The trailing
-                // edge cell (col `width - 1`) is BCE-cleared by `\e[K` and
-                // does not carry the underline attribute — an acceptable
-                // single-cell loss in exchange for robust rendering under
-                // any 1-column cols mismatch.
+                // Padding stops at `width - 1` to avoid the pending-wrap edge
+                // case: the trailing cell (col `width - 1`) is BCE-cleared by
+                // `\e[K` and renders without the underline (single-cell loss
+                // — invisible in practice).
                 let visibleLines = [
                     "\u{1b}[4m", // trimmed underlined row — only the SGR setter remains
                     "\u{1b}[0m> Input",
@@ -522,7 +522,8 @@
                 #expect(underlined(col: 40), "Row 0 col 40 must be underlined")
                 #expect(underlined(col: 78), "Row 0 col 78 must be underlined")
 
-                // Row 1 must not inherit the underline once `\e[0m` reset it.
+                // Row 1 must not inherit the underline once `\e[0m` reset it —
+                // the no-leak property from the original #352 fix.
                 guard let row1 = terminal.getLine(row: 1) else {
                     Issue.record("Row 1 missing")
                     return
@@ -1961,6 +1962,92 @@
                 Issue.record("Found \(blanksBetween) blank rows between content rows on cols mismatch (rebuild=\(rebuildWidth), term=\(mirrorCols)). First 15 rows:\n\(excerpt)")
             }
             #expect(blanksBetween == 0, "Expected no blank rows between content rows even when SwiftTerm cols (\(mirrorCols)) < rebuild width (\(rebuildWidth)), got \(blanksBetween) blank rows")
+        }
+
+        @Test("Issue #429 — pad-to-width must not produce blanks after auto-resize narrower")
+        @MainActor
+        func issue429NoBlankRowsAfterReflowNarrower() throws {
+            // Reproduces the ACTUAL production path for issue #429:
+            //
+            //   1. Mirror attaches with tmux pane at width=200 (wider than the
+            //      mirror window can fit).
+            //   2. SwiftTerm is sized to cols=200 to match.
+            //   3. processCapturePaneForStreaming runs with width=200 and pads
+            //      every visible row out to width-1 = 199 explicit space chars
+            //      followed by `\e[K` on col 199.
+            //   4. Auto-resize fires → tmux pane is shrunk to fit the mirror
+            //      window (e.g., 79 cols). Layout-change event arrives →
+            //      SwiftTerm.resize(cols: 79) runs reflowNarrower.
+            //   5. Each padded row has trimmedLength == 199 (because explicit
+            //      space chars count as content per BufferLine.getTrimmedLength
+            //      — only NULL cells get trimmed). Reflow narrower wraps each
+            //      199-char row into ceil(199/79) = 3 visual rows: 1 with
+            //      content + trailing pad spaces, 2 with pure trailing pad
+            //      spaces. The trailing-pad rows render as visually blank.
+            //
+            // The earlier test `issue429NoBlankRowsOnColsMismatch` only covers
+            // the "feed rebuild into a smaller terminal directly" path. It
+            // does not exercise reflow, so it passes with the current padded
+            // output. This test exercises the reflow path — and FAILS until
+            // the rebuild stops emitting trailing space chars beyond content.
+            let service = TmuxService()
+            let height = 24
+            let rebuildWidth = 200
+            let postResizeCols = 79
+
+            var visibleLines: [String] = []
+            for i in 0..<height {
+                if i.isMultiple(of: 2) {
+                    visibleLines.append("[entry \(i)] Checking for work...")
+                } else {
+                    visibleLines.append("[entry \(i)] Nothing to do")
+                }
+            }
+
+            let data = service.processCapturePaneForStreaming(
+                scrollbackOutput: nil,
+                visibleOutput: visibleLines.joined(separator: "\n"),
+                cursorOutput: "0,\(height - 1),1",
+                width: rebuildWidth,
+                height: height
+            )
+            let str = try #require(String(data: data, encoding: .utf8))
+
+            let (terminal, _) = makeTerminal(cols: rebuildWidth, rows: height)
+            terminal.feed(text: str)
+
+            // Now simulate the auto-resize event: tmux pane shrinks to fit the
+            // mirror, SwiftTerm gets resize(cols: postResizeCols, rows: same).
+            terminal.resize(cols: postResizeCols, rows: height)
+
+            var rowKinds: [(row: Int, isBlank: Bool, text: String)] = []
+            for row in -200..<200 {
+                guard let line = terminal.getScrollInvariantLine(row: row) else { continue }
+                var text = ""
+                for col in 0..<terminal.cols {
+                    text += String(line[col].getCharacter())
+                }
+                let cleaned = text.filter { $0 != "\0" }.trimmingCharacters(in: .whitespaces)
+                rowKinds.append((row: row, isBlank: cleaned.isEmpty, text: cleaned))
+            }
+
+            guard
+                let firstContent = rowKinds.firstIndex(where: { !$0.isBlank }),
+                let lastContent = rowKinds.lastIndex(where: { !$0.isBlank })
+            else {
+                Issue.record("No content rows found")
+                return
+            }
+
+            let blanksBetween = rowKinds[firstContent...lastContent].count(where: \.isBlank)
+            if blanksBetween > 0 {
+                let excerpt = rowKinds[firstContent...lastContent]
+                    .prefix(20)
+                    .map { "row \($0.row): " + ($0.isBlank ? "<BLANK>" : "'\($0.text)'") }
+                    .joined(separator: "\n")
+                Issue.record("Found \(blanksBetween) blank rows between content rows after resize \(rebuildWidth)→\(postResizeCols). First 20 rows:\n\(excerpt)")
+            }
+            #expect(blanksBetween == 0, "Expected no blank rows after reflow narrower (\(rebuildWidth)→\(postResizeCols)), got \(blanksBetween) blank rows")
         }
     }
 
