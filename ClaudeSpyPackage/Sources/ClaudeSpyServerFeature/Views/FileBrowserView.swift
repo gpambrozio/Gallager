@@ -72,6 +72,11 @@ final class FileBrowserState {
     /// and clears the value. Used by "Show in File Explorer" so a tab can route
     /// the user back to the tree even when the containing folders are collapsed.
     var pendingRevealPath: String?
+    /// Saved vertical scroll offset for the detail pane, keyed by absolute file
+    /// path. Lives here (not on `LiveFileContentView`) so the position survives
+    /// the view being destroyed and rebuilt when the user switches tmux windows
+    /// or sessions and returns to the same file.
+    var scrollOffsets: [String: CGFloat] = [:]
 }
 
 /// Open-file-tab state scoped to a tmux session, so tabs and selection survive
@@ -553,7 +558,7 @@ struct FileBrowserView: View {
                         .foregroundStyle(.secondary)
                         .padding(8)
                     Divider()
-                    LiveFileContentView(filePath: path)
+                    LiveFileContentView(filePath: path, scrollOffsetY: scrollBinding(for: path))
                 }
             } else {
                 ContentUnavailableView(
@@ -580,7 +585,7 @@ struct FileBrowserView: View {
                 }
 
                 if let fullFilePath {
-                    LiveFileContentView(filePath: fullFilePath)
+                    LiveFileContentView(filePath: fullFilePath, scrollOffsetY: scrollBinding(for: fullFilePath))
                 } else {
                     ContentUnavailableView(
                         "Unable to Read File",
@@ -605,6 +610,13 @@ struct FileBrowserView: View {
                 description: "Choose a file from the navigator to view its contents."
             )
         }
+    }
+
+    private func scrollBinding(for path: String) -> Binding<CGFloat> {
+        Binding(
+            get: { state.scrollOffsets[path] ?? 0 },
+            set: { state.scrollOffsets[path] = $0 }
+        )
     }
 }
 
