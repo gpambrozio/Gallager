@@ -704,13 +704,19 @@ private struct LiveFileContentView: View {
                             .padding()
                     }
                 case .pdf:
-                    PDFViewRepresentable(url: fileSystemService.resolveFileURL(filePath) ?? URL(fileURLWithPath: filePath))
+                    PDFViewRepresentable(
+                        url: fileSystemService.resolveFileURL(filePath) ?? URL(fileURLWithPath: filePath),
+                        savedScrollY: scrollOffsetY
+                    )
                 case .video:
                     AVPlayerViewRepresentable(url: fileSystemService.resolveFileURL(filePath) ?? URL(fileURLWithPath: filePath))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .html:
                     if #available(macOS 26, *) {
-                        WebView(url: fileSystemService.resolveFileURL(filePath) ?? URL(fileURLWithPath: filePath))
+                        ScrollableWebView(
+                            url: fileSystemService.resolveFileURL(filePath) ?? URL(fileURLWithPath: filePath),
+                            savedScrollY: scrollOffsetY
+                        )
                     }
                 case .markdown:
                     if let text {
@@ -764,20 +770,147 @@ private struct LiveFileContentView: View {
 }
 
 /// Wraps PDFKit's PDFView for use in SwiftUI.
+///
+/// `savedScrollY` is an optional binding that — when set — drives scroll
+/// preservation across view rebuilds. PDFView owns its own `NSScrollView`, so
+/// we observe the inner clip view's bounds for user scrolls and write back to
+/// the binding, then re-apply the saved offset whenever the document is
+/// (re)loaded. The `isRestoring` gate prevents the programmatic restore from
+/// rebroadcasting through the same observer and clobbering the saved value.
 private struct PDFViewRepresentable: NSViewRepresentable {
     let url: URL
+    var savedScrollY: Binding<CGFloat>?
+
+    @MainActor
+    final class Coordinator {
+        var savedScrollY: Binding<CGFloat>?
+        var isRestoring = false
+        var observer: NSObjectProtocol?
+        weak var observedClipView: NSClipView?
+
+        func detachObserver() {
+            if let observer {
+                NotificationCenter.default.removeObserver(observer)
+                self.observer = nil
+            }
+            observedClipView = nil
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> PDFView {
         let view = PDFView()
         view.autoScales = true
         view.document = PDFDocument(url: url)
+        context.coordinator.savedScrollY = savedScrollY
+        attachAndRestore(view: view, coordinator: context.coordinator)
         return view
     }
 
     func updateNSView(_ nsView: PDFView, context: Context) {
+        context.coordinator.savedScrollY = savedScrollY
         if nsView.document?.documentURL != url {
             nsView.document = PDFDocument(url: url)
+            context.coordinator.detachObserver()
+            attachAndRestore(view: nsView, coordinator: context.coordinator)
         }
+    }
+
+    static func dismantleNSView(_ nsView: PDFView, coordinator: Coordinator) {
+        coordinator.detachObserver()
+    }
+
+    /// Waits one runloop tick for PDFView to lay out its inner scroll view,
+    /// then attaches the bounds observer and restores the saved Y. Both steps
+    /// have to wait — accessing `documentView.enclosingScrollView` immediately
+    /// after assigning the document returns nil because layout hasn't run yet.
+    private func attachAndRestore(view: PDFView, coordinator: Coordinator) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(50))
+            guard let scrollView = view.documentView?.enclosingScrollView else { return }
+            attachObserver(scrollView: scrollView, coordinator: coordinator)
+            restoreScroll(scrollView: scrollView, coordinator: coordinator)
+        }
+    }
+
+    private func attachObserver(scrollView: NSScrollView, coordinator: Coordinator) {
+        let clip = scrollView.contentView
+        guard coordinator.observedClipView !== clip else { return }
+        coordinator.detachObserver()
+        clip.postsBoundsChangedNotifications = true
+        coordinator.observedClipView = clip
+        coordinator.observer = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: clip,
+            queue: nil
+        ) { [weak coordinator, weak clip] _ in
+            // Posted synchronously from the main thread; safe to read state and
+            // write the binding without dispatching.
+            MainActor.assumeIsolated {
+                guard let coordinator, let clip else { return }
+                guard !coordinator.isRestoring else { return }
+                coordinator.savedScrollY?.wrappedValue = clip.bounds.origin.y
+            }
+        }
+    }
+
+    private func restoreScroll(scrollView: NSScrollView, coordinator: Coordinator) {
+        guard let target = coordinator.savedScrollY?.wrappedValue, target > 0 else { return }
+        coordinator.isRestoring = true
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: target))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(50))
+            coordinator.isRestoring = false
+        }
+    }
+}
+
+/// Renders an HTML file in a SwiftUI `WebView` while preserving its vertical
+/// scroll offset across view rebuilds.
+///
+/// `savedScrollY` is an optional binding that drives the initial scroll
+/// position and receives updates as the user scrolls. The `isTrackingUserScroll`
+/// gate suppresses notifications fired during the initial layout so the
+/// pre-restore offset doesn't overwrite the saved value with 0.
+@available(macOS 26, *)
+private struct ScrollableWebView: View {
+    let url: URL
+    var savedScrollY: Binding<CGFloat>?
+
+    @State private var position = ScrollPosition()
+    @State private var localScrollY: CGFloat = 0
+    @State private var isTrackingUserScroll = false
+
+    private var scrollY: Binding<CGFloat> {
+        savedScrollY ?? $localScrollY
+    }
+
+    var body: some View {
+        WebView(url: url)
+            .webViewScrollPosition($position)
+            .webViewOnScrollGeometryChange(for: CGFloat.self) { geometry in
+                geometry.contentOffset.y
+            } action: { _, newValue in
+                guard isTrackingUserScroll else { return }
+                scrollY.wrappedValue = newValue
+            }
+            .task(id: url) {
+                // The web content loads asynchronously, so the scroll view's
+                // contentSize starts at 0 and grows as HTML/CSS resolves.
+                // Wait for layout to settle before applying the saved offset
+                // (otherwise WebView clamps the target to a tiny content size)
+                // and then re-enable user-scroll tracking.
+                let target = scrollY.wrappedValue
+                isTrackingUserScroll = false
+                try? await Task.sleep(for: .milliseconds(250))
+                guard !Task.isCancelled else { return }
+                position.scrollTo(y: target)
+                try? await Task.sleep(for: .milliseconds(100))
+                guard !Task.isCancelled else { return }
+                isTrackingUserScroll = true
+            }
     }
 }
 
