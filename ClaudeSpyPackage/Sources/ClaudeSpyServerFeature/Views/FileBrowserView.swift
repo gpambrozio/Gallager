@@ -830,7 +830,7 @@ private struct PDFViewRepresentable: NSViewRepresentable {
             try? await Task.sleep(for: .milliseconds(50))
             guard let scrollView = view.documentView?.enclosingScrollView else { return }
             attachObserver(scrollView: scrollView, coordinator: coordinator)
-            restoreScroll(scrollView: scrollView, coordinator: coordinator)
+            await restoreScroll(scrollView: scrollView, coordinator: coordinator)
         }
     }
 
@@ -855,14 +855,21 @@ private struct PDFViewRepresentable: NSViewRepresentable {
         }
     }
 
-    private func restoreScroll(scrollView: NSScrollView, coordinator: Coordinator) {
+    /// Re-applies the saved scroll Y until the clip view actually lands on
+    /// (or near) the target. PDFView grows its documentView asynchronously
+    /// after the document is assigned, so a single `scroll(to:)` can clamp
+    /// to a smaller value when the saved offset is near the bottom of the
+    /// document and the content hasn't finished laying out yet. Looping
+    /// catches the eventual growth without depending on a hand-tuned sleep.
+    private func restoreScroll(scrollView: NSScrollView, coordinator: Coordinator) async {
         guard let target = coordinator.savedScrollY?.wrappedValue, target > 0 else { return }
         coordinator.isRestoring = true
-        scrollView.contentView.scroll(to: NSPoint(x: 0, y: target))
-        scrollView.reflectScrolledClipView(scrollView.contentView)
-        Task { @MainActor in
+        defer { coordinator.isRestoring = false }
+        for _ in 0..<10 {
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: target))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            if abs(scrollView.contentView.bounds.origin.y - target) < 1 { return }
             try? await Task.sleep(for: .milliseconds(50))
-            coordinator.isRestoring = false
         }
     }
 }
