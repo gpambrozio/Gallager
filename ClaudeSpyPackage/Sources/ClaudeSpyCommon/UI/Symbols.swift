@@ -43,6 +43,7 @@ public enum Symbols: String {
     case folderBadgePlus = "folder.badge.plus"
     case folderFill = "folder.fill"
     case gearshape
+    case gearshapeFill = "gearshape.fill"
     case handsAndSparklesFill = "hands.and.sparkles.fill"
     case house
     case infoCircle = "info.circle"

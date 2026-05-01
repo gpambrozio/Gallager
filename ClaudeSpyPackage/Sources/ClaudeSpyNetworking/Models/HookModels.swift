@@ -122,7 +122,8 @@ public struct ClaudeSession: Codable, Sendable {
              .stopFailure,
              .elicitation:
             handledUpToEventId = latest.id
-        case .sessionEnd,
+        case .setup,
+             .sessionEnd,
              .preToolUse,
              .postToolUse,
              .postToolUseFailure,
@@ -196,6 +197,7 @@ public struct HookEvent: Identifiable, Codable, Sendable, Equatable {
              .stopFailure:
             return false
         case .sessionStart,
+             .setup,
              .sessionEnd,
              .notification,
              .teammateIdle,
@@ -288,6 +290,25 @@ public struct SessionStartBody: HookBodyProtocol {
         self.hookEventName = hookEventName
         self.timestamp = timestamp
         self.source = source
+    }
+}
+
+public struct SetupBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public let trigger: String?
+    public var shouldSendToServer: Bool { false }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+        case trigger
     }
 }
 
@@ -1257,6 +1278,7 @@ public struct PermissionRule: Codable, Sendable {
 
 public enum HookAction: Codable, Sendable {
     case sessionStart(SessionStartBody)
+    case setup(SetupBody)
     case preToolUse(PreToolUseBody)
     case postToolUse(PostToolUseBody)
     case postToolUseFailure(PostToolUseFailureBody)
@@ -1293,6 +1315,7 @@ public enum HookAction: Codable, Sendable {
 
     private enum ActionType: String, Codable {
         case sessionStart
+        case setup
         case preToolUse
         case postToolUse
         case postToolUseFailure
@@ -1331,6 +1354,9 @@ public enum HookAction: Codable, Sendable {
         case .sessionStart:
             let body = try container.decode(SessionStartBody.self, forKey: .body)
             self = .sessionStart(body)
+        case .setup:
+            let body = try container.decode(SetupBody.self, forKey: .body)
+            self = .setup(body)
         case .preToolUse:
             let body = try container.decode(PreToolUseBody.self, forKey: .body)
             self = .preToolUse(body)
@@ -1425,6 +1451,9 @@ public enum HookAction: Codable, Sendable {
         case let .sessionStart(body):
             try container.encode(ActionType.sessionStart, forKey: .type)
             try container.encode(body, forKey: .body)
+        case let .setup(body):
+            try container.encode(ActionType.setup, forKey: .type)
+            try container.encode(body, forKey: .body)
         case let .preToolUse(body):
             try container.encode(ActionType.preToolUse, forKey: .type)
             try container.encode(body, forKey: .body)
@@ -1516,6 +1545,7 @@ public enum HookAction: Codable, Sendable {
     public var body: any HookBodyProtocol {
         switch self {
         case let .sessionStart(body): body
+        case let .setup(body): body
         case let .preToolUse(body): body
         case let .postToolUse(body): body
         case let .postToolUseFailure(body): body
@@ -1570,6 +1600,8 @@ public enum HookAction: Codable, Sendable {
         switch self {
         case .sessionStart:
             "Session Started"
+        case let .setup(body):
+            "Setup (\(body.trigger ?? "unknown"))"
         case .sessionEnd:
             "Session Ended"
         case let .preToolUse(body):
@@ -1634,6 +1666,8 @@ public enum HookAction: Codable, Sendable {
         switch self {
         case let .sessionStart(body):
             body.cwd ?? body.source
+        case let .setup(body):
+            body.cwd ?? body.trigger
         case .sessionEnd:
             nil
         case let .preToolUse(body):
@@ -1703,6 +1737,9 @@ public enum HookAction: Codable, Sendable {
         case "SessionStart":
             let body = try decoder.decode(SessionStartBody.self, from: jsonData)
             return .sessionStart(body)
+        case "Setup":
+            let body = try decoder.decode(SetupBody.self, from: jsonData)
+            return .setup(body)
         case "PreToolUse":
             let body = try decoder.decode(PreToolUseBody.self, from: jsonData)
             return .preToolUse(body)
