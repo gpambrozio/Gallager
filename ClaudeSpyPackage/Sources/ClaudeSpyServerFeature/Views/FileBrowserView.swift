@@ -787,6 +787,11 @@ private struct PDFViewRepresentable: NSViewRepresentable {
         var isRestoring = false
         var observer: NSObjectProtocol?
         weak var observedClipView: NSClipView?
+        /// Handle for the in-flight `attachAndRestore` task so its lifetime
+        /// is tied to the view's. Without this, the retry loop (up to ~500ms)
+        /// keeps running after `dismantleNSView` and writes into a binding
+        /// whose owner may be gone.
+        var attachTask: Task<Void, Never>?
 
         func detachObserver() {
             if let observer {
@@ -794,6 +799,8 @@ private struct PDFViewRepresentable: NSViewRepresentable {
                 self.observer = nil
             }
             observedClipView = nil
+            attachTask?.cancel()
+            attachTask = nil
         }
     }
 
@@ -825,9 +832,13 @@ private struct PDFViewRepresentable: NSViewRepresentable {
     /// then attaches the bounds observer and restores the saved Y. Both steps
     /// have to wait — accessing `documentView.enclosingScrollView` immediately
     /// after assigning the document returns nil because layout hasn't run yet.
+    /// The task handle is stored on the coordinator so `detachObserver` /
+    /// `dismantleNSView` can cancel the retry loop when the view goes away.
     private func attachAndRestore(view: PDFView, coordinator: Coordinator) {
-        Task { @MainActor in
+        coordinator.attachTask?.cancel()
+        coordinator.attachTask = Task { @MainActor [weak coordinator] in
             try? await Task.sleep(for: .milliseconds(50))
+            guard let coordinator, !Task.isCancelled else { return }
             guard let scrollView = view.documentView?.enclosingScrollView else { return }
             attachObserver(scrollView: scrollView, coordinator: coordinator)
             await restoreScroll(scrollView: scrollView, coordinator: coordinator)
@@ -866,6 +877,7 @@ private struct PDFViewRepresentable: NSViewRepresentable {
         coordinator.isRestoring = true
         defer { coordinator.isRestoring = false }
         for _ in 0..<10 {
+            if Task.isCancelled { return }
             scrollView.contentView.scroll(to: NSPoint(x: 0, y: target))
             scrollView.reflectScrolledClipView(scrollView.contentView)
             if abs(scrollView.contentView.bounds.origin.y - target) < 1 { return }
@@ -1000,7 +1012,13 @@ private struct MarkdownContentView: View {
                 // any scroll notifications. For a non-zero target, the
                 // scroll itself activates the Textual selection overlay; for
                 // a zero target we nudge to 4 first, then settle on 0.
+                //
+                // Reset the tracking gate first: when `text` changes (file
+                // edited on disk → re-read), the flag is still `true` from
+                // the previous run, so layout-driven scroll events would
+                // clobber the saved offset before `scrollTo` runs.
                 let target = scrollY.wrappedValue
+                isTrackingUserScroll = false
                 try? await Task.sleep(for: .milliseconds(100))
                 guard !Task.isCancelled else { return }
                 if target == 0 {
@@ -1064,7 +1082,13 @@ private struct PlainTextContentView: View {
             // Wait for the initial layout to produce a real content size
             // before scrolling; doing this synchronously would clamp to 0
             // because the Text hasn't measured itself yet.
+            //
+            // Reset the tracking gate first: when `text` changes (file
+            // edited on disk → re-read), the flag is still `true` from the
+            // previous run, so layout-driven scroll events would clobber
+            // the saved offset before `scrollTo` runs.
             let target = scrollY.wrappedValue
+            isTrackingUserScroll = false
             try? await Task.sleep(for: .milliseconds(100))
             guard !Task.isCancelled else { return }
             scrollPosition.scrollTo(y: target)
