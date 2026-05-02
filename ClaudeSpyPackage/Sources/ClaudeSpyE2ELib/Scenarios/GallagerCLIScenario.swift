@@ -18,6 +18,11 @@ import Foundation
 /// 12. start-project with a non-existent path — verify error handling
 /// 13. session-state working/waiting/idle/clear — verify sidebar icons switch
 /// 14. hook event overrides CLI state — verify hook activity wins
+/// 15. TMUX_PANE-based defaulting — when no `--pane`/`--session`/`--window`
+///     flag is passed, commands target the calling pane (the cli-test pane)
+///     instead of whatever pane is globally active in tmux. Also verifies
+///     irrelevant flags (e.g. `--session` to `send`) do not suppress the
+///     fallback.
 ///
 /// Strategy: all CLI commands typed into `cli-test:0` via tmuxSendKeys.
 /// Commands that need to target e2e-api use explicit pane IDs from list-panes.
@@ -233,5 +238,108 @@ public enum GallagerCLIScenario {
         TestStep.wait(seconds: 3)
         TestStep.macWaitForElement(titled: "Working", timeout: 10)
         TestStep.macScreenshot(label: "mac-hook-overrides-cli")
+
+        // 15. TMUX_PANE-based defaulting. Every command up to here used an
+        // explicit `--pane`/`--session` flag. The new behavior is that when
+        // none of those flags is given, the CLI fills in `pane_id` from
+        // `$TMUX_PANE` so the command targets the calling pane (cli-test:0)
+        // instead of whatever pane is globally active in tmux.
+
+        // 15a. session-state with no flags should mark cli-test:0's pane.
+        // The CLI prints "Set state 'working' on N pane(s)." — applied_to=1
+        // means it found exactly the calling pane via TMUX_PANE.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager session-state working > /tmp/e2e-cli-state-default.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-state-default.txt", storeAs: "stateDefaultResult")
+        TestStep.assertStoredContains(
+            key: "stateDefaultResult",
+            substring: "Set state 'working' on 1 pane(s)."
+        )
+        // Switch the sidebar to cli-test so the working indicator on its row
+        // is visible in the screenshot. e2e-api was last shown with Working
+        // (from the hook), so we click cli-test to confirm the default-routed
+        // override landed on the *calling* session.
+        TestStep.macWaitForElement(titled: "cli-test", timeout: 5)
+        TestStep.macClickButton(titled: "cli-test")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElement(titled: "Working", timeout: 10)
+        TestStep.macScreenshot(label: "mac-state-default-pane")
+
+        // Clear via TMUX_PANE default too, then confirm the indicator drops.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager session-state clear > /tmp/e2e-cli-state-default-clear.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(
+            path: "/tmp/e2e-cli-state-default-clear.txt",
+            storeAs: "stateDefaultClearResult"
+        )
+        TestStep.assertStoredContains(
+            key: "stateDefaultClearResult",
+            substring: "Cleared state on 1 pane(s)."
+        )
+
+        // 15b. list-windows with no flags resolves to the calling session's
+        // windows only. cli-test has one window; e2e-api now has two; the
+        // start-project session adds another. Filtering proves the pane→session
+        // resolution worked.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager list-windows --json > /tmp/e2e-cli-windows-default.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(
+            path: "/tmp/e2e-cli-windows-default.txt",
+            storeAs: "windowsDefaultResult"
+        )
+        TestStep.assertStoredContains(
+            key: "windowsDefaultResult",
+            substring: #""sessionId":"cli-test""#
+        )
+        TestStep.assertStoredNotContains(
+            key: "windowsDefaultResult",
+            substring: #""sessionId":"e2e-api""#
+        )
+        TestStep.assertStoredNotContains(
+            key: "windowsDefaultResult",
+            substring: #""sessionId":"e2e-start-project""#
+        )
+
+        // 15c. list-panes with no flags resolves to the calling window's
+        // panes. cli-test:0 has one pane.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager list-panes --json > /tmp/e2e-cli-panes-default.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(
+            path: "/tmp/e2e-cli-panes-default.txt",
+            storeAs: "panesDefaultResult"
+        )
+        TestStep.assertStoredContains(
+            key: "panesDefaultResult",
+            substring: #""windowId":"cli-test:0""#
+        )
+
+        // 15d. Irrelevant flags must not suppress the TMUX_PANE fallback.
+        // `send` and `send-key` only consume `--pane`. Passing
+        // `--session`/`--window` should be silently ignored *without* falling
+        // back to the globally active pane. Marker text must land in the
+        // cli-test:0 pane (the caller).
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager send 'echo MARKER-DEFAULT-TMUX-PANE' --session does-not-exist && gallager send-key enter --window does-not-exist:0"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.tmuxCapturePaneContent(target: "cli-test:0", storeAs: "callerPaneContent")
+        TestStep.assertStoredContains(
+            key: "callerPaneContent",
+            substring: "MARKER-DEFAULT-TMUX-PANE"
+        )
+        TestStep.macScreenshot(label: "mac-default-irrelevant-flag")
     }
 }

@@ -13,7 +13,7 @@ struct ListWindowsCommand: ParsableCommand {
         var params: [String: JSONValue] = [:]
         if let session = options.session {
             params["session_id"] = .string(session)
-        } else if let pane = options.defaultPaneId {
+        } else if let pane = options.pane ?? options.callingPaneId {
             params["pane_id"] = .string(pane)
         }
         let response = try executeRequest(method: "window.list", params: params, options: options)
@@ -51,7 +51,7 @@ struct NewWindowCommand: ParsableCommand {
         var params: [String: JSONValue] = [:]
         if let session = options.session {
             params["session_id"] = .string(session)
-        } else if let pane = options.defaultPaneId {
+        } else if let pane = options.pane ?? options.callingPaneId {
             params["pane_id"] = .string(pane)
         }
         if let path { params["path"] = .string(path) }
