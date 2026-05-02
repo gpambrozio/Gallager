@@ -84,6 +84,11 @@ final class FileBrowserState {
     /// and clears the value. Used by "Show in File Explorer" so a tab can route
     /// the user back to the tree even when the containing folders are collapsed.
     var pendingRevealPath: String?
+    /// Saved vertical scroll offset for the detail pane, keyed by absolute file
+    /// path. Lives here (not on `LiveFileContentView`) so the position survives
+    /// the view being destroyed and rebuilt when the user switches tmux windows
+    /// or sessions and returns to the same file.
+    var scrollOffsets: [String: CGFloat] = [:]
 }
 
 /// Open-file-tab state scoped to a tmux session, so tabs and selection survive
@@ -96,6 +101,13 @@ final class SessionFileTabsState {
     /// When non-nil, the content area shows this file tab instead of the tree
     /// or terminal.
     var selectedFileTabId: UUID?
+    /// Saved vertical scroll offset per open file tab. Lives here (not on
+    /// `OpenFileTab` itself) so the `LiveFileContentView` can read/write the
+    /// position via a stable binding while the tab struct stays a value type.
+    /// Without this, switching tmux windows or sessions and returning would
+    /// destroy and rebuild the file content view, dropping the user back to
+    /// the top of the file.
+    var scrollOffsets: [UUID: CGFloat] = [:]
 }
 
 /// A draggable vertical divider for resizing adjacent views.
@@ -265,7 +277,7 @@ struct FileBrowserView: View {
         if
             let selectedTabId = sessionTabs.selectedFileTabId,
             let tab = sessionTabs.openFileTabs.first(where: { $0.id == selectedTabId }) {
-            OpenFileTabContentView(tab: tab)
+            OpenFileTabContentView(tab: tab, sessionTabs: sessionTabs)
         } else {
             fileBrowserContent(viewState: viewState)
         }
@@ -286,6 +298,9 @@ struct FileBrowserView: View {
             let shouldBeDeleted = !existingPaths.contains(tab.path)
             if tab.isDeleted != shouldBeDeleted {
                 sessionTabs.openFileTabs[index].isDeleted = shouldBeDeleted
+                if shouldBeDeleted {
+                    sessionTabs.scrollOffsets.removeValue(forKey: tab.id)
+                }
             }
         }
     }
@@ -555,7 +570,7 @@ struct FileBrowserView: View {
                         .foregroundStyle(.secondary)
                         .padding(8)
                     Divider()
-                    LiveFileContentView(filePath: path)
+                    LiveFileContentView(filePath: path, scrollOffsetY: scrollBinding(for: path))
                 }
             } else {
                 ContentUnavailableView(
@@ -582,7 +597,7 @@ struct FileBrowserView: View {
                 }
 
                 if let fullFilePath {
-                    LiveFileContentView(filePath: fullFilePath)
+                    LiveFileContentView(filePath: fullFilePath, scrollOffsetY: scrollBinding(for: fullFilePath))
                 } else {
                     ContentUnavailableView(
                         "Unable to Read File",
@@ -608,6 +623,13 @@ struct FileBrowserView: View {
             )
         }
     }
+
+    private func scrollBinding(for path: String) -> Binding<CGFloat> {
+        Binding(
+            get: { state.scrollOffsets[path] ?? 0 },
+            set: { state.scrollOffsets[path] = $0 }
+        )
+    }
 }
 
 // MARK: - Open File Tab Content View
@@ -616,6 +638,9 @@ struct FileBrowserView: View {
 /// Renders the file's path header + live content, or a "file deleted" placeholder.
 struct OpenFileTabContentView: View {
     let tab: OpenFileTab
+    /// Source of truth for the saved scroll offset so it persists when the
+    /// view is destroyed and rebuilt (window/session switches).
+    let sessionTabs: SessionFileTabsState
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -629,9 +654,16 @@ struct OpenFileTabContentView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                LiveFileContentView(filePath: tab.path)
+                LiveFileContentView(filePath: tab.path, scrollOffsetY: scrollBinding)
             }
         }
+    }
+
+    private var scrollBinding: Binding<CGFloat> {
+        Binding(
+            get: { sessionTabs.scrollOffsets[tab.id] ?? 0 },
+            set: { sessionTabs.scrollOffsets[tab.id] = $0 }
+        )
     }
 
     private var pathHeader: some View {
@@ -650,8 +682,16 @@ struct OpenFileTabContentView: View {
 // MARK: - Live File Content View
 
 /// Displays a file's contents and monitors it for changes on disk.
+///
+/// `scrollOffsetY` is an optional binding owned by the parent (e.g. an open
+/// file tab). When provided, the markdown and text viewers persist their
+/// scroll position through it so closing/reopening a tab — or switching tmux
+/// windows or sessions — restores the previous scroll position. When `nil`
+/// (e.g. the file detail pane backed by tree selection) the viewers fall back
+/// to local `@State`, matching the original ephemeral behaviour.
 private struct LiveFileContentView: View {
     let filePath: String
+    var scrollOffsetY: Binding<CGFloat>?
 
     @Dependency(FileSystemLoadingService.self) private var fileSystemService
 
@@ -676,23 +716,27 @@ private struct LiveFileContentView: View {
                             .padding()
                     }
                 case .pdf:
-                    PDFViewRepresentable(url: fileSystemService.resolveFileURL(filePath) ?? URL(fileURLWithPath: filePath))
+                    PDFViewRepresentable(
+                        url: fileSystemService.resolveFileURL(filePath) ?? URL(fileURLWithPath: filePath),
+                        savedScrollY: scrollOffsetY
+                    )
                 case .video:
                     AVPlayerViewRepresentable(url: fileSystemService.resolveFileURL(filePath) ?? URL(fileURLWithPath: filePath))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .html:
                     if #available(macOS 26, *) {
-                        WebView(url: fileSystemService.resolveFileURL(filePath) ?? URL(fileURLWithPath: filePath))
+                        ScrollableWebView(
+                            url: fileSystemService.resolveFileURL(filePath) ?? URL(fileURLWithPath: filePath),
+                            savedScrollY: scrollOffsetY
+                        )
                     }
                 case .markdown:
                     if let text {
-                        MarkdownContentView(text: text)
+                        MarkdownContentView(text: text, savedScrollY: scrollOffsetY)
                     }
                 case .text:
                     if let text {
-                        TextEditor(text: .constant(text))
-                            .font(.system(.body, design: .monospaced))
-                            .scrollContentBackground(.hidden)
+                        PlainTextContentView(text: text, savedScrollY: scrollOffsetY)
                     }
                 case .unsupported:
                     ContentUnavailableView(
@@ -738,20 +782,166 @@ private struct LiveFileContentView: View {
 }
 
 /// Wraps PDFKit's PDFView for use in SwiftUI.
+///
+/// `savedScrollY` is an optional binding that — when set — drives scroll
+/// preservation across view rebuilds. PDFView owns its own `NSScrollView`, so
+/// we observe the inner clip view's bounds for user scrolls and write back to
+/// the binding, then re-apply the saved offset whenever the document is
+/// (re)loaded. The `isRestoring` gate prevents the programmatic restore from
+/// rebroadcasting through the same observer and clobbering the saved value.
 private struct PDFViewRepresentable: NSViewRepresentable {
     let url: URL
+    var savedScrollY: Binding<CGFloat>?
+
+    @MainActor
+    final class Coordinator {
+        var savedScrollY: Binding<CGFloat>?
+        var isRestoring = false
+        var observer: NSObjectProtocol?
+        weak var observedClipView: NSClipView?
+        /// Handle for the in-flight `attachAndRestore` task so its lifetime
+        /// is tied to the view's. Without this, the retry loop (up to ~500ms)
+        /// keeps running after `dismantleNSView` and writes into a binding
+        /// whose owner may be gone.
+        var attachTask: Task<Void, Never>?
+
+        func detachObserver() {
+            if let observer {
+                NotificationCenter.default.removeObserver(observer)
+                self.observer = nil
+            }
+            observedClipView = nil
+            attachTask?.cancel()
+            attachTask = nil
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> PDFView {
         let view = PDFView()
         view.autoScales = true
         view.document = PDFDocument(url: url)
+        context.coordinator.savedScrollY = savedScrollY
+        attachAndRestore(view: view, coordinator: context.coordinator)
         return view
     }
 
     func updateNSView(_ nsView: PDFView, context: Context) {
+        context.coordinator.savedScrollY = savedScrollY
         if nsView.document?.documentURL != url {
             nsView.document = PDFDocument(url: url)
+            context.coordinator.detachObserver()
+            attachAndRestore(view: nsView, coordinator: context.coordinator)
         }
+    }
+
+    static func dismantleNSView(_ nsView: PDFView, coordinator: Coordinator) {
+        coordinator.detachObserver()
+    }
+
+    /// Waits one runloop tick for PDFView to lay out its inner scroll view,
+    /// then attaches the bounds observer and restores the saved Y. Both steps
+    /// have to wait — accessing `documentView.enclosingScrollView` immediately
+    /// after assigning the document returns nil because layout hasn't run yet.
+    /// The task handle is stored on the coordinator so `detachObserver` /
+    /// `dismantleNSView` can cancel the retry loop when the view goes away.
+    private func attachAndRestore(view: PDFView, coordinator: Coordinator) {
+        coordinator.attachTask?.cancel()
+        coordinator.attachTask = Task { @MainActor [weak coordinator] in
+            try? await Task.sleep(for: .milliseconds(50))
+            guard let coordinator, !Task.isCancelled else { return }
+            guard let scrollView = view.documentView?.enclosingScrollView else { return }
+            attachObserver(scrollView: scrollView, coordinator: coordinator)
+            await restoreScroll(scrollView: scrollView, coordinator: coordinator)
+        }
+    }
+
+    private func attachObserver(scrollView: NSScrollView, coordinator: Coordinator) {
+        let clip = scrollView.contentView
+        guard coordinator.observedClipView !== clip else { return }
+        coordinator.detachObserver()
+        clip.postsBoundsChangedNotifications = true
+        coordinator.observedClipView = clip
+        coordinator.observer = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: clip,
+            queue: nil
+        ) { [weak coordinator, weak clip] _ in
+            // Posted synchronously from the main thread; safe to read state and
+            // write the binding without dispatching.
+            MainActor.assumeIsolated {
+                guard let coordinator, let clip else { return }
+                guard !coordinator.isRestoring else { return }
+                coordinator.savedScrollY?.wrappedValue = clip.bounds.origin.y
+            }
+        }
+    }
+
+    /// Re-applies the saved scroll Y until the clip view actually lands on
+    /// (or near) the target. PDFView grows its documentView asynchronously
+    /// after the document is assigned, so a single `scroll(to:)` can clamp
+    /// to a smaller value when the saved offset is near the bottom of the
+    /// document and the content hasn't finished laying out yet. Looping
+    /// catches the eventual growth without depending on a hand-tuned sleep.
+    private func restoreScroll(scrollView: NSScrollView, coordinator: Coordinator) async {
+        guard let target = coordinator.savedScrollY?.wrappedValue, target > 0 else { return }
+        coordinator.isRestoring = true
+        defer { coordinator.isRestoring = false }
+        for _ in 0..<10 {
+            if Task.isCancelled { return }
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: target))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            if abs(scrollView.contentView.bounds.origin.y - target) < 1 { return }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+    }
+}
+
+/// Renders an HTML file in a SwiftUI `WebView` while preserving its vertical
+/// scroll offset across view rebuilds.
+///
+/// `savedScrollY` is an optional binding that drives the initial scroll
+/// position and receives updates as the user scrolls. The `isTrackingUserScroll`
+/// gate suppresses notifications fired during the initial layout so the
+/// pre-restore offset doesn't overwrite the saved value with 0.
+@available(macOS 26, *)
+private struct ScrollableWebView: View {
+    let url: URL
+    var savedScrollY: Binding<CGFloat>?
+
+    @State private var position = ScrollPosition()
+    @State private var localScrollY: CGFloat = 0
+    @State private var isTrackingUserScroll = false
+
+    private var scrollY: Binding<CGFloat> {
+        savedScrollY ?? $localScrollY
+    }
+
+    var body: some View {
+        WebView(url: url)
+            .webViewScrollPosition($position)
+            .webViewOnScrollGeometryChange(for: CGFloat.self) { geometry in
+                geometry.contentOffset.y
+            } action: { _, newValue in
+                guard isTrackingUserScroll else { return }
+                scrollY.wrappedValue = newValue
+            }
+            .task(id: url) {
+                // The web content loads asynchronously, so the scroll view's
+                // contentSize starts at 0 and grows as HTML/CSS resolves.
+                // Wait for layout to settle before applying the saved offset
+                // (otherwise WebView clamps the target to a tiny content size)
+                // and then re-enable user-scroll tracking.
+                let target = scrollY.wrappedValue
+                isTrackingUserScroll = false
+                try? await Task.sleep(for: .milliseconds(250))
+                guard !Task.isCancelled else { return }
+                position.scrollTo(y: target)
+                try? await Task.sleep(for: .milliseconds(100))
+                guard !Task.isCancelled else { return }
+                isTrackingUserScroll = true
+            }
     }
 }
 
@@ -783,13 +973,32 @@ private struct AVPlayerViewRepresentable: NSViewRepresentable {
 /// Workaround for https://github.com/gonzalezreal/textual/issues/49: Textual's selection
 /// overlay uses preference-driven geometry that isn't coherent on first layout inside a
 /// SwiftUI `ScrollView`, so selection only becomes live after the user manually scrolls.
-/// The `.task` nudges the scroll offset (y: 4 → 0) to reproduce that manual scroll, and the
-/// `minHeight` pegged to the container guarantees the content is always taller than the
-/// viewport so the nudge actually moves the offset — even for markdown short enough to fit
-/// without scrolling. Remove all of this once the upstream issue is fixed.
+/// The `.task` reproduces that scroll: when restoring to a non-zero saved offset, the
+/// scroll-to-target itself is enough; when the target is zero, we nudge to 4 and back
+/// so the offset actually moves. The `minHeight` pegged to the container guarantees the
+/// content is always taller than the viewport so the zero-target nudge has somewhere to
+/// go — even for markdown short enough to fit without scrolling. Remove this dance once
+/// the upstream issue is fixed.
+///
+/// `savedScrollY` is an optional binding owned by an open file tab. When set, the view
+/// restores its scroll position from the binding on first appearance and updates it on
+/// every user scroll, so switching tabs/sessions and returning preserves the position.
+/// When `nil`, an internal `@State` provides ephemeral storage and the original
+/// "always start at the top" behaviour applies.
 private struct MarkdownContentView: View {
     let text: String
+    var savedScrollY: Binding<CGFloat>?
+
     @State private var scrollPosition = ScrollPosition(edge: .top)
+    @State private var localScrollY: CGFloat = 0
+    /// Set to `true` after the initial restore completes. Until then, scroll
+    /// notifications from layout/restore are ignored so they don't overwrite
+    /// the saved offset with intermediate values (0 → nudge → restore).
+    @State private var isTrackingUserScroll = false
+
+    private var scrollY: Binding<CGFloat> {
+        savedScrollY ?? $localScrollY
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -803,13 +1012,101 @@ private struct MarkdownContentView: View {
                     )
             }
             .scrollPosition($scrollPosition)
+            .onScrollGeometryChange(for: CGFloat.self) { proxy in
+                proxy.contentOffset.y
+            } action: { _, newValue in
+                guard isTrackingUserScroll else { return }
+                scrollY.wrappedValue = newValue
+            }
             .textual.textSelection(.enabled)
             .task(id: text) {
+                // Capture the saved offset before the initial layout fires
+                // any scroll notifications. For a non-zero target, the
+                // scroll itself activates the Textual selection overlay; for
+                // a zero target we nudge to 4 first, then settle on 0.
+                //
+                // Reset the tracking gate first: when `text` changes (file
+                // edited on disk → re-read), the flag is still `true` from
+                // the previous run, so layout-driven scroll events would
+                // clobber the saved offset before `scrollTo` runs.
+                let target = scrollY.wrappedValue
+                isTrackingUserScroll = false
                 try? await Task.sleep(for: .milliseconds(100))
-                scrollPosition.scrollTo(y: 4)
+                guard !Task.isCancelled else { return }
+                if target == 0 {
+                    scrollPosition.scrollTo(y: 4)
+                    try? await Task.sleep(for: .milliseconds(50))
+                    guard !Task.isCancelled else { return }
+                    scrollPosition.scrollTo(y: 0)
+                } else {
+                    scrollPosition.scrollTo(y: target)
+                }
                 try? await Task.sleep(for: .milliseconds(50))
-                scrollPosition.scrollTo(y: 0)
+                guard !Task.isCancelled else { return }
+                isTrackingUserScroll = true
             }
+        }
+    }
+}
+
+/// Renders plain monospaced text in a `ScrollView` with selection enabled.
+///
+/// `savedScrollY` is an optional binding owned by an open file tab. When set,
+/// the view restores its scroll position from the binding on first appearance
+/// and updates it on every user scroll, so switching tabs/sessions and
+/// returning preserves the position. When `nil`, an internal `@State` provides
+/// ephemeral storage.
+///
+/// Trade-off vs. `TextEditor`/`NSTextView`: there's no native cmd-F find bar,
+/// and `Text` lays out the entire string up-front (so very large files render
+/// slower than `NSTextView`'s glyph-range layout would).
+private struct PlainTextContentView: View {
+    let text: String
+    var savedScrollY: Binding<CGFloat>?
+
+    @State private var scrollPosition = ScrollPosition(edge: .top)
+    @State private var localScrollY: CGFloat = 0
+    /// Set to `true` after the initial restore completes. Until then, scroll
+    /// notifications from layout/restore are ignored so they don't overwrite
+    /// the saved offset with intermediate values (0 → restore).
+    @State private var isTrackingUserScroll = false
+
+    private var scrollY: Binding<CGFloat> {
+        savedScrollY ?? $localScrollY
+    }
+
+    var body: some View {
+        ScrollView {
+            Text(text)
+                .font(.system(.body, design: .monospaced))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .padding()
+        }
+        .scrollPosition($scrollPosition)
+        .onScrollGeometryChange(for: CGFloat.self) { proxy in
+            proxy.contentOffset.y
+        } action: { _, newValue in
+            guard isTrackingUserScroll else { return }
+            scrollY.wrappedValue = newValue
+        }
+        .task(id: text) {
+            // Wait for the initial layout to produce a real content size
+            // before scrolling; doing this synchronously would clamp to 0
+            // because the Text hasn't measured itself yet.
+            //
+            // Reset the tracking gate first: when `text` changes (file
+            // edited on disk → re-read), the flag is still `true` from the
+            // previous run, so layout-driven scroll events would clobber
+            // the saved offset before `scrollTo` runs.
+            let target = scrollY.wrappedValue
+            isTrackingUserScroll = false
+            try? await Task.sleep(for: .milliseconds(100))
+            guard !Task.isCancelled else { return }
+            scrollPosition.scrollTo(y: target)
+            try? await Task.sleep(for: .milliseconds(50))
+            guard !Task.isCancelled else { return }
+            isTrackingUserScroll = true
         }
     }
 }

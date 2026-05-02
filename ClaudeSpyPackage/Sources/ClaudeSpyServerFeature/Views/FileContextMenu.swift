@@ -34,7 +34,7 @@ extension View {
                         onShowInFileExplorer(fullPath)
                     }
                 }
-                Button("Open in Finder") {
+                Button("Show in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: fullPath)])
                 }
                 Divider()

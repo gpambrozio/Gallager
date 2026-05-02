@@ -270,13 +270,15 @@
         }
 
         /// Tears down resources that need explicit cleanup before the app
-        /// exits. Disconnects all pane streams, which sends `pipe-pane -t` to
-        /// tmux for each pane and kills the orphan `cat > FIFO` subprocesses
-        /// tmux would otherwise leave running. See `AppShutdownDelegate` for
+        /// exits. Disconnects all pane streams (sends `pipe-pane -t` so tmux
+        /// kills the `cat > FIFO` subprocesses) and terminates every active
+        /// `tmux -C` control-mode client subprocess so AppKit shutdown
+        /// doesn't reparent them to launchd. See `AppShutdownDelegate` for
         /// how this is invoked.
         public func shutdown() async {
-            logger.info("App shutdown: disconnecting pane streams")
+            logger.info("App shutdown: disconnecting pane streams and control clients")
             await paneStreamManager.disconnectAll()
+            await controlClientManager.disconnectAll()
         }
 
         /// Resolves the tmux session name for a pane. Tries `paneStates` first

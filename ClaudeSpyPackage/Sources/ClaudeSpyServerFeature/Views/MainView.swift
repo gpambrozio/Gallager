@@ -47,11 +47,13 @@ public struct MainView: View {
 
     /// Window IDs that have the file browser tab active (persists across tab/session switches)
     @State private var fileBrowserActiveWindowIds: Set<String> = []
-    /// Cached file browser state per window ID (tree, selection, sidebar width)
+    /// Cached file browser state per session name (tree, selection, sidebar width).
+    /// Keyed by session, not window, so the explorer's selection/expansion/scroll
+    /// state survives switching between windows in the same session — `loadTree`
+    /// already invalidates and rebuilds the tree when `directoryPath` changes,
+    /// and stale selections are cleared in that path.
     @State private var fileBrowserStates: [String: FileBrowserState] = [:]
     /// Cached open-file-tab strip per session (keyed by `sessionName`).
-    /// Lives one level above `fileBrowserStates` so tabs persist when the user
-    /// switches between windows in the same session.
     @State private var sessionFileTabsStates: [String: SessionFileTabsState] = [:]
 
     public var body: some View {
@@ -93,15 +95,17 @@ public struct MainView: View {
             // for the periodic validation timer).
             windowManager.updatePaneStates(from: newPanes)
 
-            // Clean up file browser state for windows that no longer exist
+            // Clean up explorer-active flags for windows that no longer exist
             let currentWindowIds = Set(tmuxService.windows.map(\.id))
-            for key in fileBrowserStates.keys where !currentWindowIds.contains(key) {
-                fileBrowserStates.removeValue(forKey: key)
+            for key in fileBrowserActiveWindowIds where !currentWindowIds.contains(key) {
                 fileBrowserActiveWindowIds.remove(key)
             }
 
-            // Clean up session-scoped file tab state for sessions that no longer exist
+            // Clean up session-scoped state for sessions that no longer exist
             let currentSessionNames = Set(tmuxService.sessions.map(\.sessionName))
+            for key in fileBrowserStates.keys where !currentSessionNames.contains(key) {
+                fileBrowserStates.removeValue(forKey: key)
+            }
             for key in sessionFileTabsStates.keys where !currentSessionNames.contains(key) {
                 sessionFileTabsStates.removeValue(forKey: key)
             }
@@ -603,7 +607,7 @@ public struct MainView: View {
             )
         } else if let window = selectedWindow {
             let session = tmuxService.sessions.first(where: { $0.windows.contains(where: { $0.id == window.id }) })
-            let browserState = fileBrowserStates[window.id]
+            let browserState = session.flatMap { fileBrowserStates[$0.sessionName] }
             let directoryPath = window.activePane?.currentPath ?? NSHomeDirectory()
             let sessionTabs = session.flatMap { sessionFileTabsStates[$0.sessionName] }
             let selectedFileTab: OpenFileTab? = {
@@ -656,8 +660,8 @@ public struct MainView: View {
                         },
                         onSelectFileBrowser: {
                             fileBrowserActiveWindowIds.insert(window.id)
-                            if fileBrowserStates[window.id] == nil {
-                                fileBrowserStates[window.id] = FileBrowserState()
+                            if fileBrowserStates[session.sessionName] == nil {
+                                fileBrowserStates[session.sessionName] = FileBrowserState()
                             }
                             if sessionFileTabsStates[session.sessionName] == nil {
                                 sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
@@ -670,8 +674,8 @@ public struct MainView: View {
                             // tab deletion state while the file tab is the
                             // active view.
                             fileBrowserActiveWindowIds.insert(window.id)
-                            if fileBrowserStates[window.id] == nil {
-                                fileBrowserStates[window.id] = FileBrowserState()
+                            if fileBrowserStates[session.sessionName] == nil {
+                                fileBrowserStates[session.sessionName] = FileBrowserState()
                             }
                             if sessionFileTabsStates[session.sessionName] == nil {
                                 sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
@@ -683,14 +687,14 @@ public struct MainView: View {
                         },
                         onShowInFileExplorer: { path in
                             fileBrowserActiveWindowIds.insert(window.id)
-                            if fileBrowserStates[window.id] == nil {
-                                fileBrowserStates[window.id] = FileBrowserState()
+                            if fileBrowserStates[session.sessionName] == nil {
+                                fileBrowserStates[session.sessionName] = FileBrowserState()
                             }
                             if sessionFileTabsStates[session.sessionName] == nil {
                                 sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
                             }
                             sessionFileTabsStates[session.sessionName]?.selectedFileTabId = nil
-                            fileBrowserStates[window.id]?.pendingRevealPath = path
+                            fileBrowserStates[session.sessionName]?.pendingRevealPath = path
                         },
                         onAcceptOpenSuggestion: { suggestion in
                             openFileInNewTab(
@@ -1291,8 +1295,8 @@ public struct MainView: View {
         originWindowId: String? = nil
     ) {
         fileBrowserActiveWindowIds.insert(windowId)
-        if fileBrowserStates[windowId] == nil {
-            fileBrowserStates[windowId] = FileBrowserState()
+        if fileBrowserStates[sessionName] == nil {
+            fileBrowserStates[sessionName] = FileBrowserState()
         }
         if sessionFileTabsStates[sessionName] == nil {
             sessionFileTabsStates[sessionName] = SessionFileTabsState()
@@ -1368,6 +1372,7 @@ public struct MainView: View {
         let closedTab = tabs.openFileTabs[closedIndex]
         let wasSelected = tabs.selectedFileTabId == tabId
         tabs.openFileTabs.remove(at: closedIndex)
+        tabs.scrollOffsets.removeValue(forKey: tabId)
         guard wasSelected else { return }
         tabs.selectedFileTabId = nil
 
