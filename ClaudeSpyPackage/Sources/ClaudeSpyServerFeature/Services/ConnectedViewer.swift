@@ -319,14 +319,7 @@ final public class ConnectedViewer: Identifiable {
             return
         }
 
-        var sessionState = await onSessionStateRequest()
-        // Set the pairId for this specific connection
-        sessionState = SessionStateMessage(
-            pairId: id,
-            paneStates: sessionState.paneStates,
-            claudeProjects: sessionState.claudeProjects,
-            homeDirectory: sessionState.homeDirectory
-        )
+        let sessionState = await onSessionStateRequest().withPairId(id)
         logger.info("Pushing session state to viewer: \(viewerName)")
         await sendEncrypted(.sessionState(sessionState))
     }
@@ -786,6 +779,14 @@ final public class ConnectedViewer: Identifiable {
 
         urlSession?.invalidateAndCancel()
         urlSession = nil
+
+        // Drop the serial chain heads so a reconnect starts a fresh chain
+        // instead of waiting on stale in-flight encrypt tasks from the old
+        // socket. The trailing tasks aren't cancelled (they don't check
+        // `isCancelled`); they just finish as no-ops since `webSocketTask`
+        // is now nil.
+        pendingFireAndForget = nil
+        pendingSend = nil
     }
 
     private func updateState(_ newState: ConnectionState) async {
