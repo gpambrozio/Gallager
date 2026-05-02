@@ -58,7 +58,7 @@
             }
         }
 
-        public typealias TmuxAccessor = @Sendable () -> TmuxService
+        public typealias TmuxAccessor = @Sendable () async -> TmuxService
         public typealias DescriptionApplier = @Sendable (
             _ description: String?,
             _ sessionName: String?,
@@ -95,7 +95,7 @@
             shellEnvironment: [String: String] = ProcessInfo.processInfo.environment,
             claudeCommandPath: String = "claude"
         ) async throws -> Result {
-            let tmux = tmuxAccessor()
+            let tmux = await tmuxAccessor()
             var planned: [String] = []
             var warnings = config.warnings
 
@@ -132,14 +132,16 @@
                     if let description = config.description, !description.isEmpty {
                         await descriptionApplier(description, config.sessionName, nil, nil)
                     }
-                    try await runHooks(
-                        config.onApply,
-                        scope: "on_apply",
-                        shellEnvironment: shellEnvironment
-                    )
-                    if !detach {
-                        try await tmux.selectWindow("\(config.sessionName):!")
-                    }
+                }
+                try await runHooks(
+                    config.onApply,
+                    scope: "on_apply",
+                    planned: &planned,
+                    dryRun: dryRun,
+                    shellEnvironment: shellEnvironment
+                )
+                if !dryRun, !detach {
+                    try await tmux.selectWindow("\(config.sessionName):!")
                 }
                 return Result(
                     sessionName: config.sessionName,
@@ -440,8 +442,25 @@
                 let suppress = pane.suppressHistory ?? sessionConfig.suppressHistory
                 let prefix = sessionConfig.shellCommandBefore + window.shellCommandBefore
 
+                // Prefix commands always send Enter — these are bootstrap
+                // shell commands (env setup, source ...) that would stall
+                // the shell mid-line if held back. Only the pane's own
+                // commands respect `pane.enter`, so a user can pre-fill a
+                // command line with `enter: false` without breaking the
+                // session-/window-level prep.
+                for command in prefix {
+                    let payload = suppress ? " \(command)" : command
+                    planned.append("pane[\(paneOffset)] send: \(payload)")
+                    if !dryRun {
+                        if !payload.isEmpty {
+                            try await tmux.sendKeys(paneId, keys: payload, literal: true)
+                        }
+                        try await tmux.sendKeys(paneId, keys: "Enter")
+                    }
+                }
+
                 let lines = pane.commandLines(claudeCommandPath: claudeCommandPath)
-                for command in prefix + lines {
+                for command in lines {
                     let payload = suppress ? " \(command)" : command
                     planned.append("pane[\(paneOffset)] send: \(payload)")
                     if !dryRun {
@@ -462,13 +481,6 @@
                 }
             }
 
-            // Per-window description (sidebar override) — applied last so the
-            // sidebar doesn't briefly show stale text.
-            if let windowDescription = window.options["@gallager-description"] {
-                // Already applied via setOption above; nothing extra.
-                _ = windowDescription
-            }
-
             // Per-pane focus: do this after layout so the requested pane wins.
             if let focusOffset = window.panes.firstIndex(where: { $0.focus }) {
                 let target = paneIds[focusOffset]
@@ -480,28 +492,6 @@
         }
 
         // MARK: - Hooks
-
-        private func runHooks(
-            _ hooks: [LayoutConfig.Hook],
-            scope: String,
-            shellEnvironment: [String: String]
-        ) async throws {
-            for hook in hooks {
-                let result = try await runShellCommand(
-                    hook.cmd,
-                    cwd: hook.cwd,
-                    env: hook.env,
-                    shellEnvironment: shellEnvironment
-                )
-                if !result.isSuccess {
-                    throw DriverError.hookFailed(
-                        cmd: hook.cmd,
-                        exitCode: result.exitCode,
-                        stderr: result.stderrString
-                    )
-                }
-            }
-        }
 
         private func runHooks(
             _ hooks: [LayoutConfig.Hook],

@@ -296,6 +296,10 @@
             warnings: inout [String]
         ) throws -> [LayoutConfig.Window] {
             guard let value else { return [] }
+            // `windows: ~` (explicit YAML null) parses as `.null`, not nil —
+            // treat it as "no windows" the same as an omitted key for parity
+            // with tmuxp configs.
+            if case .null = value { return [] }
             guard case let .array(items) = value else {
                 throw LayoutConfigError(path: "windows", message: "windows must be an array")
             }
@@ -582,6 +586,20 @@
             switch value {
             case let .bool(b): return b
             case .null: return nil
+            case let .string(s):
+                // YAML quoted booleans (`enter: "false"`) parse as strings.
+                // Match YAML 1.1 truthy/falsy spellings so configs ported
+                // from tmuxp don't trip on quoting.
+                switch s.lowercased() {
+                case "true",
+                     "yes",
+                     "on": return true
+                case "false",
+                     "no",
+                     "off": return false
+                default:
+                    throw LayoutConfigError(path: path, message: "expected boolean (got string '\(s)')")
+                }
             default:
                 throw LayoutConfigError(path: path, message: "expected boolean (got \(value.typeName))")
             }
@@ -603,6 +621,13 @@
             case let .int(i): return Double(i)
             case let .double(d): return d
             case .null: return nil
+            case let .string(s):
+                // YAML quoted numbers (`sleep_before: "0.5"`) parse as
+                // strings; accept them so quoting style isn't load-bearing.
+                guard let parsed = Double(s) else {
+                    throw LayoutConfigError(path: path, message: "expected number (got string '\(s)')")
+                }
+                return parsed
             default:
                 throw LayoutConfigError(path: path, message: "expected number (got \(value.typeName))")
             }
