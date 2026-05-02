@@ -33,10 +33,18 @@ Run the bundled script to pull latest results and extract failures in one step:
 ${CLAUDE_SKILL_DIR}/scripts/find_failures.py --results-dir ../ClaudeSpyTestResults
 ```
 
+**Optional PR-number argument:** If the user invoked the skill with a PR number (e.g. `/fix-e2e-failures 444`), pass it through with `--pr` so the **newest run associated with that PR** is analyzed instead of the most recent failing run across all PRs:
+
+```bash
+${CLAUDE_SKILL_DIR}/scripts/find_failures.py --results-dir ../ClaudeSpyTestResults --pr 444
+```
+
+The number matches the `prNumber` field on entries in `ClaudeSpyTestResults/results/index.json`. If no argument is provided, the script defaults to the latest failing run across all PRs.
+
 The script outputs JSON with one of these statuses:
-- `"all_passed"` — No failures found. Tell the user and stop.
+- `"all_passed"` — No failures found (or the specified PR's latest run passed). Tell the user and stop.
 - `"build_failed"` — The build itself failed, no test results. Inform the user.
-- `"no_results"` — Results directory not found. Check the path.
+- `"no_results"` — Results directory not found, or `--pr` was given but no run for that PR exists in `index.json`. Check the path or PR number.
 - `"failures_found"` — Failures detected. Continue to Step 2.
 
 When `status` is `"failures_found"`, the output includes:
