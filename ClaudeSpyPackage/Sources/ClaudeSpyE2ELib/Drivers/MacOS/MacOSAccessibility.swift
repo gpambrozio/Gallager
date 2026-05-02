@@ -125,8 +125,13 @@ enum MacOSAccessibility {
 
     /// Find all raw AXUIElements matching a query.
     /// Used by `press` to try multiple matches when the first isn't pressable.
+    /// Excludes the app menu bar so user-specific entries (Apple menu →
+    /// Recent Items, Open Recent, Window list, etc.) can't substring-match
+    /// queries intended for window content. Tests that need to interact with
+    /// menu bar items use AppleScript or open the menu first — its popup
+    /// appears outside the menu bar subtree.
     static func findAllRawElements(appPID: pid_t, matching query: ElementQuery) -> [AXUIElement] {
-        let roots = allRootElements(appPID: appPID)
+        let roots = allRootElements(appPID: appPID).filter { roleOf($0) != "AXMenuBar" }
         var results: [AXUIElement] = []
         collectRawElementsInChildren(roots, matching: query, depth: 0, maxDepth: 20, results: &results)
         return results
