@@ -19,6 +19,46 @@
             "target": "ClaudeSpyExternalServer",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release ClaudeSpyExternalServer (ClaudeSpyPackage)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:ClaudeSpy}/ClaudeSpyPackage",
+            "name": "Debug ClaudeSpyE2E (ClaudeSpyPackage)",
+            "target": "ClaudeSpyE2E",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug ClaudeSpyE2E (ClaudeSpyPackage)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:ClaudeSpy}/ClaudeSpyPackage",
+            "name": "Release ClaudeSpyE2E (ClaudeSpyPackage)",
+            "target": "ClaudeSpyE2E",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release ClaudeSpyE2E (ClaudeSpyPackage)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:ClaudeSpy}/ClaudeSpyPackage",
+            "name": "Debug GallagerCLI (ClaudeSpyPackage)",
+            "target": "GallagerCLI",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug GallagerCLI (ClaudeSpyPackage)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:ClaudeSpy}/ClaudeSpyPackage",
+            "name": "Release GallagerCLI (ClaudeSpyPackage)",
+            "target": "GallagerCLI",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release GallagerCLI (ClaudeSpyPackage)"
         }
     ]
 }

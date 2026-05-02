@@ -184,6 +184,22 @@ struct TmuxPaneMirrorApp: App {
                     "settings.json": .file(.text("{ \"model\": \"opus\" }\n")),
                 ])
                 fakeTree[".DS_Store"] = .file(.unsupported())
+                // Long markdown file used by the scroll-preservation phase to
+                // verify that the user's scroll position is restored after
+                // tab/session switches. Numbered lines make it visually
+                // obvious in the screenshot which part of the file is on
+                // screen at any moment.
+                fakeTree["long.md"] = .file(.markdown(longMarkdownContent))
+                // Long plain-text file used by the scroll-preservation phase
+                // to verify that the text viewer (a separate SwiftUI
+                // implementation from the markdown viewer) also restores the
+                // saved offset on tab/session switches.
+                fakeTree["long.txt"] = .file(.text(longPlainTextContent))
+                // Replace the short page.html with a long HTML fixture so the
+                // WebView scroll-preservation phase has something tall enough
+                // to scroll. Reuses the existing tree row to avoid bumping
+                // Phase 22's row count past the viewport.
+                fakeTree["page.html"] = .file(.html(longHTMLContent))
                 // Pending file: hangs on first load, succeeds on second.
                 // Dynamic entries appear in the tree after the pending file loads.
                 fakeTree["loading.txt"] = .file(.pendingText("This file loaded successfully!\n"))
@@ -439,6 +455,77 @@ struct TmuxPaneMirrorApp: App {
         showingLaunchAtLoginPrompt = true
     }
 }
+
+/// Long markdown content for the file browser's scroll-preservation E2E phase.
+/// Numbered lines and a "BOTTOM" marker make it easy to see in screenshots
+/// which part of the file is on screen.
+private let longMarkdownContent: String = {
+    var lines: [String] = ["# Scroll Preservation Test", ""]
+    lines.append("This file is intentionally tall so the file viewer must")
+    lines.append("scroll. The numbered lines below make the visible region")
+    lines.append("recognisable in screenshot baselines.")
+    lines.append("")
+    for index in 1 ... 120 {
+        lines.append("Line \(index): The quick brown fox jumps over the lazy dog.")
+    }
+    lines.append("")
+    lines.append("## BOTTOM MARKER")
+    lines.append("")
+    lines.append("If you can read this line, you are at the bottom of the file.")
+    return lines.joined(separator: "\n")
+}()
+
+/// Long HTML fixture for the WebView scroll-preservation E2E phase. The
+/// `ScrollableWebView` wrapper is a separate code path from the markdown and
+/// plain-text viewers, so it needs its own scroll-tall page. The closing
+/// `<h1>HTML BOTTOM MARKER</h1>` is the assertion target — it only renders on
+/// screen when the WebView has been scrolled all the way down.
+private let longHTMLContent: String = {
+    var lines: [String] = [
+        "<!DOCTYPE html>",
+        "<html>",
+        "<head>",
+        "  <meta charset=\"utf-8\">",
+        "  <title>Scroll Preservation Test (HTML)</title>",
+        "  <style>",
+        "    body { font-family: -apple-system, sans-serif; padding: 20px; }",
+        "    p { margin: 12px 0; }",
+        "  </style>",
+        "</head>",
+        "<body>",
+        "  <h1>Scroll Preservation Test (HTML)</h1>",
+        "  <p>This page is intentionally tall so the WebView must scroll.</p>",
+    ]
+    for index in 1 ... 120 {
+        lines.append("  <p>Line \(index): The quick brown fox jumps over the lazy dog.</p>")
+    }
+    lines.append("  <h1>HTML BOTTOM MARKER</h1>")
+    lines.append("  <p>If you can read this line, you are at the bottom of the page.</p>")
+    lines.append("</body>")
+    lines.append("</html>")
+    return lines.joined(separator: "\n")
+}()
+
+/// Plain-text counterpart to `longMarkdownContent`. The text viewer uses a
+/// different SwiftUI implementation from the markdown viewer, so the
+/// scroll-preservation E2E phase exercises both paths against their own
+/// fixtures. The marker string is distinct so screenshot baselines and AX
+/// queries don't conflict if both files happen to be open simultaneously.
+private let longPlainTextContent: String = {
+    var lines: [String] = ["=== Scroll Preservation Test (Plain Text) ===", ""]
+    lines.append("This file is intentionally tall so the file viewer must")
+    lines.append("scroll. The numbered lines below make the visible region")
+    lines.append("recognisable in screenshot baselines.")
+    lines.append("")
+    for index in 1 ... 120 {
+        lines.append("Line \(index): The quick brown fox jumps over the lazy dog.")
+    }
+    lines.append("")
+    lines.append("=== TEXT BOTTOM MARKER ===")
+    lines.append("")
+    lines.append("If you can read this line, you are at the bottom of the file.")
+    return lines.joined(separator: "\n")
+}()
 
 /// Menu item that opens the custom About window.
 ///
