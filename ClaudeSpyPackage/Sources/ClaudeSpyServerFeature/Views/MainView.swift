@@ -47,11 +47,13 @@ public struct MainView: View {
 
     /// Window IDs that have the file browser tab active (persists across tab/session switches)
     @State private var fileBrowserActiveWindowIds: Set<String> = []
-    /// Cached file browser state per window ID (tree, selection, sidebar width)
+    /// Cached file browser state per session name (tree, selection, sidebar width).
+    /// Keyed by session, not window, so the explorer's selection/expansion/scroll
+    /// state survives switching between windows in the same session — `loadTree`
+    /// already invalidates and rebuilds the tree when `directoryPath` changes,
+    /// and stale selections are cleared in that path.
     @State private var fileBrowserStates: [String: FileBrowserState] = [:]
     /// Cached open-file-tab strip per session (keyed by `sessionName`).
-    /// Lives one level above `fileBrowserStates` so tabs persist when the user
-    /// switches between windows in the same session.
     @State private var sessionFileTabsStates: [String: SessionFileTabsState] = [:]
 
     public var body: some View {
@@ -67,7 +69,7 @@ public struct MainView: View {
                 }
         }
         .navigationSplitViewStyle(.balanced)
-        .navigationTitle("Available Windows")
+        .navigationTitle(selectedSessionTitle ?? "Gallager")
         .toolbar {
             toolbarContent
         }
@@ -93,15 +95,17 @@ public struct MainView: View {
             // for the periodic validation timer).
             windowManager.updatePaneStates(from: newPanes)
 
-            // Clean up file browser state for windows that no longer exist
+            // Clean up explorer-active flags for windows that no longer exist
             let currentWindowIds = Set(tmuxService.windows.map(\.id))
-            for key in fileBrowserStates.keys where !currentWindowIds.contains(key) {
-                fileBrowserStates.removeValue(forKey: key)
+            for key in fileBrowserActiveWindowIds where !currentWindowIds.contains(key) {
                 fileBrowserActiveWindowIds.remove(key)
             }
 
-            // Clean up session-scoped file tab state for sessions that no longer exist
+            // Clean up session-scoped state for sessions that no longer exist
             let currentSessionNames = Set(tmuxService.sessions.map(\.sessionName))
+            for key in fileBrowserStates.keys where !currentSessionNames.contains(key) {
+                fileBrowserStates.removeValue(forKey: key)
+            }
             for key in sessionFileTabsStates.keys where !currentSessionNames.contains(key) {
                 sessionFileTabsStates.removeValue(forKey: key)
             }
@@ -293,6 +297,35 @@ public struct MainView: View {
         }
     }
 
+    /// Primary label for the currently selected session, used as the navigation title.
+    /// Returns nil when nothing is selected so the default fallback can be shown.
+    private var selectedSessionTitle: String? {
+        if let remote = selectedRemoteSession {
+            return remoteSessionPrimaryLabel(hostId: remote.hostId, sessionName: remote.sessionName)
+        }
+        if
+            let window = selectedWindow,
+            let session = tmuxService.sessions.first(where: { $0.windows.contains { $0.id == window.id } }) {
+            return localSessionSortData(session).primaryLabel
+        }
+        return nil
+    }
+
+    /// Computes the primary sidebar label for a remote session using the same logic as `RemoteHostSidebarSection.sortedSessions`.
+    private func remoteSessionPrimaryLabel(hostId: String, sessionName: String) -> String? {
+        guard let sessionStore = coordinator.remoteSessionStore else { return nil }
+        guard let session = sessionStore.sessions(for: hostId).first(where: { $0.sessionName == sessionName }) else {
+            return nil
+        }
+        return SessionSortData.forRemoteSession(
+            session,
+            sidebarFields: settings.sidebarFields,
+            sidebarTerminalFields: settings.sidebarTerminalFields,
+            homeDirectory: sessionStore.homeDirectoryByHost[hostId]
+        ).primaryLabel
+    }
+
+    /// Scans the full session (all windows) to match the session-level sidebar row — not the selected window.
     private func localSessionSortData(_ session: LocalTmuxSession) -> SessionSortData {
         let claudeSession: ClaudeSession? = session.windows.lazy
             .flatMap(\.panes)
@@ -574,7 +607,7 @@ public struct MainView: View {
             )
         } else if let window = selectedWindow {
             let session = tmuxService.sessions.first(where: { $0.windows.contains(where: { $0.id == window.id }) })
-            let browserState = fileBrowserStates[window.id]
+            let browserState = session.flatMap { fileBrowserStates[$0.sessionName] }
             let directoryPath = window.activePane?.currentPath ?? NSHomeDirectory()
             let sessionTabs = session.flatMap { sessionFileTabsStates[$0.sessionName] }
             let selectedFileTab: OpenFileTab? = {
@@ -627,8 +660,8 @@ public struct MainView: View {
                         },
                         onSelectFileBrowser: {
                             fileBrowserActiveWindowIds.insert(window.id)
-                            if fileBrowserStates[window.id] == nil {
-                                fileBrowserStates[window.id] = FileBrowserState()
+                            if fileBrowserStates[session.sessionName] == nil {
+                                fileBrowserStates[session.sessionName] = FileBrowserState()
                             }
                             if sessionFileTabsStates[session.sessionName] == nil {
                                 sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
@@ -641,8 +674,8 @@ public struct MainView: View {
                             // tab deletion state while the file tab is the
                             // active view.
                             fileBrowserActiveWindowIds.insert(window.id)
-                            if fileBrowserStates[window.id] == nil {
-                                fileBrowserStates[window.id] = FileBrowserState()
+                            if fileBrowserStates[session.sessionName] == nil {
+                                fileBrowserStates[session.sessionName] = FileBrowserState()
                             }
                             if sessionFileTabsStates[session.sessionName] == nil {
                                 sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
@@ -654,14 +687,14 @@ public struct MainView: View {
                         },
                         onShowInFileExplorer: { path in
                             fileBrowserActiveWindowIds.insert(window.id)
-                            if fileBrowserStates[window.id] == nil {
-                                fileBrowserStates[window.id] = FileBrowserState()
+                            if fileBrowserStates[session.sessionName] == nil {
+                                fileBrowserStates[session.sessionName] = FileBrowserState()
                             }
                             if sessionFileTabsStates[session.sessionName] == nil {
                                 sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
                             }
                             sessionFileTabsStates[session.sessionName]?.selectedFileTabId = nil
-                            fileBrowserStates[window.id]?.pendingRevealPath = path
+                            fileBrowserStates[session.sessionName]?.pendingRevealPath = path
                         },
                         onAcceptOpenSuggestion: { suggestion in
                             openFileInNewTab(
@@ -1247,25 +1280,40 @@ public struct MainView: View {
     /// FileBrowserView for that window stays mounted while the file tab is
     /// selected — its `directoryChanges` task is what drives tab deletion
     /// state, so it must continue running underneath the visible file content.
+    ///
+    /// `originWindowId` records which tmux window initiated the open when the
+    /// tab is opened from a terminal click; closing the tab routes the user
+    /// back there instead of leaving them on the file browser tree. When an
+    /// existing tab is re-opened, only a non-nil incoming origin overwrites
+    /// the stored value — a tree/context-menu re-open carries no origin and
+    /// must not silently clear the previously-recorded terminal return target.
     private func openFileInNewTab(
         path: String,
         directoryPath: String,
         sessionName: String,
-        windowId: String
+        windowId: String,
+        originWindowId: String? = nil
     ) {
         fileBrowserActiveWindowIds.insert(windowId)
-        if fileBrowserStates[windowId] == nil {
-            fileBrowserStates[windowId] = FileBrowserState()
+        if fileBrowserStates[sessionName] == nil {
+            fileBrowserStates[sessionName] = FileBrowserState()
         }
         if sessionFileTabsStates[sessionName] == nil {
             sessionFileTabsStates[sessionName] = SessionFileTabsState()
         }
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
-        if let existing = tabs.openFileTabs.first(where: { $0.path == path }) {
-            tabs.selectedFileTabId = existing.id
+        if let existingIndex = tabs.openFileTabs.firstIndex(where: { $0.path == path }) {
+            if let originWindowId {
+                tabs.openFileTabs[existingIndex].originWindowId = originWindowId
+            }
+            tabs.selectedFileTabId = tabs.openFileTabs[existingIndex].id
             return
         }
-        let newTab = OpenFileTab(path: path, directoryPath: directoryPath)
+        let newTab = OpenFileTab(
+            path: path,
+            directoryPath: directoryPath,
+            originWindowId: originWindowId
+        )
         tabs.openFileTabs.append(newTab)
         tabs.selectedFileTabId = newTab.id
     }
@@ -1293,13 +1341,25 @@ public struct MainView: View {
             path: url.path,
             directoryPath: directoryPath,
             sessionName: session.sessionName,
-            windowId: window.id
+            windowId: window.id,
+            originWindowId: window.id
         )
         return true
     }
 
-    /// Removes a file tab. If the closed tab was selected, clears the selection so
-    /// the content area falls back to the file tree (when active) or the terminal.
+    /// Removes a file tab. If the closed tab was selected, clears the selection.
+    ///
+    /// When the tab carries an `originWindowId` (set when opened from a
+    /// terminal click), the originating terminal is reselected and its file
+    /// browser is hidden so the user deterministically lands back on the
+    /// terminal rather than the file tree. If the origin window is gone we
+    /// still drop the file-browser membership for that id so the content area
+    /// doesn't fall back to the tree — the user simply stays on whichever
+    /// window is currently selected (or the empty state if none).
+    ///
+    /// Tabs without an origin (opened from the file browser tree, markdown
+    /// suggestions, etc.) keep the legacy fallback so the file tree remains
+    /// visible underneath.
     ///
     /// Invariant: this must be the only code path that removes entries from
     /// `openFileTabs`. Any bulk mutation that bypasses this method must also
@@ -1308,9 +1368,32 @@ public struct MainView: View {
     /// against a stale tab.
     private func closeOpenFileTab(_ tabId: UUID, sessionName: String) {
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
-        tabs.openFileTabs.removeAll { $0.id == tabId }
-        if tabs.selectedFileTabId == tabId {
-            tabs.selectedFileTabId = nil
+        guard let closedIndex = tabs.openFileTabs.firstIndex(where: { $0.id == tabId }) else { return }
+        let closedTab = tabs.openFileTabs[closedIndex]
+        let wasSelected = tabs.selectedFileTabId == tabId
+        tabs.openFileTabs.remove(at: closedIndex)
+        tabs.scrollOffsets.removeValue(forKey: tabId)
+        guard wasSelected else { return }
+        tabs.selectedFileTabId = nil
+
+        guard let originWindowId = closedTab.originWindowId else { return }
+
+        // Drop membership unconditionally so the content area falls off the
+        // tree even when the origin window is gone (closed/renamed). The
+        // entry is otherwise only cleaned up by the panes-change observer,
+        // which would briefly keep the tree visible.
+        fileBrowserActiveWindowIds.remove(originWindowId)
+
+        guard let originWindow = tmuxService.windows.first(where: { $0.id == originWindowId }) else {
+            return
+        }
+        if selectedWindow?.id != originWindow.id {
+            selectedRemoteSession = nil
+            selectedRemoteWindowId = nil
+            selectedWindow = originWindow
+            Task {
+                try? await tmuxService.selectWindow(originWindow.id)
+            }
         }
     }
 
@@ -2387,39 +2470,11 @@ private struct RemoteHostSidebarSection: View {
 
     private var sortedSessions: [TmuxSession] {
         settings.sidebarSortMode.sorted(tmuxSessions) { session in
-            let claudeSession = session.windows
-                .flatMap(\.panes)
-                .compactMap(\.claudeSession)
-                .first
-            let activePane = session.activeWindow?.activePane
-
-            // Scan all windows for terminal title (matches RemoteSessionSidebarRow)
-            let terminalTitle = session.windows
-                .flatMap(\.panes)
-                .compactMap(\.terminalTitle)
-                .first { !$0.isEmpty }
-
-            let fields = claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields
-
-            let primaryLabel = SessionSortData.primaryLabel(
-                fields: fields,
-                customDescription: session.customDescription,
-                projectName: claudeSession?.displayName,
-                sessionName: session.sessionName,
-                terminalTitle: terminalTitle,
-                command: activePane?.command,
-                currentPath: activePane?.currentPath,
-                gitBranch: activePane?.gitBranch,
+            SessionSortData.forRemoteSession(
+                session,
+                sidebarFields: settings.sidebarFields,
+                sidebarTerminalFields: settings.sidebarTerminalFields,
                 homeDirectory: sessionStore.homeDirectoryByHost[host.id]
-            )
-
-            return SessionSortData(
-                sessionName: session.sessionName,
-                primaryLabel: primaryLabel,
-                hasClaude: claudeSession != nil,
-                statusPriority: SessionSortData.statusPriority(for: claudeSession),
-                statusPriorityIdleFirst: SessionSortData.statusPriorityIdleFirst(for: claudeSession),
-                latestEventTimestamp: claudeSession?.latestEvent?.timestamp
             )
         }
     }

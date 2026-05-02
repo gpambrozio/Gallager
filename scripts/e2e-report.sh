@@ -303,6 +303,16 @@ def process_screenshot(ss):
         "baselineCreated": baseline_created,
     }
 
+def process_failure_screenshot(fs):
+    """Convert a path-based failure screenshot dict to a hash-based field."""
+    target = fs.get("target", "")
+    path = fs.get("path")
+    image_hash = store_image(path) if path else None
+    return {
+        "target": target,
+        "imageHash": image_hash,
+    }
+
 results = []
 try:
     with open(os.path.join(report_dir, "results.json")) as f:
@@ -310,12 +320,17 @@ try:
 except Exception as e:
     print(f"Warning: could not read results.json: {e}", file=sys.stderr)
 
-# Process screenshot in each scenario's steps
+# Process screenshot + failure screenshots in each scenario's steps
 for scenario in results:
     for step in scenario.get("steps", []):
         ss = step.get("screenshot")
         if ss:
             step["screenshot"] = process_screenshot(ss)
+        failures = step.get("failureScreenshots") or []
+        if failures:
+            step["failureScreenshots"] = [
+                process_failure_screenshot(f) for f in failures
+            ]
 
 report = {"metadata": metadata, "scenarios": results}
 with open(os.path.join(report_dir, "report.json"), "w") as f:

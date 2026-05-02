@@ -28,6 +28,16 @@ public actor MacOSDriver {
         self.testAccessibilityPort = testAccessibilityPort
     }
 
+    /// Whether the app instance launched by `launchApp` is still running.
+    /// Used by the orchestrator to decide whether to attempt failure screenshots.
+    public var isLaunched: Bool {
+        guard let pid = appPID else { return false }
+        if let app = NSRunningApplication(processIdentifier: pid) {
+            return !app.isTerminated
+        }
+        return false
+    }
+
     // MARK: - App Lifecycle
 
     /// Launch the macOS app and record its PID for targeted interaction
@@ -123,6 +133,19 @@ public actor MacOSDriver {
             pollInterval: 0.5
         ) {
             MacOSAccessibility.windowExists(appPID: pid, titled: titled)
+        }
+    }
+
+    /// Wait for a top-level window whose title equals `title` exactly.
+    /// Asserts on `navigationTitle` without substring ambiguity.
+    public func waitForWindowTitle(equals title: String, timeout: TimeInterval = 5) async throws {
+        let pid = try requirePID()
+        try await Polling.waitUntil(
+            description: "window with title equal to \"\(title)\"",
+            timeout: timeout,
+            pollInterval: 0.5
+        ) {
+            MacOSAccessibility.windowExists(appPID: pid, titledExactly: title)
         }
     }
 

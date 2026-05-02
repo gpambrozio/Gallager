@@ -59,7 +59,10 @@ struct RemoteTerminalContainerView: View {
                 statusBar
             }
         }
-        .navigationTitle(windowTitle)
+        // Only set the navigation title when this view owns its window
+        // (i.e. used as a standalone mirror window). When embedded as a tile in
+        // RemoteWindowPaneLayoutView, the parent's title must remain in effect.
+        .standaloneNavigationTitle(windowTitle, when: windowKey != nil)
         .onChange(of: terminalTitle) { _, newTitle in
             // Update the NSWindow title to match (SwiftUI navigationTitle doesn't sync to NSWindow)
             guard let newTitle, !newTitle.isEmpty, let windowKey else { return }

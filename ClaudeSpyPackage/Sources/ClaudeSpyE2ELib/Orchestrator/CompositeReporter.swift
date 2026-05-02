@@ -26,9 +26,19 @@ final public class CompositeReporter: TestProgressReporter, @unchecked Sendable 
         }
     }
 
-    public func stepFailed(_ stepNumber: Int, error: String, screenshot: TestOrchestrator.ScreenshotResult?) async {
+    public func stepFailed(
+        _ stepNumber: Int,
+        error: String,
+        screenshot: TestOrchestrator.ScreenshotResult?,
+        failureScreenshots: [TestOrchestrator.FailureScreenshot]
+    ) async {
         for r in reporters {
-            await r.stepFailed(stepNumber, error: error, screenshot: screenshot)
+            await r.stepFailed(
+                stepNumber,
+                error: error,
+                screenshot: screenshot,
+                failureScreenshots: failureScreenshots
+            )
         }
     }
 

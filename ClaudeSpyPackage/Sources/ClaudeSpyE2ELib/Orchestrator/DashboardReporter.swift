@@ -64,7 +64,17 @@ final public class DashboardReporter: TestProgressReporter, @unchecked Sendable 
         enqueue(["type": "e2e", "event": "step-completed", "scenario": currentScenarioName, "stepNumber": stepNumber])
     }
 
-    public func stepFailed(_ stepNumber: Int, error: String, screenshot: TestOrchestrator.ScreenshotResult?) async {
+    public func stepFailed(
+        _ stepNumber: Int,
+        error: String,
+        screenshot: TestOrchestrator.ScreenshotResult?,
+        failureScreenshots: [TestOrchestrator.FailureScreenshot]
+    ) async {
+        // `failureScreenshots` is intentionally not forwarded: the dashboard
+        // event stream is a lightweight progress feed, and the captures are
+        // already persisted in the JSON report (consumed by the results
+        // viewer). Wire them in here only if/when the dashboard UI renders
+        // screenshots inline.
         enqueue(["type": "e2e", "event": "step-failed", "scenario": currentScenarioName, "stepNumber": stepNumber, "error": error])
     }
 

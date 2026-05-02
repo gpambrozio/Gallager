@@ -6,6 +6,39 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.27</title>
+         <sparkle:version>27</sparkle:version>
+         <sparkle:shortVersionString>1.27</sparkle:shortVersionString>
+         <pubDate>Wed, 29 Apr 2026 19:58:13 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.27
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Sidebar label overrides via CLI</strong>: A new `gallager session-state` command lets you customize sidebar labels for tmux sessions from the terminal.</li>
+<li><strong>Shared file context menu</strong>: The file navigator and editor tabs now share a unified context menu, providing consistent file actions across both surfaces.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Window title reflects selected session</strong>: The macOS window title now shows the primary sidebar label of the currently selected session, making it easier to identify which session a window belongs to.</li>
+<li><strong>Cleaner terminal behavior in mouse mode</strong>: Link underlines and clicks are now suppressed while the terminal is in mouse mode, preventing accidental link activation when interacting with mouse-aware applications.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Clean tmux teardown on quit</strong>: Gallager now tears down the tmux `pipe-pane` cleanly when quitting, preventing lingering pipe processes after the app closes.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.27.dmg"
+                    sparkle:edSignature="JojVo0UwP/Kt1tXayXwP5BYe4yGsc2TH16LgSSU2YxVE9dMxMzjzTMKmJ6a6bpsD++77xn4qXRHnWTfAL3w0DQ=="
+                    length="29011274"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.26</title>
          <sparkle:version>26</sparkle:version>
          <sparkle:shortVersionString>1.26</sparkle:shortVersionString>
