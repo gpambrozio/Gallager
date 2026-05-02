@@ -141,8 +141,13 @@ struct SessionStateCommand: ParsableCommand {
 
     func run() throws {
         var params: [String: JSONValue] = ["state": .string(state)]
-        if let pane = options.pane { params["pane_id"] = .string(pane) }
-        if let session = options.session { params["session_id"] = .string(session) }
+        if let pane = options.pane {
+            params["pane_id"] = .string(pane)
+        } else if let session = options.session {
+            params["session_id"] = .string(session)
+        } else if let pane = options.callingPaneId {
+            params["pane_id"] = .string(pane)
+        }
         let response = try executeRequest(
             method: "session.set_state",
             params: params,
