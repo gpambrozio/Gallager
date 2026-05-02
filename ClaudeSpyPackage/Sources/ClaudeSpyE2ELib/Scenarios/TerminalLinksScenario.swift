@@ -62,7 +62,6 @@ public enum TerminalLinksScenario {
 
         TestStep.log("Verifying links on macOS")
         Shortcut.openPanesWindow()
-        TestStep.macResizeWindow(width: 1_200, height: 700)
 
         // Select the links-test pane
         TestStep.macClickButton(titled: "links-test")
@@ -106,11 +105,9 @@ public enum TerminalLinksScenario {
         // platform would fail here. iOS first, since it currently has focus.
         TestStep.iosScreenshot(label: "ios-terminal-links-mouse-mode")
 
-        // Refocus the macOS Panes window with the same standard sizing used
-        // before the iOS detour, so the screenshot dimensions stay consistent
-        // with the first macOS capture above.
+        // Refocus the macOS Panes window with the standard sizing so both
+        // macOS captures share dimensions.
         Shortcut.openPanesWindow()
-        TestStep.macResizeWindow(width: 1_200, height: 700)
         TestStep.macClickButton(titled: "links-test")
         TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "mac-terminal-links-mouse-mode")
