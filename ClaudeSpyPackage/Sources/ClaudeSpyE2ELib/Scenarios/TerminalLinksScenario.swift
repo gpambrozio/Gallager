@@ -106,13 +106,11 @@ public enum TerminalLinksScenario {
         // platform would fail here. iOS first, since it currently has focus.
         TestStep.iosScreenshot(label: "ios-terminal-links-mouse-mode")
 
-        // Refocus the macOS Panes window. The "links-test" session is still
-        // selected from earlier, so the window title now reflects its primary
-        // sidebar label ("~" — the abbreviated home directory) rather than
-        // the default "Gallager" fallback.
-        TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "~", timeout: 5)
-        TestStep.wait(seconds: 1)
+        // Refocus the macOS Panes window with the same standard sizing used
+        // before the iOS detour, so the screenshot dimensions stay consistent
+        // with the first macOS capture above.
+        Shortcut.openPanesWindow()
+        TestStep.macResizeWindow(width: 1_200, height: 700)
         TestStep.macClickButton(titled: "links-test")
         TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "mac-terminal-links-mouse-mode")
