@@ -1279,8 +1279,10 @@ public struct MainView: View {
     ///
     /// `originWindowId` records which tmux window initiated the open when the
     /// tab is opened from a terminal click; closing the tab routes the user
-    /// back there instead of leaving them on the file browser tree. The most
-    /// recent open wins so the return target reflects the user's latest intent.
+    /// back there instead of leaving them on the file browser tree. When an
+    /// existing tab is re-opened, only a non-nil incoming origin overwrites
+    /// the stored value — a tree/context-menu re-open carries no origin and
+    /// must not silently clear the previously-recorded terminal return target.
     private func openFileInNewTab(
         path: String,
         directoryPath: String,
@@ -1297,7 +1299,9 @@ public struct MainView: View {
         }
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
         if let existingIndex = tabs.openFileTabs.firstIndex(where: { $0.path == path }) {
-            tabs.openFileTabs[existingIndex].originWindowId = originWindowId
+            if let originWindowId {
+                tabs.openFileTabs[existingIndex].originWindowId = originWindowId
+            }
             tabs.selectedFileTabId = tabs.openFileTabs[existingIndex].id
             return
         }
@@ -1360,13 +1364,14 @@ public struct MainView: View {
     /// against a stale tab.
     private func closeOpenFileTab(_ tabId: UUID, sessionName: String) {
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
-        let closedTab = tabs.openFileTabs.first(where: { $0.id == tabId })
+        guard let closedIndex = tabs.openFileTabs.firstIndex(where: { $0.id == tabId }) else { return }
+        let closedTab = tabs.openFileTabs[closedIndex]
         let wasSelected = tabs.selectedFileTabId == tabId
-        tabs.openFileTabs.removeAll { $0.id == tabId }
+        tabs.openFileTabs.remove(at: closedIndex)
         guard wasSelected else { return }
         tabs.selectedFileTabId = nil
 
-        guard let originWindowId = closedTab?.originWindowId else { return }
+        guard let originWindowId = closedTab.originWindowId else { return }
 
         // Drop membership unconditionally so the content area falls off the
         // tree even when the origin window is gone (closed/renamed). The

@@ -62,7 +62,6 @@ public enum TerminalFileLinkScenario {
 
         TestStep.macWaitForElement(titled: "termlink", timeout: 5)
         TestStep.macClickButton(titled: "termlink")
-        TestStep.wait(seconds: 3)
 
         // Wait for the link text to appear in the terminal's accessibility value
         TestStep.macWaitForElementQuery(
@@ -74,7 +73,6 @@ public enum TerminalFileLinkScenario {
         // ── Phase 1: Click the link → file tab opens ─────────────
         TestStep.log("Phase 1: Click the file link in the terminal")
         TestStep.macClickAtPoint(x: linkClickX, y: linkClickY)
-        TestStep.wait(seconds: 2)
 
         // The new tab carries the file name in its accessibility label.
         TestStep.macWaitForElement(titled: "File tab: hello.txt", timeout: 5)
@@ -91,7 +89,6 @@ public enum TerminalFileLinkScenario {
         // not the file browser tree.
         TestStep.log("Phase 1.5: Close the file tab and verify the originating terminal is reselected")
         TestStep.macClickButton(titled: "Close file tab: hello.txt")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "File tab: hello.txt", timeout: 5)
 
         // The terminal must be the active view again. The terminal-%0 element
@@ -120,7 +117,6 @@ public enum TerminalFileLinkScenario {
 
         // Re-select the pane after Settings closes so the terminal regains focus.
         TestStep.macClickButton(titled: "termlink:0")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("click-here-to-open-hello-txt-file")]),
             timeout: 10
@@ -130,7 +126,6 @@ public enum TerminalFileLinkScenario {
         // and `NSWorkspace.shared.open` is invoked on a non-existent path,
         // which silently no-ops — no new tab should appear.
         TestStep.macClickAtPoint(x: linkClickX, y: linkClickY)
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementToDisappear(titled: "File tab: hello.txt", timeout: 3)
         TestStep.macScreenshot(label: "mac-file-link-click-with-setting-off")
 
