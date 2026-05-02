@@ -78,20 +78,31 @@ Newline-delimited JSON-RPC over `AF_UNIX, SOCK_STREAM`. Each message is a single
 ### `session.set_state` — `gallager session-state <state>`
 - Params: `{ "state": "working" | "idle" | "waiting" | "clear", "pane_id"?: string, "session_id"?: string }`
 - Result: `{ "applied_to": int }` — number of panes whose override was updated.
-- With both `pane_id` and `session_id` omitted, the active pane is targeted. A
-  Claude hook event whose `isWorking` is non-nil or that would trigger a
-  notification clears the override for the same pane, so live sessions revert to
-  hook-driven state on their own.
+- The CLI fills `pane_id` from `$TMUX_PANE` when neither `--pane` nor
+  `--session` is given, so the calling pane is targeted by default. With both
+  parameters absent and no `$TMUX_PANE` (e.g. when invoked from outside tmux),
+  the server falls back to the globally active pane. A Claude hook event whose
+  `isWorking` is non-nil or that would trigger a notification clears the
+  override for the same pane, so live sessions revert to hook-driven state on
+  their own.
 
 ## Windows
 
 ### `window.list` — `gallager list-windows [--session]`
-- Params: `{ "session_id"?: string }`
+- Params: `{ "session_id"?: string, "pane_id"?: string }`
 - Result: `{ "windows": [{ "id", "index", "name", "paneCount", "isActive", "sessionId" }, …] }`
+- When `session_id` is omitted but `pane_id` is provided, the server resolves
+  the pane to its session and filters accordingly. The CLI sends `pane_id`
+  from `$TMUX_PANE` automatically when neither `--session` nor `--pane` is
+  passed, so the listing defaults to the calling pane's session.
 
 ### `window.create` — `gallager new-window [--session] [--path]`
-- Params: `{ "session_id"?: string, "path"?: string }`
+- Params: `{ "session_id"?: string, "path"?: string, "pane_id"?: string }`
 - Result: `{ "id", "index", "name", "paneCount", "isActive", "sessionId" }`
+- When `session_id` is omitted but `pane_id` is provided, the new window is
+  created in the pane's session. The CLI sends `pane_id` from `$TMUX_PANE`
+  automatically when neither `--session` nor `--pane` is passed, so the new
+  window lands in the calling pane's session.
 
 ### `window.select` — `gallager select-window <id>`
 - Params: `{ "window_id": string }`
@@ -104,7 +115,11 @@ Newline-delimited JSON-RPC over `AF_UNIX, SOCK_STREAM`. Each message is a single
 ## Panes
 
 ### `pane.list` — `gallager list-panes [--window]`
-- Params: `{ "window_id"?: string }`
+- Params: `{ "window_id"?: string, "pane_id"?: string }`
+- When `window_id` is omitted but `pane_id` is provided, the server resolves
+  the pane to its window and filters accordingly. The CLI sends `pane_id`
+  from `$TMUX_PANE` automatically when neither `--window` nor `--pane` is
+  passed, so the listing defaults to the calling pane's window.
 - Result:
 ```json
 {
@@ -120,6 +135,8 @@ Newline-delimited JSON-RPC over `AF_UNIX, SOCK_STREAM`. Each message is a single
 ### `pane.split` — `gallager split-pane [direction] [--pane] [--path]`
 - Params: `{ "direction"?: "left"|"right"|"up"|"down", "pane_id"?: string, "path"?: string }`
 - Result: pane object (same shape as `pane.list`)
+- The CLI fills `pane_id` from `$TMUX_PANE` when no targeting flag is given,
+  so the split happens on the calling pane.
 
 ### `pane.select` — `gallager select-pane <id>`
 - Params: `{ "pane_id": string }`
@@ -131,11 +148,15 @@ Newline-delimited JSON-RPC over `AF_UNIX, SOCK_STREAM`. Each message is a single
 Sends text verbatim — include `\n` in the text for Enter.
 - Params: `{ "text": string, "pane_id"?: string }`
 - Result: `{}`
+- The CLI fills `pane_id` from `$TMUX_PANE` when no targeting flag is given,
+  so input goes to the calling pane.
 
 ### `input.send_key` — `gallager send-key <key> [--pane]`
 Named keys: `enter`, `tab`, `escape`, `backspace`, `delete`, `up`, `down`, `left`, `right`, `space`.
 - Params: `{ "key": string, "pane_id"?: string }`
 - Result: `{}`
+- The CLI fills `pane_id` from `$TMUX_PANE` when no targeting flag is given,
+  so input goes to the calling pane.
 
 ## Notifications
 
