@@ -1280,11 +1280,19 @@ public struct MainView: View {
     /// FileBrowserView for that window stays mounted while the file tab is
     /// selected — its `directoryChanges` task is what drives tab deletion
     /// state, so it must continue running underneath the visible file content.
+    ///
+    /// `originWindowId` records which tmux window initiated the open when the
+    /// tab is opened from a terminal click; closing the tab routes the user
+    /// back there instead of leaving them on the file browser tree. When an
+    /// existing tab is re-opened, only a non-nil incoming origin overwrites
+    /// the stored value — a tree/context-menu re-open carries no origin and
+    /// must not silently clear the previously-recorded terminal return target.
     private func openFileInNewTab(
         path: String,
         directoryPath: String,
         sessionName: String,
-        windowId: String
+        windowId: String,
+        originWindowId: String? = nil
     ) {
         fileBrowserActiveWindowIds.insert(windowId)
         if fileBrowserStates[sessionName] == nil {
@@ -1294,11 +1302,18 @@ public struct MainView: View {
             sessionFileTabsStates[sessionName] = SessionFileTabsState()
         }
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
-        if let existing = tabs.openFileTabs.first(where: { $0.path == path }) {
-            tabs.selectedFileTabId = existing.id
+        if let existingIndex = tabs.openFileTabs.firstIndex(where: { $0.path == path }) {
+            if let originWindowId {
+                tabs.openFileTabs[existingIndex].originWindowId = originWindowId
+            }
+            tabs.selectedFileTabId = tabs.openFileTabs[existingIndex].id
             return
         }
-        let newTab = OpenFileTab(path: path, directoryPath: directoryPath)
+        let newTab = OpenFileTab(
+            path: path,
+            directoryPath: directoryPath,
+            originWindowId: originWindowId
+        )
         tabs.openFileTabs.append(newTab)
         tabs.selectedFileTabId = newTab.id
     }
@@ -1326,13 +1341,25 @@ public struct MainView: View {
             path: url.path,
             directoryPath: directoryPath,
             sessionName: session.sessionName,
-            windowId: window.id
+            windowId: window.id,
+            originWindowId: window.id
         )
         return true
     }
 
-    /// Removes a file tab. If the closed tab was selected, clears the selection so
-    /// the content area falls back to the file tree (when active) or the terminal.
+    /// Removes a file tab. If the closed tab was selected, clears the selection.
+    ///
+    /// When the tab carries an `originWindowId` (set when opened from a
+    /// terminal click), the originating terminal is reselected and its file
+    /// browser is hidden so the user deterministically lands back on the
+    /// terminal rather than the file tree. If the origin window is gone we
+    /// still drop the file-browser membership for that id so the content area
+    /// doesn't fall back to the tree — the user simply stays on whichever
+    /// window is currently selected (or the empty state if none).
+    ///
+    /// Tabs without an origin (opened from the file browser tree, markdown
+    /// suggestions, etc.) keep the legacy fallback so the file tree remains
+    /// visible underneath.
     ///
     /// Invariant: this must be the only code path that removes entries from
     /// `openFileTabs`. Any bulk mutation that bypasses this method must also
@@ -1341,10 +1368,32 @@ public struct MainView: View {
     /// against a stale tab.
     private func closeOpenFileTab(_ tabId: UUID, sessionName: String) {
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
-        tabs.openFileTabs.removeAll { $0.id == tabId }
+        guard let closedIndex = tabs.openFileTabs.firstIndex(where: { $0.id == tabId }) else { return }
+        let closedTab = tabs.openFileTabs[closedIndex]
+        let wasSelected = tabs.selectedFileTabId == tabId
+        tabs.openFileTabs.remove(at: closedIndex)
         tabs.scrollOffsets.removeValue(forKey: tabId)
-        if tabs.selectedFileTabId == tabId {
-            tabs.selectedFileTabId = nil
+        guard wasSelected else { return }
+        tabs.selectedFileTabId = nil
+
+        guard let originWindowId = closedTab.originWindowId else { return }
+
+        // Drop membership unconditionally so the content area falls off the
+        // tree even when the origin window is gone (closed/renamed). The
+        // entry is otherwise only cleaned up by the panes-change observer,
+        // which would briefly keep the tree visible.
+        fileBrowserActiveWindowIds.remove(originWindowId)
+
+        guard let originWindow = tmuxService.windows.first(where: { $0.id == originWindowId }) else {
+            return
+        }
+        if selectedWindow?.id != originWindow.id {
+            selectedRemoteSession = nil
+            selectedRemoteWindowId = nil
+            selectedWindow = originWindow
+            Task {
+                try? await tmuxService.selectWindow(originWindow.id)
+            }
         }
     }
 
