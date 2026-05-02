@@ -1894,17 +1894,18 @@
         @Test("Issue #429 — pad-to-width must not cause double-spacing on cols mismatch")
         @MainActor
         func issue429NoBlankRowsOnColsMismatch() throws {
-            // Reproduces the symptom from issue #429: the visible-area rebuild
-            // pads each line to exactly `width` characters. If SwiftTerm's
-            // actual cols is even one column smaller than `width`, every line
-            // wraps into the next visual row, then the trailing `\r\n` advances
-            // the cursor a SECOND time — producing a blank row between every
-            // pair of content rows.
+            // Regression test for the issue #429 symptom in the
+            // "rebuild width > mirror cols" feed-forward path.
             //
-            // This test simulates the cols mismatch by feeding the rebuild
-            // output (computed for width 80) into a SwiftTerm sized to 79 cols.
-            // Asserts that no blank rows appear between consecutive content
-            // rows in the rendered visible area.
+            // Visible content has no SGR setters, so
+            // `lineHasNonBgSGRActiveAtEnd` returns false and the conditional
+            // padding is suppressed — rebuilt rows end after their actual
+            // content (plus a trailing `\e[K`) instead of being padded to
+            // `width`. Feeding that output into a SwiftTerm sized to one
+            // column less than `width` must NOT produce blank rows between
+            // consecutive content rows: with no padding, no row reaches the
+            // narrower terminal's right edge, so nothing wraps and the
+            // trailing `\r\n` lands cleanly on the next row.
             let service = TmuxService()
             let height = 24
             let rebuildWidth = 80
@@ -2048,6 +2049,125 @@
                 Issue.record("Found \(blanksBetween) blank rows between content rows after resize \(rebuildWidth)→\(postResizeCols). First 20 rows:\n\(excerpt)")
             }
             #expect(blanksBetween == 0, "Expected no blank rows after reflow narrower (\(rebuildWidth)→\(postResizeCols)), got \(blanksBetween) blank rows")
+        }
+    }
+
+    // MARK: - lineHasNonBgSGRActiveAtEnd direct tests
+
+    @Suite("lineHasNonBgSGRActiveAtEnd SGR walker")
+    @MainActor
+    struct LineHasNonBgSGRActiveAtEndTests {
+        @Test("No SGR codes → false")
+        func plainTextIsFalse() {
+            let service = TmuxService()
+            #expect(service.lineHasNonBgSGRActiveAtEnd("plain log line") == false)
+        }
+
+        @Test("Style flag (bold) → true")
+        func boldIsTrue() {
+            let service = TmuxService()
+            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[1mbold") == true)
+        }
+
+        @Test("Style flag (underline) → true (#352 trim shape)")
+        func underlineIsTrue() {
+            let service = TmuxService()
+            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[4m") == true)
+        }
+
+        @Test("8-color fg (red) → true")
+        func fgRedIsTrue() {
+            let service = TmuxService()
+            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[31mfoo") == true)
+        }
+
+        @Test("Bright fg (bright cyan) → true")
+        func brightFgIsTrue() {
+            let service = TmuxService()
+            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[96mfoo") == true)
+        }
+
+        @Test("256-color fg (38;5;N) → true and skips index param")
+        func extendedFg256IsTrue() {
+            let service = TmuxService()
+            // After consuming 38;5;1, no further state changes — flag stays true.
+            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[38;5;1mfoo") == true)
+        }
+
+        @Test("Truecolor fg (38;2;R;G;B) → true and skips RGB params")
+        func extendedFgTruecolorIsTrue() {
+            let service = TmuxService()
+            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[38;2;255;128;0mfoo") == true)
+        }
+
+        @Test("Bg-only setter (#411 band) → false (BCE handles it)")
+        func bgOnlyIsFalse() {
+            let service = TmuxService()
+            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[44m") == false)
+        }
+
+        @Test("Extended bg (48;5;N) → false and skips index param")
+        func extendedBg256IsFalse() {
+            let service = TmuxService()
+            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[48;5;1m") == false)
+        }
+
+        @Test("Truecolor bg (48;2;R;G;B) → false and skips RGB params")
+        func extendedBgTruecolorIsFalse() {
+            let service = TmuxService()
+            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[48;2;0;0;255m") == false)
+        }
+
+        @Test("Style + reset (\\e[0m) → false")
+        func fullResetClearsFlag() {
+            let service = TmuxService()
+            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[1mfoo\u{1b}[0m") == false)
+        }
+
+        @Test("Empty params (\\e[m) treated as full reset → false")
+        func emptyParamsIsReset() {
+            let service = TmuxService()
+            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[1mfoo\u{1b}[m") == false)
+        }
+
+        @Test("Trailing-empty param (\\e[1;m) treats trailing as 0 → false")
+        func trailingEmptyParamIsZero() {
+            let service = TmuxService()
+            // ECMA-48: trailing empty param is `0`, so 1;m sets bold then resets.
+            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[1;m") == false)
+        }
+
+        @Test("Partial reset (39 default fg) is conservatively a no-op → over-pads")
+        func partialResetFgIsOverPad() {
+            let service = TmuxService()
+            // \e[31m sets red fg; \e[39m resets to default fg per ECMA-48, but
+            // the walker treats 39 as a no-op and stays true. This is the
+            // documented over-pad trade-off.
+            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[31mfoo\u{1b}[39m") == true)
+        }
+
+        @Test("Partial reset (24 underline off) is conservatively a no-op → over-pads")
+        func partialResetUnderlineIsOverPad() {
+            let service = TmuxService()
+            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[4mfoo\u{1b}[24m") == true)
+        }
+
+        @Test("Multi-param SGR (\\e[1;31m) → true")
+        func multiParamIsTrue() {
+            let service = TmuxService()
+            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[1;31mfoo") == true)
+        }
+
+        @Test("Style then bg-only after reset → false")
+        func bgAfterResetIsFalse() {
+            let service = TmuxService()
+            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[1mfoo\u{1b}[0m\u{1b}[44m") == false)
+        }
+
+        @Test("Non-SGR CSI (e.g. \\e[H) is ignored → false")
+        func nonSgrCsiIgnored() {
+            let service = TmuxService()
+            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[Hfoo") == false)
         }
     }
 

@@ -866,12 +866,11 @@ final public class TmuxService {
     /// SGR (preserving the issue #352 trim-shape bands like a lone `\e[4m`)
     /// or whether `\e[K` alone suffices (issue #411 bg bands or default).
     ///
-    /// The walker is conservative on partial resets (22-29 reset specific
-    /// style flags; 39 resets fg). Those collapse the (style|fg) state only
-    /// when the explicit reset matches the only active attribute, so this
-    /// over-pads in some rare cases — that's acceptable because the cost of
-    /// a false positive is reflow blanks on a rare row, while a false
-    /// negative would lose visible styling on the rebuild.
+    /// The walker treats partial resets (22-29 style off, 39 default fg) as
+    /// no-ops, so it over-pads when a partial reset cancels the only active
+    /// attribute. That false positive is acceptable: the cost is reflow
+    /// blanks on a rare row, while a false negative would lose visible
+    /// styling on the rebuild.
     func lineHasNonBgSGRActiveAtEnd(_ filtered: String) -> Bool {
         var hasNonBgActive = false
         var i = filtered.startIndex
@@ -894,9 +893,12 @@ final public class TmuxService {
             let terminator = filtered[end]
             if terminator == "m" {
                 let paramStr = String(filtered[paramsStart..<end])
+                // `omittingEmptySubsequences: false` so trailing-empty
+                // params (e.g. `\e[1;m`) are treated as `0` per ECMA-48.
                 let params: [Int] = paramStr.isEmpty
                     ? [0]
-                    : paramStr.split(separator: ";").map { Int($0) ?? 0 }
+                    : paramStr.split(separator: ";", omittingEmptySubsequences: false)
+                    .map { Int($0) ?? 0 }
                 var idx = 0
                 while idx < params.count {
                     let p = params[idx]
@@ -904,15 +906,7 @@ final public class TmuxService {
                     case 0:
                         // Reset all attributes.
                         hasNonBgActive = false
-                    case 1,
-                         2,
-                         3,
-                         4,
-                         5,
-                         6,
-                         7,
-                         8,
-                         9,
+                    case 1...9,
                          21,
                          53:
                         // Style flags: bold, dim, italic, underline, blink,

@@ -1,10 +1,12 @@
 import Foundation
 
-/// E2E reproducer for issue #429: extra blank rows between log entries on
-/// mirror attach when the global auto-resize preference is enabled.
+/// E2E regression test for issue #429: with the conditional-padding fix
+/// landed, the rebuilt visible area must NOT show extra blank rows between
+/// log entries on mirror attach when the global auto-resize preference is
+/// enabled. The screenshot baseline captures the FIXED rendering.
 ///
-/// Reproduction recipe (verified to deterministically show double-spacing
-/// in the rebuilt visible area on the FIRST attach screenshot):
+/// Recipe — exercises the production resize-during-attach path that
+/// originally produced the double-spacing:
 ///
 ///   1. Start with a tmux pane that is significantly WIDER than the mirror
 ///      window can fit (so auto-resize must shrink it during attach).
@@ -12,25 +14,21 @@ import Foundation
 ///      of the rebuild substantial content to render.
 ///   3. Resize the mirror window to a narrow width.
 ///   4. Enable the global "auto-resize all terminal panes…" preference.
-///   5. Click the pane to attach. The rebuild captures and pads content to
-///      the CURRENT pane width; the visible content fills `width`-wide
-///      lines. Auto-resize then fires (debounced) and shrinks the tmux
-///      pane to fit the mirror window, propagating a layout-change event
-///      that resizes the SwiftTerm buffer to fewer cols. SwiftTerm's
-///      `reflowNarrower` re-flows the buffer rows; padded lines whose
-///      trimmed length already equals the new cols can re-emerge with
-///      blank continuation rows interleaved between them — exactly the
-///      double-spacing the user reports.
-///   6. Screenshot the attach state (`compare: false`) so the screenshot
-///      captures the transient double-spaced rendering. Visual inspection
-///      of the screenshot is what confirms reproduction.
+///   5. Click the pane to attach. The rebuild captures content at the
+///      CURRENT pane width; auto-resize then fires (debounced) and shrinks
+///      the tmux pane to fit the mirror window, propagating a layout-change
+///      event that resizes the SwiftTerm buffer to fewer cols and triggers
+///      `reflowNarrower`. Pre-fix, padded rows reflowed into blank
+///      continuation rows; post-fix, ordinary content rows aren't padded,
+///      so reflow trims trailing NULL cells and no blanks are produced.
+///   6. Screenshot the attach state — the baseline captures the fixed,
+///      single-spaced rendering. A regression that reintroduces the
+///      pad-everything path will diff against this baseline.
 ///
-/// Note: this scenario reproduces the VISUAL bug on the buggy code path.
-/// The companion unit test `issue429NoBlankRowsOnColsMismatch` covers the
-/// underlying pad-to-width vs. mirror cols mismatch deterministically.
-/// The auto-resize-induced reflow path is timing-sensitive and not always
-/// caught by the unit test, so this scenario complements it by exercising
-/// the production resize-during-attach race directly.
+/// Companion unit tests `issue429NoBlankRowsOnColsMismatch` and
+/// `issue429NoBlankRowsAfterReflowNarrower` deterministically cover the
+/// pad-to-width vs. cols mismatch and reflow-narrower paths; this scenario
+/// exercises the same fix end-to-end through the resize-during-attach race.
 public enum MirrorAttachExtraNewlinesScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Mirror Attach Extra Newlines",
@@ -63,12 +61,13 @@ public enum MirrorAttachExtraNewlinesScenario {
 
         // Click the pane to start the attach. Auto-resize fires shortly
         // after the click, shrinking the tmux pane and triggering the
-        // reflow path that exposes #429's double-spacing.
+        // reflow path that exposed #429's double-spacing pre-fix.
         TestStep.macClickButton(titled: "newline-bug")
         TestStep.wait(seconds: 1)
 
-        // Screenshot the transient state — the rebuilt visible area
-        // should show double-spaced log entries on the buggy code path.
+        // Screenshot the post-attach state — the baseline captures the
+        // fixed, single-spaced rendering. A regression that reintroduces
+        // pad-every-row will diff against this baseline.
         TestStep.macScreenshot(label: "mac-attach-during-resize")
     }
 }
