@@ -77,6 +77,14 @@
         /// but cache them here so our URL detection still works.
         private var cachedPayloads: [Int: [Int: String]] = [:]
 
+        /// Set to `true` once `init` has fully run. SwiftTerm's `Terminal.init`
+        /// fires `mouseMode.didSet` from inside its setup, which calls our
+        /// `mouseModeChanged` override before `TerminalView.terminal` has been
+        /// assigned — calling `getTerminal()` then trips a precondition.
+        /// We use this flag to skip the synchronous underline refresh until
+        /// init has finished. There can't be stale underlines during init.
+        private var didFinishInit = false
+
         override init(frame: CGRect, font: UIFont?) {
             super.init(frame: frame, font: font)
             terminalDelegate = self
@@ -86,6 +94,7 @@
             caretViewTracksFocus = false
             setupURLLongPress()
             setupMouseModePan()
+            self.didFinishInit = true
         }
 
         @available(*, unavailable)
@@ -335,6 +344,12 @@
             // rather than relying on `setNeedsLayout()` ensures stale
             // underlines disappear in the same frame as the mode change,
             // not on the next layout pass.
+            //
+            // Skip during init: SwiftTerm's `Terminal.init` fires this via
+            // `mouseMode.didSet` before `TerminalView.terminal` is assigned,
+            // so `getTerminal()` inside `updateURLUnderlines()` would crash.
+            // No underlines exist yet at that point — nothing to clear.
+            guard didFinishInit else { return }
             updateURLUnderlines()
         }
 
