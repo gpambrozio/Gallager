@@ -39,7 +39,8 @@ public extension HookEventMessage {
             body = "\(projectName): \(message)"
         case let .stopFailure(failureBody):
             body = "\(projectName): Error — \(failureBody.errorType ?? "unknown failure")"
-        case .sessionEnd,
+        case .setup,
+             .sessionEnd,
              .preToolUse,
              .postToolUse,
              .postToolUseFailure,

@@ -183,7 +183,8 @@ final public class SessionStore {
             }
             logger.info("Session ended for pane: \(paneId)")
 
-        case .preToolUse,
+        case .setup,
+             .preToolUse,
              .postToolUse,
              .postToolUseFailure,
              .postToolBatch,

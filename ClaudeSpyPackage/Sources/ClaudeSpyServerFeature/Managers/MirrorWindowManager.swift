@@ -215,7 +215,8 @@ final public class MirrorWindowManager {
                 // If auto-approve fails, fall through to normal flow
             }
 
-        case .permissionRequest,
+        case .setup,
+             .permissionRequest,
              .preToolUse,
              .postToolUse,
              .postToolUseFailure,
