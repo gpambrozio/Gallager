@@ -136,7 +136,8 @@ gallager set-title ""                # clear title for the calling session
 **JSON-RPC**
 - Method: `session.set_title`
 - Params: `{ "title": "Workers", "session_id": "workers" }` _(at least one of `session_id`/`window_id`/`pane_id` should be set; otherwise the active session is used)_
-- Response: `{ "scope": "session" | "window" | "none" }`
+- Response: `{ "scope": "session" | "window" }`
+- Errors: `not_found` when the named session/window doesn't exist or no target can be resolved (e.g. invoked outside an attached session with no targeting flags).
 
 ---
 

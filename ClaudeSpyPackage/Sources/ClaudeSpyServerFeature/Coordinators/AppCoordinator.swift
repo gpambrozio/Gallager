@@ -454,56 +454,71 @@
                     // window_id or pane_id is given so the caller can override
                     // the session-wide value for that window only.
                     let panes = await tmux.refreshPanes()
-                    return await MainActor.run { () -> String in
-                        // Window targeting: prefer the cached pane lookup, but
-                        // fall back to splitting "sessionName:index" so detached
-                        // windows (not currently in `panes`) are still reachable.
-                        if let windowId {
-                            if let pane = panes.first(where: { $0.windowId == windowId }) {
+
+                    // Window targeting: prefer the cached pane lookup, but
+                    // fall back to splitting "sessionName:index" so detached
+                    // windows (not currently in `panes`) are still reachable.
+                    if let windowId {
+                        if let pane = panes.first(where: { $0.windowId == windowId }) {
+                            await MainActor.run {
                                 winManager.setWindowDescription(
                                     title,
                                     sessionName: pane.sessionName,
                                     windowIndex: pane.windowIndex
                                 )
-                                return "window"
                             }
-                            let parts = windowId.split(separator: ":", maxSplits: 1).map(String.init)
-                            if parts.count == 2, let index = Int(parts[1]) {
+                            return "window"
+                        }
+                        let parts = windowId.split(separator: ":", maxSplits: 1).map(String.init)
+                        if parts.count == 2, let index = Int(parts[1]) {
+                            await MainActor.run {
                                 winManager.setWindowDescription(
                                     title,
                                     sessionName: parts[0],
                                     windowIndex: index
                                 )
-                                return "window"
                             }
-                            return "none"
+                            return "window"
                         }
-                        if
-                            let paneId,
-                            let pane = panes.first(where: { $0.paneId == paneId }) {
-                            // Pane points at a window within its (possibly
-                            // detached) session. Apply at session scope so the
-                            // caller's intent — "set this for the calling
-                            // pane's session" — is preserved even when no
-                            // session is currently attached.
-                            winManager.setSessionDescription(title, for: pane.sessionName)
-                            return "session"
-                        }
-                        if let sessionId {
-                            winManager.setSessionDescription(title, for: sessionId)
-                            return "session"
-                        }
-                        // No explicit target — fall back to the active session.
-                        let attached = tmux.attachedSessionNames
-                        if
-                            let activeSession = panes.first(where: {
-                                attached.contains($0.sessionName)
-                            })?.sessionName {
-                            winManager.setSessionDescription(title, for: activeSession)
-                            return "session"
-                        }
-                        return "none"
+                        throw APIError.notFound("Window not found: \(windowId)")
                     }
+                    if
+                        let paneId,
+                        let pane = panes.first(where: { $0.paneId == paneId }) {
+                        // Pane points at a window within its (possibly
+                        // detached) session. Apply at session scope so the
+                        // caller's intent — "set this for the calling
+                        // pane's session" — is preserved even when no
+                        // session is currently attached.
+                        await MainActor.run {
+                            winManager.setSessionDescription(title, for: pane.sessionName)
+                        }
+                        return "session"
+                    }
+                    if let sessionId {
+                        // Verify the session actually exists so a bad name
+                        // surfaces as `not_found` rather than a 200/OK with
+                        // no real side effect.
+                        guard await tmux.sessionExists(named: sessionId) else {
+                            throw APIError.notFound("Session not found: \(sessionId)")
+                        }
+                        await MainActor.run {
+                            winManager.setSessionDescription(title, for: sessionId)
+                        }
+                        return "session"
+                    }
+                    // No explicit target — fall back to the active session.
+                    let attached = await MainActor.run { tmux.attachedSessionNames }
+                    if
+                        let activeSession = panes.first(where: {
+                            attached.contains($0.sessionName)
+                        })?.sessionName {
+                        await MainActor.run {
+                            winManager.setSessionDescription(title, for: activeSession)
+                        }
+                        return "session"
+                    }
+                    throw APIError.notFound("No resolvable target for session.set_title")
                 },
                 onWindowList: { [tmux] sessionId, paneId in
                     let panes = await tmux.refreshPanes()

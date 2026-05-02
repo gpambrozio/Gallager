@@ -178,7 +178,7 @@ struct SetTitleCommand: ParsableCommand {
             switch scope {
             case "session": print(title.isEmpty ? "Cleared session title." : "Set session title.")
             case "window": print(title.isEmpty ? "Cleared window title." : "Set window title.")
-            default: print("No matching target found.")
+            default: break
             }
         }
     }

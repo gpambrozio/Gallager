@@ -26,6 +26,7 @@ Prefer the `gallager` subcommand when one exists (it goes through the app and ke
 |---|---|
 | `list-sessions` / `current-session` | `tmux list-sessions`, `tmux display -p '#S'` |
 | `new-session --name foo` | `tmux new-session -d -s foo` |
+| `set-title --session foo "text"` | `tmux set-option -t foo @gallager-description "text"` |
 | `select-session foo` / `close-session foo` | `tmux switch-client -t foo` / `tmux kill-session -t foo` |
 | `list-windows [--session foo]` | `tmux list-windows [-t foo]` |
 | `new-window` / `select-window foo:1` / `close-window foo:1` | `tmux new-window` / `tmux select-window -t foo:1` / `tmux kill-window -t foo:1` |
@@ -33,7 +34,9 @@ Prefer the `gallager` subcommand when one exists (it goes through the app and ke
 | `split-pane right` | `tmux split-window -h` (horizontal = right; `-v` = down) |
 | `select-pane %3` | `tmux select-pane -t %3` |
 | `send "text" --pane %3` | `tmux send-keys -t %3 -l "text"` |
+| `send "text" --enter --pane %3` | `tmux send-keys -t %3 -l "text" \; send-keys -t %3 Enter` |
 | `send-key enter --pane %3` | `tmux send-keys -t %3 Enter` |
+| `capture-pane --pane %3` | `tmux capture-pane -t %3 -p` (add `--scrollback` for `-S -`) |
 | Pane field `command` / `cwd` | `tmux display -p -t %3 '#{pane_current_command}'` / `'#{pane_current_path}'` |
 
 ### When you must go straight to tmux
@@ -79,7 +82,7 @@ If `gallager` is not on `PATH`, ask the user to run **Gallager menu → Install 
 
 ## Core mental model
 
-Every command is one of: `list-*` (inspect), `new-*` / `split-pane` / `start-project` (create), `select-*` (focus), `close-*` (destroy), `send` / `send-key` (input), `notify` (alert), `edit` (block on prompt editor), or a utility (`ping`, `capabilities`, `identify`).
+Every command is one of: `list-*` (inspect), `new-*` / `split-pane` / `start-project` (create), `select-*` (focus), `close-*` (destroy), `send` / `send-key` (input), `set-title` / `session-state` (label), `capture-pane` (read), `notify` (alert), `edit` (block on prompt editor), or a utility (`ping`, `capabilities`, `identify`, `wait-ready`).
 
 Commands default to the **current** session/window/pane (inferred from the calling shell's `$TMUX_PANE`). Override with `--session <id>`, `--window <id>`, or `--pane <id>` when targeting something else.
 
@@ -90,12 +93,18 @@ Append `--json` to any command to get raw JSON-RPC output suitable for `jq`. Use
 ```bash
 # Sanity check
 gallager ping                              # → "pong" if app is running
+gallager wait-ready --timeout 30           # block until app reachable; non-zero exit on timeout
 gallager identify                          # Show current session/window/pane
 gallager capabilities                      # List every supported method
 
 # Sessions
 gallager list-sessions
 gallager new-session --name work --path ~/code/proj
+gallager new-session --name work --if-missing             # idempotent: returns existing session info, `created: false`
+gallager new-session --name work --title "Work"           # set sidebar title at creation time
+gallager set-title --session work "Work"                  # set/replace sidebar title (empty string clears)
+gallager set-title --window work:1 "Builds"               # window-scope override (detached windows reachable as session:index)
+gallager set-title ""                                     # default targets calling pane's session via $TMUX_PANE
 gallager select-session work
 gallager current-session
 gallager close-session work
@@ -104,7 +113,7 @@ gallager session-state working --session work    # working | idle | waiting | cl
 # Windows (default to current session)
 gallager list-windows
 gallager list-windows --session work
-gallager new-window                        # --session <id>, --path <dir>
+gallager new-window                        # --session <id>, --path <dir>, --title <text>
 gallager select-window main:1
 gallager close-window main:1
 
@@ -113,9 +122,12 @@ gallager list-panes
 gallager split-pane right                  # left | right | up | down
 gallager split-pane down --pane %3 --path ~/logs
 gallager select-pane %3
+gallager capture-pane                      # plain text of visible buffer (calling pane)
+gallager capture-pane --pane %3 --scrollback   # include full scrollback history
 
-# Input — `send` is raw (include \n yourself); `send-key` is named
+# Input — `send` is raw (include \n yourself or pass --enter); `send-key` is named
 gallager send $'make test\n'               # Bash: $'...' expands \n
+gallager send "make test" --enter          # appends a real Enter keypress after the text
 gallager send "hello" --pane %5            # no newline sent
 gallager send-key enter                    # enter|tab|escape|backspace|delete|up|down|left|right|space
 
@@ -145,7 +157,11 @@ gallager start-project ~/code/proj -- --resume   # forwards `--resume` to claude
 
 ## Important details worth knowing
 
-- **`send` sends text literally.** `gallager send "ls"` does *not* press Enter. Use `$'ls\n'` in bash/zsh, or follow up with `gallager send-key enter`.
+- **`send` sends text literally.** `gallager send "ls"` does *not* press Enter. Either pass `--enter` (`gallager send "ls" --enter`), use `$'ls\n'` in bash/zsh, or follow up with `gallager send-key enter`. `--enter` is shell-agnostic and avoids quoting tricks.
+- **`new-session --if-missing` is idempotent.** Use it when a script needs *some* session called `--name` to exist without caring whether this run created it. The response includes `created: true|false` so you can branch on whether to populate panes.
+- **`set-title` is independent of `tmux rename-session`.** It writes to a tmux user option (`@gallager-description`) that Gallager's sidebar reads — the underlying tmux session/window names are untouched. Window-scope titles override the session-wide value for that window only. Pass an empty string to clear.
+- **`capture-pane` returns plain text**, not the JSON-RPC envelope. It's the same thing as `tmux capture-pane -p`; use `--scrollback` (`-S -`) to grab the full history when grepping.
+- **`wait-ready` is the gate for scripts that auto-launch the app.** It polls `system.ping` until success or `--timeout` (default 30s) elapses; on timeout it writes the error to stderr and exits non-zero. Cheaper and more reliable than sleeping for a fixed time.
 - **Context inference uses `$TMUX_PANE`.** When no `--pane`/`--window`/`--session` flag is given, the CLI fills in `pane_id` from `$TMUX_PANE` so commands operate on the *calling* pane (and its session/window) — not on whatever pane is globally active in tmux. If you run `gallager` from outside tmux there is no calling pane, so commands fall back to the active pane; pass `--pane`/`--window`/`--session` explicitly to be safe. `$TMUX_PANE` is tmux's own env var (set by tmux inside every pane), and its value is exactly the pane ID Gallager reports.
 - **Socket resolution order**: `--socket` flag → `$GALLAGER_SOCKET` → `$TMPDIR/gallager.sock`. Inside Gallager-managed panes, `$GALLAGER_SOCKET` is set for you. Note: `$GALLAGER_SOCKET` is Gallager's JSON-RPC socket, separate from the tmux socket `tmux -S` uses.
 - **`gallager edit` blocks.** It returns only after the user submits or cancels the prompt in the app. Great for interactive workflows, wrong for fire-and-forget scripts.
