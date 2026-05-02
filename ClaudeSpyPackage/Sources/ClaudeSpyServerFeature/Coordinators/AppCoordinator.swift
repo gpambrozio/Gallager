@@ -338,8 +338,33 @@
                         }
                     }
                 },
-                onSessionCreate: { [tmux] name, path in
+                onSessionCreate: { [tmux, winManager] name, path, title, ifMissing in
                     let baseName = name ?? "main"
+                    // Honor `if_missing`: when the requested name already exists,
+                    // return its info with `created: false` so callers can skip
+                    // populating panes they didn't just create.
+                    if
+                        ifMissing, let requestedName = name,
+                        await tmux.sessionExists(named: requestedName) {
+                        let panes = await tmux.refreshPanes()
+                        let attached = await MainActor.run { tmux.attachedSessionNames }
+                        let windowCount = LocalTmuxWindow.groupPanes(panes)
+                            .filter { $0.sessionName == requestedName }.count
+                        if let title {
+                            await MainActor.run {
+                                winManager.setSessionDescription(title, for: requestedName)
+                            }
+                        }
+                        return LiveAPIRequestRouter.SessionCreateResult(
+                            info: APISessionInfo(
+                                id: requestedName,
+                                name: requestedName,
+                                windowCount: max(windowCount, 1),
+                                isAttached: attached.contains(requestedName)
+                            ).toJSONValue(),
+                            created: false
+                        )
+                    }
                     let workingDirectory = path ?? FileManager.default.homeDirectoryForCurrentUser.path
                     let (sessionName, _) = try await tmux.createSession(
                         baseName: baseName,
@@ -347,12 +372,20 @@
                         height: 50,
                         workingDirectory: workingDirectory
                     )
-                    return APISessionInfo(
-                        id: sessionName,
-                        name: sessionName,
-                        windowCount: 1,
-                        isAttached: false
-                    ).toJSONValue()
+                    if let title {
+                        await MainActor.run {
+                            winManager.setSessionDescription(title, for: sessionName)
+                        }
+                    }
+                    return LiveAPIRequestRouter.SessionCreateResult(
+                        info: APISessionInfo(
+                            id: sessionName,
+                            name: sessionName,
+                            windowCount: 1,
+                            isAttached: false
+                        ).toJSONValue(),
+                        created: true
+                    )
                 },
                 onSessionSelect: { [tmux] sessionId in
                     try await tmux.selectWindow("\(sessionId):!")
@@ -416,6 +449,77 @@
                         return applied
                     }
                 },
+                onSessionSetTitle: { [tmux, winManager] title, sessionId, windowId, paneId in
+                    // Resolve the target scope. Window scope wins when a
+                    // window_id or pane_id is given so the caller can override
+                    // the session-wide value for that window only.
+                    let panes = await tmux.refreshPanes()
+
+                    // Window targeting: prefer the cached pane lookup, but
+                    // fall back to splitting "sessionName:index" so detached
+                    // windows (not currently in `panes`) are still reachable.
+                    if let windowId {
+                        if let pane = panes.first(where: { $0.windowId == windowId }) {
+                            await MainActor.run {
+                                winManager.setWindowDescription(
+                                    title,
+                                    sessionName: pane.sessionName,
+                                    windowIndex: pane.windowIndex
+                                )
+                            }
+                            return "window"
+                        }
+                        let parts = windowId.split(separator: ":", maxSplits: 1).map(String.init)
+                        if parts.count == 2, let index = Int(parts[1]) {
+                            await MainActor.run {
+                                winManager.setWindowDescription(
+                                    title,
+                                    sessionName: parts[0],
+                                    windowIndex: index
+                                )
+                            }
+                            return "window"
+                        }
+                        throw APIError.notFound("Window not found: \(windowId)")
+                    }
+                    if
+                        let paneId,
+                        let pane = panes.first(where: { $0.paneId == paneId }) {
+                        // Pane points at a window within its (possibly
+                        // detached) session. Apply at session scope so the
+                        // caller's intent — "set this for the calling
+                        // pane's session" — is preserved even when no
+                        // session is currently attached.
+                        await MainActor.run {
+                            winManager.setSessionDescription(title, for: pane.sessionName)
+                        }
+                        return "session"
+                    }
+                    if let sessionId {
+                        // Verify the session actually exists so a bad name
+                        // surfaces as `not_found` rather than a 200/OK with
+                        // no real side effect.
+                        guard await tmux.sessionExists(named: sessionId) else {
+                            throw APIError.notFound("Session not found: \(sessionId)")
+                        }
+                        await MainActor.run {
+                            winManager.setSessionDescription(title, for: sessionId)
+                        }
+                        return "session"
+                    }
+                    // No explicit target — fall back to the active session.
+                    let attached = await MainActor.run { tmux.attachedSessionNames }
+                    if
+                        let activeSession = panes.first(where: {
+                            attached.contains($0.sessionName)
+                        })?.sessionName {
+                        await MainActor.run {
+                            winManager.setSessionDescription(title, for: activeSession)
+                        }
+                        return "session"
+                    }
+                    throw APIError.notFound("No resolvable target for session.set_title")
+                },
                 onWindowList: { [tmux] sessionId, paneId in
                     let panes = await tmux.refreshPanes()
                     let allWindows = LocalTmuxWindow.groupPanes(panes)
@@ -437,7 +541,7 @@
                         ).toJSONValue()
                     }
                 },
-                onWindowCreate: { [tmux] sessionId, path, paneId in
+                onWindowCreate: { [tmux, winManager] sessionId, path, paneId, title in
                     let targetSession: String = await MainActor.run {
                         if let sessionId { return sessionId }
                         let panes = tmux.panes
@@ -450,13 +554,22 @@
                         })?.sessionName ?? panes.first?.sessionName ?? "main"
                     }
                     let workingDirectory = path ?? FileManager.default.homeDirectoryForCurrentUser.path
-                    let paneId = try await tmux.newWindow(
+                    let newPaneId = try await tmux.newWindow(
                         sessionName: targetSession,
                         workingDirectory: workingDirectory
                     )
                     let panes = await tmux.refreshPanes()
-                    guard let newPane = panes.first(where: { $0.paneId == paneId }) else {
+                    guard let newPane = panes.first(where: { $0.paneId == newPaneId }) else {
                         throw APIError.notFound("New window pane not found")
+                    }
+                    if let title {
+                        await MainActor.run {
+                            winManager.setWindowDescription(
+                                title,
+                                sessionName: newPane.sessionName,
+                                windowIndex: newPane.windowIndex
+                            )
+                        }
                     }
                     return APIWindowInfo(
                         id: newPane.windowId,
@@ -530,11 +643,27 @@
                 onPaneSelect: { [tmux] paneId in
                     try await tmux.selectPane(paneId)
                 },
-                onSendText: { [tmux] text, paneId in
+                onPaneCapture: { [tmux] paneId, scrollback in
                     let target: String = await MainActor.run {
                         paneId ?? tmux.panes.first(where: { $0.isActive && $0.isWindowActive })?.paneId ?? "%0"
                     }
-                    try await tmux.sendKeys(target, keys: text, literal: true)
+                    return try await tmux.capturePaneText(target, scrollback: scrollback)
+                },
+                onSendText: { [tmux] text, paneId, appendEnter in
+                    let target: String = await MainActor.run {
+                        paneId ?? tmux.panes.first(where: { $0.isActive && $0.isWindowActive })?.paneId ?? "%0"
+                    }
+                    // Skip the literal write when there's nothing to type so that
+                    // `send "" --enter` (just hit Enter) doesn't spawn an extra
+                    // tmux subprocess for a no-op.
+                    if !text.isEmpty {
+                        try await tmux.sendKeys(target, keys: text, literal: true)
+                    }
+                    if appendEnter {
+                        // Send Enter as a keyname (not literal) so tmux generates
+                        // a real Enter keypress for the running shell/program.
+                        try await tmux.sendKeys(target, keys: "Enter")
+                    }
                 },
                 onSendKey: { [tmux] key, paneId in
                     let target: String = await MainActor.run {

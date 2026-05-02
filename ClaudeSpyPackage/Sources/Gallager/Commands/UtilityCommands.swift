@@ -19,6 +19,54 @@ struct PingCommand: ParsableCommand {
     }
 }
 
+struct WaitReadyCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "wait-ready",
+        abstract: "Block until Gallager responds to ping, or fail after a timeout",
+        discussion: """
+        Polls `system.ping` until it succeeds, then exits 0. Useful in
+        login-time scripts that fire before the Gallager app finishes launching.
+        """
+    )
+
+    @Option(name: .long, help: "Maximum seconds to wait before giving up (default: 30)")
+    var timeout: Double = 30
+
+    @Option(name: .long, help: "Seconds between polls (default: 0.2)")
+    var interval = 0.2
+
+    @OptionGroup var options: GlobalOptions
+
+    func run() throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        let request = JSONRPCRequest(id: UUID().uuidString, method: "system.ping", params: [:])
+        while Date() < deadline {
+            if
+                let response = try? SocketClient.send(request, socketPath: options.socket),
+                response.ok {
+                if options.json {
+                    if
+                        let data = try? JSONEncoder().encode(response),
+                        let str = String(data: data, encoding: .utf8) {
+                        print(str)
+                    }
+                } else {
+                    print("ready")
+                }
+                return
+            }
+            Thread.sleep(forTimeInterval: interval)
+        }
+        // Write to stderr and exit non-zero so login-time scripts can fail fast.
+        // `CleanExit.message` would print to stdout and exit 0, breaking the
+        // contract documented for this command.
+        FileHandle.standardError.write(
+            Data("Error: timed out waiting for Gallager after \(timeout)s\n".utf8)
+        )
+        throw ExitCode.failure
+    }
+}
+
 struct CapabilitiesCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "capabilities",
