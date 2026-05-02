@@ -437,10 +437,12 @@
 
         @objc
         private func handleURLTap(_ gesture: UITapGestureRecognizer) {
-            // In mouse mode the remote terminal app owns taps — synthesized
-            // mouse events flow through the pan path. Skip URL handling so
-            // links don't compete with the app's own click semantics.
-            guard !isMouseModeActive else { return }
+            // Single tap opens URLs in Safari regardless of mouse mode. Underlines
+            // are still suppressed in mouse mode (visual policy), but iOS doesn't
+            // synthesize SGR mouse clicks on tap — only the pan gesture sends
+            // mouse events — so opening the URL on tap doesn't compete with the
+            // remote app's click semantics. Long-press still skips in mouse mode
+            // because the action sheet is disruptive over an interactive TUI.
 
             let point = gesture.location(in: self)
             guard let pos = gridPosition(for: point) else { return }
