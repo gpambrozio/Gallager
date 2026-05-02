@@ -68,12 +68,12 @@
         let onSessionClose: (@Sendable (String) async throws -> Void)?
         let onSessionSetState: (@Sendable (String, String?, String?) async throws -> Int)?
 
-        let onWindowList: (@Sendable (String?) async -> [[String: JSONValue]])?
-        let onWindowCreate: (@Sendable (String?, String?) async throws -> [String: JSONValue])?
+        let onWindowList: (@Sendable (String?, String?) async -> [[String: JSONValue]])?
+        let onWindowCreate: (@Sendable (String?, String?, String?) async throws -> [String: JSONValue])?
         let onWindowSelect: (@Sendable (String) async throws -> Void)?
         let onWindowClose: (@Sendable (String) async throws -> Void)?
 
-        let onPaneList: (@Sendable (String?) async -> [[String: JSONValue]])?
+        let onPaneList: (@Sendable (String?, String?) async -> [[String: JSONValue]])?
         let onPaneSplit: (@Sendable (String?, String, String?) async throws -> [String: JSONValue])?
         let onPaneSelect: (@Sendable (String) async throws -> Void)?
 
@@ -96,11 +96,11 @@
             onSessionCurrent: (@Sendable () async -> [String: JSONValue]?)? = nil,
             onSessionClose: (@Sendable (String) async throws -> Void)? = nil,
             onSessionSetState: (@Sendable (String, String?, String?) async throws -> Int)? = nil,
-            onWindowList: (@Sendable (String?) async -> [[String: JSONValue]])? = nil,
-            onWindowCreate: (@Sendable (String?, String?) async throws -> [String: JSONValue])? = nil,
+            onWindowList: (@Sendable (String?, String?) async -> [[String: JSONValue]])? = nil,
+            onWindowCreate: (@Sendable (String?, String?, String?) async throws -> [String: JSONValue])? = nil,
             onWindowSelect: (@Sendable (String) async throws -> Void)? = nil,
             onWindowClose: (@Sendable (String) async throws -> Void)? = nil,
-            onPaneList: (@Sendable (String?) async -> [[String: JSONValue]])? = nil,
+            onPaneList: (@Sendable (String?, String?) async -> [[String: JSONValue]])? = nil,
             onPaneSplit: (@Sendable (String?, String, String?) async throws -> [String: JSONValue])? = nil,
             onPaneSelect: (@Sendable (String) async throws -> Void)? = nil,
             onSendText: (@Sendable (String, String?) async throws -> Void)? = nil,
@@ -210,15 +210,17 @@
 
                 case "window.list":
                     let sessionId = params["session_id"]?.stringValue
-                    let windows = await onWindowList?(sessionId) ?? []
+                    let paneId = params["pane_id"]?.stringValue
+                    let windows = await onWindowList?(sessionId, paneId) ?? []
                     return JSONRPCResponse(id: id, result: [
                         "windows": .array(windows.map { .object($0) }),
                     ])
 
                 case "window.create":
                     let sessionId = params["session_id"]?.stringValue
+                    let paneId = params["pane_id"]?.stringValue
                     let path = params["path"]?.stringValue
-                    if let result = try await onWindowCreate?(sessionId, path) {
+                    if let result = try await onWindowCreate?(sessionId, path, paneId) {
                         return JSONRPCResponse(id: id, result: result)
                     }
                     return .internalError(id: id, "Window create not available")
@@ -241,7 +243,8 @@
 
                 case "pane.list":
                     let windowId = params["window_id"]?.stringValue
-                    let panes = await onPaneList?(windowId) ?? []
+                    let paneId = params["pane_id"]?.stringValue
+                    let panes = await onPaneList?(windowId, paneId) ?? []
                     return JSONRPCResponse(id: id, result: [
                         "panes": .array(panes.map { .object($0) }),
                     ])

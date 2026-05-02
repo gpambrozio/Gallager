@@ -684,36 +684,68 @@ final public class TmuxService {
         // Output visible lines sequentially. Filter each line to keep only color
         // codes (remove cursor positioning that could interfere).
         //
-        // Pad-to-width strategy: write each line's content, then explicit spaces
-        // up to the pane width, then reset SGR before the newline. This handles
-        // every case where `capture-pane` trims trailing styled cells:
+        // Trailing-cell strategy: write the line's content, then EITHER pad
+        // out to `width - 1` with explicit spaces under the active SGR (when
+        // the line's end-of-line SGR state has non-bg attributes that need
+        // styling preservation), OR just `\e[K` (BCE-erase to end of line)
+        // when the bg band — or no styling at all — is sufficient. Reset SGR
+        // before `\r\n`.
         //
-        //   - bg-color band: padding spaces inherit the line's bg setter, so
-        //     a row captured as bare `\e[44m` (trailing spaces trimmed) renders
-        //     edge-to-edge blue (issue #411).
-        //   - underline / italic / fg-color band: same — the padding spaces
-        //     each carry the line's full SGR state, including attributes that
-        //     EL/ED can't paint via BCE (issue #352-style trims).
-        //   - normal content: padding fills with default-attribute spaces.
+        // Why conditional and not always-or-never padding:
         //
-        // EL (`\e[K`) and ED (`\e[J`) are BCE only — they paint cleared cells
-        // with the *current* bg, but cannot apply non-bg attributes. Writing
-        // real spaces under the active SGR is what preserves underline bands
-        // and other non-bg styling on trimmed rows.
+        //   - `\e[K` (EL) is BCE: it paints trailing cells with the line's
+        //     active bg color (so issue #411 bg bands survive) but uses
+        //     `Terminal.eraseAttr()` which strips fg and style — i.e. it
+        //     CANNOT preserve underline / italic / fg-color bands from
+        //     trimmed-capture rows (the #352 trim shape: a lone `\e[4m` or
+        //     similar non-bg setter with no chars after).
         //
-        // Resetting SGR before each `\r\n` (and before the trailing `\e[J`)
-        // is still load-bearing: without it, a bg/underline setter from row
-        // N leaks into subsequent rows that should be plain.
+        //   - Padding with real spaces under the active SGR preserves any
+        //     attribute on the trailing cells, including non-bg ones — but
+        //     every padded space is a real cell with `code != 0` in the
+        //     buffer. `BufferLine.getTrimmedLength` only trims cells with
+        //     `code == 0`, so padded rows have a trimmed length equal to the
+        //     pane width. When auto-resize fires after attach and SwiftTerm
+        //     reflows narrower, every padded row of `width - 1` chars wraps
+        //     into `ceil((width - 1) / newCols)` visual rows. The trailing
+        //     visual rows are pure pad spaces — visually blank — producing
+        //     the double/triple-spacing reported as issue #429.
+        //
+        //   So we restrict padding to the rows that actually need it: those
+        //   ending with a non-bg SGR setter that hasn't been reset. In
+        //   practice these are TUI bands (underlined separators, fg-colored
+        //   status lines), not ordinary log content. Ordinary content rows
+        //   skip padding → trimmed length stays at the actual content
+        //   length → reflow narrower trims trailing NULL cells → no blank
+        //   continuation rows. The few padded rows still produce blanks on
+        //   reflow, but those rows are also redrawn by the running TUI on
+        //   the SIGWINCH that auto-resize triggers, so the blanks are
+        //   transient — a much smaller blast radius than padding every row.
+        //
+        //   Padding stops one column short of `width` (then `\e[K` BCE-clears
+        //   the final cell) so the cursor can never land in the pending-wrap
+        //   position. The single-cell loss of non-bg styling on the rightmost
+        //   column is invisible in practice. This was the original intent of
+        //   the `width - 1` cap from PR #353/#413.
+        //
+        //   The SGR-leak fix from #352 (resetting SGR before extractActiveSGR
+        //   and skipping extraction on empty cursor lines) is unchanged and
+        //   still prevents the underline-state leak into live-streamed data
+        //   regardless of padding strategy.
+        let padTarget = max(0, width - 1)
         for index in 0..<linesToOutput {
             var visibleColumns = 0
+            var needsExplicitPadding = false
             if index < visibleLines.count {
                 let filtered = filterToColorCodesOnly(visibleLines[index])
                 output += filtered
                 visibleColumns = countVisibleColumns(filtered)
+                needsExplicitPadding = lineHasNonBgSGRActiveAtEnd(filtered)
             }
-            if visibleColumns < width {
-                output += String(repeating: " ", count: width - visibleColumns)
+            if needsExplicitPadding, visibleColumns < padTarget {
+                output += String(repeating: " ", count: padTarget - visibleColumns)
             }
+            output += "\u{1b}[K" // BCE-clear trailing cells (preserves bg band; no real chars when not padded)
             output += "\u{1b}[0m" // Reset before newline so SGR can't leak forward
             if index < linesToOutput - 1 {
                 output += "\r\n"
@@ -762,15 +794,14 @@ final public class TmuxService {
     }
 
     /// Counts visible (cursor-advancing) columns in a `filterToColorCodesOnly`
-    /// result, skipping CSI/OSC escape sequences.
-    ///
-    /// Used by `processCapturePaneForStreaming` to compute how many spaces to
-    /// pad a captured line up to the pane width. Each grapheme is measured via
-    /// `displayWidth(of:)` so wide characters (CJK, emoji) count as 2 and
+    /// result, skipping CSI/OSC escape sequences. Each grapheme is measured
+    /// via `displayWidth(of:)` so wide characters (CJK, emoji) count as 2 and
     /// combining marks count as 0 — matching SwiftTerm's column accounting.
-    /// Over-padding causes the line to wrap, which silently consumes a row of
-    /// the rebuilt screen and shifts subsequent rows out of place, so the
-    /// width must be tracked accurately.
+    ///
+    /// Used by `processCapturePaneForStreaming` when a row needs explicit
+    /// padding under the active SGR (see `lineHasNonBgSGRActiveAtEnd`) — the
+    /// pad amount is `padTarget - visibleColumns`, so over-counting wraps the
+    /// row and silently consumes a row of the rebuilt screen.
     func countVisibleColumns(_ filtered: String) -> Int {
         var count = 0
         var i = filtered.startIndex
@@ -823,6 +854,101 @@ final public class TmuxService {
             }
         }
         return count
+    }
+
+    /// Returns true if the active SGR state at the end of `filtered` includes
+    /// any attribute that BCE (`\e[K`) cannot preserve — i.e. a style flag
+    /// (bold, dim, italic, underline, blink, reverse, hide, strikethrough,
+    /// double-underline, overline) or a non-default fg color.
+    ///
+    /// Used by `processCapturePaneForStreaming` to decide whether the
+    /// trailing cells of a rebuilt row need explicit padding under the active
+    /// SGR (preserving the issue #352 trim-shape bands like a lone `\e[4m`)
+    /// or whether `\e[K` alone suffices (issue #411 bg bands or default).
+    ///
+    /// The walker treats partial resets (22-29 style off, 39 default fg) as
+    /// no-ops, so it over-pads when a partial reset cancels the only active
+    /// attribute. That false positive is acceptable: the cost is reflow
+    /// blanks on a rare row, while a false negative would lose visible
+    /// styling on the rebuild.
+    func lineHasNonBgSGRActiveAtEnd(_ filtered: String) -> Bool {
+        var hasNonBgActive = false
+        var i = filtered.startIndex
+        while i < filtered.endIndex {
+            guard
+                filtered[i] == "\u{1b}",
+                filtered.index(after: i) < filtered.endIndex,
+                filtered[filtered.index(after: i)] == "[" else {
+                i = filtered.index(after: i)
+                continue
+            }
+            let paramsStart = filtered.index(after: filtered.index(after: i))
+            var end = paramsStart
+            while end < filtered.endIndex {
+                let c = filtered[end]
+                if c >= "@", c <= "~" { break }
+                end = filtered.index(after: end)
+            }
+            if end >= filtered.endIndex { break }
+            let terminator = filtered[end]
+            if terminator == "m" {
+                let paramStr = String(filtered[paramsStart..<end])
+                // `omittingEmptySubsequences: false` so trailing-empty
+                // params (e.g. `\e[1;m`) are treated as `0` per ECMA-48.
+                let params: [Int] = paramStr.isEmpty
+                    ? [0]
+                    : paramStr.split(separator: ";", omittingEmptySubsequences: false)
+                    .map { Int($0) ?? 0 }
+                var idx = 0
+                while idx < params.count {
+                    let p = params[idx]
+                    switch p {
+                    case 0:
+                        // Reset all attributes.
+                        hasNonBgActive = false
+                    case 1...9,
+                         21,
+                         53:
+                        // Style flags: bold, dim, italic, underline, blink,
+                        // fast-blink, reverse, hide, strikethrough,
+                        // double-underline, overline.
+                        hasNonBgActive = true
+                    case 30...37,
+                         90...97:
+                        // 8-color and bright fg.
+                        hasNonBgActive = true
+                    case 38:
+                        // Extended fg: 38;5;N or 38;2;R;G;B. Skip parameters.
+                        hasNonBgActive = true
+                        if idx + 1 < params.count {
+                            switch params[idx + 1] {
+                            case 5: idx += 2
+                            case 2: idx += 4
+                            default: break
+                            }
+                        }
+                    case 48:
+                        // Extended bg — doesn't affect non-bg state. Skip params.
+                        if idx + 1 < params.count {
+                            switch params[idx + 1] {
+                            case 5: idx += 2
+                            case 2: idx += 4
+                            default: break
+                            }
+                        }
+                    default:
+                        // 22-29 (style resetters), 39 (default fg), 40-47 / 49 /
+                        // 100-107 (bg-related). Conservative: leave the flag
+                        // unchanged — partial resets may not clear all non-bg
+                        // attributes and we'd rather over-pad than lose styling.
+                        break
+                    }
+                    idx += 1
+                }
+            }
+            i = filtered.index(after: end)
+        }
+        return hasNonBgActive
     }
 
     /// Filters ANSI escape codes, keeping only SGR (color/style) codes.

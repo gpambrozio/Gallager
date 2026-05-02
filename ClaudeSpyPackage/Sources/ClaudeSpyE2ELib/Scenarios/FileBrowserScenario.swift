@@ -2,7 +2,7 @@ import Foundation
 
 /// E2E scenario: File Browser
 ///
-/// Exercises all file browser features added in issue #257, #289, and #398:
+/// Exercises all file browser features added in issue #257, #289, #398, and #429:
 /// 1. Tab activation/deactivation and initial empty state
 /// 2. Text, markdown, HTML, image, PDF, video, and unsupported file viewers
 /// 3. Lazy-loading folder expansion at multiple depth levels
@@ -22,6 +22,16 @@ import Foundation
 ///     through the clipboard prove the shared menu component is wired up.
 /// 12. "Show in File Explorer" on a file tab routes the user back to the tree,
 ///     auto-expanding any collapsed ancestor folders and selecting the file.
+/// 13. A long file's scroll position is preserved when switching to another
+///     window or session and returning (issue #429). The markdown, plain-text,
+///     PDF, and HTML viewers each have their own SwiftUI implementation, and
+///     the detail pane (tree-selected file) and open-file-tab paths use
+///     separate scroll-offset stores, so all four viewer types are exercised
+///     through both surfaces.
+/// 14. The file browser tree, selection, expansions, search query, and per-path
+///     scroll position are shared across windows in the same tmux session
+///     (commit 90f1d8f). Switching to a sibling window's Files tab shows the
+///     same state without rebuilding it.
 ///
 /// Regression guards:
 /// - Nested NavigationSplitView layout gap (ee55599)
@@ -337,6 +347,26 @@ public enum FileBrowserScenario {
         // file browser so we can right-click helper.swift in the tree.
         TestStep.macClickButton(titled: "Files")
         TestStep.wait(seconds: 1)
+
+        // Collapse the `docs` folder before reaching for helper.swift. With
+        // the long.md/long.txt fixtures added for issue #429, the tree now
+        // has 19 rows when src+utils+docs are all expanded — one more than
+        // the viewport — so helper.swift's AX element ends up just past the
+        // bottom edge. `waitForElement` finds it, but `rightClick` posts a
+        // CGEvent at its off-screen centre and misses. Closing `docs`
+        // reclaims the `guide.md` row so helper.swift fits on screen.
+        //
+        // Selecting photo.png first moves the right-pane file path header
+        // away from `ci/docs/guide.md`. Otherwise the next macClickButton
+        // would match the "docs" substring inside the header value and
+        // never reach the disclosure caret on the folder row. We avoid
+        // hello.txt and README.md here because they are also currently
+        // open as file tabs and the tab labels also contain those names.
+        TestStep.macCGClick(titled: "photo.png")
+        TestStep.wait(seconds: 1)
+        TestStep.macClickButton(titled: "docs")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementToDisappear(titled: "guide.md", timeout: 3)
         TestStep.macWaitForElement(titled: "helper.swift", timeout: 5)
 
         // Open src/utils/helper.swift in a new tab.
@@ -460,8 +490,10 @@ public enum FileBrowserScenario {
         TestStep.wait(seconds: 2)
 
         // Switch to window 1 — file tab must still be visible in the bar, but
-        // the content area should show the terminal (window-switch clears the
-        // file-tab selection) and NOT the file browser tree (which is per-window).
+        // the content area should show the terminal (the Files-tab active flag
+        // is per-window, so a freshly-switched-to window lands on the terminal
+        // tab even though the underlying file browser state is now session-
+        // scoped per commit 90f1d8f).
         TestStep.macClickButton(titled: "filebrowse:1")
         TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "File tab: hello.txt", timeout: 5)
@@ -489,7 +521,366 @@ public enum FileBrowserScenario {
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "File tab: hello.txt", timeout: 5)
 
-        // Tear down both windows.
+        // ── Persistent alt session for Phases 27-31 ──────────────
+        //
+        // The five scroll-preservation phases each verify a session round
+        // trip. Creating + tearing down an alt tmux session per phase costs
+        // ~5s × 5 = ~25s of test runtime; instead we set up a single
+        // `scrollalt` here and reuse it for every session round trip. The
+        // session is destroyed at the end of the scenario.
+        TestStep.tmuxCreateSession(name: "scrollalt", width: 160, height: 50)
+        Shortcut.tmuxRunCommand(target: "scrollalt:0.0", command: "echo '=== ALT SESSION ==='")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "scrollalt", timeout: 5)
+
+        // ── Phase 27: Scroll position persists across tab and session switches ─
+        //
+        // Regression guard for issue #429: opening a long file in a tab,
+        // scrolling down, then switching to another tmux window or session
+        // and returning used to drop the user back to the top of the file.
+        // The tab now stores its scroll offset on `SessionFileTabsState`,
+        // so the saved position must be restored on re-mount in both cases.
+        //
+        // The "BOTTOM MARKER" string is what we assert against — `long.md`
+        // is laid out so that string only appears in the screenshot when
+        // the scroll position has been preserved at the bottom of the file.
+        //
+        // Tab round trip uses `filebrowse:0` (window 0's terminal tab).
+        TestStep.log("Phase 27: Scroll position preserved across tab/session switch (markdown, window 0)")
+
+        // Open `long.md` from the file browser tree as its own tab.
+        TestStep.macClickButton(titled: "Files")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElement(titled: "long.md", timeout: 5)
+        TestStep.macContextMenuClick(elementTitle: "long.md", menuItem: "Open in New Tab")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "File tab: long.md", timeout: 5)
+        // Initial render — scrolled to the very top, BOTTOM MARKER is offscreen.
+        TestStep.macWaitForElementQuery(.anyTextMatches("Scroll Preservation Test"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-scroll-preserve-top")
+
+        // Scroll down enough to reach the bottom of the file. Using a
+        // CGEvent scroll wheel (negative deltaY = down) at the window
+        // centre, which lands inside the markdown viewer.
+        TestStep.macScrollWheel(deltaY: -10, count: 40)
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementQuery(.anyTextMatches("BOTTOM MARKER"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-scroll-preserve-bottom-initial")
+
+        // Tab round trip via window 0's terminal.
+        TestStep.macClickButton(titled: "filebrowse:0")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "File tab: long.md")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElementQuery(.anyTextMatches("BOTTOM MARKER"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-scroll-preserve-after-tab-switch")
+
+        // Session round trip via the persistent `scrollalt`.
+        TestStep.macClickButton(titled: "scrollalt")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "filebrowse")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "File tab: long.md")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElementQuery(.anyTextMatches("BOTTOM MARKER"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-scroll-preserve-after-session-switch")
+
+        // Close the tab — the scroll offset is dropped by the tab close
+        // handler, so the next phase re-opens with a fresh state.
+        TestStep.macClickButton(titled: "Close file tab: long.md")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementToDisappear(titled: "File tab: long.md", timeout: 5)
+
+        // ── Phase 28: Scroll position persists for the plain-text viewer ─
+        //
+        // Mirrors Phase 27 against `long.txt`. The plain-text viewer
+        // (`PlainTextContentView`) is a separate SwiftUI implementation from
+        // the markdown viewer, so the same persistence guarantee needs its
+        // own coverage. The "TEXT BOTTOM MARKER" string is unique to the
+        // plain-text fixture so the assertion only matches when the viewer
+        // is actually scrolled to the bottom.
+        //
+        // Tab round trip uses `filebrowse:1` (window 1) instead of
+        // `filebrowse:0` — earlier versions of the file-tab restoration
+        // didn't preserve scroll when the user returned via a sibling
+        // window's terminal, only when they returned via the same window.
+        TestStep.log("Phase 28: Scroll position preserved for the plain-text viewer (window 1)")
+
+        // Open `long.txt` from the file browser tree as its own tab.
+        TestStep.macClickButton(titled: "Files")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElement(titled: "long.txt", timeout: 5)
+        TestStep.macContextMenuClick(elementTitle: "long.txt", menuItem: "Open in New Tab")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "File tab: long.txt", timeout: 5)
+        TestStep.macWaitForElementQuery(.anyTextMatches("Scroll Preservation Test (Plain Text)"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-text-scroll-preserve-top")
+
+        // Scroll to the bottom of the file.
+        TestStep.macScrollWheel(deltaY: -10, count: 40)
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementQuery(.anyTextMatches("TEXT BOTTOM MARKER"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-text-scroll-preserve-bottom-initial")
+
+        // Tab round trip via window 1's terminal — exercises the
+        // "returning from a different window" code path.
+        TestStep.macClickButton(titled: "filebrowse:1")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "File tab: long.txt")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElementQuery(.anyTextMatches("TEXT BOTTOM MARKER"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-text-scroll-preserve-after-tab-switch")
+
+        // Session round trip via the shared `scrollalt`.
+        TestStep.macClickButton(titled: "scrollalt")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "filebrowse")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "File tab: long.txt")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElementQuery(.anyTextMatches("TEXT BOTTOM MARKER"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-text-scroll-preserve-after-session-switch")
+
+        // Close the tab so the next phase starts fresh.
+        TestStep.macClickButton(titled: "Close file tab: long.txt")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementToDisappear(titled: "File tab: long.txt", timeout: 5)
+
+        // ── Phase 29: Detail pane scroll preservation ────────────
+        //
+        // Regression guard for commit ed62fdb. The detail pane (file selected
+        // via the tree, no "Open in New Tab") stores its scroll offset on
+        // `FileBrowserState.scrollOffsets[absolutePath]` — a different store
+        // and binding from the open-file-tab path verified in Phase 27/28. We
+        // open `long.md` by single-click in the tree, scroll to the bottom,
+        // then verify the position survives a tab round-trip and a session
+        // round-trip.
+        //
+        // The window is resized taller for the remaining phases so that
+        // Phase 32 can keep `helper.swift` / `main.swift` on screen at the
+        // same time as the (now session-scoped) search results, even with
+        // `src` and `src/utils` both expanded.
+        TestStep.log("Phase 29: Detail pane preserves scroll position across tab and session switches")
+        TestStep.macResizeWindow(width: 1_200, height: 800)
+        TestStep.wait(seconds: 1)
+
+        TestStep.macClickButton(titled: "Files")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElement(titled: "long.md", timeout: 5)
+        // Single-click selects the file in the tree → loads in the detail pane.
+        TestStep.macCGClick(titled: "long.md")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementQuery(.anyTextMatches("Scroll Preservation Test"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-detail-scroll-preserve-top")
+
+        // Scroll to the bottom — BOTTOM MARKER becomes visible.
+        TestStep.macScrollWheel(deltaY: -10, count: 40)
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementQuery(.anyTextMatches("BOTTOM MARKER"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-detail-scroll-preserve-bottom-initial")
+
+        // Tab round trip via window 0's terminal → back to Files. Detail
+        // pane is rebuilt and must restore the saved offset from
+        // `state.scrollOffsets`.
+        TestStep.macClickButton(titled: "filebrowse:0")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "Files")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElementQuery(.anyTextMatches("BOTTOM MARKER"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-detail-scroll-preserve-after-tab-switch")
+
+        // Session round trip via the shared `scrollalt`. State is keyed by
+        // session, so the offset survives leaving and returning to filebrowse.
+        TestStep.macClickButton(titled: "scrollalt")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "filebrowse")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "Files")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElementQuery(.anyTextMatches("BOTTOM MARKER"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-detail-scroll-preserve-after-session-switch")
+
+        // ── Phase 30: HTML viewer scroll preservation ────────────
+        //
+        // Regression guard for commit f9b9035 (HTML half). The new
+        // `ScrollableWebView` (macOS 26+) drives the WKWebView scroll position
+        // through `webViewScrollPosition` and rebroadcasts user scrolls via
+        // `webViewOnScrollGeometryChange`. The "HTML BOTTOM MARKER" `<h1>` at
+        // the end of `page.html` only renders on screen once the WebView has
+        // scrolled all the way down.
+        //
+        // Tab round trip uses `filebrowse:1` to exercise the cross-window
+        // return path for the WebView restore.
+        TestStep.log("Phase 30: HTML viewer preserves scroll (window 1)")
+
+        TestStep.macWaitForElement(titled: "page.html", timeout: 5)
+        TestStep.macContextMenuClick(elementTitle: "page.html", menuItem: "Open in New Tab")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "File tab: page.html", timeout: 5)
+        // The WebView needs a moment to load before AX text is available. The
+        // 250ms warm-up before scroll restore in `ScrollableWebView` covers
+        // the same async growth on rebuild, so a short wait here is enough.
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementQuery(.anyTextMatches("Scroll Preservation Test (HTML)"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-html-scroll-preserve-top")
+
+        TestStep.macScrollWheel(deltaY: -10, count: 40)
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementQuery(.anyTextMatches("HTML BOTTOM MARKER"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-html-scroll-preserve-bottom-initial")
+
+        // Tab round trip via window 1's terminal.
+        TestStep.macClickButton(titled: "filebrowse:1")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "File tab: page.html")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElementQuery(.anyTextMatches("HTML BOTTOM MARKER"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-html-scroll-preserve-after-tab-switch")
+
+        // Session round trip via the shared `scrollalt`.
+        TestStep.macClickButton(titled: "scrollalt")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "filebrowse")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "File tab: page.html")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElementQuery(.anyTextMatches("HTML BOTTOM MARKER"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-html-scroll-preserve-after-session-switch")
+
+        // Close the tab so the next phase starts fresh.
+        TestStep.macClickButton(titled: "Close file tab: page.html")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementToDisappear(titled: "File tab: page.html", timeout: 5)
+
+        // ── Phase 31: PDF viewer scroll preservation ─────────────
+        //
+        // Regression guard for commit f9b9035 (PDF half). `PDFViewRepresentable`
+        // observes the inner `NSClipView` bounds for user scrolls and writes
+        // back to the binding, then re-applies the saved Y on rebuild. The
+        // bundled `test_pdf.pdf` is 3 pages — "Buildable Folders" only appears
+        // on page 2, so it's the assertion target for "scrolled past page 1".
+        TestStep.log("Phase 31: PDF viewer preserves scroll across tab/session switches")
+
+        TestStep.macClickButton(titled: "Files")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElement(titled: "document.pdf", timeout: 5)
+        TestStep.macContextMenuClick(elementTitle: "document.pdf", menuItem: "Open in New Tab")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "File tab: document.pdf", timeout: 5)
+        // Initial render is page 1 — "Buildable Folders" should NOT be visible.
+        TestStep.wait(seconds: 1)
+        TestStep.macScreenshot(label: "mac-pdf-scroll-preserve-top")
+
+        // Smaller scroll count than the markdown/HTML phases — `test_pdf.pdf`
+        // is only 3 pages, and overshooting past the last page would land in
+        // PDFView's empty grey area, which makes the screenshot baseline
+        // useless. Six ticks at deltaY=-10 lands mid-document around page 2.
+        TestStep.macScrollWheel(deltaY: -10, count: 6)
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementQuery(.anyTextMatches("Buildable Folders"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-pdf-scroll-preserve-bottom-initial")
+
+        // Tab round trip via window 0's terminal.
+        TestStep.macClickButton(titled: "filebrowse:0")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "File tab: document.pdf")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElementQuery(.anyTextMatches("Buildable Folders"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-pdf-scroll-preserve-after-tab-switch")
+
+        // Session round trip via the shared `scrollalt`.
+        TestStep.macClickButton(titled: "scrollalt")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "filebrowse")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "File tab: document.pdf")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElementQuery(.anyTextMatches("Buildable Folders"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-pdf-scroll-preserve-after-session-switch")
+
+        // Close the tab so the next phase starts fresh.
+        TestStep.macClickButton(titled: "Close file tab: document.pdf")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementToDisappear(titled: "File tab: document.pdf", timeout: 5)
+
+        // ── Phase 32: File browser state shared across windows ───
+        //
+        // Regression guard for commit 90f1d8f. `fileBrowserStates` is now keyed
+        // by `sessionName` (was `windowId`), so the explorer's search query,
+        // selection, expansion, and per-path scroll all persist when the
+        // user switches between sibling tmux windows in the same session.
+        // We use `filebrowse:1` (created in Phase 26 and never torn down) to
+        // avoid an extra `tmux new-window` round trip.
+        //
+        // The phase exercises search-state and selection sharing — both
+        // independent signals on `FileBrowserState` — and additionally
+        // proves the propagation works in both directions by mutating the
+        // selection on window 1 and re-asserting on window 0.
+        TestStep.log("Phase 32: File browser state is shared across windows in the same session")
+
+        // Set up state on window 0 by typing into the search field. Search is
+        // chosen as the cross-window probe because it's robust to whatever
+        // tree-expansion state earlier phases left behind (the failed alt-
+        // session round trips in Phases 27-31 do not preserve folder
+        // expansions reliably, but the explicit FileBrowserState fields —
+        // `searchQuery`, `selectedSearchPath` — are session-scoped). Once
+        // `searchQuery` is "swift", `main.swift` and `helper.swift` are in
+        // the result list regardless of expansion, and `README.md` is
+        // filtered out — three independent signals we can re-assert on
+        // window 1.
+        TestStep.macClickButton(titled: "Files")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElement(titled: "README.md", timeout: 5)
+        TestStep.macCGClick(titled: "Search files")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macType(text: "swift")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElement(titled: "main.swift", timeout: 5)
+        TestStep.macWaitForElement(titled: "helper.swift", timeout: 5)
+        TestStep.macWaitForElementToDisappear(titled: "README.md", timeout: 3)
+
+        // Select `helper.swift` from the search results so the detail pane
+        // shows its body — the "helper function for testing folder recursion"
+        // string is the assertion target for "selection is shared".
+        TestStep.macCGClick(titled: "helper.swift")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementQuery(.anyTextMatches("helper function for testing folder recursion"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-cross-window-state-window0")
+
+        // Switch to window 1 and click Files. Before commit 90f1d8f the
+        // explorer would rebuild from scratch on window 1 (empty search,
+        // empty selection). With the fix, the search query, the result list,
+        // and the selected detail pane are identical to window 0.
+        TestStep.macClickButton(titled: "filebrowse:1")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "Files")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "main.swift", timeout: 5)
+        TestStep.macWaitForElement(titled: "helper.swift", timeout: 5)
+        TestStep.macWaitForElementToDisappear(titled: "README.md", timeout: 3)
+        TestStep.macWaitForElementQuery(.anyTextMatches("helper function for testing folder recursion"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-cross-window-state-window1")
+
+        // Mutate state on window 1: pick a different search result. The new
+        // selection should propagate back to window 0.
+        TestStep.macCGClick(titled: "main.swift")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementQuery(.anyTextMatches("@main"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-cross-window-state-window1-mutated")
+
+        // Switch back to window 0 → window 1's mutation is visible here too.
+        TestStep.macClickButton(titled: "filebrowse:0")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "Files")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "main.swift", timeout: 5)
+        TestStep.macWaitForElementToDisappear(titled: "README.md", timeout: 3)
+        TestStep.macWaitForElementQuery(.anyTextMatches("@main"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-cross-window-state-window0-restored")
+
+        // Tear down the persistent alt session and both filebrowse windows.
+        Shortcut.tmuxRunCommand(target: "scrollalt:0.0", command: "exit")
+        TestStep.wait(seconds: 2)
         Shortcut.tmuxRunCommand(target: "filebrowse:1.0", command: "exit")
         TestStep.wait(seconds: 2)
         Shortcut.tmuxRunCommand(target: "filebrowse:0.0", command: "exit")
