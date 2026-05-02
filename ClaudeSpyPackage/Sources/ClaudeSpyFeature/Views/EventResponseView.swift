@@ -60,7 +60,8 @@ extension HookEvent {
                 sendCommand: sendCommand,
                 state: state
             ))
-        case .sessionEnd,
+        case .setup,
+             .sessionEnd,
              .preToolUse,
              .postToolUse,
              .postToolUseFailure,

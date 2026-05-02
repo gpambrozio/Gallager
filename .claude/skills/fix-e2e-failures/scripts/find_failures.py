@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Find and summarize E2E test failures from the ClaudeSpyTestResults repository.
 
-Pulls latest results, finds the most recent failing run, and outputs a
-structured JSON summary of all failures with actionable details.
+Pulls latest results, finds the most recent failing run (or the most recent
+run for a given PR number if `--pr` is given), and outputs a structured JSON
+summary of all failures with actionable details.
 
 Screenshot mismatches are non-fatal in the orchestrator — a scenario continues
 running after a failed screenshot comparison, so a single scenario can produce
@@ -10,7 +11,7 @@ multiple failed steps. This script extracts every failed step, not just the
 first one.
 
 Usage:
-    python find_failures.py [--results-dir PATH]
+    python find_failures.py [--results-dir PATH] [--pr PR_NUMBER]
 
 Output (JSON to stdout):
     {
@@ -74,6 +75,27 @@ def find_latest_failure(results_dir: str) -> dict | None:
         if entry.get("buildFailed"):
             continue
         if not entry.get("allPassed"):
+            return entry
+
+    return None
+
+
+def find_latest_entry_for_pr(results_dir: str, pr_number: str) -> dict | None:
+    """Find the newest run entry in index.json associated with a PR number.
+
+    Entries are already sorted newest-first, so the first match wins.
+    `prNumber` is stored as a string in index.json.
+    """
+    index_path = os.path.join(results_dir, "results", "index.json")
+    if not os.path.exists(index_path):
+        return None
+
+    with open(index_path) as f:
+        entries = json.load(f)
+
+    pr_number = str(pr_number)
+    for entry in entries:
+        if str(entry.get("prNumber") or "") == pr_number:
             return entry
 
     return None
@@ -189,6 +211,12 @@ def main():
         default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "ClaudeSpyTestResults"),
         help="Path to ClaudeSpyTestResults repository",
     )
+    parser.add_argument(
+        "--pr",
+        default=None,
+        help="PR number to analyze (e.g. '444'). The newest run associated with this PR "
+             "is selected. If omitted, the latest failing run across all PRs is used.",
+    )
     args = parser.parse_args()
 
     results_dir = os.path.abspath(args.results_dir)
@@ -200,24 +228,48 @@ def main():
     # Pull latest
     pull_results(results_dir)
 
-    # Check for build failures first (most recent entry)
-    index_path = os.path.join(results_dir, "results", "index.json")
-    if os.path.exists(index_path):
-        with open(index_path) as f:
-            entries = json.load(f)
-        if entries and entries[0].get("buildFailed"):
+    if args.pr:
+        # Specific PR requested — find the newest run for it.
+        entry = find_latest_entry_for_pr(results_dir, args.pr)
+        if not entry:
             json.dump({
-                "status": "build_failed",
-                "message": f"Latest run ({entries[0]['branch']} @ {entries[0]['commit']}) had a build failure. No test results to analyze.",
-                "entry": entries[0],
+                "status": "no_results",
+                "message": f"No runs found in index.json for PR #{args.pr}.",
             }, sys.stdout, indent=2)
             return
+        if entry.get("buildFailed"):
+            json.dump({
+                "status": "build_failed",
+                "message": f"Latest run for PR #{args.pr} ({entry['folder']}, {entry['branch']} @ {entry['commit']}) had a build failure. No test results to analyze.",
+                "entry": entry,
+            }, sys.stdout, indent=2)
+            return
+        if entry.get("allPassed"):
+            json.dump({
+                "status": "all_passed",
+                "message": f"Latest run for PR #{args.pr} ({entry['folder']}, {entry['branch']} @ {entry['commit']}) passed all scenarios.",
+                "entry": entry,
+            }, sys.stdout, indent=2)
+            return
+    else:
+        # Check for build failures first (most recent entry)
+        index_path = os.path.join(results_dir, "results", "index.json")
+        if os.path.exists(index_path):
+            with open(index_path) as f:
+                entries = json.load(f)
+            if entries and entries[0].get("buildFailed"):
+                json.dump({
+                    "status": "build_failed",
+                    "message": f"Latest run ({entries[0]['branch']} @ {entries[0]['commit']}) had a build failure. No test results to analyze.",
+                    "entry": entries[0],
+                }, sys.stdout, indent=2)
+                return
 
-    # Find latest failure
-    entry = find_latest_failure(results_dir)
-    if not entry:
-        json.dump({"status": "all_passed", "message": "All recent E2E runs passed."}, sys.stdout, indent=2)
-        return
+        # Find latest failure
+        entry = find_latest_failure(results_dir)
+        if not entry:
+            json.dump({"status": "all_passed", "message": "All recent E2E runs passed."}, sys.stdout, indent=2)
+            return
 
     # Load report and extract failures
     report = load_report(results_dir, entry["folder"])
