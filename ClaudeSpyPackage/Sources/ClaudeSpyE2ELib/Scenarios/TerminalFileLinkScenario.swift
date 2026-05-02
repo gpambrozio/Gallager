@@ -5,6 +5,8 @@ import Foundation
 /// URL to the system default browser.
 ///
 /// **Issue:** #402 — Intercept file open clicks and open in new tab.
+/// **Issue:** #433 — Closing the tab returns to the originating terminal
+/// instead of leaving the user on the file browser tree.
 ///
 /// Flow:
 /// 1. Print an OSC 8 hyperlink whose URL is `file:///tmp/hello.txt` (the
@@ -12,8 +14,11 @@ import Foundation
 /// 2. Click on the visible hyperlink text in the terminal — a real CGEvent
 ///    click, not a tmux-simulated event.
 /// 3. Verify a new file tab appears with the file's name and content.
-/// 4. Toggle the "Open clicked file links in a new tab" setting off.
-/// 5. Click again and verify no new tab is created (the previous tab was
+/// 4. Close the tab and verify the originating terminal is reselected (issue
+///    #433): the link text must be visible again and the file browser tree
+///    must NOT be the active view.
+/// 5. Toggle the "Open clicked file links in a new tab" setting off.
+/// 6. Click again and verify no new tab is created (the previous tab was
 ///    closed before this phase, so the absence proves the setting works).
 ///
 /// The OSC 8 hyperlink text is wide and right-padded so we have enough
@@ -57,7 +62,6 @@ public enum TerminalFileLinkScenario {
 
         TestStep.macWaitForElement(titled: "termlink", timeout: 5)
         TestStep.macClickButton(titled: "termlink")
-        TestStep.wait(seconds: 3)
 
         // Wait for the link text to appear in the terminal's accessibility value
         TestStep.macWaitForElementQuery(
@@ -69,7 +73,6 @@ public enum TerminalFileLinkScenario {
         // ── Phase 1: Click the link → file tab opens ─────────────
         TestStep.log("Phase 1: Click the file link in the terminal")
         TestStep.macClickAtPoint(x: linkClickX, y: linkClickY)
-        TestStep.wait(seconds: 2)
 
         // The new tab carries the file name in its accessibility label.
         TestStep.macWaitForElement(titled: "File tab: hello.txt", timeout: 5)
@@ -80,18 +83,28 @@ public enum TerminalFileLinkScenario {
         )
         TestStep.macScreenshot(label: "mac-file-tab-opened-from-terminal-click")
 
-        // Switch back to the terminal tab so the click target for Phase 2 is
-        // the terminal again, not the file viewer.
-        TestStep.macClickButton(titled: "termlink:0")
-        TestStep.wait(seconds: 1)
-
-        // Close the open file tab so its absence in Phase 2 actually proves
-        // the setting blocked tab creation rather than reusing the existing one.
-        TestStep.macClickButton(titled: "File tab: hello.txt")
-        TestStep.wait(seconds: 0.5)
+        // ── Phase 1.5: Close the tab → return to originating terminal ─
+        // Regression guard for issue #433: closing a file tab opened via a
+        // terminal click must return the user to the originating terminal,
+        // not the file browser tree.
+        TestStep.log("Phase 1.5: Close the file tab and verify the originating terminal is reselected")
         TestStep.macClickButton(titled: "Close file tab: hello.txt")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "File tab: hello.txt", timeout: 5)
+
+        // The terminal must be the active view again. The terminal-%0 element
+        // is only mounted when the terminal pane is visible (FileBrowserView
+        // and the pane layout are mutually exclusive in MainView), so finding
+        // the link text under that identifier proves we landed on the
+        // terminal rather than on the file browser tree.
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("click-here-to-open-hello-txt-file")]),
+            timeout: 5
+        )
+        // Negative assertion: the file browser tree's search field is gone.
+        // Only the tree renders this label, so its absence rules out the
+        // pre-#433 fallback that left the tree visible after closing the tab.
+        TestStep.macWaitForElementToDisappear(titled: "Search files", timeout: 5)
+        TestStep.macScreenshot(label: "mac-terminal-after-file-tab-closed")
 
         // ── Phase 2: Disable setting → click does NOT open a tab ─
         TestStep.log("Phase 2: Disable setting and verify clicks no longer open tabs")
@@ -104,7 +117,6 @@ public enum TerminalFileLinkScenario {
 
         // Re-select the pane after Settings closes so the terminal regains focus.
         TestStep.macClickButton(titled: "termlink:0")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("click-here-to-open-hello-txt-file")]),
             timeout: 10
@@ -114,7 +126,6 @@ public enum TerminalFileLinkScenario {
         // and `NSWorkspace.shared.open` is invoked on a non-existent path,
         // which silently no-ops — no new tab should appear.
         TestStep.macClickAtPoint(x: linkClickX, y: linkClickY)
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementToDisappear(titled: "File tab: hello.txt", timeout: 3)
         TestStep.macScreenshot(label: "mac-file-link-click-with-setting-off")
 

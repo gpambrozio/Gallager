@@ -57,6 +57,16 @@ struct GlobalOptions: ParsableArguments {
 
     @Option(name: .long, help: "Target specific window")
     var window: String?
+
+    /// The pane ID for the calling shell, derived from `$TMUX_PANE`.
+    ///
+    /// Returns `nil` when running outside tmux. Each command decides whether
+    /// to fall back to this value based on which targeting flags it actually
+    /// consumes — irrelevant flags should not suppress the fallback.
+    var callingPaneId: String? {
+        let envPane = ProcessInfo.processInfo.environment["TMUX_PANE"]
+        return envPane?.isEmpty == false ? envPane : nil
+    }
 }
 
 /// Helper to send a request and handle common error reporting.
