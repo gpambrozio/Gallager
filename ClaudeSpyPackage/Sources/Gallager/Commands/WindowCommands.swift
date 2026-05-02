@@ -45,6 +45,9 @@ struct NewWindowCommand: ParsableCommand {
     @Option(name: .long, help: "Working directory for the new window (defaults to $HOME)")
     var path: String?
 
+    @Option(name: .long, help: "Custom title to display for the new window in the sidebar")
+    var title: String?
+
     @OptionGroup var options: GlobalOptions
 
     func run() throws {
@@ -55,6 +58,7 @@ struct NewWindowCommand: ParsableCommand {
             params["pane_id"] = .string(pane)
         }
         if let path { params["path"] = .string(path) }
+        if let title { params["title"] = .string(title) }
         let response = try executeRequest(method: "window.create", params: params, options: options)
         if options.json {
             printResponse(response, json: true)

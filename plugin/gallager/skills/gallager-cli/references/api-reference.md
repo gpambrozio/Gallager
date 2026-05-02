@@ -59,9 +59,26 @@ Newline-delimited JSON-RPC over `AF_UNIX, SOCK_STREAM`. Each message is a single
 - Params: _(none)_
 - Result: `{ "sessions": [{ "id", "name", "windowCount", "isAttached" }, …] }`
 
-### `session.create` — `gallager new-session [--name] [--path]`
-- Params: `{ "name"?: string, "path"?: string }`
-- Result: `{ "id", "name", "windowCount", "isAttached" }`
+### `session.create` — `gallager new-session [--name] [--path] [--title] [--if-missing]`
+- Params: `{ "name"?: string, "path"?: string, "title"?: string, "if_missing"?: bool }`
+- Result: `{ "id", "name", "windowCount", "isAttached", "created" }`
+- When `if_missing` is true and a session with `name` already exists, the
+  existing session info is returned with `created: false` instead of
+  auto-suffixing the name. Otherwise `created: true`. Requires `name` when
+  `if_missing` is set.
+- `title` (when present) sets the sidebar `@gallager-description` for the
+  resulting session — handy for one-shot scripts that don't want a follow-up
+  `session.set_title` call.
+
+### `session.set_title` — `gallager set-title <text> [--session|--window|--pane]`
+Writes the sidebar title (`@gallager-description` tmux user option). Window
+scope wins when `window_id` is supplied; otherwise the title is applied at
+session scope. Pass `title: ""` (or omit it) to clear.
+- Params: `{ "title"?: string, "session_id"?: string, "window_id"?: string, "pane_id"?: string }`
+- Result: `{ "scope": "session" | "window" }`
+- Errors: `not_found` when the named session/window doesn't exist or no
+  target can be resolved (e.g. invoked outside an attached session with no
+  targeting flags). Detached windows are reachable via `<session>:<index>`.
 
 ### `session.select` — `gallager select-session <id>`
 - Params: `{ "session_id": string }`
@@ -96,13 +113,16 @@ Newline-delimited JSON-RPC over `AF_UNIX, SOCK_STREAM`. Each message is a single
   from `$TMUX_PANE` automatically when neither `--session` nor `--pane` is
   passed, so the listing defaults to the calling pane's session.
 
-### `window.create` — `gallager new-window [--session] [--path]`
-- Params: `{ "session_id"?: string, "path"?: string, "pane_id"?: string }`
+### `window.create` — `gallager new-window [--session] [--path] [--title]`
+- Params: `{ "session_id"?: string, "path"?: string, "pane_id"?: string, "title"?: string }`
 - Result: `{ "id", "index", "name", "paneCount", "isActive", "sessionId" }`
 - When `session_id` is omitted but `pane_id` is provided, the new window is
   created in the pane's session. The CLI sends `pane_id` from `$TMUX_PANE`
   automatically when neither `--session` nor `--pane` is passed, so the new
   window lands in the calling pane's session.
+- `title` (when present) sets the sidebar `@gallager-description` for the
+  new window at creation time — equivalent to a follow-up
+  `session.set_title --window <id>`.
 
 ### `window.select` — `gallager select-window <id>`
 - Params: `{ "window_id": string }`
@@ -142,11 +162,23 @@ Newline-delimited JSON-RPC over `AF_UNIX, SOCK_STREAM`. Each message is a single
 - Params: `{ "pane_id": string }`
 - Result: `{}`
 
+### `pane.capture` — `gallager capture-pane [--pane] [--scrollback]`
+Returns the visible buffer of a pane as plain text — the same content as
+`tmux capture-pane -p`. With `--scrollback` (`-S -`), the entire history is
+included. Useful for grepping pane output without leaving the calling shell.
+- Params: `{ "pane_id"?: string, "scrollback"?: bool }`
+- Result: `{ "text": string }`
+- The CLI fills `pane_id` from `$TMUX_PANE` when no targeting flag is given,
+  so the capture defaults to the calling pane.
+
 ## Input
 
-### `input.send_text` — `gallager send <text> [--pane]`
-Sends text verbatim — include `\n` in the text for Enter.
-- Params: `{ "text": string, "pane_id"?: string }`
+### `input.send_text` — `gallager send <text> [--pane] [--enter]`
+Sends text verbatim. Pass `--enter` (or `enter: true`) to append a real
+Enter keypress after the text — equivalent to following the call with
+`input.send_key { key: "enter" }`. Without `--enter`, include `\n` in the
+text yourself if you need a newline.
+- Params: `{ "text": string, "pane_id"?: string, "enter"?: bool }`
 - Result: `{}`
 - The CLI fills `pane_id` from `$TMUX_PANE` when no targeting flag is given,
   so input goes to the calling pane.
@@ -195,9 +227,14 @@ Creates a new tmux session whose working directory is the given project path and
 
 ## System / utility
 
-### `system.ping` — `gallager ping`
+### `system.ping` — `gallager ping` / `gallager wait-ready`
 - Params: _(none)_
 - Result: `{ "pong": true }`
+- `wait-ready --timeout <seconds> --interval <seconds>` (CLI-only convenience)
+  retries `system.ping` until success or the timeout elapses, exiting
+  non-zero on timeout. Use it as a gate at the top of scripts that auto-launch
+  the app instead of sleeping for a fixed duration. Defaults: 30s timeout,
+  0.5s interval.
 
 ### `system.capabilities` — `gallager capabilities`
 - Params: _(none)_
