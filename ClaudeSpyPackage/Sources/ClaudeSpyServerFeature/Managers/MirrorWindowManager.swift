@@ -367,6 +367,26 @@ final public class MirrorWindowManager {
         }
     }
 
+    /// Sets a custom description scoped to a single window. Other windows in the
+    /// same session keep their inherited (or own) description. Persisted as a tmux
+    /// user option at window scope so it survives app restarts.
+    /// - Parameters:
+    ///   - description: The description text, or nil to clear the window override
+    ///   - sessionName: The tmux session name containing the window
+    ///   - windowIndex: The window index within the session
+    public func setWindowDescription(_ description: String?, sessionName: String, windowIndex: Int) {
+        let normalizedDescription = description?.isEmpty == true ? nil : description
+        let windowTarget = "\(sessionName):\(windowIndex)"
+        for (paneId, state) in paneStates
+            where state.sessionName == sessionName && state.windowIndex == windowIndex {
+            paneStates[paneId]?.customDescription = normalizedDescription
+        }
+        Task { [tmuxService] in
+            try? await tmuxService.setWindowDescription(normalizedDescription, for: windowTarget)
+            await onDescriptionChanged?()
+        }
+    }
+
     // MARK: - Auto-Close Pane
 
     /// Polls until the Claude process exits from the pane, then closes the pane after a short delay.

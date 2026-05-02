@@ -41,19 +41,34 @@ struct NewSessionCommand: ParsableCommand {
     @Option(name: .long, help: "Working directory for the new session (defaults to $HOME)")
     var path: String?
 
+    @Option(name: .long, help: "Custom title to display for the session in the sidebar")
+    var title: String?
+
+    @Flag(
+        name: .long,
+        help: "If a session with --name already exists, return its info instead of creating a new one"
+    )
+    var ifMissing = false
+
     @OptionGroup var options: GlobalOptions
 
     func run() throws {
+        if ifMissing, name == nil {
+            throw ValidationError("--if-missing requires --name to know what to look for")
+        }
         var params: [String: JSONValue] = [:]
         if let name { params["name"] = .string(name) }
         if let path { params["path"] = .string(path) }
+        if let title { params["title"] = .string(title) }
+        if ifMissing { params["if_missing"] = .bool(true) }
         let response = try executeRequest(method: "session.create", params: params, options: options)
         if options.json {
             printResponse(response, json: true)
         } else if
             let result = response.result,
             case let .string(id) = result["id"] {
-            print("Created session: \(id)")
+            let created = result["created"]?.boolValue ?? true
+            print(created ? "Created session: \(id)" : "Session already exists: \(id)")
         }
     }
 }
@@ -117,6 +132,55 @@ struct CloseSessionCommand: ParsableCommand {
             options: options
         )
         printResponse(response, json: options.json)
+    }
+}
+
+struct SetTitleCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "set-title",
+        abstract: "Set a custom title shown for a session or window in the sidebar",
+        discussion: """
+        The title is persisted as a tmux user option (`@gallager-description`) so it
+        survives app restarts. Pass an empty string to clear the title.
+
+        Targeting:
+          --session SESSION  applies at session scope (every window inherits)
+          --window  WINDOW   applies at window scope (overrides the session value)
+          --pane    PANE     applies at the session containing that pane
+          (none)             defaults to the calling pane's session via $TMUX_PANE
+        """
+    )
+
+    @Argument(help: "Title text. Pass an empty string (\"\") to clear.")
+    var title: String
+
+    @OptionGroup var options: GlobalOptions
+
+    func run() throws {
+        var params: [String: JSONValue] = ["title": .string(title)]
+        if let session = options.session {
+            params["session_id"] = .string(session)
+        } else if let window = options.window {
+            params["window_id"] = .string(window)
+        } else if let pane = options.pane ?? options.callingPaneId {
+            params["pane_id"] = .string(pane)
+        }
+        let response = try executeRequest(
+            method: "session.set_title",
+            params: params,
+            options: options
+        )
+        if options.json {
+            printResponse(response, json: true)
+        } else if
+            let result = response.result,
+            case let .string(scope) = result["scope"] {
+            switch scope {
+            case "session": print(title.isEmpty ? "Cleared session title." : "Set session title.")
+            case "window": print(title.isEmpty ? "Cleared window title." : "Set window title.")
+            default: print("No matching target found.")
+            }
+        }
     }
 }
 

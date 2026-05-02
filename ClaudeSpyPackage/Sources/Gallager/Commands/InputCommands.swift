@@ -10,12 +10,18 @@ struct SendCommand: ParsableCommand {
     @Argument(help: "Text to send")
     var text: String
 
+    @Flag(name: .long, help: "Send a trailing Enter keypress after the text")
+    var enter = false
+
     @OptionGroup var options: GlobalOptions
 
     func run() throws {
         var params: [String: JSONValue] = ["text": .string(text)]
         if let pane = options.pane ?? options.callingPaneId {
             params["pane_id"] = .string(pane)
+        }
+        if enter {
+            params["enter"] = .bool(true)
         }
         let response = try executeRequest(method: "input.send_text", params: params, options: options)
         printResponse(response, json: options.json)

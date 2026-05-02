@@ -38,6 +38,7 @@
         "session.current",
         "session.close",
         "session.set_state",
+        "session.set_title",
         "window.list",
         "window.create",
         "window.select",
@@ -45,6 +46,7 @@
         "pane.list",
         "pane.split",
         "pane.select",
+        "pane.capture",
         "input.send_text",
         "input.send_key",
         "notification.create",
@@ -58,26 +60,41 @@
     /// Service dependencies are injected via callbacks provided at init by AppCoordinator,
     /// since the router needs access to @MainActor services (TmuxService, MirrorWindowManager).
     final public class LiveAPIRequestRouter: Sendable {
+        /// Result of `onSessionCreate`. `created` is `false` when `ifMissing` was
+        /// set and the session already existed; in that case `info` describes the
+        /// existing session and no new session was created.
+        public struct SessionCreateResult: Sendable {
+            public let info: [String: JSONValue]
+            public let created: Bool
+
+            public init(info: [String: JSONValue], created: Bool) {
+                self.info = info
+                self.created = created
+            }
+        }
+
         private let logger = Logger(label: "com.claudespy.apirouter")
 
         // Service callbacks injected at init by AppCoordinator
         let onSessionList: (@Sendable () async -> [[String: JSONValue]])?
-        let onSessionCreate: (@Sendable (String?, String?) async throws -> [String: JSONValue])?
+        let onSessionCreate: (@Sendable (String?, String?, String?, Bool) async throws -> SessionCreateResult)?
         let onSessionSelect: (@Sendable (String) async throws -> Void)?
         let onSessionCurrent: (@Sendable () async -> [String: JSONValue]?)?
         let onSessionClose: (@Sendable (String) async throws -> Void)?
         let onSessionSetState: (@Sendable (String, String?, String?) async throws -> Int)?
+        let onSessionSetTitle: (@Sendable (String?, String?, String?, String?) async throws -> String)?
 
         let onWindowList: (@Sendable (String?, String?) async -> [[String: JSONValue]])?
-        let onWindowCreate: (@Sendable (String?, String?, String?) async throws -> [String: JSONValue])?
+        let onWindowCreate: (@Sendable (String?, String?, String?, String?) async throws -> [String: JSONValue])?
         let onWindowSelect: (@Sendable (String) async throws -> Void)?
         let onWindowClose: (@Sendable (String) async throws -> Void)?
 
         let onPaneList: (@Sendable (String?, String?) async -> [[String: JSONValue]])?
         let onPaneSplit: (@Sendable (String?, String, String?) async throws -> [String: JSONValue])?
         let onPaneSelect: (@Sendable (String) async throws -> Void)?
+        let onPaneCapture: (@Sendable (String?, Bool) async throws -> String)?
 
-        let onSendText: (@Sendable (String, String?) async throws -> Void)?
+        let onSendText: (@Sendable (String, String?, Bool) async throws -> Void)?
         let onSendKey: (@Sendable (String, String?) async throws -> Void)?
 
         let onNotify: (@Sendable (String, String, String?, String?) async -> Void)?
@@ -91,19 +108,27 @@
 
         public init(
             onSessionList: (@Sendable () async -> [[String: JSONValue]])? = nil,
-            onSessionCreate: (@Sendable (String?, String?) async throws -> [String: JSONValue])? = nil,
+            onSessionCreate: (
+                @Sendable (String?, String?, String?, Bool) async throws -> SessionCreateResult
+            )? = nil,
             onSessionSelect: (@Sendable (String) async throws -> Void)? = nil,
             onSessionCurrent: (@Sendable () async -> [String: JSONValue]?)? = nil,
             onSessionClose: (@Sendable (String) async throws -> Void)? = nil,
             onSessionSetState: (@Sendable (String, String?, String?) async throws -> Int)? = nil,
+            onSessionSetTitle: (
+                @Sendable (String?, String?, String?, String?) async throws -> String
+            )? = nil,
             onWindowList: (@Sendable (String?, String?) async -> [[String: JSONValue]])? = nil,
-            onWindowCreate: (@Sendable (String?, String?, String?) async throws -> [String: JSONValue])? = nil,
+            onWindowCreate: (
+                @Sendable (String?, String?, String?, String?) async throws -> [String: JSONValue]
+            )? = nil,
             onWindowSelect: (@Sendable (String) async throws -> Void)? = nil,
             onWindowClose: (@Sendable (String) async throws -> Void)? = nil,
             onPaneList: (@Sendable (String?, String?) async -> [[String: JSONValue]])? = nil,
             onPaneSplit: (@Sendable (String?, String, String?) async throws -> [String: JSONValue])? = nil,
             onPaneSelect: (@Sendable (String) async throws -> Void)? = nil,
-            onSendText: (@Sendable (String, String?) async throws -> Void)? = nil,
+            onPaneCapture: (@Sendable (String?, Bool) async throws -> String)? = nil,
+            onSendText: (@Sendable (String, String?, Bool) async throws -> Void)? = nil,
             onSendKey: (@Sendable (String, String?) async throws -> Void)? = nil,
             onNotify: (@Sendable (String, String, String?, String?) async -> Void)? = nil,
             onEditorOpen: (@Sendable (String, String) async -> Void)? = nil,
@@ -117,6 +142,7 @@
             self.onSessionCurrent = onSessionCurrent
             self.onSessionClose = onSessionClose
             self.onSessionSetState = onSessionSetState
+            self.onSessionSetTitle = onSessionSetTitle
             self.onWindowList = onWindowList
             self.onWindowCreate = onWindowCreate
             self.onWindowSelect = onWindowSelect
@@ -124,6 +150,7 @@
             self.onPaneList = onPaneList
             self.onPaneSplit = onPaneSplit
             self.onPaneSelect = onPaneSelect
+            self.onPaneCapture = onPaneCapture
             self.onSendText = onSendText
             self.onSendKey = onSendKey
             self.onNotify = onNotify
@@ -167,8 +194,12 @@
                 case "session.create":
                     let name = params["name"]?.stringValue
                     let path = params["path"]?.stringValue
-                    if let result = try await onSessionCreate?(name, path) {
-                        return JSONRPCResponse(id: id, result: result)
+                    let title = params["title"]?.stringValue
+                    let ifMissing = params["if_missing"]?.boolValue == true
+                    if let result = try await onSessionCreate?(name, path, title, ifMissing) {
+                        var info = result.info
+                        info["created"] = .bool(result.created)
+                        return JSONRPCResponse(id: id, result: info)
                     }
                     return .internalError(id: id, "Session create not available")
 
@@ -206,6 +237,20 @@
                         "applied_to": .int(appliedTo),
                     ])
 
+                case "session.set_title":
+                    // `title` is optional; nil/empty clears the description.
+                    let title = params["title"]?.stringValue
+                    let sessionId = params["session_id"]?.stringValue
+                    let windowId = params["window_id"]?.stringValue
+                    let paneId = params["pane_id"]?.stringValue
+                    guard let callback = onSessionSetTitle else {
+                        return .internalError(id: id, "Session set_title not available")
+                    }
+                    let scope = try await callback(title, sessionId, windowId, paneId)
+                    return JSONRPCResponse(id: id, result: [
+                        "scope": .string(scope),
+                    ])
+
                 // MARK: - Windows
 
                 case "window.list":
@@ -220,7 +265,8 @@
                     let sessionId = params["session_id"]?.stringValue
                     let paneId = params["pane_id"]?.stringValue
                     let path = params["path"]?.stringValue
-                    if let result = try await onWindowCreate?(sessionId, path, paneId) {
+                    let title = params["title"]?.stringValue
+                    if let result = try await onWindowCreate?(sessionId, path, paneId, title) {
                         return JSONRPCResponse(id: id, result: result)
                     }
                     return .internalError(id: id, "Window create not available")
@@ -265,6 +311,17 @@
                     try await onPaneSelect?(paneId)
                     return .ok(id: id)
 
+                case "pane.capture":
+                    let paneId = params["pane_id"]?.stringValue
+                    let scrollback = params["scrollback"]?.boolValue == true
+                    guard let callback = onPaneCapture else {
+                        return .internalError(id: id, "Pane capture not available")
+                    }
+                    let content = try await callback(paneId, scrollback)
+                    return JSONRPCResponse(id: id, result: [
+                        "content": .string(content),
+                    ])
+
                 // MARK: - Input
 
                 case "input.send_text":
@@ -272,7 +329,8 @@
                         return .invalidParams(id: id, "text required")
                     }
                     let paneId = params["pane_id"]?.stringValue
-                    try await onSendText?(text, paneId)
+                    let appendEnter = params["enter"]?.boolValue == true
+                    try await onSendText?(text, paneId, appendEnter)
                     return .ok(id: id)
 
                 case "input.send_key":

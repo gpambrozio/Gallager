@@ -1725,6 +1725,59 @@ final public class TmuxService {
         }
     }
 
+    /// Persists the custom description for a single window as a tmux user option.
+    ///
+    /// Writes `@gallager-description` at window scope using `-w`, which overrides
+    /// the inherited session-level value for that window only. Other windows in
+    /// the same session continue to resolve to the session value.
+    /// - Parameters:
+    ///   - description: The description text, or `nil` to clear the override.
+    ///   - windowTarget: The tmux window target (e.g. `session:0`).
+    public func setWindowDescription(_ description: String?, for windowTarget: String) async throws {
+        if let description {
+            let result = try await runTmuxCommand([
+                "set-option", "-w", "-t", windowTarget,
+                Self.descriptionOptionKey, description,
+            ])
+            guard result.isSuccess else {
+                throw TmuxError.commandFailed(message: result.stderrString)
+            }
+        } else {
+            let result = try await runTmuxCommand([
+                "set-option", "-wu", "-t", windowTarget,
+                Self.descriptionOptionKey,
+            ])
+            guard result.isSuccess else {
+                throw TmuxError.commandFailed(message: result.stderrString)
+            }
+        }
+    }
+
+    /// Captures the current contents of a pane as plain text (no escape sequences).
+    ///
+    /// Intended for scripts that need to read pane output (grep a build log,
+    /// assert on a test output, wait for a specific line). Unlike `capturePane`,
+    /// this omits the `-e` flag so the result is plain text suitable for grep.
+    /// - Parameters:
+    ///   - target: The pane target (e.g. `%3` or `session:0.0`).
+    ///   - scrollback: When `true`, includes the entire scrollback history.
+    /// - Returns: The captured plain-text content.
+    public func capturePaneText(_ target: String, scrollback: Bool = false) async throws -> String {
+        var args = ["capture-pane", "-t", target, "-p"]
+        if scrollback {
+            args.append("-S")
+            args.append("-")
+        }
+        let result = try await runTmuxCommand(args)
+        guard result.isSuccess else {
+            // Surface tmux's stderr verbatim so scripts get an actionable message
+            // (e.g. "can't find pane: %99", "no server running") instead of a
+            // generic "pane not found".
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+        return result.stdoutString
+    }
+
     /// Describes a process running in a tmux pane (foreground or background).
     public struct RunningProcess: Sendable {
         /// The pane index within its window (e.g., 0, 1)
@@ -1986,6 +2039,13 @@ final public class TmuxService {
         await refreshPanes()
 
         return (sessionName: sessionName, paneId: paneId)
+    }
+
+    /// Returns `true` when a tmux session with the given name currently exists.
+    /// Uses tmux as the source of truth so the answer is correct even when the
+    /// in-memory `panes` array hasn't been refreshed yet.
+    public func sessionExists(named name: String) async -> Bool {
+        await getExistingSessionNames().contains(name)
     }
 
     /// Gets all existing session names
