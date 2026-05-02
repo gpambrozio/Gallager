@@ -229,7 +229,7 @@ func paneCaptureReturnsContent() async {
 func windowCreatePassesTitleToCallback() async {
     let receivedTitle = LockedValue<String?>(nil)
     let router = LiveAPIRequestRouter(
-        onWindowCreate: { _, _, _, title in
+        onWindowCreate: { _, _, _, title, _ in
             await receivedTitle.set(title)
             return ["id": .string("foo:1")]
         }
@@ -241,6 +241,154 @@ func windowCreatePassesTitleToCallback() async {
     let response = await router.handleRequest(request)
     #expect(response.ok == true)
     #expect(await receivedTitle.get() == "Builds")
+}
+
+@Test
+func windowCreatePassesNameToCallback() async {
+    let receivedName = LockedValue<String?>(nil)
+    let router = LiveAPIRequestRouter(
+        onWindowCreate: { _, _, _, _, name in
+            await receivedName.set(name)
+            return ["id": .string("foo:1")]
+        }
+    )
+    let request = JSONRPCRequest(id: "15", method: "window.create", params: [
+        "session_id": .string("foo"),
+        "name": .string("editor"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == true)
+    #expect(await receivedName.get() == "editor")
+}
+
+// MARK: - pane.split shell
+
+@Test
+func paneSplitPassesShellToCallback() async {
+    let receivedShell = LockedValue<String?>(nil)
+    let router = LiveAPIRequestRouter(
+        onPaneSplit: { _, _, _, shell in
+            await receivedShell.set(shell)
+            return ["id": .string("%9")]
+        }
+    )
+    let request = JSONRPCRequest(id: "16", method: "pane.split", params: [
+        "pane_id": .string("%3"),
+        "shell": .string("/bin/fish"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == true)
+    #expect(await receivedShell.get() == "/bin/fish")
+}
+
+// MARK: - system.set_env
+
+@Test
+func setEnvForwardsAllVarsAndUnsets() async {
+    let received = LockedValue<(String, [String: String?])>(("", [:]))
+    let router = LiveAPIRequestRouter(
+        onSetEnvironment: { sessionId, vars in
+            await received.set((sessionId, vars))
+        }
+    )
+    let request = JSONRPCRequest(id: "17", method: "system.set_env", params: [
+        "session_id": .string("workers"),
+        "vars": .object([
+            "FOO": .string("bar"),
+            "PATH": .string("/opt/bin"),
+            "OLD": .null,
+        ]),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == true)
+    let (sessionId, vars) = await received.get()
+    #expect(sessionId == "workers")
+    #expect(vars["FOO"] == "bar")
+    #expect(vars["PATH"] == "/opt/bin")
+    // Explicit `.null` becomes a present-but-nil entry so callbacks can `unset`.
+    #expect(vars.keys.contains("OLD"))
+    #expect(vars["OLD"] == .some(nil))
+}
+
+@Test
+func setEnvRejectsMissingSessionId() async {
+    let router = LiveAPIRequestRouter(
+        onSetEnvironment: { _, _ in }
+    )
+    let request = JSONRPCRequest(id: "18", method: "system.set_env", params: [
+        "vars": .object(["FOO": .string("bar")]),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == false)
+    #expect(response.error?.code == "invalid_params")
+}
+
+// MARK: - pane.set_layout
+
+@Test
+func paneSetLayoutForwardsTargetAndLayout() async {
+    let received = LockedValue<(String, String)>(("", ""))
+    let router = LiveAPIRequestRouter(
+        onPaneSetLayout: { target, layout in
+            await received.set((target, layout))
+        }
+    )
+    let request = JSONRPCRequest(id: "19", method: "pane.set_layout", params: [
+        "target": .string("workers:0"),
+        "layout": .string("main-vertical"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == true)
+    let (target, layout) = await received.get()
+    #expect(target == "workers:0")
+    #expect(layout == "main-vertical")
+}
+
+// MARK: - layout.apply
+
+@Test
+func layoutApplyForwardsParamsAndReturnsResult() async {
+    let received = LockedValue<(JSONValue?, Bool, Bool, Bool, Bool, Bool, String?)>(
+        (nil, false, false, false, false, false, nil)
+    )
+    let router = LiveAPIRequestRouter(
+        onLayoutApply: { config, rebuild, detach, dryRun, lenient, requireCreate, configPath in
+            await received.set((config, rebuild, detach, dryRun, lenient, requireCreate, configPath))
+            return [
+                "session_name": .string("workers"),
+                "created": .bool(true),
+                "warnings": .array([]),
+                "planned_actions": .array([.string("session.create name=workers")]),
+            ]
+        }
+    )
+    let configBody: JSONValue = .object(["session_name": .string("workers")])
+    let request = JSONRPCRequest(id: "20", method: "layout.apply", params: [
+        "config": configBody,
+        "rebuild": .bool(true),
+        "dry_run": .bool(true),
+        "config_path": .string("/tmp/workers.yaml"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == true)
+    #expect(response.result?["session_name"]?.stringValue == "workers")
+    #expect(response.result?["created"]?.boolValue == true)
+    let (config, rebuild, _, dryRun, _, _, path) = await received.get()
+    #expect(config == configBody)
+    #expect(rebuild == true)
+    #expect(dryRun == true)
+    #expect(path == "/tmp/workers.yaml")
+}
+
+@Test
+func layoutApplyRejectsMissingConfig() async {
+    let router = LiveAPIRequestRouter(
+        onLayoutApply: { _, _, _, _, _, _, _ in [:] }
+    )
+    let request = JSONRPCRequest(id: "21", method: "layout.apply", params: [:])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == false)
+    #expect(response.error?.code == "invalid_params")
 }
 
 /// Helper actor for capturing values from `@Sendable` callbacks inside tests

@@ -56,17 +56,44 @@ extension Target.Dependency {
         .product(name: "DependenciesTestSupport", package: "swift-dependencies")
     }
 
-    static var claudeSpyNetworking: Self { "ClaudeSpyNetworking" }
-    static var claudeSpyCommon: Self { "ClaudeSpyCommon" }
-    static var claudeSpyEncryption: Self { "ClaudeSpyEncryption" }
-    static var claudeSpyFeature: Self { "ClaudeSpyFeature" }
-    static var claudeSpyServerFeature: Self { "ClaudeSpyServerFeature" }
-    static var claudeSpyExternalServer: Self { "ClaudeSpyExternalServer" }
-    static var claudeSpyExternalServerLib: Self { "ClaudeSpyExternalServerLib" }
-    static var claudeSpyE2ELib: Self { "ClaudeSpyE2ELib" }
+    static var claudeSpyNetworking: Self {
+        "ClaudeSpyNetworking"
+    }
+
+    static var claudeSpyCommon: Self {
+        "ClaudeSpyCommon"
+    }
+
+    static var claudeSpyEncryption: Self {
+        "ClaudeSpyEncryption"
+    }
+
+    static var claudeSpyFeature: Self {
+        "ClaudeSpyFeature"
+    }
+
+    static var claudeSpyServerFeature: Self {
+        "ClaudeSpyServerFeature"
+    }
+
+    static var claudeSpyExternalServer: Self {
+        "ClaudeSpyExternalServer"
+    }
+
+    static var claudeSpyExternalServerLib: Self {
+        "ClaudeSpyExternalServerLib"
+    }
+
+    static var claudeSpyE2ELib: Self {
+        "ClaudeSpyE2ELib"
+    }
 
     static var argumentParser: Self {
         .product(name: "ArgumentParser", package: "swift-argument-parser")
+    }
+
+    static var yams: Self {
+        .product(name: "Yams", package: "Yams")
     }
 }
 
@@ -125,6 +152,7 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.0.0"),
         .package(url: "https://github.com/mchakravarty/ProjectNavigator", from: "1.0.0"),
         .package(url: "https://github.com/gonzalezreal/textual", from: "0.3.1"),
+        .package(url: "https://github.com/jpsim/Yams", from: "5.0.0"),
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -236,6 +264,7 @@ let package = Package(
             name: "GallagerCLI",
             dependencies: [
                 .argumentParser,
+                .yams,
             ],
             path: "Sources/Gallager"
         ),

@@ -541,7 +541,7 @@
                         ).toJSONValue()
                     }
                 },
-                onWindowCreate: { [tmux, winManager] sessionId, path, paneId, title in
+                onWindowCreate: { [tmux, winManager] sessionId, path, paneId, title, name in
                     let targetSession: String = await MainActor.run {
                         if let sessionId { return sessionId }
                         let panes = tmux.panes
@@ -556,7 +556,8 @@
                     let workingDirectory = path ?? FileManager.default.homeDirectoryForCurrentUser.path
                     let newPaneId = try await tmux.newWindow(
                         sessionName: targetSession,
-                        workingDirectory: workingDirectory
+                        workingDirectory: workingDirectory,
+                        windowName: name
                     )
                     let panes = await tmux.refreshPanes()
                     guard let newPane = panes.first(where: { $0.paneId == newPaneId }) else {
@@ -612,7 +613,7 @@
                         }
                     }
                 },
-                onPaneSplit: { [tmux, winManager] paneId, direction, path in
+                onPaneSplit: { [tmux, winManager] paneId, direction, path, shellCommand in
                     let horizontal = direction == "right" || direction == "horizontal"
                     let target: String = await MainActor.run {
                         paneId ?? tmux.panes.first(where: { $0.isActive && $0.isWindowActive })?.paneId ?? "%0"
@@ -621,7 +622,8 @@
                     let newPaneId = try await tmux.splitPane(
                         target,
                         horizontal: horizontal,
-                        workingDirectory: workingDirectory
+                        workingDirectory: workingDirectory,
+                        shellCommand: shellCommand
                     )
                     let panes = await tmux.refreshPanes()
                     await MainActor.run { winManager.updatePaneStates(from: panes) }
@@ -648,6 +650,9 @@
                         paneId ?? tmux.panes.first(where: { $0.isActive && $0.isWindowActive })?.paneId ?? "%0"
                     }
                     return try await tmux.capturePaneText(target, scrollback: scrollback)
+                },
+                onPaneSetLayout: { [tmux] target, layout in
+                    try await tmux.selectLayout(target: target, layout: layout)
                 },
                 onSendText: { [tmux] text, paneId, appendEnter in
                     let target: String = await MainActor.run {
@@ -755,6 +760,55 @@
                         windowCount: 1,
                         isAttached: false
                     ).toJSONValue()
+                },
+                onSetEnvironment: { [tmux] sessionId, vars in
+                    for (name, value) in vars {
+                        try await tmux.setSessionEnvironment(
+                            sessionName: sessionId,
+                            name: name,
+                            value: value
+                        )
+                    }
+                },
+                onLayoutApply: {
+                    [tmux, winManager, claudeCommandPath] config, rebuild, detach, dryRun, lenient, requireCreate, configPath in
+                    let parser = LayoutConfigParser(
+                        lenient: lenient,
+                        environment: ProcessInfo.processInfo.environment
+                    )
+                    let parsed = try parser.parse(config)
+                    let driver = LayoutDriver(
+                        tmuxAccessor: { tmux },
+                        descriptionApplier: { description, sessionName, windowSession, windowIndex in
+                            await MainActor.run {
+                                if let sessionName {
+                                    winManager.setSessionDescription(description, for: sessionName)
+                                } else if let windowSession, let windowIndex {
+                                    winManager.setWindowDescription(
+                                        description,
+                                        sessionName: windowSession,
+                                        windowIndex: windowIndex
+                                    )
+                                }
+                            }
+                        }
+                    )
+                    let configDir = configPath.map { (URL(fileURLWithPath: $0).deletingLastPathComponent()).path }
+                    let result = try await driver.apply(
+                        parsed,
+                        rebuild: rebuild,
+                        detach: detach,
+                        dryRun: dryRun,
+                        requireCreate: requireCreate,
+                        configDirectory: configDir,
+                        claudeCommandPath: claudeCommandPath
+                    )
+                    return [
+                        "session_name": .string(result.sessionName),
+                        "created": .bool(result.created),
+                        "warnings": .array(result.warnings.map { .string($0) }),
+                        "planned_actions": .array(result.plannedActions.map { .string($0) }),
+                    ]
                 }
             )
             liveRouter = router

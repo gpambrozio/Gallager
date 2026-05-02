@@ -48,6 +48,9 @@ struct NewWindowCommand: ParsableCommand {
     @Option(name: .long, help: "Custom title to display for the new window in the sidebar")
     var title: String?
 
+    @Option(name: .long, help: "tmux window name (tab label). Defaults to auto-generated 'terminal N'.")
+    var name: String?
+
     @OptionGroup var options: GlobalOptions
 
     func run() throws {
@@ -59,6 +62,7 @@ struct NewWindowCommand: ParsableCommand {
         }
         if let path { params["path"] = .string(path) }
         if let title { params["title"] = .string(title) }
+        if let name { params["name"] = .string(name) }
         let response = try executeRequest(method: "window.create", params: params, options: options)
         if options.json {
             printResponse(response, json: true)
