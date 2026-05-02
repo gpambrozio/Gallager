@@ -105,9 +105,17 @@ public enum TerminalLinksScenario {
         // platform would fail here. iOS first, since it currently has focus.
         TestStep.iosScreenshot(label: "ios-terminal-links-mouse-mode")
 
-        // Refocus the macOS Panes window with the standard sizing so both
-        // macOS captures share dimensions.
-        Shortcut.openPanesWindow()
+        // Re-assert the standard Panes-window sizing so both macOS captures
+        // share dimensions. We can't reuse `Shortcut.openPanesWindow()` here
+        // because once `links-test` is selected, MainView's navigationTitle
+        // becomes the session's primary label (e.g. "~") instead of
+        // "Gallager", and the shortcut's `macWaitForWindow(titled: "Gallager")`
+        // would time out. The window is already open from the earlier call,
+        // so we just reapply the geometry directly.
+        TestStep.macMoveWindow(x: 10, y: 10)
+        TestStep.macResizeWindow(width: 1_000, height: 600)
+        TestStep.macSetSidebarWidth(250)
+        TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "links-test")
         TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "mac-terminal-links-mouse-mode")
