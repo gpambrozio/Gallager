@@ -100,8 +100,11 @@ public enum TerminalLinksScenario {
         TestStep.wait(seconds: 1)
 
         // Same three URL lines remain in the buffer; only the underline
-        // overlay should change. iOS first, since it currently has focus.
-        TestStep.iosScreenshot(label: "ios-terminal-links-mouse-mode", compare: false)
+        // overlay should change. Both the iOS and macOS screenshots below
+        // use the default `compare: true` to actively verify the underlines
+        // disappeared — a regression that re-introduces them on either
+        // platform would fail here. iOS first, since it currently has focus.
+        TestStep.iosScreenshot(label: "ios-terminal-links-mouse-mode")
 
         // Refocus the macOS Panes window. The "links-test" session is still
         // selected from earlier, so the window title now reflects its primary
@@ -112,7 +115,7 @@ public enum TerminalLinksScenario {
         TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "links-test")
         TestStep.wait(seconds: 1)
-        TestStep.macScreenshot(label: "mac-terminal-links-mouse-mode", compare: false)
+        TestStep.macScreenshot(label: "mac-terminal-links-mouse-mode")
 
         // Disable mouse mode again so we don't bleed state into later scenarios.
         Shortcut.tmuxRunCommand(

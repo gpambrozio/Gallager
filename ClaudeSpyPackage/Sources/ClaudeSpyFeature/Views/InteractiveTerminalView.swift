@@ -329,9 +329,12 @@
                 else { continue }
                 pan.isEnabled = !active
             }
-            // Re-run underline rendering: enabling mouse mode hides them,
-            // disabling it brings them back.
-            setNeedsLayout()
+            // Re-run underline rendering immediately: enabling mouse mode
+            // hides them, disabling it brings them back. Calling directly
+            // rather than relying on `setNeedsLayout()` ensures stale
+            // underlines disappear in the same frame as the mode change,
+            // not on the next layout pass.
+            updateURLUnderlines()
         }
 
         @objc
