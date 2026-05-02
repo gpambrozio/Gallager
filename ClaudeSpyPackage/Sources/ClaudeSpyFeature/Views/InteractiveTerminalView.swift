@@ -308,6 +308,7 @@
         ///    consulted — letting us decline horizontal pans, which the remote
         ///    terminal can't act on, so they fall through to the outer scroll
         ///    view for native horizontal scrolling of wide terminal content.
+        @MainActor
         override func mouseModeChanged(source: Terminal) {
             super.mouseModeChanged(source: source)
             let active = source.mouseMode != .off
