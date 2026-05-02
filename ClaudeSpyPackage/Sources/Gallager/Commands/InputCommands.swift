@@ -14,7 +14,7 @@ struct SendCommand: ParsableCommand {
 
     func run() throws {
         var params: [String: JSONValue] = ["text": .string(text)]
-        if let pane = options.pane { params["pane_id"] = .string(pane) }
+        if let pane = options.defaultPaneId { params["pane_id"] = .string(pane) }
         let response = try executeRequest(method: "input.send_text", params: params, options: options)
         printResponse(response, json: options.json)
     }
@@ -33,7 +33,7 @@ struct SendKeyCommand: ParsableCommand {
 
     func run() throws {
         var params: [String: JSONValue] = ["key": .string(key)]
-        if let pane = options.pane { params["pane_id"] = .string(pane) }
+        if let pane = options.defaultPaneId { params["pane_id"] = .string(pane) }
         let response = try executeRequest(method: "input.send_key", params: params, options: options)
         printResponse(response, json: options.json)
     }

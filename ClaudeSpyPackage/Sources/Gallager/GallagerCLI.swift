@@ -57,6 +57,19 @@ struct GlobalOptions: ParsableArguments {
 
     @Option(name: .long, help: "Target specific window")
     var window: String?
+
+    /// The pane to operate on when no explicit targeting flag was passed.
+    ///
+    /// Returns the explicit `--pane` value if given. Otherwise, when none of
+    /// `--pane`/`--session`/`--window` were specified, falls back to
+    /// `$TMUX_PANE` so commands operate on the pane where they were invoked
+    /// instead of whatever pane happens to be globally active in tmux.
+    var defaultPaneId: String? {
+        if let pane { return pane }
+        guard session == nil, window == nil else { return nil }
+        let envPane = ProcessInfo.processInfo.environment["TMUX_PANE"]
+        return envPane?.isEmpty == false ? envPane : nil
+    }
 }
 
 /// Helper to send a request and handle common error reporting.

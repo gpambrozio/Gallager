@@ -11,7 +11,11 @@ struct ListPanesCommand: ParsableCommand {
 
     func run() throws {
         var params: [String: JSONValue] = [:]
-        if let window = options.window { params["window_id"] = .string(window) }
+        if let window = options.window {
+            params["window_id"] = .string(window)
+        } else if let pane = options.defaultPaneId {
+            params["pane_id"] = .string(pane)
+        }
         let response = try executeRequest(method: "pane.list", params: params, options: options)
         if options.json {
             printResponse(response, json: true)
@@ -49,7 +53,7 @@ struct SplitPaneCommand: ParsableCommand {
 
     func run() throws {
         var params: [String: JSONValue] = ["direction": .string(direction)]
-        if let pane = options.pane { params["pane_id"] = .string(pane) }
+        if let pane = options.defaultPaneId { params["pane_id"] = .string(pane) }
         if let path { params["path"] = .string(path) }
         let response = try executeRequest(method: "pane.split", params: params, options: options)
         if options.json {

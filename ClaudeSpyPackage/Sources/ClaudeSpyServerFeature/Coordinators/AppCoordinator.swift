@@ -416,11 +416,13 @@
                         return applied
                     }
                 },
-                onWindowList: { [tmux] sessionId in
+                onWindowList: { [tmux] sessionId, paneId in
                     let panes = await tmux.refreshPanes()
                     let allWindows = LocalTmuxWindow.groupPanes(panes)
-                    let filtered = if let sessionId {
-                        allWindows.filter { $0.sessionName == sessionId }
+                    let resolvedSessionId = sessionId
+                        ?? paneId.flatMap { id in panes.first(where: { $0.paneId == id })?.sessionName }
+                    let filtered = if let resolvedSessionId {
+                        allWindows.filter { $0.sessionName == resolvedSessionId }
                     } else {
                         allWindows
                     }
@@ -435,10 +437,13 @@
                         ).toJSONValue()
                     }
                 },
-                onWindowCreate: { [tmux] sessionId, path in
+                onWindowCreate: { [tmux] sessionId, path, paneId in
                     let targetSession: String = await MainActor.run {
                         if let sessionId { return sessionId }
                         let panes = tmux.panes
+                        if let paneId, let match = panes.first(where: { $0.paneId == paneId }) {
+                            return match.sessionName
+                        }
                         let attached = tmux.attachedSessionNames
                         return panes.first(where: {
                             attached.contains($0.sessionName)
@@ -468,11 +473,13 @@
                 onWindowClose: { [tmux] windowId in
                     try await tmux.killWindow(windowId)
                 },
-                onPaneList: { [tmux, winManager] windowId in
+                onPaneList: { [tmux, winManager] windowId, paneId in
                     let panes = await tmux.refreshPanes()
                     return await MainActor.run {
-                        let filtered = if let windowId {
-                            panes.filter { $0.windowId == windowId }
+                        let resolvedWindowId = windowId
+                            ?? paneId.flatMap { id in panes.first(where: { $0.paneId == id })?.windowId }
+                        let filtered = if let resolvedWindowId {
+                            panes.filter { $0.windowId == resolvedWindowId }
                         } else {
                             panes
                         }
