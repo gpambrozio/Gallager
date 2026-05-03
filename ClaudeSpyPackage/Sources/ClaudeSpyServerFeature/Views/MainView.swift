@@ -1764,18 +1764,17 @@ private struct SessionSidebarRow: View {
 
     let session: LocalTmuxSession
 
-    /// Progress state for this session, picked from the first pane that has one.
+    /// Progress state for this session, picked from the first pane that has
+    /// one. Same iteration shape as the Mac-as-viewer (`RemoteSessionSidebarRow`)
+    /// and iOS (`SessionListView.sessionRow`) sites so all three render the
+    /// same pane's progress when multiple panes are emitting at once.
     /// Recomputed on each render — observation tracks `windowManager.paneStates`
     /// and re-renders this row only when the lookup result actually changes.
     private var sessionProgress: TerminalProgressState? {
-        for window in session.windows {
-            for pane in window.panes {
-                if let progress = windowManager.paneStates[pane.paneId]?.progress {
-                    return progress
-                }
-            }
-        }
-        return nil
+        session.windows.lazy
+            .flatMap(\.panes)
+            .compactMap { windowManager.paneStates[$0.paneId]?.progress }
+            .first
     }
 
     /// The active window (or first)
@@ -2739,18 +2738,15 @@ private struct RemoteSessionSidebarRow: View {
     }
 
     /// Latest `OSC 9;4` progress from the host, picked from the first pane
-    /// in this session that has one. The host injects per-pane progress into
-    /// the propagated `PaneState`, so this view reads it the same way as the
-    /// local sidebar reads from `MirrorWindowManager.paneStates`.
+    /// in this session that has one. Same iteration shape as the host's
+    /// `SessionSidebarRow.sessionProgress` and the iOS session list, so when
+    /// multiple panes in one session emit progress all three platforms agree
+    /// on which pane wins.
     private var sessionProgress: TerminalProgressState? {
-        for window in session.windows {
-            for pane in window.panes {
-                if let progress = pane.progress {
-                    return progress
-                }
-            }
-        }
-        return nil
+        session.windows.lazy
+            .flatMap(\.panes)
+            .compactMap(\.progress)
+            .first
     }
 
     var body: some View {

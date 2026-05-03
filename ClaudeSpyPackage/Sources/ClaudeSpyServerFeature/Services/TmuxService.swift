@@ -2063,12 +2063,19 @@ final public class TmuxService {
 
     /// Forces the server-wide tmux options needed for modified keys (notably
     /// Shift+Enter) to round-trip cleanly to apps like Claude Code, so users
-    /// don't need to add these lines to their `~/.tmux.conf`. Both options are
-    /// idempotent: `extended-keys on` enables CSI-u extended-key encoding, and
-    /// the `xterm*:extkeys` terminal feature is appended (`-a`) so existing
-    /// feature lists are preserved.
+    /// don't need to add these lines to their `~/.tmux.conf`. `extended-keys`
+    /// is a scalar so re-setting it is harmless. `terminal-features` is a
+    /// list option and tmux's `-a` appends without deduping, so we read the
+    /// current value first and only append `xterm*:extkeys` if it isn't
+    /// already present — otherwise the value would grow into
+    /// `xterm*:extkeys,xterm*:extkeys,…` over a long-running server.
     private func applyExtendedKeysOptions() async {
         _ = try? await runTmuxCommand(["set-option", "-s", "extended-keys", "on"])
+
+        let current = (try? await runTmuxCommand(["show-options", "-sv", "terminal-features"]))?
+            .stdoutString
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !current.contains("xterm*:extkeys") else { return }
         _ = try? await runTmuxCommand([
             "set-option", "-sa", "terminal-features", "xterm*:extkeys",
         ])

@@ -104,6 +104,13 @@
         @ObservationIgnored
         private var e2eReconnectObserverTask: Task<Void, Never>?
 
+        /// Trailing-edge throttle for `OSC 9;4` progress pushes to viewers. Each
+        /// new progress arrival cancels the pending task and schedules a fresh
+        /// 150ms delay, so a stream stepping 0 → 100% in 1% increments collapses
+        /// into a single relay send carrying the latest `PaneState.progress`.
+        @ObservationIgnored
+        private var pendingProgressPush: Task<Void, Never>?
+
         @ObservationIgnored
         @Dependency(PreferencesService.self) private var preferences
 
@@ -1529,13 +1536,20 @@
         /// Applies an `OSC 9;4` progress update from `PaneStreamManager`.
         /// Stores the value on `MirrorWindowManager.paneStates` so the host
         /// sidebar and viewers (iOS, Mac-as-viewer) read from one source of
-        /// truth. When the value actually changes, viewers are notified by
-        /// pushing the session state. Repeats are dropped to avoid flooding
-        /// the relay during high-frequency progress streams.
+        /// truth. The host UI updates synchronously through the assignment.
+        /// Pushing to viewers is coalesced with a 150ms trailing throttle so a
+        /// determinate stream stepping 0 → 100% in 1% increments collapses
+        /// into a single relay send instead of 100 — value-equality alone
+        /// only drops repeats, not actual change rate.
         private func applyProgressUpdate(paneId: String, state: TerminalProgressState) {
             let changed = windowManager.setPaneProgress(state, for: paneId)
             guard changed, let connectionManager = connectedViewerManager else { return }
-            Task { await connectionManager.pushSessionStateToAll() }
+            pendingProgressPush?.cancel()
+            pendingProgressPush = Task {
+                try? await Task.sleep(for: .milliseconds(150))
+                guard !Task.isCancelled else { return }
+                await connectionManager.pushSessionStateToAll()
+            }
         }
     }
 #endif
