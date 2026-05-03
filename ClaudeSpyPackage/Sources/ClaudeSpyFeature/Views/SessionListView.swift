@@ -284,20 +284,28 @@
             let claudePaneInSession = session.windows.flatMap(\.panes).first(where: { $0.claudeSession != nil })
             // CLI-driven state override propagated from the host, if any pane has one set.
             let cliSessionState = session.windows.flatMap(\.panes).compactMap(\.cliSessionState).first
+            // Latest `OSC 9;4` progress from any pane in this session, propagated by the host.
+            let sessionProgress = session.windows.flatMap(\.panes).compactMap(\.progress).first
 
             NavigationLink(value: SessionNavigation(sessionName: session.sessionName, hostId: host.id)) {
-                if let claudePane = claudePaneInSession, let claudeSession = claudePane.claudeSession {
-                    SessionRowView(
-                        paneId: claudePane.paneId,
-                        session: claudeSession,
-                        cliSessionState: cliSessionState,
-                        isActive: sessionStore.isPaneActive(paneId: claudePane.paneId, hostId: host.id),
-                        customDescription: session.customDescription,
-                        customColor: session.customColor,
-                        windowCount: session.windows.count
-                    )
-                } else if let pane = activePaneInSession {
-                    TerminalRowView(pane: pane, windowCount: session.windows.count)
+                VStack(spacing: 0) {
+                    if let claudePane = claudePaneInSession, let claudeSession = claudePane.claudeSession {
+                        SessionRowView(
+                            paneId: claudePane.paneId,
+                            session: claudeSession,
+                            cliSessionState: cliSessionState,
+                            isActive: sessionStore.isPaneActive(paneId: claudePane.paneId, hostId: host.id),
+                            customDescription: session.customDescription,
+                            customColor: session.customColor,
+                            windowCount: session.windows.count
+                        )
+                    } else if let pane = activePaneInSession {
+                        TerminalRowView(pane: pane, windowCount: session.windows.count)
+                    }
+
+                    if let sessionProgress {
+                        TerminalProgressBar(state: sessionProgress)
+                    }
                 }
             }
             .accessibilityValue(cliSessionState?.statusLabel ?? claudePaneInSession?.claudeSession?.statusLabel ?? "")
@@ -315,6 +323,14 @@
                     }
                 }
             ))
+            // Push the progress bar flush with the cell's bottom edge by zeroing
+            // out the row's bottom inset only when there's a bar to render —
+            // otherwise the InsetGrouped cell keeps its standard bottom padding.
+            .listRowInsets(
+                sessionProgress == nil
+                    ? nil
+                    : EdgeInsets(top: 11, leading: 20, bottom: 0, trailing: 20)
+            )
         }
     }
 

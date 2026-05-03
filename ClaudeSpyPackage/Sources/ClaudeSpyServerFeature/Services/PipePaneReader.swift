@@ -30,6 +30,7 @@
         private var notificationHandler: (@Sendable (TerminalStreamMessage.TerminalNotification) -> Void)?
         private var titleChangeHandler: (@Sendable (String) -> Void)?
         private var clipboardHandler: (@Sendable (String) -> Void)?
+        private var progressHandler: (@Sendable (TerminalProgressState) -> Void)?
 
         // AsyncStream for FIFO-ordered data processing.
         // readabilityHandler yields into this stream; a single consumer task
@@ -83,6 +84,11 @@
         /// Sets the handler for clipboard content (OSC 52).
         func setClipboardHandler(_ handler: @escaping @Sendable (String) -> Void) {
             clipboardHandler = handler
+        }
+
+        /// Sets the handler for progress updates (OSC 9;4).
+        func setProgressHandler(_ handler: @escaping @Sendable (TerminalProgressState) -> Void) {
+            progressHandler = handler
         }
 
         /// Starts pipe-pane for this pane, creating the FIFO and opening it for reading.
@@ -245,6 +251,7 @@
             notificationHandler = nil
             titleChangeHandler = nil
             clipboardHandler = nil
+            progressHandler = nil
 
             logger.info("pipe-pane stopped for \(paneId)")
         }
@@ -282,6 +289,11 @@
             // Report clipboard content (OSC 52)
             if let clipboardContent = parseResult.clipboardContent {
                 clipboardHandler?(clipboardContent)
+            }
+
+            // Report progress updates (OSC 9;4)
+            if let progressUpdate = parseResult.progressUpdate {
+                progressHandler?(progressUpdate)
             }
 
             let filtered = parseResult.filteredData
