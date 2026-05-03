@@ -145,16 +145,18 @@ struct CloseSessionCommand: ParsableCommand {
 struct SetTitleCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "set-title",
-        abstract: "Set a custom title shown for a session or window in the sidebar",
+        abstract: "Set a custom title shown for a session in the sidebar",
         discussion: """
-        The title is persisted as a tmux user option (`@gallager-description`) so it
-        survives app restarts. Pass an empty string to clear the title.
+        Titles always apply to a whole session — every window in the session
+        renders the same title. Persisted as the tmux user option
+        `@gallager-description` so it survives app restarts. Pass an empty
+        string to clear the title.
 
         Targeting:
-          --session SESSION  applies at session scope (every window inherits)
-          --window  WINDOW   applies at window scope (overrides the session value)
-          --pane    PANE     applies at the session containing that pane
+          --session SESSION  the session to update
           (none)             defaults to the calling pane's session via $TMUX_PANE
+
+        To rename the tab label of a single window, use `gallager rename-window`.
         """
     )
 
@@ -167,9 +169,7 @@ struct SetTitleCommand: ParsableCommand {
         var params: [String: JSONValue] = ["title": .string(title)]
         if let session = options.session {
             params["session_id"] = .string(session)
-        } else if let window = options.window {
-            params["window_id"] = .string(window)
-        } else if let pane = options.pane ?? options.callingPaneId {
+        } else if let pane = options.callingPaneId {
             params["pane_id"] = .string(pane)
         }
         let response = try executeRequest(
@@ -179,14 +179,8 @@ struct SetTitleCommand: ParsableCommand {
         )
         if options.json {
             printResponse(response, json: true)
-        } else if
-            let result = response.result,
-            case let .string(scope) = result["scope"] {
-            switch scope {
-            case "session": print(title.isEmpty ? "Cleared session title." : "Set session title.")
-            case "window": print(title.isEmpty ? "Cleared window title." : "Set window title.")
-            default: break
-            }
+        } else if response.ok {
+            print(title.isEmpty ? "Cleared session title." : "Set session title.")
         }
     }
 }
@@ -194,17 +188,17 @@ struct SetTitleCommand: ParsableCommand {
 struct SetColorCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "set-color",
-        abstract: "Set a custom color shown next to a session or window in the sidebar",
+        abstract: "Set a custom color shown next to a session in the sidebar",
         discussion: """
-        The color is persisted as a tmux user option (`@gallager-color`) so it
-        survives app restarts. Pass an empty string or "none" to clear the color.
+        Colors always apply to a whole session — every window in the session
+        renders the same dot. Persisted as the tmux user option
+        `@gallager-color` so it survives app restarts. Pass an empty string
+        or "none" to clear the color.
 
         Valid colors: red, orange, yellow, green, blue, purple, pink, gray.
 
         Targeting:
-          --session SESSION  applies at session scope (every window inherits)
-          --window  WINDOW   applies at window scope (overrides the session value)
-          --pane    PANE     applies at the session containing that pane
+          --session SESSION  the session to update
           (none)             defaults to the calling pane's session via $TMUX_PANE
         """
     )
@@ -226,9 +220,7 @@ struct SetColorCommand: ParsableCommand {
         var params: [String: JSONValue] = ["color": .string(normalized)]
         if let session = options.session {
             params["session_id"] = .string(session)
-        } else if let window = options.window {
-            params["window_id"] = .string(window)
-        } else if let pane = options.pane ?? options.callingPaneId {
+        } else if let pane = options.callingPaneId {
             params["pane_id"] = .string(pane)
         }
         let response = try executeRequest(
@@ -238,22 +230,18 @@ struct SetColorCommand: ParsableCommand {
         )
         if options.json {
             printResponse(response, json: true)
-        } else if
-            let result = response.result,
-            case let .string(scope) = result["scope"] {
-            let cleared = normalized.isEmpty
-            // Use the canonical capitalised display name so "RED" still prints
-            // as "Red". The CLI deliberately doesn't link ClaudeSpyNetworking
-            // (mirrors `SessionStateCommand`'s `canonicalState(for:)`), so the
-            // alias map is duplicated here. Falls back to the raw value when
-            // the server accepted a name we don't recognise locally.
-            let displayName = Self.canonicalDisplayName(for: normalized) ?? normalized
-            switch scope {
-            case "session":
-                print(cleared ? "Cleared session color." : "Set session color to \(displayName).")
-            case "window":
-                print(cleared ? "Cleared window color." : "Set window color to \(displayName).")
-            default: break
+        } else if response.ok {
+            if normalized.isEmpty {
+                print("Cleared session color.")
+            } else {
+                // Use the canonical capitalised display name so "RED" still
+                // prints as "Red". The CLI deliberately doesn't link
+                // ClaudeSpyNetworking (mirrors `SessionStateCommand`'s
+                // `canonicalState(for:)`), so the alias map is duplicated
+                // here. Falls back to the raw value when the server accepted
+                // a name we don't recognise locally.
+                let displayName = Self.canonicalDisplayName(for: normalized) ?? normalized
+                print("Set session color to \(displayName).")
             }
         }
     }

@@ -59,11 +59,11 @@
         }
 
         public typealias TmuxAccessor = @Sendable () async -> TmuxService
+        /// Applies a session-scoped description (or clears it when nil) through
+        /// the same MirrorWindowManager path the CLI's `set-title` uses.
         public typealias DescriptionApplier = @Sendable (
             _ description: String?,
-            _ sessionName: String?,
-            _ windowSession: String?,
-            _ windowIndex: Int?
+            _ sessionName: String
         ) async -> Void
         /// Applies a session-scoped color (or clears it when nil) through the
         /// same MirrorWindowManager path the CLI's `set-color` uses.
@@ -139,7 +139,7 @@
                     // users with state from a config they thought they had
                     // already shipped.
                     if let description = config.description, !description.isEmpty {
-                        await descriptionApplier(description, config.sessionName, nil, nil)
+                        await descriptionApplier(description, config.sessionName)
                     }
                     // Always push the configured color (including nil → clear)
                     // so removing `color:` from the YAML and re-applying
@@ -245,7 +245,7 @@
             if let description = config.description, !description.isEmpty {
                 planned.append("session.set_title \(description)")
                 if !dryRun {
-                    await descriptionApplier(description, createdName, nil, nil)
+                    await descriptionApplier(description, createdName)
                 }
             }
             if let color = config.color {

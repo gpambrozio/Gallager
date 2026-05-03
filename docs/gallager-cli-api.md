@@ -84,24 +84,25 @@ gallager list-sessions
 
 #### `new-session`
 
-Create a new tmux session.
+Create a new tmux session. `--title` and `--color` set the sidebar title and dot at creation time so a single command lands the session fully labelled (equivalent to a follow-up `set-title` / `set-color`).
 
 ```bash
 gallager new-session
 gallager new-session --name myproject
-gallager new-session --name myproject --title "My project"
+gallager new-session --name myproject --title "My project" --color blue
 gallager new-session --name workers --if-missing
 ```
 
 **Options**
 - `--name <name>` — base name for the session (auto-deduplicated to `name-2`, `name-3` if needed unless `--if-missing` is set)
 - `--path <dir>` — initial working directory (defaults to `$HOME`)
-- `--title <text>` — custom sidebar title; persisted as a tmux user option
+- `--title <text>` — sidebar title (persisted as `@gallager-description`)
+- `--color <name>` — sidebar dot color (persisted as `@gallager-color`)
 - `--if-missing` — when a session with `--name` already exists, return its info instead of creating a new one. The response includes `created: false` so scripts can decide whether to populate panes
 
 **JSON-RPC**
 - Method: `session.create`
-- Params: `{ "name": "myproject", "path": "/Users/me", "title": "My project", "if_missing": true }` _(all optional)_
+- Params: `{ "name": "myproject", "path": "/Users/me", "title": "My project", "color": "blue", "if_missing": true }` _(all optional; unknown color names return `invalid_params`)_
 - Response:
 ```json
 {
@@ -119,25 +120,46 @@ gallager new-session --name workers --if-missing
 
 #### `set-title <text>`
 
-Set a custom title shown for a session or window in the sidebar. The title is persisted as a tmux user option (`@gallager-description`) so it survives app restarts. Pass an empty string to clear.
+Set or clear the sidebar title for a session. The title is persisted as the `@gallager-description` tmux user option so it survives app restarts. Pass an empty string to clear.
+
+Titles always apply at session scope — every window in the session shows the same title. To rename the tab label of a single window, use [`rename-window`](#rename-window-id-name) instead.
 
 Targeting:
-- `--session <id>` — applies at session scope (every window inherits it)
-- `--window <id>` — applies at window scope (overrides the session value for that window). Detached windows are reachable as `<session>:<index>`
-- `--pane <id>` — applies at the session containing that pane
+- `--session <id>` — the session to update
 - _(none)_ — defaults to the calling pane's session via `$TMUX_PANE`
 
 ```bash
-gallager set-title --session workers "Workers"
-gallager set-title --window workers:1 "Builds"
-gallager set-title ""                # clear title for the calling session
+gallager set-title "Workers" --session workers
+gallager set-title "Builds"             # current pane's session via $TMUX_PANE
+gallager set-title ""                   # clear title for the calling session
 ```
 
 **JSON-RPC**
 - Method: `session.set_title`
-- Params: `{ "title": "Workers", "session_id": "workers" }` _(at least one of `session_id`/`window_id`/`pane_id` should be set; otherwise the active session is used)_
-- Response: `{ "scope": "session" | "window" }`
-- Errors: `not_found` when the named session/window doesn't exist or no target can be resolved (e.g. invoked outside an attached session with no targeting flags).
+- Params: `{ "title"?: string, "session_id"?: string, "pane_id"?: string }` _(omit/empty `title` clears; `pane_id` is sent automatically from `$TMUX_PANE` and used to look up the calling session)_
+- Response: `{ "ok": true }`
+- Errors: `not_found` when the named session doesn't exist or no target can be resolved (e.g. invoked outside an attached session with no targeting flags).
+
+---
+
+#### `set-color <color>`
+
+Set or clear the sidebar dot for a session. The choice is persisted as the `@gallager-color` tmux user option so it survives an app restart. Pass `none` (or an empty string) to clear.
+
+Like `set-title`, colors always apply at session scope.
+
+Valid colors: `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `pink`, `gray` (aliases: `violet`→purple, `magenta`→pink, `grey`→gray).
+
+```bash
+gallager set-color blue --session workers
+gallager set-color purple                # current pane's session via $TMUX_PANE
+gallager set-color none                  # clear
+```
+
+**JSON-RPC**
+- Method: `session.set_color`
+- Params: `{ "color": string, "session_id"?: string, "pane_id"?: string }` _(empty `color` clears; unknown color names return `invalid_params`)_
+- Response: `{ "ok": true }`
 
 ---
 
@@ -225,28 +247,29 @@ gallager list-windows --session work
 
 #### `new-window`
 
-Create a new window in the current session, or a specific session with `--session`.
+Create a new window in the current session, or a specific session with `--session`. To set the tab label later, use [`rename-window`](#rename-window-id-name); for the sidebar title (which always applies session-wide), use [`set-title`](#set-title-text).
 
 ```bash
 gallager new-window
 gallager new-window --session work
-gallager new-window --session work --title "Builds"
+gallager new-window --session work --path /tmp
+gallager new-window --name editor
 ```
 
 **Options**
 - `--session <id>` — target session (defaults to the calling pane's session)
 - `--path <dir>` — initial working directory (defaults to `$HOME`)
-- `--title <text>` — custom sidebar title scoped to the new window only
+- `--name <name>` — tmux window name (tab label). Without it, the daemon auto-generates `terminal N`
 
 **JSON-RPC**
 - Method: `window.create`
-- Params: `{ "session_id": "work", "path": "/tmp", "title": "Builds" }` _(all optional)_
+- Params: `{ "session_id": "work", "path": "/tmp", "name": "editor" }` _(all optional)_
 - Response:
 ```json
 {
   "id": "5",
   "ok": true,
-  "result": { "id": "work:1", "index": 1, "name": "bash", "pane_count": 1, "is_active": false, "session_id": "work" }
+  "result": { "id": "work:1", "index": 1, "name": "editor", "pane_count": 1, "is_active": false, "session_id": "work" }
 }
 ```
 
@@ -263,6 +286,23 @@ gallager select-window main:1
 **JSON-RPC**
 - Method: `window.select`
 - Params: `{ "window_id": "main:1" }`
+- Response: `{ "ok": true }`
+
+---
+
+#### `rename-window <id> <name>`
+
+Set a window's tmux name (the tab label). The only window-scoped CLI mutation — for the session-wide sidebar title, use [`set-title`](#set-title-text). Empty names are rejected.
+
+Under the hood this calls `tmux rename-window`, which also disables tmux's automatic-rename for that window so the tab stops tracking the running command.
+
+```bash
+gallager rename-window work:1 logs
+```
+
+**JSON-RPC**
+- Method: `window.set_name`
+- Params: `{ "window_id": "work:1", "name": "logs" }`
 - Response: `{ "ok": true }`
 
 ---
@@ -570,8 +610,8 @@ gallager capabilities --json | jq '.result.methods[]'
   "result": {
     "methods": [
       "session.list", "session.create", "session.select", "session.current", "session.close",
-      "session.set_state", "session.set_title",
-      "window.list", "window.create", "window.select", "window.close",
+      "session.set_state", "session.set_title", "session.set_color",
+      "window.list", "window.create", "window.select", "window.close", "window.set_name",
       "pane.list", "pane.split", "pane.select", "pane.capture",
       "input.send_text", "input.send_key",
       "notification.create",
@@ -618,7 +658,7 @@ gallager identify
 | `--socket <path>` | Override the socket path (takes priority over `$GALLAGER_SOCKET` and the default fallback) |
 | `--json` | Print the raw JSON-RPC response instead of formatted output |
 | `--pane <id>` | Target a specific pane by tmux pane ID (e.g. `%3`). Overrides the active pane for input commands |
-| `--session <id>` | Target a specific session. Used by `list-windows`, `new-window` |
+| `--session <id>` | Target a specific session. Used by `list-windows`, `new-window`, `set-title`, `set-color` |
 | `--window <id>` | Target a specific window. Used by `list-panes` |
 
 ---

@@ -20,6 +20,7 @@ struct GallagerCLI: ParsableCommand {
             ListWindowsCommand.self,
             NewWindowCommand.self,
             SelectWindowCommand.self,
+            RenameWindowCommand.self,
             CloseWindowCommand.self,
             // Panes
             ListPanesCommand.self,

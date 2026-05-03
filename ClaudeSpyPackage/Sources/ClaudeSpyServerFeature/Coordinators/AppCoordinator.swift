@@ -297,11 +297,45 @@
         /// Error type for API request handling.
         enum APIError: Error, LocalizedError {
             case notFound(String)
+            case invalidParams(String)
             var errorDescription: String? {
                 switch self {
-                case let .notFound(msg): msg
+                case let .notFound(msg),
+                     let .invalidParams(msg): msg
                 }
             }
+        }
+
+        /// Resolves the session a `set_title` / `set_color` request should
+        /// target. Window/pane targeting is intentionally unsupported — the
+        /// CLI flags only expose `--session`, and `paneId` (when present) is
+        /// just used to look up the calling pane's session.
+        fileprivate static func resolveSessionTarget(
+            sessionId: String?,
+            paneId: String?,
+            tmux: TmuxService,
+            method: String
+        ) async throws -> String {
+            if let sessionId {
+                guard await tmux.sessionExists(named: sessionId) else {
+                    throw APIError.notFound("Session not found: \(sessionId)")
+                }
+                return sessionId
+            }
+            let panes = await tmux.refreshPanes()
+            if
+                let paneId,
+                let pane = panes.first(where: { $0.paneId == paneId }) {
+                return pane.sessionName
+            }
+            let attached = await MainActor.run { tmux.attachedSessionNames }
+            if
+                let activeSession = panes.first(where: {
+                    attached.contains($0.sessionName)
+                })?.sessionName {
+                return activeSession
+            }
+            throw APIError.notFound("No resolvable session target for \(method)")
         }
 
         /// Starts the API socket server, wires router callbacks, and configures env vars.
@@ -455,135 +489,31 @@
                         return applied
                     }
                 },
-                onSessionSetTitle: { [tmux, winManager] title, sessionId, windowId, paneId in
-                    // Resolve the target scope. Window scope wins when a
-                    // window_id or pane_id is given so the caller can override
-                    // the session-wide value for that window only.
-                    let panes = await tmux.refreshPanes()
-
-                    // Window targeting: prefer the cached pane lookup, but
-                    // fall back to splitting "sessionName:index" so detached
-                    // windows (not currently in `panes`) are still reachable.
-                    if let windowId {
-                        if let pane = panes.first(where: { $0.windowId == windowId }) {
-                            await MainActor.run {
-                                winManager.setWindowDescription(
-                                    title,
-                                    sessionName: pane.sessionName,
-                                    windowIndex: pane.windowIndex
-                                )
-                            }
-                            return "window"
-                        }
-                        let parts = windowId.split(separator: ":", maxSplits: 1).map(String.init)
-                        if parts.count == 2, let index = Int(parts[1]) {
-                            await MainActor.run {
-                                winManager.setWindowDescription(
-                                    title,
-                                    sessionName: parts[0],
-                                    windowIndex: index
-                                )
-                            }
-                            return "window"
-                        }
-                        throw APIError.notFound("Window not found: \(windowId)")
+                onSessionSetTitle: { [tmux, winManager] title, sessionId, paneId in
+                    // Always applies at session scope. `paneId` (typically
+                    // forwarded from $TMUX_PANE) is used solely to look up the
+                    // session that pane belongs to; the option is then written
+                    // on that session.
+                    let resolvedSession = try await Self.resolveSessionTarget(
+                        sessionId: sessionId,
+                        paneId: paneId,
+                        tmux: tmux,
+                        method: "session.set_title"
+                    )
+                    await MainActor.run {
+                        winManager.setSessionDescription(title, for: resolvedSession)
                     }
-                    if
-                        let paneId,
-                        let pane = panes.first(where: { $0.paneId == paneId }) {
-                        // Pane points at a window within its (possibly
-                        // detached) session. Apply at session scope so the
-                        // caller's intent — "set this for the calling
-                        // pane's session" — is preserved even when no
-                        // session is currently attached.
-                        await MainActor.run {
-                            winManager.setSessionDescription(title, for: pane.sessionName)
-                        }
-                        return "session"
-                    }
-                    if let sessionId {
-                        // Verify the session actually exists so a bad name
-                        // surfaces as `not_found` rather than a 200/OK with
-                        // no real side effect.
-                        guard await tmux.sessionExists(named: sessionId) else {
-                            throw APIError.notFound("Session not found: \(sessionId)")
-                        }
-                        await MainActor.run {
-                            winManager.setSessionDescription(title, for: sessionId)
-                        }
-                        return "session"
-                    }
-                    // No explicit target — fall back to the active session.
-                    let attached = await MainActor.run { tmux.attachedSessionNames }
-                    if
-                        let activeSession = panes.first(where: {
-                            attached.contains($0.sessionName)
-                        })?.sessionName {
-                        await MainActor.run {
-                            winManager.setSessionDescription(title, for: activeSession)
-                        }
-                        return "session"
-                    }
-                    throw APIError.notFound("No resolvable target for session.set_title")
                 },
-                onSessionSetColor: { [tmux, winManager] color, sessionId, windowId, paneId in
-                    // Mirrors `onSessionSetTitle`: window scope wins when a
-                    // window or pane is named, otherwise apply at session scope
-                    // so detached sessions still pick up the color.
-                    let panes = await tmux.refreshPanes()
-
-                    if let windowId {
-                        if let pane = panes.first(where: { $0.windowId == windowId }) {
-                            await MainActor.run {
-                                winManager.setWindowColor(
-                                    color,
-                                    sessionName: pane.sessionName,
-                                    windowIndex: pane.windowIndex
-                                )
-                            }
-                            return "window"
-                        }
-                        let parts = windowId.split(separator: ":", maxSplits: 1).map(String.init)
-                        if parts.count == 2, let index = Int(parts[1]) {
-                            await MainActor.run {
-                                winManager.setWindowColor(
-                                    color,
-                                    sessionName: parts[0],
-                                    windowIndex: index
-                                )
-                            }
-                            return "window"
-                        }
-                        throw APIError.notFound("Window not found: \(windowId)")
+                onSessionSetColor: { [tmux, winManager] color, sessionId, paneId in
+                    let resolvedSession = try await Self.resolveSessionTarget(
+                        sessionId: sessionId,
+                        paneId: paneId,
+                        tmux: tmux,
+                        method: "session.set_color"
+                    )
+                    await MainActor.run {
+                        winManager.setSessionColor(color, for: resolvedSession)
                     }
-                    if
-                        let paneId,
-                        let pane = panes.first(where: { $0.paneId == paneId }) {
-                        await MainActor.run {
-                            winManager.setSessionColor(color, for: pane.sessionName)
-                        }
-                        return "session"
-                    }
-                    if let sessionId {
-                        guard await tmux.sessionExists(named: sessionId) else {
-                            throw APIError.notFound("Session not found: \(sessionId)")
-                        }
-                        await MainActor.run {
-                            winManager.setSessionColor(color, for: sessionId)
-                        }
-                        return "session"
-                    }
-                    let attached = await MainActor.run { tmux.attachedSessionNames }
-                    if
-                        let activeSession = panes.first(where: {
-                            attached.contains($0.sessionName)
-                        })?.sessionName {
-                        await MainActor.run {
-                            winManager.setSessionColor(color, for: activeSession)
-                        }
-                        return "session"
-                    }
-                    throw APIError.notFound("No resolvable target for session.set_color")
                 },
                 onWindowList: { [tmux] sessionId, paneId in
                     let panes = await tmux.refreshPanes()
@@ -606,7 +536,7 @@
                         ).toJSONValue()
                     }
                 },
-                onWindowCreate: { [tmux, winManager] sessionId, path, paneId, title, name in
+                onWindowCreate: { [tmux] sessionId, path, paneId, name in
                     let targetSession: String = await MainActor.run {
                         if let sessionId { return sessionId }
                         let panes = tmux.panes
@@ -628,15 +558,6 @@
                     guard let newPane = panes.first(where: { $0.paneId == newPaneId }) else {
                         throw APIError.notFound("New window pane not found")
                     }
-                    if let title {
-                        await MainActor.run {
-                            winManager.setWindowDescription(
-                                title,
-                                sessionName: newPane.sessionName,
-                                windowIndex: newPane.windowIndex
-                            )
-                        }
-                    }
                     return APIWindowInfo(
                         id: newPane.windowId,
                         index: newPane.windowIndex,
@@ -651,6 +572,13 @@
                 },
                 onWindowClose: { [tmux] windowId in
                     try await tmux.killWindow(windowId)
+                },
+                onWindowSetName: { [tmux] windowId, name in
+                    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else {
+                        throw APIError.invalidParams("name cannot be empty")
+                    }
+                    try await tmux.renameWindow(target: windowId, name: trimmed)
                 },
                 onPaneList: { [tmux, winManager] windowId, paneId in
                     let panes = await tmux.refreshPanes()
@@ -844,17 +772,9 @@
                     let parsed = try parser.parse(config)
                     let driver = LayoutDriver(
                         tmuxAccessor: { tmux },
-                        descriptionApplier: { description, sessionName, windowSession, windowIndex in
+                        descriptionApplier: { description, sessionName in
                             await MainActor.run {
-                                if let sessionName {
-                                    winManager.setSessionDescription(description, for: sessionName)
-                                } else if let windowSession, let windowIndex {
-                                    winManager.setWindowDescription(
-                                        description,
-                                        sessionName: windowSession,
-                                        windowIndex: windowIndex
-                                    )
-                                }
+                                winManager.setSessionDescription(description, for: sessionName)
                             }
                         },
                         colorApplier: { color, sessionName in

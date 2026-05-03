@@ -394,5 +394,35 @@ public enum GallagerCLIScenario {
         TestStep.macWaitForElement(titled: "e2e-color", timeout: 10)
         TestStep.macWaitForElement(titled: "Purple color", timeout: 10)
         TestStep.macScreenshot(label: "mac-new-session-with-color")
+
+        // 18. rename-window — the only window-scoped CLI mutation. Sets the
+        // tmux window name (the tab label), which the host UI shows as the
+        // tab title. We verify both the CLI confirmation and the tmux state.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager rename-window e2e-api:0 renamed-tab > /tmp/e2e-cli-rename.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-rename.txt", storeAs: "renameResult")
+        TestStep.assertStoredContains(
+            key: "renameResult",
+            substring: "Renamed window e2e-api:0 to renamed-tab."
+        )
+        TestStep.tmuxStoreDisplayMessage(
+            target: "e2e-api:0",
+            format: "#W",
+            storeAs: "tmuxWindowName"
+        )
+        TestStep.assertStoredContains(key: "tmuxWindowName", substring: "renamed-tab")
+
+        // 18b. rename-window with an empty name is rejected so callers don't
+        // end up with a blank tab they can't easily click on.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager rename-window e2e-api:0 "" > /tmp/e2e-cli-rename-bad.txt 2>&1; echo "exit=$?" >> /tmp/e2e-cli-rename-bad.txt"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-rename-bad.txt", storeAs: "renameBadResult")
+        TestStep.assertStoredContains(key: "renameBadResult", substring: "name cannot be empty")
     }
 }
