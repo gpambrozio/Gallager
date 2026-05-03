@@ -117,8 +117,13 @@ public extension PaneInfo {
         self.windowName = components.count >= 12 ? components[11] : ""
         self.isWindowActive = components.count >= 13 ? components[12] == "1" : false
         if components.count >= 14 {
+            // tmux only ever stores the canonical `rawValue` we wrote via
+            // `set-option @gallager-color`, so go straight from rawValue
+            // here. `parse(_:)` accepts CLI/API aliases like "violet" → purple
+            // and would silently bridge them to a color tmux never persisted,
+            // blurring the distinction between input parsing and storage.
             let raw = components[13]
-            self.customColor = raw.isEmpty ? nil : SessionColor.parse(raw)
+            self.customColor = raw.isEmpty ? nil : SessionColor(rawValue: raw.lowercased())
         } else {
             self.customColor = nil
         }

@@ -65,20 +65,29 @@
             _ windowSession: String?,
             _ windowIndex: Int?
         ) async -> Void
+        /// Applies a session-scoped color (or clears it when nil) through the
+        /// same MirrorWindowManager path the CLI's `set-color` uses.
+        public typealias ColorApplier = @Sendable (
+            _ color: SessionColor?,
+            _ sessionName: String
+        ) async -> Void
 
         let tmuxAccessor: TmuxAccessor
         let descriptionApplier: DescriptionApplier
+        let colorApplier: ColorApplier
         let processRunner: ProcessRunner
         let logger: Logger
 
         public init(
             tmuxAccessor: @escaping TmuxAccessor,
             descriptionApplier: @escaping DescriptionApplier,
+            colorApplier: @escaping ColorApplier,
             processRunner: ProcessRunner = .liveValue,
             logger: Logger = Logger(label: "com.claudespy.layoutdriver")
         ) {
             self.tmuxAccessor = tmuxAccessor
             self.descriptionApplier = descriptionApplier
+            self.colorApplier = colorApplier
             self.processRunner = processRunner
             self.logger = logger
         }
@@ -119,10 +128,10 @@
             }
 
             if exists, !rebuild {
-                planned.append("session '\(config.sessionName)' exists — re-applying description, running on_apply hooks, selecting")
+                planned.append("session '\(config.sessionName)' exists — re-applying description/color, running on_apply hooks, selecting")
                 if !dryRun {
-                    // Re-apply description on warm-attach so editing the
-                    // YAML and re-running `gallager apply` updates the
+                    // Re-apply description + color on warm-attach so editing
+                    // the YAML and re-running `gallager apply` updates the
                     // sidebar without forcing the user into `--rebuild`.
                     // Environment + tmux options are intentionally left
                     // alone — they only affect new shells, and re-running
@@ -132,6 +141,11 @@
                     if let description = config.description, !description.isEmpty {
                         await descriptionApplier(description, config.sessionName, nil, nil)
                     }
+                    // Always push the configured color (including nil → clear)
+                    // so removing `color:` from the YAML and re-applying
+                    // actually clears the dot rather than silently leaving
+                    // the previous choice in place.
+                    await colorApplier(config.color, config.sessionName)
                 }
                 try await runHooks(
                     config.onApply,
@@ -232,6 +246,12 @@
                 planned.append("session.set_title \(description)")
                 if !dryRun {
                     await descriptionApplier(description, createdName, nil, nil)
+                }
+            }
+            if let color = config.color {
+                planned.append("session.set_color \(color.rawValue)")
+                if !dryRun {
+                    await colorApplier(color, createdName)
                 }
             }
 

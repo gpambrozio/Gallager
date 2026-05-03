@@ -59,8 +59,8 @@ Newline-delimited JSON-RPC over `AF_UNIX, SOCK_STREAM`. Each message is a single
 - Params: _(none)_
 - Result: `{ "sessions": [{ "id", "name", "windowCount", "isAttached" }, …] }`
 
-### `session.create` — `gallager new-session [--name] [--path] [--title] [--if-missing]`
-- Params: `{ "name"?: string, "path"?: string, "title"?: string, "if_missing"?: bool }`
+### `session.create` — `gallager new-session [--name] [--path] [--title] [--color] [--if-missing]`
+- Params: `{ "name"?: string, "path"?: string, "title"?: string, "color"?: string, "if_missing"?: bool }`
 - Result: `{ "id", "name", "windowCount", "isAttached", "created" }`
 - When `if_missing` is true and a session with `name` already exists, the
   existing session info is returned with `created: false` instead of
@@ -69,6 +69,10 @@ Newline-delimited JSON-RPC over `AF_UNIX, SOCK_STREAM`. Each message is a single
 - `title` (when present) sets the sidebar `@gallager-description` for the
   resulting session — handy for one-shot scripts that don't want a follow-up
   `session.set_title` call.
+- `color` (when present) sets the sidebar dot via `@gallager-color`. Accepts
+  the same names as `session.set_color` (`red`, `orange`, `yellow`, `green`,
+  `blue`, `purple`, `pink`, `gray`, plus the `violet`/`magenta`/`grey`
+  aliases). Unknown names return `invalid_params`.
 
 ### `session.set_title` — `gallager set-title <text> [--session|--window|--pane]`
 Writes the sidebar title (`@gallager-description` tmux user option). Window
@@ -79,6 +83,18 @@ session scope. Pass `title: ""` (or omit it) to clear.
 - Errors: `not_found` when the named session/window doesn't exist or no
   target can be resolved (e.g. invoked outside an attached session with no
   targeting flags). Detached windows are reachable via `<session>:<index>`.
+
+### `session.set_color` — `gallager set-color <color> [--session|--window|--pane]`
+Writes the sidebar dot color (`@gallager-color` tmux user option). Targeting
+mirrors `session.set_title` — window scope wins when `window_id` is
+supplied; otherwise the color applies at session scope. Pass `color: ""`
+(or `none` from the CLI) to clear.
+- Params: `{ "color": string, "session_id"?: string, "window_id"?: string, "pane_id"?: string }`
+- Result: `{ "scope": "session" | "window" }`
+- Errors: `invalid_params` for an unrecognised color name; `not_found` when
+  the target doesn't resolve (same rules as `session.set_title`). Valid
+  colors: `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `pink`,
+  `gray` (aliases: `violet`/`magenta`/`grey`).
 
 ### `session.select` — `gallager select-session <id>`
 - Params: `{ "session_id": string }`

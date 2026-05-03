@@ -84,17 +84,20 @@ gallager list-sessions
 
 #### `new-session`
 
-Create a new tmux session. Use `--path` to set the starting directory for the first pane; if omitted, the session opens in the user's home directory.
+Create a new tmux session. Use `--path` to set the starting directory for the first pane; if omitted, the session opens in the user's home directory. Use `--title` to set the sidebar description and `--color` to set the sidebar dot at creation time so a single command lands the session fully labelled.
 
 ```bash
 gallager new-session
 gallager new-session --name myproject
 gallager new-session --name myproject --path /Users/me/code/myproject
+gallager new-session --name myproject --title "My project" --color blue
 ```
+
+Valid colors: `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `pink`, `gray`. Aliases `violet` (→ purple), `magenta` (→ pink), and `grey` (→ gray) are accepted; case is ignored.
 
 **JSON-RPC**
 - Method: `session.create`
-- Params: `{ "name": "myproject", "path": "/Users/me/code/myproject" }` _(both optional; `path` defaults to `$HOME`)_
+- Params: `{ "name": "myproject", "path": "/Users/me/code/myproject", "title": "My project", "color": "blue" }` _(all optional; `path` defaults to `$HOME`; unknown color names return `invalid_params`)_
 - Response:
 ```json
 {
@@ -155,6 +158,28 @@ gallager close-session work
 - Method: `session.close`
 - Params: `{ "session_id": "work" }`
 - Response: `{ "ok": true }`
+
+---
+
+#### `set-color <color>`
+
+Set or clear the sidebar dot for a session or window. The choice is persisted as the `@gallager-color` tmux user option so it survives an app restart. Pass `none` (or an empty string) to clear.
+
+```bash
+gallager set-color blue                       # current pane's session
+gallager set-color purple --session work      # session-scope
+gallager set-color green  --window work:1     # window-scope override
+gallager set-color none                       # clear
+```
+
+Targeting follows `set-title`: `--session` > `--window` > `--pane`; without any flag the calling pane's session (resolved from `$TMUX_PANE`) is used.
+
+Valid colors: `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `pink`, `gray` (plus the same `violet`/`magenta`/`grey` aliases accepted by `new-session --color`).
+
+**JSON-RPC**
+- Method: `session.set_color`
+- Params: `{ "color": "blue", "session_id"?: string, "window_id"?: string, "pane_id"?: string }` _(empty `color` clears; unknown colors return `invalid_params`)_
+- Response: `{ "ok": true, "result": { "scope": "session" | "window" } }`
 
 ---
 
@@ -406,7 +431,8 @@ When the file argument is a directory, gallager looks for `.gallager.yaml`, `.ga
 
 ```yaml
 session_name: workers           # required
-description: "Worker scripts"   # sidebar override (Gallager extension)
+description: "Worker scripts"   # sidebar description (Gallager extension)
+color: blue                     # sidebar dot color (Gallager extension); omit or "" to leave unset
 start_directory: ~/code         # default cwd; relative resolves against the file's dir
 environment:                    # tmux set-environment for the session
   FOO: bar
@@ -510,7 +536,7 @@ gallager capabilities --json | jq '.result.methods[]'
   "result": {
     "methods": [
       "session.list", "session.create", "session.select", "session.current", "session.close",
-      "session.set_state", "session.set_title",
+      "session.set_state", "session.set_title", "session.set_color",
       "window.list", "window.create", "window.select", "window.close",
       "pane.list", "pane.split", "pane.select", "pane.capture", "pane.set_layout",
       "input.send_text", "input.send_key",

@@ -41,9 +41,11 @@ public struct TmuxWindow: Identifiable, Sendable {
         panes.first(where: { $0.customDescription != nil })?.customDescription
     }
 
-    /// The custom color for this window (from any pane, since colors are per-window)
+    /// The custom color for this window. Prefers the active pane's value so a
+    /// window-scoped override (set explicitly on the active pane) wins over a
+    /// stale/inherited value still attached to a sibling pane.
     public var customColor: SessionColor? {
-        panes.first(where: { $0.customColor != nil })?.customColor
+        activePane?.customColor ?? panes.first(where: { $0.customColor != nil })?.customColor
     }
 
     /// Groups pane states by window and returns sorted windows

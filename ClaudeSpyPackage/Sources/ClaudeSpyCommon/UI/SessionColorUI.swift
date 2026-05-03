@@ -82,6 +82,7 @@ public struct ColorContextMenuButtons: View {
                 Label("Set Color", symbol: .paintpalette)
             }
         }
+        .disabled(isDisabled)
 
         if currentColor != nil {
             Button(role: .destructive) {

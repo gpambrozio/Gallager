@@ -856,6 +856,11 @@
                                     )
                                 }
                             }
+                        },
+                        colorApplier: { color, sessionName in
+                            await MainActor.run {
+                                winManager.setSessionColor(color, for: sessionName)
+                            }
                         }
                     )
                     let configDir = configPath.map { (URL(fileURLWithPath: $0).deletingLastPathComponent()).path }
