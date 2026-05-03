@@ -263,6 +263,7 @@ let package = Package(
         .executableTarget(
             name: "GallagerCLI",
             dependencies: [
+                .claudeSpyNetworking,
                 .argumentParser,
                 .yams,
             ],

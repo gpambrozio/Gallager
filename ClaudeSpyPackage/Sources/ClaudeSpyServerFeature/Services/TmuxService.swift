@@ -1725,7 +1725,7 @@ final public class TmuxService {
     ///   - description: The description text, or `nil` to clear the option.
     ///   - sessionName: The tmux session name.
     public func setSessionDescription(_ description: String?, for sessionName: String) async throws {
-        try await sweepWindowOverrides(of: Self.descriptionOptionKey, in: sessionName)
+        await sweepWindowOverrides(of: Self.descriptionOptionKey, in: sessionName)
 
         let target = Self.sessionTarget(sessionName)
         if let description {
@@ -1755,7 +1755,7 @@ final public class TmuxService {
     ///   - color: The color, or `nil` to clear the option.
     ///   - sessionName: The tmux session name.
     public func setSessionColor(_ color: SessionColor?, for sessionName: String) async throws {
-        try await sweepWindowOverrides(of: Self.colorOptionKey, in: sessionName)
+        await sweepWindowOverrides(of: Self.colorOptionKey, in: sessionName)
 
         let target = Self.sessionTarget(sessionName)
         if let color {
@@ -1780,7 +1780,7 @@ final public class TmuxService {
     /// Clears any window-level override for `optionKey` across every window in
     /// `sessionName`. Errors are intentionally swallowed: the override may not
     /// exist (the common case), and this is best-effort defensive cleanup.
-    private func sweepWindowOverrides(of optionKey: String, in sessionName: String) async throws {
+    private func sweepWindowOverrides(of optionKey: String, in sessionName: String) async {
         guard
             let windows = try? await runTmuxCommand([
                 "list-windows", "-t", Self.sessionTarget(sessionName), "-F", "#{window_index}",

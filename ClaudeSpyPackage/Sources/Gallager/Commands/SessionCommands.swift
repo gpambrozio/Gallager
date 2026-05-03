@@ -1,4 +1,5 @@
 import ArgumentParser
+import ClaudeSpyNetworking
 import Foundation
 
 struct ListSessionsCommand: ParsableCommand {
@@ -234,35 +235,11 @@ struct SetColorCommand: ParsableCommand {
             if normalized.isEmpty {
                 print("Cleared session color.")
             } else {
-                // Use the canonical capitalised display name so "RED" still
-                // prints as "Red". The CLI deliberately doesn't link
-                // ClaudeSpyNetworking (mirrors `SessionStateCommand`'s
-                // `canonicalState(for:)`), so the alias map is duplicated
-                // here. Falls back to the raw value when the server accepted
-                // a name we don't recognise locally.
-                let displayName = Self.canonicalDisplayName(for: normalized) ?? normalized
+                // Falls back to the raw value when the server accepted a name
+                // we don't recognise locally.
+                let displayName = SessionColor.parse(normalized)?.displayName ?? normalized
                 print("Set session color to \(displayName).")
             }
-        }
-    }
-
-    /// Maps the user-supplied color (and supported aliases) to the canonical
-    /// capitalised name used in confirmations. Kept in sync with
-    /// `SessionColor.parse` / `SessionColor.displayName` in ClaudeSpyNetworking.
-    private static func canonicalDisplayName(for raw: String) -> String? {
-        switch raw.lowercased() {
-        case "red": "Red"
-        case "orange": "Orange"
-        case "yellow": "Yellow"
-        case "green": "Green"
-        case "blue": "Blue"
-        case "purple",
-             "violet": "Purple"
-        case "pink",
-             "magenta": "Pink"
-        case "gray",
-             "grey": "Gray"
-        default: nil
         }
     }
 }

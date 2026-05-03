@@ -391,14 +391,6 @@
                         let attached = await MainActor.run { tmux.attachedSessionNames }
                         let windowCount = LocalTmuxWindow.groupPanes(panes)
                             .filter { $0.sessionName == requestedName }.count
-                        await MainActor.run {
-                            if let title {
-                                winManager.setSessionDescription(title, for: requestedName)
-                            }
-                            if let color {
-                                winManager.setSessionColor(color, for: requestedName)
-                            }
-                        }
                         return LiveAPIRequestRouter.SessionCreateResult(
                             info: APISessionInfo(
                                 id: requestedName,
