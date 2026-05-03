@@ -345,7 +345,9 @@ public enum GallagerCLIScenario {
         )
         TestStep.wait(seconds: 2)
         TestStep.readFile(path: "/tmp/e2e-cli-color-blue.txt", storeAs: "colorBlueResult")
-        TestStep.assertStoredContains(key: "colorBlueResult", substring: "Set session color to blue.")
+        // The CLI canonicalises the color name to its capitalised displayName
+        // (so "RED" still prints as "Red"), matching `SessionColor.displayName`.
+        TestStep.assertStoredContains(key: "colorBlueResult", substring: "Set session color to Blue.")
         TestStep.macWaitForElement(titled: "Blue color", timeout: 10)
         TestStep.macScreenshot(label: "mac-color-blue")
 
