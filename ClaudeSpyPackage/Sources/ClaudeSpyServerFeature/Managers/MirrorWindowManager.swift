@@ -255,6 +255,20 @@ final public class MirrorWindowManager {
         paneStates[paneId]?.terminalTitle = title
     }
 
+    /// Updates the `OSC 9;4` progress signal for a pane. `.removed` clears it.
+    /// Returns `true` if the stored value actually changed; the caller can use
+    /// that to decide whether to push session state to viewers.
+    @discardableResult
+    public func setPaneProgress(_ progress: TerminalProgressState, for paneId: String) -> Bool {
+        guard paneStates[paneId] != nil else { return false }
+        let normalized: TerminalProgressState? = progress == .removed ? nil : progress
+        if paneStates[paneId]?.progress == normalized {
+            return false
+        }
+        paneStates[paneId]?.progress = normalized
+        return true
+    }
+
     /// Set of pane IDs that have active Claude sessions
     public var activeSessionPaneIds: Set<String> {
         Set(paneStates.filter { $0.value.claudeSession != nil }.keys)

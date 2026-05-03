@@ -967,6 +967,24 @@
 
         override func keyDown(with event: NSEvent) {
             guard !isEditorActive else { return }
+
+            // SwiftTerm's legacy keyDown path dispatches both Enter and
+            // Shift+Enter through `insertNewline:`, collapsing the modifier
+            // to plain `\r`. SwiftTerm only preserves the modifier when the
+            // inner app pushes kitty mode, which can't happen here because
+            // the inner app talks to tmux's PTY, not directly to SwiftTerm.
+            // Intercept and route as `.shiftEnter` so tmux delivers the
+            // proper extended-key sequence to the pane.
+            let returnChars: Set<String> = ["\r", "\u{3}"]
+            if let chars = event.charactersIgnoringModifiers, returnChars.contains(chars) {
+                let activeModifiers = event.modifierFlags
+                    .intersection([.shift, .control, .option, .command])
+                if activeModifiers == .shift {
+                    onInput?([.shiftEnter])
+                    return
+                }
+            }
+
             terminalView.keyDown(with: event)
         }
 

@@ -2061,6 +2061,26 @@ final public class TmuxService {
 
     // MARK: - Session Creation
 
+    /// Forces the server-wide tmux options needed for modified keys (notably
+    /// Shift+Enter) to round-trip cleanly to apps like Claude Code, so users
+    /// don't need to add these lines to their `~/.tmux.conf`. `extended-keys`
+    /// is a scalar so re-setting it is harmless. `terminal-features` is a
+    /// list option and tmux's `-a` appends without deduping, so we read the
+    /// current value first and only append `xterm*:extkeys` if it isn't
+    /// already present — otherwise the value would grow into
+    /// `xterm*:extkeys,xterm*:extkeys,…` over a long-running server.
+    private func applyExtendedKeysOptions() async {
+        _ = try? await runTmuxCommand(["set-option", "-s", "extended-keys", "on"])
+
+        let current = (try? await runTmuxCommand(["show-options", "-sv", "terminal-features"]))?
+            .stdoutString
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !current.contains("xterm*:extkeys") else { return }
+        _ = try? await runTmuxCommand([
+            "set-option", "-sa", "terminal-features", "xterm*:extkeys",
+        ])
+    }
+
     /// Creates a new tmux session with the specified name and dimensions.
     /// If a session with the given name already exists, appends a number suffix.
     /// - Parameters:
@@ -2115,6 +2135,13 @@ final public class TmuxService {
         guard result.isSuccess else {
             throw TmuxError.commandFailed(message: result.stderrString)
         }
+
+        // Apply server-wide options required for extended-key passthrough so
+        // Shift+Enter (and other modified keys) reach apps like Claude Code
+        // without the user editing ~/.tmux.conf. Server options are global and
+        // idempotent — re-running on each session create is harmless and
+        // additive (`-a` appends to the terminal-features list).
+        await applyExtendedKeysOptions()
 
         // Get the pane ID of the first pane in the new session
         // Target format: session:window.pane (first window, first pane)

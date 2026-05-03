@@ -160,6 +160,13 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// Active prompt editor session (Ctrl-G), if any
     public var editorSession: EditorSessionInfo?
 
+    // MARK: - Progress
+
+    /// Latest `OSC 9;4` progress emitted by this pane, if any. Drives the
+    /// session-row progress bar on the host's local sidebar and on remote
+    /// viewers (iOS, Mac-as-viewer). `nil` means no active progress.
+    public var progress: TerminalProgressState?
+
     // MARK: - Computed Properties
 
     public var id: String {
@@ -191,7 +198,8 @@ public struct PaneState: Codable, Sendable, Identifiable {
         claudeSession: ClaudeSession? = nil,
         yoloMode: Bool = false,
         cliSessionState: CLISessionState? = nil,
-        editorSession: EditorSessionInfo? = nil
+        editorSession: EditorSessionInfo? = nil,
+        progress: TerminalProgressState? = nil
     ) {
         self.paneId = paneId
         self.target = target
@@ -213,6 +221,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         self.yoloMode = yoloMode
         self.cliSessionState = cliSessionState
         self.editorSession = editorSession
+        self.progress = progress
     }
 }
 

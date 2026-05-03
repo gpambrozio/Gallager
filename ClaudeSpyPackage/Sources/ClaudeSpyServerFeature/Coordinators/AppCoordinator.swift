@@ -104,6 +104,13 @@
         @ObservationIgnored
         private var e2eReconnectObserverTask: Task<Void, Never>?
 
+        /// Trailing-edge throttle for `OSC 9;4` progress pushes to viewers. Each
+        /// new progress arrival cancels the pending task and schedules a fresh
+        /// 150ms delay, so a stream stepping 0 → 100% in 1% increments collapses
+        /// into a single relay send carrying the latest `PaneState.progress`.
+        @ObservationIgnored
+        private var pendingProgressPush: Task<Void, Never>?
+
         @ObservationIgnored
         @Dependency(PreferencesService.self) private var preferences
 
@@ -923,6 +930,11 @@
                 wm.updateTerminalTitle(paneId: paneId, title: title)
             }
 
+            // Wire OSC 9;4 progress updates to the sidebar progress bar.
+            paneStreamManager.onProgress = { [weak self] paneId, state in
+                self?.applyProgressUpdate(paneId: paneId, state: state)
+            }
+
             // Start notification-only readers for all discovered panes
             let initialPanes = await tmuxService.refreshPanes()
             windowManager.updatePaneStates(from: initialPanes)
@@ -1131,7 +1143,7 @@
                 await windowManager.updatePaneStates(from: allPanes)
                 var paneStates = await windowManager.paneStates
 
-                // Inject active editor sessions into pane states
+                // Inject active editor sessions into pane states.
                 for (paneId, var state) in paneStates {
                     state.editorSession = await editorManager.editorSessionInfo(for: paneId)
                     paneStates[paneId] = state
@@ -1519,6 +1531,25 @@
 
             logger.info("Connecting to newly paired viewer: \(viewer.displayName)")
             await connectionManager.connect(to: viewer)
+        }
+
+        /// Applies an `OSC 9;4` progress update from `PaneStreamManager`.
+        /// Stores the value on `MirrorWindowManager.paneStates` so the host
+        /// sidebar and viewers (iOS, Mac-as-viewer) read from one source of
+        /// truth. The host UI updates synchronously through the assignment.
+        /// Pushing to viewers is coalesced with a 150ms trailing throttle so a
+        /// determinate stream stepping 0 → 100% in 1% increments collapses
+        /// into a single relay send instead of 100 — value-equality alone
+        /// only drops repeats, not actual change rate.
+        private func applyProgressUpdate(paneId: String, state: TerminalProgressState) {
+            let changed = windowManager.setPaneProgress(state, for: paneId)
+            guard changed, let connectionManager = connectedViewerManager else { return }
+            pendingProgressPush?.cancel()
+            pendingProgressPush = Task {
+                try? await Task.sleep(for: .milliseconds(150))
+                guard !Task.isCancelled else { return }
+                await connectionManager.pushSessionStateToAll()
+            }
         }
     }
 #endif

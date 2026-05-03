@@ -289,6 +289,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         CloseFirstWindowAfterNavigationScenario.scenario,
         IOSMouseModeDragScenario.scenario,
         MirrorAttachExtraNewlinesScenario.scenario,
+        TerminalProgressBarScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {
