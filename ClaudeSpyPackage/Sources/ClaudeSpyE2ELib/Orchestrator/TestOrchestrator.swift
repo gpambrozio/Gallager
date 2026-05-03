@@ -400,6 +400,9 @@ public actor TestOrchestrator {
         case let .iosTap(query):
             try await simulatorDriver.tap(query: query)
 
+        case let .iosLongPress(query, duration):
+            try await simulatorDriver.longPress(query: query, duration: duration)
+
         case let .iosTapCoordinate(x, y):
             try await simulatorDriver.tap(x: x, y: y)
 

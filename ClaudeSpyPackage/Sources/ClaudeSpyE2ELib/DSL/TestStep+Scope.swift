@@ -27,6 +27,7 @@ public extension TestStep {
              .uninstallIOSApp,
              .iosWaitForElement,
              .iosTap,
+             .iosLongPress,
              .iosTapCoordinate,
              .iosType,
              .iosSwipeLeft,

@@ -230,7 +230,7 @@ enum SimulatorHTTPClient {
 
     /// Tap an element by finding it in the UI tree first, then tapping its center coordinates
     @discardableResult
-    static func tap(query: ElementQuery, bundleId: String? = nil) async throws -> Bool {
+    static func tap(query: ElementQuery, bundleId: String? = nil, duration: TimeInterval? = nil) async throws -> Bool {
         let response = try await describeUI(bundleId: bundleId)
         guard let element = query.findFirst(in: response.elements) else {
             logger.warning("HTTP tap: element not found for \(query)")
@@ -238,7 +238,7 @@ enum SimulatorHTTPClient {
         }
 
         let center = element.center
-        return try await tap(x: center.x, y: center.y)
+        return try await tap(x: center.x, y: center.y, duration: duration)
     }
 
     // MARK: - Swipe

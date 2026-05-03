@@ -58,6 +58,9 @@ public enum TestStep: Sendable {
     case iosWaitForElement(ElementQuery, timeout: TimeInterval = 10)
     /// Tap an iOS UI element
     case iosTap(ElementQuery)
+    /// Long-press an iOS element to open SwiftUI context menus. Default
+    /// duration matches the system's long-press threshold with margin.
+    case iosLongPress(ElementQuery, duration: TimeInterval = 1)
     /// Tap at raw iOS coordinates
     case iosTapCoordinate(x: CGFloat, y: CGFloat)
     /// Type text into the iOS app
