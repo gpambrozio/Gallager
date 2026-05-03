@@ -307,6 +307,14 @@
                 isDisabled: connection?.isHostConnected != true,
                 onSetDescription: onSetDescription
             ))
+            // Push the progress bar flush with the cell's bottom edge by zeroing
+            // out the row's bottom inset only when there's a bar to render —
+            // otherwise the InsetGrouped cell keeps its standard bottom padding.
+            .listRowInsets(
+                sessionProgress == nil
+                    ? nil
+                    : EdgeInsets(top: 11, leading: 20, bottom: 0, trailing: 20)
+            )
         }
     }
 

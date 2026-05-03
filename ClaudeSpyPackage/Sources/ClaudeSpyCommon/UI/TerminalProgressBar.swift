@@ -37,14 +37,14 @@ public struct TerminalProgressBar: View {
     private func fill(in size: CGSize) -> some View {
         switch state {
         case let .normal(percent):
-            Rectangle()
+            Capsule()
                 .fill(.blue)
                 .frame(width: size.width * CGFloat(percent) / 100)
                 .animation(.easeOut(duration: 0.15), value: percent)
         case .error:
-            Rectangle().fill(.red)
+            Capsule().fill(.red)
         case .warning:
-            Rectangle().fill(.yellow)
+            Capsule().fill(.yellow)
         case .indeterminate:
             ScannerBar(width: size.width, height: Self.height)
         case .removed:
@@ -87,7 +87,7 @@ private struct ScannerBar: View {
             let progress = phase < 0.5 ? phase * 2 : (1 - phase) * 2
             let x = travel * progress
 
-            Rectangle()
+            Capsule()
                 .fill(.blue)
                 .frame(width: segmentWidth, height: height)
                 .offset(x: x)
