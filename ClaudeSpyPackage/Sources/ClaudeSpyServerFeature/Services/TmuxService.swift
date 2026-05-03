@@ -1546,9 +1546,9 @@ final public class TmuxService {
         // exactly that index, so target it directly.
         let target: String
         if let windowIndex {
-            target = "\(sessionName):\(windowIndex)"
+            target = Self.windowTarget(in: sessionName, windowIndex: "\(windowIndex)")
         } else {
-            target = "\(sessionName):"
+            target = Self.sessionTarget(sessionName)
         }
         var args = [
             "new-window",
@@ -1586,7 +1586,10 @@ final public class TmuxService {
         if windowName == nil, let windowIndex {
             let existingNames = await listWindowNames(in: sessionName)
             let nextName = Self.nextTerminalWindowName(existingNames: existingNames)
-            _ = try? await renameWindow(target: "\(sessionName):\(windowIndex)", name: nextName)
+            _ = try? await renameWindow(
+                target: Self.windowTarget(in: sessionName, windowIndex: windowIndex),
+                name: nextName
+            )
         }
 
         // Refresh to pick up the new window
@@ -1615,7 +1618,7 @@ final public class TmuxService {
     private func listWindowNames(in sessionName: String) async -> [String] {
         guard
             let result = try? await runTmuxCommand([
-                "list-windows", "-t", sessionName, "-F", "#{window_name}",
+                "list-windows", "-t", Self.sessionTarget(sessionName), "-F", "#{window_name}",
             ]), result.isSuccess
         else {
             return []
@@ -1655,7 +1658,7 @@ final public class TmuxService {
     public func killSession(_ sessionName: String) async throws {
         let result = try await runTmuxCommand([
             "kill-session",
-            "-t", sessionName,
+            "-t", Self.sessionTarget(sessionName),
         ])
 
         guard result.isSuccess else {
@@ -1724,9 +1727,10 @@ final public class TmuxService {
     public func setSessionDescription(_ description: String?, for sessionName: String) async throws {
         try await sweepWindowOverrides(of: Self.descriptionOptionKey, in: sessionName)
 
+        let target = Self.sessionTarget(sessionName)
         if let description {
             let result = try await runTmuxCommand([
-                "set-option", "-t", sessionName,
+                "set-option", "-t", target,
                 Self.descriptionOptionKey, description,
             ])
             guard result.isSuccess else {
@@ -1734,7 +1738,7 @@ final public class TmuxService {
             }
         } else {
             let result = try await runTmuxCommand([
-                "set-option", "-u", "-t", sessionName,
+                "set-option", "-u", "-t", target,
                 Self.descriptionOptionKey,
             ])
             guard result.isSuccess else {
@@ -1753,9 +1757,10 @@ final public class TmuxService {
     public func setSessionColor(_ color: SessionColor?, for sessionName: String) async throws {
         try await sweepWindowOverrides(of: Self.colorOptionKey, in: sessionName)
 
+        let target = Self.sessionTarget(sessionName)
         if let color {
             let result = try await runTmuxCommand([
-                "set-option", "-t", sessionName,
+                "set-option", "-t", target,
                 Self.colorOptionKey, color.rawValue,
             ])
             guard result.isSuccess else {
@@ -1763,7 +1768,7 @@ final public class TmuxService {
             }
         } else {
             let result = try await runTmuxCommand([
-                "set-option", "-u", "-t", sessionName,
+                "set-option", "-u", "-t", target,
                 Self.colorOptionKey,
             ])
             guard result.isSuccess else {
@@ -1778,7 +1783,7 @@ final public class TmuxService {
     private func sweepWindowOverrides(of optionKey: String, in sessionName: String) async throws {
         guard
             let windows = try? await runTmuxCommand([
-                "list-windows", "-t", sessionName, "-F", "#{window_index}",
+                "list-windows", "-t", Self.sessionTarget(sessionName), "-F", "#{window_index}",
             ]), windows.isSuccess else { return }
         let indexes = windows.stdoutString
             .split(separator: "\n")
@@ -1786,7 +1791,7 @@ final public class TmuxService {
             .filter { !$0.isEmpty }
         for index in indexes {
             _ = try? await runTmuxCommand([
-                "set-option", "-wu", "-t", "\(sessionName):\(index)",
+                "set-option", "-wu", "-t", Self.windowTarget(in: sessionName, windowIndex: index),
                 optionKey,
             ])
         }
@@ -1807,10 +1812,11 @@ final public class TmuxService {
         name: String,
         value: String?
     ) async throws {
+        let target = Self.sessionTarget(sessionName)
         let args: [String] = if let value {
-            ["set-environment", "-t", sessionName, name, value]
+            ["set-environment", "-t", target, name, value]
         } else {
-            ["set-environment", "-u", "-t", sessionName, name]
+            ["set-environment", "-u", "-t", target, name]
         }
         let result = try await runTmuxCommand(args)
         guard result.isSuccess else {
@@ -1977,7 +1983,7 @@ final public class TmuxService {
     /// - Returns: Array of running processes found across the session's panes
     public func runningProcesses(inSession sessionName: String) async -> [RunningProcess] {
         // list-panes -s lists all panes in the session (across all windows)
-        await runningProcesses(listPanesArgs: ["-s", "-t", sessionName])
+        await runningProcesses(listPanesArgs: ["-s", "-t", Self.sessionTarget(sessionName)])
     }
 
     /// Detects running processes across all panes of a specific tmux window.
@@ -2157,7 +2163,7 @@ final public class TmuxService {
         // Target format: session:window.pane (first window, first pane)
         let windowIndex = 0
         let paneIndex = 0
-        let firstPaneTarget = "\(sessionName):\(windowIndex).\(paneIndex)"
+        let firstPaneTarget = "=\(sessionName):\(windowIndex).\(paneIndex)"
         let paneIdResult = try await runTmuxCommand([
             "display-message",
             "-t", firstPaneTarget,
@@ -2232,6 +2238,25 @@ final public class TmuxService {
 
     // MARK: - Private Helpers
 
+    /// Wraps a session name in tmux's exact-match target syntax (`=<name>:`).
+    ///
+    /// tmux's `-t <name>` parser falls back to prefix and substring matching
+    /// when no exact match is found — and in tmux 3.6 it picks an alphabetic
+    /// candidate even when an exact match exists, so `-t terminal` can resolve
+    /// to a session named `terminal-2`. The `=` prefix forces an exact
+    /// session-name match; the trailing `:` disambiguates the target as a
+    /// session (rather than a window or pane) so `set-option`, `list-windows`,
+    /// etc. resolve to the right scope.
+    private static func sessionTarget(_ sessionName: String) -> String {
+        "=\(sessionName):"
+    }
+
+    /// Window target inside a specific session, using exact-match session
+    /// resolution. See `sessionTarget(_:)` for why this is necessary.
+    private static func windowTarget(in sessionName: String, windowIndex: String) -> String {
+        "=\(sessionName):\(windowIndex)"
+    }
+
     private func runTmuxCommand(_ arguments: [String]) async throws -> ProcessResult {
         var args = arguments
 
@@ -2243,7 +2268,16 @@ final public class TmuxService {
         return try await processRunner.run(
             executable: tmuxPath,
             arguments: args,
-            environment: nil,
+            // The Mac app process can inherit `TMUX` / `TMUX_PANE` from the
+            // launching shell when started by hand from a tmux pane. tmux uses
+            // these to bias `-t <name>` target parsing — for session-scoped
+            // options it reinterprets the target as a window in the current
+            // pane's session, so e.g. `set-option -t terminal @gallager-color
+            // red` ends up writing to the *current* session whenever a window
+            // there has a name starting with "terminal". Force them empty for
+            // every subprocess invocation since the Mac app is not actually
+            // running inside a tmux pane.
+            environment: ["TMUX": "", "TMUX_PANE": ""],
             timeout: nil
         )
     }
