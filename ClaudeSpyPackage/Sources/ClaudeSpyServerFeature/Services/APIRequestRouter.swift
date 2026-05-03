@@ -32,6 +32,7 @@
         "system.ping",
         "system.capabilities",
         "system.identify",
+        "system.set_env",
         "session.list",
         "session.create",
         "session.select",
@@ -47,12 +48,14 @@
         "pane.split",
         "pane.select",
         "pane.capture",
+        "pane.set_layout",
         "input.send_text",
         "input.send_key",
         "notification.create",
         "editor.open",
         "project.list",
         "project.start",
+        "layout.apply",
     ]
 
     /// Live implementation that routes JSON-RPC methods to service calls.
@@ -85,14 +88,27 @@
         let onSessionSetTitle: (@Sendable (String?, String?, String?, String?) async throws -> String)?
 
         let onWindowList: (@Sendable (String?, String?) async -> [[String: JSONValue]])?
-        let onWindowCreate: (@Sendable (String?, String?, String?, String?) async throws -> [String: JSONValue])?
+        /// Parameters: (sessionId, path, paneId, description, name).
+        /// `description` is the gallager sidebar override (`@gallager-description`).
+        /// `name` is the tmux window name (tab label) — when nil, the daemon
+        /// auto-generates "terminal N".
+        let onWindowCreate: (
+            @Sendable (String?, String?, String?, String?, String?) async throws -> [String: JSONValue]
+        )?
         let onWindowSelect: (@Sendable (String) async throws -> Void)?
         let onWindowClose: (@Sendable (String) async throws -> Void)?
 
         let onPaneList: (@Sendable (String?, String?) async -> [[String: JSONValue]])?
-        let onPaneSplit: (@Sendable (String?, String, String?) async throws -> [String: JSONValue])?
+        /// Parameters: (paneId, direction, path, shellCommand). When
+        /// `shellCommand` is non-nil, it becomes the new pane's process
+        /// (passed as the trailing positional to `tmux split-window`).
+        let onPaneSplit: (
+            @Sendable (String?, String, String?, String?) async throws -> [String: JSONValue]
+        )?
         let onPaneSelect: (@Sendable (String) async throws -> Void)?
         let onPaneCapture: (@Sendable (String?, Bool) async throws -> String)?
+        /// Parameters: (sessionId or window target, layout name or hex).
+        let onPaneSetLayout: (@Sendable (String, String) async throws -> Void)?
 
         let onSendText: (@Sendable (String, String?, Bool) async throws -> Void)?
         let onSendKey: (@Sendable (String, String?) async throws -> Void)?
@@ -105,6 +121,15 @@
 
         let onProjectList: (@Sendable () async -> [[String: JSONValue]])?
         let onProjectStart: (@Sendable (String, [String]) async throws -> [String: JSONValue])?
+
+        /// Parameters: (sessionId, [name: optional value]). `nil` value unsets.
+        let onSetEnvironment: (@Sendable (String, [String: String?]) async throws -> Void)?
+
+        /// Parameters: (config, rebuild, detach, dryRun, lenient, requireCreate, configPath).
+        /// Returns the result envelope per spec §3 (sessionName, created, warnings, planned).
+        let onLayoutApply: (
+            @Sendable (JSONValue, Bool, Bool, Bool, Bool, Bool, String?) async throws -> [String: JSONValue]
+        )?
 
         public init(
             onSessionList: (@Sendable () async -> [[String: JSONValue]])? = nil,
@@ -120,21 +145,28 @@
             )? = nil,
             onWindowList: (@Sendable (String?, String?) async -> [[String: JSONValue]])? = nil,
             onWindowCreate: (
-                @Sendable (String?, String?, String?, String?) async throws -> [String: JSONValue]
+                @Sendable (String?, String?, String?, String?, String?) async throws -> [String: JSONValue]
             )? = nil,
             onWindowSelect: (@Sendable (String) async throws -> Void)? = nil,
             onWindowClose: (@Sendable (String) async throws -> Void)? = nil,
             onPaneList: (@Sendable (String?, String?) async -> [[String: JSONValue]])? = nil,
-            onPaneSplit: (@Sendable (String?, String, String?) async throws -> [String: JSONValue])? = nil,
+            onPaneSplit: (
+                @Sendable (String?, String, String?, String?) async throws -> [String: JSONValue]
+            )? = nil,
             onPaneSelect: (@Sendable (String) async throws -> Void)? = nil,
             onPaneCapture: (@Sendable (String?, Bool) async throws -> String)? = nil,
+            onPaneSetLayout: (@Sendable (String, String) async throws -> Void)? = nil,
             onSendText: (@Sendable (String, String?, Bool) async throws -> Void)? = nil,
             onSendKey: (@Sendable (String, String?) async throws -> Void)? = nil,
             onNotify: (@Sendable (String, String, String?, String?) async -> Void)? = nil,
             onEditorOpen: (@Sendable (String, String) async -> Void)? = nil,
             onIdentify: (@Sendable (String?) async -> [String: JSONValue]?)? = nil,
             onProjectList: (@Sendable () async -> [[String: JSONValue]])? = nil,
-            onProjectStart: (@Sendable (String, [String]) async throws -> [String: JSONValue])? = nil
+            onProjectStart: (@Sendable (String, [String]) async throws -> [String: JSONValue])? = nil,
+            onSetEnvironment: (@Sendable (String, [String: String?]) async throws -> Void)? = nil,
+            onLayoutApply: (
+                @Sendable (JSONValue, Bool, Bool, Bool, Bool, Bool, String?) async throws -> [String: JSONValue]
+            )? = nil
         ) {
             self.onSessionList = onSessionList
             self.onSessionCreate = onSessionCreate
@@ -151,6 +183,7 @@
             self.onPaneSplit = onPaneSplit
             self.onPaneSelect = onPaneSelect
             self.onPaneCapture = onPaneCapture
+            self.onPaneSetLayout = onPaneSetLayout
             self.onSendText = onSendText
             self.onSendKey = onSendKey
             self.onNotify = onNotify
@@ -158,6 +191,8 @@
             self.onIdentify = onIdentify
             self.onProjectList = onProjectList
             self.onProjectStart = onProjectStart
+            self.onSetEnvironment = onSetEnvironment
+            self.onLayoutApply = onLayoutApply
         }
 
         public func handleRequest(_ request: JSONRPCRequest) async -> JSONRPCResponse {
@@ -182,6 +217,36 @@
                         return JSONRPCResponse(id: id, result: info)
                     }
                     return .internalError(id: id, "Identify not available")
+
+                case "system.set_env":
+                    guard let sessionId = params["session_id"]?.stringValue else {
+                        return .invalidParams(id: id, "session_id required")
+                    }
+                    guard case let .object(rawVars) = params["vars"] ?? .null else {
+                        return .invalidParams(id: id, "vars must be a {name: value} object")
+                    }
+                    var vars: [String: String?] = [:]
+                    for (key, value) in rawVars {
+                        switch value {
+                        case let .string(s):
+                            vars[key] = s
+                        case .null:
+                            // `updateValue(nil, ...)` keeps the key with a `.some(nil)`
+                            // value, distinguishing "unset this var" from "absent
+                            // from request"; `vars[key] = nil` would remove it.
+                            vars.updateValue(nil, forKey: key)
+                        default:
+                            return .invalidParams(
+                                id: id,
+                                "vars.\(key) must be string or null (got \(value.typeName))"
+                            )
+                        }
+                    }
+                    guard let callback = onSetEnvironment else {
+                        return .internalError(id: id, "Set env not available")
+                    }
+                    try await callback(sessionId, vars)
+                    return .ok(id: id)
 
                 // MARK: - Sessions
 
@@ -266,7 +331,8 @@
                     let paneId = params["pane_id"]?.stringValue
                     let path = params["path"]?.stringValue
                     let title = params["title"]?.stringValue
-                    if let result = try await onWindowCreate?(sessionId, path, paneId, title) {
+                    let name = params["name"]?.stringValue
+                    if let result = try await onWindowCreate?(sessionId, path, paneId, title, name) {
                         return JSONRPCResponse(id: id, result: result)
                     }
                     return .internalError(id: id, "Window create not available")
@@ -299,10 +365,26 @@
                     let direction = params["direction"]?.stringValue ?? "right"
                     let paneId = params["pane_id"]?.stringValue
                     let path = params["path"]?.stringValue
-                    if let result = try await onPaneSplit?(paneId, direction, path) {
+                    let shell = params["shell"]?.stringValue
+                    if let result = try await onPaneSplit?(paneId, direction, path, shell) {
                         return JSONRPCResponse(id: id, result: result)
                     }
                     return .internalError(id: id, "Pane split not available")
+
+                case "pane.set_layout":
+                    guard let layout = params["layout"]?.stringValue else {
+                        return .invalidParams(id: id, "layout required")
+                    }
+                    let target = params["target"]?.stringValue
+                        ?? params["window_id"]?.stringValue
+                    guard let target else {
+                        return .invalidParams(id: id, "target or window_id required")
+                    }
+                    guard let callback = onPaneSetLayout else {
+                        return .internalError(id: id, "Pane set_layout not available")
+                    }
+                    try await callback(target, layout)
+                    return .ok(id: id)
 
                 case "pane.select":
                     guard let paneId = params["pane_id"]?.stringValue else {
@@ -391,9 +473,53 @@
                     }
                     return .internalError(id: id, "Project start not available")
 
+                // MARK: - Layout
+
+                case "layout.apply":
+                    guard let config = params["config"] else {
+                        return .invalidParams(id: id, "config required")
+                    }
+                    let rebuild = params["rebuild"]?.boolValue == true
+                    let detach = params["detach"]?.boolValue == true
+                    let dryRun = params["dry_run"]?.boolValue == true
+                    let lenient = params["lenient"]?.boolValue == true
+                    let requireCreate = params["require_create"]?.boolValue == true
+                    let configPath = params["config_path"]?.stringValue
+                    guard let callback = onLayoutApply else {
+                        return .internalError(id: id, "Layout apply not available")
+                    }
+                    let result = try await callback(
+                        config,
+                        rebuild,
+                        detach,
+                        dryRun,
+                        lenient,
+                        requireCreate,
+                        configPath
+                    )
+                    return JSONRPCResponse(id: id, result: result)
+
                 default:
                     return .methodNotFound(id: id, request.method)
                 }
+            } catch let error as LayoutConfigError {
+                // Validation errors map to a distinct code so CLI exit codes
+                // can match the spec (`2` for invalid configuration).
+                return JSONRPCResponse(
+                    id: id,
+                    error: JSONRPCError(code: "validation_error", message: error.localizedDescription)
+                )
+            } catch let error as LayoutDriver.DriverError {
+                if case let .alreadyExists(name) = error {
+                    return JSONRPCResponse(
+                        id: id,
+                        error: JSONRPCError(
+                            code: "session_exists",
+                            message: "Session '\(name)' already exists"
+                        )
+                    )
+                }
+                return .internalError(id: id, error.localizedDescription)
             } catch {
                 return .internalError(id: id, error.localizedDescription)
             }

@@ -49,6 +49,12 @@ struct SplitPaneCommand: ParsableCommand {
     @Option(name: .long, help: "Working directory for the new pane (defaults to $HOME)")
     var path: String?
 
+    @Option(
+        name: .long,
+        help: "Run this command/shell as the new pane's process instead of the default shell."
+    )
+    var shell: String?
+
     @OptionGroup var options: GlobalOptions
 
     func run() throws {
@@ -57,6 +63,7 @@ struct SplitPaneCommand: ParsableCommand {
             params["pane_id"] = .string(pane)
         }
         if let path { params["path"] = .string(path) }
+        if let shell { params["shell"] = .string(shell) }
         let response = try executeRequest(method: "pane.split", params: params, options: options)
         if options.json {
             printResponse(response, json: true)
