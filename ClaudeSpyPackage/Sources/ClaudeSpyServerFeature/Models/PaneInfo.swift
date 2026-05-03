@@ -9,7 +9,10 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
     public let target: String
 
     /// Unique identifier for Identifiable conformance (uses target since paneId can repeat in linked sessions)
-    public var id: String { target }
+    public var id: String {
+        target
+    }
+
     /// The name of the session containing this pane
     public let sessionName: String
     /// The window index within the session
@@ -37,9 +40,15 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
     /// Custom description set via the tmux `@gallager-description` user option,
     /// resolved with tmux's window-over-session inheritance. `nil` if unset.
     public let customDescription: String?
+    /// Custom color set via the tmux `@gallager-color` user option, resolved
+    /// with tmux's window-over-session inheritance. `nil` if unset or if the
+    /// stored value isn't a recognised `SessionColor` case.
+    public let customColor: SessionColor?
 
     /// Window identifier combining session name and window index (e.g., "mysession:0")
-    public var windowId: String { "\(sessionName):\(windowIndex)" }
+    public var windowId: String {
+        "\(sessionName):\(windowIndex)"
+    }
 
     public init(
         paneId: String,
@@ -56,7 +65,8 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
         windowLayout: String = "",
         windowName: String = "",
         isWindowActive: Bool = false,
-        customDescription: String? = nil
+        customDescription: String? = nil,
+        customColor: SessionColor? = nil
     ) {
         self.paneId = paneId
         self.target = target
@@ -73,12 +83,15 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
         self.windowName = windowName
         self.isWindowActive = isWindowActive
         self.customDescription = customDescription
+        self.customColor = customColor
     }
 }
 
 public extension PaneInfo {
     /// Creates a PaneInfo from tmux format output
-    /// Expected format: id|session|window|pane|command|path|width|height|active|title|layout|windowName|windowActive|customDescription
+    /// Expected format: id|session|window|pane|command|path|width|height|active|title|layout|windowName|windowActive|customColor|customDescription
+    /// `customColor` is a single token (no `|`) so it sits before `customDescription`,
+    /// which may contain `|` and is rejoined from the trailing components.
     init?(fromTmuxOutput line: String) {
         let components = line.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
         guard components.count >= 9 else { return nil }
@@ -104,9 +117,15 @@ public extension PaneInfo {
         self.windowName = components.count >= 12 ? components[11] : ""
         self.isWindowActive = components.count >= 13 ? components[12] == "1" : false
         if components.count >= 14 {
+            let raw = components[13]
+            self.customColor = raw.isEmpty ? nil : SessionColor.parse(raw)
+        } else {
+            self.customColor = nil
+        }
+        if components.count >= 15 {
             // Descriptions may contain `|`, so rejoin everything past the fixed fields
-            // instead of only taking components[13].
-            let description = components[13...].joined(separator: "|")
+            // instead of only taking components[14].
+            let description = components[14...].joined(separator: "|")
             self.customDescription = description.isEmpty ? nil : description
         } else {
             self.customDescription = nil
@@ -131,7 +150,8 @@ public extension PaneInfo {
             windowLayout: windowLayout,
             windowName: windowName,
             isWindowActive: isWindowActive,
-            customDescription: customDescription
+            customDescription: customDescription,
+            customColor: customColor
         )
     }
 
@@ -151,5 +171,6 @@ public extension PaneInfo {
         state.windowName = windowName
         state.isWindowActive = isWindowActive
         state.customDescription = customDescription
+        state.customColor = customColor
     }
 }

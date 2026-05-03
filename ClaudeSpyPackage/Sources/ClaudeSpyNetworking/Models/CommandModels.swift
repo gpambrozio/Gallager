@@ -519,6 +519,28 @@ public struct SetSessionDescription: CommandSpec, Equatable {
     }
 }
 
+/// Set a custom color for a tmux session. Returns success/failure.
+/// Persisted as the tmux `@gallager-color` user option so the dot in the
+/// sidebar comes back after restarting the host app.
+public struct SetSessionColor: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// The session name to set the color for
+    public let sessionName: String
+
+    /// The color, or nil to clear
+    public let color: SessionColor?
+
+    public init(sessionName: String, color: SessionColor?) {
+        self.sessionName = sessionName
+        self.color = color
+    }
+
+    public var commandType: CommandType {
+        .setSessionColor(self)
+    }
+}
+
 /// Rename a tmux window. Returns success/failure.
 /// Applied on the host via `tmux rename-window`, which also implicitly disables
 /// tmux's automatic-rename so the tab stops tracking the running command.
@@ -763,6 +785,8 @@ public enum CommandType: Codable, Sendable, Equatable {
     case markHandled(MarkHandled)
     /// Set a custom description for a tmux session (applied to all panes)
     case setSessionDescription(SetSessionDescription)
+    /// Set a custom color dot for a tmux session
+    case setSessionColor(SetSessionColor)
     /// Rename a tmux window (shown in the tab)
     case setWindowName(SetWindowName)
     /// Split a tmux pane
@@ -843,6 +867,11 @@ public enum CommandType: Codable, Sendable, Equatable {
     /// Create a setSessionDescription command
     public static func setSessionDescription(sessionName: String, description: String?) -> CommandType {
         .setSessionDescription(SetSessionDescription(sessionName: sessionName, description: description))
+    }
+
+    /// Create a setSessionColor command
+    public static func setSessionColor(sessionName: String, color: SessionColor?) -> CommandType {
+        .setSessionColor(SetSessionColor(sessionName: sessionName, color: color))
     }
 
     /// Create a setWindowName command

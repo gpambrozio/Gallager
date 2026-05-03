@@ -338,7 +338,7 @@
                         }
                     }
                 },
-                onSessionCreate: { [tmux, winManager] name, path, title, ifMissing in
+                onSessionCreate: { [tmux, winManager] name, path, title, color, ifMissing in
                     let baseName = name ?? "main"
                     // Honor `if_missing`: when the requested name already exists,
                     // return its info with `created: false` so callers can skip
@@ -350,9 +350,12 @@
                         let attached = await MainActor.run { tmux.attachedSessionNames }
                         let windowCount = LocalTmuxWindow.groupPanes(panes)
                             .filter { $0.sessionName == requestedName }.count
-                        if let title {
-                            await MainActor.run {
+                        await MainActor.run {
+                            if let title {
                                 winManager.setSessionDescription(title, for: requestedName)
+                            }
+                            if let color {
+                                winManager.setSessionColor(color, for: requestedName)
                             }
                         }
                         return LiveAPIRequestRouter.SessionCreateResult(
@@ -372,9 +375,12 @@
                         height: 50,
                         workingDirectory: workingDirectory
                     )
-                    if let title {
-                        await MainActor.run {
+                    await MainActor.run {
+                        if let title {
                             winManager.setSessionDescription(title, for: sessionName)
+                        }
+                        if let color {
+                            winManager.setSessionColor(color, for: sessionName)
                         }
                     }
                     return LiveAPIRequestRouter.SessionCreateResult(
@@ -519,6 +525,65 @@
                         return "session"
                     }
                     throw APIError.notFound("No resolvable target for session.set_title")
+                },
+                onSessionSetColor: { [tmux, winManager] color, sessionId, windowId, paneId in
+                    // Mirrors `onSessionSetTitle`: window scope wins when a
+                    // window or pane is named, otherwise apply at session scope
+                    // so detached sessions still pick up the color.
+                    let panes = await tmux.refreshPanes()
+
+                    if let windowId {
+                        if let pane = panes.first(where: { $0.windowId == windowId }) {
+                            await MainActor.run {
+                                winManager.setWindowColor(
+                                    color,
+                                    sessionName: pane.sessionName,
+                                    windowIndex: pane.windowIndex
+                                )
+                            }
+                            return "window"
+                        }
+                        let parts = windowId.split(separator: ":", maxSplits: 1).map(String.init)
+                        if parts.count == 2, let index = Int(parts[1]) {
+                            await MainActor.run {
+                                winManager.setWindowColor(
+                                    color,
+                                    sessionName: parts[0],
+                                    windowIndex: index
+                                )
+                            }
+                            return "window"
+                        }
+                        throw APIError.notFound("Window not found: \(windowId)")
+                    }
+                    if
+                        let paneId,
+                        let pane = panes.first(where: { $0.paneId == paneId }) {
+                        await MainActor.run {
+                            winManager.setSessionColor(color, for: pane.sessionName)
+                        }
+                        return "session"
+                    }
+                    if let sessionId {
+                        guard await tmux.sessionExists(named: sessionId) else {
+                            throw APIError.notFound("Session not found: \(sessionId)")
+                        }
+                        await MainActor.run {
+                            winManager.setSessionColor(color, for: sessionId)
+                        }
+                        return "session"
+                    }
+                    let attached = await MainActor.run { tmux.attachedSessionNames }
+                    if
+                        let activeSession = panes.first(where: {
+                            attached.contains($0.sessionName)
+                        })?.sessionName {
+                        await MainActor.run {
+                            winManager.setSessionColor(color, for: activeSession)
+                        }
+                        return "session"
+                    }
+                    throw APIError.notFound("No resolvable target for session.set_color")
                 },
                 onWindowList: { [tmux] sessionId, paneId in
                     let panes = await tmux.refreshPanes()
@@ -1008,6 +1073,13 @@
                 // pushSessionStateToAll() runs via onDescriptionChanged, not here.
                 if case let .setSessionDescription(spec) = command.command {
                     winManager.setSessionDescription(spec.description, for: spec.sessionName)
+                    return .success(for: command.id)
+                }
+
+                // Handle session color (applied to every pane in the session).
+                // pushSessionStateToAll() runs via onDescriptionChanged, not here.
+                if case let .setSessionColor(spec) = command.command {
+                    winManager.setSessionColor(spec.color, for: spec.sessionName)
                     return .success(for: command.id)
                 }
 

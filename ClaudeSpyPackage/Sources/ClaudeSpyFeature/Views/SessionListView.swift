@@ -92,6 +92,12 @@
                                 let command = SetSessionDescription(sessionName: sessionName, description: description)
                                 _ = await connectionManager.sendCommand(command, paneId: "", hostId: host.id)
                             }
+                        },
+                        onSetColor: { sessionName, color in
+                            Task {
+                                let command = SetSessionColor(sessionName: sessionName, color: color)
+                                _ = await connectionManager.sendCommand(command, paneId: "", hostId: host.id)
+                            }
                         }
                     )
                 }
@@ -215,6 +221,7 @@
         var showUsername = false
         let onNewSession: () -> Void
         var onSetDescription: (String, String?) -> Void = { _, _ in }
+        var onSetColor: (String, SessionColor?) -> Void = { _, _ in }
 
         @Environment(SessionStore.self) private var sessionStore
 
@@ -286,6 +293,7 @@
                         cliSessionState: cliSessionState,
                         isActive: sessionStore.isPaneActive(paneId: claudePane.paneId, hostId: host.id),
                         customDescription: session.customDescription,
+                        customColor: session.customColor,
                         windowCount: session.windows.count
                     )
                 } else if let pane = activePaneInSession {
@@ -297,7 +305,15 @@
                 sessionName: session.sessionName,
                 currentDescription: session.customDescription,
                 isDisabled: connection?.isHostConnected != true,
-                onSetDescription: onSetDescription
+                onSetDescription: onSetDescription,
+                additionalMenu: {
+                    ColorContextMenuButtons(
+                        currentColor: session.customColor,
+                        isDisabled: connection?.isHostConnected != true
+                    ) { newColor in
+                        onSetColor(session.sessionName, newColor)
+                    }
+                }
             ))
         }
     }
@@ -453,6 +469,7 @@
         var cliSessionState: CLISessionState?
         let isActive: Bool
         var customDescription: String?
+        var customColor: SessionColor?
         var windowCount = 1
 
         var body: some View {
@@ -521,6 +538,13 @@
                     Text("\(session.events.count) recent events")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
+                }
+
+                Spacer()
+
+                if let customColor {
+                    SessionColorDot(color: customColor)
+                        .accessibilityIdentifier("session-color-\(customColor.rawValue)")
                 }
             }
             .padding(.vertical, 4)
@@ -615,6 +639,13 @@
                     Text("\(pane.width)×\(pane.height)")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
+                }
+
+                Spacer()
+
+                if let customColor = pane.customColor {
+                    SessionColorDot(color: customColor)
+                        .accessibilityIdentifier("session-color-\(customColor.rawValue)")
                 }
             }
             .padding(.vertical, 4)

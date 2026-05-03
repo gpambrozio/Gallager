@@ -12,7 +12,9 @@ public struct TmuxSession: Identifiable, Sendable {
     /// Windows in this session, sorted by window index
     public let windows: [TmuxWindow]
 
-    public var id: String { sessionName }
+    public var id: String {
+        sessionName
+    }
 
     /// The active window in the tmux session, or the first window
     public var activeWindow: TmuxWindow? {
@@ -27,6 +29,11 @@ public struct TmuxSession: Identifiable, Sendable {
     /// The custom description for this session (from the active window)
     public var customDescription: String? {
         activeWindow?.customDescription
+    }
+
+    /// The custom color for this session (from the active window)
+    public var customColor: SessionColor? {
+        activeWindow?.customColor
     }
 
     /// Groups windows by session and returns sorted sessions

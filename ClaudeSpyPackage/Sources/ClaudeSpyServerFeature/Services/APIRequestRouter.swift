@@ -40,6 +40,7 @@
         "session.close",
         "session.set_state",
         "session.set_title",
+        "session.set_color",
         "window.list",
         "window.create",
         "window.select",
@@ -78,14 +79,23 @@
 
         private let logger = Logger(label: "com.claudespy.apirouter")
 
-        // Service callbacks injected at init by AppCoordinator
+        /// Service callbacks injected at init by AppCoordinator
         let onSessionList: (@Sendable () async -> [[String: JSONValue]])?
-        let onSessionCreate: (@Sendable (String?, String?, String?, Bool) async throws -> SessionCreateResult)?
+        /// Parameters: (name, path, title, color, ifMissing).
+        let onSessionCreate: (
+            @Sendable (String?, String?, String?, SessionColor?, Bool) async throws -> SessionCreateResult
+        )?
         let onSessionSelect: (@Sendable (String) async throws -> Void)?
         let onSessionCurrent: (@Sendable () async -> [String: JSONValue]?)?
         let onSessionClose: (@Sendable (String) async throws -> Void)?
         let onSessionSetState: (@Sendable (String, String?, String?) async throws -> Int)?
         let onSessionSetTitle: (@Sendable (String?, String?, String?, String?) async throws -> String)?
+        /// Parameters: (color, sessionId, windowId, paneId). `color` is `nil`
+        /// to clear. Returns the resolved scope ("session" or "window") used
+        /// in the response so callers can confirm what they actually changed.
+        let onSessionSetColor: (
+            @Sendable (SessionColor?, String?, String?, String?) async throws -> String
+        )?
 
         let onWindowList: (@Sendable (String?, String?) async -> [[String: JSONValue]])?
         /// Parameters: (sessionId, path, paneId, description, name).
@@ -134,7 +144,7 @@
         public init(
             onSessionList: (@Sendable () async -> [[String: JSONValue]])? = nil,
             onSessionCreate: (
-                @Sendable (String?, String?, String?, Bool) async throws -> SessionCreateResult
+                @Sendable (String?, String?, String?, SessionColor?, Bool) async throws -> SessionCreateResult
             )? = nil,
             onSessionSelect: (@Sendable (String) async throws -> Void)? = nil,
             onSessionCurrent: (@Sendable () async -> [String: JSONValue]?)? = nil,
@@ -142,6 +152,9 @@
             onSessionSetState: (@Sendable (String, String?, String?) async throws -> Int)? = nil,
             onSessionSetTitle: (
                 @Sendable (String?, String?, String?, String?) async throws -> String
+            )? = nil,
+            onSessionSetColor: (
+                @Sendable (SessionColor?, String?, String?, String?) async throws -> String
             )? = nil,
             onWindowList: (@Sendable (String?, String?) async -> [[String: JSONValue]])? = nil,
             onWindowCreate: (
@@ -175,6 +188,7 @@
             self.onSessionClose = onSessionClose
             self.onSessionSetState = onSessionSetState
             self.onSessionSetTitle = onSessionSetTitle
+            self.onSessionSetColor = onSessionSetColor
             self.onWindowList = onWindowList
             self.onWindowCreate = onWindowCreate
             self.onWindowSelect = onWindowSelect
@@ -261,7 +275,21 @@
                     let path = params["path"]?.stringValue
                     let title = params["title"]?.stringValue
                     let ifMissing = params["if_missing"]?.boolValue == true
-                    if let result = try await onSessionCreate?(name, path, title, ifMissing) {
+                    let rawColor = params["color"]?.stringValue
+                    let color: SessionColor?
+                    if let rawColor, !rawColor.isEmpty {
+                        guard let parsed = SessionColor.parse(rawColor) else {
+                            let valid = SessionColor.allCases.map(\.rawValue).joined(separator: ", ")
+                            return .invalidParams(
+                                id: id,
+                                "Unknown color '\(rawColor)'. Valid colors: \(valid)"
+                            )
+                        }
+                        color = parsed
+                    } else {
+                        color = nil
+                    }
+                    if let result = try await onSessionCreate?(name, path, title, color, ifMissing) {
                         var info = result.info
                         info["created"] = .bool(result.created)
                         return JSONRPCResponse(id: id, result: info)
@@ -312,6 +340,35 @@
                         return .internalError(id: id, "Session set_title not available")
                     }
                     let scope = try await callback(title, sessionId, windowId, paneId)
+                    return JSONRPCResponse(id: id, result: [
+                        "scope": .string(scope),
+                    ])
+
+                case "session.set_color":
+                    // `color` is optional; nil/empty clears the color. An
+                    // unrecognised color name is rejected so the caller knows
+                    // they typed something the app can't render.
+                    let rawColor = params["color"]?.stringValue
+                    let color: SessionColor?
+                    if let rawColor, !rawColor.isEmpty {
+                        guard let parsed = SessionColor.parse(rawColor) else {
+                            let valid = SessionColor.allCases.map(\.rawValue).joined(separator: ", ")
+                            return .invalidParams(
+                                id: id,
+                                "Unknown color '\(rawColor)'. Valid colors: \(valid)"
+                            )
+                        }
+                        color = parsed
+                    } else {
+                        color = nil
+                    }
+                    let sessionId = params["session_id"]?.stringValue
+                    let windowId = params["window_id"]?.stringValue
+                    let paneId = params["pane_id"]?.stringValue
+                    guard let callback = onSessionSetColor else {
+                        return .internalError(id: id, "Session set_color not available")
+                    }
+                    let scope = try await callback(color, sessionId, windowId, paneId)
                     return JSONRPCResponse(id: id, result: [
                         "scope": .string(scope),
                     ])

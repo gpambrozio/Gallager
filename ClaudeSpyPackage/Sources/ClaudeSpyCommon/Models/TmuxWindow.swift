@@ -22,7 +22,9 @@ public struct TmuxWindow: Identifiable, Sendable {
     public let panes: [PaneState]
 
     /// Whether this window has only a single pane
-    public var isSinglePane: Bool { panes.count == 1 }
+    public var isSinglePane: Bool {
+        panes.count == 1
+    }
 
     /// The active pane in this window, or the first pane if none is active
     public var activePane: PaneState? {
@@ -37,6 +39,11 @@ public struct TmuxWindow: Identifiable, Sendable {
     /// The custom description for this window (from any pane, since descriptions are per-window)
     public var customDescription: String? {
         panes.first(where: { $0.customDescription != nil })?.customDescription
+    }
+
+    /// The custom color for this window (from any pane, since colors are per-window)
+    public var customColor: SessionColor? {
+        panes.first(where: { $0.customColor != nil })?.customColor
     }
 
     /// Groups pane states by window and returns sorted windows

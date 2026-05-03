@@ -388,6 +388,56 @@ final public class MirrorWindowManager {
         }
     }
 
+    // MARK: - Session Colors
+
+    /// Sets a custom color for a session, applied to every pane so it survives
+    /// switching windows. Persisted as a tmux user option (see `TmuxService`).
+    /// - Parameters:
+    ///   - color: The color, or nil to clear
+    ///   - sessionName: The tmux session name
+    public func setSessionColor(_ color: SessionColor?, for sessionName: String) {
+        // Optimistic local update for immediate UI feedback; tmux remains the source
+        // of truth and the next refresh reconciles from it.
+        for (paneId, state) in paneStates where state.sessionName == sessionName {
+            paneStates[paneId]?.customColor = color
+        }
+        Task { [tmuxService, logger] in
+            do {
+                try await tmuxService.setSessionColor(color, for: sessionName)
+            } catch {
+                logger.warning("Failed to persist session color", metadata: [
+                    "session": "\(sessionName)",
+                    "error": "\(error)",
+                ])
+            }
+            await onDescriptionChanged?()
+        }
+    }
+
+    /// Sets a custom color scoped to a single window. Persisted at window scope.
+    /// - Parameters:
+    ///   - color: The color, or nil to clear the window override
+    ///   - sessionName: The tmux session name containing the window
+    ///   - windowIndex: The window index within the session
+    public func setWindowColor(_ color: SessionColor?, sessionName: String, windowIndex: Int) {
+        let windowTarget = "\(sessionName):\(windowIndex)"
+        for (paneId, state) in paneStates
+            where state.sessionName == sessionName && state.windowIndex == windowIndex {
+            paneStates[paneId]?.customColor = color
+        }
+        Task { [tmuxService, logger] in
+            do {
+                try await tmuxService.setWindowColor(color, for: windowTarget)
+            } catch {
+                logger.warning("Failed to persist window color", metadata: [
+                    "window": "\(windowTarget)",
+                    "error": "\(error)",
+                ])
+            }
+            await onDescriptionChanged?()
+        }
+    }
+
     // MARK: - Auto-Close Pane
 
     /// Polls until the Claude process exits from the pane, then closes the pane after a short delay.

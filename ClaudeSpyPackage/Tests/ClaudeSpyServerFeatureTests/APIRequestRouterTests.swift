@@ -44,7 +44,7 @@ func capabilitiesListsMethods() async {
 func sessionCreatePassesIfMissingFlagToCallback() async {
     let receivedIfMissing = LockedValue<Bool>(false)
     let router = LiveAPIRequestRouter(
-        onSessionCreate: { _, _, _, ifMissing in
+        onSessionCreate: { _, _, _, _, ifMissing in
             await receivedIfMissing.set(ifMissing)
             return LiveAPIRequestRouter.SessionCreateResult(
                 info: ["id": .string("foo"), "name": .string("foo")],
@@ -65,7 +65,7 @@ func sessionCreatePassesIfMissingFlagToCallback() async {
 @Test
 func sessionCreateMergesCreatedFlagIntoResponse() async {
     let router = LiveAPIRequestRouter(
-        onSessionCreate: { _, _, _, _ in
+        onSessionCreate: { _, _, _, _, _ in
             LiveAPIRequestRouter.SessionCreateResult(
                 info: ["id": .string("bar"), "name": .string("bar")],
                 created: true
@@ -85,7 +85,7 @@ func sessionCreateMergesCreatedFlagIntoResponse() async {
 func sessionCreatePassesTitleToCallback() async {
     let receivedTitle = LockedValue<String?>(nil)
     let router = LiveAPIRequestRouter(
-        onSessionCreate: { _, _, title, _ in
+        onSessionCreate: { _, _, title, _, _ in
             await receivedTitle.set(title)
             return LiveAPIRequestRouter.SessionCreateResult(
                 info: ["id": .string("baz")],
@@ -154,6 +154,123 @@ func sessionSetTitleAllowsOmittingTitleToClear() async {
     // The sentinel value "not-set" proves the callback was never invoked if it
     // remains; nil proves it ran with a missing title param.
     #expect(await received.get() == nil)
+}
+
+// MARK: - session.set_color
+
+@Test
+func sessionSetColorListedInCapabilities() async {
+    let router = LiveAPIRequestRouter()
+    let request = JSONRPCRequest(id: "set-color-cap", method: "system.capabilities", params: [:])
+    let response = await router.handleRequest(request)
+    if case let .array(methods) = response.result?["methods"] {
+        let names = methods.compactMap(\.stringValue)
+        #expect(names.contains("session.set_color"))
+    } else {
+        Issue.record("Expected methods array")
+    }
+}
+
+@Test
+func sessionSetColorRejectsWhenCallbackMissing() async {
+    let router = LiveAPIRequestRouter()
+    let request = JSONRPCRequest(id: "set-color-1", method: "session.set_color", params: [
+        "color": .string("blue"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == false)
+    #expect(response.error?.code == "internal_error")
+}
+
+@Test
+func sessionSetColorParsesAndForwards() async {
+    let received = LockedValue<(SessionColor?, String?, String?, String?)>((nil, nil, nil, nil))
+    let router = LiveAPIRequestRouter(
+        onSessionSetColor: { color, sessionId, windowId, paneId in
+            await received.set((color, sessionId, windowId, paneId))
+            return "session"
+        }
+    )
+    let request = JSONRPCRequest(id: "set-color-2", method: "session.set_color", params: [
+        "color": .string("blue"),
+        "session_id": .string("workers"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == true)
+    #expect(response.result?["scope"]?.stringValue == "session")
+    let (color, sessionId, _, _) = await received.get()
+    #expect(color == .blue)
+    #expect(sessionId == "workers")
+}
+
+@Test
+func sessionSetColorAllowsOmittingColorToClear() async {
+    let received = LockedValue<SessionColor?>(.red)
+    let router = LiveAPIRequestRouter(
+        onSessionSetColor: { color, _, _, _ in
+            await received.set(color)
+            return "session"
+        }
+    )
+    let request = JSONRPCRequest(id: "set-color-3", method: "session.set_color", params: [
+        "session_id": .string("foo"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == true)
+    #expect(await received.get() == nil)
+}
+
+@Test
+func sessionSetColorRejectsUnknownValue() async {
+    let router = LiveAPIRequestRouter(
+        onSessionSetColor: { _, _, _, _ in "session" }
+    )
+    let request = JSONRPCRequest(id: "set-color-4", method: "session.set_color", params: [
+        "color": .string("chartreuse"),
+        "session_id": .string("foo"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == false)
+    #expect(response.error?.code == "invalid_params")
+}
+
+@Test
+func sessionCreatePassesColorToCallback() async {
+    let receivedColor = LockedValue<SessionColor?>(nil)
+    let router = LiveAPIRequestRouter(
+        onSessionCreate: { _, _, _, color, _ in
+            await receivedColor.set(color)
+            return LiveAPIRequestRouter.SessionCreateResult(
+                info: ["id": .string("bar")],
+                created: true
+            )
+        }
+    )
+    let request = JSONRPCRequest(id: "create-color", method: "session.create", params: [
+        "name": .string("bar"),
+        "color": .string("orange"),
+    ])
+    _ = await router.handleRequest(request)
+    #expect(await receivedColor.get() == .orange)
+}
+
+@Test
+func sessionCreateRejectsUnknownColor() async {
+    let router = LiveAPIRequestRouter(
+        onSessionCreate: { _, _, _, _, _ in
+            LiveAPIRequestRouter.SessionCreateResult(
+                info: ["id": .string("bar")],
+                created: true
+            )
+        }
+    )
+    let request = JSONRPCRequest(id: "create-bad-color", method: "session.create", params: [
+        "name": .string("bar"),
+        "color": .string("not-a-color"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == false)
+    #expect(response.error?.code == "invalid_params")
 }
 
 // MARK: - input.send_text + enter

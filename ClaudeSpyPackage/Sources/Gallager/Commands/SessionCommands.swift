@@ -44,6 +44,12 @@ struct NewSessionCommand: ParsableCommand {
     @Option(name: .long, help: "Custom title to display for the session in the sidebar")
     var title: String?
 
+    @Option(
+        name: .long,
+        help: "Sidebar color: red, orange, yellow, green, blue, purple, pink, gray"
+    )
+    var color: String?
+
     @Flag(
         name: .long,
         help: "If a session with --name already exists, return its info instead of creating a new one"
@@ -60,6 +66,7 @@ struct NewSessionCommand: ParsableCommand {
         if let name { params["name"] = .string(name) }
         if let path { params["path"] = .string(path) }
         if let title { params["title"] = .string(title) }
+        if let color { params["color"] = .string(color) }
         if ifMissing { params["if_missing"] = .bool(true) }
         let response = try executeRequest(method: "session.create", params: params, options: options)
         if options.json {
@@ -178,6 +185,68 @@ struct SetTitleCommand: ParsableCommand {
             switch scope {
             case "session": print(title.isEmpty ? "Cleared session title." : "Set session title.")
             case "window": print(title.isEmpty ? "Cleared window title." : "Set window title.")
+            default: break
+            }
+        }
+    }
+}
+
+struct SetColorCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "set-color",
+        abstract: "Set a custom color shown next to a session or window in the sidebar",
+        discussion: """
+        The color is persisted as a tmux user option (`@gallager-color`) so it
+        survives app restarts. Pass an empty string or "none" to clear the color.
+
+        Valid colors: red, orange, yellow, green, blue, purple, pink, gray.
+
+        Targeting:
+          --session SESSION  applies at session scope (every window inherits)
+          --window  WINDOW   applies at window scope (overrides the session value)
+          --pane    PANE     applies at the session containing that pane
+          (none)             defaults to the calling pane's session via $TMUX_PANE
+        """
+    )
+
+    @Argument(help: "Color name. Pass an empty string (\"\") or \"none\" to clear.")
+    var color: String
+
+    @OptionGroup var options: GlobalOptions
+
+    func run() throws {
+        // Pass an empty string when the user requested to clear so the API
+        // treats it consistently with `set-title`.
+        let normalized: String
+        if color.lowercased() == "none" || color.isEmpty {
+            normalized = ""
+        } else {
+            normalized = color
+        }
+        var params: [String: JSONValue] = ["color": .string(normalized)]
+        if let session = options.session {
+            params["session_id"] = .string(session)
+        } else if let window = options.window {
+            params["window_id"] = .string(window)
+        } else if let pane = options.pane ?? options.callingPaneId {
+            params["pane_id"] = .string(pane)
+        }
+        let response = try executeRequest(
+            method: "session.set_color",
+            params: params,
+            options: options
+        )
+        if options.json {
+            printResponse(response, json: true)
+        } else if
+            let result = response.result,
+            case let .string(scope) = result["scope"] {
+            let cleared = normalized.isEmpty
+            switch scope {
+            case "session":
+                print(cleared ? "Cleared session color." : "Set session color to \(normalized).")
+            case "window":
+                print(cleared ? "Cleared window color." : "Set window color to \(normalized).")
             default: break
             }
         }

@@ -391,6 +391,13 @@ public struct MainView: View {
                             _ = await manager.sendCommand(command, paneId: "", hostId: host.id)
                         }
                     },
+                    onSetColor: { sessionName, color in
+                        Task {
+                            guard let manager = coordinator.viewerConnectionManager else { return }
+                            let command = SetSessionColor(sessionName: sessionName, color: color)
+                            _ = await manager.sendCommand(command, paneId: "", hostId: host.id)
+                        }
+                    },
                     onToggleYolo: { paneId, enabled in
                         Task {
                             guard let manager = coordinator.viewerConnectionManager else { return }
@@ -412,6 +419,7 @@ public struct MainView: View {
     private func sessionButton(session: LocalTmuxSession, help: String? = nil) -> some View {
         let activeWindow = session.activeWindow
         let description = activeWindow?.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customDescription }
+        let color = activeWindow?.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customColor }
         let claudePane = session.windows.flatMap(\.panes).first { windowManager.paneStates[$0.paneId]?.claudeSession != nil }
         let activePane = activeWindow?.activePane
         let isSessionAttached = tmuxService.attachedSessionNames.contains(session.sessionName)
@@ -438,6 +446,12 @@ public struct MainView: View {
                 windowManager.setSessionDescription(description, for: sessionName)
             },
             additionalMenu: {
+                ColorContextMenuButtons(currentColor: color) { newColor in
+                    windowManager.setSessionColor(newColor, for: session.sessionName)
+                }
+
+                Divider()
+
                 if let claudePane {
                     Toggle(isOn: localYoloModeBinding(for: claudePane.paneId)) {
                         Label("Yolo Mode", symbol: .bolt)
@@ -1857,6 +1871,11 @@ private struct SessionSidebarRow: View {
             )
 
             Spacer()
+
+            if let color = primaryPaneState?.customColor {
+                SessionColorDot(color: color)
+                    .accessibilityIdentifier("session-color-\(color.rawValue)")
+            }
         }
         // Expose session name to macOS accessibility tree so e2e tests can find sessions
         // regardless of which sidebar fields are configured (session name may not appear as
@@ -2454,6 +2473,7 @@ private struct RemoteHostSidebarSection: View {
     let onSelect: (RemoteSessionSelection) -> Void
     let onCreate: (ClaudeProjectInfo?) -> Void
     let onSetDescription: (String, String?) -> Void
+    let onSetColor: (String, SessionColor?) -> Void
     let onToggleYolo: (String, Bool) -> Void
     let onCloseSession: (String) -> Void
 
@@ -2548,6 +2568,15 @@ private struct RemoteHostSidebarSection: View {
             isDisabled: connection?.isHostConnected != true,
             onSetDescription: onSetDescription,
             additionalMenu: {
+                ColorContextMenuButtons(
+                    currentColor: session.customColor,
+                    isDisabled: connection?.isHostConnected != true
+                ) { newColor in
+                    onSetColor(session.sessionName, newColor)
+                }
+
+                Divider()
+
                 if let claudePane {
                     Toggle(isOn: Binding(
                         get: { sessionStore.isYoloModeEnabled(paneId: claudePane.paneId, hostId: host.id) },
@@ -2749,6 +2778,11 @@ private struct RemoteSessionSidebarRow: View {
             )
 
             Spacer()
+
+            if let color = session.customColor {
+                SessionColorDot(color: color)
+                    .accessibilityIdentifier("session-color-\(color.rawValue)")
+            }
         }
         // Expose session name to macOS accessibility tree so e2e tests can find sessions
         // regardless of which sidebar fields are configured.

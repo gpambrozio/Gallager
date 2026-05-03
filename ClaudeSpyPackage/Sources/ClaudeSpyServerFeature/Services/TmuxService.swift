@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Dependencies
 import Foundation
 import Logging
@@ -239,7 +240,10 @@ final public class TmuxService {
     ///      always have at least one pane, so non-empty list-sessions means
     ///      list-panes lied).
     private func queryRefreshOutcome(attachedSessions: Set<String>) async -> RefreshOutcome {
-        let format = "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_title}|#{window_layout}|#{window_name}|#{window_active}|#{\(Self.descriptionOptionKey)}"
+        // `customColor` sits before `customDescription` because it's a single
+        // token with no `|`, while a description may contain `|` and is
+        // rejoined from the trailing components by `PaneInfo.init(fromTmuxOutput:)`.
+        let format = "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_title}|#{window_layout}|#{window_name}|#{window_active}|#{\(Self.colorOptionKey)}|#{\(Self.descriptionOptionKey)}"
 
         let result: ProcessResult
         do {
@@ -1704,6 +1708,10 @@ final public class TmuxService {
     /// inheritance when formatted from a pane.
     private static let descriptionOptionKey = "@gallager-description"
 
+    /// The tmux user option key used to persist Gallager session colors.
+    /// Same window-over-session inheritance semantics as the description key.
+    private static let colorOptionKey = "@gallager-color"
+
     /// Persists the custom description for a session as a tmux user option.
     ///
     /// Writes `@gallager-description` at session scope so it survives app restarts
@@ -1775,6 +1783,77 @@ final public class TmuxService {
             let result = try await runTmuxCommand([
                 "set-option", "-wu", "-t", windowTarget,
                 Self.descriptionOptionKey,
+            ])
+            guard result.isSuccess else {
+                throw TmuxError.commandFailed(message: result.stderrString)
+            }
+        }
+    }
+
+    // MARK: - Custom Colors
+
+    /// Persists the custom color for a session as a tmux user option.
+    ///
+    /// Mirrors `setSessionDescription` — writes `@gallager-color` at session
+    /// scope after sweeping any window-level overrides so the new value applies
+    /// uniformly across every window in the session.
+    /// - Parameters:
+    ///   - color: The color, or `nil` to clear the option.
+    ///   - sessionName: The tmux session name.
+    public func setSessionColor(_ color: SessionColor?, for sessionName: String) async throws {
+        if
+            let windows = try? await runTmuxCommand([
+                "list-windows", "-t", sessionName, "-F", "#{window_index}",
+            ]), windows.isSuccess {
+            let indexes = windows.stdoutString
+                .split(separator: "\n")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            for index in indexes {
+                _ = try? await runTmuxCommand([
+                    "set-option", "-wu", "-t", "\(sessionName):\(index)",
+                    Self.colorOptionKey,
+                ])
+            }
+        }
+
+        if let color {
+            let result = try await runTmuxCommand([
+                "set-option", "-t", sessionName,
+                Self.colorOptionKey, color.rawValue,
+            ])
+            guard result.isSuccess else {
+                throw TmuxError.commandFailed(message: result.stderrString)
+            }
+        } else {
+            let result = try await runTmuxCommand([
+                "set-option", "-u", "-t", sessionName,
+                Self.colorOptionKey,
+            ])
+            guard result.isSuccess else {
+                throw TmuxError.commandFailed(message: result.stderrString)
+            }
+        }
+    }
+
+    /// Persists the custom color for a single window as a tmux user option.
+    /// Other windows in the same session continue to resolve to the session value.
+    /// - Parameters:
+    ///   - color: The color, or `nil` to clear the override.
+    ///   - windowTarget: The tmux window target (e.g. `session:0`).
+    public func setWindowColor(_ color: SessionColor?, for windowTarget: String) async throws {
+        if let color {
+            let result = try await runTmuxCommand([
+                "set-option", "-w", "-t", windowTarget,
+                Self.colorOptionKey, color.rawValue,
+            ])
+            guard result.isSuccess else {
+                throw TmuxError.commandFailed(message: result.stderrString)
+            }
+        } else {
+            let result = try await runTmuxCommand([
+                "set-option", "-wu", "-t", windowTarget,
+                Self.colorOptionKey,
             ])
             guard result.isSuccess else {
                 throw TmuxError.commandFailed(message: result.stderrString)
