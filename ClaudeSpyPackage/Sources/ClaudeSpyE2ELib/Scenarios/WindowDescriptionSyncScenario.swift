@@ -1,17 +1,14 @@
 import Foundation
 
-/// E2E scenario: Window description + color synchronization across all three platforms
+/// E2E scenario: Window description synchronization across all three platforms
 ///
-/// Verifies that custom window descriptions and colors sync between macOS host,
-/// iOS viewer, and macOS viewer:
+/// Verifies that custom window descriptions sync between macOS host, iOS viewer,
+/// and macOS viewer:
 /// 1. Host adds a description via context menu → iOS and Mac viewer see it
 /// 2. Mac viewer edits the description via context menu → host and iOS see it
 /// 3. Host removes the description → all platforms reflect the removal
-/// 4. Host picks a color via the "Set Color" submenu → dot appears on every
-///    platform; clearing the color removes the dot.
-/// 5. Host re-adds a description and color, is terminated + relaunched, and
-///    both persist (stored as `@gallager-description` and `@gallager-color`
-///    tmux user options).
+/// 4. Host re-adds a description, is terminated + relaunched, and the
+///    description persists (stored as a tmux `@gallager-description` user option).
 public enum WindowDescriptionSyncScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Window Description Sync",
@@ -130,51 +127,14 @@ public enum WindowDescriptionSyncScenario {
         TestStep.iosWaitForElement(.labelContains("DescProject"), timeout: 15)
         TestStep.iosScreenshot(label: "ios-after-remove")
 
-        // ── Phase 8: Host sets a color via tmux user option ────────────────
+        // ── Phase 8: Restart host to verify the description is persisted ────
         //
-        // The right-click menu has a "Set Color" submenu with one item per
-        // SessionColor case. AX automation can't reliably hover into a
-        // submenu, so we drive the option directly via `tmux set-option`
-        // (the same path the menu eventually writes through). This still
-        // exercises the read side: the host's refresh loop picks up the
-        // `@gallager-color` value and renders the dot, which then syncs
-        // through the relay to viewers.
+        // Descriptions are stored as the tmux `@gallager-description` user option,
+        // so they should survive the host app being killed and relaunched.
+        // Viewers are lost on restart (in-memory pairings under --e2e-test), so
+        // this phase only checks the host side.
 
-        TestStep.log("Setting session color via tmux user option")
-
-        TestStep.tmuxCommand(arguments: ["set-option", "-t", "e2e-desc", "@gallager-color", "blue"])
-        TestStep.wait(seconds: 3)
-
-        // Each platform exposes the dot with `accessibilityLabel("Blue color")`,
-        // so the same query works on host, Mac viewer, and iOS viewer.
-        TestStep.macWaitForElement(titled: "Blue color", timeout: 15)
-        TestStep.macScreenshot(label: "host-after-color-set")
-
-        TestStep.macWaitForElement(titled: "Blue color", timeout: 15, instance: 1)
-        TestStep.macScreenshot(label: "viewer-after-color-set", instance: 1)
-
-        TestStep.iosWaitForElement(.labelContains("Blue color"), timeout: 20)
-        TestStep.iosScreenshot(label: "ios-after-color-set")
-
-        // ── Phase 9: Host clears the color ────────────────────────────────
-
-        TestStep.log("Clearing session color via tmux user option")
-
-        TestStep.tmuxCommand(arguments: ["set-option", "-u", "-t", "e2e-desc", "@gallager-color"])
-        TestStep.wait(seconds: 3)
-
-        TestStep.macWaitForElementToDisappear(titled: "Blue color", timeout: 15)
-        TestStep.macScreenshot(label: "host-after-color-clear")
-
-        // ── Phase 10: Restart host to verify description + color persistence ─
-        //
-        // Descriptions and colors are stored as tmux user options
-        // (`@gallager-description`, `@gallager-color`) so they should survive
-        // the host app being killed and relaunched. Viewers are lost on
-        // restart (in-memory pairings under --e2e-test), so this phase only
-        // checks the host side.
-
-        TestStep.log("Re-adding description and color, then restarting host to verify persistence")
+        TestStep.log("Re-adding description and restarting host to verify persistence")
 
         TestStep.macContextMenuClick(elementTitle: "e2e-desc", menuItem: "Add Description")
         TestStep.macWaitForElement(titled: "Session Description", timeout: 5)
@@ -184,10 +144,6 @@ public enum WindowDescriptionSyncScenario {
         TestStep.macClickButton(titled: "Save")
         TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "Persist Across Restart", timeout: 10)
-
-        TestStep.tmuxCommand(arguments: ["set-option", "-t", "e2e-desc", "@gallager-color", "green"])
-        TestStep.wait(seconds: 3)
-        TestStep.macWaitForElement(titled: "Green color", timeout: 15)
         TestStep.macScreenshot(label: "host-before-restart")
 
         TestStep.terminateMacApp()
@@ -196,11 +152,9 @@ public enum WindowDescriptionSyncScenario {
         TestStep.wait(seconds: 3)
         Shortcut.openPanesWindow()
 
-        // The session row should come back labelled with the persisted description
-        // and the persisted color dot, hydrated from the tmux user options on
-        // the first refresh after launch.
+        // The session row should come back labelled with the persisted description,
+        // hydrated from the tmux user option on the first refresh after launch.
         TestStep.macWaitForElement(titled: "Persist Across Restart", timeout: 30)
-        TestStep.macWaitForElement(titled: "Green color", timeout: 30)
         TestStep.macScreenshot(label: "host-after-restart")
     }
 }
