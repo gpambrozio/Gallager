@@ -1464,7 +1464,8 @@ final public class TmuxService {
     public func splitPane(
         _ target: String,
         horizontal: Bool,
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        shellCommand: String? = nil
     ) async throws -> String {
         let flag = horizontal ? "-h" : "-v"
         var args = [
@@ -1476,6 +1477,14 @@ final public class TmuxService {
 
         if let workingDirectory, !workingDirectory.isEmpty {
             args.append(contentsOf: ["-c", workingDirectory])
+        }
+
+        // Trailing positional becomes the new pane's command (tmux runs it
+        // instead of the user's default-shell). Pass the shell here so the
+        // pane comes up running it directly — no transient default-shell
+        // window flash, no follow-up `exec` round trip.
+        if let shellCommand, !shellCommand.isEmpty {
+            args.append(shellCommand)
         }
 
         let result = try await runTmuxCommand(args)
@@ -1518,20 +1527,39 @@ final public class TmuxService {
     ///   - sessionName: The session to create the window in
     ///   - workingDirectory: Optional working directory for the new window
     /// - Returns: The pane ID of the new window's first pane
-    public func newWindow(sessionName: String, workingDirectory: String? = nil) async throws -> String {
+    public func newWindow(
+        sessionName: String,
+        workingDirectory: String? = nil,
+        windowName: String? = nil,
+        windowIndex: Int? = nil
+    ) async throws -> String {
         // Trailing colon tells tmux "target session with window unspecified" so it auto-picks
         // the next free index. Without it, tmux fills the target from the best-attached
         // client's current window and new-window then tries that exact index — which fails
         // with "index N in use" whenever a control-mode client is focused on an existing
-        // window (i.e. always, for us).
+        // window (i.e. always, for us). When `windowIndex` is supplied (e.g. by
+        // `gallager apply` honoring sparse `window_index:` entries) we want
+        // exactly that index, so target it directly.
+        let target: String
+        if let windowIndex {
+            target = "\(sessionName):\(windowIndex)"
+        } else {
+            target = "\(sessionName):"
+        }
         var args = [
             "new-window",
-            "-t", "\(sessionName):",
+            "-t", target,
             "-P", "-F", "#{pane_id}:#{window_index}",
         ] + terminalEnvironmentVars.flatMap { ["-e", $0] }
 
         if let workingDirectory {
             args += ["-c", workingDirectory]
+        }
+
+        if let windowName, !windowName.isEmpty {
+            // Set the name at creation so the tab label is correct from the
+            // first frame, before any `rename-window` round trip.
+            args += ["-n", windowName]
         }
 
         let result = try await runTmuxCommand(args)
@@ -1549,8 +1577,9 @@ final public class TmuxService {
         // instead of the running command. tmux's auto-rename is implicitly
         // disabled once we rename the window. Snapshot *after* new-window
         // returns so concurrent calls see each other's creations and avoid
-        // picking the same number.
-        if let windowIndex {
+        // picking the same number. Skip when the caller already supplied a name
+        // — overriding it would defeat the point of `--name`.
+        if windowName == nil, let windowIndex {
             let existingNames = await listWindowNames(in: sessionName)
             let nextName = Self.nextTerminalWindowName(existingNames: existingNames)
             _ = try? await renameWindow(target: "\(sessionName):\(windowIndex)", name: nextName)
@@ -1750,6 +1779,85 @@ final public class TmuxService {
             guard result.isSuccess else {
                 throw TmuxError.commandFailed(message: result.stderrString)
             }
+        }
+    }
+
+    /// Sets a tmux session-scoped environment variable.
+    ///
+    /// Used by `gallager apply` to honor the `environment:` block in a layout
+    /// config. tmux's `set-environment -t <session>` only affects new shells
+    /// spawned inside the session — already-running panes keep their existing
+    /// environment.
+    /// - Parameters:
+    ///   - sessionName: The tmux session whose environment is being modified.
+    ///   - name: The environment variable name.
+    ///   - value: The value to set, or `nil` to unset (`set-environment -u`).
+    public func setSessionEnvironment(
+        sessionName: String,
+        name: String,
+        value: String?
+    ) async throws {
+        let args: [String] = if let value {
+            ["set-environment", "-t", sessionName, name, value]
+        } else {
+            ["set-environment", "-u", "-t", sessionName, name]
+        }
+        let result = try await runTmuxCommand(args)
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+    }
+
+    /// Applies a tmux layout (preset name or dumped layout string) to a window.
+    ///
+    /// Accepts the standard presets (`even-horizontal`, `tiled`, etc.) as well
+    /// as dumped layout hex strings of the form `select-layout <hex>` exports.
+    /// - Parameters:
+    ///   - target: The tmux window target (e.g. `session:0`).
+    ///   - layout: The layout name or dumped hex string.
+    public func selectLayout(target: String, layout: String) async throws {
+        let result = try await runTmuxCommand([
+            "select-layout",
+            "-t", target,
+            layout,
+        ])
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+    }
+
+    /// Sets a tmux option at session, window, or global scope.
+    ///
+    /// Mirrors `tmux set-option [-g|-w] -t <target> <name> <value>`. Used by
+    /// `gallager apply` to pass through the `options:` blocks in a layout
+    /// config. We do not validate option names — tmux is the source of truth
+    /// and surfaces unknown options as a non-zero exit that we propagate.
+    /// - Parameters:
+    ///   - target: The tmux target (session or window) the option applies to.
+    ///   - name: The option name.
+    ///   - value: The option value.
+    ///   - scope: The option scope (`session` or `window`). Global scope is
+    ///     unsupported — Gallager owns the tmux server.
+    public enum TmuxOptionScope: Sendable {
+        case session
+        case window
+    }
+
+    public func setOption(
+        target: String,
+        name: String,
+        value: String,
+        scope: TmuxOptionScope
+    ) async throws {
+        var args = ["set-option"]
+        switch scope {
+        case .session: break
+        case .window: args.append("-w")
+        }
+        args.append(contentsOf: ["-t", target, name, value])
+        let result = try await runTmuxCommand(args)
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
         }
     }
 

@@ -125,6 +125,15 @@ final public class ConnectedViewer: Identifiable {
     /// Each new command awaits the previous one to preserve WebSocket ordering.
     private var pendingFireAndForget: Task<Void, Never>?
 
+    /// Serial chain for outbound encrypted messages. Encrypted sends have multiple
+    /// suspension points (E2EE check, encrypt, WebSocket send), so concurrent
+    /// callers can interleave and reorder messages on the wire. Chaining each
+    /// send on the previous one guarantees viewers receive messages in the same
+    /// order the host enqueued them — critical for hook events vs. session state
+    /// pushes, which would otherwise race and leave `claudeSession` wiped on the
+    /// viewer.
+    private var pendingSend: Task<Void, Never>?
+
     /// Partner's public key received during registration or connection (Base64-encoded)
     private var partnerPublicKey: String
 
@@ -310,13 +319,7 @@ final public class ConnectedViewer: Identifiable {
             return
         }
 
-        var sessionState = await onSessionStateRequest()
-        // Set the pairId for this specific connection
-        sessionState = SessionStateMessage(
-            pairId: id,
-            paneStates: sessionState.paneStates,
-            claudeProjects: sessionState.claudeProjects
-        )
+        let sessionState = await onSessionStateRequest().withPairId(id)
         logger.info("Pushing session state to viewer: \(viewerName)")
         await sendEncrypted(.sessionState(sessionState))
     }
@@ -664,6 +667,16 @@ final public class ConnectedViewer: Identifiable {
     }
 
     private func sendEncrypted(_ message: WebSocketMessage) async {
+        let previous = pendingSend
+        let task = Task { [weak self] in
+            _ = await previous?.value
+            await self?.performEncryptedSend(message)
+        }
+        pendingSend = task
+        await task.value
+    }
+
+    private func performEncryptedSend(_ message: WebSocketMessage) async {
         guard await e2eeService.isSessionEstablished else {
             logger.error("E2EE session not established, refusing to send sensitive message")
             return
@@ -766,6 +779,14 @@ final public class ConnectedViewer: Identifiable {
 
         urlSession?.invalidateAndCancel()
         urlSession = nil
+
+        // Drop the serial chain heads so a reconnect starts a fresh chain
+        // instead of waiting on stale in-flight encrypt tasks from the old
+        // socket. The trailing tasks aren't cancelled (they don't check
+        // `isCancelled`); they just finish as no-ops since `webSocketTask`
+        // is now nil.
+        pendingFireAndForget = nil
+        pendingSend = nil
     }
 
     private func updateState(_ newState: ConnectionState) async {

@@ -190,17 +190,18 @@ gallager list-windows --session work
 
 #### `new-window`
 
-Create a new window in the current session, or a specific session with `--session`. Use `--path` to set the starting directory for the new window; if omitted, it opens in the user's home directory.
+Create a new window in the current session, or a specific session with `--session`. Use `--path` to set the starting directory for the new window; if omitted, it opens in the user's home directory. Use `--name` to set the tmux window name (tab label) — without it, the daemon auto-generates `terminal N`. Use `--title` to override the sidebar description for the new window.
 
 ```bash
 gallager new-window
 gallager new-window --session work
 gallager new-window --session work --path /Users/me/code/work
+gallager new-window --name editor --title "Editor"
 ```
 
 **JSON-RPC**
 - Method: `window.create`
-- Params: `{ "session_id": "work", "path": "/Users/me/code/work" }` _(both optional; `path` defaults to `$HOME`)_
+- Params: `{ "session_id": "work", "path": "/Users/me/code/work", "name": "editor", "title": "Editor" }` _(all optional; `path` defaults to `$HOME`)_
 - Response:
 ```json
 {
@@ -278,18 +279,19 @@ gallager list-panes --window main:0
 
 #### `split-pane [direction]`
 
-Split the current pane. Direction is `left`, `right`, `up`, or `down` (default: `right`). Use `--pane` to target a specific pane. Use `--path` to set the starting directory for the new pane; if omitted, it opens in the user's home directory.
+Split the current pane. Direction is `left`, `right`, `up`, or `down` (default: `right`). Use `--pane` to target a specific pane. Use `--path` to set the starting directory for the new pane; if omitted, it opens in the user's home directory. Use `--shell` to run a custom shell or command as the new pane's process instead of the default shell — useful for spinning up a fish, nushell, or bespoke command pane.
 
 ```bash
 gallager split-pane
 gallager split-pane down
 gallager split-pane right --pane %3
 gallager split-pane down --path /Users/me/code/work
+gallager split-pane right --shell /opt/homebrew/bin/fish
 ```
 
 **JSON-RPC**
 - Method: `pane.split`
-- Params: `{ "direction": "down", "pane_id": "%3", "path": "/Users/me/code/work" }` _(all optional; `path` defaults to `$HOME`)_
+- Params: `{ "direction": "down", "pane_id": "%3", "path": "/Users/me/code/work", "shell": "/bin/fish" }` _(all optional; `path` defaults to `$HOME`)_
 - Response:
 ```json
 {
@@ -375,6 +377,83 @@ gallager notify --title "Alert" --subtitle "CI" --body "Tests failed on main"
 
 ---
 
+### Layouts
+
+#### `apply <file>`
+
+Build a tmux session from a declarative YAML or JSON layout file. Idempotent by default — re-applying selects an existing session instead of duplicating it. The schema is a strict superset of [tmuxp](https://tmuxp.git-pull.com)'s YAML; existing tmuxp configs work without modification.
+
+```bash
+gallager apply workers.yml
+gallager apply ~/projects/foo --rebuild       # close-then-build
+gallager apply layout.yml --detach            # don't switch
+gallager apply layout.yml --dry-run           # parse + plan, no tmux
+gallager apply layout.yml --lenient           # warn on unknown keys
+gallager apply layout.yml --require-create    # exit 3 if session exists
+gallager apply -                              # read from stdin
+envsubst < layout.tmpl.yml | gallager apply -
+```
+
+When the file argument is a directory, gallager looks for `.gallager.yaml`, `.gallager.yml`, `.tmuxp.yaml`, `.tmuxp.yml` (in that order).
+
+**Exit codes**
+- `0` — applied (built or selected)
+- `1` — generic failure (parse error, RPC failure)
+- `2` — validation error (schema invalid, unknown required field)
+- `3` — already exists, in `--require-create` mode
+
+**File format**
+
+```yaml
+session_name: workers           # required
+description: "Worker scripts"   # sidebar override (Gallager extension)
+start_directory: ~/code         # default cwd; relative resolves against the file's dir
+environment:                    # tmux set-environment for the session
+  FOO: bar
+shell_command_before:           # commands prepended to every pane (string or array)
+  - source ~/.env
+before_script: ./bootstrap.sh   # ran once before the session is created (cold start only)
+options: {}                     # tmux session options — passed through
+suppress_history: true          # default for all panes; prefix sent commands with " "
+windows:
+  - window_name: editor         # also accepted: `name`
+    layout: main-vertical
+    focus: true
+    options: {}
+    panes:
+      - vim                     # bare string = shell_command
+      - shell_command: ["tail -f log"]
+        start_directory: ./logs
+      - claude:                 # Gallager extension
+          project: ~/code/foo
+          args: ["--resume"]
+on_create:                      # cold-start hooks (run once)
+  - "echo bootstrap >> /tmp/log"
+on_apply:                       # always-run hooks
+  - "gallager notify --title workers --body 'ready'"
+```
+
+Variable expansion: every string-valued field is run through a `${VAR}` / `$VAR` expander. `${VAR:-default}` provides inline defaults. No command substitution, no ERB.
+
+**JSON-RPC**
+- Method: `layout.apply`
+- Params: `{ "config": <parsed YAML/JSON>, "rebuild": false, "detach": false, "dry_run": false, "lenient": false, "require_create": false, "config_path": "/abs/path/to/file.yaml" }`
+- Response:
+```json
+{
+  "id": "10",
+  "ok": true,
+  "result": {
+    "session_name": "workers",
+    "created": true,
+    "warnings": [],
+    "planned_actions": ["session.create name=workers path=$HOME", "..."]
+  }
+}
+```
+
+---
+
 ### Editor
 
 #### `edit <file>`
@@ -431,16 +510,41 @@ gallager capabilities --json | jq '.result.methods[]'
   "result": {
     "methods": [
       "session.list", "session.create", "session.select", "session.current", "session.close",
+      "session.set_state", "session.set_title",
       "window.list", "window.create", "window.select", "window.close",
-      "pane.list", "pane.split", "pane.select",
+      "pane.list", "pane.split", "pane.select", "pane.capture", "pane.set_layout",
       "input.send_text", "input.send_key",
       "notification.create",
       "editor.open",
-      "system.ping", "system.capabilities", "system.identify"
+      "system.ping", "system.capabilities", "system.identify", "system.set_env",
+      "project.list", "project.start",
+      "layout.apply"
     ]
   }
 }
 ```
+
+---
+
+#### `system.set_env` (RPC-only)
+
+Set or unset session-scoped tmux environment variables. New shells spawned in the session inherit the values; already-running panes keep their existing environment. Used internally by `gallager apply` to honor the `environment:` block in a layout config.
+
+**JSON-RPC**
+- Method: `system.set_env`
+- Params: `{ "session_id": "workers", "vars": { "FOO": "bar", "OLD": null } }` _(value `null` unsets the variable)_
+- Response: `{ "ok": true }`
+
+---
+
+#### `pane.set_layout` (RPC-only)
+
+Apply a tmux layout (preset name or hex layout string) to a window. Used internally by `gallager apply` for `windows[].layout:` but also useful for scripted retiling.
+
+**JSON-RPC**
+- Method: `pane.set_layout`
+- Params: `{ "target": "workers:0", "layout": "main-vertical" }`
+- Response: `{ "ok": true }`
 
 ---
 
@@ -480,6 +584,8 @@ gallager identify
 | `--session <id>` | Target a specific session. Used by `list-windows`, `new-window` |
 | `--window <id>` | Target a specific window. Used by `list-panes` |
 | `--path <dir>` | Starting directory for `new-session`, `new-window`, and `split-pane`. Defaults to `$HOME` when omitted. |
+| `--name <name>` | tmux window name (tab label) for `new-window`. Without it, the daemon auto-generates `terminal N`. |
+| `--shell <cmd>` | Run this command/shell as the new pane's process for `split-pane`. |
 
 ---
 
@@ -536,4 +642,6 @@ Methods follow a `domain.action` convention:
 | `not_found` | The requested resource (session, window, pane) does not exist |
 | `invalid_params` | A required parameter is missing or has an invalid value |
 | `method_not_found` | The requested method string is not recognized |
+| `validation_error` | `layout.apply` config failed schema validation (CLI maps to exit 2) |
+| `session_exists` | `layout.apply` was called with `require_create` and the session already exists (CLI maps to exit 3) |
 | `internal_error` | An unexpected error occurred inside the app |
