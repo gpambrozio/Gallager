@@ -801,4 +801,90 @@
             .presentationDetents([.medium, .large])
         }
     }
+
+    // MARK: - Preview
+
+    #Preview("Session List") {
+        SessionListPreview()
+    }
+
+    @MainActor
+    private struct SessionListPreview: View {
+        @State private var navigationPath = NavigationPath()
+        @State private var sessionStore = SessionStore()
+        @State private var settings = IOSSettings()
+        @State private var connectionManager: ViewerConnectionManager?
+
+        private let host = PairedHost(
+            id: "preview-host",
+            hostName: "Preview Mac",
+            username: "preview",
+            partnerPublicKey: "",
+            partnerPublicKeyId: ""
+        )
+
+        var body: some View {
+            Group {
+                if let connectionManager {
+                    NavigationStack(path: $navigationPath) {
+                        SessionListView(navigationPath: $navigationPath)
+                            .environment(sessionStore)
+                            .environment(connectionManager)
+                            .environment(settings)
+                    }
+                } else {
+                    ProgressView()
+                }
+            }
+            .task {
+                settings.addPairing(host)
+
+                let panes: [String: PaneState] = [
+                    "%1": PaneState(
+                        paneId: "%1",
+                        target: "alpha:0.0",
+                        sessionName: "alpha",
+                        currentPath: "/Users/preview/AlphaProject",
+                        isActive: true,
+                        isWindowActive: true,
+                        customColor: .blue,
+                        claudeSession: ClaudeSession(
+                            paneId: "%1",
+                            detectedProjectPath: "/Users/preview/AlphaProject"
+                        )
+                    ),
+                    "%2": PaneState(
+                        paneId: "%2",
+                        target: "bravo:0.0",
+                        sessionName: "bravo",
+                        currentPath: "/Users/preview/BravoProject",
+                        isActive: true,
+                        isWindowActive: true,
+                        customColor: .red,
+                        claudeSession: ClaudeSession(
+                            paneId: "%2",
+                            detectedProjectPath: "/Users/preview/BravoProject"
+                        ),
+                        progress: .normal(50)
+                    ),
+                    "%3": PaneState(
+                        paneId: "%3",
+                        target: "scratch:0.0",
+                        sessionName: "scratch",
+                        command: "zsh",
+                        currentPath: "/Users/preview",
+                        isActive: true,
+                        isWindowActive: true
+                    ),
+                ]
+                sessionStore.handleStateUpdate(SessionStateMessage(
+                    pairId: host.id,
+                    paneStates: panes,
+                    homeDirectory: "/Users/preview"
+                ))
+
+                connectionManager = try? await ViewerConnectionManager()
+            }
+        }
+    }
 #endif
