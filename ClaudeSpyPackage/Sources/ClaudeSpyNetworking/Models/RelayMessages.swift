@@ -62,6 +62,19 @@ public struct SessionStateMessage: Codable, Sendable {
         self.claudeProjects = claudeProjects
         self.homeDirectory = homeDirectory
     }
+
+    /// Returns a copy with the `pairId` replaced. Centralises the per-connection
+    /// rebuild so adding a new field can only forget to forward it in one place
+    /// (here) — call sites can't silently drop fields by reconstructing the
+    /// initialiser from memory.
+    public func withPairId(_ pairId: String) -> SessionStateMessage {
+        SessionStateMessage(
+            pairId: pairId,
+            paneStates: paneStates,
+            claudeProjects: claudeProjects,
+            homeDirectory: homeDirectory
+        )
+    }
 }
 
 // MARK: - Pane State
