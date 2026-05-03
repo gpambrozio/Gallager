@@ -36,14 +36,22 @@ public struct TmuxWindow: Identifiable, Sendable {
         panes.contains { $0.claudeSession != nil }
     }
 
-    /// The custom description for this window (from any pane, since descriptions are per-window)
+    /// The custom description for this window.
+    ///
+    /// Although persisted at session scope (via `@gallager-description`),
+    /// tmux's option-resolution chain makes every pane in the session report
+    /// the same value, so any pane is a valid source. We scan rather than
+    /// pick a fixed pane to tolerate partial refreshes.
     public var customDescription: String? {
-        panes.first(where: { $0.customDescription != nil })?.customDescription
+        panes.lazy.compactMap(\.customDescription).first
     }
 
-    /// The custom color for this window (from any pane, since colors are per-window)
+    /// The custom color for this window.
+    ///
+    /// See `customDescription` — same session-scoped option, same any-pane
+    /// fallback.
     public var customColor: SessionColor? {
-        panes.first(where: { $0.customColor != nil })?.customColor
+        panes.lazy.compactMap(\.customColor).first
     }
 
     /// Groups pane states by window and returns sorted windows
