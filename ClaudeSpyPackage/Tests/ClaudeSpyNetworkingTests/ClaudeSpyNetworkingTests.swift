@@ -306,6 +306,13 @@ struct TmuxKeyCsiParsingTests {
         #expect(TmuxKey.from(bytes: data) == [.backtab])
     }
 
+    @Test("Parses CSI u for Shift+Enter as shiftEnter")
+    func parsesCsiUShiftEnter() {
+        // ESC [ 13 ; 2 u — Shift+Enter (codepoint 13, modifier 2 = 1 + shift)
+        let data = Data([0x1B, 0x5B, 0x31, 0x33, 0x3B, 0x32, 0x75])
+        #expect(TmuxKey.from(bytes: data) == [.shiftEnter])
+    }
+
     @Test("Unknown CSI sequence produces no garbage output")
     func unknownCsiProducesNoGarbage() {
         // ESC [ 200 ~ — bracketed paste start (unknown extended key)

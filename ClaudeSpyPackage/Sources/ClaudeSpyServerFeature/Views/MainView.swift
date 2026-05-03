@@ -1764,6 +1764,20 @@ private struct SessionSidebarRow: View {
 
     let session: LocalTmuxSession
 
+    /// Progress state for this session, picked from the first pane that has one.
+    /// Recomputed on each render — observation tracks `windowManager.paneStates`
+    /// and re-renders this row only when the lookup result actually changes.
+    private var sessionProgress: TerminalProgressState? {
+        for window in session.windows {
+            for pane in window.panes {
+                if let progress = windowManager.paneStates[pane.paneId]?.progress {
+                    return progress
+                }
+            }
+        }
+        return nil
+    }
+
     /// The active window (or first)
     private var activeWindow: LocalTmuxWindow? {
         session.activeWindow
@@ -1828,61 +1842,67 @@ private struct SessionSidebarRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            if let cliSessionState {
-                SessionStatusIndicator(cliState: cliSessionState)
-                    .font(.system(size: 16))
-                    .frame(width: 20)
-            } else if let claudeSession {
-                SessionStatusIndicator(session: claudeSession)
-                    .font(.system(size: 16))
-                    .frame(width: 20)
-            } else {
-                Symbols.terminal.image
-                    .font(.system(size: 16))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20)
-            }
-
-            SessionFieldsView(
-                fields: claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields,
-                customDescription: primaryPaneState?.customDescription,
-                projectName: claudeSession?.displayName,
-                sessionName: session.sessionName,
-                terminalTitle: terminalTitle,
-                command: primaryPane?.command,
-                currentPath: primaryPane?.currentPath,
-                gitBranch: primaryPaneState?.gitBranch,
-                latestEvent: sessionSubtitle
-            )
-
-            Spacer()
-        }
-        // Expose session name to macOS accessibility tree so e2e tests can find sessions
-        // regardless of which sidebar fields are configured (session name may not appear as
-        // visible Text). Also expose status since ProgressView (working state) prevents AX
-        // from reading .accessibilityValue directly on the indicator.
-        .accessibilityValue(session.sessionName)
-        .overlay {
-            ZStack {
-                if let status = cliSessionState?.statusLabel ?? claudeSession?.statusLabel {
-                    Text(status)
-                        .accessibilityLabel(status)
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 8) {
+                if let cliSessionState {
+                    SessionStatusIndicator(cliState: cliSessionState)
+                        .font(.system(size: 16))
+                        .frame(width: 20)
+                } else if let claudeSession {
+                    SessionStatusIndicator(session: claudeSession)
+                        .font(.system(size: 16))
+                        .frame(width: 20)
+                } else {
+                    Symbols.terminal.image
+                        .font(.system(size: 16))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20)
                 }
-                // The project name is rendered by SessionFieldsView, but when the row's
-                // Button combines its children's AX into a single label, that leaf can
-                // drop out intermittently — exposing it as its own hidden label gives
-                // e2e tests a stable element to find.
-                if let projectName = claudeSession?.displayName {
-                    Text(projectName)
-                        .accessibilityLabel(projectName)
-                }
+
+                SessionFieldsView(
+                    fields: claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields,
+                    customDescription: primaryPaneState?.customDescription,
+                    projectName: claudeSession?.displayName,
+                    sessionName: session.sessionName,
+                    terminalTitle: terminalTitle,
+                    command: primaryPane?.command,
+                    currentPath: primaryPane?.currentPath,
+                    gitBranch: primaryPaneState?.gitBranch,
+                    latestEvent: sessionSubtitle
+                )
+
+                Spacer()
             }
-            .font(.system(size: 1))
-            .opacity(0)
+            // Expose session name to macOS accessibility tree so e2e tests can find sessions
+            // regardless of which sidebar fields are configured (session name may not appear as
+            // visible Text). Also expose status since ProgressView (working state) prevents AX
+            // from reading .accessibilityValue directly on the indicator.
+            .accessibilityValue(session.sessionName)
+            .overlay {
+                ZStack {
+                    if let status = cliSessionState?.statusLabel ?? claudeSession?.statusLabel {
+                        Text(status)
+                            .accessibilityLabel(status)
+                    }
+                    // The project name is rendered by SessionFieldsView, but when the row's
+                    // Button combines its children's AX into a single label, that leaf can
+                    // drop out intermittently — exposing it as its own hidden label gives
+                    // e2e tests a stable element to find.
+                    if let projectName = claudeSession?.displayName {
+                        Text(projectName)
+                            .accessibilityLabel(projectName)
+                    }
+                }
+                .font(.system(size: 1))
+                .opacity(0)
+            }
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+
+            if let sessionProgress {
+                TerminalProgressBar(state: sessionProgress)
+            }
         }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
     }
 }
 
@@ -2718,7 +2738,31 @@ private struct RemoteSessionSidebarRow: View {
             .first
     }
 
+    /// Latest `OSC 9;4` progress from the host, picked from the first pane
+    /// in this session that has one. The host injects per-pane progress into
+    /// the propagated `PaneState`, so this view reads it the same way as the
+    /// local sidebar reads from `MirrorWindowManager.paneStates`.
+    private var sessionProgress: TerminalProgressState? {
+        for window in session.windows {
+            for pane in window.panes {
+                if let progress = pane.progress {
+                    return progress
+                }
+            }
+        }
+        return nil
+    }
+
     var body: some View {
+        VStack(spacing: 0) {
+            rowContent
+            if let sessionProgress {
+                TerminalProgressBar(state: sessionProgress)
+            }
+        }
+    }
+
+    private var rowContent: some View {
         HStack(alignment: .top, spacing: 8) {
             if let cliSessionState {
                 SessionStatusIndicator(cliState: cliSessionState)

@@ -268,6 +268,35 @@
             }
         }
 
+        /// Intercepts Shift+Return before SwiftTerm collapses the modifier.
+        /// SwiftTerm's legacy presses path emits plain `\r` for both Enter and
+        /// Shift+Enter unless the inner app has pushed kitty mode — which it
+        /// can't here, since it talks to tmux's PTY rather than directly to
+        /// SwiftTerm. A `UIKeyCommand` matches before `pressesBegan` runs, so
+        /// SwiftTerm never sees the event. Routing as `.shiftEnter` lets the
+        /// macOS host translate it to `tmux send-keys S-Enter`, delivering the
+        /// proper extended-key sequence to the pane.
+        ///
+        /// `pressesBegan` is `public` (not `open`) on SwiftTerm's TerminalView
+        /// so direct override from another module is blocked; `keyCommands` is
+        /// `open` on UIResponder and is the supported extension point.
+        override var keyCommands: [UIKeyCommand]? {
+            var commands = super.keyCommands ?? []
+            let shiftReturn = UIKeyCommand(
+                input: "\r",
+                modifierFlags: .shift,
+                action: #selector(handleShiftReturn(_:))
+            )
+            shiftReturn.wantsPriorityOverSystemBehavior = true
+            commands.append(shiftReturn)
+            return commands
+        }
+
+        @objc
+        private func handleShiftReturn(_: UIKeyCommand) {
+            onInput?([.shiftEnter])
+        }
+
         /// Gates the mouse-mode pan on `isMouseModeActive` so normal scrolling
         /// still works when the host doesn't have tmux mouse mode enabled.
         ///

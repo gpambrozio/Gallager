@@ -123,6 +123,43 @@
 
         // MARK: - Non-notification OSC sequences
 
+        // MARK: - OSC 9;4 progress
+
+        @Test("Parses OSC 9;4 progress states")
+        func parsesOsc94ProgressStates() {
+            var parser = TerminalNotificationParser()
+
+            #expect(parser.parse(Data("\u{1b}]9;4;0\u{07}".utf8)).progressUpdate == .removed)
+            #expect(parser.parse(Data("\u{1b}]9;4;1;42\u{07}".utf8)).progressUpdate == .normal(42))
+            #expect(parser.parse(Data("\u{1b}]9;4;2;0\u{07}".utf8)).progressUpdate == .error)
+            #expect(parser.parse(Data("\u{1b}]9;4;3;0\u{07}".utf8)).progressUpdate == .indeterminate)
+            #expect(parser.parse(Data("\u{1b}]9;4;4;0\u{07}".utf8)).progressUpdate == .warning)
+
+            // Out-of-range progress is clamped.
+            #expect(parser.parse(Data("\u{1b}]9;4;1;150\u{07}".utf8)).progressUpdate == .normal(100))
+        }
+
+        @Test("Strips OSC 9;4 progress from output and emits no notification")
+        func osc94StripsAndEmitsNoNotification() {
+            var parser = TerminalNotificationParser()
+            let data = Data("before\u{1b}]9;4;1;75\u{07}after".utf8)
+            let result = parser.parse(data)
+
+            #expect(result.progressUpdate == .normal(75))
+            #expect(result.notifications.isEmpty)
+            #expect(String(data: result.filteredData, encoding: .utf8) == "beforeafter")
+        }
+
+        @Test("OSC 9;4 followed by a real OSC 9 notification — both extracted")
+        func osc94ThenNotification() {
+            var parser = TerminalNotificationParser()
+            let data = Data("\u{1b}]9;4;3;0\u{07}\u{1b}]9;Build done!\u{07}".utf8)
+            let result = parser.parse(data)
+
+            #expect(result.progressUpdate == .indeterminate)
+            #expect(result.notifications.map(\.body) == ["Build done!"])
+        }
+
         @Test("Passes through non-notification OSC sequences unchanged")
         func nonNotificationOSCPassthrough() {
             var parser = TerminalNotificationParser()

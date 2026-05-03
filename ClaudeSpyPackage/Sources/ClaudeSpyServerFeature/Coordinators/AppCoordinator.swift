@@ -923,6 +923,11 @@
                 wm.updateTerminalTitle(paneId: paneId, title: title)
             }
 
+            // Wire OSC 9;4 progress updates to the sidebar progress bar.
+            paneStreamManager.onProgress = { [weak self] paneId, state in
+                self?.applyProgressUpdate(paneId: paneId, state: state)
+            }
+
             // Start notification-only readers for all discovered panes
             let initialPanes = await tmuxService.refreshPanes()
             windowManager.updatePaneStates(from: initialPanes)
@@ -1131,7 +1136,7 @@
                 await windowManager.updatePaneStates(from: allPanes)
                 var paneStates = await windowManager.paneStates
 
-                // Inject active editor sessions into pane states
+                // Inject active editor sessions into pane states.
                 for (paneId, var state) in paneStates {
                     state.editorSession = await editorManager.editorSessionInfo(for: paneId)
                     paneStates[paneId] = state
@@ -1519,6 +1524,18 @@
 
             logger.info("Connecting to newly paired viewer: \(viewer.displayName)")
             await connectionManager.connect(to: viewer)
+        }
+
+        /// Applies an `OSC 9;4` progress update from `PaneStreamManager`.
+        /// Stores the value on `MirrorWindowManager.paneStates` so the host
+        /// sidebar and viewers (iOS, Mac-as-viewer) read from one source of
+        /// truth. When the value actually changes, viewers are notified by
+        /// pushing the session state. Repeats are dropped to avoid flooding
+        /// the relay during high-frequency progress streams.
+        private func applyProgressUpdate(paneId: String, state: TerminalProgressState) {
+            let changed = windowManager.setPaneProgress(state, for: paneId)
+            guard changed, let connectionManager = connectedViewerManager else { return }
+            Task { await connectionManager.pushSessionStateToAll() }
         }
     }
 #endif

@@ -31,6 +31,10 @@ public enum TmuxKey: Codable, Sendable, Equatable {
 
     /// Special keys that tmux interprets
     case enter
+    /// Shift+Enter — distinct from `.enter`. With `set -s extended-keys on`,
+    /// tmux delivers this as the kitty CSI u sequence (`\e[13;2u`) so apps
+    /// like Claude Code can map it to "insert newline" rather than "submit".
+    case shiftEnter
     case escape
     case tab
     case backtab
@@ -67,6 +71,7 @@ public enum TmuxKey: Codable, Sendable, Equatable {
         switch self {
         case let .text(string): string
         case .enter: "Enter"
+        case .shiftEnter: "S-Enter"
         case .escape: "Escape"
         case .tab: "Tab"
         case .backtab: "BTab"
@@ -93,6 +98,7 @@ public enum TmuxKey: Codable, Sendable, Equatable {
         switch self {
         case let .text(string): string
         case .enter: "⏎"
+        case .shiftEnter: "⇧⏎"
         case .space: "␣"
         default: "[\(tmuxKeyName)]"
         }
@@ -343,7 +349,7 @@ private extension TmuxKey {
         // passed as the base key since TmuxKey has no representation for them.
         switch codepoint {
         case 9: return CsiParseResult(keys: [hasShift ? .backtab : .tab], nextIndex: nextIndex)
-        case 13: return CsiParseResult(keys: [.enter], nextIndex: nextIndex)
+        case 13: return CsiParseResult(keys: [hasShift ? .shiftEnter : .enter], nextIndex: nextIndex)
         case 27: return CsiParseResult(keys: [.escape], nextIndex: nextIndex)
         case 32: return CsiParseResult(keys: [.space], nextIndex: nextIndex)
         case 127: return CsiParseResult(keys: [.backspace], nextIndex: nextIndex)
