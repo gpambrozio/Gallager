@@ -17,21 +17,25 @@ public extension SessionColor {
     }
 }
 
-/// A small filled circle rendering a session's color in the sidebar.
-public struct SessionColorDot: View {
-    public let color: SessionColor
-    public var size: CGFloat = 10
+/// A vertical bar rendering a session's color flush with the cell's leading
+/// edge. Sized as a full-height strip when placed inside an `HStack` next to
+/// the row content; renders a clear placeholder of the same width when no
+/// color is set so colored and uncolored rows align identically.
+public struct SessionColorBar: View {
+    public let color: SessionColor?
+    public var width: CGFloat = 4
 
-    public init(color: SessionColor, size: CGFloat = 10) {
+    public init(color: SessionColor?, width: CGFloat = 4) {
         self.color = color
-        self.size = size
+        self.width = width
     }
 
     public var body: some View {
-        Circle()
-            .fill(color.swiftUIColor)
-            .frame(width: size, height: size)
-            .accessibilityLabel("\(color.displayName) color")
+        Rectangle()
+            .fill(color?.swiftUIColor ?? Color.clear)
+            .frame(width: width)
+            .accessibilityIdentifier(color.map { "session-color-\($0.rawValue)" } ?? "")
+            .accessibilityLabel(color.map { "\($0.displayName) color" } ?? "")
     }
 }
 

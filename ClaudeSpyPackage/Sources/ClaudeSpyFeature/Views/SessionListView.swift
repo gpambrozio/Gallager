@@ -288,24 +288,27 @@
             let sessionProgress = session.windows.flatMap(\.panes).compactMap(\.progress).first
 
             NavigationLink(value: SessionNavigation(sessionName: session.sessionName, hostId: host.id)) {
-                VStack(spacing: 0) {
-                    if let claudePane = claudePaneInSession, let claudeSession = claudePane.claudeSession {
-                        SessionRowView(
-                            paneId: claudePane.paneId,
-                            session: claudeSession,
-                            cliSessionState: cliSessionState,
-                            isActive: sessionStore.isPaneActive(paneId: claudePane.paneId, hostId: host.id),
-                            customDescription: session.customDescription,
-                            customColor: session.customColor,
-                            windowCount: session.windows.count
-                        )
-                    } else if let pane = activePaneInSession {
-                        TerminalRowView(pane: pane, windowCount: session.windows.count)
-                    }
+                HStack(spacing: 0) {
+                    SessionColorBar(color: session.customColor)
+                    VStack(spacing: 0) {
+                        if let claudePane = claudePaneInSession, let claudeSession = claudePane.claudeSession {
+                            SessionRowView(
+                                paneId: claudePane.paneId,
+                                session: claudeSession,
+                                cliSessionState: cliSessionState,
+                                isActive: sessionStore.isPaneActive(paneId: claudePane.paneId, hostId: host.id),
+                                customDescription: session.customDescription,
+                                windowCount: session.windows.count
+                            )
+                        } else if let pane = activePaneInSession {
+                            TerminalRowView(pane: pane, windowCount: session.windows.count)
+                        }
 
-                    if let sessionProgress {
-                        TerminalProgressBar(state: sessionProgress)
+                        if let sessionProgress {
+                            TerminalProgressBar(state: sessionProgress)
+                        }
                     }
+                    .padding(.leading, 16)
                 }
             }
             .accessibilityValue(cliSessionState?.statusLabel ?? claudePaneInSession?.claudeSession?.statusLabel ?? "")
@@ -323,13 +326,18 @@
                     }
                 }
             ))
-            // Push the progress bar flush with the cell's bottom edge by zeroing
-            // out the row's bottom inset only when there's a bar to render —
-            // otherwise the InsetGrouped cell keeps its standard bottom padding.
+            // Drop the row's leading inset so the color bar can sit flush with
+            // the cell's leading edge (the bar reserves its own width and the
+            // VStack restores the standard 16pt content gap). Bottom inset
+            // collapses to 0 when a progress bar is showing so the bar lands
+            // flush with the cell's bottom edge.
             .listRowInsets(
-                sessionProgress == nil
-                    ? nil
-                    : EdgeInsets(top: 11, leading: 20, bottom: 0, trailing: 20)
+                EdgeInsets(
+                    top: 11,
+                    leading: 0,
+                    bottom: sessionProgress == nil ? 11 : 0,
+                    trailing: 20
+                )
             )
         }
     }
@@ -485,7 +493,6 @@
         var cliSessionState: CLISessionState?
         let isActive: Bool
         var customDescription: String?
-        var customColor: SessionColor?
         var windowCount = 1
 
         var body: some View {
@@ -557,11 +564,6 @@
                 }
 
                 Spacer()
-
-                if let customColor {
-                    SessionColorDot(color: customColor)
-                        .accessibilityIdentifier("session-color-\(customColor.rawValue)")
-                }
             }
             .padding(.vertical, 4)
         }
@@ -658,11 +660,6 @@
                 }
 
                 Spacer()
-
-                if let customColor = pane.customColor {
-                    SessionColorDot(color: customColor)
-                        .accessibilityIdentifier("session-color-\(customColor.rawValue)")
-                }
             }
             .padding(.vertical, 4)
         }

@@ -335,10 +335,10 @@ public enum GallagerCLIScenario {
         )
 
         // 16. set-color — assigns a color to a session, persisted as the
-        // tmux `@gallager-color` user option and rendered as a SessionColorDot
-        // in the sidebar. Each platform exposes the dot with
-        // `accessibilityLabel("<Name> color")`, so the e2e test can find it
-        // by title.
+        // tmux `@gallager-color` user option and rendered as a SessionColorBar
+        // running along the leading edge of the sidebar row. Each platform
+        // exposes the bar with `accessibilityLabel("<Name> color")`, so the
+        // e2e test can find it by title.
         Shortcut.tmuxRunCommand(
             target: "cli-test:0",
             command: #"gallager set-color blue --session e2e-api > /tmp/e2e-cli-color-blue.txt 2>&1"#

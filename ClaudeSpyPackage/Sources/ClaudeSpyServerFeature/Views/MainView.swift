@@ -1855,71 +1855,70 @@ private struct SessionSidebarRow: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 8) {
-                if let cliSessionState {
-                    SessionStatusIndicator(cliState: cliSessionState)
-                        .font(.system(size: 16))
-                        .frame(width: 20)
-                } else if let claudeSession {
-                    SessionStatusIndicator(session: claudeSession)
-                        .font(.system(size: 16))
-                        .frame(width: 20)
-                } else {
-                    Symbols.terminal.image
-                        .font(.system(size: 16))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 20)
-                }
-
-                SessionFieldsView(
-                    fields: claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields,
-                    customDescription: primaryPaneState?.customDescription,
-                    projectName: claudeSession?.displayName,
-                    sessionName: session.sessionName,
-                    terminalTitle: terminalTitle,
-                    command: primaryPane?.command,
-                    currentPath: primaryPane?.currentPath,
-                    gitBranch: primaryPaneState?.gitBranch,
-                    latestEvent: sessionSubtitle
-                )
-
-                Spacer()
-
-                if let color = primaryPaneState?.customColor {
-                    SessionColorDot(color: color)
-                        .accessibilityIdentifier("session-color-\(color.rawValue)")
-                }
-            }
-            // Expose session name to macOS accessibility tree so e2e tests can find sessions
-            // regardless of which sidebar fields are configured (session name may not appear as
-            // visible Text). Also expose status since ProgressView (working state) prevents AX
-            // from reading .accessibilityValue directly on the indicator.
-            .accessibilityValue(session.sessionName)
-            .overlay {
-                ZStack {
-                    if let status = cliSessionState?.statusLabel ?? claudeSession?.statusLabel {
-                        Text(status)
-                            .accessibilityLabel(status)
+        HStack(spacing: 0) {
+            SessionColorBar(color: primaryPaneState?.customColor)
+            VStack(spacing: 0) {
+                HStack(alignment: .top, spacing: 8) {
+                    if let cliSessionState {
+                        SessionStatusIndicator(cliState: cliSessionState)
+                            .font(.system(size: 16))
+                            .frame(width: 20)
+                    } else if let claudeSession {
+                        SessionStatusIndicator(session: claudeSession)
+                            .font(.system(size: 16))
+                            .frame(width: 20)
+                    } else {
+                        Symbols.terminal.image
+                            .font(.system(size: 16))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 20)
                     }
-                    // The project name is rendered by SessionFieldsView, but when the row's
-                    // Button combines its children's AX into a single label, that leaf can
-                    // drop out intermittently — exposing it as its own hidden label gives
-                    // e2e tests a stable element to find.
-                    if let projectName = claudeSession?.displayName {
-                        Text(projectName)
-                            .accessibilityLabel(projectName)
-                    }
-                }
-                .font(.system(size: 1))
-                .opacity(0)
-            }
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
 
-            if let sessionProgress {
-                TerminalProgressBar(state: sessionProgress)
+                    SessionFieldsView(
+                        fields: claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields,
+                        customDescription: primaryPaneState?.customDescription,
+                        projectName: claudeSession?.displayName,
+                        sessionName: session.sessionName,
+                        terminalTitle: terminalTitle,
+                        command: primaryPane?.command,
+                        currentPath: primaryPane?.currentPath,
+                        gitBranch: primaryPaneState?.gitBranch,
+                        latestEvent: sessionSubtitle
+                    )
+
+                    Spacer()
+                }
+                // Expose session name to macOS accessibility tree so e2e tests can find sessions
+                // regardless of which sidebar fields are configured (session name may not appear as
+                // visible Text). Also expose status since ProgressView (working state) prevents AX
+                // from reading .accessibilityValue directly on the indicator.
+                .accessibilityValue(session.sessionName)
+                .overlay {
+                    ZStack {
+                        if let status = cliSessionState?.statusLabel ?? claudeSession?.statusLabel {
+                            Text(status)
+                                .accessibilityLabel(status)
+                        }
+                        // The project name is rendered by SessionFieldsView, but when the row's
+                        // Button combines its children's AX into a single label, that leaf can
+                        // drop out intermittently — exposing it as its own hidden label gives
+                        // e2e tests a stable element to find.
+                        if let projectName = claudeSession?.displayName {
+                            Text(projectName)
+                                .accessibilityLabel(projectName)
+                        }
+                    }
+                    .font(.system(size: 1))
+                    .opacity(0)
+                }
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+
+                if let sessionProgress {
+                    TerminalProgressBar(state: sessionProgress)
+                }
             }
+            .padding(.leading, 4)
         }
     }
 }
@@ -2779,11 +2778,15 @@ private struct RemoteSessionSidebarRow: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            rowContent
-            if let sessionProgress {
-                TerminalProgressBar(state: sessionProgress)
+        HStack(spacing: 0) {
+            SessionColorBar(color: session.customColor)
+            VStack(spacing: 0) {
+                rowContent
+                if let sessionProgress {
+                    TerminalProgressBar(state: sessionProgress)
+                }
             }
+            .padding(.leading, 4)
         }
     }
 
@@ -2818,11 +2821,6 @@ private struct RemoteSessionSidebarRow: View {
             )
 
             Spacer()
-
-            if let color = session.customColor {
-                SessionColorDot(color: color)
-                    .accessibilityIdentifier("session-color-\(color.rawValue)")
-            }
         }
         // Expose session name to macOS accessibility tree so e2e tests can find sessions
         // regardless of which sidebar fields are configured.
