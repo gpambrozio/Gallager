@@ -288,27 +288,32 @@
             let sessionProgress = session.windows.flatMap(\.panes).compactMap(\.progress).first
 
             NavigationLink(value: SessionNavigation(sessionName: session.sessionName, hostId: host.id)) {
-                HStack(spacing: 0) {
-                    SessionColorBar(color: session.customColor)
-                    VStack(spacing: 0) {
-                        if let claudePane = claudePaneInSession, let claudeSession = claudePane.claudeSession {
-                            SessionRowView(
-                                paneId: claudePane.paneId,
-                                session: claudeSession,
-                                cliSessionState: cliSessionState,
-                                isActive: sessionStore.isPaneActive(paneId: claudePane.paneId, hostId: host.id),
-                                customDescription: session.customDescription,
-                                windowCount: session.windows.count
-                            )
-                        } else if let pane = activePaneInSession {
-                            TerminalRowView(pane: pane, windowCount: session.windows.count)
-                        }
-
-                        if let sessionProgress {
-                            TerminalProgressBar(state: sessionProgress)
-                        }
+                VStack(spacing: 0) {
+                    if let claudePane = claudePaneInSession, let claudeSession = claudePane.claudeSession {
+                        SessionRowView(
+                            paneId: claudePane.paneId,
+                            session: claudeSession,
+                            cliSessionState: cliSessionState,
+                            isActive: sessionStore.isPaneActive(paneId: claudePane.paneId, hostId: host.id),
+                            customDescription: session.customDescription,
+                            windowCount: session.windows.count
+                        )
+                    } else if let pane = activePaneInSession {
+                        TerminalRowView(pane: pane, windowCount: session.windows.count)
                     }
-                    .padding(.leading, 16)
+                }
+            }
+            .padding(.leading, 16)
+            .padding(.bottom, 16)
+            .overlay(alignment: .leading) {
+                SessionColorBar(color: session.customColor)
+                    .padding(.top, -8)
+                    .padding(.bottom, 8)
+            }
+            .overlay(alignment: .bottom) {
+                if let sessionProgress {
+                    TerminalProgressBar(state: sessionProgress)
+                        .padding(.leading, 16)
                 }
             }
             .accessibilityValue(cliSessionState?.statusLabel ?? claudePaneInSession?.claudeSession?.statusLabel ?? "")
@@ -326,18 +331,8 @@
                     }
                 }
             ))
-            // Drop the row's leading inset so the color bar can sit flush with
-            // the cell's leading edge (the bar reserves its own width and the
-            // VStack restores the standard 16pt content gap). Bottom inset
-            // collapses to 0 when a progress bar is showing so the bar lands
-            // flush with the cell's bottom edge.
             .listRowInsets(
-                EdgeInsets(
-                    top: 11,
-                    leading: 0,
-                    bottom: sessionProgress == nil ? 11 : 0,
-                    trailing: 20
-                )
+                EdgeInsets(top: 15, leading: 0, bottom: 0, trailing: 16)
             )
         }
     }

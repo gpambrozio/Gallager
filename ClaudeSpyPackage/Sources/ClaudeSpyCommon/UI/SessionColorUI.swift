@@ -31,7 +31,7 @@ public struct SessionColorBar: View {
     }
 
     public var body: some View {
-        Rectangle()
+        Capsule()
             .fill(color?.swiftUIColor ?? Color.clear)
             .frame(width: width)
             .accessibilityIdentifier(color.map { "session-color-\($0.rawValue)" } ?? "")
