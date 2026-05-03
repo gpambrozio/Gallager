@@ -74,6 +74,8 @@ public extension TestStep {
             return .macOS(instance: instance)
         case let .macContextMenuClick(_, _, instance):
             return .macOS(instance: instance)
+        case let .macContextSubmenuClick(_, _, _, instance):
+            return .macOS(instance: instance)
         case let .macUnpair(instance):
             return .macOS(instance: instance)
         case let .macSetAppVersion(_, _, instance):
