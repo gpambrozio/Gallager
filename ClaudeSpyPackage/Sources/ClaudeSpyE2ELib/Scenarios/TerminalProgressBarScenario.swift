@@ -93,24 +93,28 @@ public enum TerminalProgressBarScenario {
             command: "printf '\\e]9;4;1;50\\a'"
         )
 
-        // Each wait pairs the constant accessibility label with a state-specific
-        // value substring (`TerminalProgressBar.accessibilityValue`), so the
-        // waiter actually proves the bar reached the expected state on that
-        // platform — not just that *some* progress bar is rendering. Catches
-        // wrong-state-propagated bugs before the screenshot stage.
+        // Each phase asserts the bar's actual state on every platform before
+        // screenshotting, so a wrong-state-propagated bug fails at the wait
+        // (with a named state in the failure message) instead of slipping
+        // through to a screenshot diff. The bar's `.accessibilityLabel`
+        // ("Terminal progress") is concatenated into the parent row's
+        // combined AX label, and its `.accessibilityValue` ("50%", "warning",
+        // "error", "in progress") is concatenated into the row's combined
+        // AX value, so `labelContains` + `valueContains` matches both the
+        // collapsed-Button row on macOS and the bar's own element on iOS.
         TestStep.macWaitForElementQuery(
-            .allOf([.label("Terminal progress"), .valueContains("50%")]),
+            .allOf([.labelContains("Terminal progress"), .valueContains("50%")]),
             timeout: 5
         )
         TestStep.macScreenshot(label: "host-progress-50")
         TestStep.macWaitForElementQuery(
-            .allOf([.label("Terminal progress"), .valueContains("50%")]),
+            .allOf([.labelContains("Terminal progress"), .valueContains("50%")]),
             timeout: 5,
             instance: 1
         )
         TestStep.macScreenshot(label: "viewer-progress-50", instance: 1)
         TestStep.iosWaitForElement(
-            .allOf([.label("Terminal progress"), .valueContains("50%")]),
+            .allOf([.labelContains("Terminal progress"), .valueContains("50%")]),
             timeout: 5
         )
         TestStep.iosScreenshot(label: "ios-progress-50")
@@ -127,18 +131,18 @@ public enum TerminalProgressBarScenario {
         )
 
         TestStep.macWaitForElementQuery(
-            .allOf([.label("Terminal progress"), .valueContains("warning")]),
+            .allOf([.labelContains("Terminal progress"), .valueContains("warning")]),
             timeout: 5
         )
         TestStep.macScreenshot(label: "host-progress-warning")
         TestStep.macWaitForElementQuery(
-            .allOf([.label("Terminal progress"), .valueContains("warning")]),
+            .allOf([.labelContains("Terminal progress"), .valueContains("warning")]),
             timeout: 5,
             instance: 1
         )
         TestStep.macScreenshot(label: "viewer-progress-warning", instance: 1)
         TestStep.iosWaitForElement(
-            .allOf([.label("Terminal progress"), .valueContains("warning")]),
+            .allOf([.labelContains("Terminal progress"), .valueContains("warning")]),
             timeout: 5
         )
         TestStep.iosScreenshot(label: "ios-progress-warning")
@@ -154,18 +158,18 @@ public enum TerminalProgressBarScenario {
         )
 
         TestStep.macWaitForElementQuery(
-            .allOf([.label("Terminal progress"), .valueContains("error")]),
+            .allOf([.labelContains("Terminal progress"), .valueContains("error")]),
             timeout: 5
         )
         TestStep.macScreenshot(label: "host-progress-error")
         TestStep.macWaitForElementQuery(
-            .allOf([.label("Terminal progress"), .valueContains("error")]),
+            .allOf([.labelContains("Terminal progress"), .valueContains("error")]),
             timeout: 5,
             instance: 1
         )
         TestStep.macScreenshot(label: "viewer-progress-error", instance: 1)
         TestStep.iosWaitForElement(
-            .allOf([.label("Terminal progress"), .valueContains("error")]),
+            .allOf([.labelContains("Terminal progress"), .valueContains("error")]),
             timeout: 5
         )
         TestStep.iosScreenshot(label: "ios-progress-error")
@@ -180,13 +184,19 @@ public enum TerminalProgressBarScenario {
             target: "e2e-progress:0.0",
             command: "printf '\\e]9;4;0\\a'"
         )
-        TestStep.wait(seconds: 2)
 
+        // The bar's mirrored label always starts with "Terminal progress",
+        // so a substring check covers every state and disappears together
+        // with the bar when the parent stops rendering it.
         TestStep.macWaitForElementToDisappear(titled: "Terminal progress", timeout: 5)
         TestStep.macScreenshot(label: "host-progress-cleared")
-        TestStep.macWaitForElementToDisappear(titled: "Terminal progress", timeout: 5, instance: 1)
+        TestStep.macWaitForElementToDisappear(
+            titled: "Terminal progress",
+            timeout: 5,
+            instance: 1
+        )
         TestStep.macScreenshot(label: "viewer-progress-cleared", instance: 1)
-        TestStep.iosWaitForElementToDisappear(.label("Terminal progress"), timeout: 5)
+        TestStep.iosWaitForElementToDisappear(.labelContains("Terminal progress"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-progress-cleared")
     }
 }
