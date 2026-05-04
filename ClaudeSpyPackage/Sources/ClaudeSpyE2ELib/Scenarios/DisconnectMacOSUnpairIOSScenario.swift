@@ -23,8 +23,13 @@ public enum DisconnectMacOSUnpairIOSScenario {
         // real problem (sheet never presented).
         TestStep.iosWaitForElement(.label("Settings"), timeout: 3)
         TestStep.iosWaitForElement(.labelContains("Paired Hosts"), timeout: 5)
+        // The first synthesized tap on a NavigationLink inside a freshly
+        // presented sheet doesn't reliably activate it on iOS — the second
+        // tap then pushes ManageHostsView onto the sheet's NavigationStack.
         TestStep.iosTap(.labelContains("Paired Hosts"))
-        TestStep.wait(seconds: 0.5)
+        TestStep.wait(seconds: 1)
+        TestStep.iosTap(.labelContains("Paired Hosts"))
+        TestStep.wait(seconds: 1)
         TestStep.iosScreenshot(label: "ios-paired-hosts")
 
         // 4. Swipe left to reveal delete button, tap it
