@@ -6,6 +6,51 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.28</title>
+         <sparkle:version>28</sparkle:version>
+         <sparkle:shortVersionString>1.28</sparkle:shortVersionString>
+         <pubDate>Mon, 04 May 2026 11:58:45 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.28
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Per-session colors</strong>: Assign a custom color to each session, shown as a dot in the sidebar for quick visual identification.</li>
+<li><strong>Declarative session layouts</strong>: Define and apply tmux session layouts via `gallager apply` for reproducible workspace setups.</li>
+<li><strong>Host-pressure alerts</strong>: Get notified when the relay host is under resource pressure that could affect connectivity.</li>
+<li><strong>Per-session progress bars</strong>: OSC 9;4 progress sequences are now tracked per session.</li>
+<li><strong>Setup hook event</strong>: Support for the new Setup hook event from the Claude Code hooks specification.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Streamlined iOS settings</strong>: Settings have moved from a dedicated tab to a toolbar button, freeing up tab bar space for primary navigation.</li>
+<li><strong>Smarter Cmd+V and Cmd+C</strong>: Copy and paste shortcuts now route only to the focused pane instead of being broadcast.</li>
+<li><strong>Shift+Enter passthrough</strong>: Shift+Enter is now passed through to the terminal for multi-line input in supported tools.</li>
+<li><strong>CLI ergonomics</strong>: The `gallager` CLI gains pane titles, idempotent `create`, `wait-ready`, `send --enter`, and `capture-pane`. Commands now default to the calling pane when no target is specified.</li>
+<li><strong>Editor scroll position preserved</strong>: Scroll position in the in-app editor is retained when switching tabs or sessions.</li>
+<li><strong>Return to originating terminal</strong>: Closing a file tab now returns focus to the terminal you opened it from.</li>
+<li><strong>Updated tool models</strong>: Tool definitions have been updated to match the latest Claude Code documentation.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li>Fixed an issue where iOS terminal link underlines could briefly appear in mouse mode.</li>
+<li>Fixed double-spacing on mirror attach when the terminal width was narrower than the source pane.</li>
+<li>Fixed a flake in the Mark Handled action by serializing viewer sends and restoring the home directory correctly.</li>
+<li>Fixed tmux control clients not disconnecting cleanly during shutdown.</li>
+<li>Fixed the relay server healthcheck.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.28.dmg"
+                    sparkle:edSignature="U6N2R5rzCMylyZjtmZ1QFnDnRkWyClYhEaFTJkzKfIokLfW7rV7moH3ZLOe3oDEUvrhvjKy46+nJltIreTJJDQ=="
+                    length="29897731"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.27</title>
          <sparkle:version>27</sparkle:version>
          <sparkle:shortVersionString>1.27</sparkle:shortVersionString>
