@@ -1,6 +1,6 @@
 .PHONY: apply pull diff lint check-env
 
-GRR := grr -d .
+GRR := grr
 
 check-env:
 	@: $${GRAFANA_URL:?GRAFANA_URL must be set}

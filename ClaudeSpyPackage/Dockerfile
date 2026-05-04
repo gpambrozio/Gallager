@@ -38,6 +38,11 @@ FROM swift:6.1-jammy-slim
 
 WORKDIR /app
 
+# Install curl so the docker-compose healthcheck can call /health. The slim
+# image otherwise lacks any HTTP client, so the healthcheck would always fail.
+RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+
 # Copy the built binary (from /tmp/ where we placed it after build due to cache mount)
 COPY --from=builder /tmp/ClaudeSpyExternalServer ./
 

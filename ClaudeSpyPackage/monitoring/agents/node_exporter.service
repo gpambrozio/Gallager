@@ -17,6 +17,7 @@ ExecStart=/usr/local/bin/node_exporter \
   --collector.meminfo \
   --collector.netdev \
   --collector.uname \
+  --collector.vmstat \
   --collector.systemd
 Restart=on-failure
 RestartSec=5
