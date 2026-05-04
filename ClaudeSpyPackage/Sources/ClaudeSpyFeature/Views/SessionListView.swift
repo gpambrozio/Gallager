@@ -92,6 +92,12 @@
                                 let command = SetSessionDescription(sessionName: sessionName, description: description)
                                 _ = await connectionManager.sendCommand(command, paneId: "", hostId: host.id)
                             }
+                        },
+                        onSetColor: { sessionName, color in
+                            Task {
+                                let command = SetSessionColor(sessionName: sessionName, color: color)
+                                _ = await connectionManager.sendCommand(command, paneId: "", hostId: host.id)
+                            }
                         }
                     )
                 }
@@ -215,6 +221,7 @@
         var showUsername = false
         let onNewSession: () -> Void
         var onSetDescription: (String, String?) -> Void = { _, _ in }
+        var onSetColor: (String, SessionColor?) -> Void = { _, _ in }
 
         @Environment(SessionStore.self) private var sessionStore
 
@@ -294,10 +301,33 @@
                     } else if let pane = activePaneInSession {
                         TerminalRowView(pane: pane, windowCount: session.windows.count)
                     }
-
+                }
+                // The visual progress bar is rendered as an .overlay outside
+                // the NavigationLink (below) so the cell stays compact, but
+                // overlays sit outside the row's combined Button AX element.
+                // Mirror the bar's label/value into the button via an
+                // invisible label so e2e queries (and VoiceOver) can find it.
+                .overlay {
                     if let sessionProgress {
-                        TerminalProgressBar(state: sessionProgress)
+                        Text("Terminal progress \(sessionProgress.accessibilityValueString)")
+                            .accessibilityLabel("Terminal progress")
+                            .accessibilityValue(sessionProgress.accessibilityValueString)
+                            .font(.system(size: 1))
+                            .opacity(0)
                     }
+                }
+            }
+            .padding(.leading, 16)
+            .padding(.bottom, 16)
+            .overlay(alignment: .leading) {
+                SessionColorBar(color: session.customColor)
+                    .padding(.top, -8)
+                    .padding(.bottom, 8)
+            }
+            .overlay(alignment: .bottom) {
+                if let sessionProgress {
+                    TerminalProgressBar(state: sessionProgress)
+                        .padding(.leading, 16)
                 }
             }
             .accessibilityValue(cliSessionState?.statusLabel ?? claudePaneInSession?.claudeSession?.statusLabel ?? "")
@@ -305,15 +335,18 @@
                 sessionName: session.sessionName,
                 currentDescription: session.customDescription,
                 isDisabled: connection?.isHostConnected != true,
-                onSetDescription: onSetDescription
+                onSetDescription: onSetDescription,
+                additionalMenu: {
+                    ColorContextMenuButtons(
+                        currentColor: session.customColor,
+                        isDisabled: connection?.isHostConnected != true
+                    ) { newColor in
+                        onSetColor(session.sessionName, newColor)
+                    }
+                }
             ))
-            // Push the progress bar flush with the cell's bottom edge by zeroing
-            // out the row's bottom inset only when there's a bar to render —
-            // otherwise the InsetGrouped cell keeps its standard bottom padding.
             .listRowInsets(
-                sessionProgress == nil
-                    ? nil
-                    : EdgeInsets(top: 11, leading: 20, bottom: 0, trailing: 20)
+                EdgeInsets(top: 15, leading: 0, bottom: 0, trailing: 16)
             )
         }
     }
@@ -538,6 +571,8 @@
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
+
+                Spacer()
             }
             .padding(.vertical, 4)
         }
@@ -632,6 +667,8 @@
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
+
+                Spacer()
             }
             .padding(.vertical, 4)
         }
@@ -771,6 +808,92 @@
                 }
             }
             .presentationDetents([.medium, .large])
+        }
+    }
+
+    // MARK: - Preview
+
+    #Preview("Session List") {
+        SessionListPreview()
+    }
+
+    @MainActor
+    private struct SessionListPreview: View {
+        @State private var navigationPath = NavigationPath()
+        @State private var sessionStore = SessionStore()
+        @State private var settings = IOSSettings()
+        @State private var connectionManager: ViewerConnectionManager?
+
+        private let host = PairedHost(
+            id: "preview-host",
+            hostName: "Preview Mac",
+            username: "preview",
+            partnerPublicKey: "",
+            partnerPublicKeyId: ""
+        )
+
+        var body: some View {
+            Group {
+                if let connectionManager {
+                    NavigationStack(path: $navigationPath) {
+                        SessionListView(navigationPath: $navigationPath)
+                            .environment(sessionStore)
+                            .environment(connectionManager)
+                            .environment(settings)
+                    }
+                } else {
+                    ProgressView()
+                }
+            }
+            .task {
+                settings.addPairing(host)
+
+                let panes: [String: PaneState] = [
+                    "%1": PaneState(
+                        paneId: "%1",
+                        target: "alpha:0.0",
+                        sessionName: "alpha",
+                        currentPath: "/Users/preview/AlphaProject",
+                        isActive: true,
+                        isWindowActive: true,
+                        customColor: .blue,
+                        claudeSession: ClaudeSession(
+                            paneId: "%1",
+                            detectedProjectPath: "/Users/preview/AlphaProject"
+                        )
+                    ),
+                    "%2": PaneState(
+                        paneId: "%2",
+                        target: "bravo:0.0",
+                        sessionName: "bravo",
+                        currentPath: "/Users/preview/BravoProject",
+                        isActive: true,
+                        isWindowActive: true,
+                        customColor: .red,
+                        claudeSession: ClaudeSession(
+                            paneId: "%2",
+                            detectedProjectPath: "/Users/preview/BravoProject"
+                        ),
+                        progress: .normal(50)
+                    ),
+                    "%3": PaneState(
+                        paneId: "%3",
+                        target: "scratch:0.0",
+                        sessionName: "scratch",
+                        command: "zsh",
+                        currentPath: "/Users/preview",
+                        isActive: true,
+                        isWindowActive: true
+                    ),
+                ]
+                sessionStore.handleStateUpdate(SessionStateMessage(
+                    pairId: host.id,
+                    paneStates: panes,
+                    homeDirectory: "/Users/preview"
+                ))
+
+                connectionManager = try? await ViewerConnectionManager()
+            }
         }
     }
 #endif

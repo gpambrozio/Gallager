@@ -143,6 +143,8 @@ When the user chooses to investigate and fix:
    - Changed state management affecting UI timing
    - New UI elements overlapping existing ones
 
+   When the failure is "element not found" or "renamed accessibility label" and the failure screenshot doesn't make the new label obvious, switch to the **`e2e-manual-debugging`** skill: it boots an interactive e2e instance and walks through inspecting the live UI (XCUITest hierarchy, AppleScript dump, Xcode Accessibility Inspector) to discover the actual `AXLabel` / `AXHelp` / `accessibilityIdentifier` you need to put in the scenario. Faster than re-running the scenario with guesses.
+
 4. **Fix the code** — Make the minimal fix needed. This might be in the app code (if there's a genuine regression) or in the test scenario (if the test expectations need adjustment).
 
 5. **Run the failing scenario** to verify the fix:

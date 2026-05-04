@@ -382,22 +382,28 @@ final public class MirrorWindowManager {
         }
     }
 
-    /// Sets a custom description scoped to a single window. Other windows in the
-    /// same session keep their inherited (or own) description. Persisted as a tmux
-    /// user option at window scope so it survives app restarts.
+    // MARK: - Session Colors
+
+    /// Sets a custom color for a session, applied to every pane so it survives
+    /// switching windows. Persisted as a tmux user option (see `TmuxService`).
     /// - Parameters:
-    ///   - description: The description text, or nil to clear the window override
-    ///   - sessionName: The tmux session name containing the window
-    ///   - windowIndex: The window index within the session
-    public func setWindowDescription(_ description: String?, sessionName: String, windowIndex: Int) {
-        let normalizedDescription = description?.isEmpty == true ? nil : description
-        let windowTarget = "\(sessionName):\(windowIndex)"
-        for (paneId, state) in paneStates
-            where state.sessionName == sessionName && state.windowIndex == windowIndex {
-            paneStates[paneId]?.customDescription = normalizedDescription
+    ///   - color: The color, or nil to clear
+    ///   - sessionName: The tmux session name
+    public func setSessionColor(_ color: SessionColor?, for sessionName: String) {
+        // Optimistic local update for immediate UI feedback; tmux remains the source
+        // of truth and the next refresh reconciles from it.
+        for (paneId, state) in paneStates where state.sessionName == sessionName {
+            paneStates[paneId]?.customColor = color
         }
-        Task { [tmuxService] in
-            try? await tmuxService.setWindowDescription(normalizedDescription, for: windowTarget)
+        Task { [tmuxService, logger] in
+            do {
+                try await tmuxService.setSessionColor(color, for: sessionName)
+            } catch {
+                logger.warning("Failed to persist session color", metadata: [
+                    "session": "\(sessionName)",
+                    "error": "\(error)",
+                ])
+            }
             await onDescriptionChanged?()
         }
     }

@@ -391,6 +391,13 @@ public struct MainView: View {
                             _ = await manager.sendCommand(command, paneId: "", hostId: host.id)
                         }
                     },
+                    onSetColor: { sessionName, color in
+                        Task {
+                            guard let manager = coordinator.viewerConnectionManager else { return }
+                            let command = SetSessionColor(sessionName: sessionName, color: color)
+                            _ = await manager.sendCommand(command, paneId: "", hostId: host.id)
+                        }
+                    },
                     onToggleYolo: { paneId, enabled in
                         Task {
                             guard let manager = coordinator.viewerConnectionManager else { return }
@@ -412,6 +419,7 @@ public struct MainView: View {
     private func sessionButton(session: LocalTmuxSession, help: String? = nil) -> some View {
         let activeWindow = session.activeWindow
         let description = activeWindow?.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customDescription }
+        let color = activeWindow?.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customColor }
         let claudePane = session.windows.flatMap(\.panes).first { windowManager.paneStates[$0.paneId]?.claudeSession != nil }
         let activePane = activeWindow?.activePane
         let isSessionAttached = tmuxService.attachedSessionNames.contains(session.sessionName)
@@ -438,6 +446,12 @@ public struct MainView: View {
                 windowManager.setSessionDescription(description, for: sessionName)
             },
             additionalMenu: {
+                ColorContextMenuButtons(currentColor: color) { newColor in
+                    windowManager.setSessionColor(newColor, for: session.sessionName)
+                }
+
+                Divider()
+
                 if let claudePane {
                     Toggle(isOn: localYoloModeBinding(for: claudePane.paneId)) {
                         Label("Yolo Mode", symbol: .bolt)
@@ -1841,63 +1855,66 @@ private struct SessionSidebarRow: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 8) {
-                if let cliSessionState {
-                    SessionStatusIndicator(cliState: cliSessionState)
-                        .font(.system(size: 16))
-                        .frame(width: 20)
-                } else if let claudeSession {
-                    SessionStatusIndicator(session: claudeSession)
-                        .font(.system(size: 16))
-                        .frame(width: 20)
-                } else {
-                    Symbols.terminal.image
-                        .font(.system(size: 16))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 20)
-                }
-
-                SessionFieldsView(
-                    fields: claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields,
-                    customDescription: primaryPaneState?.customDescription,
-                    projectName: claudeSession?.displayName,
-                    sessionName: session.sessionName,
-                    terminalTitle: terminalTitle,
-                    command: primaryPane?.command,
-                    currentPath: primaryPane?.currentPath,
-                    gitBranch: primaryPaneState?.gitBranch,
-                    latestEvent: sessionSubtitle
-                )
-
-                Spacer()
+        HStack(alignment: .top, spacing: 8) {
+            if let cliSessionState {
+                SessionStatusIndicator(cliState: cliSessionState)
+                    .font(.system(size: 16))
+                    .frame(width: 20)
+            } else if let claudeSession {
+                SessionStatusIndicator(session: claudeSession)
+                    .font(.system(size: 16))
+                    .frame(width: 20)
+            } else {
+                Symbols.terminal.image
+                    .font(.system(size: 16))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20)
             }
-            // Expose session name to macOS accessibility tree so e2e tests can find sessions
-            // regardless of which sidebar fields are configured (session name may not appear as
-            // visible Text). Also expose status since ProgressView (working state) prevents AX
-            // from reading .accessibilityValue directly on the indicator.
-            .accessibilityValue(session.sessionName)
-            .overlay {
-                ZStack {
-                    if let status = cliSessionState?.statusLabel ?? claudeSession?.statusLabel {
-                        Text(status)
-                            .accessibilityLabel(status)
-                    }
-                    // The project name is rendered by SessionFieldsView, but when the row's
-                    // Button combines its children's AX into a single label, that leaf can
-                    // drop out intermittently — exposing it as its own hidden label gives
-                    // e2e tests a stable element to find.
-                    if let projectName = claudeSession?.displayName {
-                        Text(projectName)
-                            .accessibilityLabel(projectName)
-                    }
-                }
-                .font(.system(size: 1))
-                .opacity(0)
-            }
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
 
+            SessionFieldsView(
+                fields: claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields,
+                customDescription: primaryPaneState?.customDescription,
+                projectName: claudeSession?.displayName,
+                sessionName: session.sessionName,
+                terminalTitle: terminalTitle,
+                command: primaryPane?.command,
+                currentPath: primaryPane?.currentPath,
+                gitBranch: primaryPaneState?.gitBranch,
+                latestEvent: sessionSubtitle
+            )
+
+            Spacer()
+        }
+        // Expose session name to macOS accessibility tree so e2e tests can find sessions
+        // regardless of which sidebar fields are configured (session name may not appear as
+        // visible Text). Also expose status since ProgressView (working state) prevents AX
+        // from reading .accessibilityValue directly on the indicator.
+        .accessibilityValue(session.sessionName)
+        .overlay {
+            ZStack {
+                if let status = cliSessionState?.statusLabel ?? claudeSession?.statusLabel {
+                    Text(status)
+                        .accessibilityLabel(status)
+                }
+                // The project name is rendered by SessionFieldsView, but when the row's
+                // Button combines its children's AX into a single label, that leaf can
+                // drop out intermittently — exposing it as its own hidden label gives
+                // e2e tests a stable element to find.
+                if let projectName = claudeSession?.displayName {
+                    Text(projectName)
+                        .accessibilityLabel(projectName)
+                }
+            }
+            .font(.system(size: 1))
+            .opacity(0)
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .overlay(alignment: .leading) {
+            SessionColorBar(color: primaryPaneState?.customColor)
+                .padding(.leading, -16)
+        }
+        .overlay(alignment: .bottom) {
             if let sessionProgress {
                 TerminalProgressBar(state: sessionProgress)
             }
@@ -2473,6 +2490,7 @@ private struct RemoteHostSidebarSection: View {
     let onSelect: (RemoteSessionSelection) -> Void
     let onCreate: (ClaudeProjectInfo?) -> Void
     let onSetDescription: (String, String?) -> Void
+    let onSetColor: (String, SessionColor?) -> Void
     let onToggleYolo: (String, Bool) -> Void
     let onCloseSession: (String) -> Void
 
@@ -2567,6 +2585,15 @@ private struct RemoteHostSidebarSection: View {
             isDisabled: connection?.isHostConnected != true,
             onSetDescription: onSetDescription,
             additionalMenu: {
+                ColorContextMenuButtons(
+                    currentColor: session.customColor,
+                    isDisabled: connection?.isHostConnected != true
+                ) { newColor in
+                    onSetColor(session.sessionName, newColor)
+                }
+
+                Divider()
+
                 if let claudePane {
                     Toggle(isOn: Binding(
                         get: { sessionStore.isYoloModeEnabled(paneId: claudePane.paneId, hostId: host.id) },
@@ -2750,12 +2777,16 @@ private struct RemoteSessionSidebarRow: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            rowContent
-            if let sessionProgress {
-                TerminalProgressBar(state: sessionProgress)
+        rowContent
+            .overlay(alignment: .leading) {
+                SessionColorBar(color: session.customColor)
+                    .padding(.leading, -16)
             }
-        }
+            .overlay(alignment: .bottom) {
+                if let sessionProgress {
+                    TerminalProgressBar(state: sessionProgress)
+                }
+            }
     }
 
     private var rowContent: some View {

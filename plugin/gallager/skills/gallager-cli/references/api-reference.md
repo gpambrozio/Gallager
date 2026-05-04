@@ -59,8 +59,8 @@ Newline-delimited JSON-RPC over `AF_UNIX, SOCK_STREAM`. Each message is a single
 - Params: _(none)_
 - Result: `{ "sessions": [{ "id", "name", "windowCount", "isAttached" }, …] }`
 
-### `session.create` — `gallager new-session [--name] [--path] [--title] [--if-missing]`
-- Params: `{ "name"?: string, "path"?: string, "title"?: string, "if_missing"?: bool }`
+### `session.create` — `gallager new-session [--name] [--path] [--title] [--color] [--if-missing]`
+- Params: `{ "name"?: string, "path"?: string, "title"?: string, "color"?: string, "if_missing"?: bool }`
 - Result: `{ "id", "name", "windowCount", "isAttached", "created" }`
 - When `if_missing` is true and a session with `name` already exists, the
   existing session info is returned with `created: false` instead of
@@ -69,16 +69,35 @@ Newline-delimited JSON-RPC over `AF_UNIX, SOCK_STREAM`. Each message is a single
 - `title` (when present) sets the sidebar `@gallager-description` for the
   resulting session — handy for one-shot scripts that don't want a follow-up
   `session.set_title` call.
+- `color` (when present) sets the sidebar dot via `@gallager-color`. Accepts
+  the same names as `session.set_color` (`red`, `orange`, `yellow`, `green`,
+  `blue`, `purple`, `pink`, `gray`, plus the `violet`/`magenta`/`grey`
+  aliases). Unknown names return `invalid_params`.
 
-### `session.set_title` — `gallager set-title <text> [--session|--window|--pane]`
-Writes the sidebar title (`@gallager-description` tmux user option). Window
-scope wins when `window_id` is supplied; otherwise the title is applied at
-session scope. Pass `title: ""` (or omit it) to clear.
-- Params: `{ "title"?: string, "session_id"?: string, "window_id"?: string, "pane_id"?: string }`
-- Result: `{ "scope": "session" | "window" }`
-- Errors: `not_found` when the named session/window doesn't exist or no
-  target can be resolved (e.g. invoked outside an attached session with no
-  targeting flags). Detached windows are reachable via `<session>:<index>`.
+### `session.set_title` — `gallager set-title <text> [--session]`
+Writes the sidebar title (`@gallager-description` tmux user option). Always
+applies at session scope — every window in the session shows the same
+title. Pass `title: ""` (or omit it) to clear. To rename the tab label of a
+single window, use `window.set_name` instead.
+- Params: `{ "title"?: string, "session_id"?: string, "pane_id"?: string }`
+- Result: `{}`
+- The CLI sends `pane_id` from `$TMUX_PANE` automatically when no
+  `--session` flag is given; the server resolves it to the calling pane's
+  session and applies the title there.
+- Errors: `not_found` when the named session doesn't exist or no target can
+  be resolved (e.g. invoked outside an attached session with no targeting
+  flag).
+
+### `session.set_color` — `gallager set-color <color> [--session]`
+Writes the sidebar dot color (`@gallager-color` tmux user option). Same
+session-only targeting rules as `session.set_title`. Pass `color: ""` (or
+`none` from the CLI) to clear.
+- Params: `{ "color": string, "session_id"?: string, "pane_id"?: string }`
+- Result: `{}`
+- Errors: `invalid_params` for an unrecognised color name; `not_found` when
+  the target doesn't resolve. Valid colors: `red`, `orange`, `yellow`,
+  `green`, `blue`, `purple`, `pink`, `gray` (aliases: `violet`/`magenta`/
+  `grey`).
 
 ### `session.select` — `gallager select-session <id>`
 - Params: `{ "session_id": string }`
@@ -113,20 +132,28 @@ session scope. Pass `title: ""` (or omit it) to clear.
   from `$TMUX_PANE` automatically when neither `--session` nor `--pane` is
   passed, so the listing defaults to the calling pane's session.
 
-### `window.create` — `gallager new-window [--session] [--path] [--title]`
-- Params: `{ "session_id"?: string, "path"?: string, "pane_id"?: string, "title"?: string }`
+### `window.create` — `gallager new-window [--session] [--path] [--name]`
+- Params: `{ "session_id"?: string, "path"?: string, "pane_id"?: string, "name"?: string }`
 - Result: `{ "id", "index", "name", "paneCount", "isActive", "sessionId" }`
 - When `session_id` is omitted but `pane_id` is provided, the new window is
   created in the pane's session. The CLI sends `pane_id` from `$TMUX_PANE`
   automatically when neither `--session` nor `--pane` is passed, so the new
   window lands in the calling pane's session.
-- `title` (when present) sets the sidebar `@gallager-description` for the
-  new window at creation time — equivalent to a follow-up
-  `session.set_title --window <id>`.
+- `name` (when present) sets the tmux window name (the tab label) at
+  creation time. When omitted, the daemon auto-generates `terminal N`.
 
 ### `window.select` — `gallager select-window <id>`
 - Params: `{ "window_id": string }`
 - Result: `{}`
+
+### `window.set_name` — `gallager rename-window <id> <name>`
+Renames a tmux window via `tmux rename-window`. Setting the name also
+disables tmux's automatic-rename for that window so the tab stops tracking
+the running command. The only window-scoped CLI mutation; for the
+session-wide sidebar title use `session.set_title` instead.
+- Params: `{ "window_id": string, "name": string }`
+- Result: `{}`
+- Errors: `invalid_params` when `name` is empty or whitespace.
 
 ### `window.close` — `gallager close-window <id>`
 - Params: `{ "window_id": string }`

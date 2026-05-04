@@ -31,6 +31,7 @@
         static let supportedTopLevelKeys: Set = [
             "session_name",
             "description",
+            "color",
             "start_directory",
             "environment",
             "shell_command_before",
@@ -146,6 +147,7 @@
             let sessionName = try expand(rawSessionName, path: "session_name", warnings: &warnings)
 
             let description = try optionalExpandedString(root["description"], path: "description", warnings: &warnings)
+            let color = try parseColor(root["color"], warnings: &warnings)
             let startDirectory = try optionalExpandedString(
                 root["start_directory"],
                 path: "start_directory",
@@ -191,6 +193,7 @@
             return LayoutConfig(
                 sessionName: sessionName,
                 description: description,
+                color: color,
                 startDirectory: startDirectory,
                 environment: environmentMap,
                 shellCommandBefore: shellCommandBefore,
@@ -567,6 +570,33 @@
         }
 
         // MARK: - Primitive helpers
+
+        private func parseColor(
+            _ value: JSONValue?,
+            warnings: inout [String]
+        ) throws -> SessionColor? {
+            guard let value else { return nil }
+            if case .null = value { return nil }
+            guard case let .string(raw) = value else {
+                throw LayoutConfigError(
+                    path: "color",
+                    message: "color must be a string (got \(value.typeName))"
+                )
+            }
+            // Empty string clears (mirrors `set-color ""`); otherwise parse so
+            // CLI/API aliases like "violet" still resolve while unknown names
+            // fail strictly (or warn under --lenient) rather than silently
+            // landing on no color.
+            if raw.isEmpty { return nil }
+            if let parsed = SessionColor.parse(raw) { return parsed }
+            let valid = SessionColor.allCases.map(\.rawValue).joined(separator: ", ")
+            let msg = "Unknown color '\(raw)'. Valid colors: \(valid)."
+            if lenient {
+                warnings.append("color: \(msg)")
+                return nil
+            }
+            throw LayoutConfigError(path: "color", message: msg)
+        }
 
         private func optionalExpandedString(
             _ value: JSONValue?,

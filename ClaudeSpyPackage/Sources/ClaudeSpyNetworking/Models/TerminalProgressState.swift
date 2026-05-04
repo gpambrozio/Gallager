@@ -18,4 +18,17 @@ public enum TerminalProgressState: Codable, Sendable, Equatable {
     case indeterminate
     /// State 4 — warning (yellow).
     case warning
+
+    /// Human-readable summary used as the bar's `.accessibilityValue` and
+    /// mirrored into the parent row's hidden AX label so e2e queries and
+    /// VoiceOver report the same string from either element.
+    public var accessibilityValueString: String {
+        switch self {
+        case let .normal(percent): "\(percent)%"
+        case .error: "error"
+        case .warning: "warning"
+        case .indeterminate: "in progress"
+        case .removed: ""
+        }
+    }
 }

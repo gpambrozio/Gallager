@@ -312,6 +312,60 @@ public actor MacOSDriver {
         throw MacOSDriverError.elementNotFound("\(elementTitle) context menu → \(menuItem)")
     }
 
+    /// Right-click an element, expand a submenu by pressing its parent label,
+    /// then click an item inside that submenu. Used for nested SwiftUI `Menu`
+    /// items inside a `.contextMenu { }` (e.g. the session row's "Set Color"
+    /// submenu, whose colour rows only join the AX tree once the parent is
+    /// expanded). Pressing the parent menu item opens the submenu without
+    /// dismissing the context menu — AppKit treats menu items that own a
+    /// submenu as "expand on press" rather than "fire and dismiss".
+    public func contextSubmenuClick(
+        elementTitle: String,
+        parentMenuItem: String,
+        submenuItem: String
+    ) async throws {
+        let pid = try requirePID()
+        logger.info(
+            "Context submenu click: '\(elementTitle)' → '\(parentMenuItem)' → '\(submenuItem)'"
+        )
+
+        // Step 1: Right-click to open the top-level context menu.
+        try await waitForAXElement(pid: pid, titled: elementTitle, timeout: 5)
+        if !MacOSAccessibility.rightClick(appPID: pid, titled: elementTitle) {
+            throw MacOSDriverError.elementNotFound(elementTitle)
+        }
+
+        // Step 2: Poll for the parent menu item, then press it to expand the
+        // submenu. Pressing a SwiftUI `Menu`'s parent label opens the submenu.
+        let parentDeadline = Date().addingTimeInterval(3)
+        var parentExpanded = false
+        while Date() < parentDeadline {
+            try await Task.sleep(for: .milliseconds(300))
+            if MacOSAccessibility.press(appPID: pid, titled: parentMenuItem) {
+                parentExpanded = true
+                break
+            }
+        }
+        guard parentExpanded else {
+            throw MacOSDriverError.elementNotFound(
+                "\(elementTitle) context menu → \(parentMenuItem)"
+            )
+        }
+
+        // Step 3: Poll for the submenu item now that the submenu is open.
+        let submenuDeadline = Date().addingTimeInterval(3)
+        while Date() < submenuDeadline {
+            try await Task.sleep(for: .milliseconds(300))
+            if MacOSAccessibility.press(appPID: pid, titled: submenuItem) {
+                return
+            }
+        }
+
+        throw MacOSDriverError.elementNotFound(
+            "\(elementTitle) context menu → \(parentMenuItem) → \(submenuItem)"
+        )
+    }
+
     // MARK: - Panes Window
 
     /// Open the Panes window via the status item menu

@@ -44,7 +44,7 @@ func capabilitiesListsMethods() async {
 func sessionCreatePassesIfMissingFlagToCallback() async {
     let receivedIfMissing = LockedValue<Bool>(false)
     let router = LiveAPIRequestRouter(
-        onSessionCreate: { _, _, _, ifMissing in
+        onSessionCreate: { _, _, _, _, ifMissing in
             await receivedIfMissing.set(ifMissing)
             return LiveAPIRequestRouter.SessionCreateResult(
                 info: ["id": .string("foo"), "name": .string("foo")],
@@ -65,7 +65,7 @@ func sessionCreatePassesIfMissingFlagToCallback() async {
 @Test
 func sessionCreateMergesCreatedFlagIntoResponse() async {
     let router = LiveAPIRequestRouter(
-        onSessionCreate: { _, _, _, _ in
+        onSessionCreate: { _, _, _, _, _ in
             LiveAPIRequestRouter.SessionCreateResult(
                 info: ["id": .string("bar"), "name": .string("bar")],
                 created: true
@@ -85,7 +85,7 @@ func sessionCreateMergesCreatedFlagIntoResponse() async {
 func sessionCreatePassesTitleToCallback() async {
     let receivedTitle = LockedValue<String?>(nil)
     let router = LiveAPIRequestRouter(
-        onSessionCreate: { _, _, title, _ in
+        onSessionCreate: { _, _, title, _, _ in
             await receivedTitle.set(title)
             return LiveAPIRequestRouter.SessionCreateResult(
                 info: ["id": .string("baz")],
@@ -115,12 +115,11 @@ func sessionSetTitleRejectsWhenCallbackMissing() async {
 }
 
 @Test
-func sessionSetTitleForwardsParamsAndReturnsScope() async {
-    let received = LockedValue<(String?, String?, String?, String?)>((nil, nil, nil, nil))
+func sessionSetTitleForwardsParams() async {
+    let received = LockedValue<(String?, String?, String?)>((nil, nil, nil))
     let router = LiveAPIRequestRouter(
-        onSessionSetTitle: { title, sessionId, windowId, paneId in
-            await received.set((title, sessionId, windowId, paneId))
-            return "session"
+        onSessionSetTitle: { title, sessionId, paneId in
+            await received.set((title, sessionId, paneId))
         }
     )
     let request = JSONRPCRequest(id: "8", method: "session.set_title", params: [
@@ -129,11 +128,9 @@ func sessionSetTitleForwardsParamsAndReturnsScope() async {
     ])
     let response = await router.handleRequest(request)
     #expect(response.ok == true)
-    #expect(response.result?["scope"]?.stringValue == "session")
-    let (title, sessionId, windowId, paneId) = await received.get()
+    let (title, sessionId, paneId) = await received.get()
     #expect(title == "Workers")
     #expect(sessionId == "workers")
-    #expect(windowId == nil)
     #expect(paneId == nil)
 }
 
@@ -141,9 +138,8 @@ func sessionSetTitleForwardsParamsAndReturnsScope() async {
 func sessionSetTitleAllowsOmittingTitleToClear() async {
     let received = LockedValue<String?>("not-set")
     let router = LiveAPIRequestRouter(
-        onSessionSetTitle: { title, _, _, _ in
+        onSessionSetTitle: { title, _, _ in
             await received.set(title)
-            return "session"
         }
     )
     let request = JSONRPCRequest(id: "9", method: "session.set_title", params: [
@@ -154,6 +150,201 @@ func sessionSetTitleAllowsOmittingTitleToClear() async {
     // The sentinel value "not-set" proves the callback was never invoked if it
     // remains; nil proves it ran with a missing title param.
     #expect(await received.get() == nil)
+}
+
+@Test
+func sessionSetTitleIgnoresWindowIdParam() async {
+    // window_id is no longer accepted at the API level — it should be silently
+    // dropped (the call still succeeds, applied at session scope using
+    // session_id / pane_id only).
+    let receivedSessionId = LockedValue<String?>(nil)
+    let router = LiveAPIRequestRouter(
+        onSessionSetTitle: { _, sessionId, _ in
+            await receivedSessionId.set(sessionId)
+        }
+    )
+    let request = JSONRPCRequest(id: "8b", method: "session.set_title", params: [
+        "title": .string("Hi"),
+        "session_id": .string("foo"),
+        "window_id": .string("foo:0"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == true)
+    #expect(await receivedSessionId.get() == "foo")
+}
+
+// MARK: - session.set_color
+
+@Test
+func sessionSetColorListedInCapabilities() async {
+    let router = LiveAPIRequestRouter()
+    let request = JSONRPCRequest(id: "set-color-cap", method: "system.capabilities", params: [:])
+    let response = await router.handleRequest(request)
+    if case let .array(methods) = response.result?["methods"] {
+        let names = methods.compactMap(\.stringValue)
+        #expect(names.contains("session.set_color"))
+    } else {
+        Issue.record("Expected methods array")
+    }
+}
+
+@Test
+func sessionSetColorRejectsWhenCallbackMissing() async {
+    let router = LiveAPIRequestRouter()
+    let request = JSONRPCRequest(id: "set-color-1", method: "session.set_color", params: [
+        "color": .string("blue"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == false)
+    #expect(response.error?.code == "internal_error")
+}
+
+@Test
+func sessionSetColorParsesAndForwards() async {
+    let received = LockedValue<(SessionColor?, String?, String?)>((nil, nil, nil))
+    let router = LiveAPIRequestRouter(
+        onSessionSetColor: { color, sessionId, paneId in
+            await received.set((color, sessionId, paneId))
+        }
+    )
+    let request = JSONRPCRequest(id: "set-color-2", method: "session.set_color", params: [
+        "color": .string("blue"),
+        "session_id": .string("workers"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == true)
+    let (color, sessionId, _) = await received.get()
+    #expect(color == .blue)
+    #expect(sessionId == "workers")
+}
+
+@Test
+func sessionSetColorAllowsOmittingColorToClear() async {
+    let received = LockedValue<SessionColor?>(.red)
+    let router = LiveAPIRequestRouter(
+        onSessionSetColor: { color, _, _ in
+            await received.set(color)
+        }
+    )
+    let request = JSONRPCRequest(id: "set-color-3", method: "session.set_color", params: [
+        "session_id": .string("foo"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == true)
+    #expect(await received.get() == nil)
+}
+
+@Test
+func sessionSetColorRejectsUnknownValue() async {
+    let router = LiveAPIRequestRouter(
+        onSessionSetColor: { _, _, _ in }
+    )
+    let request = JSONRPCRequest(id: "set-color-4", method: "session.set_color", params: [
+        "color": .string("chartreuse"),
+        "session_id": .string("foo"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == false)
+    #expect(response.error?.code == "invalid_params")
+}
+
+// MARK: - window.set_name
+
+@Test
+func windowSetNameListedInCapabilities() async {
+    let router = LiveAPIRequestRouter()
+    let request = JSONRPCRequest(id: "set-name-cap", method: "system.capabilities", params: [:])
+    let response = await router.handleRequest(request)
+    if case let .array(methods) = response.result?["methods"] {
+        let names = methods.compactMap(\.stringValue)
+        #expect(names.contains("window.set_name"))
+    } else {
+        Issue.record("Expected methods array")
+    }
+}
+
+@Test
+func windowSetNameRejectsWhenWindowIdMissing() async {
+    let router = LiveAPIRequestRouter(
+        onWindowSetName: { _, _ in }
+    )
+    let request = JSONRPCRequest(id: "set-name-1", method: "window.set_name", params: [
+        "name": .string("renamed"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == false)
+    #expect(response.error?.code == "invalid_params")
+}
+
+@Test
+func windowSetNameRejectsWhenNameMissing() async {
+    let router = LiveAPIRequestRouter(
+        onWindowSetName: { _, _ in }
+    )
+    let request = JSONRPCRequest(id: "set-name-2", method: "window.set_name", params: [
+        "window_id": .string("foo:0"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == false)
+    #expect(response.error?.code == "invalid_params")
+}
+
+@Test
+func windowSetNameForwardsParams() async {
+    let received = LockedValue<(String?, String?)>((nil, nil))
+    let router = LiveAPIRequestRouter(
+        onWindowSetName: { windowId, name in
+            await received.set((windowId, name))
+        }
+    )
+    let request = JSONRPCRequest(id: "set-name-3", method: "window.set_name", params: [
+        "window_id": .string("foo:1"),
+        "name": .string("renamed"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == true)
+    let (windowId, name) = await received.get()
+    #expect(windowId == "foo:1")
+    #expect(name == "renamed")
+}
+
+@Test
+func sessionCreatePassesColorToCallback() async {
+    let receivedColor = LockedValue<SessionColor?>(nil)
+    let router = LiveAPIRequestRouter(
+        onSessionCreate: { _, _, _, color, _ in
+            await receivedColor.set(color)
+            return LiveAPIRequestRouter.SessionCreateResult(
+                info: ["id": .string("bar")],
+                created: true
+            )
+        }
+    )
+    let request = JSONRPCRequest(id: "create-color", method: "session.create", params: [
+        "name": .string("bar"),
+        "color": .string("orange"),
+    ])
+    _ = await router.handleRequest(request)
+    #expect(await receivedColor.get() == .orange)
+}
+
+@Test
+func sessionCreateRejectsUnknownColor() async {
+    let router = LiveAPIRequestRouter(
+        onSessionCreate: { _, _, _, _, _ in
+            LiveAPIRequestRouter.SessionCreateResult(
+                info: ["id": .string("bar")],
+                created: true
+            )
+        }
+    )
+    let request = JSONRPCRequest(id: "create-bad-color", method: "session.create", params: [
+        "name": .string("bar"),
+        "color": .string("not-a-color"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == false)
+    #expect(response.error?.code == "invalid_params")
 }
 
 // MARK: - input.send_text + enter
@@ -223,31 +414,13 @@ func paneCaptureReturnsContent() async {
     #expect(scrollback == true)
 }
 
-// MARK: - window.create title
-
-@Test
-func windowCreatePassesTitleToCallback() async {
-    let receivedTitle = LockedValue<String?>(nil)
-    let router = LiveAPIRequestRouter(
-        onWindowCreate: { _, _, _, title, _ in
-            await receivedTitle.set(title)
-            return ["id": .string("foo:1")]
-        }
-    )
-    let request = JSONRPCRequest(id: "14", method: "window.create", params: [
-        "session_id": .string("foo"),
-        "title": .string("Builds"),
-    ])
-    let response = await router.handleRequest(request)
-    #expect(response.ok == true)
-    #expect(await receivedTitle.get() == "Builds")
-}
+// MARK: - window.create
 
 @Test
 func windowCreatePassesNameToCallback() async {
     let receivedName = LockedValue<String?>(nil)
     let router = LiveAPIRequestRouter(
-        onWindowCreate: { _, _, _, _, name in
+        onWindowCreate: { _, _, _, name in
             await receivedName.set(name)
             return ["id": .string("foo:1")]
         }
