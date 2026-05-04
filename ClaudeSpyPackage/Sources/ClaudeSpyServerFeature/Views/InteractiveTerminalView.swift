@@ -345,6 +345,11 @@
         /// Used in multi-pane layouts where multiple terminals share one window.
         var autoFocusEnabled = true
 
+        /// Fires whenever this view becomes the window's first responder
+        /// (mouse click, programmatic, tabbing). Used to propagate focus back
+        /// to tmux via `select-pane` so external clients see the same active pane.
+        var onBecomeFirstResponder: (@MainActor () -> Void)?
+
         var preserveUserScroll = false
         var onResize: ((NSSize) -> Void)?
 
@@ -486,6 +491,7 @@
             // the caret draws as a hollow rectangle since TerminalView itself never
             // becomes first responder.
             terminalView.hasFocus = true
+            onBecomeFirstResponder?()
             return super.becomeFirstResponder()
         }
 

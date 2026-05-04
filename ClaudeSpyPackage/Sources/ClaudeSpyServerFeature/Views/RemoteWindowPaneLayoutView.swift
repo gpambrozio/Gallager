@@ -52,6 +52,9 @@ struct RemoteWindowPaneLayoutView: View {
         flattenNode(layout, origin: .zero, totalWidth: totalWidth, totalHeight: totalHeight, into: &positioned)
 
         let isSingle = positioned.count == 1
+        // Tmux's active pane (with fallback to the first pane). Drives initial
+        // focus so a multi-pane window opens with the tmux-active pane focused.
+        let activePaneId = window.activePane?.paneId
 
         return ProportionalTileLayout(rects: positioned.map(\.rect)) {
             ForEach(positioned) { pane in
@@ -59,7 +62,8 @@ struct RemoteWindowPaneLayoutView: View {
                     paneState: pane.paneState,
                     connection: connection,
                     settings: settings,
-                    isSingle: isSingle
+                    isSingle: isSingle,
+                    isActiveInTmux: pane.paneState.paneId == activePaneId
                 )
                 .id(pane.id)
             }
@@ -135,6 +139,10 @@ struct RemoteWindowPaneLayoutView: View {
         let connection: ViewerConnection
         let settings: AppSettings
         let isSingle: Bool
+        /// True when this pane is the one tmux currently marks as active on the
+        /// remote host. Drives initial focus so a multi-pane window opens with
+        /// the tmux-active pane focused.
+        let isActiveInTmux: Bool
 
         @State private var isHovering = false
 
@@ -145,7 +153,20 @@ struct RemoteWindowPaneLayoutView: View {
                 connection: connection,
                 settings: settings,
                 showStatusBar: false,
-                isEditorActive: paneState.editorSession != nil
+                isEditorActive: paneState.editorSession != nil,
+                autoFocus: isSingle || isActiveInTmux,
+                onFocus: {
+                    // Mirror focus back to the remote tmux so external clients
+                    // attached on the host see the same active pane. Idempotent
+                    // when the pane is already active.
+                    let target = paneState.paneId
+                    Task {
+                        _ = await connection.sendCommand(
+                            SelectTmuxPane(),
+                            paneId: target
+                        )
+                    }
+                }
             )
             .overlay {
                 if !isSingle {
