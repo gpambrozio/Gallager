@@ -15,6 +15,7 @@ public enum MultiPaneWindowScenario {
 
         TestStep.log("Stage 1: Create session with a single pane")
         TestStep.tmuxCreateSession(name: "multi-pane", width: 160, height: 50)
+        Shortcut.tmuxClearAndSetPrompt(target: "multi-pane:0.0")
 
         // Produce some output so the terminal isn't empty
         Shortcut.tmuxRunCommand(target: "multi-pane:0.0", command: "echo '=== PRIMARY PANE ==='")
@@ -43,6 +44,7 @@ public enum MultiPaneWindowScenario {
         // the expected `0,1,2…` sequence the test asserts against.
         TestStep.tmuxCommand(arguments: ["split-window", "-h", "-t", "multi-pane:0.0"])
         TestStep.wait(seconds: 1)
+        Shortcut.tmuxClearAndSetPrompt(target: "multi-pane:0.1")
 
         // Send content to the new right pane
         Shortcut.tmuxRunCommand(target: "multi-pane:0.1", command: "echo '=== RIGHT PANE ==='")
@@ -56,6 +58,7 @@ public enum MultiPaneWindowScenario {
         TestStep.log("Stage 3: Split right pane horizontally — creates top-right and bottom-right")
         TestStep.tmuxCommand(arguments: ["split-window", "-v", "-t", "multi-pane:0.1"])
         TestStep.wait(seconds: 1)
+        Shortcut.tmuxClearAndSetPrompt(target: "multi-pane:0.2")
 
         // Send content to the new bottom-right pane
         Shortcut.tmuxRunCommand(target: "multi-pane:0.2", command: "echo '=== BOTTOM-RIGHT PANE ==='")
@@ -196,15 +199,18 @@ public enum MultiPaneWindowScenario {
         // Pane IDs (`%N`) are stable regardless of base-index. Splits go through
         // the orchestrator's tmux (also `-f /dev/null`) for the same reason.
         TestStep.tmuxStorePaneId(target: "terminal", storeAs: "termPane0")
+        Shortcut.tmuxClearAndSetPrompt(target: "${termPane0}")
 
         TestStep.tmuxCommand(arguments: ["split-window", "-h", "-t", "${termPane0}"])
         TestStep.wait(seconds: 3)
         // After split-window, the new pane becomes active.
         TestStep.tmuxStorePaneId(target: "terminal", storeAs: "termPane1")
+        Shortcut.tmuxClearAndSetPrompt(target: "${termPane1}")
 
         TestStep.tmuxCommand(arguments: ["split-window", "-v", "-t", "${termPane1}"])
         TestStep.wait(seconds: 3)
         TestStep.tmuxStorePaneId(target: "terminal", storeAs: "termPane2")
+        Shortcut.tmuxClearAndSetPrompt(target: "${termPane2}")
         TestStep.macScreenshot(label: "mac-three-panes-new-session")
 
         Shortcut.tmuxRunCommand(target: "${termPane2}", command: "exit")

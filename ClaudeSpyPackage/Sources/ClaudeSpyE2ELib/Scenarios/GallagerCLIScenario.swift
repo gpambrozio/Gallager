@@ -57,6 +57,8 @@ public enum GallagerCLIScenario {
             command: #"gallager() { "${macOSAppPath}/Contents/MacOS/GallagerCLI" "$@"; }"#
         )
         TestStep.wait(seconds: 0.5)
+        Shortcut.tmuxRunCommand(target: "cli-test:0", command: "clear")
+        TestStep.wait(seconds: 0.5)
 
         // 3. Verify basic connectivity
         Shortcut.tmuxRunCommand(
