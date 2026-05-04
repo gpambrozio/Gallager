@@ -116,10 +116,10 @@ If it fails:
 While iterating, you can drop baseline comparison entirely with `--no-compare` to focus on logic correctness, then re-enable it once the steps are right.
 
 Common fixes:
-- **Element not found** → add `iosLogUI` (or read the failure screenshot for macOS) before the failing step, run again, find the correct query
+- **Element not found** → add `iosLogUI` (or read the failure screenshot for macOS) before the failing step, run again, find the correct query. If the tree dump still doesn't tell you which entry to target — or if you need to discover macOS attributes (`.help()`, `accessibilityLabel`, identifier) — switch to the **`e2e-manual-debugging`** skill: it boots an interactive e2e instance and walks through inspecting the live UI (XCUITest hierarchy, AppleScript, Xcode Accessibility Inspector) to find exact labels and identifiers. Faster than guess-and-rerun.
 - **Screenshot mismatch** → delete the baseline and re-run to regenerate
 - **Timing issue** → switch from `wait(seconds:)` to `iosWaitForElement` / `macWaitForElement` / `waitForTmuxDisplayMessage` / `waitForFileContains`
-- **macOS button not found** → check whether the element exposes `.help()` vs `.accessibilityLabel()`; for List rows try `macCGClick`
+- **macOS button not found** → check whether the element exposes `.help()` vs `.accessibilityLabel()`; for List rows try `macCGClick`. Use `e2e-manual-debugging` to read the actual attributes if you can't tell from the SwiftUI source.
 - **Wrong instance targeted** → verify each `instance:` parameter; default is 0 (host)
 
 ### Phase 5: Verify screenshots (critical)

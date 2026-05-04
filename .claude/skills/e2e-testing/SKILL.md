@@ -242,6 +242,7 @@ Detailed patterns are in `references/patterns.md`. Key patterns:
 - Run specific scenario: `./scripts/e2e-test.sh --skip-build --scenario "Name"`
 - Interactive mode to inspect state: `./scripts/e2e-test.sh --skip-build --interactive --scenario "Name"`
 - Skip baseline comparison while iterating: `./scripts/e2e-test.sh --skip-build --no-compare --scenario "Name"`
+- **Stuck on "what label/identifier does this element actually expose?"** — use the `e2e-manual-debugging` skill. It boots an interactive e2e instance and walks through dumping the iOS view hierarchy / inspecting the macOS accessibility tree (Xcode Accessibility Inspector + AppleScript) so you can read the real attributes instead of guessing. Apply when `iosTap` / `iosWaitForElement` / `macClickButton` / `macWaitForElement` keeps timing out and you're not sure what to put in the query.
 - Failure screenshots are auto-captured for any non-screenshot step failure (saved as `failure-step-NN-<target>.png`) — no need to add manual screenshots before suspect steps
 
 ## Storage Isolation
