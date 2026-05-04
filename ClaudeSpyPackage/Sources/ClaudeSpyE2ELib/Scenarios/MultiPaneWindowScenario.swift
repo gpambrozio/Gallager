@@ -15,6 +15,7 @@ public enum MultiPaneWindowScenario {
 
         TestStep.log("Stage 1: Create session with a single pane")
         TestStep.tmuxCreateSession(name: "multi-pane", width: 160, height: 50)
+        Shortcut.tmuxClearAndSetPrompt(target: "multi-pane:0.0")
 
         // Produce some output so the terminal isn't empty
         Shortcut.tmuxRunCommand(target: "multi-pane:0.0", command: "echo '=== PRIMARY PANE ==='")
@@ -36,8 +37,14 @@ public enum MultiPaneWindowScenario {
         // ── Stage 2: Vertical split (left | right) ─────────────
 
         TestStep.log("Stage 2: Split vertically — creates left and right panes")
-        Shortcut.tmuxRunCommand(target: "multi-pane:0.0", command: "tmux split-window -h")
+        // Drive splits through the orchestrator's tmux (which uses `-f /dev/null`)
+        // instead of `tmux split-window` typed into the in-pane shell. The
+        // in-pane invocation reads the user's `~/.tmux.conf`, which can apply
+        // `set -g pane-base-index` to the server and shift pane indices off
+        // the expected `0,1,2…` sequence the test asserts against.
+        TestStep.tmuxCommand(arguments: ["split-window", "-h", "-t", "multi-pane:0.0"])
         TestStep.wait(seconds: 1)
+        Shortcut.tmuxClearAndSetPrompt(target: "multi-pane:0.1")
 
         // Send content to the new right pane
         Shortcut.tmuxRunCommand(target: "multi-pane:0.1", command: "echo '=== RIGHT PANE ==='")
@@ -49,8 +56,9 @@ public enum MultiPaneWindowScenario {
         // ── Stage 3: Horizontal split (right splits into top/bottom) ──
 
         TestStep.log("Stage 3: Split right pane horizontally — creates top-right and bottom-right")
-        Shortcut.tmuxRunCommand(target: "multi-pane:0.1", command: "tmux split-window -v")
+        TestStep.tmuxCommand(arguments: ["split-window", "-v", "-t", "multi-pane:0.1"])
         TestStep.wait(seconds: 1)
+        Shortcut.tmuxClearAndSetPrompt(target: "multi-pane:0.2")
 
         // Send content to the new bottom-right pane
         Shortcut.tmuxRunCommand(target: "multi-pane:0.2", command: "echo '=== BOTTOM-RIGHT PANE ==='")
@@ -58,6 +66,87 @@ public enum MultiPaneWindowScenario {
         TestStep.wait(seconds: 3)
 
         TestStep.macScreenshot(label: "mac-three-panes-final-layout")
+
+        // ── Stage 3a: Verify clicking a pane mirrors focus to tmux ──
+        //
+        // App → tmux: clicking a pane in the mirror should call select-pane
+        // on tmux so an external client attached to the same window sees the
+        // same active pane.
+
+        TestStep.log("Stage 3a: Verify clicking a pane in the mirror calls select-pane on tmux")
+
+        // After splitting twice, tmux's active pane is .2 (the most-recently
+        // created bottom-right pane). Window: (10,10) sized 1200x700 with
+        // sidebar; the sidebar + chrome push the terminal area to roughly
+        // x=290..1240 and y=110..700. Layout: pane 0 = left half (centre
+        // x≈517, y≈400), pane 1 = top-right (centre x≈995, y≈245), pane 2 =
+        // bottom-right (centre x≈995, y≈540).
+        TestStep.macClickAtPoint(x: 517, y: 400)
+        TestStep.waitForTmuxDisplayMessage(
+            target: "multi-pane:0.0",
+            format: "#{pane_active}",
+            contains: "1",
+            timeout: 5
+        )
+
+        TestStep.macClickAtPoint(x: 995, y: 245)
+        TestStep.waitForTmuxDisplayMessage(
+            target: "multi-pane:0.1",
+            format: "#{pane_active}",
+            contains: "1",
+            timeout: 5
+        )
+
+        TestStep.macClickAtPoint(x: 995, y: 540)
+        TestStep.waitForTmuxDisplayMessage(
+            target: "multi-pane:0.2",
+            format: "#{pane_active}",
+            contains: "1",
+            timeout: 5
+        )
+
+        // ── Stage 3b: Verify the tmux-active pane auto-focuses on window load ──
+        //
+        // tmux → app: when a multi-pane window is selected, the pane that tmux
+        // marks as active should grab keyboard focus instead of leaving the
+        // user with no focused pane.
+
+        TestStep.log("Stage 3b: Verify the tmux-active pane is auto-focused on window load")
+
+        // Make pane .0 active in tmux without touching the app
+        TestStep.tmuxCommand(arguments: ["select-pane", "-t", "multi-pane:0.0"])
+        TestStep.wait(seconds: 1)
+
+        // Force a layout rebuild by deselecting and re-selecting the multi-pane
+        // window — uses the temp-session pattern from MultiWindowTabsScenario
+        // to make the sidebar selection unambiguous.
+        TestStep.tmuxCreateSession(name: "focus-temp", width: 80, height: 24)
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "focus-temp", timeout: 5)
+        TestStep.macClickButton(titled: "focus-temp")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "multi-pane")
+        TestStep.wait(seconds: 3)
+
+        // Type into the app — input should land in pane .0 (the tmux-active one).
+        // If auto-focus regresses, no terminal has focus and the keystrokes
+        // either land nowhere or in the wrong pane, failing the assertions.
+        TestStep.macType(text: "echo FOCUS_LANDED_HERE", pressReturn: true)
+        TestStep.wait(seconds: 2)
+
+        TestStep.tmuxCapturePaneContent(target: "multi-pane:0.0", storeAs: "pane0FocusContent")
+        TestStep.assertStoredContains(key: "pane0FocusContent", substring: "FOCUS_LANDED_HERE")
+
+        TestStep.tmuxCapturePaneContent(target: "multi-pane:0.1", storeAs: "pane1FocusContent")
+        TestStep.assertStoredNotContains(key: "pane1FocusContent", substring: "FOCUS_LANDED_HERE")
+
+        TestStep.tmuxCapturePaneContent(target: "multi-pane:0.2", storeAs: "pane2FocusContent")
+        TestStep.assertStoredNotContains(key: "pane2FocusContent", substring: "FOCUS_LANDED_HERE")
+
+        // Clean up the temp session so the sidebar returns to a single entry
+        Shortcut.tmuxRunCommand(target: "focus-temp:0.0", command: "exit")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElementToDisappear(titled: "focus-temp", timeout: 5)
 
         // ── Stage 4: More content in all panes ──────────────────
 
@@ -104,21 +193,33 @@ public enum MultiPaneWindowScenario {
         // substring matching, which can trigger outline disclosure collapse via AXPress.
         TestStep.macWaitForElement(titled: "terminal", timeout: 5)
 
-        // Use session-relative targets (not global %N pane IDs which auto-increment)
-        Shortcut.tmuxRunCommand(target: "terminal:0.0", command: "tmux split-window -h")
-        TestStep.wait(seconds: 3)
+        // Capture pane IDs after each split. The macOS app's "New Terminal" path
+        // doesn't pass `-f /dev/null`, so window/pane indices follow the user's
+        // tmux config (e.g., base-index 1) and `terminal:0.0` would not exist.
+        // Pane IDs (`%N`) are stable regardless of base-index. Splits go through
+        // the orchestrator's tmux (also `-f /dev/null`) for the same reason.
+        TestStep.tmuxStorePaneId(target: "terminal", storeAs: "termPane0")
+        Shortcut.tmuxClearAndSetPrompt(target: "${termPane0}")
 
-        Shortcut.tmuxRunCommand(target: "terminal:0.1", command: "tmux split-window -v")
+        TestStep.tmuxCommand(arguments: ["split-window", "-h", "-t", "${termPane0}"])
         TestStep.wait(seconds: 3)
+        // After split-window, the new pane becomes active.
+        TestStep.tmuxStorePaneId(target: "terminal", storeAs: "termPane1")
+        Shortcut.tmuxClearAndSetPrompt(target: "${termPane1}")
+
+        TestStep.tmuxCommand(arguments: ["split-window", "-v", "-t", "${termPane1}"])
+        TestStep.wait(seconds: 3)
+        TestStep.tmuxStorePaneId(target: "terminal", storeAs: "termPane2")
+        Shortcut.tmuxClearAndSetPrompt(target: "${termPane2}")
         TestStep.macScreenshot(label: "mac-three-panes-new-session")
 
-        Shortcut.tmuxRunCommand(target: "terminal:0.2", command: "exit")
+        Shortcut.tmuxRunCommand(target: "${termPane2}", command: "exit")
         TestStep.wait(seconds: 3)
 
-        Shortcut.tmuxRunCommand(target: "terminal:0.1", command: "exit")
+        Shortcut.tmuxRunCommand(target: "${termPane1}", command: "exit")
         TestStep.wait(seconds: 3)
 
-        Shortcut.tmuxRunCommand(target: "terminal:0.0", command: "echo 'Still here'")
+        Shortcut.tmuxRunCommand(target: "${termPane0}", command: "echo 'Still here'")
         TestStep.wait(seconds: 3)
         TestStep.macScreenshot(label: "mac-last-should-have-echo")
     }

@@ -49,6 +49,12 @@ struct SplitPaneCommand: ParsableCommand {
     @Option(name: .long, help: "Working directory for the new pane (defaults to $HOME)")
     var path: String?
 
+    @Option(
+        name: .long,
+        help: "Run this command/shell as the new pane's process instead of the default shell."
+    )
+    var shell: String?
+
     @OptionGroup var options: GlobalOptions
 
     func run() throws {
@@ -57,6 +63,7 @@ struct SplitPaneCommand: ParsableCommand {
             params["pane_id"] = .string(pane)
         }
         if let path { params["path"] = .string(path) }
+        if let shell { params["shell"] = .string(shell) }
         let response = try executeRequest(method: "pane.split", params: params, options: options)
         if options.json {
             printResponse(response, json: true)
@@ -86,5 +93,42 @@ struct SelectPaneCommand: ParsableCommand {
             options: options
         )
         printResponse(response, json: options.json)
+    }
+}
+
+struct CapturePaneCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "capture-pane",
+        abstract: "Print recent pane output as plain text",
+        discussion: """
+        Surfaces `tmux capture-pane -p` for scripts that want to read pane content
+        (grep a build log, assert on a test output, wait for a specific line).
+        Without --pane, defaults to the calling pane via $TMUX_PANE.
+        """
+    )
+
+    @Flag(name: .long, help: "Include the entire scrollback history, not just the visible region")
+    var scrollback = false
+
+    @OptionGroup var options: GlobalOptions
+
+    func run() throws {
+        var params: [String: JSONValue] = [:]
+        if let pane = options.pane ?? options.callingPaneId {
+            params["pane_id"] = .string(pane)
+        }
+        if scrollback {
+            params["scrollback"] = .bool(true)
+        }
+        let response = try executeRequest(method: "pane.capture", params: params, options: options)
+        if options.json {
+            printResponse(response, json: true)
+        } else if
+            let result = response.result,
+            case let .string(content) = result["content"] {
+            // Print without an extra trailing newline — tmux's capture-pane
+            // already includes one per visible row.
+            print(content, terminator: "")
+        }
     }
 }

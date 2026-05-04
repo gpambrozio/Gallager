@@ -8,6 +8,8 @@ public extension HookAction {
         switch self {
         case .sessionStart:
             .playFill
+        case .setup:
+            .gearshapeFill
         case .sessionEnd:
             .stopFill
         case .preToolUse,
@@ -68,6 +70,8 @@ public extension HookAction {
         switch self {
         case .sessionStart:
             .green
+        case .setup:
+            .teal
         case .sessionEnd:
             .red
         case .preToolUse,

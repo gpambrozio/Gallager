@@ -1,0 +1,39 @@
+apiVersion: grizzly.grafana.com/v1alpha1
+kind: AlertRuleGroup
+metadata:
+  folder: ClaudeSpy
+  name: host-oom-kill
+spec:
+  title: host-oom-kill
+  interval: 1m
+  rules:
+    - uid: host-oom-kill
+      title: Kernel OOM killer fired
+      condition: B
+      data:
+        - refId: A
+          relativeTimeRange: { from: 300, to: 0 }
+          datasourceUid: grafanacloud-prom
+          model:
+            # Counts OOM kills in the last 5 minutes. node_vmstat_oom_kill is a
+            # monotonic counter, so increase() returns the delta.
+            expr: increase(node_vmstat_oom_kill{instance="hetzner-1"}[5m])
+            instant: true
+            refId: A
+        - refId: B
+          datasourceUid: __expr__
+          model:
+            type: threshold
+            refId: B
+            expression: A
+            conditions:
+              - evaluator: { type: gt, params: [0] }
+                operator: { type: and }
+      noDataState: NoData
+      execErrState: Error
+      for: 0s
+      annotations:
+        summary: "Kernel OOM killer fired on the relay host"
+        description: "A process was killed by the kernel for exceeding memory. This usually correlates with /health timeouts and SSH banner stalls. Identify the victim with `journalctl -k --since '15 min ago' | grep -i oom`. If a container is in a restart loop, apply a `--memory` cgroup limit to contain blast radius."
+      labels:
+        severity: critical

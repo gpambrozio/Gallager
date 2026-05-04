@@ -215,7 +215,8 @@ final public class MirrorWindowManager {
                 // If auto-approve fails, fall through to normal flow
             }
 
-        case .permissionRequest,
+        case .setup,
+             .permissionRequest,
              .preToolUse,
              .postToolUse,
              .postToolUseFailure,
@@ -252,6 +253,20 @@ final public class MirrorWindowManager {
     ///   - title: The new terminal title
     public func updateTerminalTitle(paneId: String, title: String) {
         paneStates[paneId]?.terminalTitle = title
+    }
+
+    /// Updates the `OSC 9;4` progress signal for a pane. `.removed` clears it.
+    /// Returns `true` if the stored value actually changed; the caller can use
+    /// that to decide whether to push session state to viewers.
+    @discardableResult
+    public func setPaneProgress(_ progress: TerminalProgressState, for paneId: String) -> Bool {
+        guard paneStates[paneId] != nil else { return false }
+        let normalized: TerminalProgressState? = progress == .removed ? nil : progress
+        if paneStates[paneId]?.progress == normalized {
+            return false
+        }
+        paneStates[paneId]?.progress = normalized
+        return true
     }
 
     /// Set of pane IDs that have active Claude sessions
@@ -363,6 +378,32 @@ final public class MirrorWindowManager {
         }
         Task { [tmuxService] in
             try? await tmuxService.setSessionDescription(normalizedDescription, for: sessionName)
+            await onDescriptionChanged?()
+        }
+    }
+
+    // MARK: - Session Colors
+
+    /// Sets a custom color for a session, applied to every pane so it survives
+    /// switching windows. Persisted as a tmux user option (see `TmuxService`).
+    /// - Parameters:
+    ///   - color: The color, or nil to clear
+    ///   - sessionName: The tmux session name
+    public func setSessionColor(_ color: SessionColor?, for sessionName: String) {
+        // Optimistic local update for immediate UI feedback; tmux remains the source
+        // of truth and the next refresh reconciles from it.
+        for (paneId, state) in paneStates where state.sessionName == sessionName {
+            paneStates[paneId]?.customColor = color
+        }
+        Task { [tmuxService, logger] in
+            do {
+                try await tmuxService.setSessionColor(color, for: sessionName)
+            } catch {
+                logger.warning("Failed to persist session color", metadata: [
+                    "session": "\(sessionName)",
+                    "error": "\(error)",
+                ])
+            }
             await onDescriptionChanged?()
         }
     }

@@ -122,7 +122,8 @@ public struct ClaudeSession: Codable, Sendable {
              .stopFailure,
              .elicitation:
             handledUpToEventId = latest.id
-        case .sessionEnd,
+        case .setup,
+             .sessionEnd,
              .preToolUse,
              .postToolUse,
              .postToolUseFailure,
@@ -196,6 +197,7 @@ public struct HookEvent: Identifiable, Codable, Sendable, Equatable {
              .stopFailure:
             return false
         case .sessionStart,
+             .setup,
              .sessionEnd,
              .notification,
              .teammateIdle,
@@ -241,7 +243,9 @@ public struct CommonHookFields: HookBodyProtocol {
     public let timestamp: String?
     public let agentId: String?
     public let agentType: String?
-    public var shouldSendToServer: Bool { true }
+    public var shouldSendToServer: Bool {
+        true
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -263,7 +267,9 @@ public struct SessionStartBody: HookBodyProtocol {
     public let hookEventName: String
     public let timestamp: String?
     public let source: String?
-    public var shouldSendToServer: Bool { true }
+    public var shouldSendToServer: Bool {
+        true
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -291,6 +297,72 @@ public struct SessionStartBody: HookBodyProtocol {
     }
 }
 
+public enum SetupTrigger: Codable, Sendable, Equatable {
+    case `init`
+    case maintenance
+    case unknown(String)
+
+    public var rawValue: String {
+        switch self {
+        case .`init`: "init"
+        case .maintenance: "maintenance"
+        case let .unknown(raw): raw
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        switch raw {
+        case "init": self = .`init`
+        case "maintenance": self = .maintenance
+        default: self = .unknown(raw)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+
+public struct SetupBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public let trigger: SetupTrigger
+    public var shouldSendToServer: Bool {
+        false
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+        case trigger
+    }
+
+    public init(
+        sessionId: String,
+        transcriptPath: String? = nil,
+        cwd: String? = nil,
+        hookEventName: String,
+        timestamp: String? = nil,
+        trigger: SetupTrigger
+    ) {
+        self.sessionId = sessionId
+        self.transcriptPath = transcriptPath
+        self.cwd = cwd
+        self.hookEventName = hookEventName
+        self.timestamp = timestamp
+        self.trigger = trigger
+    }
+}
+
 public struct PreToolUseBody: HookBodyProtocol {
     public let sessionId: String
     public let transcriptPath: String?
@@ -299,7 +371,9 @@ public struct PreToolUseBody: HookBodyProtocol {
     public let timestamp: String?
     public let toolName: String?
     public let toolInput: ClaudeCodeTool?
-    public var shouldSendToServer: Bool { true }
+    public var shouldSendToServer: Bool {
+        true
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -372,7 +446,9 @@ public struct SessionEndBody: HookBodyProtocol {
     public let hookEventName: String
     public let timestamp: String?
     public let reason: SessionEndReason?
-    public var shouldSendToServer: Bool { true }
+    public var shouldSendToServer: Bool {
+        true
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -410,7 +486,9 @@ public struct PermissionRequestBody: HookBodyProtocol {
     public let toolInput: ClaudeCodeTool?
     public let permissionSuggestions: [PermissionSuggestion]?
     public let timestamp: String?
-    public var shouldSendToServer: Bool { true }
+    public var shouldSendToServer: Bool {
+        true
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -477,7 +555,9 @@ public struct PermissionDeniedBody: HookBodyProtocol {
     public let toolName: String?
     public let toolInput: ClaudeCodeTool?
     public let reason: String
-    public var shouldSendToServer: Bool { true }
+    public var shouldSendToServer: Bool {
+        true
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -541,7 +621,9 @@ public struct PostToolUseBody: HookBodyProtocol {
     public let toolInput: ClaudeCodeTool?
     public let toolResponse: AnyCodable?
     public let toolUseId: String?
-    public var shouldSendToServer: Bool { true }
+    public var shouldSendToServer: Bool {
+        true
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -607,7 +689,9 @@ public struct UserPromptSubmitBody: HookBodyProtocol {
     public let hookEventName: String
     public let timestamp: String?
     public let prompt: String?
-    public var shouldSendToServer: Bool { true }
+    public var shouldSendToServer: Bool {
+        true
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -627,7 +711,9 @@ public struct StopBody: HookBodyProtocol {
     public let timestamp: String?
     public let stopHookActive: Bool?
     public let lastAssistantMessage: String?
-    public var shouldSendToServer: Bool { true }
+    public var shouldSendToServer: Bool {
+        true
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -665,7 +751,9 @@ public struct SubagentStopBody: HookBodyProtocol {
     public let hookEventName: String
     public let timestamp: String?
     public let stopHookActive: Bool?
-    public var shouldSendToServer: Bool { false }
+    public var shouldSendToServer: Bool {
+        false
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -688,7 +776,9 @@ public struct PostToolUseFailureBody: HookBodyProtocol {
     public let toolUseId: String?
     public let error: String?
     public let isInterrupt: Bool?
-    public var shouldSendToServer: Bool { false }
+    public var shouldSendToServer: Bool {
+        false
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -734,7 +824,9 @@ public struct SubagentStartBody: HookBodyProtocol {
     public let timestamp: String?
     public let agentId: String?
     public let agentType: String?
-    public var shouldSendToServer: Bool { false }
+    public var shouldSendToServer: Bool {
+        false
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -755,7 +847,9 @@ public struct TeammateIdleBody: HookBodyProtocol {
     public let timestamp: String?
     public let teammateName: String?
     public let teamName: String?
-    public var shouldSendToServer: Bool { true }
+    public var shouldSendToServer: Bool {
+        true
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -779,7 +873,9 @@ public struct TaskCompletedBody: HookBodyProtocol {
     public let taskDescription: String?
     public let teammateName: String?
     public let teamName: String?
-    public var shouldSendToServer: Bool { true }
+    public var shouldSendToServer: Bool {
+        true
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -803,7 +899,9 @@ public struct PreCompactBody: HookBodyProtocol {
     public let timestamp: String?
     public let trigger: String?
     public let customInstructions: String?
-    public var shouldSendToServer: Bool { false }
+    public var shouldSendToServer: Bool {
+        false
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -823,7 +921,9 @@ public struct PostCompactBody: HookBodyProtocol {
     public let hookEventName: String
     public let timestamp: String?
     public let trigger: String?
-    public var shouldSendToServer: Bool { false }
+    public var shouldSendToServer: Bool {
+        false
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -842,7 +942,9 @@ public struct InstructionsLoadedBody: HookBodyProtocol {
     public let hookEventName: String
     public let timestamp: String?
     public let source: String?
-    public var shouldSendToServer: Bool { false }
+    public var shouldSendToServer: Bool {
+        false
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -861,7 +963,9 @@ public struct StopFailureBody: HookBodyProtocol {
     public let hookEventName: String
     public let timestamp: String?
     public let errorType: String?
-    public var shouldSendToServer: Bool { true }
+    public var shouldSendToServer: Bool {
+        true
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -880,7 +984,9 @@ public struct ConfigChangeBody: HookBodyProtocol {
     public let hookEventName: String
     public let timestamp: String?
     public let configType: String?
-    public var shouldSendToServer: Bool { false }
+    public var shouldSendToServer: Bool {
+        false
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -900,7 +1006,9 @@ public struct CwdChangedBody: HookBodyProtocol {
     public let timestamp: String?
     public let oldCwd: String?
     public let newCwd: String?
-    public var shouldSendToServer: Bool { false }
+    public var shouldSendToServer: Bool {
+        false
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -921,7 +1029,9 @@ public struct FileChangedBody: HookBodyProtocol {
     public let timestamp: String?
     public let filePath: String?
     public let fileBasename: String?
-    public var shouldSendToServer: Bool { false }
+    public var shouldSendToServer: Bool {
+        false
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -941,7 +1051,9 @@ public struct ElicitationBody: HookBodyProtocol {
     public let hookEventName: String
     public let timestamp: String?
     public let mcpServerName: String?
-    public var shouldSendToServer: Bool { false }
+    public var shouldSendToServer: Bool {
+        false
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -960,7 +1072,9 @@ public struct ElicitationResultBody: HookBodyProtocol {
     public let hookEventName: String
     public let timestamp: String?
     public let mcpServerName: String?
-    public var shouldSendToServer: Bool { false }
+    public var shouldSendToServer: Bool {
+        false
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -979,7 +1093,9 @@ public struct WorktreeCreateBody: HookBodyProtocol {
     public let hookEventName: String
     public let timestamp: String?
     public let worktreePath: String?
-    public var shouldSendToServer: Bool { false }
+    public var shouldSendToServer: Bool {
+        false
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -998,7 +1114,9 @@ public struct WorktreeRemoveBody: HookBodyProtocol {
     public let hookEventName: String
     public let timestamp: String?
     public let worktreePath: String?
-    public var shouldSendToServer: Bool { false }
+    public var shouldSendToServer: Bool {
+        false
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -1021,7 +1139,9 @@ public struct TaskCreatedBody: HookBodyProtocol {
     public let taskDescription: String?
     public let teammateName: String?
     public let teamName: String?
-    public var shouldSendToServer: Bool { true }
+    public var shouldSendToServer: Bool {
+        true
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -1048,7 +1168,9 @@ public struct UserPromptExpansionBody: HookBodyProtocol {
     public let commandArgs: String?
     public let commandSource: String?
     public let prompt: String?
-    public var shouldSendToServer: Bool { true }
+    public var shouldSendToServer: Bool {
+        true
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -1070,7 +1192,9 @@ public struct PostToolBatchBody: HookBodyProtocol {
     public let cwd: String?
     public let hookEventName: String
     public let timestamp: String?
-    public var shouldSendToServer: Bool { false }
+    public var shouldSendToServer: Bool {
+        false
+    }
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -1257,6 +1381,7 @@ public struct PermissionRule: Codable, Sendable {
 
 public enum HookAction: Codable, Sendable {
     case sessionStart(SessionStartBody)
+    case setup(SetupBody)
     case preToolUse(PreToolUseBody)
     case postToolUse(PostToolUseBody)
     case postToolUseFailure(PostToolUseFailureBody)
@@ -1293,6 +1418,7 @@ public enum HookAction: Codable, Sendable {
 
     private enum ActionType: String, Codable {
         case sessionStart
+        case setup
         case preToolUse
         case postToolUse
         case postToolUseFailure
@@ -1331,6 +1457,9 @@ public enum HookAction: Codable, Sendable {
         case .sessionStart:
             let body = try container.decode(SessionStartBody.self, forKey: .body)
             self = .sessionStart(body)
+        case .setup:
+            let body = try container.decode(SetupBody.self, forKey: .body)
+            self = .setup(body)
         case .preToolUse:
             let body = try container.decode(PreToolUseBody.self, forKey: .body)
             self = .preToolUse(body)
@@ -1425,6 +1554,9 @@ public enum HookAction: Codable, Sendable {
         case let .sessionStart(body):
             try container.encode(ActionType.sessionStart, forKey: .type)
             try container.encode(body, forKey: .body)
+        case let .setup(body):
+            try container.encode(ActionType.setup, forKey: .type)
+            try container.encode(body, forKey: .body)
         case let .preToolUse(body):
             try container.encode(ActionType.preToolUse, forKey: .type)
             try container.encode(body, forKey: .body)
@@ -1516,6 +1648,7 @@ public enum HookAction: Codable, Sendable {
     public var body: any HookBodyProtocol {
         switch self {
         case let .sessionStart(body): body
+        case let .setup(body): body
         case let .preToolUse(body): body
         case let .postToolUse(body): body
         case let .postToolUseFailure(body): body
@@ -1570,6 +1703,8 @@ public enum HookAction: Codable, Sendable {
         switch self {
         case .sessionStart:
             "Session Started"
+        case let .setup(body):
+            "Setup (\(body.trigger.rawValue))"
         case .sessionEnd:
             "Session Ended"
         case let .preToolUse(body):
@@ -1634,6 +1769,8 @@ public enum HookAction: Codable, Sendable {
         switch self {
         case let .sessionStart(body):
             body.cwd ?? body.source
+        case let .setup(body):
+            body.cwd ?? body.trigger.rawValue
         case .sessionEnd:
             nil
         case let .preToolUse(body):
@@ -1703,6 +1840,9 @@ public enum HookAction: Codable, Sendable {
         case "SessionStart":
             let body = try decoder.decode(SessionStartBody.self, from: jsonData)
             return .sessionStart(body)
+        case "Setup":
+            let body = try decoder.decode(SetupBody.self, from: jsonData)
+            return .setup(body)
         case "PreToolUse":
             let body = try decoder.decode(PreToolUseBody.self, from: jsonData)
             return .preToolUse(body)

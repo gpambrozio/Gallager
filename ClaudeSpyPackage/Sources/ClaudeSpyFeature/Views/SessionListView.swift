@@ -14,6 +14,7 @@
     /// View displaying a list of active Claude sessions and terminals from all paired hosts.
     struct SessionListView: View {
         @Binding var navigationPath: NavigationPath
+        let onOpenSettings: () -> Void
 
         @Environment(SessionStore.self) private var sessionStore
         @Environment(ViewerConnectionManager.self) private var connectionManager
@@ -46,6 +47,14 @@
                 }
             }
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        onOpenSettings()
+                    } label: {
+                        Symbols.gearshape.image
+                    }
+                    .accessibilityLabel("Settings")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     overallConnectionStatusView
                 }
@@ -90,6 +99,12 @@
                         onSetDescription: { sessionName, description in
                             Task {
                                 let command = SetSessionDescription(sessionName: sessionName, description: description)
+                                _ = await connectionManager.sendCommand(command, paneId: "", hostId: host.id)
+                            }
+                        },
+                        onSetColor: { sessionName, color in
+                            Task {
+                                let command = SetSessionColor(sessionName: sessionName, color: color)
                                 _ = await connectionManager.sendCommand(command, paneId: "", hostId: host.id)
                             }
                         }
@@ -215,6 +230,7 @@
         var showUsername = false
         let onNewSession: () -> Void
         var onSetDescription: (String, String?) -> Void = { _, _ in }
+        var onSetColor: (String, SessionColor?) -> Void = { _, _ in }
 
         @Environment(SessionStore.self) private var sessionStore
 
@@ -277,19 +293,50 @@
             let claudePaneInSession = session.windows.flatMap(\.panes).first(where: { $0.claudeSession != nil })
             // CLI-driven state override propagated from the host, if any pane has one set.
             let cliSessionState = session.windows.flatMap(\.panes).compactMap(\.cliSessionState).first
+            // Latest `OSC 9;4` progress from any pane in this session, propagated by the host.
+            let sessionProgress = session.windows.flatMap(\.panes).compactMap(\.progress).first
 
             NavigationLink(value: SessionNavigation(sessionName: session.sessionName, hostId: host.id)) {
-                if let claudePane = claudePaneInSession, let claudeSession = claudePane.claudeSession {
-                    SessionRowView(
-                        paneId: claudePane.paneId,
-                        session: claudeSession,
-                        cliSessionState: cliSessionState,
-                        isActive: sessionStore.isPaneActive(paneId: claudePane.paneId, hostId: host.id),
-                        customDescription: session.customDescription,
-                        windowCount: session.windows.count
-                    )
-                } else if let pane = activePaneInSession {
-                    TerminalRowView(pane: pane, windowCount: session.windows.count)
+                VStack(spacing: 0) {
+                    if let claudePane = claudePaneInSession, let claudeSession = claudePane.claudeSession {
+                        SessionRowView(
+                            paneId: claudePane.paneId,
+                            session: claudeSession,
+                            cliSessionState: cliSessionState,
+                            isActive: sessionStore.isPaneActive(paneId: claudePane.paneId, hostId: host.id),
+                            customDescription: session.customDescription,
+                            windowCount: session.windows.count
+                        )
+                    } else if let pane = activePaneInSession {
+                        TerminalRowView(pane: pane, windowCount: session.windows.count)
+                    }
+                }
+                // The visual progress bar is rendered as an .overlay outside
+                // the NavigationLink (below) so the cell stays compact, but
+                // overlays sit outside the row's combined Button AX element.
+                // Mirror the bar's label/value into the button via an
+                // invisible label so e2e queries (and VoiceOver) can find it.
+                .overlay {
+                    if let sessionProgress {
+                        Text("Terminal progress \(sessionProgress.accessibilityValueString)")
+                            .accessibilityLabel("Terminal progress")
+                            .accessibilityValue(sessionProgress.accessibilityValueString)
+                            .font(.system(size: 1))
+                            .opacity(0)
+                    }
+                }
+            }
+            .padding(.leading, 16)
+            .padding(.bottom, 16)
+            .overlay(alignment: .leading) {
+                SessionColorBar(color: session.customColor)
+                    .padding(.top, -8)
+                    .padding(.bottom, 8)
+            }
+            .overlay(alignment: .bottom) {
+                if let sessionProgress {
+                    TerminalProgressBar(state: sessionProgress)
+                        .padding(.leading, 16)
                 }
             }
             .accessibilityValue(cliSessionState?.statusLabel ?? claudePaneInSession?.claudeSession?.statusLabel ?? "")
@@ -297,8 +344,19 @@
                 sessionName: session.sessionName,
                 currentDescription: session.customDescription,
                 isDisabled: connection?.isHostConnected != true,
-                onSetDescription: onSetDescription
+                onSetDescription: onSetDescription,
+                additionalMenu: {
+                    ColorContextMenuButtons(
+                        currentColor: session.customColor,
+                        isDisabled: connection?.isHostConnected != true
+                    ) { newColor in
+                        onSetColor(session.sessionName, newColor)
+                    }
+                }
             ))
+            .listRowInsets(
+                EdgeInsets(top: 15, leading: 0, bottom: 0, trailing: 16)
+            )
         }
     }
 
@@ -522,6 +580,8 @@
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
+
+                Spacer()
             }
             .padding(.vertical, 4)
         }
@@ -616,6 +676,8 @@
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
+
+                Spacer()
             }
             .padding(.vertical, 4)
         }
@@ -755,6 +817,92 @@
                 }
             }
             .presentationDetents([.medium, .large])
+        }
+    }
+
+    // MARK: - Preview
+
+    #Preview("Session List") {
+        SessionListPreview()
+    }
+
+    @MainActor
+    private struct SessionListPreview: View {
+        @State private var navigationPath = NavigationPath()
+        @State private var sessionStore = SessionStore()
+        @State private var settings = IOSSettings()
+        @State private var connectionManager: ViewerConnectionManager?
+
+        private let host = PairedHost(
+            id: "preview-host",
+            hostName: "Preview Mac",
+            username: "preview",
+            partnerPublicKey: "",
+            partnerPublicKeyId: ""
+        )
+
+        var body: some View {
+            Group {
+                if let connectionManager {
+                    NavigationStack(path: $navigationPath) {
+                        SessionListView(navigationPath: $navigationPath, onOpenSettings: { })
+                            .environment(sessionStore)
+                            .environment(connectionManager)
+                            .environment(settings)
+                    }
+                } else {
+                    ProgressView()
+                }
+            }
+            .task {
+                settings.addPairing(host)
+
+                let panes: [String: PaneState] = [
+                    "%1": PaneState(
+                        paneId: "%1",
+                        target: "alpha:0.0",
+                        sessionName: "alpha",
+                        currentPath: "/Users/preview/AlphaProject",
+                        isActive: true,
+                        isWindowActive: true,
+                        customColor: .blue,
+                        claudeSession: ClaudeSession(
+                            paneId: "%1",
+                            detectedProjectPath: "/Users/preview/AlphaProject"
+                        )
+                    ),
+                    "%2": PaneState(
+                        paneId: "%2",
+                        target: "bravo:0.0",
+                        sessionName: "bravo",
+                        currentPath: "/Users/preview/BravoProject",
+                        isActive: true,
+                        isWindowActive: true,
+                        customColor: .red,
+                        claudeSession: ClaudeSession(
+                            paneId: "%2",
+                            detectedProjectPath: "/Users/preview/BravoProject"
+                        ),
+                        progress: .normal(50)
+                    ),
+                    "%3": PaneState(
+                        paneId: "%3",
+                        target: "scratch:0.0",
+                        sessionName: "scratch",
+                        command: "zsh",
+                        currentPath: "/Users/preview",
+                        isActive: true,
+                        isWindowActive: true
+                    ),
+                ]
+                sessionStore.handleStateUpdate(SessionStateMessage(
+                    pairId: host.id,
+                    paneStates: panes,
+                    homeDirectory: "/Users/preview"
+                ))
+
+                connectionManager = try? await ViewerConnectionManager()
+            }
         }
     }
 #endif

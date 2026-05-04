@@ -14,15 +14,19 @@ struct GallagerCLI: ParsableCommand {
             CurrentSessionCommand.self,
             CloseSessionCommand.self,
             SessionStateCommand.self,
+            SetTitleCommand.self,
+            SetColorCommand.self,
             // Windows
             ListWindowsCommand.self,
             NewWindowCommand.self,
             SelectWindowCommand.self,
+            RenameWindowCommand.self,
             CloseWindowCommand.self,
             // Panes
             ListPanesCommand.self,
             SplitPaneCommand.self,
             SelectPaneCommand.self,
+            CapturePaneCommand.self,
             // Input
             SendCommand.self,
             SendKeyCommand.self,
@@ -33,8 +37,11 @@ struct GallagerCLI: ParsableCommand {
             // Projects
             ListProjectsCommand.self,
             StartProjectCommand.self,
+            // Layouts
+            ApplyCommand.self,
             // Utility
             PingCommand.self,
+            WaitReadyCommand.self,
             CapabilitiesCommand.self,
             IdentifyCommand.self,
         ]

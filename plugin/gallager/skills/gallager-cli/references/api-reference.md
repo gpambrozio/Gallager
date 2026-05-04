@@ -59,9 +59,45 @@ Newline-delimited JSON-RPC over `AF_UNIX, SOCK_STREAM`. Each message is a single
 - Params: _(none)_
 - Result: `{ "sessions": [{ "id", "name", "windowCount", "isAttached" }, …] }`
 
-### `session.create` — `gallager new-session [--name] [--path]`
-- Params: `{ "name"?: string, "path"?: string }`
-- Result: `{ "id", "name", "windowCount", "isAttached" }`
+### `session.create` — `gallager new-session [--name] [--path] [--title] [--color] [--if-missing]`
+- Params: `{ "name"?: string, "path"?: string, "title"?: string, "color"?: string, "if_missing"?: bool }`
+- Result: `{ "id", "name", "windowCount", "isAttached", "created" }`
+- When `if_missing` is true and a session with `name` already exists, the
+  existing session info is returned with `created: false` instead of
+  auto-suffixing the name. Otherwise `created: true`. Requires `name` when
+  `if_missing` is set.
+- `title` (when present) sets the sidebar `@gallager-description` for the
+  resulting session — handy for one-shot scripts that don't want a follow-up
+  `session.set_title` call.
+- `color` (when present) sets the sidebar dot via `@gallager-color`. Accepts
+  the same names as `session.set_color` (`red`, `orange`, `yellow`, `green`,
+  `blue`, `purple`, `pink`, `gray`, plus the `violet`/`magenta`/`grey`
+  aliases). Unknown names return `invalid_params`.
+
+### `session.set_title` — `gallager set-title <text> [--session]`
+Writes the sidebar title (`@gallager-description` tmux user option). Always
+applies at session scope — every window in the session shows the same
+title. Pass `title: ""` (or omit it) to clear. To rename the tab label of a
+single window, use `window.set_name` instead.
+- Params: `{ "title"?: string, "session_id"?: string, "pane_id"?: string }`
+- Result: `{}`
+- The CLI sends `pane_id` from `$TMUX_PANE` automatically when no
+  `--session` flag is given; the server resolves it to the calling pane's
+  session and applies the title there.
+- Errors: `not_found` when the named session doesn't exist or no target can
+  be resolved (e.g. invoked outside an attached session with no targeting
+  flag).
+
+### `session.set_color` — `gallager set-color <color> [--session]`
+Writes the sidebar dot color (`@gallager-color` tmux user option). Same
+session-only targeting rules as `session.set_title`. Pass `color: ""` (or
+`none` from the CLI) to clear.
+- Params: `{ "color": string, "session_id"?: string, "pane_id"?: string }`
+- Result: `{}`
+- Errors: `invalid_params` for an unrecognised color name; `not_found` when
+  the target doesn't resolve. Valid colors: `red`, `orange`, `yellow`,
+  `green`, `blue`, `purple`, `pink`, `gray` (aliases: `violet`/`magenta`/
+  `grey`).
 
 ### `session.select` — `gallager select-session <id>`
 - Params: `{ "session_id": string }`
@@ -96,17 +132,28 @@ Newline-delimited JSON-RPC over `AF_UNIX, SOCK_STREAM`. Each message is a single
   from `$TMUX_PANE` automatically when neither `--session` nor `--pane` is
   passed, so the listing defaults to the calling pane's session.
 
-### `window.create` — `gallager new-window [--session] [--path]`
-- Params: `{ "session_id"?: string, "path"?: string, "pane_id"?: string }`
+### `window.create` — `gallager new-window [--session] [--path] [--name]`
+- Params: `{ "session_id"?: string, "path"?: string, "pane_id"?: string, "name"?: string }`
 - Result: `{ "id", "index", "name", "paneCount", "isActive", "sessionId" }`
 - When `session_id` is omitted but `pane_id` is provided, the new window is
   created in the pane's session. The CLI sends `pane_id` from `$TMUX_PANE`
   automatically when neither `--session` nor `--pane` is passed, so the new
   window lands in the calling pane's session.
+- `name` (when present) sets the tmux window name (the tab label) at
+  creation time. When omitted, the daemon auto-generates `terminal N`.
 
 ### `window.select` — `gallager select-window <id>`
 - Params: `{ "window_id": string }`
 - Result: `{}`
+
+### `window.set_name` — `gallager rename-window <id> <name>`
+Renames a tmux window via `tmux rename-window`. Setting the name also
+disables tmux's automatic-rename for that window so the tab stops tracking
+the running command. The only window-scoped CLI mutation; for the
+session-wide sidebar title use `session.set_title` instead.
+- Params: `{ "window_id": string, "name": string }`
+- Result: `{}`
+- Errors: `invalid_params` when `name` is empty or whitespace.
 
 ### `window.close` — `gallager close-window <id>`
 - Params: `{ "window_id": string }`
@@ -142,11 +189,23 @@ Newline-delimited JSON-RPC over `AF_UNIX, SOCK_STREAM`. Each message is a single
 - Params: `{ "pane_id": string }`
 - Result: `{}`
 
+### `pane.capture` — `gallager capture-pane [--pane] [--scrollback]`
+Returns the visible buffer of a pane as plain text — the same content as
+`tmux capture-pane -p`. With `--scrollback` (`-S -`), the entire history is
+included. Useful for grepping pane output without leaving the calling shell.
+- Params: `{ "pane_id"?: string, "scrollback"?: bool }`
+- Result: `{ "text": string }`
+- The CLI fills `pane_id` from `$TMUX_PANE` when no targeting flag is given,
+  so the capture defaults to the calling pane.
+
 ## Input
 
-### `input.send_text` — `gallager send <text> [--pane]`
-Sends text verbatim — include `\n` in the text for Enter.
-- Params: `{ "text": string, "pane_id"?: string }`
+### `input.send_text` — `gallager send <text> [--pane] [--enter]`
+Sends text verbatim. Pass `--enter` (or `enter: true`) to append a real
+Enter keypress after the text — equivalent to following the call with
+`input.send_key { key: "enter" }`. Without `--enter`, include `\n` in the
+text yourself if you need a newline.
+- Params: `{ "text": string, "pane_id"?: string, "enter"?: bool }`
 - Result: `{}`
 - The CLI fills `pane_id` from `$TMUX_PANE` when no targeting flag is given,
   so input goes to the calling pane.
@@ -195,9 +254,14 @@ Creates a new tmux session whose working directory is the given project path and
 
 ## System / utility
 
-### `system.ping` — `gallager ping`
+### `system.ping` — `gallager ping` / `gallager wait-ready`
 - Params: _(none)_
 - Result: `{ "pong": true }`
+- `wait-ready --timeout <seconds> --interval <seconds>` (CLI-only convenience)
+  retries `system.ping` until success or the timeout elapses, exiting
+  non-zero on timeout. Use it as a gate at the top of scripts that auto-launch
+  the app instead of sleeping for a fixed duration. Defaults: 30s timeout,
+  0.5s interval.
 
 ### `system.capabilities` — `gallager capabilities`
 - Params: _(none)_

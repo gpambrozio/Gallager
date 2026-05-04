@@ -345,6 +345,11 @@
         /// Used in multi-pane layouts where multiple terminals share one window.
         var autoFocusEnabled = true
 
+        /// Fires whenever this view becomes the window's first responder
+        /// (mouse click, programmatic, tabbing). Used to propagate focus back
+        /// to tmux via `select-pane` so external clients see the same active pane.
+        var onBecomeFirstResponder: (@MainActor () -> Void)?
+
         var preserveUserScroll = false
         var onResize: ((NSSize) -> Void)?
 
@@ -486,6 +491,7 @@
             // the caret draws as a hollow rectangle since TerminalView itself never
             // becomes first responder.
             terminalView.hasFocus = true
+            onBecomeFirstResponder?()
             return super.becomeFirstResponder()
         }
 
@@ -929,6 +935,13 @@
             // Don't intercept keys when the prompt editor overlay is active
             guard !isEditorActive else { return false }
 
+            // performKeyEquivalent is dispatched depth-first across every view in
+            // the window — not just the first responder — and the first view that
+            // returns true consumes the event. In a multi-pane layout, that means
+            // any sibling pane could claim Cmd+V or Cmd+C and route input to the
+            // wrong tmux target. Only act when this pane actually has focus.
+            guard isFocused else { return false }
+
             guard event.modifierFlags.contains(.command) else {
                 return false
             }
@@ -967,6 +980,24 @@
 
         override func keyDown(with event: NSEvent) {
             guard !isEditorActive else { return }
+
+            // SwiftTerm's legacy keyDown path dispatches both Enter and
+            // Shift+Enter through `insertNewline:`, collapsing the modifier
+            // to plain `\r`. SwiftTerm only preserves the modifier when the
+            // inner app pushes kitty mode, which can't happen here because
+            // the inner app talks to tmux's PTY, not directly to SwiftTerm.
+            // Intercept and route as `.shiftEnter` so tmux delivers the
+            // proper extended-key sequence to the pane.
+            let returnChars: Set = ["\r", "\u{3}"]
+            if let chars = event.charactersIgnoringModifiers, returnChars.contains(chars) {
+                let activeModifiers = event.modifierFlags
+                    .intersection([.shift, .control, .option, .command])
+                if activeModifiers == .shift {
+                    onInput?([.shiftEnter])
+                    return
+                }
+            }
+
             terminalView.keyDown(with: event)
         }
 

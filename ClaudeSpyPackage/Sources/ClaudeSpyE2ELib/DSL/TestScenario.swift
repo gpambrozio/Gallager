@@ -58,6 +58,9 @@ public enum TestStep: Sendable {
     case iosWaitForElement(ElementQuery, timeout: TimeInterval = 10)
     /// Tap an iOS UI element
     case iosTap(ElementQuery)
+    /// Long-press an iOS element to open SwiftUI context menus. Default
+    /// duration matches the system's long-press threshold with margin.
+    case iosLongPress(ElementQuery, duration: TimeInterval = 1)
     /// Tap at raw iOS coordinates
     case iosTapCoordinate(x: CGFloat, y: CGFloat)
     /// Type text into the iOS app
@@ -128,6 +131,15 @@ public enum TestStep: Sendable {
     case macRightClick(titled: String, instance: Int = 0)
     /// Right-click an element and then click a menu item from the context menu
     case macContextMenuClick(elementTitle: String, menuItem: String, instance: Int = 0)
+    /// Right-click an element, expand a submenu by pressing its parent label,
+    /// and then click an item inside that submenu. Used for nested context
+    /// menus (e.g. the session row's "Set Color" submenu).
+    case macContextSubmenuClick(
+        elementTitle: String,
+        parentMenuItem: String,
+        submenuItem: String,
+        instance: Int = 0
+    )
     /// Trigger unpair on the first paired viewer via test HTTP endpoint
     case macUnpair(instance: Int = 0)
     /// Update the macOS app's `VersionCompatibility` overrides at runtime and kick

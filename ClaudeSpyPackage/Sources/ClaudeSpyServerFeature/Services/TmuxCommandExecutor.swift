@@ -66,6 +66,7 @@ public actor TmuxCommandExecutor {
                  .setYoloMode,
                  .markHandled,
                  .setSessionDescription,
+                 .setSessionColor,
                  .setWindowName,
                  .submitEditorContent,
                  .cancelEditorSession,

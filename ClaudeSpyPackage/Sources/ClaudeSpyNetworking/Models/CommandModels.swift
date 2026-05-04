@@ -31,6 +31,10 @@ public enum TmuxKey: Codable, Sendable, Equatable {
 
     /// Special keys that tmux interprets
     case enter
+    /// Shift+Enter — distinct from `.enter`. With `set -s extended-keys on`,
+    /// tmux delivers this as the kitty CSI u sequence (`\e[13;2u`) so apps
+    /// like Claude Code can map it to "insert newline" rather than "submit".
+    case shiftEnter
     case escape
     case tab
     case backtab
@@ -67,6 +71,7 @@ public enum TmuxKey: Codable, Sendable, Equatable {
         switch self {
         case let .text(string): string
         case .enter: "Enter"
+        case .shiftEnter: "S-Enter"
         case .escape: "Escape"
         case .tab: "Tab"
         case .backtab: "BTab"
@@ -93,6 +98,7 @@ public enum TmuxKey: Codable, Sendable, Equatable {
         switch self {
         case let .text(string): string
         case .enter: "⏎"
+        case .shiftEnter: "⇧⏎"
         case .space: "␣"
         default: "[\(tmuxKeyName)]"
         }
@@ -343,7 +349,7 @@ private extension TmuxKey {
         // passed as the base key since TmuxKey has no representation for them.
         switch codepoint {
         case 9: return CsiParseResult(keys: [hasShift ? .backtab : .tab], nextIndex: nextIndex)
-        case 13: return CsiParseResult(keys: [.enter], nextIndex: nextIndex)
+        case 13: return CsiParseResult(keys: [hasShift ? .shiftEnter : .enter], nextIndex: nextIndex)
         case 27: return CsiParseResult(keys: [.escape], nextIndex: nextIndex)
         case 32: return CsiParseResult(keys: [.space], nextIndex: nextIndex)
         case 127: return CsiParseResult(keys: [.backspace], nextIndex: nextIndex)
@@ -516,6 +522,28 @@ public struct SetSessionDescription: CommandSpec, Equatable {
 
     public var commandType: CommandType {
         .setSessionDescription(self)
+    }
+}
+
+/// Set a custom color for a tmux session. Returns success/failure.
+/// Persisted as the tmux `@gallager-color` user option so the dot in the
+/// sidebar comes back after restarting the host app.
+public struct SetSessionColor: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// The session name to set the color for
+    public let sessionName: String
+
+    /// The color, or nil to clear
+    public let color: SessionColor?
+
+    public init(sessionName: String, color: SessionColor?) {
+        self.sessionName = sessionName
+        self.color = color
+    }
+
+    public var commandType: CommandType {
+        .setSessionColor(self)
     }
 }
 
@@ -763,6 +791,8 @@ public enum CommandType: Codable, Sendable, Equatable {
     case markHandled(MarkHandled)
     /// Set a custom description for a tmux session (applied to all panes)
     case setSessionDescription(SetSessionDescription)
+    /// Set a custom color dot for a tmux session
+    case setSessionColor(SetSessionColor)
     /// Rename a tmux window (shown in the tab)
     case setWindowName(SetWindowName)
     /// Split a tmux pane
@@ -843,6 +873,11 @@ public enum CommandType: Codable, Sendable, Equatable {
     /// Create a setSessionDescription command
     public static func setSessionDescription(sessionName: String, description: String?) -> CommandType {
         .setSessionDescription(SetSessionDescription(sessionName: sessionName, description: description))
+    }
+
+    /// Create a setSessionColor command
+    public static func setSessionColor(sessionName: String, color: SessionColor?) -> CommandType {
+        .setSessionColor(SetSessionColor(sessionName: sessionName, color: color))
     }
 
     /// Create a setWindowName command

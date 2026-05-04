@@ -77,6 +77,14 @@
         /// but cache them here so our URL detection still works.
         private var cachedPayloads: [Int: [Int: String]] = [:]
 
+        /// Set to `true` once `init` has fully run. SwiftTerm's `Terminal.init`
+        /// fires `mouseMode.didSet` from inside its setup, which calls our
+        /// `mouseModeChanged` override before `TerminalView.terminal` has been
+        /// assigned — calling `getTerminal()` then trips a precondition.
+        /// We use this flag to skip the synchronous underline refresh until
+        /// init has finished. There can't be stale underlines during init.
+        private var didFinishInit = false
+
         override init(frame: CGRect, font: UIFont?) {
             super.init(frame: frame, font: font)
             terminalDelegate = self
@@ -86,6 +94,7 @@
             caretViewTracksFocus = false
             setupURLLongPress()
             setupMouseModePan()
+            self.didFinishInit = true
         }
 
         @available(*, unavailable)
@@ -268,6 +277,35 @@
             }
         }
 
+        /// Intercepts Shift+Return before SwiftTerm collapses the modifier.
+        /// SwiftTerm's legacy presses path emits plain `\r` for both Enter and
+        /// Shift+Enter unless the inner app has pushed kitty mode — which it
+        /// can't here, since it talks to tmux's PTY rather than directly to
+        /// SwiftTerm. A `UIKeyCommand` matches before `pressesBegan` runs, so
+        /// SwiftTerm never sees the event. Routing as `.shiftEnter` lets the
+        /// macOS host translate it to `tmux send-keys S-Enter`, delivering the
+        /// proper extended-key sequence to the pane.
+        ///
+        /// `pressesBegan` is `public` (not `open`) on SwiftTerm's TerminalView
+        /// so direct override from another module is blocked; `keyCommands` is
+        /// `open` on UIResponder and is the supported extension point.
+        override var keyCommands: [UIKeyCommand]? {
+            var commands = super.keyCommands ?? []
+            let shiftReturn = UIKeyCommand(
+                input: "\r",
+                modifierFlags: .shift,
+                action: #selector(handleShiftReturn(_:))
+            )
+            shiftReturn.wantsPriorityOverSystemBehavior = true
+            commands.append(shiftReturn)
+            return commands
+        }
+
+        @objc
+        private func handleShiftReturn(_: UIKeyCommand) {
+            onInput?([.shiftEnter])
+        }
+
         /// Gates the mouse-mode pan on `isMouseModeActive` so normal scrolling
         /// still works when the host doesn't have tmux mouse mode enabled.
         ///
@@ -308,6 +346,7 @@
         ///    consulted — letting us decline horizontal pans, which the remote
         ///    terminal can't act on, so they fall through to the outer scroll
         ///    view for native horizontal scrolling of wide terminal content.
+        @MainActor
         override func mouseModeChanged(source: Terminal) {
             super.mouseModeChanged(source: source)
             let active = source.mouseMode != .off
@@ -329,9 +368,18 @@
                 else { continue }
                 pan.isEnabled = !active
             }
-            // Re-run underline rendering: enabling mouse mode hides them,
-            // disabling it brings them back.
-            setNeedsLayout()
+            // Re-run underline rendering immediately: enabling mouse mode
+            // hides them, disabling it brings them back. Calling directly
+            // rather than relying on `setNeedsLayout()` ensures stale
+            // underlines disappear in the same frame as the mode change,
+            // not on the next layout pass.
+            //
+            // Skip during init: SwiftTerm's `Terminal.init` fires this via
+            // `mouseMode.didSet` before `TerminalView.terminal` is assigned,
+            // so `getTerminal()` inside `updateURLUnderlines()` would crash.
+            // No underlines exist yet at that point — nothing to clear.
+            guard didFinishInit else { return }
+            updateURLUnderlines()
         }
 
         @objc
@@ -418,10 +466,12 @@
 
         @objc
         private func handleURLTap(_ gesture: UITapGestureRecognizer) {
-            // In mouse mode the remote terminal app owns taps — synthesized
-            // mouse events flow through the pan path. Skip URL handling so
-            // links don't compete with the app's own click semantics.
-            guard !isMouseModeActive else { return }
+            // Single tap opens URLs in Safari regardless of mouse mode. Underlines
+            // are still suppressed in mouse mode (visual policy), but iOS doesn't
+            // synthesize SGR mouse clicks on tap — only the pan gesture sends
+            // mouse events — so opening the URL on tap doesn't compete with the
+            // remote app's click semantics. Long-press still skips in mouse mode
+            // because the action sheet is disruptive over an interactive TUI.
 
             let point = gesture.location(in: self)
             guard let pos = gridPosition(for: point) else { return }

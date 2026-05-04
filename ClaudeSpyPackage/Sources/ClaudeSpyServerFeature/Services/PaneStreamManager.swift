@@ -77,6 +77,10 @@
         /// notification-only reader (inactive pane). Parameters: (paneId, target, title).
         public var onTitleChange: (@MainActor (String, String, String) -> Void)?
 
+        /// Global progress handler — called for any `OSC 9;4` progress update on any pane.
+        /// `.removed` means progress is cleared. Used to drive the sidebar progress bar.
+        public var onProgress: (@MainActor (String, TerminalProgressState) -> Void)?
+
         // MARK: - Public State
 
         /// Pane IDs that currently have active streams
@@ -521,6 +525,13 @@
                 Task { @MainActor in
                     self?.notificationReaderTitles[paneId] = title
                     self?.onTitleChange?(paneId, target, title)
+                }
+            }
+
+            // Forward OSC 9;4 progress updates from the per-pane reader.
+            await reader.setProgressHandler { [weak self] progress in
+                Task { @MainActor in
+                    self?.onProgress?(paneId, progress)
                 }
             }
 

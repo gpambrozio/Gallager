@@ -57,6 +57,8 @@ public enum GallagerCLIScenario {
             command: #"gallager() { "${macOSAppPath}/Contents/MacOS/GallagerCLI" "$@"; }"#
         )
         TestStep.wait(seconds: 0.5)
+        Shortcut.tmuxRunCommand(target: "cli-test:0", command: "clear")
+        TestStep.wait(seconds: 0.5)
 
         // 3. Verify basic connectivity
         Shortcut.tmuxRunCommand(
@@ -333,5 +335,96 @@ public enum GallagerCLIScenario {
             key: "callerPaneContent",
             substring: "MARKER-DEFAULT-TMUX-PANE"
         )
+
+        // 16. set-color — assigns a color to a session, persisted as the
+        // tmux `@gallager-color` user option and rendered as a SessionColorBar
+        // running along the leading edge of the sidebar row. Each platform
+        // exposes the bar with `accessibilityLabel("<Name> color")`, so the
+        // e2e test can find it by title.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager set-color blue --session e2e-api > /tmp/e2e-cli-color-blue.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-color-blue.txt", storeAs: "colorBlueResult")
+        // The CLI canonicalises the color name to its capitalised displayName
+        // (so "RED" still prints as "Red"), matching `SessionColor.displayName`.
+        TestStep.assertStoredContains(key: "colorBlueResult", substring: "Set session color to Blue.")
+        TestStep.macWaitForElement(titled: "Blue color", timeout: 10)
+        TestStep.macScreenshot(label: "mac-color-blue")
+
+        // 16b. Verify the option was actually persisted on the tmux server.
+        // `display-message -p '#{@gallager-color}'` reads the user option back
+        // for the session, so we know set-color hit tmux and not just the UI.
+        TestStep.tmuxStoreDisplayMessage(
+            target: "e2e-api",
+            format: "#{@gallager-color}",
+            storeAs: "tmuxColorOption"
+        )
+        TestStep.assertStoredContains(key: "tmuxColorOption", substring: "blue")
+
+        // 16c. set-color none clears the color. The dot disappears and the
+        // tmux option is unset (display-message returns the empty string).
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager set-color none --session e2e-api > /tmp/e2e-cli-color-clear.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-color-clear.txt", storeAs: "colorClearResult")
+        TestStep.assertStoredContains(key: "colorClearResult", substring: "Cleared session color.")
+        TestStep.macWaitForElementToDisappear(titled: "Blue color", timeout: 10)
+        TestStep.macScreenshot(label: "mac-color-cleared")
+
+        // 16d. Unknown color name is rejected so callers don't end up with a
+        // session that silently lacks a dot. The CLI exits non-zero and the
+        // error message lists the valid options.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager set-color magenta-not-real --session e2e-api > /tmp/e2e-cli-color-bad.txt 2>&1; echo "exit=$?" >> /tmp/e2e-cli-color-bad.txt"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-color-bad.txt", storeAs: "colorBadResult")
+        TestStep.assertStoredContains(key: "colorBadResult", substring: "Unknown color")
+
+        // 17. new-session --color creates a session that opens with the color
+        // already set, so the dot appears as soon as the row renders.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager new-session --name e2e-color --color purple > /tmp/e2e-cli-newcolor.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 3)
+        TestStep.macWaitForElement(titled: "e2e-color", timeout: 10)
+        TestStep.macWaitForElement(titled: "Purple color", timeout: 10)
+        TestStep.macScreenshot(label: "mac-new-session-with-color")
+
+        // 18. rename-window — the only window-scoped CLI mutation. Sets the
+        // tmux window name (the tab label), which the host UI shows as the
+        // tab title. We verify both the CLI confirmation and the tmux state.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager rename-window e2e-api:0 renamed-tab > /tmp/e2e-cli-rename.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-rename.txt", storeAs: "renameResult")
+        TestStep.assertStoredContains(
+            key: "renameResult",
+            substring: "Renamed window e2e-api:0 to renamed-tab."
+        )
+        TestStep.tmuxStoreDisplayMessage(
+            target: "e2e-api:0",
+            format: "#W",
+            storeAs: "tmuxWindowName"
+        )
+        TestStep.assertStoredContains(key: "tmuxWindowName", substring: "renamed-tab")
+
+        // 18b. rename-window with an empty name is rejected so callers don't
+        // end up with a blank tab they can't easily click on.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager rename-window e2e-api:0 "" > /tmp/e2e-cli-rename-bad.txt 2>&1; echo "exit=$?" >> /tmp/e2e-cli-rename-bad.txt"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-rename-bad.txt", storeAs: "renameBadResult")
+        TestStep.assertStoredContains(key: "renameBadResult", substring: "name cannot be empty")
     }
 }

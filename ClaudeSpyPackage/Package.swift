@@ -3,15 +3,59 @@
 
 import PackageDescription
 
+// Packages only consumed by Apple-platform targets (macOS app, iOS app, E2E,
+// GallagerCLI). They are hidden from the Linux SPM graph so the relay's Docker
+// build doesn't waste time resolving them — and so a future bump that requires
+// a newer Swift toolchain doesn't block deploys. The Linux relay only needs
+// Vapor / VaporAPNS / swift-crypto / swift-log / swift-dependencies / Yams (no,
+// Yams is Apple-only via GallagerCLI) — anything else here would be dead weight
+// on the relay build.
+//
+// (ProjectNavigator 1.7.0 was the canary: it required Swift 6.2 while the
+// jammy Docker image ships Swift 6.1, blocking `swift package resolve`.)
+func macOnlyDependencies() -> [Package.Dependency] {
+    #if os(macOS)
+        return [
+            .package(url: "https://github.com/gpambrozio/SFSymbolsMacro", branch: "swift-syntax-602"),
+            .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.13.0"),
+            .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
+            .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
+            .package(url: "https://github.com/mchakravarty/ProjectNavigator", from: "1.0.0"),
+            .package(url: "https://github.com/gonzalezreal/textual", from: "0.3.1"),
+            .package(url: "https://github.com/jpsim/Yams", from: "5.0.0"),
+        ]
+    #else
+        return []
+    #endif
+}
+
+// `#if os(macOS)` does not work *inside* a Target dependency array literal
+// (SPM's manifest parser rejects it as `expected expression in container
+// literal`). So per-target helpers return the slice of Apple-only deps for each
+// consumer; the target's `dependencies:` array concatenates with `+`.
+func macOnlyTargetDependencies(for target: String) -> [Target.Dependency] {
+    #if os(macOS)
+        switch target {
+        case "ClaudeSpyCommon":
+            return [.sfSymbolsMacro]
+        case "ClaudeSpyFeature":
+            return [.swiftTerm]
+        case "ClaudeSpyServerFeature":
+            return [.swiftTerm, .sparkle, .textual, .projectNavigator, .files]
+        case "ClaudeSpyE2E":
+            return [.argumentParser]
+        case "GallagerCLI":
+            return [.argumentParser, .yams]
+        default:
+            return []
+        }
+    #else
+        return []
+    #endif
+}
+
 extension Target.Dependency {
-    static var sfSymbolsMacro: Self {
-        .product(name: "SFSymbolsMacro", package: "SFSymbolsMacro")
-    }
-
-    static var swiftTerm: Self {
-        .product(name: "SwiftTerm", package: "SwiftTerm")
-    }
-
+    // Cross-platform packages — needed by the Linux relay deployable.
     static var vapor: Self {
         .product(name: "Vapor", package: "vapor")
     }
@@ -28,10 +72,6 @@ extension Target.Dependency {
         .product(name: "Logging", package: "swift-log")
     }
 
-    static var sparkle: Self {
-        .product(name: "Sparkle", package: "Sparkle", condition: .when(platforms: [.macOS]))
-    }
-
     static var dependencies: Self {
         .product(name: "Dependencies", package: "swift-dependencies")
     }
@@ -40,33 +80,78 @@ extension Target.Dependency {
         .product(name: "DependenciesMacros", package: "swift-dependencies")
     }
 
-    static var projectNavigator: Self {
-        .product(name: "ProjectNavigator", package: "ProjectNavigator")
-    }
-
-    static var textual: Self {
-        .product(name: "Textual", package: "textual")
-    }
-
-    static var files: Self {
-        .product(name: "Files", package: "ProjectNavigator")
-    }
-
     static var dependenciesTestSupport: Self {
         .product(name: "DependenciesTestSupport", package: "swift-dependencies")
     }
 
-    static var claudeSpyNetworking: Self { "ClaudeSpyNetworking" }
-    static var claudeSpyCommon: Self { "ClaudeSpyCommon" }
-    static var claudeSpyEncryption: Self { "ClaudeSpyEncryption" }
-    static var claudeSpyFeature: Self { "ClaudeSpyFeature" }
-    static var claudeSpyServerFeature: Self { "ClaudeSpyServerFeature" }
-    static var claudeSpyExternalServer: Self { "ClaudeSpyExternalServer" }
-    static var claudeSpyExternalServerLib: Self { "ClaudeSpyExternalServerLib" }
-    static var claudeSpyE2ELib: Self { "ClaudeSpyE2ELib" }
+    // Apple-platform-only packages. The static vars are gated behind
+    // `#if os(macOS)` so the manifest itself compiles on Linux (where the
+    // referenced packages aren't declared in the dependencies graph). Any
+    // target dependency arrays that reference these must use the same gate.
+    #if os(macOS)
+        static var sfSymbolsMacro: Self {
+            .product(name: "SFSymbolsMacro", package: "SFSymbolsMacro")
+        }
 
-    static var argumentParser: Self {
-        .product(name: "ArgumentParser", package: "swift-argument-parser")
+        static var swiftTerm: Self {
+            .product(name: "SwiftTerm", package: "SwiftTerm")
+        }
+
+        static var sparkle: Self {
+            .product(name: "Sparkle", package: "Sparkle", condition: .when(platforms: [.macOS]))
+        }
+
+        static var textual: Self {
+            .product(name: "Textual", package: "textual")
+        }
+
+        static var argumentParser: Self {
+            .product(name: "ArgumentParser", package: "swift-argument-parser")
+        }
+
+        static var yams: Self {
+            .product(name: "Yams", package: "Yams")
+        }
+
+        static var projectNavigator: Self {
+            .product(name: "ProjectNavigator", package: "ProjectNavigator")
+        }
+
+        static var files: Self {
+            .product(name: "Files", package: "ProjectNavigator")
+        }
+    #endif
+
+    static var claudeSpyNetworking: Self {
+        "ClaudeSpyNetworking"
+    }
+
+    static var claudeSpyCommon: Self {
+        "ClaudeSpyCommon"
+    }
+
+    static var claudeSpyEncryption: Self {
+        "ClaudeSpyEncryption"
+    }
+
+    static var claudeSpyFeature: Self {
+        "ClaudeSpyFeature"
+    }
+
+    static var claudeSpyServerFeature: Self {
+        "ClaudeSpyServerFeature"
+    }
+
+    static var claudeSpyExternalServer: Self {
+        "ClaudeSpyExternalServer"
+    }
+
+    static var claudeSpyExternalServerLib: Self {
+        "ClaudeSpyExternalServerLib"
+    }
+
+    static var claudeSpyE2ELib: Self {
+        "ClaudeSpyE2ELib"
     }
 }
 
@@ -114,18 +199,13 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/nicklockwood/SwiftFormat", from: "0.53.0"),
-        .package(url: "https://github.com/gpambrozio/SFSymbolsMacro", branch: "swift-syntax-602"),
-        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.13.0"),
         .package(url: "https://github.com/vapor/vapor", from: "4.0.0"),
         .package(url: "https://github.com/vapor/apns.git", from: "4.0.0"),
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
-        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
         .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.0.0"),
-        .package(url: "https://github.com/mchakravarty/ProjectNavigator", from: "1.0.0"),
-        .package(url: "https://github.com/gonzalezreal/textual", from: "0.3.1"),
-    ],
+    ]
+        + macOnlyDependencies(),
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
@@ -143,9 +223,8 @@ let package = Package(
             dependencies: [
                 .claudeSpyNetworking,
                 .claudeSpyEncryption,
-                .sfSymbolsMacro,
                 .logging,
-            ]
+            ] + macOnlyTargetDependencies(for: "ClaudeSpyCommon")
         ),
         // End-to-end encryption module using CryptoKit (Apple) / Swift Crypto (Linux)
         .target(
@@ -162,25 +241,19 @@ let package = Package(
                 .claudeSpyNetworking,
                 .claudeSpyCommon,
                 .claudeSpyEncryption,
-                .swiftTerm,
                 .dependencies,
                 .dependenciesMacros,
-            ]
+            ] + macOnlyTargetDependencies(for: "ClaudeSpyFeature")
         ),
         .target(
             name: "ClaudeSpyServerFeature",
             dependencies: [
                 .claudeSpyCommon,
                 .claudeSpyEncryption,
-                .swiftTerm,
                 .vapor,
-                .sparkle,
                 .dependencies,
                 .dependenciesMacros,
-                .projectNavigator,
-                .files,
-                .textual,
-            ],
+            ] + macOnlyTargetDependencies(for: "ClaudeSpyServerFeature"),
             resources: [
                 .process("Resources"),
             ]
@@ -227,16 +300,13 @@ let package = Package(
             name: "ClaudeSpyE2E",
             dependencies: [
                 .claudeSpyE2ELib,
-                .argumentParser,
-            ]
+            ] + macOnlyTargetDependencies(for: "ClaudeSpyE2E")
         ),
         // CLI for controlling Gallager from the command line (API + editor).
         // Bundled inside the app and invoked via the VISUAL environment variable.
         .executableTarget(
             name: "GallagerCLI",
-            dependencies: [
-                .argumentParser,
-            ],
+            dependencies: macOnlyTargetDependencies(for: "GallagerCLI"),
             path: "Sources/Gallager"
         ),
         .testTarget(

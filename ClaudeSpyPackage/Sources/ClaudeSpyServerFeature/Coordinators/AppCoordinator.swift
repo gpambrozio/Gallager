@@ -104,6 +104,13 @@
         @ObservationIgnored
         private var e2eReconnectObserverTask: Task<Void, Never>?
 
+        /// Trailing-edge throttle for `OSC 9;4` progress pushes to viewers. Each
+        /// new progress arrival cancels the pending task and schedules a fresh
+        /// 150ms delay, so a stream stepping 0 → 100% in 1% increments collapses
+        /// into a single relay send carrying the latest `PaneState.progress`.
+        @ObservationIgnored
+        private var pendingProgressPush: Task<Void, Never>?
+
         @ObservationIgnored
         @Dependency(PreferencesService.self) private var preferences
 
@@ -297,11 +304,45 @@
         /// Error type for API request handling.
         enum APIError: Error, LocalizedError {
             case notFound(String)
+            case invalidParams(String)
             var errorDescription: String? {
                 switch self {
-                case let .notFound(msg): msg
+                case let .notFound(msg),
+                     let .invalidParams(msg): msg
                 }
             }
+        }
+
+        /// Resolves the session a `set_title` / `set_color` request should
+        /// target. Window/pane targeting is intentionally unsupported — the
+        /// CLI flags only expose `--session`, and `paneId` (when present) is
+        /// just used to look up the calling pane's session.
+        fileprivate static func resolveSessionTarget(
+            sessionId: String?,
+            paneId: String?,
+            tmux: TmuxService,
+            method: String
+        ) async throws -> String {
+            if let sessionId {
+                guard await tmux.sessionExists(named: sessionId) else {
+                    throw APIError.notFound("Session not found: \(sessionId)")
+                }
+                return sessionId
+            }
+            let panes = await tmux.refreshPanes()
+            if
+                let paneId,
+                let pane = panes.first(where: { $0.paneId == paneId }) {
+                return pane.sessionName
+            }
+            let attached = await MainActor.run { tmux.attachedSessionNames }
+            if
+                let activeSession = panes.first(where: {
+                    attached.contains($0.sessionName)
+                })?.sessionName {
+                return activeSession
+            }
+            throw APIError.notFound("No resolvable session target for \(method)")
         }
 
         /// Starts the API socket server, wires router callbacks, and configures env vars.
@@ -338,8 +379,28 @@
                         }
                     }
                 },
-                onSessionCreate: { [tmux] name, path in
+                onSessionCreate: { [tmux, winManager] name, path, title, color, ifMissing in
                     let baseName = name ?? "main"
+                    // Honor `if_missing`: when the requested name already exists,
+                    // return its info with `created: false` so callers can skip
+                    // populating panes they didn't just create.
+                    if
+                        ifMissing, let requestedName = name,
+                        await tmux.sessionExists(named: requestedName) {
+                        let panes = await tmux.refreshPanes()
+                        let attached = await MainActor.run { tmux.attachedSessionNames }
+                        let windowCount = LocalTmuxWindow.groupPanes(panes)
+                            .filter { $0.sessionName == requestedName }.count
+                        return LiveAPIRequestRouter.SessionCreateResult(
+                            info: APISessionInfo(
+                                id: requestedName,
+                                name: requestedName,
+                                windowCount: max(windowCount, 1),
+                                isAttached: attached.contains(requestedName)
+                            ).toJSONValue(),
+                            created: false
+                        )
+                    }
                     let workingDirectory = path ?? FileManager.default.homeDirectoryForCurrentUser.path
                     let (sessionName, _) = try await tmux.createSession(
                         baseName: baseName,
@@ -347,12 +408,23 @@
                         height: 50,
                         workingDirectory: workingDirectory
                     )
-                    return APISessionInfo(
-                        id: sessionName,
-                        name: sessionName,
-                        windowCount: 1,
-                        isAttached: false
-                    ).toJSONValue()
+                    await MainActor.run {
+                        if let title {
+                            winManager.setSessionDescription(title, for: sessionName)
+                        }
+                        if let color {
+                            winManager.setSessionColor(color, for: sessionName)
+                        }
+                    }
+                    return LiveAPIRequestRouter.SessionCreateResult(
+                        info: APISessionInfo(
+                            id: sessionName,
+                            name: sessionName,
+                            windowCount: 1,
+                            isAttached: false
+                        ).toJSONValue(),
+                        created: true
+                    )
                 },
                 onSessionSelect: { [tmux] sessionId in
                     try await tmux.selectWindow("\(sessionId):!")
@@ -416,6 +488,32 @@
                         return applied
                     }
                 },
+                onSessionSetTitle: { [tmux, winManager] title, sessionId, paneId in
+                    // Always applies at session scope. `paneId` (typically
+                    // forwarded from $TMUX_PANE) is used solely to look up the
+                    // session that pane belongs to; the option is then written
+                    // on that session.
+                    let resolvedSession = try await Self.resolveSessionTarget(
+                        sessionId: sessionId,
+                        paneId: paneId,
+                        tmux: tmux,
+                        method: "session.set_title"
+                    )
+                    await MainActor.run {
+                        winManager.setSessionDescription(title, for: resolvedSession)
+                    }
+                },
+                onSessionSetColor: { [tmux, winManager] color, sessionId, paneId in
+                    let resolvedSession = try await Self.resolveSessionTarget(
+                        sessionId: sessionId,
+                        paneId: paneId,
+                        tmux: tmux,
+                        method: "session.set_color"
+                    )
+                    await MainActor.run {
+                        winManager.setSessionColor(color, for: resolvedSession)
+                    }
+                },
                 onWindowList: { [tmux] sessionId, paneId in
                     let panes = await tmux.refreshPanes()
                     let allWindows = LocalTmuxWindow.groupPanes(panes)
@@ -437,7 +535,7 @@
                         ).toJSONValue()
                     }
                 },
-                onWindowCreate: { [tmux] sessionId, path, paneId in
+                onWindowCreate: { [tmux] sessionId, path, paneId, name in
                     let targetSession: String = await MainActor.run {
                         if let sessionId { return sessionId }
                         let panes = tmux.panes
@@ -450,12 +548,13 @@
                         })?.sessionName ?? panes.first?.sessionName ?? "main"
                     }
                     let workingDirectory = path ?? FileManager.default.homeDirectoryForCurrentUser.path
-                    let paneId = try await tmux.newWindow(
+                    let newPaneId = try await tmux.newWindow(
                         sessionName: targetSession,
-                        workingDirectory: workingDirectory
+                        workingDirectory: workingDirectory,
+                        windowName: name
                     )
                     let panes = await tmux.refreshPanes()
-                    guard let newPane = panes.first(where: { $0.paneId == paneId }) else {
+                    guard let newPane = panes.first(where: { $0.paneId == newPaneId }) else {
                         throw APIError.notFound("New window pane not found")
                     }
                     return APIWindowInfo(
@@ -472,6 +571,13 @@
                 },
                 onWindowClose: { [tmux] windowId in
                     try await tmux.killWindow(windowId)
+                },
+                onWindowSetName: { [tmux] windowId, name in
+                    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else {
+                        throw APIError.invalidParams("name cannot be empty")
+                    }
+                    try await tmux.renameWindow(target: windowId, name: trimmed)
                 },
                 onPaneList: { [tmux, winManager] windowId, paneId in
                     let panes = await tmux.refreshPanes()
@@ -499,7 +605,7 @@
                         }
                     }
                 },
-                onPaneSplit: { [tmux, winManager] paneId, direction, path in
+                onPaneSplit: { [tmux, winManager] paneId, direction, path, shellCommand in
                     let horizontal = direction == "right" || direction == "horizontal"
                     let target: String = await MainActor.run {
                         paneId ?? tmux.panes.first(where: { $0.isActive && $0.isWindowActive })?.paneId ?? "%0"
@@ -508,7 +614,8 @@
                     let newPaneId = try await tmux.splitPane(
                         target,
                         horizontal: horizontal,
-                        workingDirectory: workingDirectory
+                        workingDirectory: workingDirectory,
+                        shellCommand: shellCommand
                     )
                     let panes = await tmux.refreshPanes()
                     await MainActor.run { winManager.updatePaneStates(from: panes) }
@@ -530,11 +637,30 @@
                 onPaneSelect: { [tmux] paneId in
                     try await tmux.selectPane(paneId)
                 },
-                onSendText: { [tmux] text, paneId in
+                onPaneCapture: { [tmux] paneId, scrollback in
                     let target: String = await MainActor.run {
                         paneId ?? tmux.panes.first(where: { $0.isActive && $0.isWindowActive })?.paneId ?? "%0"
                     }
-                    try await tmux.sendKeys(target, keys: text, literal: true)
+                    return try await tmux.capturePaneText(target, scrollback: scrollback)
+                },
+                onPaneSetLayout: { [tmux] target, layout in
+                    try await tmux.selectLayout(target: target, layout: layout)
+                },
+                onSendText: { [tmux] text, paneId, appendEnter in
+                    let target: String = await MainActor.run {
+                        paneId ?? tmux.panes.first(where: { $0.isActive && $0.isWindowActive })?.paneId ?? "%0"
+                    }
+                    // Skip the literal write when there's nothing to type so that
+                    // `send "" --enter` (just hit Enter) doesn't spawn an extra
+                    // tmux subprocess for a no-op.
+                    if !text.isEmpty {
+                        try await tmux.sendKeys(target, keys: text, literal: true)
+                    }
+                    if appendEnter {
+                        // Send Enter as a keyname (not literal) so tmux generates
+                        // a real Enter keypress for the running shell/program.
+                        try await tmux.sendKeys(target, keys: "Enter")
+                    }
                 },
                 onSendKey: { [tmux] key, paneId in
                     let target: String = await MainActor.run {
@@ -626,6 +752,52 @@
                         windowCount: 1,
                         isAttached: false
                     ).toJSONValue()
+                },
+                onSetEnvironment: { [tmux] sessionId, vars in
+                    for (name, value) in vars {
+                        try await tmux.setSessionEnvironment(
+                            sessionName: sessionId,
+                            name: name,
+                            value: value
+                        )
+                    }
+                },
+                onLayoutApply: {
+                    [tmux, winManager, claudeCommandPath] config, rebuild, detach, dryRun, lenient, requireCreate, configPath in
+                    let parser = LayoutConfigParser(
+                        lenient: lenient,
+                        environment: ProcessInfo.processInfo.environment
+                    )
+                    let parsed = try parser.parse(config)
+                    let driver = LayoutDriver(
+                        tmuxAccessor: { tmux },
+                        descriptionApplier: { description, sessionName in
+                            await MainActor.run {
+                                winManager.setSessionDescription(description, for: sessionName)
+                            }
+                        },
+                        colorApplier: { color, sessionName in
+                            await MainActor.run {
+                                winManager.setSessionColor(color, for: sessionName)
+                            }
+                        }
+                    )
+                    let configDir = configPath.map { (URL(fileURLWithPath: $0).deletingLastPathComponent()).path }
+                    let result = try await driver.apply(
+                        parsed,
+                        rebuild: rebuild,
+                        detach: detach,
+                        dryRun: dryRun,
+                        requireCreate: requireCreate,
+                        configDirectory: configDir,
+                        claudeCommandPath: claudeCommandPath
+                    )
+                    return [
+                        "session_name": .string(result.sessionName),
+                        "created": .bool(result.created),
+                        "warnings": .array(result.warnings.map { .string($0) }),
+                        "planned_actions": .array(result.plannedActions.map { .string($0) }),
+                    ]
                 }
             )
             liveRouter = router
@@ -740,6 +912,11 @@
                 wm.updateTerminalTitle(paneId: paneId, title: title)
             }
 
+            // Wire OSC 9;4 progress updates to the sidebar progress bar.
+            paneStreamManager.onProgress = { [weak self] paneId, state in
+                self?.applyProgressUpdate(paneId: paneId, state: state)
+            }
+
             // Start notification-only readers for all discovered panes
             let initialPanes = await tmuxService.refreshPanes()
             windowManager.updatePaneStates(from: initialPanes)
@@ -825,6 +1002,13 @@
                 // pushSessionStateToAll() runs via onDescriptionChanged, not here.
                 if case let .setSessionDescription(spec) = command.command {
                     winManager.setSessionDescription(spec.description, for: spec.sessionName)
+                    return .success(for: command.id)
+                }
+
+                // Handle session color (applied to every pane in the session).
+                // pushSessionStateToAll() runs via onDescriptionChanged, not here.
+                if case let .setSessionColor(spec) = command.command {
+                    winManager.setSessionColor(spec.color, for: spec.sessionName)
                     return .success(for: command.id)
                 }
 
@@ -948,7 +1132,7 @@
                 await windowManager.updatePaneStates(from: allPanes)
                 var paneStates = await windowManager.paneStates
 
-                // Inject active editor sessions into pane states
+                // Inject active editor sessions into pane states.
                 for (paneId, var state) in paneStates {
                     state.editorSession = await editorManager.editorSessionInfo(for: paneId)
                     paneStates[paneId] = state
@@ -1336,6 +1520,25 @@
 
             logger.info("Connecting to newly paired viewer: \(viewer.displayName)")
             await connectionManager.connect(to: viewer)
+        }
+
+        /// Applies an `OSC 9;4` progress update from `PaneStreamManager`.
+        /// Stores the value on `MirrorWindowManager.paneStates` so the host
+        /// sidebar and viewers (iOS, Mac-as-viewer) read from one source of
+        /// truth. The host UI updates synchronously through the assignment.
+        /// Pushing to viewers is coalesced with a 150ms trailing throttle so a
+        /// determinate stream stepping 0 → 100% in 1% increments collapses
+        /// into a single relay send instead of 100 — value-equality alone
+        /// only drops repeats, not actual change rate.
+        private func applyProgressUpdate(paneId: String, state: TerminalProgressState) {
+            let changed = windowManager.setPaneProgress(state, for: paneId)
+            guard changed, let connectionManager = connectedViewerManager else { return }
+            pendingProgressPush?.cancel()
+            pendingProgressPush = Task {
+                try? await Task.sleep(for: .milliseconds(150))
+                guard !Task.isCancelled else { return }
+                await connectionManager.pushSessionStateToAll()
+            }
         }
     }
 #endif

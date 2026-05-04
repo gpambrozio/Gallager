@@ -500,9 +500,22 @@ fi
 # -d prevents display sleep, -i prevents idle sleep, -s prevents system sleep.
 caffeinate -dis &
 CAFFEINATE_PID=$!
-cleanup_caffeinate() {
-    kill "$CAFFEINATE_PID" 2>/dev/null || true
+
+# XCUITest writes screenshot/video attachments into the simulator's
+# InternalDaemon Attachments folders. They are never reaped automatically and
+# can grow to many GB across repeated runs. Clear them at the end of every run.
+cleanup_simulator_attachments() {
+    [ -n "$SIM_UDID" ] || return 0
+    local sim_root="$HOME/Library/Developer/CoreSimulator/Devices/$SIM_UDID/data/Containers/Data/InternalDaemon"
+    [ -d "$sim_root" ] || return 0
+    find "$sim_root" -mindepth 2 -maxdepth 2 -type d -name Attachments -print0 \
+        | xargs -0 -I{} find {} -mindepth 1 -delete 2>/dev/null || true
 }
-trap cleanup_caffeinate EXIT
+
+cleanup() {
+    kill "$CAFFEINATE_PID" 2>/dev/null || true
+    cleanup_simulator_attachments
+}
+trap cleanup EXIT
 
 DYLD_FRAMEWORK_PATH="$PRODUCTS_DEBUG" "$E2E_BIN" "${E2E_ARGS[@]}"

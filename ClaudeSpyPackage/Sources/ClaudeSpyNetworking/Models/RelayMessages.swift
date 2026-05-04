@@ -62,6 +62,19 @@ public struct SessionStateMessage: Codable, Sendable {
         self.claudeProjects = claudeProjects
         self.homeDirectory = homeDirectory
     }
+
+    /// Returns a copy with the `pairId` replaced. Centralises the per-connection
+    /// rebuild so adding a new field can only forget to forward it in one place
+    /// (here) — call sites can't silently drop fields by reconstructing the
+    /// initialiser from memory.
+    public func withPairId(_ pairId: String) -> SessionStateMessage {
+        SessionStateMessage(
+            pairId: pairId,
+            paneStates: paneStates,
+            claudeProjects: claudeProjects,
+            homeDirectory: homeDirectory
+        )
+    }
 }
 
 // MARK: - Pane State
@@ -115,6 +128,12 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// User-defined description for this window, shown prominently in the sidebar
     public var customDescription: String?
 
+    // MARK: - Custom Color
+
+    /// User-assigned color for this session, shown as a dot in the sidebar.
+    /// Persisted via the tmux `@gallager-color` user option.
+    public var customColor: SessionColor?
+
     // MARK: - Terminal State
 
     /// Terminal title detected via OSC escape sequences
@@ -147,6 +166,13 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// Active prompt editor session (Ctrl-G), if any
     public var editorSession: EditorSessionInfo?
 
+    // MARK: - Progress
+
+    /// Latest `OSC 9;4` progress emitted by this pane, if any. Drives the
+    /// session-row progress bar on the host's local sidebar and on remote
+    /// viewers (iOS, Mac-as-viewer). `nil` means no active progress.
+    public var progress: TerminalProgressState?
+
     // MARK: - Computed Properties
 
     public var id: String {
@@ -173,12 +199,14 @@ public struct PaneState: Codable, Sendable, Identifiable {
         windowName: String = "",
         isWindowActive: Bool = false,
         customDescription: String? = nil,
+        customColor: SessionColor? = nil,
         terminalTitle: String? = nil,
         gitBranch: String? = nil,
         claudeSession: ClaudeSession? = nil,
         yoloMode: Bool = false,
         cliSessionState: CLISessionState? = nil,
-        editorSession: EditorSessionInfo? = nil
+        editorSession: EditorSessionInfo? = nil,
+        progress: TerminalProgressState? = nil
     ) {
         self.paneId = paneId
         self.target = target
@@ -194,12 +222,14 @@ public struct PaneState: Codable, Sendable, Identifiable {
         self.windowName = windowName
         self.isWindowActive = isWindowActive
         self.customDescription = customDescription
+        self.customColor = customColor
         self.terminalTitle = terminalTitle
         self.gitBranch = gitBranch
         self.claudeSession = claudeSession
         self.yoloMode = yoloMode
         self.cliSessionState = cliSessionState
         self.editorSession = editorSession
+        self.progress = progress
     }
 }
 

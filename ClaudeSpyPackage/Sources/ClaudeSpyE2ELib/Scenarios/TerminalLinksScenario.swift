@@ -62,7 +62,6 @@ public enum TerminalLinksScenario {
 
         TestStep.log("Verifying links on macOS")
         Shortcut.openPanesWindow()
-        TestStep.macResizeWindow(width: 1_200, height: 700)
 
         // Select the links-test pane
         TestStep.macClickButton(titled: "links-test")
@@ -100,19 +99,26 @@ public enum TerminalLinksScenario {
         TestStep.wait(seconds: 1)
 
         // Same three URL lines remain in the buffer; only the underline
-        // overlay should change. iOS first, since it currently has focus.
-        TestStep.iosScreenshot(label: "ios-terminal-links-mouse-mode", compare: false)
+        // overlay should change. Both the iOS and macOS screenshots below
+        // use the default `compare: true` to actively verify the underlines
+        // disappeared — a regression that re-introduces them on either
+        // platform would fail here. iOS first, since it currently has focus.
+        TestStep.iosScreenshot(label: "ios-terminal-links-mouse-mode")
 
-        // Refocus the macOS Panes window. The "links-test" session is still
-        // selected from earlier, so the window title now reflects its primary
-        // sidebar label ("~" — the abbreviated home directory) rather than
-        // the default "Gallager" fallback.
-        TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "~", timeout: 5)
+        // Re-assert the standard Panes-window sizing so both macOS captures
+        // share dimensions. We can't reuse `Shortcut.openPanesWindow()` here
+        // because once `links-test` is selected, MainView's navigationTitle
+        // becomes the session's primary label (e.g. "~") instead of
+        // "Gallager", and the shortcut's `macWaitForWindow(titled: "Gallager")`
+        // would time out. The window is already open from the earlier call,
+        // so we just reapply the geometry directly.
+        TestStep.macMoveWindow(x: 10, y: 10)
+        TestStep.macResizeWindow(width: 1_000, height: 600)
+        TestStep.macSetSidebarWidth(250)
         TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "links-test")
         TestStep.wait(seconds: 1)
-        TestStep.macScreenshot(label: "mac-terminal-links-mouse-mode", compare: false)
+        TestStep.macScreenshot(label: "mac-terminal-links-mouse-mode")
 
         // Disable mouse mode again so we don't bleed state into later scenarios.
         Shortcut.tmuxRunCommand(

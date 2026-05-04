@@ -391,6 +391,13 @@ public struct MainView: View {
                             _ = await manager.sendCommand(command, paneId: "", hostId: host.id)
                         }
                     },
+                    onSetColor: { sessionName, color in
+                        Task {
+                            guard let manager = coordinator.viewerConnectionManager else { return }
+                            let command = SetSessionColor(sessionName: sessionName, color: color)
+                            _ = await manager.sendCommand(command, paneId: "", hostId: host.id)
+                        }
+                    },
                     onToggleYolo: { paneId, enabled in
                         Task {
                             guard let manager = coordinator.viewerConnectionManager else { return }
@@ -412,6 +419,7 @@ public struct MainView: View {
     private func sessionButton(session: LocalTmuxSession, help: String? = nil) -> some View {
         let activeWindow = session.activeWindow
         let description = activeWindow?.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customDescription }
+        let color = activeWindow?.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customColor }
         let claudePane = session.windows.flatMap(\.panes).first { windowManager.paneStates[$0.paneId]?.claudeSession != nil }
         let activePane = activeWindow?.activePane
         let isSessionAttached = tmuxService.attachedSessionNames.contains(session.sessionName)
@@ -438,6 +446,12 @@ public struct MainView: View {
                 windowManager.setSessionDescription(description, for: sessionName)
             },
             additionalMenu: {
+                ColorContextMenuButtons(currentColor: color) { newColor in
+                    windowManager.setSessionColor(newColor, for: session.sessionName)
+                }
+
+                Divider()
+
                 if let claudePane {
                     Toggle(isOn: localYoloModeBinding(for: claudePane.paneId)) {
                         Label("Yolo Mode", symbol: .bolt)
@@ -1764,6 +1778,19 @@ private struct SessionSidebarRow: View {
 
     let session: LocalTmuxSession
 
+    /// Progress state for this session, picked from the first pane that has
+    /// one. Same iteration shape as the Mac-as-viewer (`RemoteSessionSidebarRow`)
+    /// and iOS (`SessionListView.sessionRow`) sites so all three render the
+    /// same pane's progress when multiple panes are emitting at once.
+    /// Recomputed on each render — observation tracks `windowManager.paneStates`
+    /// and re-renders this row only when the lookup result actually changes.
+    private var sessionProgress: TerminalProgressState? {
+        session.windows.lazy
+            .flatMap(\.panes)
+            .compactMap { windowManager.paneStates[$0.paneId]?.progress }
+            .first
+    }
+
     /// The active window (or first)
     private var activeWindow: LocalTmuxWindow? {
         session.activeWindow
@@ -1883,6 +1910,15 @@ private struct SessionSidebarRow: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+        .overlay(alignment: .leading) {
+            SessionColorBar(color: primaryPaneState?.customColor)
+                .padding(.leading, -16)
+        }
+        .overlay(alignment: .bottom) {
+            if let sessionProgress {
+                TerminalProgressBar(state: sessionProgress)
+            }
+        }
     }
 }
 
@@ -2454,6 +2490,7 @@ private struct RemoteHostSidebarSection: View {
     let onSelect: (RemoteSessionSelection) -> Void
     let onCreate: (ClaudeProjectInfo?) -> Void
     let onSetDescription: (String, String?) -> Void
+    let onSetColor: (String, SessionColor?) -> Void
     let onToggleYolo: (String, Bool) -> Void
     let onCloseSession: (String) -> Void
 
@@ -2548,6 +2585,15 @@ private struct RemoteHostSidebarSection: View {
             isDisabled: connection?.isHostConnected != true,
             onSetDescription: onSetDescription,
             additionalMenu: {
+                ColorContextMenuButtons(
+                    currentColor: session.customColor,
+                    isDisabled: connection?.isHostConnected != true
+                ) { newColor in
+                    onSetColor(session.sessionName, newColor)
+                }
+
+                Divider()
+
                 if let claudePane {
                     Toggle(isOn: Binding(
                         get: { sessionStore.isYoloModeEnabled(paneId: claudePane.paneId, hostId: host.id) },
@@ -2718,7 +2764,32 @@ private struct RemoteSessionSidebarRow: View {
             .first
     }
 
+    /// Latest `OSC 9;4` progress from the host, picked from the first pane
+    /// in this session that has one. Same iteration shape as the host's
+    /// `SessionSidebarRow.sessionProgress` and the iOS session list, so when
+    /// multiple panes in one session emit progress all three platforms agree
+    /// on which pane wins.
+    private var sessionProgress: TerminalProgressState? {
+        session.windows.lazy
+            .flatMap(\.panes)
+            .compactMap(\.progress)
+            .first
+    }
+
     var body: some View {
+        rowContent
+            .overlay(alignment: .leading) {
+                SessionColorBar(color: session.customColor)
+                    .padding(.leading, -16)
+            }
+            .overlay(alignment: .bottom) {
+                if let sessionProgress {
+                    TerminalProgressBar(state: sessionProgress)
+                }
+            }
+    }
+
+    private var rowContent: some View {
         HStack(alignment: .top, spacing: 8) {
             if let cliSessionState {
                 SessionStatusIndicator(cliState: cliSessionState)
