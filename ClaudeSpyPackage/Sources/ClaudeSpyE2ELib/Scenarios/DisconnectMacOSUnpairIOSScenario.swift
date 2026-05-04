@@ -16,9 +16,9 @@ public enum DisconnectMacOSUnpairIOSScenario {
         TestStep.macWaitForElementToDisappear(titled: "Connected")
         TestStep.macScreenshot(label: "mac-after-disconnect")
 
-        // 3. iOS: navigate to Manage Hosts and unpair
-        TestStep.iosTap(.labelContains("Settings"))
-        TestStep.wait(seconds: 0.5)
+        // 3. iOS: navigate to Manage Hosts and unpair via Settings sheet
+        TestStep.iosTap(.label("Settings"))
+        TestStep.iosWaitForElement(.labelContains("Paired Hosts"), timeout: 5)
         TestStep.iosTap(.labelContains("Paired Hosts"))
         TestStep.wait(seconds: 0.5)
         TestStep.iosScreenshot(label: "ios-paired-hosts")

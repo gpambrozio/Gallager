@@ -235,54 +235,41 @@
 
     // MARK: - Main View
 
-    /// The main tabbed interface after pairing.
+    /// The main interface after pairing.
+    ///
+    /// Shows a session list with a Settings button in the toolbar that
+    /// presents the SettingsView as a sheet.
     struct MainView: View {
         @Environment(IOSSettings.self) private var settings
         @Environment(ViewerConnectionManager.self) private var connectionManager
         @Environment(SessionStore.self) private var sessionStore
-        @Environment(\.verticalSizeClass) private var verticalSizeClass
 
-        @State private var selectedTab: Tab = .sessions
         @State private var sessionsNavigationPath = NavigationPath()
+        @State private var showingSettings = false
 
         @State private var pushService = PushNotificationService.shared
         /// Tracks the currently displayed session pane ID for deep link deduplication.
         /// Set when navigating to a session, cleared when popping back to the list.
         @State private var currentlyDisplayedPaneId: String?
 
-        enum Tab {
-            case sessions
-            case settings
-        }
-
-        /// Whether to hide the tab bar.
-        /// Hidden when inside a session (navigation stack is non-empty) or on iPhone in landscape.
-        private var hideTabBar: Bool {
-            !sessionsNavigationPath.isEmpty
-                || (UIDevice.current.userInterfaceIdiom == .phone && verticalSizeClass == .compact)
-        }
-
         var body: some View {
-            TabView(selection: $selectedTab) {
-                NavigationStack(path: $sessionsNavigationPath) {
-                    SessionListView(
-                        navigationPath: $sessionsNavigationPath
-                    )
-                    .toolbar(hideTabBar ? .hidden : .visible, for: .tabBar)
-                }
-                .tabItem {
-                    Label("Sessions", symbol: .terminal)
-                }
-                .tag(Tab.sessions)
-
+            NavigationStack(path: $sessionsNavigationPath) {
+                SessionListView(
+                    navigationPath: $sessionsNavigationPath,
+                    onOpenSettings: { showingSettings = true }
+                )
+            }
+            .sheet(isPresented: $showingSettings) {
                 NavigationStack {
                     SettingsView()
-                        .toolbar(hideTabBar ? .hidden : .visible, for: .tabBar)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("Done") {
+                                    showingSettings = false
+                                }
+                            }
+                        }
                 }
-                .tabItem {
-                    Label("Settings", symbol: .gearshape)
-                }
-                .tag(Tab.settings)
             }
             .task {
                 await connectIfNeeded()
@@ -311,8 +298,8 @@
         private func handleDeepLink(_ deepLink: PushNotificationService.DeepLinkInfo?) {
             guard let deepLink else { return }
 
-            // Switch to sessions tab
-            selectedTab = .sessions
+            // Dismiss Settings sheet if open so the deep link target is visible
+            showingSettings = false
 
             // If we're already displaying this session, don't navigate again.
             // This prevents redundant navigation when receiving multiple push
@@ -321,9 +308,8 @@
                 return
             }
 
-            // Navigate to the session detail after a brief delay. This delay is necessary
-            // because NavigationStack may ignore path appends if the tab transition hasn't
-            // completed. 100ms provides reliable behavior across device types.
+            // Brief delay lets a Settings sheet dismissal settle before we push
+            // onto the underlying navigation stack.
             //
             // We reset the navigation path first to ensure only one session detail view
             // exists in the stack. Multiple push notifications would otherwise pile up

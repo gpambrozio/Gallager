@@ -9,9 +9,9 @@ public enum UnpairFromIOSScenario {
         // 1. Establish a fresh pairing
         FreshPairingScenario.scenario
 
-        // 2. Navigate to Manage Hosts on iOS
-        TestStep.iosTap(.labelContains("Settings"))
-        TestStep.wait(seconds: 0.5)
+        // 2. Navigate to Manage Hosts on iOS — open Settings sheet then push Paired Hosts
+        TestStep.iosTap(.label("Settings"))
+        TestStep.iosWaitForElement(.labelContains("Paired Hosts"), timeout: 5)
         TestStep.iosTap(.labelContains("Paired Hosts"))
         TestStep.wait(seconds: 0.5)
         TestStep.iosScreenshot(label: "ios-paired-hosts")
