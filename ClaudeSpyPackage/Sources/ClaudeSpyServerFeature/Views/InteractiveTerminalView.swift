@@ -929,6 +929,13 @@
             // Don't intercept keys when the prompt editor overlay is active
             guard !isEditorActive else { return false }
 
+            // performKeyEquivalent is dispatched depth-first across every view in
+            // the window — not just the first responder — and the first view that
+            // returns true consumes the event. In a multi-pane layout, that means
+            // any sibling pane could claim Cmd+V or Cmd+C and route input to the
+            // wrong tmux target. Only act when this pane actually has focus.
+            guard window?.firstResponder === self else { return false }
+
             guard event.modifierFlags.contains(.command) else {
                 return false
             }
@@ -975,7 +982,7 @@
             // the inner app talks to tmux's PTY, not directly to SwiftTerm.
             // Intercept and route as `.shiftEnter` so tmux delivers the
             // proper extended-key sequence to the pane.
-            let returnChars: Set<String> = ["\r", "\u{3}"]
+            let returnChars: Set = ["\r", "\u{3}"]
             if let chars = event.charactersIgnoringModifiers, returnChars.contains(chars) {
                 let activeModifiers = event.modifierFlags
                     .intersection([.shift, .control, .option, .command])
