@@ -281,8 +281,13 @@
             .task {
                 await connectIfNeeded()
             }
-            .onChange(of: pushService.pendingDeepLink) { _, deepLink in
-                handleDeepLink(deepLink)
+            .onChange(of: pushService.pendingDeepLink) { _, _ in
+                // Consume so the value resets to nil — a subsequent notification
+                // with an identical payload would otherwise be suppressed by
+                // Equatable and never re-trigger this onChange.
+                if let deepLink = pushService.consumePendingDeepLink() {
+                    handleDeepLink(deepLink)
+                }
             }
             .onChange(of: sessionsNavigationPath.count) { _, count in
                 // Clear the currently displayed pane ID when user pops back to session list
