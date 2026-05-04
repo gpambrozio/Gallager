@@ -31,14 +31,16 @@ Begin scenarios that don't compose on FreshPairingScenario with cleanup:
 
 ```swift
 TestStep.uninstallIOSApp    // Remove previous iOS install
-TestStep.terminateMacApp    // Kill previous macOS process
+TestStep.terminateMacApp()  // Kill previous macOS process
 
 TestStep.startServer
 TestStep.verifyServerHealth
 
-TestStep.launchIOSApp
-TestStep.launchMacApp
+TestStep.launchIOSApp()
+TestStep.launchMacApp()
 ```
+
+`launchMacApp` and `terminateMacApp` take an `instance:` parameter that defaults to `0`; the parens are required because of the default.
 
 ## Pattern: macOS-Only Scenario
 
@@ -65,9 +67,30 @@ Shortcut.macOnlySetup
 TestStep.macResizeWindow(width: 1_200, height: 700)
 ```
 
-For scenarios that only need the Panes window (app already running), use `Shortcut.openPanesWindow(instance:)` instead.
+For scenarios that only need the Panes window (app already running), use `Shortcut.openPanesWindow(instance:)` instead. Note `openPanesWindow` is a function that takes an instance parameter.
 
-Note: `launchMacApp` always includes `--server-url` to prevent accidental production connections, even without a running server.
+`launchMacApp` always includes `--server-url` to prevent accidental production connections, even without a running server.
+
+## Pattern: Two-Mac Pairing (host + viewer instances)
+
+Every macOS step accepts an `instance:` parameter. Instance `0` is the primary app; `1+` are additional instances. Use `Shortcut.twoMacPairing` to get both up and paired, then drive them independently:
+
+```swift
+public static let scenario = ClaudeSpyE2ELib.scenario("My Two-Mac Test", tags: ["pairing"]) {
+    Shortcut.twoMacPairing
+    Shortcut.openPanesWindow()           // host (instance 0)
+    Shortcut.openPanesWindow(instance: 1) // viewer
+
+    TestStep.tmuxCreateSession(name: "shared", width: 80, height: 24)
+
+    // Drive host and viewer independently
+    TestStep.macClickButton(titled: "shared:0.0", instance: 0)  // host
+    TestStep.macActivate(instance: 1)                           // viewer to front
+    TestStep.macWaitForElement(titled: "shared", timeout: 15, instance: 1)
+}
+```
+
+To extend a paired iOS+host scenario with a Mac viewer, use `Shortcut.addMacViewer` after `FreshPairingScenario`. Use the `host-`/`viewer-` screenshot label prefixes to distinguish the two Macs in baselines.
 
 ## Pattern: Unpair Verification
 
@@ -107,7 +130,7 @@ Transfer the pairing code from macOS clipboard to iOS:
 
 ```swift
 // Generate and copy on macOS
-TestStep.macOpenSettings
+TestStep.macOpenSettings()
 TestStep.macWaitForWindow(titled: "General", timeout: 5)
 TestStep.macSelectSettingsTab("Remote Access")
 TestStep.wait(seconds: 1)
@@ -123,28 +146,120 @@ TestStep.iosType(text: "${pairingCode}")
 TestStep.wait(seconds: 5)
 ```
 
-## Pattern: Reconnection Testing
+## Pattern: Reconnection / Disconnection Testing
 
-Test how apps handle server-side disconnections:
+Two server-side primitives drive disconnection scenarios:
+
+- `serverDisconnectDevice(.host | .viewer)` — drops existing WebSockets but **allows immediate reconnection**. Use for transient drops.
+- `serverBlockDevice(.host | .viewer)` — drops *and* blocks new connections until `serverUnblockDevice`. Use to simulate a sustained outage where the device must not silently reconnect during the assertion window.
 
 ```swift
-// Start with paired state
+// Sustained host outage: viewer should clear sessions
 FreshPairingScenario.scenario
+Shortcut.addMacViewer
+// ... seed a session via macSendHookEvent ...
 
-// Disconnect one side via server
-TestStep.serverDisconnectDevice(.viewer)   // Disconnect iOS
-// OR
-TestStep.serverDisconnectDevice(.host)     // Disconnect macOS
+TestStep.serverBlockDevice(.host)
+TestStep.wait(seconds: 5)
+
+TestStep.iosWaitForElementToDisappear(.labelContains("MyProject"), timeout: 15)
+TestStep.macWaitForElementToDisappear(titled: "shared-session", timeout: 15, instance: 1)
+```
+
+Or transient drop + INVALID_PAIR-on-reconnect:
+
+```swift
+TestStep.serverDisconnectDevice(.viewer)
 TestStep.wait(seconds: 1)
-
-// Take action while disconnected
-TestStep.macUnpair
-TestStep.wait(seconds: 2)
-
-// Verify the disconnected side handles INVALID_PAIR on reconnect
+TestStep.macUnpair                                 // unpair while iOS is offline
 TestStep.waitForNoPairings(timeout: 15)
 TestStep.iosWaitForElement(.labelContains("pairing code"), timeout: 30)
 ```
+
+## Pattern: Version Compatibility
+
+Simulate an old or mismatched app build using `appVersion` / `minRequiredPartnerVersion` overrides on launch, then "upgrade" at runtime via `iosSetAppVersion` / `macSetAppVersion`:
+
+```swift
+TestStep.startServer
+TestStep.verifyServerHealth
+
+// Mac host on default version, iOS viewer pretending to be an old build
+TestStep.launchMacApp()
+TestStep.launchIOSApp(appVersion: "0.1", minRequiredPartnerVersion: "0.0")
+
+// ... pair them; mismatch surfaces in peerHello, not pairing ...
+
+TestStep.macWaitForElement(titled: "running version 0.1", timeout: 20)
+TestStep.iosWaitForElement(.identifier("host-version-mismatch-row"), timeout: 15)
+
+// Simulate "user updates the app" — clear overrides at runtime
+TestStep.iosSetAppVersion(appVersion: nil, minRequiredPartnerVersion: nil)
+TestStep.macSetAppVersion(appVersion: nil, minRequiredPartnerVersion: nil)
+TestStep.iosTap(.identifier("host-version-mismatch-row"))
+TestStep.iosTap(.label("Retry"))
+TestStep.macWaitForElement(titled: "Viewer connected", timeout: 20)
+```
+
+Tag with `"version-mismatch"`. The relay server never sees version info — enforcement is peer-to-peer in the encrypted `peerHello` exchange.
+
+## Pattern: Hook Events (Driving Claude Session Lifecycle)
+
+`macSendHookEvent` POSTs to the macOS app's real `/api/hooks` endpoint, letting scenarios drive Claude session state without invoking real Claude. Pair it with `tmuxStorePaneId` so the event addresses the right pane:
+
+```swift
+TestStep.tmuxCreateSession(name: "work", width: 80, height: 24)
+TestStep.tmuxStorePaneId(target: "work:0.0", storeAs: "paneId")
+
+TestStep.macSendHookEvent(
+    json: """
+    {
+        "hook_event_name": "SessionStart",
+        "session_id": "e2e-session",
+        "timestamp": "2026-04-06T10:00:00.000000Z"
+    }
+    """,
+    tmuxPane: "${paneId}",
+    projectPath: "/Users/test/MyProject"
+)
+TestStep.wait(seconds: 3)
+
+// Now assert on UI: iOS sessions list, mac sidebar, etc.
+TestStep.iosWaitForElement(.labelContains("MyProject"), timeout: 15)
+```
+
+Other supported event types include `Stop`, `Notification`, `PermissionRequest`, `PermissionDenied`, and `UserPromptSubmit` — useful for testing yolo-mode auto-approve, ask-user-question, mark-handled, and similar Claude-session flows.
+
+## Pattern: Script Injection for Terminal Rendering Tests
+
+For scenarios that need deterministic terminal output (tables, emojis, true-color, kitty keyboard probes), put a Python helper in `ClaudeSpyE2ELib/Scenarios/Scripts/` and inject it:
+
+```swift
+TestStep.injectScript(name: "emoji_tables.py")
+
+// Run it inside the tmux pane
+Shortcut.tmuxRunCommand(target: "render-test:0", command: "python3 $TMPDIR/emoji_tables.py")
+TestStep.wait(seconds: 2)
+
+TestStep.macScreenshot(label: "mac-emoji-tables-rendered")
+```
+
+The script is auto-cleaned when the scenario ends. Bundle additions are picked up automatically as SPM resources.
+
+## Pattern: Terminal Content Assertions (No Screenshot)
+
+When you only care that the terminal contains specific text — not the exact pixels — capture the pane content and assert on it. This is more robust than a pixel comparison and gives a readable failure message:
+
+```swift
+Shortcut.tmuxRunCommand(target: "test:0", command: "echo HELLO")
+TestStep.wait(seconds: 1)
+
+TestStep.tmuxCapturePaneContent(target: "test:0", storeAs: "paneText")
+TestStep.assertStoredContains(key: "paneText", substring: "HELLO")
+TestStep.assertStoredNotContains(key: "paneText", substring: "ERROR")
+```
+
+The same pattern works for clipboard sync (read with `iosReadClipboard` / `macReadClipboard`, assert with `assertStoredContains`) and for files written by the app (`readFile` / `waitForFileContains` + `assertStoredContains`).
 
 ## Pattern: Multi-Phase Assertion Testing
 
@@ -168,70 +283,95 @@ TestStep.assertStoredNotEqual(key: "newWidth", otherKey: "initialWidth")
 
 ## Pattern: Screenshots
 
-Screenshots are auto-numbered with a zero-padded counter (`01-`, `02-`, etc.) that resets per scenario run. Labels should be descriptive kebab-case without manual number prefixes. By default, screenshots compare against stored baselines; only use `compare: false` if there's very good reason to not compare. Comparing should be the default.
+Screenshots are auto-numbered with a zero-padded counter (`01-`, `02-`, etc.) that resets per scenario run. Labels should be descriptive kebab-case **starting with a platform prefix** (`ios-`, `mac-`, `host-`, `viewer-`) and without manual number prefixes. By default, screenshots compare against stored baselines; only use `compare: false` when content varies between runs (e.g. live timestamps, animations in flight) — and treat that as the exception, not the default.
 
 ```swift
 // Compared against baseline (default)
 TestStep.iosScreenshot(label: "ios-pairing-view")
 TestStep.macScreenshot(label: "mac-code-generated")
 
-// With tolerance for anti-aliasing
-TestStep.macScreenshot(label: "settings-window", tolerance: 1.0)
+// With higher tolerance for screens whose iOS state is non-deterministic
+TestStep.macScreenshot(label: "mac-host-and-viewer", tolerance: 5)
+
+// Per-instance screenshot (host vs viewer)
+TestStep.macScreenshot(label: "host-sidebar", instance: 0)
+TestStep.macScreenshot(label: "viewer-sidebar", instance: 1)
 ```
+
+iOS defaults: `tolerance: 0.5`, `perPixelThreshold: 0.3`.
+macOS defaults: `tolerance: 2`, `perPixelThreshold: 0.02` (looser to absorb color-space normalisation noise).
+
+When a non-screenshot step fails (element missing, assertion failed, HTTP error), the orchestrator automatically captures diagnostic screenshots of the running platforms — saved as `failure-step-NN-<target>.png` next to the scenario screenshots. You don't need to add manual diagnostic screenshots before each step.
 
 See `docs/e2e-testing.md` for baseline storage, diff images, and CLI options.
 
+## Pattern: Right-Click and Context Menus
 
-## Pattern: Run tmux Commands
-
-Use `Shortcut.tmuxRunCommand` instead of the two-step `tmuxSendKeys` + Enter pattern:
+Use `macContextMenuClick` for the combined right-click + menu-item-pick:
 
 ```swift
-// Instead of:
-// TestStep.tmuxSendKeys(target: "my-session:0", keys: "echo hello", literal: true)
-// TestStep.tmuxSendKeys(target: "my-session:0", keys: "Enter")
-
-// Use:
-Shortcut.tmuxRunCommand(target: "my-session:0", command: "echo hello")
-
-// For non-literal commands (e.g., OSC escape sequences):
-Shortcut.tmuxRunCommand(
-    target: "my-session:0",
-    command: "printf '\\033]2;My Title\\007'",
-    literal: false
-)
+TestStep.macContextMenuClick(elementTitle: "hello.txt", menuItem: "Copy Path")
+TestStep.wait(seconds: 1)
+TestStep.macReadClipboard(storeAs: "copiedPath")
+TestStep.assertStoredContains(key: "copiedPath", substring: "/hello.txt")
 ```
 
-## Pattern: Connect iOS to Terminal Session
-
-Use `Shortcut.iosConnectToSession` to navigate to a terminal pane on iOS:
+Or split it when you need to inspect the menu before clicking:
 
 ```swift
-// Instead of:
-// TestStep.iosWaitForElement(.labelContains("my-session"), timeout: 15)
-// TestStep.iosTap(.labelContains("my-session"))
-// TestStep.wait(seconds: 3)
-// TestStep.iosWaitForElementToDisappear(.labelContains("Connecting"), timeout: 15)
-// TestStep.wait(seconds: 3)
-
-// Use:
-Shortcut.iosConnectToSession(sessionName: "my-session")
+TestStep.macRightClick(titled: "hello.txt")
+TestStep.macWaitForElement(titled: "Copy Relative Path", timeout: 2)
+TestStep.macClickButton(titled: "Open in New Tab")
 ```
 
-## Pattern: Clean Terminal for Rendering Tests
+## Pattern: List/Sidebar Selection (CGClick vs ClickButton)
 
-Use `Shortcut.tmuxClearAndSetPrompt` to set a plain prompt and clear the screen:
+SwiftUI `List`/`OutlineGroup` row selection often doesn't fire from `accessibilityPerformPress`. Use:
+
+- `macCGClick(titled: ...)` — synthesised mouse click. Use for selecting list/outline rows that need a real click to update `selection` state.
+- `macClickButton(titled: ...)` — AXPress fallback. Use for buttons, disclosure toggles, toolbar items, and sidebar rows backed by an explicit `Button { ... } label: { ... }`.
+
+When in doubt, try `macClickButton` first; if selection state doesn't update, switch to `macCGClick`.
+
+## Pattern: Keyboard / Field Interaction on macOS
+
+To replace the contents of a text field:
 
 ```swift
-// Instead of:
-// TestStep.tmuxSendKeys(target: "test:0", keys: #"export PS1='$ '"#, literal: true)
-// TestStep.tmuxSendKeys(target: "test:0", keys: "Enter")
-// TestStep.tmuxSendKeys(target: "test:0", keys: "clear", literal: true)
-// TestStep.tmuxSendKeys(target: "test:0", keys: "Enter")
-// TestStep.wait(seconds: 1)
+TestStep.macFocusElement(titled: "Pairing Code")
+TestStep.wait(seconds: 0.5)
+TestStep.macSelectAll                  // Cmd+A on the focused field
+TestStep.macType(text: "${newCode}", pressReturn: true)
+```
 
-// Use:
-Shortcut.tmuxClearAndSetPrompt(target: "test:0")
+Keyboard primitives also include `macPressTab` / `macPressEscape` / `macPressReturn` / `macPressSpace` for dialog driving without a button title.
+
+When typing into a *remote* terminal (viewer side of a pairing), use `charDelay` so each keystroke has time to round-trip:
+
+```swift
+TestStep.macType(text: "echo hi\n", charDelay: 0.05, instance: 1)
+```
+
+## Pattern: Reusable Shortcuts
+
+Always prefer existing shortcuts over duplicating setup steps. Current shortcuts (`Shortcut.*`):
+
+- `macOnlySetup` — launch macOS app + open Panes window (1000×600, sidebar 250).
+- `openPanesWindow(instance:)` — open and size the Panes window for a given instance.
+- `twoMacPairing` — server up, host (instance 0) and viewer (instance 1) launched and paired.
+- `addMacViewer` — after `FreshPairingScenario`, adds a Mac viewer as instance 1.
+- `tmuxRunCommand(target:command:literal:)` — send command + Enter (defaults to literal text).
+- `tmuxClearAndSetPrompt(target:)` — set plain `$ ` prompt and clear screen.
+- `iosConnectToSession(sessionName:)` — wait for session row, tap it, wait for "Connecting" to disappear.
+- `iosTapCommandsMenuItem(_:timeout:)` — open iOS toolbar Commands menu, tap an item, menu auto-dismisses.
+- `iosVerifyCommandsMenuItem(_:timeout:)` — same as above but only verifies the item exists, then dismisses by tapping outside.
+
+```swift
+// Toggle a yolo-mode-style command from iOS
+Shortcut.iosTapCommandsMenuItem("Enable Yolo Mode")
+
+// Verify a command appears without invoking it
+Shortcut.iosVerifyCommandsMenuItem("Disable Yolo Mode", timeout: 10)
 ```
 
 ## Pattern: Waiting for UI Transitions
@@ -240,7 +380,7 @@ After actions that trigger navigation or state changes, wait appropriately:
 
 ```swift
 // After launching apps: 3 seconds for app initialization
-TestStep.launchMacApp
+TestStep.launchMacApp()
 TestStep.wait(seconds: 3)
 
 // After button clicks: 0.5-1 second for UI response
@@ -257,6 +397,14 @@ TestStep.iosWaitForElementToDisappear(.labelContains("Loading"), timeout: 15)
 // For appearance: use waitForElement instead of fixed waits
 TestStep.iosWaitForElement(.labelContains("Sessions"), timeout: 15)
 TestStep.macWaitForElement(titled: "Connected", timeout: 15)
+
+// For tmux state: poll display-message instead of guessing
+TestStep.waitForTmuxDisplayMessage(
+    target: "test:0",
+    format: "#{pane_title}",
+    contains: "My Title",
+    timeout: 10
+)
 ```
 
-Prefer `waitForElement`/`waitForElementToDisappear` over fixed `wait(seconds:)` when possible - they're more reliable and fail faster.
+Prefer `waitForElement` / `waitForElementToDisappear` / `waitForTmuxDisplayMessage` / `waitForFileContains` over fixed `wait(seconds:)` when an observable signal exists — they're more reliable and fail faster on the *real* problem.

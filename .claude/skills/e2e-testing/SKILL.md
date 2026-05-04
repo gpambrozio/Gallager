@@ -7,13 +7,13 @@ description: Use this skill when writing, modifying, running, or debugging forma
 
 # E2E Test Scenario Development
 
-Guide for creating and updating end-to-end test scenarios for the ClaudeSpy distributed system (macOS app, iOS simulator app, in-process Vapor relay server).
+Guide for creating and updating end-to-end test scenarios for the ClaudeSpy distributed system (macOS app, iOS simulator app, in-process Vapor relay server, optional second macOS instance for two-Mac pairing).
 
 ## Architecture Overview
 
 The E2E test framework lives in `ClaudeSpyPackage/Sources/`:
-- **ClaudeSpyE2ELib/** - Test framework library (DSL, drivers, orchestrator, scenarios)
-- **ClaudeSpyE2E/** - CLI entry point (`ClaudeSpyE2ECommand.swift` - scenario registration)
+- **ClaudeSpyE2ELib/** - Test framework library (DSL, drivers, orchestrator, scenarios, bundled scripts)
+- **ClaudeSpyE2E/** - CLI entry point (`ClaudeSpyE2ECommand.swift` — scenario registration)
 
 Scenarios are defined declaratively using a `@resultBuilder` DSL and executed sequentially by the `TestOrchestrator`.
 
@@ -21,15 +21,37 @@ Scenarios are defined declaratively using a `@resultBuilder` DSL and executed se
 
 Always use `./scripts/e2e-test.sh` to run scenarios. It builds the apps, launches the orchestrator, and runs the scenario in a clean environment.
 
-When running tests baseline images are never updated automatically; If a test created baselines that need updating you need to remove the baseline images before running the scenario.
+Common invocations:
+
+```bash
+# Build everything and run all scenarios
+./scripts/e2e-test.sh
+
+# Skip build, just run with previously built artifacts
+./scripts/e2e-test.sh --skip-build
+
+# Run a specific scenario by exact human-readable name
+./scripts/e2e-test.sh --scenario "Fresh Pairing"
+
+# List available scenarios
+./scripts/e2e-test.sh --skip-build --list-scenarios
+
+# Take screenshots but skip baseline comparison (one-off)
+./scripts/e2e-test.sh --skip-build --no-compare --scenario "My Scenario"
+
+# Interactive mode — runs scenario then waits for Enter so you can poke at the apps
+./scripts/e2e-test.sh --skip-build --interactive --scenario "My Scenario"
+```
+
+Baselines are never auto-updated on a passing run; if your changes invalidate an existing baseline, delete the affected directory before re-running so the next pass regenerates it.
+
+When a non-screenshot step fails (element missing, assertion failed, HTTP error), the orchestrator automatically captures a diagnostic screenshot of the running platform(s) — saved as `failure-step-NN-<target>.png` next to the scenario screenshots. Don't add manual diagnostic screenshots before each step.
 
 ## Creating a New Scenario
 
 ### Step 1: Create the Scenario File
 
-Create a new Swift file in `ClaudeSpyPackage/Sources/ClaudeSpyE2ELib/Scenarios/`.
-
-Follow this exact pattern:
+Create a new Swift file in `ClaudeSpyPackage/Sources/ClaudeSpyE2ELib/Scenarios/`. Follow this exact pattern:
 
 ```swift
 import Foundation
@@ -43,7 +65,7 @@ public enum MyScenario {
         // Test steps go here
         TestStep.startServer
         TestStep.verifyServerHealth
-        TestStep.launchIOSApp
+        TestStep.launchIOSApp()
         // ...
     }
 }
@@ -54,7 +76,7 @@ Key conventions:
 - The static property must be named `scenario`
 - Use `ClaudeSpyE2ELib.scenario(...)` factory with the `@ScenarioBuilder` DSL
 - Name should be human-readable (used in CLI `--scenario "Name"`)
-- Tags categorize scenarios: `"smoke"`, `"pairing"`, `"unpair"`, `"reconnect"`, `"terminal"`, `"resize"`, `"macos-only"`, `"interactive"`
+- Tags categorize scenarios. Existing tags include `"smoke"`, `"pairing"`, `"unpair"`, `"reconnect"`, `"version-mismatch"`, `"terminal"`, `"rendering"`, `"resize"`, `"sessions"`, `"hooks"`, `"yolo"`, `"clipboard"`, `"file-browser"`, `"tabs"`, `"sidebar"`, `"layout"`, `"links"`, `"editor"`, `"project-search"`, `"keystroke"`, `"description"`, `"sync"`, `"persistence"`, `"disconnect"`, `"interactive"`, `"macos-only"`, `"ios"`, `"remote"`. Pick existing ones when they fit.
 
 ### Step 2: Register the Scenario
 
@@ -83,10 +105,10 @@ HStack { }
 **macOS (SwiftUI toolbar):** Use `.help()` for toolbar buttons (Label titles aren't exposed in System Events).
 ```swift
 Button { } label: { Label("Generate Code", symbol: .key) }
-    .help("Generate Pairing Code")           // -> macClickButton(titled:)
+    .help("Generate Pairing Code")           // -> macClickButton(titled:) AND ElementQuery.help("...")
 ```
 
-**macOS (sidebar rows):** Use `Button` (not `onTapGesture`) with `.accessibilityLabel()` on the Button itself.
+**macOS (sidebar / List rows):** Use `Button` (not `onTapGesture`) with `.accessibilityLabel()` on the Button itself. For selection in `List`/`OutlineGroup` (where AXPress doesn't update selection state), use `macCGClick(titled:)` instead of `macClickButton`. For disclosure toggles and explicit buttons, `macClickButton` is fine.
 
 ### Step 4: Run the New Scenario and Verify It Passes
 
@@ -100,19 +122,18 @@ If the scenario fails, fix the issue and re-run until it passes. **Never commit 
 
 ## Scenario Structure Rules
 
-1. **Never include cleanup steps** - The orchestrator handles cleanup automatically (terminate apps, stop server, kill tmux)
-2. **Start with clean state** - Begin scenarios with `uninstallIOSApp` + `terminateMacApp` if needed
-3. **Always start server before apps** - Apps need the server URL for `--e2e-test` args
-4. **Use composition** - Reuse existing scenarios by embedding them (steps get flattened inline)
-5. **Add screenshots at key checkpoints** - Labels are auto-numbered (`01-`, `02-`, etc.) per scenario run; do not add manual number prefixes. Screenshots compare against baselines by default; pass `compare: false` only for screens that should not have consistent output. Default should be to not add `compare: false` so it gets compared against the baseline.
-6. **Screenshot naming convention** - Screenshot labels must always start with a platform prefix: `mac-`, `ios-`, `host-`, or `viewer-`.
+1. **Never include cleanup steps** — the orchestrator handles cleanup automatically (terminate apps, stop server, kill tmux, reset blocked devices, remove injected scripts).
+2. **Start with clean state** — Begin scenarios with `uninstallIOSApp` + `terminateMacApp()` if you're not composing on a setup scenario.
+3. **Always start server before apps** — Apps need the server URL for `--e2e-test` args.
+4. **Use composition** — Reuse existing scenarios by embedding them; steps get flattened inline.
+5. **Add screenshots at key checkpoints** — Labels are auto-numbered (`01-`, `02-`, …) per scenario run; do not add manual number prefixes. Screenshots compare against baselines by default — pass `compare: false` only for screens whose content varies between runs (live timestamps, animations in flight). Baseline comparison is the default and the strong preference.
+6. **Screenshot naming convention** — Labels must always start with a platform prefix: `mac-`, `ios-`, `host-`, or `viewer-`.
    - `mac-` for `macScreenshot` in standard scenarios
    - `ios-` for `iosScreenshot` in standard scenarios
-   - `host-` and `viewer-` for `macScreenshot` in two-Mac pairing scenarios
-   - The orchestrator auto-numbers screenshots (`01-`, `02-`, etc.) — the platform prefix goes after the number
-7. **Never commit screenshot baselines** - Baselines in `E2ETests/` are generated by CI and must not be pushed to GitHub. If your changes cause existing baselines to become invalid (e.g., UI changes, new/reordered screenshots), delete the affected baseline directory (e.g., `rm -rf E2ETests/mark-handled/`) so CI regenerates them.
-8. **Use `wait(seconds:)` after actions** - UI transitions need time; typical waits are 0.5-3 seconds
-9. **Use numbered comments** - Group steps into logical phases with `// 1. Description` comments
+   - `host-` and `viewer-` for `macScreenshot` in two-Mac pairing scenarios (instance 0 = host, instance 1 = viewer)
+7. **Never commit screenshot baselines** — Baselines in `E2ETests/` are generated by CI and must not be pushed to GitHub. If your changes cause existing baselines to become invalid (e.g., UI changes, new/reordered screenshots), delete the affected baseline directory (e.g., `rm -rf E2ETests/mark-handled/`) so CI regenerates them.
+8. **Use `wait(seconds:)` after actions** — UI transitions need time; typical waits are 0.5–3 seconds. Prefer `*WaitForElement*`, `waitForTmuxDisplayMessage`, or `waitForFileContains` over fixed sleeps when an observable signal exists.
+9. **Use numbered comments** — Group steps into logical phases with `// 1. Description` comments.
 
 ## Composing Scenarios
 
@@ -127,7 +148,7 @@ public static let scenario = ClaudeSpyE2ELib.scenario("Advanced Test", tags: ["a
 }
 ```
 
-The `ScenarioBuilder` result builder flattens included scenario steps inline.
+The `ScenarioBuilder` result builder flattens included scenario steps inline. It also supports `if`/`else` and `for` loops, so scenarios can branch or fan out programmatically when needed.
 
 ### Reusable Shortcuts
 
@@ -135,13 +156,15 @@ The `Shortcut` enum in `ScenarioShortcuts.swift` provides pre-built scenario fra
 
 | Shortcut | What it provides |
 |----------|-----------------|
-| `Shortcut.macOnlySetup` | Launches macOS app + opens Panes window (positioned at 10,10, 1000x600, sidebar 250) |
-| `Shortcut.openPanesWindow(instance:)` | Opens and sizes the Panes window (expects app already running) |
-| `Shortcut.twoMacPairing` | Starts server, launches two Mac instances, pairs them, verifies "Connected" |
+| `Shortcut.macOnlySetup` | Launches macOS app + opens Panes window (positioned at 10,10, 1000×600, sidebar 250) |
+| `Shortcut.openPanesWindow(instance:)` | Opens and sizes the Panes window for a given instance (expects app already running) |
+| `Shortcut.twoMacPairing` | Starts server, launches host (instance 0) + viewer (instance 1), pairs them, verifies "Connected" |
 | `Shortcut.addMacViewer` | After `FreshPairingScenario`, adds a Mac viewer as instance 1 |
 | `Shortcut.tmuxRunCommand(target:command:literal:)` | Sends a command to a tmux pane and presses Enter (`literal` defaults to `true`) |
 | `Shortcut.tmuxClearAndSetPrompt(target:)` | Sets a plain `$ ` prompt and clears the screen (for clean rendering tests) |
 | `Shortcut.iosConnectToSession(sessionName:)` | Waits for an iOS session, taps it, waits for "Connecting" to disappear |
+| `Shortcut.iosTapCommandsMenuItem(_:timeout:)` | Opens iOS toolbar Commands menu, taps an item, menu auto-dismisses |
+| `Shortcut.iosVerifyCommandsMenuItem(_:timeout:)` | Opens Commands menu, verifies an item exists, dismisses by tapping outside |
 
 Usage:
 ```swift
@@ -149,7 +172,7 @@ public static let scenario = ClaudeSpyE2ELib.scenario("My Test", tags: ["macos-o
     Shortcut.macOnlySetup  // Replaces manual launchMacApp + openPanesWindow steps
 
     // Test-specific steps...
-    TestStep.macScreenshot(label: "initial-state")
+    TestStep.macScreenshot(label: "mac-initial-state")
 }
 ```
 
@@ -159,36 +182,21 @@ Shortcut.macOnlySetup
 TestStep.macResizeWindow(width: 1_200, height: 700)  // Override default size
 ```
 
+Every macOS step takes `instance: Int = 0` — use `instance: 1` for the second Mac in two-Mac scenarios (host=0, viewer=1). Ports, hook-server files, and tmux-socket-adjacent paths are derived from the instance automatically. Use `host-` / `viewer-` screenshot label prefixes instead of `mac-` so baselines are visually distinguishable. See `references/patterns.md` "Two-Mac Pairing" for the full pattern.
+
 ## Variable Interpolation
 
-Pass data between steps via `ExecutionContext`:
+Pass data between steps via `ExecutionContext`. Steps that **store** a value: `storeValue`, `macReadClipboard`/`iosReadClipboard`, `tmuxStorePaneId`, `tmuxStorePaneDimensions`, `tmuxCapturePaneContent`, `tmuxStoreDisplayMessage`, `readFile`, `waitForFileContains`. Reference the stored value as `${key}` in any string argument (`iosType`, `macType`, `log`, `assertStoredContains` substrings, `macSendHookEvent` JSON, tmux targets, file paths). The orchestrator interpolates before passing to drivers.
 
-```swift
-TestStep.macReadClipboard(storeAs: "pairingCode")  // Store
-TestStep.iosType(text: "${pairingCode}")            // Use
-TestStep.log("Code was: ${pairingCode}")            // Use in logs
+## Test Steps
 
-TestStep.storeValue(key: "expected", value: "80")   // Store literal
-TestStep.tmuxStorePaneDimensions(target: "session:0.0", widthKey: "w", heightKey: "h")
-TestStep.assertStoredEqual(key: "w", otherKey: "expected")
-```
+Steps are `TestStep` enum cases organised in 8 categories: **Server**, **iOS**, **macOS** (every macOS step accepts `instance: Int = 0`), **Tmux**, **Hooks** (`macSendHookEvent`), **Assertions** (`assertStoredEqual` / `NotEqual` / `Contains` / `NotContains`), **Scripts/Files** (`injectScript`, `readFile`, `waitForFileContains`), and **General** (`wait`, `storeValue`, `log`).
 
-## Test Step Quick Reference
+Read `references/test-steps-reference.md` before writing a step you haven't used before — it has every signature, default value, and per-step usage note (including subtle ones like `macCGClick` vs `macClickButton`, `serverDisconnectDevice` vs `serverBlockDevice`, and `macType`'s `charDelay` for remote terminals).
 
-Steps are defined as `TestStep` enum cases. Full signatures and details are in `references/test-steps-reference.md`.
+## Element Queries
 
-| Category | Key Steps |
-|----------|-----------|
-| **Server** | `startServer`, `verifyServerHealth`, `verifyServerHasPairings(count:)`, `waitForHostConnected`, `waitForViewerConnected`, `serverDisconnectDevice(_:)`, `waitForNoPairings` |
-| **iOS** | `launchIOSApp`, `iosWaitForElement(_:timeout:)`, `iosTap(_:)`, `iosType(text:)`, `iosSwipeLeft(_:)`, `iosWaitForElementToDisappear(_:timeout:)`, `iosScreenshot(label:compare:tolerance:)`, `iosLogUI` |
-| **macOS** | `launchMacApp`, `terminateMacApp`, `macOpenSettings`, `macCloseWindow(titled:)`, `macWaitForWindow(titled:timeout:)`, `macSelectSettingsTab(_:)`, `macClickButton(titled:)`, `macClickMenuItem(menuButtonTitle:itemTitle:)`, `macUnpair`, `macReadClipboard(storeAs:)`, `macWaitForElement(titled:timeout:)`, `macWaitForElementQuery(_:timeout:)`, `macWaitForElementQueryToDisappear(_:timeout:)`, `macOpenPanesWindow`, `macMoveWindow(x:y:)`, `macResizeWindow(width:height:)`, `macType(text:pressReturn:)`, `macScreenshot(label:compare:tolerance:)` |
-| **Tmux** | `tmuxCreateSession(name:width:height:)`, `tmuxStorePaneDimensions(target:widthKey:heightKey:)` |
-| **Assertions** | `assertStoredEqual(key:otherKey:)`, `assertStoredNotEqual(key:otherKey:)` |
-| **General** | `wait(seconds:)`, `storeValue(key:value:)`, `log(_:)` |
-
-## Element Queries (iOS)
-
-The `ElementQuery` enum matches against the iOS accessibility tree. Full reference in `references/element-queries.md`.
+The `ElementQuery` enum matches against accessibility trees on both iOS (XCUITest runner) and macOS (TestAccessibilityServer via `macWaitForElementQuery`). Full reference in `references/element-queries.md`.
 
 | Query | Example |
 |-------|---------|
@@ -198,55 +206,71 @@ The `ElementQuery` enum matches against the iOS accessibility tree. Full referen
 | `.role("Type")` | `.role("Button")` |
 | `.roleAndLabelContains(role:label:)` | `.roleAndLabelContains(role: "Button", label: "Remove")` |
 | `.valueContains("text")` | `.valueContains("Connected")` |
-| `.allOf([...])` | `.allOf([.role("Button"), .labelContains("OK")])` |
+| `.help("text")` | `.help("Generate Pairing Code")` |
+| `.anyTextMatches("text")` | `.anyTextMatches("Check the spelling")` |
+| `.allOf([...])` | `.allOf([.help("Auto-resize..."), .valueContains("1")])` |
 
-Use `.roleAndLabelContains` for confirmation dialogs to target the button specifically (avoid matching dialog title text).
+Use `.roleAndLabelContains` for confirmation dialogs to target the button specifically (avoid matching the dialog title text). Use `.help(...)` to target macOS toolbar buttons by their tooltip. Use `.anyTextMatches(...)` when the text could be exposed via `title`, `label`, `value`, or `help`.
 
 ## Common Scenario Patterns
 
 Detailed patterns are in `references/patterns.md`. Key patterns:
 
-- **Full pairing flow** - Compose with `FreshPairingScenario.scenario`
-- **macOS-only scenario** - Tag with `"macos-only"`, use `Shortcut.macOnlySetup` or `tmuxCreateSession` instead of server/iOS
-- **Two-Mac pairing** - Use `Shortcut.twoMacPairing` for host + viewer setup
-- **Add viewer to existing pairing** - Use `Shortcut.addMacViewer` after `FreshPairingScenario`
-- **Run commands in tmux** - Use `Shortcut.tmuxRunCommand(target:command:)` instead of manual sendKeys + Enter
-- **Connect iOS to terminal** - Use `Shortcut.iosConnectToSession(sessionName:)` for the wait-tap-connect pattern
-- **Clean terminal for rendering** - Use `Shortcut.tmuxClearAndSetPrompt(target:)` for clean baselines
-- **Unpair verification** - Use `waitForNoPairings` + `verifyServerHasPairings(count: 0)`
-- **Reconnection testing** - Use `serverDisconnectDevice(.viewer)` or `serverDisconnectDevice(.host)`
-- **Assertion chains** - Store values with keys, then compare with `assertStoredEqual`/`assertStoredNotEqual`
+- **Full pairing flow** — Compose with `FreshPairingScenario.scenario`
+- **macOS-only scenario** — Tag with `"macos-only"`, use `Shortcut.macOnlySetup` or `tmuxCreateSession` instead of server/iOS
+- **Two-Mac pairing** — Use `Shortcut.twoMacPairing` for host (0) + viewer (1) setup; drive each independently via `instance:`
+- **Add viewer to existing pairing** — Use `Shortcut.addMacViewer` after `FreshPairingScenario`
+- **Run commands in tmux** — Use `Shortcut.tmuxRunCommand(target:command:)` instead of manual sendKeys + Enter
+- **Connect iOS to terminal** — Use `Shortcut.iosConnectToSession(sessionName:)` for the wait-tap-connect pattern
+- **Drive iOS Commands menu** — Use `Shortcut.iosTapCommandsMenuItem` / `iosVerifyCommandsMenuItem`
+- **Clean terminal for rendering** — Use `Shortcut.tmuxClearAndSetPrompt(target:)` for clean baselines
+- **Hook events / Claude session lifecycle** — Use `tmuxStorePaneId` + `macSendHookEvent` to drive `SessionStart`, `Stop`, `PermissionRequest`, etc.
+- **Terminal content assertions** — `tmuxCapturePaneContent` + `assertStoredContains` / `assertStoredNotContains` (more robust than pixel comparison for text-only checks)
+- **Script injection** — `injectScript(name:)` copies a Python helper from `Scenarios/Scripts/` into `$TMPDIR` for use inside tmux commands; auto-cleaned
+- **Unpair verification** — Use `waitForNoPairings` + `verifyServerHasPairings(count: 0)`
+- **Reconnection testing** — `serverDisconnectDevice` for transient drops, `serverBlockDevice` + `serverUnblockDevice` for sustained outages
+- **Version compatibility** — `launchIOSApp(appVersion:minRequiredPartnerVersion:)` / `launchMacApp(...)` to start mismatched, then `iosSetAppVersion`/`macSetAppVersion` with `nil` to simulate "the user updated the app"
+- **Right-click / context menus** — `macContextMenuClick(elementTitle:menuItem:)`
+- **List/sidebar selection** — `macCGClick(titled:)` for `List`/`OutlineGroup` rows; `macClickButton(titled:)` for explicit `Button` elements
+- **Field interaction** — `macFocusElement` + `macSelectAll` + `macType` to replace text in a field; `macPressTab/Escape/Return/Space` for keyboard-only navigation
+- **Assertion chains** — Store values with keys, then compare with `assertStoredEqual` / `assertStoredNotEqual` / `assertStoredContains` / `assertStoredNotContains`
 
 ## Debugging Tips
 
 - Use `TestStep.iosLogUI` to dump the full iOS accessibility tree when element queries don't match
 - Use `TestStep.log("message ${var}")` to trace variable values
-- Add `TestStep.iosScreenshot(label:compare:tolerance:)` / `TestStep.macScreenshot(label:compare:tolerance:)` before failing steps
 - Run specific scenario: `./scripts/e2e-test.sh --skip-build --scenario "Name"`
 - Interactive mode to inspect state: `./scripts/e2e-test.sh --skip-build --interactive --scenario "Name"`
+- Skip baseline comparison while iterating: `./scripts/e2e-test.sh --skip-build --no-compare --scenario "Name"`
+- Failure screenshots are auto-captured for any non-screenshot step failure (saved as `failure-step-NN-<target>.png`) — no need to add manual screenshots before suspect steps
 
 ## Storage Isolation
 
-Both apps accept `--e2e-test` which overrides `PreferencesService` and `SecretsService` with in-memory implementations. The macOS app also accepts `--tmux-socket <path>` for tmux session isolation. The orchestrator builds these launch arguments automatically.
+Both apps accept `--e2e-test` which overrides `PreferencesService` and `SecretsService` with in-memory implementations. The macOS app also accepts `--tmux-socket <path>` for tmux session isolation. The orchestrator builds these launch arguments automatically per instance, so the user's real Gallager config and tmux server are untouched.
 
 ## Additional Resources
 
 ### Reference Files
 
 For detailed information, consult:
-- **`references/test-steps-reference.md`** - Complete test step reference with all signatures, defaults, and usage notes
-- **`references/element-queries.md`** - ElementQuery enum details, matching behavior, and best practices
-- **`references/patterns.md`** - Common scenario patterns with full examples from the codebase
-- **`docs/e2e-testing.md`** (project root) - Screenshot comparison workflow, baseline storage, auto-numbering, and CLI options
+- **`references/test-steps-reference.md`** — Complete test step reference with all signatures, defaults, and usage notes (including the `instance:` parameter on every macOS step)
+- **`references/element-queries.md`** — ElementQuery enum details, matching behavior, best practices (including `.help` and `.anyTextMatches`)
+- **`references/patterns.md`** — Common scenario patterns with full examples (multi-instance, hooks, scripts, version mismatch, terminal content assertions, …)
+- **`docs/e2e-testing.md`** (project root) — Screenshot comparison workflow, baseline storage, auto-numbering, failure screenshots, results-repo publishing, and CLI options
 
 ### Existing Scenarios (in `ClaudeSpyE2ELib/Scenarios/`)
 
-Study these as reference implementations:
-- **FreshPairingScenario** - Foundation scenario, most others compose on top of it
-- **NewTerminalScenario** - Simple composition example
-- **UnpairFromIOSScenario** - iOS swipe + confirmation dialog handling
-- **UnpairFromMacOSScenario** - Unpair from macOS side, verify iOS cleanup
-- **ResizePaneScenario** - macOS-only, tmux, assertions, multi-phase testing
-- **DisconnectIOSUnpairMacOSScenario** - Disconnect iOS, unpair from macOS, INVALID_PAIR handling
-- **DisconnectMacOSUnpairIOSScenario** - Disconnect macOS, unpair from iOS, INVALID_PAIR handling
-- **LaunchAllScenario** - Simple launch without pairing (used for interactive mode)
+Study these as reference implementations for specific patterns:
+- **FreshPairingScenario** — Foundation scenario, most others compose on top of it
+- **NewTerminalScenario** — Simple composition example
+- **UnpairFromIOSScenario / UnpairFromMacOSScenario** — Unpair from each side, swipe + confirmation, INVALID_PAIR handling
+- **ResizePaneScenario** — macOS-only, tmux dimensions, multi-phase assertion testing
+- **DisconnectIOSUnpairMacOSScenario / DisconnectMacOSUnpairIOSScenario** — `serverDisconnectDevice` reconnection scenarios
+- **HostDisconnectClearsSessionsScenario** — `serverBlockDevice` + `macSendHookEvent` + multi-instance viewer
+- **VersionMismatchOldIOSViewerScenario** (and siblings) — Version compatibility with `iosSetAppVersion`/`macSetAppVersion`
+- **AskUserQuestionScenario / ClaudeSession*Scenario / YoloMode*Scenario** — Hook-event-driven session lifecycle
+- **ClipboardSyncScenario / ClipboardSyncMacViewerScenario** — `iosReadClipboard`/`macReadClipboard` + `assertStoredContains`
+- **EmojiTableRenderingScenario / TruecolorRenderingScenario / FooterRenderingScenario** — `injectScript` for deterministic terminal output
+- **FileBrowserScenario** — `macCGClick` for List selection, `macContextMenuClick`, `macSelectAll`
+- **TwoMacPairingScenario / MultiPaneWindowScenario** — `Shortcut.twoMacPairing` and host/viewer instances
+- **LaunchAllScenario** — Simple launch without pairing (used for interactive mode)
