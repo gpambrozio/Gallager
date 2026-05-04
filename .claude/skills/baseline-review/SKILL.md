@@ -26,6 +26,8 @@ Before reviewing, be aware of these recurring patterns in baseline changes:
 
 **iOS paired/connected screens:** Images named `*-ios-paired.png` and `*-mac-connected.png` often have sub-pixel dithering differences. The script usually catches these as dithering, but if they show up as "changed" with very low diff percentages (<0.5%), they're almost certainly just rendering noise.
 
+**Platform prefixes:** Baseline filenames always start with a platform prefix after the auto-numbered counter — `mac-` / `ios-` for standard scenarios, and `host-` / `viewer-` for two-Mac pairing scenarios (instance 0 = host, instance 1 = viewer). When grouping changes, treat `host-*` and `viewer-*` images from the same two-Mac scenario as separate views of the same feature; one side may legitimately change without the other.
+
 ## Workflow
 
 ### Step 1: Gather context
@@ -144,3 +146,4 @@ rm -rf /tmp/baseline-review
 - **Be strict about unexpected changes.** When in doubt, mark it unexpected. False positives (flagging something that turns out to be fine) are much less costly than false negatives (missing a real issue).
 - **Group by change type, not by scenario.** Multiple scenarios often show the same change. Describe the pattern once, list all affected files.
 - **Every file appears in the report.** The report should account for every single changed, new, deleted, and dithering file. No file should be unaccounted for.
+- **Unexpected changes may be real bugs.** This skill only flags them; it doesn't fix them. If the report surfaces unexpected changes that look like regressions, hand off to `fix-e2e-failures` (after CI re-runs) or use `e2e-manual-debugging` to inspect the live app and confirm what shifted.

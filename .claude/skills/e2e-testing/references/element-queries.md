@@ -1,6 +1,6 @@
 # Element Queries Reference
 
-The `ElementQuery` enum (`ClaudeSpyE2ELib/Drivers/Simulator/ElementQuery.swift`) matches against the iOS accessibility tree provided by the XCUITest runner.
+The `ElementQuery` enum (`ClaudeSpyE2ELib/Drivers/Simulator/ElementQuery.swift`) matches against the iOS accessibility tree provided by the XCUITest runner. The same enum is also accepted by `macWaitForElementQuery` / `macWaitForElementQueryToDisappear` for precise matching against the macOS accessibility tree.
 
 ## Query Types
 
@@ -60,8 +60,28 @@ Case-insensitive substring match on the element's `AXValue`.
 TestStep.iosWaitForElement(.valueContains("Connected"))
 ```
 
+### `.help(String)`
+Exact match on the element's `AXHelp` attribute. On macOS, SwiftUI's `.help("…")` modifier maps to `AXHelp`. Use this when you need to match a button by its tooltip rather than its visible label — particularly common for icon-only toolbar buttons that share a generic label.
+
+```swift
+// Match a toggle by both its help text and current value
+TestStep.macWaitForElementQuery(.allOf([
+    .help("Auto-resize tmux pane to fit mirror view"),
+    .valueContains("1"),
+]))
+```
+
+### `.anyTextMatches(String)`
+Match when *any* of `title`, `label`, or `value` contains the substring (case-insensitive), or `help` exactly equals it. The "kitchen sink" matcher — useful when the element exposes the text you care about through one of several attributes and you don't want to care which.
+
+```swift
+// SwiftUI's ContentUnavailableView text shows up under different attributes
+// depending on how the runtime rendered it; .anyTextMatches matches them all.
+TestStep.macWaitForElementQuery(.anyTextMatches("Check the spelling"), timeout: 5)
+```
+
 ### `.allOf([ElementQuery])`
-Combine multiple queries - all must match the same element.
+Combine multiple queries — all must match the same element.
 
 ```swift
 TestStep.iosTap(.allOf([.role("Button"), .labelContains("OK")]))

@@ -4,322 +4,259 @@ allowed-tools:
   - Bash(./scripts/e2e-test.sh *)
   - Bash(curl *)
   - Bash(osascript *)
+  - Bash(open *)
   - Bash(screencapture *)
-  - Bash(tmux -S *)
   - Bash(xcrun simctl *)
-  - Bash(pbpaste)
   - Bash(pgrep *)
-  - Bash(pkill *)
   - Bash(python3 -c *)
-description: Use this skill for hands-on, interactive debugging and exploratory testing of the ClaudeSpy apps using the E2E infrastructure — without writing a formal test scenario. This covers launching apps in interactive mode, taking ad-hoc screenshots of the macOS or iOS app, dumping the iOS accessibility tree to find element identifiers, reproducing bugs by manually driving the UI, sending hook events to the macOS app, creating tmux sessions for testing, checking relay server health, verifying a code fix by launching and interacting with the apps, or any task where you need to inspect live app state. Use this skill whenever someone says "launch the app", "take a screenshot", "inspect the accessibility tree", "reproduce this bug", "verify my fix", "drive the app", "send a hook event", "check the relay server", or wants to interactively poke at the running apps. Do NOT use this skill when the user wants to write, modify, or run formal automated e2e test scenarios — use e2e-testing for that instead.
+description: Use this skill when an e2e scenario can't find a UI element — `iosTap`/`iosWaitForElement`/`macClickButton`/`macWaitForElement` keeps timing out, you don't know the right `ElementQuery` to use, you need to know what `AXLabel` / `AXIdentifier` / `.help()` / `accessibilityLabel` a button actually exposes, or `iosLogUI` output isn't enough. This skill boots an interactive e2e-mode instance of the apps and walks through inspecting the running UI (XCUITest view hierarchy, AppleScript accessibility tree, Xcode's Accessibility Inspector, on-the-fly screenshots) to discover the exact attributes a scenario step needs. Use whenever someone says "I can't find this element", "what's the right query for X", "the test can't see Y", "what label does the macOS button expose", "find the accessibility identifier", or "the button isn't being clicked". Do NOT use this skill for writing new scenarios from scratch (use e2e-for-feature) or running/fixing scenarios when the issue isn't an unknown element (use e2e-testing).
 ---
 
-# E2E Manual Debugging & Interactive Testing
+# E2E Element Discovery (Manual Inspection)
 
-Launch, drive, inspect, and screenshot the ClaudeSpy apps interactively — without
-writing a formal test scenario. Intended for debugging issues, verifying fixes,
-and exploratory testing.
+When `e2e-testing` or `e2e-for-feature` writes a step that can't find its element, the
+loop "guess label → run scenario → fail → guess again" is slow and brittle. This
+skill is the shortcut: boot an e2e-mode instance of the app, navigate to the state
+the scenario expects, and read the actual accessibility tree to discover the exact
+label, identifier, role, or `.help()` text the step should target.
 
-## Environment Details
+## When this skill applies
 
-When running in E2E mode, these services are active:
+You're in this skill if any of these are true:
 
-| Service | Port | Purpose |
-|---------|------|---------|
-| Relay server | 8765 | WebSocket pairing between macOS and iOS |
-| macOS TestAccessibilityServer | 18081 | In-app HTTP (sidebar width, unpair) |
-| XCUITest runner (iOS) | 22087 | iOS UI inspection, touch, text input |
-| macOS hook server | Read from `~/.claudespy-port-test` | Hook event delivery |
+- `iosTap(.label("..."))` / `iosWaitForElement(...)` keeps timing out and you don't know what label/identifier the SwiftUI view actually exposes.
+- `macClickButton(titled: "...")` / `macWaitForElement(titled: "...")` can't find a button — could be a `.help()` text, an `accessibilityLabel`, or no exposure at all.
+- A scenario worked yesterday and stopped working after a UI change; you need to find the new label.
+- You're writing a new scenario and want to discover identifiers up front, before guessing.
+- `iosLogUI` dumps the tree but you can't tell which entry corresponds to the on-screen control you care about.
 
-**Tmux socket:** `/tmp/claudespy-e2e/claudespy-e2e.sock` (isolated from real sessions)
+If you're not stuck on element discovery — for example, you're writing a scenario, reproducing a test failure caused by a logic bug, or comparing baselines — go back to `e2e-testing` / `e2e-for-feature` / `baseline-review` instead.
 
-## Manual Interaction Commands
+## Workflow at a glance
 
-### iOS App Interaction
+1. **Boot interactive e2e mode**, optionally landing in the state of an existing scenario.
+2. **Drive the apps to the screen you care about** (use the same TestSteps the scenario uses, or your hands).
+3. **Inspect** the iOS or macOS accessibility tree to find the element.
+4. **Map the AX attribute to the right `ElementQuery`** and update the scenario.
+5. **Press Enter** in the orchestrator terminal to shut down — orchestrator handles cleanup.
 
-All iOS interaction goes through the XCUITest runner HTTP server on port 22087.
+## Step 1: Boot an interactive e2e instance
 
-#### Check if runner is ready
+`./scripts/e2e-test.sh --interactive` launches the apps in e2e mode and waits for Enter before tearing down. With `--scenario`, it runs the scenario first and then waits — so you land in the exact state that's failing.
 
 ```bash
-curl -s http://127.0.0.1:22087/status
-# Expected: {"status":"ok"}
+# Start fresh: launch all apps, no pairing, wait for Enter
+./scripts/e2e-test.sh --skip-build --interactive
+
+# Run a specific scenario, then pause for inspection
+./scripts/e2e-test.sh --skip-build --interactive --scenario "Fresh Pairing"
 ```
 
-#### Get iOS accessibility tree (find elements)
+Use `--skip-build` once you have built artifacts so iteration is fast. The script prints the simulator name and the running PIDs; the apps stay live until you press Enter in the script's terminal.
+
+While the apps are paused you can issue any TestStep-equivalent command yourself (curl the XCUITest runner, AppleScript-click a macOS button, send tmux keys) to drive the UI to the screen the failing scenario needs.
+
+## Step 2: Inspect the iOS UI
+
+iOS exposes its accessibility tree via the XCUITest runner's HTTP server on port 22087.
+
+### Dump the iOS view hierarchy as a readable tree
+
+The raw `/viewHierarchy` JSON is huge; pipe it through this pretty-printer (also stored in `references/utility-snippets.md` if you need to copy-paste it):
 
 ```bash
 curl -s -X POST http://127.0.0.1:22087/viewHierarchy \
   -H "Content-Type: application/json" \
-  -d '{"bundleId":"br.eng.gustavo.claudespy"}' | python3 -m json.tool
+  -d '{"bundleId":"br.eng.gustavo.claudespy"}' | \
+  python3 -c "
+import json, sys
+def walk(el, depth=0):
+    t = el.get('elementType', 0)
+    label = el.get('label', '')
+    ident = el.get('identifier', '')
+    value = el.get('value', '')
+    frame = el.get('frame', {})
+    types = {9:'Button',48:'StaticText',49:'TextField',43:'Image',40:'Switch',75:'Cell',3:'Group',4:'Window',7:'Alert',46:'ScrollView'}
+    tname = types.get(t, f'Type({t})')
+    parts = [f'{\"  \"*depth}{tname}']
+    if label: parts.append(f'label=\"{label}\"')
+    if ident: parts.append(f'id=\"{ident}\"')
+    if value: parts.append(f'value=\"{value}\"')
+    if frame: parts.append(f'({frame.get(\"X\",0):.0f},{frame.get(\"Y\",0):.0f} {frame.get(\"Width\",0):.0f}x{frame.get(\"Height\",0):.0f})')
+    print(' '.join(parts))
+    for child in el.get('children', []):
+        walk(child, depth+1)
+data = json.load(sys.stdin)
+walk(data.get('axElement', {}))
+"
 ```
 
-The response contains a nested `axElement` with `children`, each having:
-- `label` — accessibility label
-- `identifier` — accessibility identifier
-- `elementType` — numeric type (9=Button, 48=StaticText, 49=TextField, etc.)
-- `frame` — `{X, Y, Width, Height}` in iOS points
-- `value` — current value (e.g. text field content)
-- `children` — nested child elements
+This is the same data `iosLogUI` produces — but you can grep, scroll, and re-run it without re-running the scenario.
 
-For a human-readable tree dump, see **`references/utility-snippets.md`** — it contains
-a python3 script that formats the raw JSON into an indented tree with element types,
-labels, identifiers, and frames.
+### Take an iOS screenshot to correlate
 
-#### Tap an iOS element by coordinates
+If the tree has multiple plausible candidates, capture a screenshot and visually align element frames with what's on screen:
 
 ```bash
-curl -s -X POST http://127.0.0.1:22087/touch \
-  -H "Content-Type: application/json" \
-  -d '{"x": 200, "y": 400}'
+xcrun simctl io booted screenshot /tmp/ios-debug.png && open /tmp/ios-debug.png
 ```
 
-Calculate center from `frame`: `x = frame.X + frame.Width/2`, `y = frame.Y + frame.Height/2`
+The `frame` field in the dump (`X, Y, Width, Height` in iOS points) tells you which entry corresponds to the visible control.
 
-#### Type text on iOS
+### Map iOS attributes to ElementQuery
+
+| Tree attribute | Use in scenario |
+|---|---|
+| `label="New Session"` | `.label("New Session")` (exact) or `.labelContains("Session")` |
+| `id="host-row"` | `.identifier("host-row")` |
+| `Type(9)` (Button) + label | `.allOf([.role("Button"), .labelContains("...")])` or `.roleAndLabelContains(role: "Button", label: "...")` |
+| `value="Connected"` | `.valueContains("Connected")` |
+| Element exists in tree but no useful attributes | Add `.accessibilityLabel(...)` / `.accessibilityIdentifier(...)` to the SwiftUI source |
+
+Element-type numeric values (the orchestrator translates these to role names): `3=Group, 4=Window, 7=Alert, 9=Button, 40=Switch, 43=Image, 46=ScrollView, 48=StaticText, 49=TextField, 75=Cell`.
+
+## Step 3: Inspect the macOS UI
+
+macOS doesn't have an HTTP tree-dump endpoint (the in-app `TestAccessibilityServer` on port 18081 only exposes `/unpair`, `/reconnect`, and `/set-sidebar-width`). Use one of three approaches, in order of preference:
+
+### A. Xcode's Accessibility Inspector (best for ambiguous elements)
 
 ```bash
-curl -s -X POST http://127.0.0.1:22087/inputText \
-  -H "Content-Type: application/json" \
-  -d '{"text": "hello world"}'
+open "/Applications/Xcode.app/Contents/Applications/Accessibility Inspector.app"
 ```
 
-#### Swipe on iOS
+In the Inspector, set the target to the running e2e Gallager process (find its PID with `pgrep -f "Gallager.*--e2e-test"`), enable "Inspection Pointer", then hover any element to see its full attribute set in real time: `AXRole`, `AXTitle`, `AXLabel` (`accessibilityLabel`), `AXValue`, `AXHelp` (`.help()`), `AXIdentifier`, `AXFrame`. This is by far the fastest way to discover what to put in `macClickButton(titled:)` or `.help(...)`.
 
-```bash
-curl -s -X POST http://127.0.0.1:22087/swipe \
-  -H "Content-Type: application/json" \
-  -d '{"startX": 300, "startY": 400, "endX": 50, "endY": 400, "duration": 0.3}'
-```
+The Inspector also shows whether the element responds to `AXPress` — if it doesn't, that's why `macClickButton` isn't working and you need `macCGClick` instead.
 
-#### Take iOS screenshot
-
-```bash
-xcrun simctl io booted screenshot /tmp/ios-debug.png
-open /tmp/ios-debug.png
-```
-
-### macOS App Interaction
-
-macOS interaction uses a combination of AppleScript (via `osascript`), the AX accessibility
-API (built into the E2E framework), and the in-app HTTP server.
-
-#### Find the test app's PID
-
-The E2E test instance runs alongside any production copy. Find it by the `--e2e-test` argument:
-
-```bash
-pgrep -f "Gallager.*--e2e-test"
-```
-
-#### Click macOS UI elements via AppleScript
-
-Target only the test instance by PID:
+### B. AppleScript "entire contents" dump (scriptable, flat list)
 
 ```bash
 APP_PID=$(pgrep -f "Gallager.*--e2e-test" | head -1)
 
-# Open status bar menu and click a menu item
 osascript -e "
 tell application \"System Events\"
     tell (first process whose unix id is $APP_PID)
-        click menu bar item 1 of menu bar 2
-        delay 0.5
-        click menu item \"Settings...\" of menu 1 of menu bar item 1 of menu bar 2
-    end tell
-end tell
-"
-
-# Type into the app
-osascript -e "
-tell application \"System Events\"
-    tell (first process whose unix id is $APP_PID)
-        set frontmost to true
-        keystroke \"hello\"
-        keystroke return
+        get entire contents
     end tell
 end tell
 "
 ```
 
-#### macOS in-app HTTP endpoints
+Produces a flat list of every AX element. Useful for grepping (`| grep -i "pairing"`) but lacks structure. Narrow to a specific window first if it's overwhelming:
 
 ```bash
-# Trigger unpair
-curl -s -X POST http://127.0.0.1:18081/unpair
-
-# Set sidebar width
-curl -s -X POST "http://127.0.0.1:18081/set-sidebar-width?width=250"
+osascript -e "
+tell application \"System Events\"
+    tell (first process whose unix id is $APP_PID)
+        properties of every UI element of window \"Gallager\"
+    end tell
+end tell
+"
 ```
 
-#### Take macOS screenshot
+### C. Screenshot of the e2e instance
 
-See **`references/utility-snippets.md`** for the full python3/Quartz snippet that finds
-the CGWindowID by PID and captures it with `screencapture -x -l`.
-
-Quick version (if the PID is already known):
+When you need to confirm visually which window/control you're targeting:
 
 ```bash
 APP_PID=$(pgrep -f "Gallager.*--e2e-test" | head -1)
-screencapture -x -l "$(python3 -c "
+WINDOW_ID=$(python3 -c "
 import Quartz, sys
 for w in Quartz.CGWindowListCopyWindowInfo(3, 0):
     if w.get('kCGWindowOwnerPID') == $APP_PID:
         print(w['kCGWindowNumber']); sys.exit(0)
 sys.exit(1)
-")" /tmp/mac-debug.png
-open /tmp/mac-debug.png
+")
+screencapture -x -l "$WINDOW_ID" /tmp/mac-debug.png && open /tmp/mac-debug.png
 ```
 
-### Tmux Interaction
+This targets the e2e Gallager window specifically (not your normal one). The full snippet is in `references/utility-snippets.md`.
 
-The E2E tmux uses an isolated socket. Always specify `-S` with the socket path:
+### Map macOS attributes to scenario steps
+
+| Inspector attribute | Use in scenario |
+|---|---|
+| `AXTitle="Generate Pairing Code"` | `macClickButton(titled: "Generate Pairing Code")` |
+| `AXLabel="..."` (from `.accessibilityLabel`) | `macClickButton(titled: "...")` (matches label too) |
+| `AXHelp="..."` (from `.help`) | `macClickButton(titled: "...")` works; for precise match use `.help("...")` in `macWaitForElementQuery` |
+| `AXIdentifier="..."` | `.identifier("...")` in `macWaitForElementQuery` |
+| `AXValue` (e.g. toggle state "1") | `.allOf([.help("..."), .valueContains("1")])` |
+| Toolbar Label has no exposed title | Add `.help("Action Name")` to the SwiftUI Button |
+| Element is in a `List` and `macClickButton` doesn't update selection | Switch the step to `macCGClick(titled:)` |
+| `.contextMenu` action you can't reach | Use `macContextMenuClick(elementTitle:menuItem:)` |
+
+## Step 4: Update the scenario
+
+Take the discovered attributes back to the scenario file. Most fixes fall into one of:
+
+- **Wrong query type** — change `.label(...)` to `.labelContains(...)`, or pivot to `.identifier(...)` when the visible label is generic.
+- **Wrong click step** — switch `macClickButton` ↔ `macCGClick` based on whether the element responds to AXPress.
+- **Missing accessibility hook** — add `.accessibilityLabel`/`.accessibilityIdentifier`/`.help` in the SwiftUI source; rebuild before re-running.
+- **Element only appears after some action** — add a `*WaitForElement*` step or use a longer timeout before the failing step.
+
+Then go run the scenario through `e2e-testing` (existing scenario) or `e2e-for-feature` (new scenario) again.
+
+## Step 5: Shut down
+
+Press Enter in the terminal where `./scripts/e2e-test.sh --interactive` is running. The orchestrator terminates the apps, stops the relay server, kills the isolated tmux server, and clears blocked-device state. No manual cleanup needed.
+
+If something hung, kill leftover e2e instances explicitly (this matches what the script does on its next run):
 
 ```bash
-TMUX_SOCKET="/tmp/claudespy-e2e/claudespy-e2e.sock"
-
-# Create a session (always use -f /dev/null to ignore user's tmux.conf)
-tmux -S "$TMUX_SOCKET" -f /dev/null new-session -d -s "test-session" -x 80 -y 24
-
-# List sessions
-tmux -S "$TMUX_SOCKET" list-sessions
-
-# Send keys to a pane
-tmux -S "$TMUX_SOCKET" send-keys -t "test-session:0.0" "echo hello" Enter
-
-# Capture pane content
-tmux -S "$TMUX_SOCKET" capture-pane -t "test-session:0.0" -p
-
-# Get pane dimensions
-tmux -S "$TMUX_SOCKET" display-message -t "test-session:0.0" -p "#{pane_width}x#{pane_height}"
-
-# Kill the tmux server (cleanup)
-tmux -S "$TMUX_SOCKET" kill-server 2>/dev/null
-rm -f "$TMUX_SOCKET"
+pkill -f "Gallager.*--e2e-test" || true
 ```
 
-**Important:** Always pass `-f /dev/null` when creating sessions to ignore the user's
-`tmux.conf` — prevents base-index issues that break the E2E framework.
+`pkill -f` is safe here because it only matches processes launched with `--e2e-test`, never your real Gallager instance.
 
-### Hook Events
+## Driving the UI yourself (when --interactive isn't enough)
 
-Send hook events to the macOS app's hook server:
+Sometimes the failing scenario gets close but the bug is in a state the scenario doesn't quite reach. While the orchestrator is paused, drive the apps directly:
+
+**iOS taps / type / swipes** (XCUITest runner on 22087):
 
 ```bash
-# Read the hook server port
-HOOK_PORT=$(cat ~/.claudespy-port-test)
+# Tap at coordinates derived from a tree dump frame
+curl -s -X POST http://127.0.0.1:22087/touch -H "Content-Type: application/json" \
+  -d '{"x": 200, "y": 400}'
 
-# Send a Stop hook event
-curl -s -X POST "http://localhost:$HOOK_PORT/api/hooks?tmux_pane=%0" \
-  -H "Content-Type: application/json" \
-  -d '{"type":"Stop","session_id":"test-123","result":{"result":"task completed"}}'
+# Type into focused field
+curl -s -X POST http://127.0.0.1:22087/inputText -H "Content-Type: application/json" \
+  -d '{"text": "hello"}'
+
+# Swipe (left swipe to reveal row actions)
+curl -s -X POST http://127.0.0.1:22087/swipe -H "Content-Type: application/json" \
+  -d '{"startX": 300, "startY": 400, "endX": 50, "endY": 400, "duration": 0.3}'
 ```
 
-### Relay Server
+**macOS click / type via AppleScript** (PID-scoped to the e2e instance):
 
 ```bash
-# Health check
-curl -s http://127.0.0.1:8765/health
-
-# Check active pairings
-curl -s http://127.0.0.1:8765/health | python3 -m json.tool
+APP_PID=$(pgrep -f "Gallager.*--e2e-test" | head -1)
+osascript -e "
+tell application \"System Events\"
+    tell (first process whose unix id is $APP_PID)
+        set frontmost to true
+        click button \"Generate Pairing Code\" of window 1
+    end tell
+end tell
+"
 ```
 
-## Workflow: Debug a Bug
-
-1. **Build with the fix** — make the code change, then build:
-   ```bash
-   ./scripts/e2e-test.sh  # builds everything
-   ```
-
-2. **Launch interactively** with the scenario closest to the bug:
-   ```bash
-   ./scripts/e2e-test.sh --skip-build --interactive --scenario "Fresh Pairing"
-   ```
-
-3. **Reproduce** — drive the app to the buggy state using manual commands above
-
-4. **Inspect** — dump accessibility trees, take screenshots, capture tmux pane content
-
-5. **Verify** — drive through the reproduction steps again to confirm the fix
-
-6. **Shut down** — press Enter in the interactive terminal
-
-## Workflow: Test Without iOS (macOS-Only)
-
-For macOS-only debugging, the full E2E orchestrator is not required. Launch the
-macOS app directly with test arguments instead. Note: this uses a different tmux
-socket path (`/tmp/claudespy-debug.sock`) than the E2E orchestrator to avoid
-conflicts if both are running.
+**Tmux** (isolated socket — never your real sessions):
 
 ```bash
-# Create an isolated tmux session first
-TMUX_SOCKET="/tmp/claudespy-debug.sock"
-tmux -S "$TMUX_SOCKET" -f /dev/null new-session -d -s "debug" -x 80 -y 24
-
-# Launch the macOS app with E2E test flags (uses in-memory storage)
-DERIVED_DATA="build/e2e-derived-data"
-open -n "$DERIVED_DATA/Build/Products/Debug/Gallager.app" \
-  --args --e2e-test \
-  --server-url ws://127.0.0.1:8765 \
-  --tmux-socket "$TMUX_SOCKET" \
-  --hook-port-file ~/.claudespy-port-test
-
-# Wait for launch, then interact...
-sleep 3
-
-# When done, quit and clean up
-osascript -e 'quit app "Gallager"'
-tmux -S "$TMUX_SOCKET" kill-server 2>/dev/null
-rm -f "$TMUX_SOCKET"
+SOCK="/tmp/claudespy-e2e/claudespy-e2e.sock"
+tmux -S "$SOCK" list-sessions
+tmux -S "$SOCK" send-keys -t "session:0.0" "echo hi" Enter
+tmux -S "$SOCK" capture-pane -t "session:0.0" -p
 ```
 
-`--server-url` prevents accidental connection to a production server. The URL does
-not need to be reachable for macOS-only testing.
+## Coexistence with the production app
 
-## Key Coexistence Rules
+The e2e instance runs alongside your real Gallager without interference: it has its own tmux socket (`/tmp/claudespy-e2e/claudespy-e2e.sock`), its own hook port file (`~/.claudespy-port-test`), in-memory PreferencesService and SecretsService (no UserDefaults/Keychain pollution), and a separate process you target by `--e2e-test` PID. Your normal Gallager is safe; AppleScript/`pkill -f "Gallager.*--e2e-test"` never touches it.
 
-The E2E test instance runs alongside a production copy of the app without interference:
+## Reference
 
-1. **Separate tmux socket** — E2E uses `/tmp/claudespy-e2e/claudespy-e2e.sock`, production uses the default
-2. **Separate hook port file** — E2E uses `~/.claudespy-port-test`, production uses `~/.claudespy-port`
-3. **In-memory storage** — `--e2e-test` overrides `PreferencesService` and `SecretsService` (no UserDefaults/Keychain pollution)
-4. **PID-scoped interaction** — AppleScript targets the test instance by PID (`first process whose unix id is $PID`)
-5. **Separate relay server** — E2E relay runs on port 8765, not the production server
-6. **New app instance** — launched via `NSWorkspace` with `createsNewApplicationInstance: true`
-
-## Common Issues
-
-### XCUITest runner not responding
-If `curl http://127.0.0.1:22087/status` fails, the runner may have crashed or not started.
-Check if the runner process is alive:
-```bash
-pgrep -f "XCTRunner"
-```
-If dead, restart interactive mode.
-
-### "Accessibility not enabled" errors
-The terminal must have Accessibility permissions in System Settings > Privacy & Security > Accessibility.
-The E2E script checks this automatically; when running commands manually, ensure it is granted.
-
-### Multiple test instances
-If multiple test instances were accidentally launched:
-```bash
-# Find all test PIDs
-pgrep -f "Gallager.*--e2e-test"
-
-# Kill all test instances (pkill -f is appropriate here for test instances;
-# use osascript -e 'quit app "Gallager"' for the production app instead)
-pkill -f "Gallager.*--e2e-test"
-```
-
-### Screenshot appears blank or wrong window
-`screencapture -l` captures by CGWindowID. If the window moved or was minimized,
-recalculate the window ID — see **`references/utility-snippets.md`**.
-
-## Additional Resources
-
-### Reference Files
-
-For utility scripts and detailed snippets, consult:
-- **`references/utility-snippets.md`** — iOS accessibility tree pretty-printer, macOS window screenshot helper, element type reference table
+- **`references/utility-snippets.md`** — full iOS tree pretty-printer (copy-paste form), macOS window-screenshot helper, element type table.
+- **`references/element-queries.md`** of the e2e-testing skill — the full ElementQuery syntax mapping for what you discover.
