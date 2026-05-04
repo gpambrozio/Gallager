@@ -12,7 +12,9 @@ set -eo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 RESULTS_REPO="git@github.com:gpambrozio/ClaudeSpyTestResults.git"
-RESULTS_DIR="$(cd "$PROJECT_ROOT/.." && pwd)/ClaudeSpyTestResults"
+# Anchor to the main worktree's parent so all worktrees share one results clone.
+MAIN_WORKTREE_ROOT="$(cd "$(git -C "$PROJECT_ROOT" rev-parse --git-common-dir)/.." && pwd)"
+RESULTS_DIR="$(dirname "$MAIN_WORKTREE_ROOT")/ClaudeSpyTestResults"
 E2E_TMPDIR="${TMPDIR:-/tmp}/claudespy-e2e"
 mkdir -p "$E2E_TMPDIR"
 JSON_OUTPUT="$E2E_TMPDIR/e2e-results.json"
