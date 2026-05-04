@@ -78,6 +78,9 @@ ssh root@$DEPLOY_HOST 'curl -fsS http://127.0.0.1:9100/metrics | head'
 ```
 If empty, the binary may have failed — check `journalctl -u node_exporter`.
 
+### A host metric (oom_kill, pswpin, etc.) is missing
+The unit at `/etc/systemd/system/node_exporter.service` runs with `--collector.disable-defaults` and an explicit allowlist. New collectors only appear after the corresponding flag is added. The repo's `monitoring/agents/node_exporter.service` is the source of truth — edit it, re-run `install.sh`, and restart node_exporter on the host.
+
 ### Discord notifications stopped arriving
 Test the contact point in Grafana UI (Alerting → Contact points → `discord-alerts` → Test). If that fails, regenerate the webhook in Discord and update `DISCORD_WEBHOOK_URL`, then `make apply`.
 
@@ -107,4 +110,25 @@ Grafana Cloud free: 10k active series, 14-day retention, 1 user. Current usage: 
 | `claudespy_uptime_seconds` | gauge | Process uptime |
 | `claudespy_build_info{version="..."}` | gauge | Always 1; the `version` label carries the build identifier |
 
-Plus the standard `node_exporter` metrics for host CPU/RAM/disk/net.
+Plus the standard `node_exporter` metrics for host CPU/RAM/disk/net, including the `vmstat` collector (`node_vmstat_oom_kill`, `node_vmstat_pswpin`, `node_vmstat_pswpout`) used by the host-pressure alerts.
+
+## Alerts
+
+| Alert | Severity | Fires when | Hint |
+|-------|----------|------------|------|
+| `relay-down` | critical | `up{job="claudespy-relay"} == 0` for 2m | Vapor process or alloy scrape is broken |
+| `host-oom-kill` | critical | `increase(node_vmstat_oom_kill[5m]) > 0` | A process was OOM-killed; check `journalctl -k \| grep -i oom` |
+| `host-load-high` | warning | `node_load5 / cpu_count > 2` for 10m | Sustained CPU contention; usually a noisy-neighbor container |
+| `host-swap-thrash` | warning | `rate(pswpin+pswpout) > 100` for 5m | Memory pressure; an OOM kill is usually imminent |
+| `high-memory` | warning | host MemAvailable < 15% for 10m | General memory pressure |
+| `disk-full` | warning | `/` > 80% used for 30m | Investigate `du -shx /var/lib/docker/*` |
+| `high-relay-rate` | warning | message rate > 50/s for 15m | Legitimate spike or runaway client |
+
+### Diagnosing host-pressure alerts
+
+When `host-oom-kill`, `host-load-high`, or `host-swap-thrash` fires, the relay is rarely the cause — the box is shared with other apps. Walkthrough:
+
+1. `ssh root@$DEPLOY_HOST 'uptime; free -h; docker ps'` — confirm load, mem, container restart counts.
+2. `ssh root@$DEPLOY_HOST 'docker stats --no-stream'` — find the container hogging memory or CPU.
+3. `ssh root@$DEPLOY_HOST 'journalctl -k --since "30 min ago" | grep -i oom'` — find the OOM victim.
+4. If a container is in a restart loop, apply a `--memory` cgroup limit so it dies in its own cgroup without taking down the host: `docker update --memory=2g --memory-swap=2g <name>`.

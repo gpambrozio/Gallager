@@ -1,0 +1,43 @@
+apiVersion: grizzly.grafana.com/v1alpha1
+kind: AlertRuleGroup
+metadata:
+  folder: ClaudeSpy
+  name: host-swap-thrash
+spec:
+  title: host-swap-thrash
+  interval: 1m
+  rules:
+    - uid: host-swap-thrash
+      title: Host swap I/O sustained
+      condition: B
+      data:
+        - refId: A
+          relativeTimeRange: { from: 600, to: 0 }
+          datasourceUid: grafanacloud-prom
+          model:
+            # Pages per second swapped in OR out, averaged over 5 minutes.
+            # Healthy idle box reads ~0; sustained >100 means the kernel is
+            # pushing memory to disk — leading indicator of an OOM cycle.
+            expr: |
+              rate(node_vmstat_pswpin{instance="hetzner-1"}[5m])
+                +
+              rate(node_vmstat_pswpout{instance="hetzner-1"}[5m])
+            instant: true
+            refId: A
+        - refId: B
+          datasourceUid: __expr__
+          model:
+            type: threshold
+            refId: B
+            expression: A
+            conditions:
+              - evaluator: { type: gt, params: [100] }
+                operator: { type: and }
+      noDataState: NoData
+      execErrState: Error
+      for: 5m
+      annotations:
+        summary: "Host swapping >100 pages/s for 5 minutes"
+        description: "Memory pressure is forcing the kernel into swap. An OOM kill is usually 1-3 minutes away. Identify the offender with `docker stats` and consider applying a `--memory` limit to the noisy container."
+      labels:
+        severity: warning
