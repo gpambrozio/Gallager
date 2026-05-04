@@ -302,6 +302,20 @@
                         TerminalRowView(pane: pane, windowCount: session.windows.count)
                     }
                 }
+                // The visual progress bar is rendered as an .overlay outside
+                // the NavigationLink (below) so the cell stays compact, but
+                // overlays sit outside the row's combined Button AX element.
+                // Mirror the bar's label/value into the button via an
+                // invisible label so e2e queries (and VoiceOver) can find it.
+                .overlay {
+                    if let sessionProgress {
+                        Text("Terminal progress \(sessionProgress.accessibilityValueString)")
+                            .accessibilityLabel("Terminal progress")
+                            .accessibilityValue(sessionProgress.accessibilityValueString)
+                            .font(.system(size: 1))
+                            .opacity(0)
+                    }
+                }
             }
             .padding(.leading, 16)
             .padding(.bottom, 16)

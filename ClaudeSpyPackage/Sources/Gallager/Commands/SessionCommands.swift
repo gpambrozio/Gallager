@@ -1,5 +1,4 @@
 import ArgumentParser
-import ClaudeSpyNetworking
 import Foundation
 
 struct ListSessionsCommand: ParsableCommand {
@@ -186,6 +185,23 @@ struct SetTitleCommand: ParsableCommand {
     }
 }
 
+private func canonicalColorDisplayName(for raw: String) -> String? {
+    switch raw.lowercased() {
+    case "red": "Red"
+    case "orange": "Orange"
+    case "yellow": "Yellow"
+    case "green": "Green"
+    case "blue": "Blue"
+    case "purple",
+         "violet": "Purple"
+    case "pink",
+         "magenta": "Pink"
+    case "gray",
+         "grey": "Gray"
+    default: nil
+    }
+}
+
 struct SetColorCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "set-color",
@@ -236,8 +252,9 @@ struct SetColorCommand: ParsableCommand {
                 print("Cleared session color.")
             } else {
                 // Falls back to the raw value when the server accepted a name
-                // we don't recognise locally.
-                let displayName = SessionColor.parse(normalized)?.displayName ?? normalized
+                // we don't recognise locally. Aliases (violet → Purple, etc.)
+                // are normalized so confirmation matches what the app shows.
+                let displayName = canonicalColorDisplayName(for: normalized) ?? normalized
                 print("Set session color to \(displayName).")
             }
         }
