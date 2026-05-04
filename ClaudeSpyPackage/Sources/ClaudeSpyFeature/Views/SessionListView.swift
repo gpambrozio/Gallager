@@ -14,7 +14,7 @@
     /// View displaying a list of active Claude sessions and terminals from all paired hosts.
     struct SessionListView: View {
         @Binding var navigationPath: NavigationPath
-        var onOpenSettings: (() -> Void)?
+        let onOpenSettings: (() -> Void)?
 
         @Environment(SessionStore.self) private var sessionStore
         @Environment(ViewerConnectionManager.self) private var connectionManager
@@ -847,7 +847,7 @@
             Group {
                 if let connectionManager {
                     NavigationStack(path: $navigationPath) {
-                        SessionListView(navigationPath: $navigationPath)
+                        SessionListView(navigationPath: $navigationPath, onOpenSettings: nil)
                             .environment(sessionStore)
                             .environment(connectionManager)
                             .environment(settings)

@@ -11,6 +11,10 @@ public enum UnpairFromIOSScenario {
 
         // 2. Navigate to Manage Hosts on iOS — open Settings sheet then push Paired Hosts
         TestStep.iosTap(.label("Settings"))
+        // Wait for the sheet itself before looking inside it; otherwise a
+        // failure here reports "Paired Hosts not found" which hides the
+        // real problem (sheet never presented).
+        TestStep.iosWaitForElement(.label("Settings"), timeout: 3)
         TestStep.iosWaitForElement(.labelContains("Paired Hosts"), timeout: 5)
         TestStep.iosTap(.labelContains("Paired Hosts"))
         TestStep.wait(seconds: 0.5)

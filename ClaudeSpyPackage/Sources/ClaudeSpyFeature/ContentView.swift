@@ -253,11 +253,18 @@
         @State private var currentlyDisplayedPaneId: String?
 
         var body: some View {
-            NavigationStack(path: $sessionsNavigationPath) {
-                SessionListView(
-                    navigationPath: $sessionsNavigationPath,
-                    onOpenSettings: { showingSettings = true }
-                )
+            // Wrapping the NavigationStack in a Group lets the `.sheet`
+            // modifier sit at a peer level of the navigation transition,
+            // so dismissing the Settings sheet and pushing onto the nav
+            // stack don't fight each other (avoids a sleep workaround in
+            // handleDeepLink).
+            Group {
+                NavigationStack(path: $sessionsNavigationPath) {
+                    SessionListView(
+                        navigationPath: $sessionsNavigationPath,
+                        onOpenSettings: { showingSettings = true }
+                    )
+                }
             }
             .sheet(isPresented: $showingSettings) {
                 NavigationStack {
@@ -308,14 +315,10 @@
                 return
             }
 
-            // Brief delay lets a Settings sheet dismissal settle before we push
-            // onto the underlying navigation stack.
-            //
             // We reset the navigation path first to ensure only one session detail view
             // exists in the stack. Multiple push notifications would otherwise pile up
             // session views indefinitely.
             Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(100))
                 sessionsNavigationPath = NavigationPath()
 
                 // Pane state may not be synced yet on cold start (e.g., launched via

@@ -18,6 +18,10 @@ public enum DisconnectMacOSUnpairIOSScenario {
 
         // 3. iOS: navigate to Manage Hosts and unpair via Settings sheet
         TestStep.iosTap(.label("Settings"))
+        // Wait for the sheet itself before looking inside it; otherwise a
+        // failure here reports "Paired Hosts not found" which hides the
+        // real problem (sheet never presented).
+        TestStep.iosWaitForElement(.label("Settings"), timeout: 3)
         TestStep.iosWaitForElement(.labelContains("Paired Hosts"), timeout: 5)
         TestStep.iosTap(.labelContains("Paired Hosts"))
         TestStep.wait(seconds: 0.5)
