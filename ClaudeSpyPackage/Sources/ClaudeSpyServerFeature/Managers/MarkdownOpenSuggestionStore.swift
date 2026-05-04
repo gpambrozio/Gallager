@@ -1,4 +1,5 @@
 import ClaudeSpyNetworking
+import Dependencies
 import Foundation
 
 /// A pending "open this markdown file?" prompt attached to a tmux session.
@@ -50,6 +51,9 @@ final public class MarkdownOpenSuggestionStore {
     @ObservationIgnored
     private var dismissalTasks: [String: Task<Void, Never>] = [:]
 
+    @ObservationIgnored
+    @Dependency(\.continuousClock) private var clock
+
     private let autoDismissDelay: Duration
 
     public init(autoDismissDelay: Duration = .seconds(30)) {
@@ -83,8 +87,9 @@ final public class MarkdownOpenSuggestionStore {
         guard suggestionsBySession[sessionName] != nil else { return }
         guard dismissalTasks[sessionName] == nil else { return }
         let delay = autoDismissDelay
+        let clock = self.clock
         dismissalTasks[sessionName] = Task { [weak self] in
-            try? await Task.sleep(for: delay)
+            try? await clock.sleep(for: delay)
             guard !Task.isCancelled else { return }
             self?.suggestionsBySession.removeValue(forKey: sessionName)
             self?.dismissalTasks.removeValue(forKey: sessionName)

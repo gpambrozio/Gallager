@@ -1,4 +1,6 @@
 import ClaudeSpyNetworking
+import Clocks
+import Dependencies
 import Foundation
 import Testing
 @testable import ClaudeSpyServerFeature
@@ -181,25 +183,41 @@ struct MarkdownOpenSuggestionStoreTests {
 
     @Test("UserPromptSubmit auto-dismisses the suggestion after the configured delay")
     func userPromptSubmitAutoDismisses() async throws {
-        let store = MarkdownOpenSuggestionStore(autoDismissDelay: .milliseconds(20))
-        try store.handleHookEvent(writeEvent(filePath: "/p/a.md"), sessionName: "s")
-        try store.handleHookEvent(promptEvent(), sessionName: "s")
-        // Suggestion should still be present immediately after the prompt.
-        #expect(store.suggestionsBySession["s"] != nil)
-        try await Task.sleep(for: .milliseconds(200))
-        #expect(store.suggestionsBySession["s"] == nil)
+        let clock = TestClock()
+        try await withDependencies {
+            $0.continuousClock = clock
+        } operation: {
+            let store = MarkdownOpenSuggestionStore(autoDismissDelay: .seconds(30))
+            try store.handleHookEvent(writeEvent(filePath: "/p/a.md"), sessionName: "s")
+            try store.handleHookEvent(promptEvent(), sessionName: "s")
+            // Suggestion is still present immediately after the prompt.
+            #expect(store.suggestionsBySession["s"] != nil)
+            // Just under the deadline — still present.
+            await clock.advance(by: .seconds(29))
+            #expect(store.suggestionsBySession["s"] != nil)
+            // Cross the deadline — dismissal fires.
+            await clock.advance(by: .seconds(2))
+            #expect(store.suggestionsBySession["s"] == nil)
+        }
     }
 
     @Test("Subsequent UserPromptSubmit does not reset the auto-dismiss timer")
     func subsequentPromptDoesNotResetTimer() async throws {
-        let store = MarkdownOpenSuggestionStore(autoDismissDelay: .milliseconds(50))
-        try store.handleHookEvent(writeEvent(filePath: "/p/a.md"), sessionName: "s")
-        try store.handleHookEvent(promptEvent(), sessionName: "s")
-        // Wait roughly half the delay, then fire another prompt — should NOT extend the timer.
-        try await Task.sleep(for: .milliseconds(30))
-        try store.handleHookEvent(promptEvent(), sessionName: "s")
-        // After enough total time has passed since the *first* prompt, the suggestion should be gone.
-        try await Task.sleep(for: .milliseconds(200))
-        #expect(store.suggestionsBySession["s"] == nil)
+        let clock = TestClock()
+        try await withDependencies {
+            $0.continuousClock = clock
+        } operation: {
+            let store = MarkdownOpenSuggestionStore(autoDismissDelay: .seconds(30))
+            try store.handleHookEvent(writeEvent(filePath: "/p/a.md"), sessionName: "s")
+            try store.handleHookEvent(promptEvent(), sessionName: "s")
+            // Halfway through the original timer, fire another prompt.
+            await clock.advance(by: .seconds(15))
+            try store.handleHookEvent(promptEvent(), sessionName: "s")
+            // The original deadline (30s after the FIRST prompt) still fires —
+            // the second prompt did not extend it. If it had, the suggestion
+            // would still be present at +31s.
+            await clock.advance(by: .seconds(16))
+            #expect(store.suggestionsBySession["s"] == nil)
+        }
     }
 }
