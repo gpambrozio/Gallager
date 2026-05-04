@@ -34,6 +34,9 @@ struct TerminalContainerView: NSViewRepresentable {
     let onStateChange: TerminalStateChangeHandler?
     let onTitleChange: TerminalTitleChangeHandler?
     var onOpenURL: TerminalOpenURLHandler?
+    /// Fires whenever this terminal becomes the window's first responder.
+    /// Used to mirror focus back to tmux so external clients see the same active pane.
+    var onFocus: (@MainActor () -> Void)?
 
     @Environment(AppSettings.self) private var settings
     @Environment(TmuxService.self) private var tmuxService
@@ -68,6 +71,7 @@ struct TerminalContainerView: NSViewRepresentable {
         // URL-click handler is set on every layout pass so it picks up fresh
         // state captured by parent closures (window/session selection).
         coordinator.terminalView.onOpenURL = onOpenURL
+        coordinator.terminalView.onBecomeFirstResponder = onFocus
 
         return coordinator.terminalView
     }
@@ -96,6 +100,7 @@ struct TerminalContainerView: NSViewRepresentable {
         // Re-bind the URL click handler so closures captured here reflect the
         // current parent state on every layout pass.
         nsView.onOpenURL = onOpenURL
+        nsView.onBecomeFirstResponder = onFocus
 
         // Update container size on layout changes
         coordinator.updateContainerSize(nsView.frame.size)

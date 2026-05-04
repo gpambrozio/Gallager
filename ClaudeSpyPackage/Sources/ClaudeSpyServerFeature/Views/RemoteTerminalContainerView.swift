@@ -24,6 +24,12 @@ struct RemoteTerminalContainerView: View {
     /// True when a prompt editor overlay is active above this terminal.
     /// Suppresses keyboard forwarding to the remote tmux pane so the editor gets input.
     var isEditorActive = false
+    /// When false, the terminal won't auto-grab focus on window add or window-becomes-key.
+    /// Used in multi-pane layouts where multiple terminals share one window.
+    var autoFocus = true
+    /// Fires whenever this terminal becomes the window's first responder.
+    /// Used to mirror focus back to the remote tmux via `SelectTmuxPane`.
+    var onFocus: (@MainActor () -> Void)?
 
     @State private var streamState: RemoteStreamState = .connecting
     @State private var streamWidth = 80
@@ -44,6 +50,8 @@ struct RemoteTerminalContainerView: View {
                 connection: connection,
                 settings: settings,
                 isEditorActive: isEditorActive,
+                autoFocus: autoFocus,
+                onFocus: onFocus,
                 onStateChange: { state, width, height in
                     streamState = state
                     streamWidth = width
@@ -139,6 +147,8 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
     let connection: ViewerConnection
     let settings: AppSettings
     let isEditorActive: Bool
+    let autoFocus: Bool
+    let onFocus: (@MainActor () -> Void)?
     let onStateChange: @MainActor (RemoteStreamState, Int, Int) -> Void
     let onTitleChange: @MainActor (String) -> Void
 
@@ -149,6 +159,9 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
     func makeNSView(context: Context) -> InteractiveTerminalView {
         let coordinator = context.coordinator
 
+        // Configure auto-focus before starting (must be set before viewDidMoveToWindow fires).
+        coordinator.terminalView.autoFocusEnabled = autoFocus
+
         coordinator.start(
             paneId: paneId,
             connection: connection,
@@ -157,6 +170,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             onTitleChange: onTitleChange
         )
         coordinator.terminalView.isEditorActive = isEditorActive
+        coordinator.terminalView.onBecomeFirstResponder = onFocus
 
         return coordinator.terminalView
     }
@@ -164,6 +178,10 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
     func updateNSView(_ nsView: InteractiveTerminalView, context: Context) {
         context.coordinator.updateSettings(settings)
         context.coordinator.updateContainerSize(nsView.frame.size)
+
+        // Re-bind focus callback so closures captured here reflect the
+        // current parent state on every layout pass.
+        nsView.onBecomeFirstResponder = onFocus
 
         // Update editor-active flag. When the editor just closed, restore first
         // responder to the terminal so typing resumes without a manual click.
