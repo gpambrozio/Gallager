@@ -934,7 +934,7 @@
             // returns true consumes the event. In a multi-pane layout, that means
             // any sibling pane could claim Cmd+V or Cmd+C and route input to the
             // wrong tmux target. Only act when this pane actually has focus.
-            guard window?.firstResponder === self else { return false }
+            guard isFocused else { return false }
 
             guard event.modifierFlags.contains(.command) else {
                 return false
