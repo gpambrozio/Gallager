@@ -128,6 +128,12 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// User-defined description for this window, shown prominently in the sidebar
     public var customDescription: String?
 
+    // MARK: - Custom Color
+
+    /// User-assigned color for this session, shown as a dot in the sidebar.
+    /// Persisted via the tmux `@gallager-color` user option.
+    public var customColor: SessionColor?
+
     // MARK: - Terminal State
 
     /// Terminal title detected via OSC escape sequences
@@ -193,6 +199,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         windowName: String = "",
         isWindowActive: Bool = false,
         customDescription: String? = nil,
+        customColor: SessionColor? = nil,
         terminalTitle: String? = nil,
         gitBranch: String? = nil,
         claudeSession: ClaudeSession? = nil,
@@ -215,6 +222,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         self.windowName = windowName
         self.isWindowActive = isWindowActive
         self.customDescription = customDescription
+        self.customColor = customColor
         self.terminalTitle = terminalTitle
         self.gitBranch = gitBranch
         self.claudeSession = claudeSession

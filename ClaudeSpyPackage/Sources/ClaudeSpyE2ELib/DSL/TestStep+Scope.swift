@@ -27,6 +27,7 @@ public extension TestStep {
              .uninstallIOSApp,
              .iosWaitForElement,
              .iosTap,
+             .iosLongPress,
              .iosTapCoordinate,
              .iosType,
              .iosSwipeLeft,
@@ -73,6 +74,8 @@ public extension TestStep {
         case let .macRightClick(_, instance):
             return .macOS(instance: instance)
         case let .macContextMenuClick(_, _, instance):
+            return .macOS(instance: instance)
+        case let .macContextSubmenuClick(_, _, _, instance):
             return .macOS(instance: instance)
         case let .macUnpair(instance):
             return .macOS(instance: instance)

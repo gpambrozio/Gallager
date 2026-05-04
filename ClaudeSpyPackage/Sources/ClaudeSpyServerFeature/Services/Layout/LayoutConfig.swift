@@ -1,14 +1,18 @@
 #if os(macOS)
+    import ClaudeSpyNetworking
     import Foundation
 
     /// Declarative description of a tmux session built by `gallager apply`.
     ///
     /// The shape is a strict superset of [tmuxp](https://tmuxp.git-pull.com)'s YAML
     /// schema with a small set of Gallager-only extensions (`description`,
-    /// `claude:` pane shorthand, `on_create:`/`on_apply:` hooks).
+    /// `color`, `claude:` pane shorthand, `on_create:`/`on_apply:` hooks).
     public struct LayoutConfig: Sendable, Equatable {
         public var sessionName: String
         public var description: String?
+        /// Sidebar color persisted via the `@gallager-color` user option.
+        /// Applied at session scope, mirroring `description`.
+        public var color: SessionColor?
         public var startDirectory: String?
         public var environment: [String: String]
         public var shellCommandBefore: [String]
@@ -28,6 +32,7 @@
         public init(
             sessionName: String,
             description: String? = nil,
+            color: SessionColor? = nil,
             startDirectory: String? = nil,
             environment: [String: String] = [:],
             shellCommandBefore: [String] = [],
@@ -42,6 +47,7 @@
         ) {
             self.sessionName = sessionName
             self.description = description
+            self.color = color
             self.startDirectory = startDirectory
             self.environment = environment
             self.shellCommandBefore = shellCommandBefore

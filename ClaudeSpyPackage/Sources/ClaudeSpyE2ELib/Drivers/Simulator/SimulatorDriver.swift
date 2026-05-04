@@ -351,6 +351,25 @@ public actor SimulatorDriver {
         try await SimulatorHTTPClient.tap(x: x, y: y)
     }
 
+    /// Long-press an element for `duration` seconds. Used to open SwiftUI
+    /// context menus on iOS, which trigger off a sustained press rather
+    /// than a tap. Falls back to the matched element's center coordinates
+    /// with a held touch (the runner's `/touch` endpoint accepts a
+    /// `duration` parameter that controls how long the synthesized touch
+    /// stays down before it lifts).
+    public func longPress(query: ElementQuery, duration: TimeInterval) async throws {
+        let success = try await SimulatorHTTPClient.tap(
+            query: query,
+            bundleId: appBundleId,
+            duration: duration
+        )
+        if success {
+            logger.info("Long-pressed via XCTest runner (\(duration)s): \(query)")
+            return
+        }
+        throw SimulatorDriverError.elementNotFound(query)
+    }
+
     /// Swipe left on a UI element via the XCTest runner's touch synthesis
     public func swipeLeft(on element: UIElement) async throws {
         let center = element.center

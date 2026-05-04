@@ -409,6 +409,81 @@
         #expect(config.windows[2].index == nil)
     }
 
+    // MARK: - Color
+
+    @Test
+    func parsesCanonicalColor() throws {
+        let parser = LayoutConfigParser(lenient: false, environment: [:])
+        let value: JSONValue = .object([
+            "session_name": .string("dev"),
+            "color": .string("blue"),
+        ])
+        let config = try parser.parse(value)
+        #expect(config.color == .blue)
+    }
+
+    @Test
+    func parsesColorAlias() throws {
+        // Aliases like "violet"/"magenta" mirror the CLI/API parser so YAML
+        // configs ported from notes don't fail on a synonym.
+        let parser = LayoutConfigParser(lenient: false, environment: [:])
+        let value: JSONValue = .object([
+            "session_name": .string("dev"),
+            "color": .string("violet"),
+        ])
+        let config = try parser.parse(value)
+        #expect(config.color == .purple)
+    }
+
+    @Test
+    func emptyColorClears() throws {
+        // `color: ""` mirrors `set-color ""`/`set-color none`: the field is
+        // present but explicitly empty, which means "no color".
+        let parser = LayoutConfigParser(lenient: false, environment: [:])
+        let value: JSONValue = .object([
+            "session_name": .string("dev"),
+            "color": .string(""),
+        ])
+        let config = try parser.parse(value)
+        #expect(config.color == nil)
+    }
+
+    @Test
+    func strictModeRejectsUnknownColor() {
+        let parser = LayoutConfigParser(lenient: false, environment: [:])
+        let value: JSONValue = .object([
+            "session_name": .string("dev"),
+            "color": .string("chartreuse"),
+        ])
+        #expect(throws: LayoutConfigError.self) {
+            _ = try parser.parse(value)
+        }
+    }
+
+    @Test
+    func lenientModeDemotesUnknownColorToWarning() throws {
+        let parser = LayoutConfigParser(lenient: true, environment: [:])
+        let value: JSONValue = .object([
+            "session_name": .string("dev"),
+            "color": .string("chartreuse"),
+        ])
+        let config = try parser.parse(value)
+        #expect(config.color == nil)
+        #expect(config.warnings.contains(where: { $0.contains("chartreuse") }))
+    }
+
+    @Test
+    func colorMustBeString() {
+        let parser = LayoutConfigParser(lenient: false, environment: [:])
+        let value: JSONValue = .object([
+            "session_name": .string("dev"),
+            "color": .int(42),
+        ])
+        #expect(throws: LayoutConfigError.self) {
+            _ = try parser.parse(value)
+        }
+    }
+
     @Test
     func startupWindowAliasFlipsFocus() throws {
         // tmuxinator's `startup_window` should flip the matching window's focus.

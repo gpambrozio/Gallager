@@ -40,10 +40,12 @@
         "session.close",
         "session.set_state",
         "session.set_title",
+        "session.set_color",
         "window.list",
         "window.create",
         "window.select",
         "window.close",
+        "window.set_name",
         "pane.list",
         "pane.split",
         "pane.select",
@@ -78,25 +80,37 @@
 
         private let logger = Logger(label: "com.claudespy.apirouter")
 
-        // Service callbacks injected at init by AppCoordinator
+        /// Service callbacks injected at init by AppCoordinator
         let onSessionList: (@Sendable () async -> [[String: JSONValue]])?
-        let onSessionCreate: (@Sendable (String?, String?, String?, Bool) async throws -> SessionCreateResult)?
+        /// Parameters: (name, path, title, color, ifMissing).
+        let onSessionCreate: (
+            @Sendable (String?, String?, String?, SessionColor?, Bool) async throws -> SessionCreateResult
+        )?
         let onSessionSelect: (@Sendable (String) async throws -> Void)?
         let onSessionCurrent: (@Sendable () async -> [String: JSONValue]?)?
         let onSessionClose: (@Sendable (String) async throws -> Void)?
         let onSessionSetState: (@Sendable (String, String?, String?) async throws -> Int)?
-        let onSessionSetTitle: (@Sendable (String?, String?, String?, String?) async throws -> String)?
+        /// Parameters: (title, sessionId, paneId). `title` is `nil` to clear.
+        /// Always applies at session scope; `paneId` is just used to look up
+        /// the calling pane's session when no `sessionId` is given.
+        let onSessionSetTitle: (@Sendable (String?, String?, String?) async throws -> Void)?
+        /// Parameters: (color, sessionId, paneId). `color` is `nil` to clear.
+        /// Always applies at session scope.
+        let onSessionSetColor: (@Sendable (SessionColor?, String?, String?) async throws -> Void)?
 
         let onWindowList: (@Sendable (String?, String?) async -> [[String: JSONValue]])?
-        /// Parameters: (sessionId, path, paneId, description, name).
-        /// `description` is the gallager sidebar override (`@gallager-description`).
+        /// Parameters: (sessionId, path, paneId, name).
         /// `name` is the tmux window name (tab label) — when nil, the daemon
         /// auto-generates "terminal N".
         let onWindowCreate: (
-            @Sendable (String?, String?, String?, String?, String?) async throws -> [String: JSONValue]
+            @Sendable (String?, String?, String?, String?) async throws -> [String: JSONValue]
         )?
         let onWindowSelect: (@Sendable (String) async throws -> Void)?
         let onWindowClose: (@Sendable (String) async throws -> Void)?
+        /// Parameters: (windowId, name). Renames a tmux window via
+        /// `rename-window`, which also disables tmux's automatic-rename so
+        /// the tab stops tracking the running command.
+        let onWindowSetName: (@Sendable (String, String) async throws -> Void)?
 
         let onPaneList: (@Sendable (String?, String?) async -> [[String: JSONValue]])?
         /// Parameters: (paneId, direction, path, shellCommand). When
@@ -134,21 +148,21 @@
         public init(
             onSessionList: (@Sendable () async -> [[String: JSONValue]])? = nil,
             onSessionCreate: (
-                @Sendable (String?, String?, String?, Bool) async throws -> SessionCreateResult
+                @Sendable (String?, String?, String?, SessionColor?, Bool) async throws -> SessionCreateResult
             )? = nil,
             onSessionSelect: (@Sendable (String) async throws -> Void)? = nil,
             onSessionCurrent: (@Sendable () async -> [String: JSONValue]?)? = nil,
             onSessionClose: (@Sendable (String) async throws -> Void)? = nil,
             onSessionSetState: (@Sendable (String, String?, String?) async throws -> Int)? = nil,
-            onSessionSetTitle: (
-                @Sendable (String?, String?, String?, String?) async throws -> String
-            )? = nil,
+            onSessionSetTitle: (@Sendable (String?, String?, String?) async throws -> Void)? = nil,
+            onSessionSetColor: (@Sendable (SessionColor?, String?, String?) async throws -> Void)? = nil,
             onWindowList: (@Sendable (String?, String?) async -> [[String: JSONValue]])? = nil,
             onWindowCreate: (
-                @Sendable (String?, String?, String?, String?, String?) async throws -> [String: JSONValue]
+                @Sendable (String?, String?, String?, String?) async throws -> [String: JSONValue]
             )? = nil,
             onWindowSelect: (@Sendable (String) async throws -> Void)? = nil,
             onWindowClose: (@Sendable (String) async throws -> Void)? = nil,
+            onWindowSetName: (@Sendable (String, String) async throws -> Void)? = nil,
             onPaneList: (@Sendable (String?, String?) async -> [[String: JSONValue]])? = nil,
             onPaneSplit: (
                 @Sendable (String?, String, String?, String?) async throws -> [String: JSONValue]
@@ -175,10 +189,12 @@
             self.onSessionClose = onSessionClose
             self.onSessionSetState = onSessionSetState
             self.onSessionSetTitle = onSessionSetTitle
+            self.onSessionSetColor = onSessionSetColor
             self.onWindowList = onWindowList
             self.onWindowCreate = onWindowCreate
             self.onWindowSelect = onWindowSelect
             self.onWindowClose = onWindowClose
+            self.onWindowSetName = onWindowSetName
             self.onPaneList = onPaneList
             self.onPaneSplit = onPaneSplit
             self.onPaneSelect = onPaneSelect
@@ -261,7 +277,21 @@
                     let path = params["path"]?.stringValue
                     let title = params["title"]?.stringValue
                     let ifMissing = params["if_missing"]?.boolValue == true
-                    if let result = try await onSessionCreate?(name, path, title, ifMissing) {
+                    let rawColor = params["color"]?.stringValue
+                    let color: SessionColor?
+                    if let rawColor, !rawColor.isEmpty {
+                        guard let parsed = SessionColor.parse(rawColor) else {
+                            let valid = SessionColor.allCases.map(\.rawValue).joined(separator: ", ")
+                            return .invalidParams(
+                                id: id,
+                                "Unknown color '\(rawColor)'. Valid colors: \(valid)"
+                            )
+                        }
+                        color = parsed
+                    } else {
+                        color = nil
+                    }
+                    if let result = try await onSessionCreate?(name, path, title, color, ifMissing) {
                         var info = result.info
                         info["created"] = .bool(result.created)
                         return JSONRPCResponse(id: id, result: info)
@@ -304,17 +334,43 @@
 
                 case "session.set_title":
                     // `title` is optional; nil/empty clears the description.
+                    // Window/pane targeting is intentionally not supported —
+                    // titles always apply at session scope.
                     let title = params["title"]?.stringValue
                     let sessionId = params["session_id"]?.stringValue
-                    let windowId = params["window_id"]?.stringValue
                     let paneId = params["pane_id"]?.stringValue
                     guard let callback = onSessionSetTitle else {
                         return .internalError(id: id, "Session set_title not available")
                     }
-                    let scope = try await callback(title, sessionId, windowId, paneId)
-                    return JSONRPCResponse(id: id, result: [
-                        "scope": .string(scope),
-                    ])
+                    try await callback(title, sessionId, paneId)
+                    return .ok(id: id)
+
+                case "session.set_color":
+                    // `color` is optional; nil/empty clears the color. An
+                    // unrecognised color name is rejected so the caller knows
+                    // they typed something the app can't render. Always
+                    // applies at session scope.
+                    let rawColor = params["color"]?.stringValue
+                    let color: SessionColor?
+                    if let rawColor, !rawColor.isEmpty {
+                        guard let parsed = SessionColor.parse(rawColor) else {
+                            let valid = SessionColor.allCases.map(\.rawValue).joined(separator: ", ")
+                            return .invalidParams(
+                                id: id,
+                                "Unknown color '\(rawColor)'. Valid colors: \(valid)"
+                            )
+                        }
+                        color = parsed
+                    } else {
+                        color = nil
+                    }
+                    let sessionId = params["session_id"]?.stringValue
+                    let paneId = params["pane_id"]?.stringValue
+                    guard let callback = onSessionSetColor else {
+                        return .internalError(id: id, "Session set_color not available")
+                    }
+                    try await callback(color, sessionId, paneId)
+                    return .ok(id: id)
 
                 // MARK: - Windows
 
@@ -330,9 +386,8 @@
                     let sessionId = params["session_id"]?.stringValue
                     let paneId = params["pane_id"]?.stringValue
                     let path = params["path"]?.stringValue
-                    let title = params["title"]?.stringValue
                     let name = params["name"]?.stringValue
-                    if let result = try await onWindowCreate?(sessionId, path, paneId, title, name) {
+                    if let result = try await onWindowCreate?(sessionId, path, paneId, name) {
                         return JSONRPCResponse(id: id, result: result)
                     }
                     return .internalError(id: id, "Window create not available")
@@ -349,6 +404,19 @@
                         return .invalidParams(id: id, "window_id required")
                     }
                     try await onWindowClose?(windowId)
+                    return .ok(id: id)
+
+                case "window.set_name":
+                    guard let windowId = params["window_id"]?.stringValue else {
+                        return .invalidParams(id: id, "window_id required")
+                    }
+                    guard let name = params["name"]?.stringValue else {
+                        return .invalidParams(id: id, "name required")
+                    }
+                    guard let callback = onWindowSetName else {
+                        return .internalError(id: id, "Window set_name not available")
+                    }
+                    try await callback(windowId, name)
                     return .ok(id: id)
 
                 // MARK: - Panes

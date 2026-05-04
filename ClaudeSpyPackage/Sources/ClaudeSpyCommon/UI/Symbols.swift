@@ -61,6 +61,7 @@ public enum Symbols: String {
     case magnifyingglass
     case minusCircleFill = "minus.circle.fill"
     case moonFill = "moon.fill"
+    case paintpalette
     case paperplaneFill = "paperplane.fill"
     case pause
     case pauseCircleFill = "pause.circle.fill"

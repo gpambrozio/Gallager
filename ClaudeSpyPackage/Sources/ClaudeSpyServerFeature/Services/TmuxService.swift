@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Dependencies
 import Foundation
 import Logging
@@ -239,7 +240,10 @@ final public class TmuxService {
     ///      always have at least one pane, so non-empty list-sessions means
     ///      list-panes lied).
     private func queryRefreshOutcome(attachedSessions: Set<String>) async -> RefreshOutcome {
-        let format = "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_title}|#{window_layout}|#{window_name}|#{window_active}|#{\(Self.descriptionOptionKey)}"
+        // `customColor` sits before `customDescription` because it's a single
+        // token with no `|`, while a description may contain `|` and is
+        // rejoined from the trailing components by `PaneInfo.init(fromTmuxOutput:)`.
+        let format = "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_title}|#{window_layout}|#{window_name}|#{window_active}|#{\(Self.colorOptionKey)}|#{\(Self.descriptionOptionKey)}"
 
         let result: ProcessResult
         do {
@@ -1542,9 +1546,9 @@ final public class TmuxService {
         // exactly that index, so target it directly.
         let target: String
         if let windowIndex {
-            target = "\(sessionName):\(windowIndex)"
+            target = Self.windowTarget(in: sessionName, windowIndex: "\(windowIndex)")
         } else {
-            target = "\(sessionName):"
+            target = Self.sessionTarget(sessionName)
         }
         var args = [
             "new-window",
@@ -1582,7 +1586,10 @@ final public class TmuxService {
         if windowName == nil, let windowIndex {
             let existingNames = await listWindowNames(in: sessionName)
             let nextName = Self.nextTerminalWindowName(existingNames: existingNames)
-            _ = try? await renameWindow(target: "\(sessionName):\(windowIndex)", name: nextName)
+            _ = try? await renameWindow(
+                target: Self.windowTarget(in: sessionName, windowIndex: windowIndex),
+                name: nextName
+            )
         }
 
         // Refresh to pick up the new window
@@ -1611,7 +1618,7 @@ final public class TmuxService {
     private func listWindowNames(in sessionName: String) async -> [String] {
         guard
             let result = try? await runTmuxCommand([
-                "list-windows", "-t", sessionName, "-F", "#{window_name}",
+                "list-windows", "-t", Self.sessionTarget(sessionName), "-F", "#{window_name}",
             ]), result.isSuccess
         else {
             return []
@@ -1651,7 +1658,7 @@ final public class TmuxService {
     public func killSession(_ sessionName: String) async throws {
         let result = try await runTmuxCommand([
             "kill-session",
-            "-t", sessionName,
+            "-t", Self.sessionTarget(sessionName),
         ])
 
         guard result.isSuccess else {
@@ -1696,48 +1703,34 @@ final public class TmuxService {
         await refreshPanes()
     }
 
-    // MARK: - Custom Descriptions
+    // MARK: - Custom Descriptions and Colors
 
     /// The tmux user option key used to persist Gallager custom descriptions.
-    /// User options must be prefixed with `@`; tmux stores them at the scope
-    /// they are set (session or window) and resolves lookups with window-over-session
-    /// inheritance when formatted from a pane.
+    /// User options must be prefixed with `@`; tmux stores them on the session
+    /// and any pane resolves the lookup via the session→window→pane chain.
     private static let descriptionOptionKey = "@gallager-description"
+
+    /// The tmux user option key used to persist Gallager session colors.
+    /// Stored at session scope just like `descriptionOptionKey`.
+    private static let colorOptionKey = "@gallager-color"
 
     /// Persists the custom description for a session as a tmux user option.
     ///
     /// Writes `@gallager-description` at session scope so it survives app restarts
     /// (the tmux server keeps the option for the session's lifetime). Any existing
     /// window-level overrides inside the session are cleared first so the new value
-    /// applies uniformly across every window — doing the sweep up front also means a
-    /// stray override from a previous version or manual tmux tweak gets cleaned up
-    /// even if the session-level write ends up being a no-op.
+    /// applies uniformly across every window — defensive against stray overrides
+    /// from older versions of Gallager or manual `tmux set-option -w` tweaks.
     /// - Parameters:
     ///   - description: The description text, or `nil` to clear the option.
     ///   - sessionName: The tmux session name.
     public func setSessionDescription(_ description: String?, for sessionName: String) async throws {
-        // Sweep window-level overrides first so the session value wins everywhere.
-        // Running this before the session-level write also means the cleanup still
-        // happens if `set-option -u` exits non-zero (e.g. option already unset).
-        if
-            let windows = try? await runTmuxCommand([
-                "list-windows", "-t", sessionName, "-F", "#{window_index}",
-            ]), windows.isSuccess {
-            let indexes = windows.stdoutString
-                .split(separator: "\n")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            for index in indexes {
-                _ = try? await runTmuxCommand([
-                    "set-option", "-wu", "-t", "\(sessionName):\(index)",
-                    Self.descriptionOptionKey,
-                ])
-            }
-        }
+        await sweepWindowOverrides(of: Self.descriptionOptionKey, in: sessionName)
 
+        let target = Self.sessionTarget(sessionName)
         if let description {
             let result = try await runTmuxCommand([
-                "set-option", "-t", sessionName,
+                "set-option", "-t", target,
                 Self.descriptionOptionKey, description,
             ])
             guard result.isSuccess else {
@@ -1745,7 +1738,7 @@ final public class TmuxService {
             }
         } else {
             let result = try await runTmuxCommand([
-                "set-option", "-u", "-t", sessionName,
+                "set-option", "-u", "-t", target,
                 Self.descriptionOptionKey,
             ])
             guard result.isSuccess else {
@@ -1754,31 +1747,53 @@ final public class TmuxService {
         }
     }
 
-    /// Persists the custom description for a single window as a tmux user option.
+    /// Persists the custom color for a session as a tmux user option.
     ///
-    /// Writes `@gallager-description` at window scope using `-w`, which overrides
-    /// the inherited session-level value for that window only. Other windows in
-    /// the same session continue to resolve to the session value.
+    /// Mirrors `setSessionDescription` — writes `@gallager-color` at session
+    /// scope after sweeping any window-level overrides.
     /// - Parameters:
-    ///   - description: The description text, or `nil` to clear the override.
-    ///   - windowTarget: The tmux window target (e.g. `session:0`).
-    public func setWindowDescription(_ description: String?, for windowTarget: String) async throws {
-        if let description {
+    ///   - color: The color, or `nil` to clear the option.
+    ///   - sessionName: The tmux session name.
+    public func setSessionColor(_ color: SessionColor?, for sessionName: String) async throws {
+        await sweepWindowOverrides(of: Self.colorOptionKey, in: sessionName)
+
+        let target = Self.sessionTarget(sessionName)
+        if let color {
             let result = try await runTmuxCommand([
-                "set-option", "-w", "-t", windowTarget,
-                Self.descriptionOptionKey, description,
+                "set-option", "-t", target,
+                Self.colorOptionKey, color.rawValue,
             ])
             guard result.isSuccess else {
                 throw TmuxError.commandFailed(message: result.stderrString)
             }
         } else {
             let result = try await runTmuxCommand([
-                "set-option", "-wu", "-t", windowTarget,
-                Self.descriptionOptionKey,
+                "set-option", "-u", "-t", target,
+                Self.colorOptionKey,
             ])
             guard result.isSuccess else {
                 throw TmuxError.commandFailed(message: result.stderrString)
             }
+        }
+    }
+
+    /// Clears any window-level override for `optionKey` across every window in
+    /// `sessionName`. Errors are intentionally swallowed: the override may not
+    /// exist (the common case), and this is best-effort defensive cleanup.
+    private func sweepWindowOverrides(of optionKey: String, in sessionName: String) async {
+        guard
+            let windows = try? await runTmuxCommand([
+                "list-windows", "-t", Self.sessionTarget(sessionName), "-F", "#{window_index}",
+            ]), windows.isSuccess else { return }
+        let indexes = windows.stdoutString
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        for index in indexes {
+            _ = try? await runTmuxCommand([
+                "set-option", "-wu", "-t", Self.windowTarget(in: sessionName, windowIndex: index),
+                optionKey,
+            ])
         }
     }
 
@@ -1797,10 +1812,11 @@ final public class TmuxService {
         name: String,
         value: String?
     ) async throws {
+        let target = Self.sessionTarget(sessionName)
         let args: [String] = if let value {
-            ["set-environment", "-t", sessionName, name, value]
+            ["set-environment", "-t", target, name, value]
         } else {
-            ["set-environment", "-u", "-t", sessionName, name]
+            ["set-environment", "-u", "-t", target, name]
         }
         let result = try await runTmuxCommand(args)
         guard result.isSuccess else {
@@ -1967,7 +1983,7 @@ final public class TmuxService {
     /// - Returns: Array of running processes found across the session's panes
     public func runningProcesses(inSession sessionName: String) async -> [RunningProcess] {
         // list-panes -s lists all panes in the session (across all windows)
-        await runningProcesses(listPanesArgs: ["-s", "-t", sessionName])
+        await runningProcesses(listPanesArgs: ["-s", "-t", Self.sessionTarget(sessionName)])
     }
 
     /// Detects running processes across all panes of a specific tmux window.
@@ -2147,7 +2163,7 @@ final public class TmuxService {
         // Target format: session:window.pane (first window, first pane)
         let windowIndex = 0
         let paneIndex = 0
-        let firstPaneTarget = "\(sessionName):\(windowIndex).\(paneIndex)"
+        let firstPaneTarget = "=\(sessionName):\(windowIndex).\(paneIndex)"
         let paneIdResult = try await runTmuxCommand([
             "display-message",
             "-t", firstPaneTarget,
@@ -2222,6 +2238,25 @@ final public class TmuxService {
 
     // MARK: - Private Helpers
 
+    /// Wraps a session name in tmux's exact-match target syntax (`=<name>:`).
+    ///
+    /// tmux's `-t <name>` parser falls back to prefix and substring matching
+    /// when no exact match is found — and in tmux 3.6 it picks an alphabetic
+    /// candidate even when an exact match exists, so `-t terminal` can resolve
+    /// to a session named `terminal-2`. The `=` prefix forces an exact
+    /// session-name match; the trailing `:` disambiguates the target as a
+    /// session (rather than a window or pane) so `set-option`, `list-windows`,
+    /// etc. resolve to the right scope.
+    private static func sessionTarget(_ sessionName: String) -> String {
+        "=\(sessionName):"
+    }
+
+    /// Window target inside a specific session, using exact-match session
+    /// resolution. See `sessionTarget(_:)` for why this is necessary.
+    private static func windowTarget(in sessionName: String, windowIndex: String) -> String {
+        "=\(sessionName):\(windowIndex)"
+    }
+
     private func runTmuxCommand(_ arguments: [String]) async throws -> ProcessResult {
         var args = arguments
 
@@ -2233,7 +2268,16 @@ final public class TmuxService {
         return try await processRunner.run(
             executable: tmuxPath,
             arguments: args,
-            environment: nil,
+            // The Mac app process can inherit `TMUX` / `TMUX_PANE` from the
+            // launching shell when started by hand from a tmux pane. tmux uses
+            // these to bias `-t <name>` target parsing — for session-scoped
+            // options it reinterprets the target as a window in the current
+            // pane's session, so e.g. `set-option -t terminal @gallager-color
+            // red` ends up writing to the *current* session whenever a window
+            // there has a name starting with "terminal". Force them empty for
+            // every subprocess invocation since the Mac app is not actually
+            // running inside a tmux pane.
+            environment: ["TMUX": "", "TMUX_PANE": ""],
             timeout: nil
         )
     }

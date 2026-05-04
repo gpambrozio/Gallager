@@ -30,7 +30,7 @@ public struct TerminalProgressBar: View {
         .frame(height: Self.height)
         .accessibilityElement()
         .accessibilityLabel("Terminal progress")
-        .accessibilityValue(accessibilityValue)
+        .accessibilityValue(state.accessibilityValueString)
     }
 
     @ViewBuilder
@@ -49,16 +49,6 @@ public struct TerminalProgressBar: View {
             ScannerBar(width: size.width, height: Self.height)
         case .removed:
             EmptyView()
-        }
-    }
-
-    private var accessibilityValue: String {
-        switch state {
-        case let .normal(percent): "\(percent)%"
-        case .error: "error"
-        case .warning: "warning"
-        case .indeterminate: "in progress"
-        case .removed: ""
         }
     }
 }
