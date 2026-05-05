@@ -1,6 +1,12 @@
 import ClaudeSpyNetworking
 import SwiftUI
 
+#if canImport(AppKit)
+    import AppKit
+#elseif canImport(UIKit)
+    import UIKit
+#endif
+
 public extension SessionColor {
     /// SwiftUI color used to render the session dot and the color picker swatches.
     var swiftUIColor: Color {
@@ -68,8 +74,7 @@ public struct ColorContextMenuButtons: View {
                     Label {
                         Text(color.displayName)
                     } icon: {
-                        Circle()
-                            .fill(color.swiftUIColor)
+                        ColorSwatch(color: color)
                     }
                 }
                 .disabled(isDisabled)
@@ -79,8 +84,7 @@ public struct ColorContextMenuButtons: View {
                 Label {
                     Text("Color: \(currentColor.displayName)")
                 } icon: {
-                    Circle()
-                        .fill(currentColor.swiftUIColor)
+                    ColorSwatch(color: currentColor)
                 }
             } else {
                 Label("Set Color", symbol: .paintpalette)
@@ -97,4 +101,74 @@ public struct ColorContextMenuButtons: View {
             .disabled(isDisabled)
         }
     }
+}
+
+/// Renders a colored square swatch that survives the platform menu's template
+/// tinting. SwiftUI's `.foregroundStyle` is dropped when a `Label` icon is
+/// bridged into an `NSMenuItem` / `UIMenu`, so we build a platform image from
+/// the SF Symbol with a palette configuration and force the original
+/// rendering mode.
+private struct ColorSwatch: View {
+    let color: SessionColor
+
+    var body: some View {
+        #if canImport(AppKit)
+            Image(nsImage: Self.swatchImage(for: color))
+        #elseif canImport(UIKit)
+            Image(uiImage: Self.swatchImage(for: color))
+        #else
+            Symbols.squareFill.image
+                .foregroundStyle(color.swiftUIColor)
+        #endif
+    }
+
+    #if canImport(AppKit)
+        private static func swatchImage(for color: SessionColor) -> NSImage {
+            let config = NSImage.SymbolConfiguration(paletteColors: [NSColor(color.swiftUIColor)])
+            let base = NSImage(systemSymbolName: Symbols.squareFill.rawValue, accessibilityDescription: color.displayName)
+            let image = base?.withSymbolConfiguration(config) ?? base ?? NSImage()
+            image.isTemplate = false
+            return image
+        }
+
+    #elseif canImport(UIKit)
+        /// Renders a flat rounded square into a fresh bitmap. We can't rely on
+        /// SF Symbol palette/tint configurations because SwiftUI's iOS `Menu`
+        /// re-templates the icon during its own rendering pass — only an image
+        /// with no transparent template channel survives.
+        private static func swatchImage(for color: SessionColor) -> UIImage {
+            let size = CGSize(width: 18, height: 18)
+            let renderer = UIGraphicsImageRenderer(size: size)
+            let image = renderer.image { _ in
+                let rect = CGRect(origin: .zero, size: size).insetBy(dx: 1, dy: 1)
+                let path = UIBezierPath(roundedRect: rect, cornerRadius: 3)
+                UIColor(color.swiftUIColor).setFill()
+                path.fill()
+            }
+            return image.withRenderingMode(.alwaysOriginal)
+        }
+    #endif
+}
+
+#Preview("No color set") {
+    @Previewable @State var color: SessionColor?
+    Form {
+        ColorContextMenuButtons(currentColor: color) { color = $0 }
+    }
+    .frame(width: 280, height: 120)
+}
+
+#Preview("With color set") {
+    @Previewable @State var color: SessionColor? = .blue
+    Form {
+        ColorContextMenuButtons(currentColor: color) { color = $0 }
+    }
+    .frame(width: 280, height: 160)
+}
+
+#Preview("Disabled") {
+    Form {
+        ColorContextMenuButtons(currentColor: .purple, isDisabled: true) { _ in }
+    }
+    .frame(width: 280, height: 120)
 }

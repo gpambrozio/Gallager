@@ -82,6 +82,7 @@ public enum Symbols: String {
     case sparkles
     case square
     case squareAndArrowUp = "square.and.arrow.up"
+    case squareFill = "square.fill"
     case stopCircleFill = "stop.circle.fill"
     case stopFill = "stop.fill"
     case terminal
