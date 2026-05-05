@@ -126,5 +126,52 @@ public enum TerminalLinksScenario {
             command: #"printf '\e[?1002l'"#
         )
         TestStep.wait(seconds: 0.5)
+
+        // ── Verify URL underline doesn't extend past the URL when right-aligned
+        // content is present on the same line (issue #462) ───────────────────
+        //
+        // Reproduction: a shell prompt theme that draws the previous command's
+        // exit code on the right side of the same line as the next prompt
+        // (zsh's RPROMPT, oh-my-zsh's "robbyrussell", powerlevel10k, etc.) uses
+        // cursor positioning to write the right-aligned text, leaving the
+        // cells between the typed content and the right text uninitialized.
+        // SwiftTerm's `BufferLine.translateToString` returns NULL chars for
+        // those cells. Without the fix, the URL regex runs through the NULL
+        // cells into the right-aligned text, painting the link underline
+        // across the whole line.
+        //
+        // We construct that line state directly with `printf`:
+        //   - clear the screen so all cells are uninitialized (code = 0)
+        //   - print the prompt + URL at the start of row 1
+        //   - jump to col 118 and write "130" (the fake exit code)
+        //   - return cursor near the end of "repo" (where the user would be
+        //     mid-typing — matches the original screenshot)
+        //   - hold the foreground so the shell prompt doesn't reappear and
+        //     overwrite our carefully-constructed buffer state
+        //
+        // After the fix, the underline ends at the URL boundary; before, it
+        // would stretch all the way to "130" on the right.
+
+        TestStep.log("Reproducing #462: URL underline extending past URL when right-aligned content present")
+        Shortcut.tmuxRunCommand(
+            target: "links-test:0",
+            command: #"clear; printf '$ git clone http://github.com/idonotexist/repo'; printf '\e[118G130'; printf '\r\e[46C'; cat >/dev/null"#
+        )
+        TestStep.wait(seconds: 2)
+
+        // Re-select the pane so the macOS view definitely reflects the new
+        // tmux state (the prior screenshot left it focused, but a paint pass
+        // tied to selection ensures the underline overlay is recomputed).
+        TestStep.macClickButton(titled: "links-test")
+        TestStep.wait(seconds: 1)
+
+        // Baseline asserts the post-fix appearance: the URL underline ends
+        // right after "repo", with the "130" on the right rendered plainly.
+        TestStep.macScreenshot(label: "mac-terminal-links-rprompt-462")
+
+        // Send Ctrl-C to terminate `cat` and return to a fresh prompt for
+        // any later scenarios sharing this pane.
+        TestStep.tmuxSendKeys(target: "links-test:0", keys: "C-c")
+        TestStep.wait(seconds: 0.5)
     }
 }
