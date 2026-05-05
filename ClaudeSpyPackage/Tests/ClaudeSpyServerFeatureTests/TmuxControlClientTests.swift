@@ -143,11 +143,14 @@
             let client = TmuxControlClient()
             await client.testMarkInitialAttachHandled()
 
-            async let first = client.testEnqueueCommand(id: 1)
-            async let second = client.testEnqueueCommand(id: 2)
-            // Ensure both continuations are queued before feeding responses.
-            try await Task.sleep(for: .milliseconds(50))
-            #expect(await client.testPendingCommandCount == 2)
+            // Start each enqueue as an explicit Task and wait for it to land in
+            // the queue before starting the next — `async let` doesn't guarantee
+            // child-task scheduling order, so under load the wrong continuation
+            // can end up at index 0.
+            let first = Task { try await client.testEnqueueCommand(id: 1) }
+            try await waitForPendingCount(client, equals: 1)
+            let second = Task { try await client.testEnqueueCommand(id: 2) }
+            try await waitForPendingCount(client, equals: 2)
 
             let chunk = Data("""
             %begin 1000 100 1
@@ -159,8 +162,8 @@
             """.utf8)
             await client.testProcessIncomingData(chunk)
 
-            let firstResponse = try await first
-            let secondResponse = try await second
+            let firstResponse = try await first.value
+            let secondResponse = try await second.value
             #expect(firstResponse.commandNumber == 100)
             #expect(firstResponse.isError == true)
             #expect(firstResponse.output == "can't find pane: %1")
@@ -174,8 +177,8 @@
             let client = TmuxControlClient()
             await client.testMarkInitialAttachHandled()
 
-            async let first = client.testEnqueueCommand(id: 1)
-            try await Task.sleep(for: .milliseconds(50))
+            let first = Task { try await client.testEnqueueCommand(id: 1) }
+            try await waitForPendingCount(client, equals: 1)
 
             let chunk = Data("""
             %begin 1000 100 1
@@ -185,11 +188,29 @@
             """.utf8)
             await client.testProcessIncomingData(chunk)
 
-            let response = try await first
+            let response = try await first.value
             #expect(response.commandNumber == 100)
             #expect(response.isError == false)
             #expect(response.output == "output-line")
             #expect(await client.testPendingCommandCount == 0)
+        }
+
+        /// Yields until the client's pending queue reaches `count`, with a
+        /// generous timeout. Replaces `Task.sleep`-based synchronisation, which
+        /// is wall-clock-racy under parallel test load on slow CI VMs.
+        private func waitForPendingCount(
+            _ client: TmuxControlClient,
+            equals count: Int,
+            timeout: Duration = .seconds(5)
+        ) async throws {
+            let deadline = ContinuousClock.now.advanced(by: timeout)
+            while await client.testPendingCommandCount != count {
+                if ContinuousClock.now >= deadline {
+                    break
+                }
+                await Task.yield()
+            }
+            #expect(await client.testPendingCommandCount == count)
         }
     }
 
