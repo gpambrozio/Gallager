@@ -140,22 +140,22 @@ public enum TerminalLinksScenario {
         // cells into the right-aligned text, painting the link underline
         // across the whole line.
         //
-        // We construct that line state directly with `printf`:
-        //   - clear the screen so all cells are uninitialized (code = 0)
-        //   - print the prompt + URL at the start of row 1
-        //   - jump to col 118 and write "130" (the fake exit code)
-        //   - return cursor near the end of "repo" (where the user would be
-        //     mid-typing — matches the original screenshot)
-        //   - hold the foreground so the shell prompt doesn't reappear and
-        //     overwrite our carefully-constructed buffer state
+        // We paint 15 such lines back-to-back to maximise the visual diff a
+        // regression would produce — a single regressed line might fall
+        // within screenshot tolerance, but 15 long underline bars across
+        // the buffer cannot. Each line writes the prompt + URL at column 1
+        // and "130" (a fake exit code) at column 118, leaving the cells in
+        // between as NULLs. `cat >/dev/null` then holds the foreground so
+        // the shell prompt doesn't reappear and overwrite the buffer.
         //
-        // After the fix, the underline ends at the URL boundary; before, it
-        // would stretch all the way to "130" on the right.
+        // After the fix, every line shows the underline ending at the URL
+        // boundary; before, every line shows it stretching to "130" on the
+        // right.
 
         TestStep.log("Reproducing #462: URL underline extending past URL when right-aligned content present")
         Shortcut.tmuxRunCommand(
             target: "links-test:0",
-            command: #"clear; printf '$ git clone http://github.com/idonotexist/repo'; printf '\e[118G130'; printf '\r\e[46C'; cat >/dev/null"#
+            command: #"clear; for i in $(seq 1 15); do printf "\e[$i;1H\$ git clone http://github.com/idonotexist/repo$i"; printf "\e[$i;118H130"; done; printf '\e[17;1H'; cat >/dev/null"#
         )
         TestStep.wait(seconds: 2)
 
