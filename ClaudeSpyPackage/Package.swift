@@ -88,6 +88,10 @@ extension Target.Dependency {
         .product(name: "Clocks", package: "swift-clocks")
     }
 
+    static var concurrencyExtras: Self {
+        .product(name: "ConcurrencyExtras", package: "swift-concurrency-extras")
+    }
+
     // Apple-platform-only packages. The static vars are gated behind
     // `#if os(macOS)` so the manifest itself compiles on Linux (where the
     // referenced packages aren't declared in the dependencies graph). Any
@@ -209,6 +213,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
         .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.0.0"),
         .package(url: "https://github.com/pointfreeco/swift-clocks", from: "1.0.4"),
+        .package(url: "https://github.com/pointfreeco/swift-concurrency-extras", from: "1.0.0"),
     ]
         + macOnlyDependencies(),
     targets: [
@@ -348,6 +353,7 @@ let package = Package(
                 .swiftTerm,
                 .dependenciesTestSupport,
                 .clocks,
+                .concurrencyExtras,
             ]
         ),
         .testTarget(
