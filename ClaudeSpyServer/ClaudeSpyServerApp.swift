@@ -404,6 +404,9 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator)
         } label: {
             MenuBarLabel(pendingCount: totalPendingSessionCount)
+                .task {
+                    coordinator.settings.applyAppearance()
+                }
                 .task(id: showingTmuxInstallGuide) {
                     guard !showingTmuxInstallGuide else { return }
                     await coordinator.setupAllServices()

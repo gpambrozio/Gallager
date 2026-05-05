@@ -20,6 +20,12 @@ public struct SettingsView: View {
                 }
                 .tag(SettingsTab.general)
 
+            AppearanceSettingsView()
+                .tabItem {
+                    Label("Appearance", symbol: .circleLefthalfFilled)
+                }
+                .tag(SettingsTab.appearance)
+
             SidebarLayoutSettingsView()
                 .tabItem {
                     Label("Sidebar", symbol: .listBulletClipboard)

@@ -56,6 +56,7 @@
             }
             .environment(settings)
             .environment(sessionStore)
+            .preferredColorScheme(settings.appearanceMode.colorScheme)
             .task {
                 await initializeConnectionManager()
                 setupConnectionManagerHandlers()
@@ -277,6 +278,11 @@
                             }
                         }
                 }
+                // Sheets present in a separate window context, so the
+                // root view's `.preferredColorScheme` doesn't always
+                // re-propagate after the sheet is on screen. Re-apply
+                // here so toggling the picker updates the sheet's chrome.
+                .preferredColorScheme(settings.appearanceMode.colorScheme)
             }
             .task {
                 await connectIfNeeded()
@@ -421,6 +427,22 @@
                                 .foregroundStyle(.secondary)
                         }
                     }
+                }
+
+                // Appearance Section
+                Section {
+                    @Bindable var settings = settings
+
+                    Picker("Theme", selection: $settings.appearanceMode) {
+                        ForEach(AppearanceMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                } header: {
+                    Text("Appearance")
+                } footer: {
+                    Text("Choose Light, Dark, or follow the iOS system setting.")
                 }
 
                 // Terminal Section
