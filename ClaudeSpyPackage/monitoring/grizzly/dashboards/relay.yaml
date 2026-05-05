@@ -275,3 +275,49 @@ spec:
                     properties:
                         - { id: color, value: { mode: fixed, fixedColor: "#cccccc" } }
                         - { id: custom.hideFrom, value: { legend: false, tooltip: false, viz: false } }
+
+        # =========================================================================
+        # Row 5 — Alert source: load normalized by CPU count (matches host-load-high)
+        # =========================================================================
+        - id: 16
+          title: Load per CPU (normalized)
+          type: timeseries
+          description: "node_load / CPU count. The `host-load-high` alert fires when the 5m line stays above 2 for 10m. Gaps here are why DatasourceNoData fires."
+          gridPos: { h: 8, w: 24, x: 0, "y": 27 }
+          targets:
+              - datasource: { uid: grafanacloud-prom }
+                expr: |
+                    node_load1{instance="hetzner-1"}
+                      /
+                    scalar(count(count by (cpu) (node_cpu_seconds_total{instance="hetzner-1",mode="idle"})))
+                refId: A
+                legendFormat: "1m"
+              - datasource: { uid: grafanacloud-prom }
+                expr: |
+                    node_load5{instance="hetzner-1"}
+                      /
+                    scalar(count(count by (cpu) (node_cpu_seconds_total{instance="hetzner-1",mode="idle"})))
+                refId: B
+                legendFormat: "5m (alert series)"
+              - datasource: { uid: grafanacloud-prom }
+                expr: |
+                    node_load15{instance="hetzner-1"}
+                      /
+                    scalar(count(count by (cpu) (node_cpu_seconds_total{instance="hetzner-1",mode="idle"})))
+                refId: C
+                legendFormat: "15m"
+          fieldConfig:
+              defaults:
+                  unit: short
+                  min: 0
+                  custom: { drawStyle: line, lineWidth: 1, spanNulls: false, thresholdsStyle: { mode: line } }
+                  thresholds:
+                      mode: absolute
+                      steps:
+                          - { color: green, value: null }
+                          - { color: yellow, value: 2 }
+                          - { color: red, value: 4 }
+              overrides:
+                  - matcher: { id: byName, options: "5m (alert series)" }
+                    properties:
+                        - { id: custom.lineWidth, value: 3 }
