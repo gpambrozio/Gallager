@@ -433,7 +433,7 @@ struct TerminalURLDetectorRegexTests {
     func urlStopsAtControlChars() {
         // Cells written with literal control chars (rare but possible — e.g.
         // `cat -v` style output) should also terminate URL matching. Test a
-        // representative sampling: BEL, BS, ESC, DEL.
+        // representative sampling: SOH, BEL, BS, ESC, DEL.
         for control in ["\u{1}", "\u{7}", "\u{8}", "\u{1B}", "\u{7F}"] {
             let line = "x http://example.com\(control)trailing"
             let urls = TerminalURLDetector.detectURLs(row: 0) { $0 == 0 ? line : nil }
@@ -447,10 +447,12 @@ struct TerminalURLDetectorRegexTests {
     func urlStopsAtTabAndSpace() {
         let withTab = "x http://example.com\tfollowing"
         let urlsTab = TerminalURLDetector.detectURLs(row: 0) { $0 == 0 ? withTab : nil }
+        #expect(urlsTab.count == 1)
         #expect(urlsTab.first?.url == "http://example.com")
 
         let withSpace = "x http://example.com following"
         let urlsSpace = TerminalURLDetector.detectURLs(row: 0) { $0 == 0 ? withSpace : nil }
+        #expect(urlsSpace.count == 1)
         #expect(urlsSpace.first?.url == "http://example.com")
     }
 }

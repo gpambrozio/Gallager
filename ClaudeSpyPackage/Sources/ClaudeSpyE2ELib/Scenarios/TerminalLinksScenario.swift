@@ -159,6 +159,12 @@ public enum TerminalLinksScenario {
         )
         TestStep.wait(seconds: 2)
 
+        // Capture the same regression on iOS — both platforms share
+        // `TerminalURLDetector`, so a re-introduction here would otherwise
+        // slip through. iOS is already focused on the `links-test` terminal
+        // from the earlier mouse-mode check.
+        TestStep.iosScreenshot(label: "ios-terminal-links-rprompt-462")
+
         // Re-select the pane so the macOS view definitely reflects the new
         // tmux state (the prior screenshot left it focused, but a paint pass
         // tied to selection ensures the underline overlay is recomputed).
