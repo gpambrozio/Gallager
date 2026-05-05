@@ -51,11 +51,40 @@ extension PreferencesService {
 /// Settings tab for programmatic navigation
 public enum SettingsTab: String, Sendable {
     case general
+    case appearance
     case remoteAccess
     case remoteHosts
     case sidebarLayout
     case plugin
     case about
+}
+
+/// User-selected window appearance for the macOS app.
+///
+/// Translates to `NSApp.appearance` — `nil` for `.system` so the app follows
+/// the system-wide setting, `aqua` for `.light`, `darkAqua` for `.dark`.
+public enum AppearanceMode: String, CaseIterable, Identifiable, Sendable {
+    case system
+    case light
+    case dark
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .system: "System"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+
+    public var nsAppearance: NSAppearance? {
+        switch self {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
+    }
 }
 
 // MARK: - Paired Viewer Model
@@ -149,6 +178,30 @@ final public class AppSettings {
     /// Terminal color theme
     public var theme: TerminalTheme = Defaults.theme {
         didSet { preferences.setString(theme.rawValue, Keys.theme) }
+    }
+
+    // MARK: - Appearance Settings
+
+    /// Window appearance (System / Light / Dark). Applied to `NSApp.appearance`
+    /// whenever it changes.
+    ///
+    /// Note: the didSet uses optional chaining because the App-protocol init
+    /// runs before SwiftUI sets up `NSApplication`. The initial application is
+    /// done explicitly via `applyAppearance()` from a SwiftUI lifecycle hook
+    /// once `NSApp` exists.
+    public var appearanceMode: AppearanceMode = Defaults.appearanceMode {
+        didSet {
+            preferences.setString(appearanceMode.rawValue, Keys.appearanceMode)
+            NSApp?.appearance = appearanceMode.nsAppearance
+        }
+    }
+
+    /// Apply the persisted appearance to `NSApp`. Safe to call multiple times.
+    /// Must be invoked from a SwiftUI lifecycle hook (`.task`/`.onAppear`)
+    /// rather than from `init`, since `NSApp` is not yet wired during App
+    /// init.
+    public func applyAppearance() {
+        NSApp?.appearance = appearanceMode.nsAppearance
     }
 
     // MARK: - Behavior Settings
@@ -308,6 +361,7 @@ final public class AppSettings {
         self.fontSize = preferences.optionalDouble(Keys.fontSize) ?? Defaults.fontSize
         self.scrollbackLines = preferences.optionalInt(Keys.scrollbackLines) ?? Defaults.scrollbackLines
         self.theme = TerminalTheme(rawValue: preferences.string(Keys.theme) ?? "") ?? Defaults.theme
+        self.appearanceMode = AppearanceMode(rawValue: preferences.string(Keys.appearanceMode) ?? "") ?? Defaults.appearanceMode
         self.openPanesWindowOnLaunch = preferences.optionalBool(Keys.openPanesWindowOnLaunch) ?? Defaults.openPanesWindowOnLaunch
         self.showStatusBar = preferences.optionalBool(Keys.showStatusBar) ?? Defaults.showStatusBar
         self.autoReconnect = preferences.optionalBool(Keys.autoReconnect) ?? Defaults.autoReconnect
@@ -374,6 +428,7 @@ final public class AppSettings {
         case fontSize
         case scrollbackLines
         case theme
+        case appearanceMode
         case openPanesWindowOnLaunch
         case showStatusBar
         case autoReconnect
@@ -416,6 +471,7 @@ final public class AppSettings {
         static let fontSize = 12.0
         static let scrollbackLines = 10_000
         static let theme = TerminalTheme.defaultDark
+        static let appearanceMode = AppearanceMode.system
         static let openPanesWindowOnLaunch = true
         static let showStatusBar = true
         static let autoReconnect = true

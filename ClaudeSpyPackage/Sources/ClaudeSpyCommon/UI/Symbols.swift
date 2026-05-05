@@ -30,6 +30,7 @@ public enum Symbols: String {
     case chevronRight = "chevron.right"
     case chevronUp = "chevron.up"
     case circle
+    case circleLefthalfFilled = "circle.lefthalf.filled"
     case docBadgeGearshapeFill = "doc.badge.gearshape.fill"
     case docOnClipboard = "doc.on.clipboard"
     case docPlaintextFill = "doc.plaintext.fill"
