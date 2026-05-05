@@ -59,26 +59,11 @@ public enum SettingsTab: String, Sendable {
     case about
 }
 
-/// User-selected window appearance for the macOS app.
-///
-/// Translates to `NSApp.appearance` — `nil` for `.system` so the app follows
-/// the system-wide setting, `aqua` for `.light`, `darkAqua` for `.dark`.
-public enum AppearanceMode: String, CaseIterable, Identifiable, Sendable {
-    case system
-    case light
-    case dark
-
-    public var id: String { rawValue }
-
-    public var displayName: String {
-        switch self {
-        case .system: "System"
-        case .light: "Light"
-        case .dark: "Dark"
-        }
-    }
-
-    public var nsAppearance: NSAppearance? {
+/// macOS-specific bridge from `AppearanceMode` to `NSAppearance`. The shared
+/// enum lives in `ClaudeSpyCommon` so iOS can reuse it for
+/// `.preferredColorScheme(_:)`.
+public extension AppearanceMode {
+    var nsAppearance: NSAppearance? {
         switch self {
         case .system: nil
         case .light: NSAppearance(named: .aqua)

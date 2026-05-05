@@ -1,62 +1,73 @@
 import Foundation
 
-/// E2E test for the macOS Settings → Appearance tab.
+/// E2E test for the Settings → Appearance picker on both macOS and iOS.
 ///
-/// CI runs in light mode, so the System and Light tiles produce visually
-/// equivalent app chrome — only the Dark tile flips the chrome to a dark
-/// appearance. The scenario captures three baselines:
+/// CI runs in light mode, so the System and Light selections produce
+/// equivalent app chrome — only Dark flips the chrome to a dark
+/// appearance. The scenario captures three baselines per platform so a
+/// regression in `applyAppearance()` (macOS) or `.preferredColorScheme(_:)`
+/// (iOS) wiring shows up as a screenshot diff on the dark baseline.
 ///
-/// 1. Default state (System selected, light chrome).
-/// 2. After clicking Dark — chrome should repaint dark.
-/// 3. After clicking Light — chrome back to light, but a different tile
-///    is selected than in #1.
-///
-/// If `applyAppearance()` regresses (e.g. NSApp.appearance stops being
-/// applied, or .dark stops mapping to `darkAqua`), the second baseline
-/// will fall back to the light chrome and the comparison will break.
+/// Pairing is required only to reach the iOS Settings sheet (which sits
+/// behind the Sessions toolbar button, visible only after pairing). The
+/// macOS portion piggy-backs on the same paired setup — we just switch
+/// the Settings tab from "Remote Access" (left over from pairing) to
+/// "Appearance".
 public enum AppearanceModeScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Appearance Mode",
-        tags: ["appearance", "settings", "macos-only"]
+        tags: ["appearance", "settings"]
     ) {
-        // 1. Launch the macOS app. We deliberately skip opening the Panes
-        //    window — the Settings window alone makes the screenshot target
-        //    deterministic regardless of which window CGWindowList orders
-        //    first.
-        TestStep.launchMacApp()
-        TestStep.wait(seconds: 3)
+        FreshPairingScenario.scenario
 
-        // 2. Open Settings and switch to the new Appearance tab.
-        TestStep.macOpenSettings()
-        TestStep.macWaitForWindow(titled: "General", timeout: 5)
+        // ── macOS ──────────────────────────────────────────────────
+
         TestStep.macSelectSettingsTab("Appearance")
         TestStep.macWaitForElement(titled: "Theme", timeout: 5)
         TestStep.wait(seconds: 0.5)
 
-        // The SwiftUI Settings window pins itself to its content's
-        // `frame(minWidth: 900, minHeight: 500)`, which is deterministic
-        // enough for baselines without an explicit resize step (and the
-        // panel-backed Settings window doesn't expose itself via
-        // `kAXWindowsAttribute` so AX-based resize wouldn't work anyway).
-
-        // 3. Default state: System selected. CI runs light, so the chrome
-        //    is rendered with the light appearance.
+        // 1. Default System selected (light chrome in CI).
         TestStep.macScreenshot(label: "mac-appearance-default-system")
 
-        // 4. Switch to Dark — NSApp.appearance flips to darkAqua and the
-        //    Settings window chrome repaints dark.
+        // 2. Dark — chrome should repaint dark.
         TestStep.macClickButton(titled: "Dark")
         TestStep.wait(seconds: 1.5)
         TestStep.macScreenshot(label: "mac-appearance-dark")
 
-        // 5. Switch to Light — chrome back to light, Light tile selected.
+        // 3. Light — chrome back to light, Light tile selected.
         TestStep.macClickButton(titled: "Light")
         TestStep.wait(seconds: 1.5)
         TestStep.macScreenshot(label: "mac-appearance-light")
 
-        // 6. Restore the System default so any persisted state hint at
-        //    the end of the run reflects the shipped default.
+        // Restore default before moving on so the persisted value matches
+        // the shipped default at the end of the run.
         TestStep.macClickButton(titled: "System")
+        TestStep.wait(seconds: 1)
+
+        // ── iOS ────────────────────────────────────────────────────
+
+        // Open the Settings sheet from the Sessions toolbar. The segmented
+        // picker hides its title on iOS, so we wait for the visible
+        // section header instead.
+        TestStep.iosTap(.label("Settings"))
+        TestStep.iosWaitForElement(.label("Appearance"), timeout: 5)
+        TestStep.wait(seconds: 0.5)
+
+        // 1. Default System (light scheme in CI).
+        TestStep.iosScreenshot(label: "ios-appearance-default-system")
+
+        // 2. Dark — `.preferredColorScheme(.dark)` flips the sheet.
+        TestStep.iosTap(.label("Dark"))
+        TestStep.wait(seconds: 1.5)
+        TestStep.iosScreenshot(label: "ios-appearance-dark")
+
+        // 3. Light — back to light scheme, Light segment selected.
+        TestStep.iosTap(.label("Light"))
+        TestStep.wait(seconds: 1.5)
+        TestStep.iosScreenshot(label: "ios-appearance-light")
+
+        // Restore default.
+        TestStep.iosTap(.label("System"))
         TestStep.wait(seconds: 1)
     }
 }

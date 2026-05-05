@@ -31,6 +31,7 @@
             case pairedHosts
             case externalServerURL
             case autoReconnect
+            case appearanceMode
             case terminalFontName
             case terminalFontSize
             case newSessionName
@@ -64,6 +65,12 @@
         /// Whether to automatically reconnect on app launch
         public var autoReconnect = false {
             didSet { preferences.setBool(autoReconnect, Keys.autoReconnect) }
+        }
+
+        /// App appearance (System / Light / Dark). Drives
+        /// `.preferredColorScheme(_:)` on the iOS root view.
+        public var appearanceMode: AppearanceMode = .system {
+            didSet { preferences.setString(appearanceMode.rawValue, Keys.appearanceMode) }
         }
 
         /// Font name for terminal snapshot display
@@ -123,6 +130,7 @@
             self.externalServerURL = preferences.string(Keys.externalServerURL)
                 ?? "wss://claudespy.gustavo.eng.br"
             self.autoReconnect = preferences.optionalBool(Keys.autoReconnect) ?? false
+            self.appearanceMode = AppearanceMode(rawValue: preferences.string(Keys.appearanceMode) ?? "") ?? .system
 
             // Terminal settings with iOS-appropriate defaults
             self.terminalFontName = preferences.string(Keys.terminalFontName) ?? "Menlo"
