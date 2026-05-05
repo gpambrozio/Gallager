@@ -91,7 +91,7 @@
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
-            .background(.regularMaterial)
+            .background(.background)
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
             .containerRelativeFrame(.horizontal) { width, _ in
@@ -105,5 +105,21 @@
                 isEditorFocused = true
             }
         }
+    }
+
+    #Preview {
+        @Previewable @State var content = """
+        Refactor the prompt editor overlay to use a custom syntax-highlighted
+        editor instead of TextEditor. Make sure Cmd+Return still submits and
+        Escape still cancels.
+        """
+        PromptEditorOverlay(
+            content: $content,
+            onSubmit: { _ in },
+            onCancel: { }
+        )
+        .padding()
+        .frame(width: 800, height: 600)
+        .background(.black)
     }
 #endif
