@@ -177,14 +177,14 @@ final public class AppSettings {
     public var appearanceMode: AppearanceMode = Defaults.appearanceMode {
         didSet {
             preferences.setString(appearanceMode.rawValue, Keys.appearanceMode)
-            NSApp?.appearance = appearanceMode.nsAppearance
+            applyAppearance()
         }
     }
 
     /// Apply the persisted appearance to `NSApp`. Safe to call multiple times.
     /// Must be invoked from a SwiftUI lifecycle hook (`.task`/`.onAppear`)
-    /// rather than from `init`, since `NSApp` is not yet wired during App
-    /// init.
+    /// after launch, since `NSApp` is not yet wired during App init —
+    /// optional chaining keeps it a no-op until then.
     public func applyAppearance() {
         NSApp?.appearance = appearanceMode.nsAppearance
     }
