@@ -87,9 +87,8 @@ final public class MarkdownOpenSuggestionStore {
         guard suggestionsBySession[sessionName] != nil else { return }
         guard dismissalTasks[sessionName] == nil else { return }
         let delay = autoDismissDelay
-        let clock = self.clock
         dismissalTasks[sessionName] = Task { [weak self] in
-            try? await clock.sleep(for: delay)
+            try? await self?.clock.sleep(for: delay)
             guard !Task.isCancelled else { return }
             self?.suggestionsBySession.removeValue(forKey: sessionName)
             self?.dismissalTasks.removeValue(forKey: sessionName)
