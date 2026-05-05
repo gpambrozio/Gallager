@@ -58,18 +58,33 @@ public enum DockIconConfig {
 
 /// Internal class that manages the dock icon visibility based on window state.
 @MainActor
-final private class LiveDockIconManager {
+final class LiveDockIconManager {
+    /// Default debounce window between rapid `handleWindowClosing` events and
+    /// the resulting `updateActivationPolicy` call.
+    static let defaultClosingDebounce: Duration = .milliseconds(100)
+
     private var observationTask: Task<Void, Never>?
     private var updatePolicyTask: Task<Void, Never>?
 
     /// Window identifiers to ignore when counting visible windows
-    private let ignoredWindowClasses: Set<String> = [
+    private let ignoredWindowClasses: Set = [
         "NSStatusBarWindow",
         "_NSPopoverWindow",
         "NSMenuWindowManagerWindow",
     ]
 
-    init() { }
+    private let closingDebounce: Duration
+
+    @Dependency(\.continuousClock) private var clock
+
+    /// Test hook fired immediately after the debounce timer resolves and
+    /// `updateActivationPolicy()` runs. `nil` in production so there's no
+    /// observable cost; tests substitute it to count debounced fires.
+    var onActivationPolicyUpdated: (@MainActor () -> Void)?
+
+    init(closingDebounce: Duration = LiveDockIconManager.defaultClosingDebounce) {
+        self.closingDebounce = closingDebounce
+    }
 
     deinit {
         observationTask?.cancel()
@@ -142,15 +157,17 @@ final private class LiveDockIconManager {
         updateActivationPolicy()
     }
 
-    private func handleWindowClosing() {
+    func handleWindowClosing() {
         // Cancel any pending update and schedule a new one.
         // This ensures we only update once after rapid window close events.
         updatePolicyTask?.cancel()
-        updatePolicyTask = Task {
+        let interval = closingDebounce
+        updatePolicyTask = Task { [weak self] in
             do {
-                try await Task.sleep(for: .milliseconds(100))
+                try await self?.clock.sleep(for: interval)
                 guard !Task.isCancelled else { return }
-                updateActivationPolicy()
+                self?.updateActivationPolicy()
+                self?.onActivationPolicyUpdated?()
             } catch {
                 // Task was cancelled
             }

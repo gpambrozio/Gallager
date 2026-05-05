@@ -1,5 +1,6 @@
 #if os(macOS)
     import AppKit
+    import Dependencies
     import Foundation
     import Logging
 
@@ -27,9 +28,18 @@
         private var didReply = false
         private let logger = Logger(label: "com.claudespy.shutdown")
 
-        // `@NSApplicationDelegateAdaptor` instantiates via Objective-C `init()`,
-        // which doesn't see Swift default arguments — so we need an explicit
-        // zero-arg initializer.
+        @Dependency(\.continuousClock) private var clock
+
+        /// Hook invoked when the delegate decides termination should proceed.
+        /// Defaults to `NSApp.reply(toApplicationShouldTerminate: true)`.
+        /// Tests substitute this to observe replies without driving AppKit.
+        var replyHandler: @MainActor () -> Void = {
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+
+        /// `@NSApplicationDelegateAdaptor` instantiates via Objective-C `init()`,
+        /// which doesn't see Swift default arguments — so we need an explicit
+        /// zero-arg initializer.
         public override init() {
             self.shutdownTimeout = .seconds(3)
             super.init()
@@ -57,7 +67,7 @@
                 self.replyOnce()
             }
             Task { @MainActor in
-                try? await Task.sleep(for: timeout)
+                try? await self.clock.sleep(for: timeout)
                 if !self.didReply {
                     self.logger.warning("Shutdown cleanup exceeded \(timeout); terminating anyway")
                 }
@@ -69,7 +79,7 @@
         private func replyOnce() {
             guard !didReply else { return }
             didReply = true
-            NSApp.reply(toApplicationShouldTerminate: true)
+            replyHandler()
         }
     }
 #endif

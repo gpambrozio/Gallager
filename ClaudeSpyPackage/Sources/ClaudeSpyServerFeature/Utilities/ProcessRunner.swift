@@ -142,10 +142,19 @@ extension ProcessRunner: DependencyKey {
 
                 try process.run()
 
-                // Set up timeout if specified
+                // Set up timeout if specified.
+                // Reads `\.continuousClock` from the surrounding dependency context
+                // so a `TestClock` injected via `withDependencies` can drive timeout
+                // behaviour deterministically without burning wall-clock seconds.
+                // Read-and-capture must happen here, OUTSIDE the `Task`. Unstructured
+                // tasks don't propagate `DependencyValues` task-locals, so reading
+                // `@Dependency` inside the `Task` body would silently fall back to
+                // the live clock. Any future dependency this closure needs must be
+                // captured the same way (or routed through `withEscapedDependencies`).
                 if let timeout {
-                    Task {
-                        try? await Task.sleep(for: .seconds(timeout))
+                    @Dependency(\.continuousClock) var clock
+                    Task { [clock] in
+                        try? await clock.sleep(for: .seconds(timeout))
                         if process.isRunning {
                             process.terminate()
                         }
