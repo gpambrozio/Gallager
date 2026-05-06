@@ -20,7 +20,10 @@ func macOnlyDependencies() -> [Package.Dependency] {
             .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.13.0"),
             .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
             .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
-            .package(url: "https://github.com/mchakravarty/ProjectNavigator", from: "1.0.0"),
+            // Pinned to 1.7.0: 1.8.0 added a required `linkLabel:` parameter
+            // (and `LinkLabelView` generic) to `FileNavigator.init`, breaking our
+            // call site in `FileBrowserView`.
+            .package(url: "https://github.com/mchakravarty/ProjectNavigator", exact: "1.7.0"),
             .package(url: "https://github.com/gonzalezreal/textual", from: "0.3.1"),
             .package(url: "https://github.com/jpsim/Yams", from: "5.0.0"),
         ]
@@ -42,6 +45,8 @@ func macOnlyTargetDependencies(for target: String) -> [Target.Dependency] {
             return [.swiftTerm]
         case "ClaudeSpyServerFeature":
             return [.swiftTerm, .sparkle, .textual, .projectNavigator, .files]
+        case "ClaudeSpyServerFeatureTests":
+            return [.swiftTerm]
         case "ClaudeSpyE2E":
             return [.argumentParser]
         case "GallagerCLI":
@@ -163,213 +168,222 @@ extension Target.Dependency {
     }
 }
 
+/// Products, dependencies, and targets are extracted into typed top-level `let`s
+/// so the manifest type-checker can resolve each in isolation. Inlining all three
+/// inside the `Package(...)` call exceeds the Linux Swift 6.x type-checker
+/// heuristic and fails the relay's Docker build with "the compiler is unable to
+/// type-check this expression in reasonable time."
+let products: [Product] = [
+    // Products define the executables and libraries a package produces, making them visible to other packages.
+    .library(
+        name: "ClaudeSpyNetworking",
+        targets: ["ClaudeSpyNetworking"]
+    ),
+    .library(
+        name: "ClaudeSpyCommon",
+        targets: ["ClaudeSpyCommon"]
+    ),
+    .library(
+        name: "ClaudeSpyEncryption",
+        targets: ["ClaudeSpyEncryption"]
+    ),
+    .library(
+        name: "ClaudeSpyFeature",
+        targets: ["ClaudeSpyFeature"]
+    ),
+    .library(
+        name: "ClaudeSpyServerFeature",
+        targets: ["ClaudeSpyServerFeature"]
+    ),
+    .executable(
+        name: "ClaudeSpyExternalServer",
+        targets: ["ClaudeSpyExternalServer"]
+    ),
+    .library(
+        name: "ClaudeSpyExternalServerLib",
+        targets: ["ClaudeSpyExternalServerLib"]
+    ),
+    .executable(
+        name: "ClaudeSpyE2E",
+        targets: ["ClaudeSpyE2E"]
+    ),
+    .executable(
+        name: "GallagerCLI",
+        targets: ["GallagerCLI"]
+    ),
+]
+
+let packageDependencies: [Package.Dependency] = [
+    .package(url: "https://github.com/nicklockwood/SwiftFormat", from: "0.53.0"),
+    .package(url: "https://github.com/vapor/vapor", from: "4.0.0"),
+    .package(url: "https://github.com/vapor/apns.git", from: "4.0.0"),
+    .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
+    .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
+    .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.0.0"),
+    .package(url: "https://github.com/pointfreeco/swift-clocks", from: "1.0.4"),
+    .package(url: "https://github.com/pointfreeco/swift-concurrency-extras", from: "1.0.0"),
+] + macOnlyDependencies()
+
+let targets: [Target] = [
+    // Targets are the basic building blocks of a package, defining a module or a test suite.
+    // Targets can depend on other targets in this package and products from dependencies.
+
+    // Platform-agnostic networking models (no SwiftUI dependencies)
+    // Used by external server on Linux and by Apple platform apps
+    .target(
+        name: "ClaudeSpyNetworking",
+        dependencies: [
+            .claudeSpyEncryption,
+        ]
+    ),
+    .target(
+        name: "ClaudeSpyCommon",
+        dependencies: [
+            .claudeSpyNetworking,
+            .claudeSpyEncryption,
+            .logging,
+        ] + macOnlyTargetDependencies(for: "ClaudeSpyCommon")
+    ),
+    // End-to-end encryption module using CryptoKit (Apple) / Swift Crypto (Linux)
+    .target(
+        name: "ClaudeSpyEncryption",
+        dependencies: [
+            .crypto,
+            .dependencies,
+            .dependenciesMacros,
+        ]
+    ),
+    .target(
+        name: "ClaudeSpyFeature",
+        dependencies: [
+            .claudeSpyNetworking,
+            .claudeSpyCommon,
+            .claudeSpyEncryption,
+            .dependencies,
+            .dependenciesMacros,
+        ] + macOnlyTargetDependencies(for: "ClaudeSpyFeature")
+    ),
+    .target(
+        name: "ClaudeSpyServerFeature",
+        dependencies: [
+            .claudeSpyCommon,
+            .claudeSpyEncryption,
+            .vapor,
+            .dependencies,
+            .dependenciesMacros,
+        ] + macOnlyTargetDependencies(for: "ClaudeSpyServerFeature"),
+        resources: [
+            .process("Resources"),
+        ]
+    ),
+    // External server library (all business logic, importable by tests and E2E)
+    .target(
+        name: "ClaudeSpyExternalServerLib",
+        dependencies: [
+            .claudeSpyNetworking,
+            .claudeSpyEncryption,
+            .vapor,
+            .vaporAPNS,
+        ]
+    ),
+    // External server executable (thin wrapper around library)
+    .executableTarget(
+        name: "ClaudeSpyExternalServer",
+        dependencies: [
+            .claudeSpyExternalServerLib,
+            .vapor,
+        ],
+        swiftSettings: [
+            // Match Docker build flags to catch issues locally before deployment
+            .unsafeFlags(["-cross-module-optimization"], .when(configuration: .release)),
+        ]
+    ),
+    // E2E test coordinator library
+    .target(
+        name: "ClaudeSpyE2ELib",
+        dependencies: [
+            .claudeSpyNetworking,
+            .claudeSpyServerFeature,
+            .claudeSpyExternalServerLib,
+            .vapor,
+            .logging,
+        ],
+        resources: [
+            .copy("Scenarios/Scripts"),
+            .copy("Scenarios/SampleFiles"),
+        ]
+    ),
+    // E2E test coordinator executable
+    .executableTarget(
+        name: "ClaudeSpyE2E",
+        dependencies: [
+            .claudeSpyE2ELib,
+        ] + macOnlyTargetDependencies(for: "ClaudeSpyE2E")
+    ),
+    // CLI for controlling Gallager from the command line (API + editor).
+    // Bundled inside the app and invoked via the VISUAL environment variable.
+    .executableTarget(
+        name: "GallagerCLI",
+        dependencies: macOnlyTargetDependencies(for: "GallagerCLI"),
+        path: "Sources/Gallager"
+    ),
+    .testTarget(
+        name: "ClaudeSpyNetworkingTests",
+        dependencies: [
+            "ClaudeSpyNetworking",
+        ]
+    ),
+    .testTarget(
+        name: "ClaudeSpyCommonTests",
+        dependencies: [
+            "ClaudeSpyCommon",
+            .dependenciesTestSupport,
+            .clocks,
+            .concurrencyExtras,
+        ]
+    ),
+    .testTarget(
+        name: "ClaudeSpyEncryptionTests",
+        dependencies: [
+            "ClaudeSpyEncryption",
+            .dependenciesTestSupport,
+        ]
+    ),
+    .testTarget(
+        name: "ClaudeSpyFeatureTests",
+        dependencies: [
+            "ClaudeSpyFeature",
+            .dependenciesTestSupport,
+        ]
+    ),
+    .testTarget(
+        name: "ClaudeSpyServerFeatureTests",
+        dependencies: [
+            "ClaudeSpyServerFeature",
+            .dependenciesTestSupport,
+            .clocks,
+            .concurrencyExtras,
+        ] + macOnlyTargetDependencies(for: "ClaudeSpyServerFeatureTests")
+    ),
+    .testTarget(
+        name: "ClaudeSpyExternalServerTests",
+        dependencies: [
+            .claudeSpyExternalServerLib,
+            .product(name: "VaporTesting", package: "vapor"),
+        ]
+    ),
+    .testTarget(
+        name: "ClaudeSpyE2ETests",
+        dependencies: [
+            .claudeSpyE2ELib,
+        ]
+    ),
+]
+
 let package = Package(
     name: "ClaudeSpyPackage",
     platforms: [.iOS(.v18), .macOS(.v15)],
-    products: [
-        // Products define the executables and libraries a package produces, making them visible to other packages.
-        .library(
-            name: "ClaudeSpyNetworking",
-            targets: ["ClaudeSpyNetworking"]
-        ),
-        .library(
-            name: "ClaudeSpyCommon",
-            targets: ["ClaudeSpyCommon"]
-        ),
-        .library(
-            name: "ClaudeSpyEncryption",
-            targets: ["ClaudeSpyEncryption"]
-        ),
-        .library(
-            name: "ClaudeSpyFeature",
-            targets: ["ClaudeSpyFeature"]
-        ),
-        .library(
-            name: "ClaudeSpyServerFeature",
-            targets: ["ClaudeSpyServerFeature"]
-        ),
-        .executable(
-            name: "ClaudeSpyExternalServer",
-            targets: ["ClaudeSpyExternalServer"]
-        ),
-        .library(
-            name: "ClaudeSpyExternalServerLib",
-            targets: ["ClaudeSpyExternalServerLib"]
-        ),
-        .executable(
-            name: "ClaudeSpyE2E",
-            targets: ["ClaudeSpyE2E"]
-        ),
-        .executable(
-            name: "GallagerCLI",
-            targets: ["GallagerCLI"]
-        ),
-    ],
-    dependencies: [
-        .package(url: "https://github.com/nicklockwood/SwiftFormat", from: "0.53.0"),
-        .package(url: "https://github.com/vapor/vapor", from: "4.0.0"),
-        .package(url: "https://github.com/vapor/apns.git", from: "4.0.0"),
-        .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
-        .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
-        .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.0.0"),
-        .package(url: "https://github.com/pointfreeco/swift-clocks", from: "1.0.4"),
-        .package(url: "https://github.com/pointfreeco/swift-concurrency-extras", from: "1.0.0"),
-    ]
-        + macOnlyDependencies(),
-    targets: [
-        // Targets are the basic building blocks of a package, defining a module or a test suite.
-        // Targets can depend on other targets in this package and products from dependencies.
-
-        // Platform-agnostic networking models (no SwiftUI dependencies)
-        // Used by external server on Linux and by Apple platform apps
-        .target(
-            name: "ClaudeSpyNetworking",
-            dependencies: [
-                .claudeSpyEncryption,
-            ]
-        ),
-        .target(
-            name: "ClaudeSpyCommon",
-            dependencies: [
-                .claudeSpyNetworking,
-                .claudeSpyEncryption,
-                .logging,
-            ] + macOnlyTargetDependencies(for: "ClaudeSpyCommon")
-        ),
-        // End-to-end encryption module using CryptoKit (Apple) / Swift Crypto (Linux)
-        .target(
-            name: "ClaudeSpyEncryption",
-            dependencies: [
-                .crypto,
-                .dependencies,
-                .dependenciesMacros,
-            ]
-        ),
-        .target(
-            name: "ClaudeSpyFeature",
-            dependencies: [
-                .claudeSpyNetworking,
-                .claudeSpyCommon,
-                .claudeSpyEncryption,
-                .dependencies,
-                .dependenciesMacros,
-            ] + macOnlyTargetDependencies(for: "ClaudeSpyFeature")
-        ),
-        .target(
-            name: "ClaudeSpyServerFeature",
-            dependencies: [
-                .claudeSpyCommon,
-                .claudeSpyEncryption,
-                .vapor,
-                .dependencies,
-                .dependenciesMacros,
-            ] + macOnlyTargetDependencies(for: "ClaudeSpyServerFeature"),
-            resources: [
-                .process("Resources"),
-            ]
-        ),
-        // External server library (all business logic, importable by tests and E2E)
-        .target(
-            name: "ClaudeSpyExternalServerLib",
-            dependencies: [
-                .claudeSpyNetworking,
-                .claudeSpyEncryption,
-                .vapor,
-                .vaporAPNS,
-            ]
-        ),
-        // External server executable (thin wrapper around library)
-        .executableTarget(
-            name: "ClaudeSpyExternalServer",
-            dependencies: [
-                .claudeSpyExternalServerLib,
-                .vapor,
-            ],
-            swiftSettings: [
-                // Match Docker build flags to catch issues locally before deployment
-                .unsafeFlags(["-cross-module-optimization"], .when(configuration: .release)),
-            ]
-        ),
-        // E2E test coordinator library
-        .target(
-            name: "ClaudeSpyE2ELib",
-            dependencies: [
-                .claudeSpyNetworking,
-                .claudeSpyServerFeature,
-                .claudeSpyExternalServerLib,
-                .vapor,
-                .logging,
-            ],
-            resources: [
-                .copy("Scenarios/Scripts"),
-                .copy("Scenarios/SampleFiles"),
-            ]
-        ),
-        // E2E test coordinator executable
-        .executableTarget(
-            name: "ClaudeSpyE2E",
-            dependencies: [
-                .claudeSpyE2ELib,
-            ] + macOnlyTargetDependencies(for: "ClaudeSpyE2E")
-        ),
-        // CLI for controlling Gallager from the command line (API + editor).
-        // Bundled inside the app and invoked via the VISUAL environment variable.
-        .executableTarget(
-            name: "GallagerCLI",
-            dependencies: macOnlyTargetDependencies(for: "GallagerCLI"),
-            path: "Sources/Gallager"
-        ),
-        .testTarget(
-            name: "ClaudeSpyNetworkingTests",
-            dependencies: [
-                "ClaudeSpyNetworking",
-            ]
-        ),
-        .testTarget(
-            name: "ClaudeSpyCommonTests",
-            dependencies: [
-                "ClaudeSpyCommon",
-                .dependenciesTestSupport,
-                .clocks,
-                .concurrencyExtras,
-            ]
-        ),
-        .testTarget(
-            name: "ClaudeSpyEncryptionTests",
-            dependencies: [
-                "ClaudeSpyEncryption",
-                .dependenciesTestSupport,
-            ]
-        ),
-        .testTarget(
-            name: "ClaudeSpyFeatureTests",
-            dependencies: [
-                "ClaudeSpyFeature",
-                .dependenciesTestSupport,
-            ]
-        ),
-        .testTarget(
-            name: "ClaudeSpyServerFeatureTests",
-            dependencies: [
-                "ClaudeSpyServerFeature",
-                .swiftTerm,
-                .dependenciesTestSupport,
-                .clocks,
-                .concurrencyExtras,
-            ]
-        ),
-        .testTarget(
-            name: "ClaudeSpyExternalServerTests",
-            dependencies: [
-                .claudeSpyExternalServerLib,
-                .product(name: "VaporTesting", package: "vapor"),
-            ]
-        ),
-        .testTarget(
-            name: "ClaudeSpyE2ETests",
-            dependencies: [
-                .claudeSpyE2ELib,
-            ]
-        ),
-    ]
+    products: products,
+    dependencies: packageDependencies,
+    targets: targets
 )

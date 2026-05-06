@@ -18,7 +18,7 @@ struct PairingController: RouteCollection {
     func registerPairingCode(req: Request) async throws -> PairingResponse {
         let registration = try req.content.decode(PairingRegistration.self)
 
-        let result = await req.application.pairingService.registerCode(
+        return await req.application.pairingService.registerCode(
             code: registration.pairingCode,
             deviceId: registration.deviceId,
             deviceName: registration.deviceName,
@@ -26,8 +26,6 @@ struct PairingController: RouteCollection {
             publicKey: registration.publicKey,
             publicKeyId: registration.publicKeyId
         )
-
-        return result
     }
 
     /// Viewer completes pairing with a code
@@ -36,15 +34,13 @@ struct PairingController: RouteCollection {
     func completePairing(req: Request) async throws -> PairingResponse {
         let completion = try req.content.decode(PairingCompletion.self)
 
-        let result = await req.application.pairingService.completePairing(
+        return await req.application.pairingService.completePairing(
             code: completion.pairingCode,
             deviceId: completion.deviceId,
             deviceName: completion.deviceName,
             publicKey: completion.publicKey,
             publicKeyId: completion.publicKeyId
         )
-
-        return result
     }
 
     /// Get pairing status
@@ -61,11 +57,13 @@ struct PairingController: RouteCollection {
         let isValid = await pairingService.isValidPair(pairId: pairId)
         let hostConnected = await connectionHub.isHostConnected(pairId: pairId)
         let viewerConnected = await connectionHub.isViewerConnected(pairId: pairId)
+        let viewerDeviceName = await pairingService.getViewerDeviceName(pairId: pairId)
 
         return PairingStatus(
             valid: isValid,
             hostConnected: hostConnected,
-            viewerConnected: viewerConnected
+            viewerConnected: viewerConnected,
+            viewerDeviceName: viewerDeviceName
         )
     }
 
