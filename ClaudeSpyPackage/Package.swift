@@ -3,16 +3,16 @@
 
 import PackageDescription
 
-// Packages only consumed by Apple-platform targets (macOS app, iOS app, E2E,
-// GallagerCLI). They are hidden from the Linux SPM graph so the relay's Docker
-// build doesn't waste time resolving them — and so a future bump that requires
-// a newer Swift toolchain doesn't block deploys. The Linux relay only needs
-// Vapor / VaporAPNS / swift-crypto / swift-log / swift-dependencies / Yams (no,
-// Yams is Apple-only via GallagerCLI) — anything else here would be dead weight
-// on the relay build.
-//
-// (ProjectNavigator 1.7.0 was the canary: it required Swift 6.2 while the
-// jammy Docker image ships Swift 6.1, blocking `swift package resolve`.)
+/// Packages only consumed by Apple-platform targets (macOS app, iOS app, E2E,
+/// GallagerCLI). They are hidden from the Linux SPM graph so the relay's Docker
+/// build doesn't waste time resolving them — and so a future bump that requires
+/// a newer Swift toolchain doesn't block deploys. The Linux relay only needs
+/// Vapor / VaporAPNS / swift-crypto / swift-log / swift-dependencies / Yams (no,
+/// Yams is Apple-only via GallagerCLI) — anything else here would be dead weight
+/// on the relay build.
+///
+/// (ProjectNavigator 1.7.0 was the canary: it required Swift 6.2 while the
+/// jammy Docker image ships Swift 6.1, blocking `swift package resolve`.)
 func macOnlyDependencies() -> [Package.Dependency] {
     #if os(macOS)
         return [
@@ -29,10 +29,10 @@ func macOnlyDependencies() -> [Package.Dependency] {
     #endif
 }
 
-// `#if os(macOS)` does not work *inside* a Target dependency array literal
-// (SPM's manifest parser rejects it as `expected expression in container
-// literal`). So per-target helpers return the slice of Apple-only deps for each
-// consumer; the target's `dependencies:` array concatenates with `+`.
+/// `#if os(macOS)` does not work *inside* a Target dependency array literal
+/// (SPM's manifest parser rejects it as `expected expression in container
+/// literal`). So per-target helpers return the slice of Apple-only deps for each
+/// consumer; the target's `dependencies:` array concatenates with `+`.
 func macOnlyTargetDependencies(for target: String) -> [Target.Dependency] {
     #if os(macOS)
         switch target {
@@ -57,7 +57,7 @@ func macOnlyTargetDependencies(for target: String) -> [Target.Dependency] {
 }
 
 extension Target.Dependency {
-    // Cross-platform packages — needed by the Linux relay deployable.
+    /// Cross-platform packages — needed by the Linux relay deployable.
     static var vapor: Self {
         .product(name: "Vapor", package: "vapor")
     }
@@ -335,6 +335,8 @@ let targets: [Target] = [
         dependencies: [
             "ClaudeSpyCommon",
             .dependenciesTestSupport,
+            .clocks,
+            .concurrencyExtras,
         ]
     ),
     .testTarget(
