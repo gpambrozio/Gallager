@@ -240,16 +240,28 @@
         /// Drains any queued bytes through the delegate in the order they were
         /// received, then transitions to live mode (subsequent bytes flow
         /// directly to the delegate). The buffer is empty after this call.
+        ///
+        /// Stays in `.buffering` mode while iterating. Each `await delegate…`
+        /// suspends the actor, and during that suspension the consumer task
+        /// can deliver fresh bytes via `processIncomingData`. If we flipped to
+        /// `.live` up-front those bytes would race past whatever was still in
+        /// `toFlush`; keeping `.buffering` parks them on the queue, and the
+        /// outer `while` catches them in the next iteration. The flip to
+        /// `.live` only happens once the queue is fully empty, with no
+        /// `await` between the empty check and the mode change.
         func flushBuffer() async {
-            let toFlush = buffer
-            buffer = []
-            mode = .live
             notificationParser.scanOnly = false
-            let count = toFlush.count
-            for chunk in toFlush {
-                await delegate?.pipePaneReader(paneId, didReceiveData: chunk)
+            var totalChunks = 0
+            while !buffer.isEmpty {
+                let toFlush = buffer
+                buffer = []
+                totalChunks += toFlush.count
+                for chunk in toFlush {
+                    await delegate?.pipePaneReader(paneId, didReceiveData: chunk)
+                }
             }
-            logger.debug("Flushed \(count) buffered chunks for \(paneId)")
+            mode = .live
+            logger.debug("Flushed \(totalChunks) buffered chunks for \(paneId)")
         }
 
         /// Stops pipe-pane and cleans up all resources.

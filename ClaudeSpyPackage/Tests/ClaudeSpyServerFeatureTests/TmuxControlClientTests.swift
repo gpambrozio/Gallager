@@ -384,6 +384,28 @@
                 #expect(delegate.notifications.count == 1, "OSC 9 notification must still flow")
             }
 
+            @Test("flushBuffer keeps order even when bytes arrive during the drain")
+            func flushBufferOrderingUnderConcurrentInput() async {
+                let reader = PipePaneReader(paneId: "%0")
+                let delegate = CapturingDelegate()
+                await reader.setDelegate(delegate)
+
+                await reader.setBuffering(true)
+                await reader.testProcessIncomingData(Data("A".utf8))
+                await reader.testProcessIncomingData(Data("B".utf8))
+
+                // Submit fresh bytes concurrently with the flush. If flushBuffer
+                // flips mode to .live before the queue is drained, the late "C"
+                // chunk can race past still-buffered "A"/"B" chunks and produce
+                // out-of-order delivery (e.g. "ACB").
+                async let flushTask: () = reader.flushBuffer()
+                async let lateTask: () = reader.testProcessIncomingData(Data("C".utf8))
+                _ = await (flushTask, lateTask)
+
+                let combined = String(data: delegate.concatenatedData, encoding: .utf8) ?? ""
+                #expect(combined == "ABC", "Expected A,B,C in order, got: \(combined)")
+            }
+
             @Test("flushBuffer transitions to live: subsequent bytes flow directly")
             func flushTransitionsToLive() async {
                 let reader = PipePaneReader(paneId: "%0")

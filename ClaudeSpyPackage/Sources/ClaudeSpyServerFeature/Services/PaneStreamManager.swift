@@ -223,8 +223,28 @@
             let height: Int
 
             if isFirstSubscriber {
+                // Claim the slot synchronously before any await. Two concurrent
+                // subscribes for the same fresh pane could otherwise both observe
+                // `subscriberIds.isEmpty` here (the await chain below yields the
+                // main actor) and both take the first-subscriber path — the
+                // second's `setBuffering(true)` would clear the first's buffer.
+                //
+                // Safe to insert before `flushBuffer`: the reader transitions
+                // scanOnly → buffering during this path, so no data bytes flow
+                // to subscribers until the explicit `flushBuffer()` at the end.
+                // OSC events (title/notification/clipboard/progress) bypass
+                // `subscriberIds` for `forwardNotification`/global handlers, so
+                // they're unaffected by an early insert.
+                context.subscriberIds.insert(subscriptionId)
+                readers[paneId] = context
+                subscriptions[subscriptionId] = subscription
+
                 // 1. Retain live bytes during the snapshot so we don't drop any
-                //    between "buffering on" and "snapshot taken".
+                //    between "buffering on" and "snapshot taken". Bytes that
+                //    arrive in this window also appear in the capture's screen
+                //    state — the duplicate is intentional and idempotent in
+                //    SwiftTerm; tightening the fence is tracked as future work
+                //    in issue #476.
                 await context.reader.setBuffering(true)
 
                 // 2. Refresh dimensions from tmux. capture-pane uses these to
@@ -264,22 +284,24 @@
                         sessionName: sessionName
                     )
                 } catch {
-                    // Restore reader state and propagate; the reader stays alive
-                    // (in scan-only mode) so retries don't pay the start cost.
+                    // Roll back our claim. The reader stays alive in scan-only
+                    // mode so retries don't pay the start cost.
                     await context.reader.setBuffering(false)
-                    readers[paneId] = context
+                    if var rolled = readers[paneId] {
+                        rolled.subscriberIds.remove(subscriptionId)
+                        readers[paneId] = rolled
+                    }
+                    subscriptions.removeValue(forKey: subscriptionId)
                     throw error
                 }
 
+                readers[paneId] = context
                 width = context.width
                 height = context.height
 
-                // 5. Add subscriber THEN flush. Flushed bytes flow through the
-                //    delegate (this manager) → forwardData → subscriber.
-                context.subscriberIds.insert(subscriptionId)
-                readers[paneId] = context
-                subscriptions[subscriptionId] = subscription
-
+                // 5. Drain the queue into live delivery. Flushed bytes flow
+                //    through the delegate (this manager) → forwardData →
+                //    subscriber's onData callback.
                 await context.reader.flushBuffer()
 
                 // Send the seeded title (if any) to the first subscriber.
@@ -294,7 +316,11 @@
                 ])
             } else {
                 // Existing live reader — capture a fresh snapshot for this new
-                // viewer. Don't change the reader's mode.
+                // viewer FIRST, then insert into `subscriberIds`. Inserting
+                // before the snapshot would let `forwardData` deliver live
+                // bytes to this subscriber's `onData` before the caller has
+                // received `initialContent` and seeded its terminal, which
+                // produces out-of-order rendering.
                 do {
                     initialContent = try await tmuxService.capturePaneWithScrollbackForStreaming(target)
                 } catch {
@@ -305,21 +331,27 @@
                     initialContent = Data()
                 }
 
-                width = context.width
-                height = context.height
+                // Re-fetch the context — a concurrent unsubscribe or pane
+                // teardown could have mutated it during the await above.
+                guard var refreshed = readers[paneId] else {
+                    throw TmuxError.invalidPane(target: target)
+                }
 
-                context.subscriberIds.insert(subscriptionId)
-                readers[paneId] = context
+                width = refreshed.width
+                height = refreshed.height
+
+                refreshed.subscriberIds.insert(subscriptionId)
+                readers[paneId] = refreshed
                 subscriptions[subscriptionId] = subscription
 
-                if let title = context.terminalTitle, let cb = onTitleChange {
+                if let title = refreshed.terminalTitle, let cb = onTitleChange {
                     cb(title)
                 }
 
                 logger.info("Added subscriber to existing pane reader", metadata: [
                     "paneId": "\(paneId)",
                     "subscriptionId": "\(subscriptionId)",
-                    "totalSubscribers": "\(context.subscriberIds.count)",
+                    "totalSubscribers": "\(refreshed.subscriberIds.count)",
                 ])
             }
 
