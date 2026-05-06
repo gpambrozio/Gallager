@@ -17,12 +17,14 @@ import Foundation
 ///   3. From the **Mac viewer**, edits a different session's emoji and
 ///      verifies host + iOS pick it up — the viewer-to-host command path is
 ///      otherwise untested.
-///   4. From the **iOS viewer**, long-presses a session row and clears its
-///      emoji via the "Clear Emoji" entry — same propagation check, this
-///      time for the iOS-driven path. (Clearing avoids platform-specific
-///      emoji-typing flakiness on the iOS hardware keyboard.)
-///   5. Clears the remaining two so all three sessions end up bare.
-///   6. Re-adds an emoji and restarts the host to verify it's persisted as
+///   4. From the **iOS viewer**, drives the half-detent emoji picker sheet
+///      to change a session's emoji (search → tap glyph) — exercises the
+///      iOS-to-host command path on the *set* side.
+///   5. From the **iOS viewer**, long-presses a session row and clears its
+///      emoji via the "Clear Emoji" entry — same iOS-to-host path on the
+///      *clear* side.
+///   6. Clears the remaining two so all three sessions end up bare.
+///   7. Re-adds an emoji and restarts the host to verify it's persisted as
 ///      the tmux `@gallager-emoji` user option (host only — viewer pairings
 ///      are in-memory under `--e2e-test`).
 ///
@@ -250,7 +252,44 @@ public enum SessionEmojiSyncScenario {
         TestStep.macScreenshot(label: "viewer-after-viewer-change", instance: 1)
         TestStep.iosScreenshot(label: "ios-after-viewer-change")
 
-        // ── Phase 7: iOS viewer clears Alpha 🚀 via long-press menu ──────
+        // ── Phase 7: iOS viewer changes Bravo ✅ → 😍 via emoji picker ───
+        //
+        // iOS presents the SwiftEmojiPicker as a half-detent sheet. We open
+        // it via long-press → "Emoji: ✅", wait for the picker to render,
+        // and tap a glyph that's already visible on the initial Smileys
+        // page so we don't have to drive the picker's search field
+        // (XCUITest taps land on the field but iOS doesn't reliably grant
+        // it keyboard focus, so typed input never reaches the filter).
+        // The new emoji must round-trip through the relay back to the host
+        // (which writes tmux and pushes session state) and then back out to
+        // every viewer.
+
+        TestStep.log("iOS viewer changing BravoProject → 😍 via emoji picker")
+
+        TestStep.iosLongPress(.label("BravoProject"), duration: 1)
+        TestStep.wait(seconds: 1)
+        TestStep.iosTap(.label("Emoji: ✅"))
+        TestStep.iosWaitForElement(.label("😍"), timeout: 5)
+        TestStep.wait(seconds: 1)
+        TestStep.iosTap(.label("😍"))
+        TestStep.wait(seconds: 2)
+
+        TestStep.macWaitForElementToDisappear(titled: "emoji ✅", timeout: 15)
+        TestStep.macWaitForElement(titled: "emoji 😍", timeout: 15)
+        TestStep.macWaitForElement(titled: "emoji 🚀", timeout: 15)
+        TestStep.macWaitForElement(titled: "emoji 🎨", timeout: 15)
+
+        TestStep.macWaitForElementToDisappear(titled: "emoji ✅", timeout: 15, instance: 1)
+        TestStep.macWaitForElement(titled: "emoji 😍", timeout: 15, instance: 1)
+
+        TestStep.iosWaitForElementToDisappear(.labelContains("emoji ✅"), timeout: 20)
+        TestStep.iosWaitForElement(.labelContains("emoji 😍"), timeout: 20)
+
+        TestStep.macScreenshot(label: "host-after-ios-set")
+        TestStep.macScreenshot(label: "viewer-after-ios-set", instance: 1)
+        TestStep.iosScreenshot(label: "ios-after-ios-set")
+
+        // ── Phase 8: iOS viewer clears Alpha 🚀 via long-press menu ──────
         //
         // SwiftUI `.contextMenu { }` opens on a sustained press on iOS.
         // Tapping "Clear Emoji" sends a `setSessionEmoji(nil)` command back
@@ -271,20 +310,20 @@ public enum SessionEmojiSyncScenario {
         TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElementToDisappear(titled: "emoji 🚀", timeout: 15)
-        TestStep.macWaitForElement(titled: "emoji ✅", timeout: 15)
+        TestStep.macWaitForElement(titled: "emoji 😍", timeout: 15)
         TestStep.macWaitForElement(titled: "emoji 🎨", timeout: 15)
 
         TestStep.macWaitForElementToDisappear(titled: "emoji 🚀", timeout: 15, instance: 1)
-        TestStep.macWaitForElement(titled: "emoji ✅", timeout: 15, instance: 1)
+        TestStep.macWaitForElement(titled: "emoji 😍", timeout: 15, instance: 1)
 
         TestStep.iosWaitForElementToDisappear(.labelContains("emoji 🚀"), timeout: 20)
-        TestStep.iosWaitForElement(.labelContains("emoji ✅"), timeout: 20)
+        TestStep.iosWaitForElement(.labelContains("emoji 😍"), timeout: 20)
 
         TestStep.macScreenshot(label: "host-after-ios-clear")
         TestStep.macScreenshot(label: "viewer-after-ios-clear", instance: 1)
         TestStep.iosScreenshot(label: "ios-after-ios-clear")
 
-        // ── Phase 8: Clear the remaining two so the sidebar ends bare ───
+        // ── Phase 9: Clear the remaining two so the sidebar ends bare ───
 
         TestStep.log("Host clearing BravoProject and CharlieProject")
 
@@ -293,7 +332,7 @@ public enum SessionEmojiSyncScenario {
             menuItem: "Clear Emoji"
         )
         TestStep.wait(seconds: 2)
-        TestStep.macWaitForElementToDisappear(titled: "emoji ✅", timeout: 15)
+        TestStep.macWaitForElementToDisappear(titled: "emoji 😍", timeout: 15)
 
         TestStep.macContextMenuClick(
             elementTitle: "e2e-emoji-c",
@@ -302,17 +341,17 @@ public enum SessionEmojiSyncScenario {
         TestStep.wait(seconds: 2)
         TestStep.macWaitForElementToDisappear(titled: "emoji 🎨", timeout: 15)
 
-        TestStep.macWaitForElementToDisappear(titled: "emoji ✅", timeout: 15, instance: 1)
+        TestStep.macWaitForElementToDisappear(titled: "emoji 😍", timeout: 15, instance: 1)
         TestStep.macWaitForElementToDisappear(titled: "emoji 🎨", timeout: 15, instance: 1)
 
-        TestStep.iosWaitForElementToDisappear(.labelContains("emoji ✅"), timeout: 20)
+        TestStep.iosWaitForElementToDisappear(.labelContains("emoji 😍"), timeout: 20)
         TestStep.iosWaitForElementToDisappear(.labelContains("emoji 🎨"), timeout: 20)
 
         TestStep.macScreenshot(label: "host-after-clear-all")
         TestStep.macScreenshot(label: "viewer-after-clear-all", instance: 1)
         TestStep.iosScreenshot(label: "ios-after-clear-all")
 
-        // ── Phase 9: Re-add emoji and restart host to verify persistence ──
+        // ── Phase 10: Re-add emoji and restart host to verify persistence ─
         //
         // Emojis are stored as the tmux `@gallager-emoji` user option, so they
         // should survive the host app being killed and relaunched. Viewers
