@@ -430,6 +430,24 @@
                     }
                 }
 
+                // Device Name Section
+                Section {
+                    TextField(settings.systemDeviceName, text: $deviceNameDraft)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+                        .submitLabel(.done)
+                        .focused($deviceNameFieldFocused)
+                        .onSubmit { commitDeviceName() }
+                        .onChange(of: deviceNameFieldFocused) { _, isFocused in
+                            if !isFocused { commitDeviceName() }
+                        }
+                        .accessibilityIdentifier("device-name-field")
+                } header: {
+                    Text("Device Name")
+                } footer: {
+                    Text("Shown to the Macs you've paired with. Leave blank to use the system name (\(settings.systemDeviceName)).")
+                }
+
                 // Paired Hosts Section
                 Section {
                     NavigationLink {
@@ -526,24 +544,6 @@
                     Toggle("Auto-connect on launch", isOn: $settings.autoReconnect)
                 }
 
-                // Device Name Section
-                Section {
-                    TextField(settings.systemDeviceName, text: $deviceNameDraft)
-                        .textInputAutocapitalization(.words)
-                        .autocorrectionDisabled()
-                        .submitLabel(.done)
-                        .focused($deviceNameFieldFocused)
-                        .onSubmit { commitDeviceName() }
-                        .onChange(of: deviceNameFieldFocused) { _, isFocused in
-                            if !isFocused { commitDeviceName() }
-                        }
-                        .accessibilityIdentifier("device-name-field")
-                } header: {
-                    Text("Device Name")
-                } footer: {
-                    Text("Shown to the Macs you've paired with. Leave blank to use the system name (\(settings.systemDeviceName)).")
-                }
-
                 // About Section
                 Section("About") {
                     LabeledContent("Device ID") {
@@ -587,6 +587,13 @@
             .onAppear {
                 deviceNameDraft = settings.customDeviceName ?? ""
                 lastCommittedDeviceName = deviceNameDraft
+            }
+            .onDisappear {
+                // SwiftUI tears down the view (and `@FocusState`) when the
+                // sheet dismisses, so `.onChange(of: deviceNameFieldFocused)`
+                // can't be relied on as the only commit trigger. Commit any
+                // pending edit here so closing the sheet preserves the name.
+                commitDeviceName()
             }
         }
 
