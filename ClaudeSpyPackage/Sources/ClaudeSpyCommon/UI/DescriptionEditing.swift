@@ -1,10 +1,6 @@
 import ClaudeSpyNetworking
+import SwiftEmojiPicker
 import SwiftUI
-
-#if canImport(AppKit)
-    import AppKit
-    import SwiftEmojiPicker
-#endif
 
 /// Context menu buttons for adding, editing, and removing a window description.
 public struct DescriptionContextMenuButtons: View {
@@ -51,13 +47,15 @@ public struct DescriptionContextMenuButtons: View {
 /// View modifier that adds description and emoji editing context menu items
 /// (and their backing UI) to a view.
 ///
-/// Both the context menu and the alerts/popovers are attached at the same view
+/// The description alert and the emoji popover are attached at the same view
 /// level (per-row), which ensures the description alert's TextField gets focus
-/// correctly on macOS and the emoji popover anchors to the right-clicked row.
+/// correctly on macOS and the emoji popover anchors to the right-clicked /
+/// long-pressed row.
 ///
-/// On macOS, "Set/Edit Emoji" presents a `SwiftEmojiPicker` popover anchored to
-/// the row. iOS still uses the alert + system keyboard until the iOS picker is
-/// wired up.
+/// "Set/Edit Emoji" presents a `SwiftEmojiPicker` popover anchored to the row
+/// on both macOS and iOS. On iPhone the popover would normally adapt to a
+/// sheet — `.presentationCompactAdaptation(.popover)` keeps the anchored
+/// behavior so the UX matches the macOS host.
 ///
 /// Callers can supply additional context menu items via the `additionalMenu`
 /// parameter. These items appear above the description editing buttons.
@@ -162,8 +160,10 @@ public extension DescriptionEditingModifier where AdditionalMenu == EmptyView {
     }
 }
 
-/// Presents the emoji-entry UI: a `SwiftEmojiPicker` popover anchored to the
-/// row on macOS, an alert+TextField on iOS until the iOS picker is wired up.
+/// Presents a `SwiftEmojiPicker` popover anchored to the row. On iPhone the
+/// popover would normally adapt to a sheet at compact widths;
+/// `.presentationCompactAdaptation(.popover)` forces the anchored behavior so
+/// macOS and iOS share the same UX.
 private struct EmojiEntryPresentation: ViewModifier {
     @Binding var isPresented: Bool
     @Binding var editedEmoji: String
@@ -171,62 +171,26 @@ private struct EmojiEntryPresentation: ViewModifier {
     let onSetEmoji: (String, String?) -> Void
 
     func body(content: Content) -> some View {
-        #if canImport(AppKit)
-            content.popover(isPresented: $isPresented, arrowEdge: .leading) {
-                EmojiPickerView(selectedEmoji: pickerBinding)
-                    .frame(width: 360, height: 380)
-            }
-        #else
-            content.modifier(EmojiAlertModifier(
-                isPresented: $isPresented,
-                editedEmoji: $editedEmoji,
-                sessionName: sessionName,
-                onSetEmoji: onSetEmoji
-            ))
-        #endif
+        content.popover(isPresented: $isPresented, arrowEdge: .leading) {
+            EmojiPickerView(selectedEmoji: pickerBinding)
+                .frame(width: 360, height: 380)
+                .presentationCompactAdaptation(.popover)
+        }
     }
 
-    #if canImport(AppKit)
-        /// The picker writes the chosen glyph through this binding. The setter is
-        /// only called by the picker (not by our own `editedEmoji = …` assignments
-        /// in the menu's onEdit), so a single user-initiated tap reliably commits
-        /// and dismisses without echoing the seed value back.
-        private var pickerBinding: Binding<String> {
-            Binding<String>(
-                get: { editedEmoji },
-                set: { newValue in
-                    editedEmoji = newValue
-                    guard SessionEmoji.isValid(newValue) else { return }
-                    isPresented = false
-                    onSetEmoji(sessionName, newValue)
-                }
-            )
-        }
-    #endif
-}
-
-private struct EmojiAlertModifier: ViewModifier {
-    @Binding var isPresented: Bool
-    @Binding var editedEmoji: String
-    let sessionName: String
-    let onSetEmoji: (String, String?) -> Void
-
-    func body(content: Content) -> some View {
-        content.alert("Session Emoji", isPresented: $isPresented) {
-            TextField("Emoji", text: $editedEmoji)
-            Button("Save") {
-                let trimmed = editedEmoji.trimmingCharacters(in: .whitespacesAndNewlines)
-                if trimmed.isEmpty {
-                    onSetEmoji(sessionName, nil)
-                } else if SessionEmoji.isValid(trimmed) {
-                    onSetEmoji(sessionName, trimmed)
-                }
-                // Silently drop invalid input so a paste of arbitrary
-                // text doesn't get persisted to tmux and broadcast.
+    /// The picker writes the chosen glyph through this binding. The setter is
+    /// only called by the picker (not by our own `editedEmoji = …` assignments
+    /// in the menu's onEdit), so a single user-initiated tap reliably commits
+    /// and dismisses without echoing the seed value back.
+    private var pickerBinding: Binding<String> {
+        Binding<String>(
+            get: { editedEmoji },
+            set: { newValue in
+                editedEmoji = newValue
+                guard SessionEmoji.isValid(newValue) else { return }
+                isPresented = false
+                onSetEmoji(sessionName, newValue)
             }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Enter an emoji to display next to this session")
-        }
+        )
     }
 }
