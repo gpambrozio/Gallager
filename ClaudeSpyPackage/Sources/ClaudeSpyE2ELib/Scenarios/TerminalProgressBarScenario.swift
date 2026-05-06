@@ -198,5 +198,68 @@ public enum TerminalProgressBarScenario {
         TestStep.macScreenshot(label: "viewer-progress-cleared", instance: 1)
         TestStep.iosWaitForElementToDisappear(.labelContains("Terminal progress"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-progress-cleared")
+
+        // ── Phase 10: Mirror the pane, verify progress still flows ───────
+        //
+        // Regression guard: opening a pane in the host mirror tears down
+        // its notification-only `PipePaneReader` and replaces it with a
+        // `PaneStream`-owned reader that takes over the same pipe-pane
+        // FIFO (`PaneStreamManager.subscribe` line ~229). If the
+        // `PaneStream` doesn't wire `setProgressHandler` on its reader,
+        // OSC 9;4 sequences are still parsed but the resulting
+        // `TerminalProgressState` is dropped on the floor — the host
+        // sidebar bar (and every relayed viewer) freezes on whatever
+        // value arrived just before the mirror switch.
+        //
+        // Phase 9 left the bar cleared everywhere, so a fresh 75% value
+        // here proves the mirrored-pane path forwards progress correctly.
+
+        TestStep.log("Phase 10: select ProgressTest in host sidebar to start mirroring")
+        TestStep.macCGClick(titled: "ProgressTest")
+
+        // TerminalContainerView.onAppear → PaneStreamManager.subscribe()
+        // awaits stopNotificationReader, then PaneStream.connect (pipe-pane
+        // start + initial capture) — ~1s in practice; allow some headroom.
+        TestStep.wait(seconds: 2)
+
+        TestStep.log("Phase 10a: emitting OSC 9;4;1;75 while ProgressTest is mirrored")
+        Shortcut.tmuxRunCommand(
+            target: "e2e-progress:0.0",
+            command: "printf '\\e]9;4;1;75\\a'"
+        )
+
+        TestStep.macWaitForElementQuery(
+            .allOf([.labelContains("Terminal progress"), .valueContains("75%")]),
+            timeout: 5
+        )
+        TestStep.macScreenshot(label: "host-mirrored-progress-75")
+        TestStep.macWaitForElementQuery(
+            .allOf([.labelContains("Terminal progress"), .valueContains("75%")]),
+            timeout: 5,
+            instance: 1
+        )
+        TestStep.macScreenshot(label: "viewer-mirrored-progress-75", instance: 1)
+        TestStep.iosWaitForElement(
+            .allOf([.labelContains("Terminal progress"), .valueContains("75%")]),
+            timeout: 5
+        )
+        TestStep.iosScreenshot(label: "ios-mirrored-progress-75")
+
+        TestStep.log("Phase 10b: clearing bar from mirrored pane")
+        Shortcut.tmuxRunCommand(
+            target: "e2e-progress:0.0",
+            command: "printf '\\e]9;4;0\\a'"
+        )
+
+        TestStep.macWaitForElementToDisappear(titled: "Terminal progress", timeout: 5)
+        TestStep.macScreenshot(label: "host-mirrored-progress-cleared")
+        TestStep.macWaitForElementToDisappear(
+            titled: "Terminal progress",
+            timeout: 5,
+            instance: 1
+        )
+        TestStep.macScreenshot(label: "viewer-mirrored-progress-cleared", instance: 1)
+        TestStep.iosWaitForElementToDisappear(.labelContains("Terminal progress"), timeout: 5)
+        TestStep.iosScreenshot(label: "ios-mirrored-progress-cleared")
     }
 }
