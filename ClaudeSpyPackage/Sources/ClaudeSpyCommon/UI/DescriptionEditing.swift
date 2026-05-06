@@ -52,10 +52,9 @@ public struct DescriptionContextMenuButtons: View {
 /// correctly on macOS and the emoji popover anchors to the right-clicked /
 /// long-pressed row.
 ///
-/// "Set/Edit Emoji" presents a `SwiftEmojiPicker` popover anchored to the row
-/// on both macOS and iOS. On iPhone the popover would normally adapt to a
-/// sheet — `.presentationCompactAdaptation(.popover)` keeps the anchored
-/// behavior so the UX matches the macOS host.
+/// "Set/Edit Emoji" presents a `SwiftEmojiPicker` — anchored to the row as a
+/// popover on macOS, as a half/large detent sheet on iOS (an anchored popover
+/// is too cramped to be usable at iPhone screen widths).
 ///
 /// Callers can supply additional context menu items via the `additionalMenu`
 /// parameter. These items appear above the description editing buttons.
@@ -160,10 +159,9 @@ public extension DescriptionEditingModifier where AdditionalMenu == EmptyView {
     }
 }
 
-/// Presents a `SwiftEmojiPicker` popover anchored to the row. On iPhone the
-/// popover would normally adapt to a sheet at compact widths;
-/// `.presentationCompactAdaptation(.popover)` forces the anchored behavior so
-/// macOS and iOS share the same UX.
+/// Presents the `SwiftEmojiPicker` view: an anchored popover on macOS where
+/// it sits next to the right-clicked row at a fixed size, and a half-height
+/// detent sheet on iOS where a tiny anchored popover would crop the grid.
 private struct EmojiEntryPresentation: ViewModifier {
     @Binding var isPresented: Bool
     @Binding var editedEmoji: String
@@ -171,11 +169,18 @@ private struct EmojiEntryPresentation: ViewModifier {
     let onSetEmoji: (String, String?) -> Void
 
     func body(content: Content) -> some View {
-        content.popover(isPresented: $isPresented, arrowEdge: .leading) {
-            EmojiPickerView(selectedEmoji: pickerBinding)
-                .frame(width: 360, height: 380)
-                .presentationCompactAdaptation(.popover)
-        }
+        #if os(macOS)
+            content.popover(isPresented: $isPresented, arrowEdge: .leading) {
+                EmojiPickerView(selectedEmoji: pickerBinding)
+                    .frame(width: 360, height: 380)
+            }
+        #else
+            content.sheet(isPresented: $isPresented) {
+                EmojiPickerView(selectedEmoji: pickerBinding)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+            }
+        #endif
     }
 
     /// The picker writes the chosen glyph through this binding. The setter is
