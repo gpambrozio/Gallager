@@ -26,11 +26,7 @@
 
         var body: some View {
             ScrollView {
-                VStack(spacing: 16) {
-                    Text("Pair with Host")
-                        .font(.title)
-                        .fontWeight(.bold)
-
+                VStack(spacing: 12) {
                     compactHeaderSection
 
                     codeInputSection
@@ -52,6 +48,8 @@
                 .padding()
             }
             .scrollDismissesKeyboard(.interactively)
+            .navigationTitle("Pair with Host")
+            .navigationBarTitleDisplayMode(.inline)
         }
 
         private var compactHeaderSection: some View {
@@ -69,7 +67,7 @@
                 // tapping anywhere on the row focuses the field. The
                 // PasteButton sits outside this group so its taps aren't
                 // swallowed by the focus gesture.
-                VStack(spacing: 8) {
+                VStack(spacing: 0) {
                     HStack(spacing: 8) {
                         ForEach(0..<codeLength, id: \.self) { index in
                             codeDigitView(at: index)
@@ -132,8 +130,8 @@
                 : ""
 
             return Text(character)
-                .font(.system(size: 32, weight: .bold, design: .monospaced))
-                .frame(width: 44, height: 56)
+                .font(.system(size: 28, weight: .bold, design: .monospaced))
+                .frame(width: 40, height: 50)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
                         .fill(Color.gray.opacity(0.15))
@@ -171,7 +169,7 @@
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             }
-            .padding()
+            .padding(12)
             .background(
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color.gray.opacity(0.1))
@@ -196,7 +194,7 @@
                 }
                 .buttonStyle(.bordered)
             }
-            .padding()
+            .padding(12)
             .background(
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color.gray.opacity(0.1))
