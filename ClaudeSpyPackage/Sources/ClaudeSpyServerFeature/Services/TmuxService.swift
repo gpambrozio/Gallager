@@ -105,8 +105,11 @@ final public class TmuxService {
     /// tmux's hardcoded set and wins.
     ///
     /// `<userShellPath> -l` mirrors what tmux does when `default-command` is
-    /// empty (login shell from `default-shell`); honors fish/bash/nushell/etc.
-    /// via `$SHELL`, not just zsh.
+    /// empty (login shell from `default-shell`). Honors any `$SHELL` that
+    /// accepts `-l` as the login-shell flag (zsh/bash/fish/xonsh) — nushell
+    /// would error and would need the `exec -a "-name"` argv[0] convention
+    /// instead (works because tmux runs `default-command` via `/bin/sh -c`,
+    /// which on macOS is bash and supports `exec -a`).
     private static let defaultCommandWrapper: String = {
         let shell = posixSingleQuote(userShellPath)
         return "TERM_PROGRAM=iTerm.app TERM_PROGRAM_VERSION=3.6.6 exec \(shell) -l"
