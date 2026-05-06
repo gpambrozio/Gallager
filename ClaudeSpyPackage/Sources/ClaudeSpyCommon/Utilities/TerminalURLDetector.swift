@@ -12,6 +12,14 @@ import RegexBuilder
 public enum TerminalURLDetector {
     /// Matches http://, https://, and ftp:// URLs.
     /// file:// is excluded for security (prevents opening local files from remote terminal sessions).
+    ///
+    /// Control characters (Unicode general category `Cc`) are excluded so that the
+    /// match cannot run past the visible URL into uninitialized terminal cells.
+    /// SwiftTerm's `BufferLine.translateToString` returns `'\u{0}'` (NULL) for
+    /// cells whose `CharData.code == 0`, which happens whenever a shell theme
+    /// uses cursor positioning to draw right-aligned content (e.g. an exit
+    /// code) and leaves the cells in between unwritten. Without this, the URL
+    /// match extends across the gap into the right-aligned text — issue #462.
     private nonisolated(unsafe) static let urlRegex = Regex {
         ChoiceOf {
             "http://"
@@ -21,7 +29,8 @@ public enum TerminalURLDetector {
         OneOrMore {
             CharacterClass(
                 .anyOf("<>\"'`])}|"),
-                .whitespace
+                .whitespace,
+                .generalCategory(.control)
             ).inverted
         }
     }
@@ -48,7 +57,7 @@ public enum TerminalURLDetector {
     /// trusted local terminal (e.g. the host app's click handler) may pass
     /// a wider set via the `allowedSchemes:` parameter on `detectURLs` /
     /// `urlAt`.
-    public static let defaultAllowedSchemes: Set<String> = ["http", "https", "ftp"]
+    public static let defaultAllowedSchemes: Set = ["http", "https", "ftp"]
 
     /// Finds all URLs in a terminal row by combining OSC 8 hyperlink payloads and regex detection.
     ///
