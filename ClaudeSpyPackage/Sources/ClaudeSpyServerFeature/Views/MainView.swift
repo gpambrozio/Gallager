@@ -82,13 +82,13 @@ public struct MainView: View {
             applyPendingMenuBarSelection()
         }
         .task {
-            // Periodically rescan configured folders so newly created Claude
-            // projects show up without requiring an app restart. Runs silently
-            // (no loading indicator) so the New Session popover doesn't flicker
-            // while a user is browsing the list.
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(60))
-                guard !Task.isCancelled else { break }
+            // Silently rescan every 60s so new projects appear without restarting.
+            while true {
+                do {
+                    try await Task.sleep(for: .seconds(60))
+                } catch {
+                    return
+                }
                 await loadProjects(showLoadingIndicator: false)
             }
         }
