@@ -53,4 +53,13 @@ struct PairingClipboardDetectionTests {
         #expect(PairingCodeValidator.pairingCode(from: "hello world") == nil)
         #expect(PairingCodeValidator.pairingCode(from: "{}") == nil)
     }
+
+    @Test("Rejects non-ASCII letters")
+    func rejectsNonASCIILetters() {
+        // Host generates ASCII A-Z only, so non-ASCII 6-letter strings
+        // (Greek, accented, CJK, etc.) must not be treated as valid codes.
+        #expect(PairingCodeValidator.pairingCode(from: "ΑΒΓΔΕΖ") == nil)
+        #expect(PairingCodeValidator.pairingCode(from: "café❤️") == nil)
+        #expect(PairingCodeValidator.pairingCode(from: "ÀÉÎÔÛÇ") == nil)
+    }
 }

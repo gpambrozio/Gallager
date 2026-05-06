@@ -9,11 +9,14 @@ enum PairingCodeValidator {
     static let length = 6
 
     /// Returns a normalized pairing code if `raw` contains exactly six
-    /// alphabetic characters (after trimming whitespace), otherwise nil.
+    /// ASCII alphabetic characters (after trimming whitespace), otherwise nil.
     static func pairingCode(from raw: String?) -> String? {
         guard let raw else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count == length, trimmed.allSatisfy(\.isLetter) else {
+        guard
+            trimmed.count == length,
+            trimmed.allSatisfy({ $0.isASCII && $0.isLetter })
+        else {
             return nil
         }
         return trimmed.uppercased()

@@ -10,6 +10,8 @@
         @Environment(\.e2eeService) private var e2eeService
         @Environment(\.scenePhase) private var scenePhase
 
+        @Dependency(ClipboardClient.self) private var clipboard
+
         @State private var pairingCode = ""
         @State private var isLoading = false
         @State private var errorMessage: String?
@@ -238,7 +240,6 @@
             // Don't override anything the user has already typed or a pairing in flight.
             guard pairingCode.isEmpty, !isLoading else { return }
 
-            @Dependency(ClipboardClient.self) var clipboard
             let detected = PairingCodeValidator.pairingCode(from: clipboard.getString())
 
             guard let detected else {
