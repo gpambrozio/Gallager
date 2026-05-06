@@ -20,7 +20,10 @@ func macOnlyDependencies() -> [Package.Dependency] {
             .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.13.0"),
             .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
             .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
-            .package(url: "https://github.com/mchakravarty/ProjectNavigator", from: "1.0.0"),
+            // Pinned to 1.7.0: 1.8.0 added a required `linkLabel:` parameter
+            // (and `LinkLabelView` generic) to `FileNavigator.init`, breaking our
+            // call site in `FileBrowserView`.
+            .package(url: "https://github.com/mchakravarty/ProjectNavigator", exact: "1.7.0"),
             .package(url: "https://github.com/gonzalezreal/textual", from: "0.3.1"),
             .package(url: "https://github.com/jpsim/Yams", from: "5.0.0"),
         ]
@@ -165,11 +168,11 @@ extension Target.Dependency {
     }
 }
 
-// Products, dependencies, and targets are extracted into typed top-level `let`s
-// so the manifest type-checker can resolve each in isolation. Inlining all three
-// inside the `Package(...)` call exceeds the Linux Swift 6.x type-checker
-// heuristic and fails the relay's Docker build with "the compiler is unable to
-// type-check this expression in reasonable time."
+/// Products, dependencies, and targets are extracted into typed top-level `let`s
+/// so the manifest type-checker can resolve each in isolation. Inlining all three
+/// inside the `Package(...)` call exceeds the Linux Swift 6.x type-checker
+/// heuristic and fails the relay's Docker build with "the compiler is unable to
+/// type-check this expression in reasonable time."
 let products: [Product] = [
     // Products define the executables and libraries a package produces, making them visible to other packages.
     .library(
