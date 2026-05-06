@@ -8,16 +8,45 @@
     // MARK: - PreferencesService + AppSettings.Keys
 
     extension PreferencesService {
-        func string(_ key: IOSSettings.Keys) -> String? { string(key.rawValue) }
-        func setString(_ value: String?, _ key: IOSSettings.Keys) { setString(value, key.rawValue) }
-        func optionalBool(_ key: IOSSettings.Keys) -> Bool? { optionalBool(key.rawValue) }
-        func setBool(_ value: Bool, _ key: IOSSettings.Keys) { setBool(value, key.rawValue) }
-        func optionalInt(_ key: IOSSettings.Keys) -> Int? { optionalInt(key.rawValue) }
-        func setInt(_ value: Int, _ key: IOSSettings.Keys) { setInt(value, key.rawValue) }
-        func optionalDouble(_ key: IOSSettings.Keys) -> Double? { optionalDouble(key.rawValue) }
-        func setDouble(_ value: Double, _ key: IOSSettings.Keys) { setDouble(value, key.rawValue) }
-        func data(_ key: IOSSettings.Keys) -> Data? { data(key.rawValue) }
-        func setData(_ value: Data?, _ key: IOSSettings.Keys) { setData(value, key.rawValue) }
+        func string(_ key: IOSSettings.Keys) -> String? {
+            string(key.rawValue)
+        }
+
+        func setString(_ value: String?, _ key: IOSSettings.Keys) {
+            setString(value, key.rawValue)
+        }
+
+        func optionalBool(_ key: IOSSettings.Keys) -> Bool? {
+            optionalBool(key.rawValue)
+        }
+
+        func setBool(_ value: Bool, _ key: IOSSettings.Keys) {
+            setBool(value, key.rawValue)
+        }
+
+        func optionalInt(_ key: IOSSettings.Keys) -> Int? {
+            optionalInt(key.rawValue)
+        }
+
+        func setInt(_ value: Int, _ key: IOSSettings.Keys) {
+            setInt(value, key.rawValue)
+        }
+
+        func optionalDouble(_ key: IOSSettings.Keys) -> Double? {
+            optionalDouble(key.rawValue)
+        }
+
+        func setDouble(_ value: Double, _ key: IOSSettings.Keys) {
+            setDouble(value, key.rawValue)
+        }
+
+        func data(_ key: IOSSettings.Keys) -> Data? {
+            data(key.rawValue)
+        }
+
+        func setData(_ value: Data?, _ key: IOSSettings.Keys) {
+            setData(value, key.rawValue)
+        }
     }
 
     /// Settings for the ClaudeSpy iOS app with UserDefaults persistence.
@@ -28,6 +57,7 @@
 
         public enum Keys: String {
             case deviceId
+            case customDeviceName
             case pairedHosts
             case externalServerURL
             case autoReconnect
@@ -50,6 +80,12 @@
         /// Unique device identifier (generated once and persisted)
         public var deviceId = "" {
             didSet { preferences.setString(deviceId, Keys.deviceId) }
+        }
+
+        /// User-set device name override. When `nil` or empty after trimming,
+        /// `deviceName` falls back to the system's `UIDevice.current.name`.
+        public var customDeviceName: String? {
+            didSet { preferences.setString(customDeviceName, Keys.customDeviceName) }
         }
 
         /// All paired host servers
@@ -105,9 +141,20 @@
             !pairedHosts.isEmpty
         }
 
-        /// The display name for this iOS device
-        public var deviceName: String {
+        /// The system device name (e.g. "iPhone"). Used as the default when the
+        /// user has not provided a custom name.
+        public var systemDeviceName: String {
             UIDevice.current.name
+        }
+
+        /// The display name for this iOS device. Returns the user's custom name
+        /// when set, otherwise falls back to `systemDeviceName`.
+        public var deviceName: String {
+            let trimmed = customDeviceName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let trimmed, !trimmed.isEmpty {
+                return trimmed
+            }
+            return systemDeviceName
         }
 
         // MARK: - Initialization
@@ -125,6 +172,9 @@
                 preferences.setString(newDeviceId, Keys.deviceId)
                 self.deviceId = newDeviceId
             }
+
+            // Load custom device name (nil falls back to UIDevice.current.name)
+            self.customDeviceName = preferences.string(Keys.customDeviceName)
 
             // Load settings
             self.externalServerURL = preferences.string(Keys.externalServerURL)
