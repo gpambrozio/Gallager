@@ -23,6 +23,7 @@ func macOnlyDependencies() -> [Package.Dependency] {
             .package(url: "https://github.com/mchakravarty/ProjectNavigator", from: "1.0.0"),
             .package(url: "https://github.com/gonzalezreal/textual", from: "0.3.1"),
             .package(url: "https://github.com/jpsim/Yams", from: "5.0.0"),
+            .package(url: "https://github.com/sergius-la/SwiftEmojiPicker", from: "2.2.1"),
         ]
     #else
         return []
@@ -37,7 +38,7 @@ func macOnlyTargetDependencies(for target: String) -> [Target.Dependency] {
     #if os(macOS)
         switch target {
         case "ClaudeSpyCommon":
-            return [.sfSymbolsMacro]
+            return [.sfSymbolsMacro, .swiftEmojiPicker]
         case "ClaudeSpyFeature":
             return [.swiftTerm]
         case "ClaudeSpyServerFeature":
@@ -127,6 +128,10 @@ extension Target.Dependency {
 
         static var files: Self {
             .product(name: "Files", package: "ProjectNavigator")
+        }
+
+        static var swiftEmojiPicker: Self {
+            .product(name: "SwiftEmojiPicker", package: "SwiftEmojiPicker")
         }
     #endif
 

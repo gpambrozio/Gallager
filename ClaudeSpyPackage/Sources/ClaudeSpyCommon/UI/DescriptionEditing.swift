@@ -1,6 +1,11 @@
 import ClaudeSpyNetworking
 import SwiftUI
 
+#if canImport(AppKit)
+    import AppKit
+    import SwiftEmojiPicker
+#endif
+
 /// Context menu buttons for adding, editing, and removing a window description.
 public struct DescriptionContextMenuButtons: View {
     let currentDescription: String?
@@ -44,11 +49,15 @@ public struct DescriptionContextMenuButtons: View {
 }
 
 /// View modifier that adds description and emoji editing context menu items
-/// (and their backing alerts) to a view.
+/// (and their backing UI) to a view.
 ///
-/// Both the context menu and the alerts are attached at the same view level
-/// (per-row), which ensures the alerts' TextFields receive focus correctly on
-/// macOS.
+/// Both the context menu and the alerts/popovers are attached at the same view
+/// level (per-row), which ensures the description alert's TextField gets focus
+/// correctly on macOS and the emoji popover anchors to the right-clicked row.
+///
+/// On macOS, "Set/Edit Emoji" presents a `SwiftEmojiPicker` popover anchored to
+/// the row. iOS still uses the alert + system keyboard until the iOS picker is
+/// wired up.
 ///
 /// Callers can supply additional context menu items via the `additionalMenu`
 /// parameter. These items appear above the description editing buttons.
@@ -123,22 +132,12 @@ public struct DescriptionEditingModifier<AdditionalMenu: View>: ViewModifier {
             } message: {
                 Text("Enter a custom description for this session")
             }
-            .alert("Session Emoji", isPresented: $isEditingEmoji) {
-                TextField("Emoji", text: $editedEmoji)
-                Button("Save") {
-                    let trimmed = editedEmoji.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if trimmed.isEmpty {
-                        onSetEmoji(sessionName, nil)
-                    } else if SessionEmoji.isValid(trimmed) {
-                        onSetEmoji(sessionName, trimmed)
-                    }
-                    // Silently drop invalid input so a paste of arbitrary
-                    // text doesn't get persisted to tmux and broadcast.
-                }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("Enter an emoji to display next to this session")
-            }
+            .modifier(EmojiEntryPresentation(
+                isPresented: $isEditingEmoji,
+                editedEmoji: $editedEmoji,
+                sessionName: sessionName,
+                onSetEmoji: onSetEmoji
+            ))
     }
 }
 
@@ -160,5 +159,74 @@ public extension DescriptionEditingModifier where AdditionalMenu == EmptyView {
             onSetEmoji: onSetEmoji,
             additionalMenu: { EmptyView() }
         )
+    }
+}
+
+/// Presents the emoji-entry UI: a `SwiftEmojiPicker` popover anchored to the
+/// row on macOS, an alert+TextField on iOS until the iOS picker is wired up.
+private struct EmojiEntryPresentation: ViewModifier {
+    @Binding var isPresented: Bool
+    @Binding var editedEmoji: String
+    let sessionName: String
+    let onSetEmoji: (String, String?) -> Void
+
+    func body(content: Content) -> some View {
+        #if canImport(AppKit)
+            content.popover(isPresented: $isPresented, arrowEdge: .leading) {
+                EmojiPickerView(selectedEmoji: pickerBinding)
+                    .frame(width: 360, height: 380)
+            }
+        #else
+            content.modifier(EmojiAlertModifier(
+                isPresented: $isPresented,
+                editedEmoji: $editedEmoji,
+                sessionName: sessionName,
+                onSetEmoji: onSetEmoji
+            ))
+        #endif
+    }
+
+    #if canImport(AppKit)
+        /// The picker writes the chosen glyph through this binding. The setter is
+        /// only called by the picker (not by our own `editedEmoji = …` assignments
+        /// in the menu's onEdit), so a single user-initiated tap reliably commits
+        /// and dismisses without echoing the seed value back.
+        private var pickerBinding: Binding<String> {
+            Binding<String>(
+                get: { editedEmoji },
+                set: { newValue in
+                    editedEmoji = newValue
+                    guard SessionEmoji.isValid(newValue) else { return }
+                    isPresented = false
+                    onSetEmoji(sessionName, newValue)
+                }
+            )
+        }
+    #endif
+}
+
+private struct EmojiAlertModifier: ViewModifier {
+    @Binding var isPresented: Bool
+    @Binding var editedEmoji: String
+    let sessionName: String
+    let onSetEmoji: (String, String?) -> Void
+
+    func body(content: Content) -> some View {
+        content.alert("Session Emoji", isPresented: $isPresented) {
+            TextField("Emoji", text: $editedEmoji)
+            Button("Save") {
+                let trimmed = editedEmoji.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    onSetEmoji(sessionName, nil)
+                } else if SessionEmoji.isValid(trimmed) {
+                    onSetEmoji(sessionName, trimmed)
+                }
+                // Silently drop invalid input so a paste of arbitrary
+                // text doesn't get persisted to tmux and broadcast.
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Enter an emoji to display next to this session")
+        }
     }
 }

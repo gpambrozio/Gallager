@@ -10,8 +10,8 @@ import Foundation
 ///
 /// Three sessions named `e2e-emoji-a`, `e2e-emoji-b`, and `e2e-emoji-c` are
 /// created on the host. The scenario:
-///   1. Sets distinct emojis from the host's "Set Emoji" alert and verifies
-///      all three platforms reflect every choice.
+///   1. Sets distinct emojis from the host's "Set Emoji" picker popover and
+///      verifies all three platforms reflect every choice.
 ///   2. Edits one session's emoji from the host's "Emoji: <value>" entry to
 ///      prove edit (rather than fresh set) propagates everywhere.
 ///   3. From the **Mac viewer**, edits a different session's emoji and
@@ -109,59 +109,59 @@ public enum SessionEmojiSyncScenario {
         TestStep.macScreenshot(label: "viewer-before-emoji", instance: 1)
         TestStep.iosScreenshot(label: "ios-before-emoji")
 
-        // ── Phase 4: Set distinct emojis via "Set Emoji" alert ──────────
+        // ── Phase 4: Set distinct emojis via the SwiftEmojiPicker popover ──
         //
         // Each pick is done through the host's right-click → "Set Emoji"
-        // entry, which opens an alert with a TextField for the emoji.
+        // entry, which opens a popover anchored to the row carrying the
+        // SwiftEmojiPicker grid. We drive it by focusing its search field,
+        // typing a name that uniquely surfaces the target glyph, and
+        // clicking the glyph cell — the picker auto-dismisses on selection.
         // The badge then has to land on every platform before the next
         // session is touched, otherwise we wouldn't be testing simultaneous
         // propagation.
 
-        TestStep.log("Host setting AlphaProject → 🚀 via context menu")
+        TestStep.log("Host setting AlphaProject → 🚀 via emoji picker")
 
-        // Emojis can't be delivered via AppleScript keystroke, so we set the
-        // system clipboard via `pbcopy` and Cmd+V the value into the alert's
-        // TextField. The Tab keypress moves focus from Cancel to the field.
-        TestStep.macWriteClipboard(text: "🚀")
         TestStep.macContextMenuClick(elementTitle: "e2e-emoji-a", menuItem: "Set Emoji")
-        TestStep.macWaitForElement(titled: "Session Emoji", timeout: 5)
+        TestStep.macWaitForElement(titled: "Search", timeout: 5)
         TestStep.wait(seconds: 0.5)
-        TestStep.macPressTab()
-        TestStep.macPaste()
+        TestStep.macFocusElement(titled: "Search")
+        TestStep.macType(text: "rocket")
         TestStep.wait(seconds: 0.5)
-        TestStep.macClickButton(titled: "Save")
+        TestStep.macWaitForElement(titled: "🚀", timeout: 5)
+        TestStep.macCGClick(titled: "🚀")
         TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElement(titled: "emoji 🚀", timeout: 15)
         TestStep.macWaitForElement(titled: "emoji 🚀", timeout: 15, instance: 1)
         TestStep.iosWaitForElement(.labelContains("emoji 🚀"), timeout: 20)
 
-        TestStep.log("Host setting BravoProject → 🐛 via context menu")
+        TestStep.log("Host setting BravoProject → 🐛 via emoji picker")
 
-        TestStep.macWriteClipboard(text: "🐛")
         TestStep.macContextMenuClick(elementTitle: "e2e-emoji-b", menuItem: "Set Emoji")
-        TestStep.macWaitForElement(titled: "Session Emoji", timeout: 5)
+        TestStep.macWaitForElement(titled: "Search", timeout: 5)
         TestStep.wait(seconds: 0.5)
-        TestStep.macPressTab()
-        TestStep.macPaste()
+        TestStep.macFocusElement(titled: "Search")
+        TestStep.macType(text: "bug")
         TestStep.wait(seconds: 0.5)
-        TestStep.macClickButton(titled: "Save")
+        TestStep.macWaitForElement(titled: "🐛", timeout: 5)
+        TestStep.macCGClick(titled: "🐛")
         TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElement(titled: "emoji 🐛", timeout: 15)
         TestStep.macWaitForElement(titled: "emoji 🐛", timeout: 15, instance: 1)
         TestStep.iosWaitForElement(.labelContains("emoji 🐛"), timeout: 20)
 
-        TestStep.log("Host setting CharlieProject → 📝 via context menu")
+        TestStep.log("Host setting CharlieProject → 📝 via emoji picker")
 
-        TestStep.macWriteClipboard(text: "📝")
         TestStep.macContextMenuClick(elementTitle: "e2e-emoji-c", menuItem: "Set Emoji")
-        TestStep.macWaitForElement(titled: "Session Emoji", timeout: 5)
+        TestStep.macWaitForElement(titled: "Search", timeout: 5)
         TestStep.wait(seconds: 0.5)
-        TestStep.macPressTab()
-        TestStep.macPaste()
+        TestStep.macFocusElement(titled: "Search")
+        TestStep.macType(text: "memo")
         TestStep.wait(seconds: 0.5)
-        TestStep.macClickButton(titled: "Save")
+        TestStep.macWaitForElement(titled: "📝", timeout: 5)
+        TestStep.macCGClick(titled: "📝")
         TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElement(titled: "emoji 📝", timeout: 15)
@@ -181,15 +181,17 @@ public enum SessionEmojiSyncScenario {
 
         TestStep.log("Host changing BravoProject → ✅ via 'Emoji: 🐛' entry")
 
-        TestStep.macWriteClipboard(text: "✅")
         TestStep.macContextMenuClick(elementTitle: "e2e-emoji-b", menuItem: "Emoji: 🐛")
-        TestStep.macWaitForElement(titled: "Session Emoji", timeout: 5)
+        TestStep.macWaitForElement(titled: "Search", timeout: 5)
         TestStep.wait(seconds: 0.5)
-        TestStep.macPressTab()
-        TestStep.macSelectAll()
-        TestStep.macPaste()
+        TestStep.macFocusElement(titled: "Search")
+        // searchKey is `checkMarkButton` (camelCase, no spaces); the picker's
+        // filter does substring contains() against the lowercased searchKey,
+        // so a multi-word "check mark button" wouldn't match.
+        TestStep.macType(text: "checkmark")
         TestStep.wait(seconds: 0.5)
-        TestStep.macClickButton(titled: "Save")
+        TestStep.macWaitForElement(titled: "✅", timeout: 5)
+        TestStep.macCGClick(titled: "✅")
         TestStep.wait(seconds: 2)
 
         // 🐛 must be gone everywhere, replaced by ✅. 🚀 and 📝 unchanged.
@@ -219,19 +221,18 @@ public enum SessionEmojiSyncScenario {
 
         TestStep.log("Mac viewer changing CharlieProject → 🎨 via 'Emoji: 📝' entry")
 
-        TestStep.macWriteClipboard(text: "🎨", instance: 1)
         TestStep.macContextMenuClick(
             elementTitle: "CharlieProject",
             menuItem: "Emoji: 📝",
             instance: 1
         )
-        TestStep.macWaitForElement(titled: "Session Emoji", timeout: 5, instance: 1)
+        TestStep.macWaitForElement(titled: "Search", timeout: 5, instance: 1)
         TestStep.wait(seconds: 0.5)
-        TestStep.macPressTab(instance: 1)
-        TestStep.macSelectAll(instance: 1)
-        TestStep.macPaste(instance: 1)
+        TestStep.macFocusElement(titled: "Search", instance: 1)
+        TestStep.macType(text: "palette", instance: 1)
         TestStep.wait(seconds: 0.5)
-        TestStep.macClickButton(titled: "Save", instance: 1)
+        TestStep.macWaitForElement(titled: "🎨", timeout: 5, instance: 1)
+        TestStep.macCGClick(titled: "🎨", instance: 1)
         TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElementToDisappear(titled: "emoji 📝", timeout: 15)
@@ -320,14 +321,14 @@ public enum SessionEmojiSyncScenario {
 
         TestStep.log("Re-adding emoji and restarting host to verify persistence")
 
-        TestStep.macWriteClipboard(text: "💾")
         TestStep.macContextMenuClick(elementTitle: "e2e-emoji-a", menuItem: "Set Emoji")
-        TestStep.macWaitForElement(titled: "Session Emoji", timeout: 5)
+        TestStep.macWaitForElement(titled: "Search", timeout: 5)
         TestStep.wait(seconds: 0.5)
-        TestStep.macPressTab()
-        TestStep.macPaste()
+        TestStep.macFocusElement(titled: "Search")
+        TestStep.macType(text: "floppy")
         TestStep.wait(seconds: 0.5)
-        TestStep.macClickButton(titled: "Save")
+        TestStep.macWaitForElement(titled: "💾", timeout: 5)
+        TestStep.macCGClick(titled: "💾")
         TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "emoji 💾", timeout: 10)
         TestStep.macScreenshot(label: "host-before-restart")
