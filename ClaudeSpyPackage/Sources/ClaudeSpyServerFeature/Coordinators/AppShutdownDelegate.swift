@@ -62,12 +62,13 @@
             // guarantees the app eventually terminates even if a tmux IPC
             // hangs longer than the per-command timeout allows for.
             let timeout = shutdownTimeout
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 await cleanup()
-                self.replyOnce()
+                self?.replyOnce()
             }
-            Task { @MainActor in
-                try? await self.clock.sleep(for: timeout)
+            Task { @MainActor [weak self] in
+                try? await self?.clock.sleep(for: timeout)
+                guard let self else { return }
                 if !self.didReply {
                     self.logger.warning("Shutdown cleanup exceeded \(timeout); terminating anyway")
                 }

@@ -16,7 +16,7 @@ struct ProcessRunnerTests {
             let runner = ProcessRunner.liveValue
             // /bin/sleep would normally hold the call open for 60 seconds;
             // the test clock makes the timeout fire after a virtual 1s.
-            async let result = runner.run("/bin/sleep", ["60"], nil, 1.0)
+            async let result = runner.run("/bin/sleep", ["60"], nil, 1)
 
             // Wait until the runner's timeout task has actually registered a
             // sleeper on the test clock. `process.run()` is real-time work
@@ -54,12 +54,14 @@ struct ProcessRunnerTests {
     /// has anything to advance against. Anything within seconds of the cap is
     /// almost certainly a regression rather than a slow CI runner.
     private func waitForSleeperToRegister(on clock: TestClock<Duration>) async throws {
-        let deadline = Date().addingTimeInterval(10.0)
+        let deadline = Date().addingTimeInterval(10)
         while Date() < deadline {
             do {
                 try await clock.checkSuspension()
                 // No active suspensions yet — the runner Task has not reached
                 // its `clock.sleep` await point. Wait a moment and retry.
+                // Sanctioned exception to the "no Task.sleep in tests" rule:
+                // OS process spawn is real-time work the TestClock can't replace.
                 try await Task.sleep(for: .milliseconds(10))
             } catch {
                 return

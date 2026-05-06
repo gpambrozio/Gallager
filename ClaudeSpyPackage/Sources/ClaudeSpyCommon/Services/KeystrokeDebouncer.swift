@@ -87,7 +87,6 @@ final public class KeystrokeDebouncer {
             } catch {
                 return
             }
-            guard !Task.isCancelled else { return }
             self?.flushBuffer()
         }
     }

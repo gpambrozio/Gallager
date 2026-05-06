@@ -151,18 +151,25 @@ extension ProcessRunner: DependencyKey {
                 // `@Dependency` inside the `Task` body would silently fall back to
                 // the live clock. Any future dependency this closure needs must be
                 // captured the same way (or routed through `withEscapedDependencies`).
+                let timeoutTask: Task<Void, Never>?
                 if let timeout {
                     @Dependency(\.continuousClock) var clock
-                    Task { [clock] in
+                    timeoutTask = Task { [clock] in
                         try? await clock.sleep(for: .seconds(timeout))
                         if process.isRunning {
                             process.terminate()
                         }
                     }
+                } else {
+                    timeoutTask = nil
                 }
 
                 return await withCheckedContinuation { continuation in
-                    process.terminationHandler = { [outputCollector] _ in
+                    process.terminationHandler = { [outputCollector, timeoutTask] _ in
+                        // Cancel the timeout sleep eagerly so it doesn't sit on a
+                        // virtual deadline after the process has already exited.
+                        timeoutTask?.cancel()
+
                         // Clean up handlers
                         stdoutPipe.fileHandleForReading.readabilityHandler = nil
                         stderrPipe.fileHandleForReading.readabilityHandler = nil

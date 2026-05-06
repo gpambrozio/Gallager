@@ -88,6 +88,7 @@ final class LiveDockIconManager {
 
     deinit {
         observationTask?.cancel()
+        updatePolicyTask?.cancel()
     }
 
     func startObserving() {
@@ -165,7 +166,6 @@ final class LiveDockIconManager {
         updatePolicyTask = Task { [weak self] in
             do {
                 try await self?.clock.sleep(for: interval)
-                guard !Task.isCancelled else { return }
                 self?.updateActivationPolicy()
                 self?.onActivationPolicyUpdated?()
             } catch {
