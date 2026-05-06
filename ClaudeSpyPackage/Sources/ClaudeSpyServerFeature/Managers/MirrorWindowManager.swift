@@ -15,8 +15,9 @@ final public class MirrorWindowManager {
     /// Task for periodic session validation
     private var sessionValidationTask: Task<Void, Never>?
 
-    /// Called when window descriptions change, to push updated state to viewers
-    public var onDescriptionChanged: (@MainActor @Sendable () async -> Void)?
+    /// Called when session metadata (description, color, or emoji) changes,
+    /// to push updated state to viewers.
+    public var onSessionMetadataChanged: (@MainActor @Sendable () async -> Void)?
 
     /// Interval between session validation checks (in seconds)
     private let validationInterval: TimeInterval = 5
@@ -392,7 +393,7 @@ final public class MirrorWindowManager {
         }
         Task { [tmuxService] in
             try? await tmuxService.setSessionDescription(normalizedDescription, for: sessionName)
-            await onDescriptionChanged?()
+            await onSessionMetadataChanged?()
         }
     }
 
@@ -418,7 +419,7 @@ final public class MirrorWindowManager {
                     "error": "\(error)",
                 ])
             }
-            await onDescriptionChanged?()
+            await onSessionMetadataChanged?()
         }
     }
 
@@ -445,7 +446,7 @@ final public class MirrorWindowManager {
                     "error": "\(error)",
                 ])
             }
-            await onDescriptionChanged?()
+            await onSessionMetadataChanged?()
         }
     }
 

@@ -127,7 +127,13 @@ public struct DescriptionEditingModifier<AdditionalMenu: View>: ViewModifier {
                 TextField("Emoji", text: $editedEmoji)
                 Button("Save") {
                     let trimmed = editedEmoji.trimmingCharacters(in: .whitespacesAndNewlines)
-                    onSetEmoji(sessionName, trimmed.isEmpty ? nil : trimmed)
+                    if trimmed.isEmpty {
+                        onSetEmoji(sessionName, nil)
+                    } else if SessionEmoji.isValid(trimmed) {
+                        onSetEmoji(sessionName, trimmed)
+                    }
+                    // Silently drop invalid input so a paste of arbitrary
+                    // text doesn't get persisted to tmux and broadcast.
                 }
                 Button("Cancel", role: .cancel) { }
             } message: {

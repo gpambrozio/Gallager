@@ -43,7 +43,7 @@ public struct TmuxWindow: Identifiable, Sendable {
     /// the same value, so any pane is a valid source. We scan rather than
     /// pick a fixed pane to tolerate partial refreshes.
     public var customDescription: String? {
-        panes.lazy.compactMap(\.customDescription).first
+        panes.compactMap(\.customDescription).first
     }
 
     /// The custom color for this window.
@@ -51,7 +51,7 @@ public struct TmuxWindow: Identifiable, Sendable {
     /// See `customDescription` — same session-scoped option, same any-pane
     /// fallback.
     public var customColor: SessionColor? {
-        panes.lazy.compactMap(\.customColor).first
+        panes.compactMap(\.customColor).first
     }
 
     /// The custom emoji icon for this window.
@@ -59,7 +59,7 @@ public struct TmuxWindow: Identifiable, Sendable {
     /// See `customDescription` — same session-scoped option, same any-pane
     /// fallback.
     public var customEmoji: String? {
-        panes.lazy.compactMap(\.customEmoji).first
+        panes.compactMap(\.customEmoji).first
     }
 
     /// Groups pane states by window and returns sorted windows

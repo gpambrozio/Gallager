@@ -28,6 +28,7 @@ Prefer the `gallager` subcommand when one exists (it goes through the app and ke
 | `new-session --name foo` | `tmux new-session -d -s foo` |
 | `set-title --session foo "text"` | `tmux set-option -t foo @gallager-description "text"` |
 | `set-color --session foo blue` | `tmux set-option -t foo @gallager-color blue` |
+| `set-emoji --session foo "🚀"` | `tmux set-option -t foo @gallager-emoji "🚀"` |
 | `select-session foo` / `close-session foo` | `tmux switch-client -t foo` / `tmux kill-session -t foo` |
 | `list-windows [--session foo]` | `tmux list-windows [-t foo]` |
 | `new-window` / `select-window foo:1` / `close-window foo:1` | `tmux new-window` / `tmux select-window -t foo:1` / `tmux kill-window -t foo:1` |
@@ -83,9 +84,9 @@ If `gallager` is not on `PATH`, ask the user to run **Gallager menu → Install 
 
 ## Core mental model
 
-Every command is one of: `list-*` (inspect), `new-*` / `split-pane` / `start-project` (create), `select-*` (focus), `close-*` (destroy), `rename-window` (relabel a tab), `send` / `send-key` (input), `set-title` / `set-color` / `session-state` (label), `capture-pane` (read), `notify` (alert), `edit` (block on prompt editor), or a utility (`ping`, `capabilities`, `identify`, `wait-ready`).
+Every command is one of: `list-*` (inspect), `new-*` / `split-pane` / `start-project` (create), `select-*` (focus), `close-*` (destroy), `rename-window` (relabel a tab), `send` / `send-key` (input), `set-title` / `set-color` / `set-emoji` / `session-state` (label), `capture-pane` (read), `notify` (alert), `edit` (block on prompt editor), or a utility (`ping`, `capabilities`, `identify`, `wait-ready`).
 
-Commands default to the **current** session/window/pane (inferred from the calling shell's `$TMUX_PANE`). Override with `--session <id>`, `--window <id>`, or `--pane <id>` when targeting something else. (`set-title` and `set-color` are session-only — they accept `--session` but not `--window` or `--pane`.)
+Commands default to the **current** session/window/pane (inferred from the calling shell's `$TMUX_PANE`). Override with `--session <id>`, `--window <id>`, or `--pane <id>` when targeting something else. (`set-title`, `set-color`, and `set-emoji` are session-only — they accept `--session` but not `--window` or `--pane`.)
 
 Append `--json` to any command to get raw JSON-RPC output suitable for `jq`. Use human-readable output when the user will read it directly; use `--json` when piping into other commands.
 
@@ -108,6 +109,8 @@ gallager set-title "Work" --session work                  # set/replace sidebar 
 gallager set-title ""                                     # default targets calling pane's session via $TMUX_PANE
 gallager set-color blue --session work                    # set/replace sidebar dot color (none/empty clears)
 gallager set-color none                                   # clear color on calling pane's session
+gallager set-emoji "🚀" --session work                    # set/replace sidebar emoji icon (none/empty clears)
+gallager set-emoji none                                   # clear emoji on calling pane's session
 gallager select-session work
 gallager current-session
 gallager close-session work
@@ -156,7 +159,7 @@ gallager start-project ~/code/proj -- --resume   # forwards `--resume` to claude
 | `--json` | Emit raw JSON-RPC response instead of formatted text |
 | `--socket <path>` | Override socket path (otherwise uses `$GALLAGER_SOCKET`, then `$TMPDIR/gallager.sock`) |
 | `--pane <id>` | Target a specific pane (e.g. `%3`) for input or splits |
-| `--session <id>` | Target a specific session for window/session commands (`list-windows`, `new-window`, `set-title`, `set-color`, …) |
+| `--session <id>` | Target a specific session for window/session commands (`list-windows`, `new-window`, `set-title`, `set-color`, `set-emoji`, …) |
 | `--window <id>` | Target a specific window for pane commands (`list-panes`, …) |
 
 ## Important details worth knowing
@@ -165,6 +168,7 @@ gallager start-project ~/code/proj -- --resume   # forwards `--resume` to claude
 - **`new-session --if-missing` is idempotent.** Use it when a script needs *some* session called `--name` to exist without caring whether this run created it. The response includes `created: true|false` so you can branch on whether to populate panes.
 - **`set-title` is session-only.** It writes to the `@gallager-description` tmux user option that Gallager's sidebar reads — the underlying tmux session/window names are untouched. The CLI only accepts `--session` (or defaults to the calling pane's session via `$TMUX_PANE`); there is no window/pane scope. Pass an empty string to clear. To rename the tab label of one window, use `gallager rename-window` instead.
 - **`set-color` mirrors `set-title`** but writes the `@gallager-color` user option to render a small dot next to the session in the sidebar. Same session-only targeting rules. Valid names are `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `pink`, `gray` (aliases: `violet`→purple, `magenta`→pink, `grey`→gray). Pass `none` or `""` to clear. The same flag also works at session creation: `gallager new-session --color blue`. Inside a `gallager apply` YAML, set `color: blue` at the top level for the same effect — re-applying the file syncs the color (clearing it when the field is removed).
+- **`set-emoji` mirrors `set-title`** but writes the `@gallager-emoji` user option to render an emoji icon next to the session in the sidebar (in addition to or in place of the color dot). Same session-only targeting rules. Any platform-supported emoji works (e.g. `"🚀"`, `"🐛"`, `"📝"`); non-emoji input is rejected with a `validation` error so junk doesn't get persisted. Pass `none` or `""` to clear.
 - **`rename-window` is the only window-scoped CLI mutation.** Required arguments are the window ID (`session:index`) and the new name; both are positional. It calls `tmux rename-window`, which also disables tmux's automatic-rename for that window so the tab stops tracking the running command. Empty names are rejected.
 - **`capture-pane` returns plain text**, not the JSON-RPC envelope. It's the same thing as `tmux capture-pane -p`; use `--scrollback` (`-S -`) to grab the full history when grepping.
 - **`wait-ready` is the gate for scripts that auto-launch the app.** It polls `system.ping` until success or `--timeout` (default 30s) elapses; on timeout it writes the error to stderr and exits non-zero. Cheaper and more reliable than sleeping for a fixed time.

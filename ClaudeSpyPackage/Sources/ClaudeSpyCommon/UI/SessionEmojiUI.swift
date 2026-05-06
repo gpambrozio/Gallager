@@ -14,7 +14,7 @@ public struct SessionEmojiBadge: View {
 
     public var body: some View {
         Text(emoji)
-            .accessibilityIdentifier("session-emoji-\(emoji)")
+            .accessibilityIdentifier("session-emoji-badge")
             .accessibilityLabel("emoji \(emoji)")
     }
 }

@@ -1010,21 +1010,21 @@
                 }
 
                 // Handle session description (applied to every pane in the session)
-                // pushSessionStateToAll() runs via onDescriptionChanged, not here.
+                // pushSessionStateToAll() runs via onSessionMetadataChanged, not here.
                 if case let .setSessionDescription(spec) = command.command {
                     winManager.setSessionDescription(spec.description, for: spec.sessionName)
                     return .success(for: command.id)
                 }
 
                 // Handle session color (applied to every pane in the session).
-                // pushSessionStateToAll() runs via onDescriptionChanged, not here.
+                // pushSessionStateToAll() runs via onSessionMetadataChanged, not here.
                 if case let .setSessionColor(spec) = command.command {
                     winManager.setSessionColor(spec.color, for: spec.sessionName)
                     return .success(for: command.id)
                 }
 
                 // Handle session emoji (applied to every pane in the session).
-                // pushSessionStateToAll() runs via onDescriptionChanged, not here.
+                // pushSessionStateToAll() runs via onSessionMetadataChanged, not here.
                 if case let .setSessionEmoji(spec) = command.command {
                     winManager.setSessionEmoji(spec.emoji, for: spec.sessionName)
                     return .success(for: command.id)
@@ -1188,8 +1188,9 @@
                 await connectionManager?.pushSessionStateToAll()
             }
 
-            // Push session state when window descriptions change locally
-            windowManager.onDescriptionChanged = { [weak connectionManager] in
+            // Push session state when session metadata (description, color,
+            // emoji) changes locally.
+            windowManager.onSessionMetadataChanged = { [weak connectionManager] in
                 await connectionManager?.pushSessionStateToAll()
             }
         }

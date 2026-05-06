@@ -291,6 +291,14 @@ struct SetEmojiCommand: ParsableCommand {
         if emoji.lowercased() == "none" || emoji.isEmpty {
             normalized = ""
         } else {
+            // Reject non-emoji input so arbitrary text doesn't get persisted
+            // to tmux and broadcast to viewers — matches how `set-color`
+            // rejects unknown color names via `SessionColor.parse`.
+            guard emoji.unicodeScalars.contains(where: \.properties.isEmoji) else {
+                throw ValidationError(
+                    "\"\(emoji)\" doesn't contain an emoji. Pass an emoji character (e.g. \"🚀\") or \"none\"/\"\" to clear."
+                )
+            }
             normalized = emoji
         }
         var params: [String: JSONValue] = ["emoji": .string(normalized)]

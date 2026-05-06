@@ -33,7 +33,7 @@ public struct TmuxSession: Identifiable, Sendable {
     /// any pane in any window so a partial refresh on the active window
     /// doesn't briefly flip the value to nil.
     public var customDescription: String? {
-        windows.lazy.compactMap(\.customDescription).first
+        windows.compactMap(\.customDescription).first
     }
 
     /// The custom color for this session.
@@ -41,7 +41,7 @@ public struct TmuxSession: Identifiable, Sendable {
     /// Persisted at session scope via the `@gallager-color` tmux user option;
     /// see `customDescription` for the same any-pane fallback rationale.
     public var customColor: SessionColor? {
-        windows.lazy.compactMap(\.customColor).first
+        windows.compactMap(\.customColor).first
     }
 
     /// The custom emoji icon for this session.
@@ -49,7 +49,7 @@ public struct TmuxSession: Identifiable, Sendable {
     /// Persisted at session scope via the `@gallager-emoji` tmux user option;
     /// see `customDescription` for the same any-pane fallback rationale.
     public var customEmoji: String? {
-        windows.lazy.compactMap(\.customEmoji).first
+        windows.compactMap(\.customEmoji).first
     }
 
     /// Groups windows by session and returns sorted sessions
