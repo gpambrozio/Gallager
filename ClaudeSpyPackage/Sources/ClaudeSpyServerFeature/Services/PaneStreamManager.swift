@@ -251,6 +251,9 @@
                 stream.onClipboard = { [weak self] content in
                     self?.forwardClipboard(paneId: paneId, content: content)
                 }
+                stream.onProgress = { [weak self] progress in
+                    self?.onProgress?(paneId, progress)
+                }
 
                 // Seed with title detected by notification reader (if any)
                 let savedTitle = notificationReaderTitles.removeValue(forKey: paneId)
