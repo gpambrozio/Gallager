@@ -54,6 +54,14 @@ public struct TmuxWindow: Identifiable, Sendable {
         panes.lazy.compactMap(\.customColor).first
     }
 
+    /// The custom emoji icon for this window.
+    ///
+    /// See `customDescription` — same session-scoped option, same any-pane
+    /// fallback.
+    public var customEmoji: String? {
+        panes.lazy.compactMap(\.customEmoji).first
+    }
+
     /// Groups pane states by window and returns sorted windows
     public static func groupPanes(_ paneStates: [PaneState]) -> [TmuxWindow] {
         let grouped = Dictionary(grouping: paneStates) { $0.windowId }

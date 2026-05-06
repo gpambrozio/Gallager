@@ -44,6 +44,14 @@ public struct TmuxSession: Identifiable, Sendable {
         windows.lazy.compactMap(\.customColor).first
     }
 
+    /// The custom emoji icon for this session.
+    ///
+    /// Persisted at session scope via the `@gallager-emoji` tmux user option;
+    /// see `customDescription` for the same any-pane fallback rationale.
+    public var customEmoji: String? {
+        windows.lazy.compactMap(\.customEmoji).first
+    }
+
     /// Groups windows by session and returns sorted sessions
     public static func groupWindows(_ windows: [TmuxWindow]) -> [TmuxSession] {
         let grouped = Dictionary(grouping: windows) { $0.sessionName }

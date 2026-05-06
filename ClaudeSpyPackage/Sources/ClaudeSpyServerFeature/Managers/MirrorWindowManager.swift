@@ -422,6 +422,33 @@ final public class MirrorWindowManager {
         }
     }
 
+    // MARK: - Session Emoji
+
+    /// Sets a custom emoji for a session, applied to every pane so it survives
+    /// switching windows. Persisted as a tmux user option (see `TmuxService`).
+    /// - Parameters:
+    ///   - emoji: The emoji string, or nil/empty to clear
+    ///   - sessionName: The tmux session name
+    public func setSessionEmoji(_ emoji: String?, for sessionName: String) {
+        let normalizedEmoji = emoji?.isEmpty == true ? nil : emoji
+        // Optimistic local update for immediate UI feedback; tmux remains the source
+        // of truth and the next refresh reconciles from it.
+        for (paneId, state) in paneStates where state.sessionName == sessionName {
+            paneStates[paneId]?.customEmoji = normalizedEmoji
+        }
+        Task { [tmuxService, logger] in
+            do {
+                try await tmuxService.setSessionEmoji(normalizedEmoji, for: sessionName)
+            } catch {
+                logger.warning("Failed to persist session emoji", metadata: [
+                    "session": "\(sessionName)",
+                    "error": "\(error)",
+                ])
+            }
+            await onDescriptionChanged?()
+        }
+    }
+
     // MARK: - Auto-Close Pane
 
     /// Polls until the Claude process exits from the pane, then closes the pane after a short delay.

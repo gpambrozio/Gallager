@@ -386,6 +386,43 @@ public enum GallagerCLIScenario {
         TestStep.readFile(path: "/tmp/e2e-cli-color-bad.txt", storeAs: "colorBadResult")
         TestStep.assertStoredContains(key: "colorBadResult", substring: "Unknown color")
 
+        // 16e. set-emoji — assigns an emoji icon to a session, persisted as
+        // the tmux `@gallager-emoji` user option and rendered as a small
+        // emoji badge in the sidebar row. Each platform exposes the badge
+        // with `accessibilityLabel("emoji <value>")`.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager set-emoji 🚀 --session e2e-api > /tmp/e2e-cli-emoji-set.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-emoji-set.txt", storeAs: "emojiSetResult")
+        TestStep.assertStoredContains(key: "emojiSetResult", substring: "Set session emoji to 🚀.")
+        TestStep.macWaitForElement(titled: "emoji 🚀", timeout: 10)
+        TestStep.macScreenshot(label: "mac-emoji-set")
+
+        // 16f. Verify the emoji option was actually persisted on the tmux
+        // server. `display-message -p '#{@gallager-emoji}'` reads the user
+        // option back for the session, so we know set-emoji hit tmux and not
+        // just the UI.
+        TestStep.tmuxStoreDisplayMessage(
+            target: "e2e-api",
+            format: "#{@gallager-emoji}",
+            storeAs: "tmuxEmojiOption"
+        )
+        TestStep.assertStoredContains(key: "tmuxEmojiOption", substring: "🚀")
+
+        // 16g. set-emoji none clears the emoji. The badge disappears and the
+        // tmux option is unset.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager set-emoji none --session e2e-api > /tmp/e2e-cli-emoji-clear.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-emoji-clear.txt", storeAs: "emojiClearResult")
+        TestStep.assertStoredContains(key: "emojiClearResult", substring: "Cleared session emoji.")
+        TestStep.macWaitForElementToDisappear(titled: "emoji 🚀", timeout: 10)
+        TestStep.macScreenshot(label: "mac-emoji-cleared")
+
         // 17. new-session --color creates a session that opens with the color
         // already set, so the dot appears as soon as the row renders.
         Shortcut.tmuxRunCommand(

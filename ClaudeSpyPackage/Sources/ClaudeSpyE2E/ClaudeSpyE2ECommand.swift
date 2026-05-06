@@ -291,6 +291,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         MirrorAttachExtraNewlinesScenario.scenario,
         TerminalProgressBarScenario.scenario,
         SessionColorSyncScenario.scenario,
+        SessionEmojiSyncScenario.scenario,
         AppearanceModeScenario.scenario,
     ]
 

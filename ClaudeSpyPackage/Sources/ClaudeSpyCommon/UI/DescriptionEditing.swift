@@ -43,34 +43,44 @@ public struct DescriptionContextMenuButtons: View {
     }
 }
 
-/// View modifier that adds description editing context menu and alert to a view.
+/// View modifier that adds description and emoji editing context menu items
+/// (and their backing alerts) to a view.
 ///
-/// Both the context menu and the alert are attached at the same view level (per-row),
-/// which ensures the alert's TextField receives focus correctly on macOS.
+/// Both the context menu and the alerts are attached at the same view level
+/// (per-row), which ensures the alerts' TextFields receive focus correctly on
+/// macOS.
 ///
-/// Callers can supply additional context menu items via the `additionalMenu` parameter.
-/// These items appear above the description editing buttons.
+/// Callers can supply additional context menu items via the `additionalMenu`
+/// parameter. These items appear above the description editing buttons.
 public struct DescriptionEditingModifier<AdditionalMenu: View>: ViewModifier {
     let sessionName: String
     let currentDescription: String?
+    let currentEmoji: String?
     let isDisabled: Bool
     let onSetDescription: (String, String?) -> Void
+    let onSetEmoji: (String, String?) -> Void
     let additionalMenu: AdditionalMenu
 
     @State private var isEditingDescription = false
     @State private var editedDescription = ""
+    @State private var isEditingEmoji = false
+    @State private var editedEmoji = ""
 
     public init(
         sessionName: String,
         currentDescription: String?,
+        currentEmoji: String? = nil,
         isDisabled: Bool = false,
         onSetDescription: @escaping (String, String?) -> Void,
+        onSetEmoji: @escaping (String, String?) -> Void = { _, _ in },
         @ViewBuilder additionalMenu: () -> AdditionalMenu
     ) {
         self.sessionName = sessionName
         self.currentDescription = currentDescription
+        self.currentEmoji = currentEmoji
         self.isDisabled = isDisabled
         self.onSetDescription = onSetDescription
+        self.onSetEmoji = onSetEmoji
         self.additionalMenu = additionalMenu()
     }
 
@@ -89,6 +99,18 @@ public struct DescriptionEditingModifier<AdditionalMenu: View>: ViewModifier {
                     }
                 )
 
+                EmojiContextMenuButtons(
+                    currentEmoji: currentEmoji,
+                    isDisabled: isDisabled,
+                    onEdit: {
+                        editedEmoji = currentEmoji ?? ""
+                        isEditingEmoji = true
+                    },
+                    onRemove: {
+                        onSetEmoji(sessionName, nil)
+                    }
+                )
+
                 additionalMenu
             }
             .alert("Session Description", isPresented: $isEditingDescription) {
@@ -101,6 +123,16 @@ public struct DescriptionEditingModifier<AdditionalMenu: View>: ViewModifier {
             } message: {
                 Text("Enter a custom description for this session")
             }
+            .alert("Session Emoji", isPresented: $isEditingEmoji) {
+                TextField("Emoji", text: $editedEmoji)
+                Button("Save") {
+                    let trimmed = editedEmoji.trimmingCharacters(in: .whitespacesAndNewlines)
+                    onSetEmoji(sessionName, trimmed.isEmpty ? nil : trimmed)
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Enter an emoji to display next to this session")
+            }
     }
 }
 
@@ -108,14 +140,18 @@ public extension DescriptionEditingModifier where AdditionalMenu == EmptyView {
     init(
         sessionName: String,
         currentDescription: String?,
+        currentEmoji: String? = nil,
         isDisabled: Bool = false,
-        onSetDescription: @escaping (String, String?) -> Void
+        onSetDescription: @escaping (String, String?) -> Void,
+        onSetEmoji: @escaping (String, String?) -> Void = { _, _ in }
     ) {
         self.init(
             sessionName: sessionName,
             currentDescription: currentDescription,
+            currentEmoji: currentEmoji,
             isDisabled: isDisabled,
             onSetDescription: onSetDescription,
+            onSetEmoji: onSetEmoji,
             additionalMenu: { EmptyView() }
         )
     }

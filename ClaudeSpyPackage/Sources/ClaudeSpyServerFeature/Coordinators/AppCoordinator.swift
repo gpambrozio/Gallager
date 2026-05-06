@@ -514,6 +514,17 @@
                         winManager.setSessionColor(color, for: resolvedSession)
                     }
                 },
+                onSessionSetEmoji: { [tmux, winManager] emoji, sessionId, paneId in
+                    let resolvedSession = try await Self.resolveSessionTarget(
+                        sessionId: sessionId,
+                        paneId: paneId,
+                        tmux: tmux,
+                        method: "session.set_emoji"
+                    )
+                    await MainActor.run {
+                        winManager.setSessionEmoji(emoji, for: resolvedSession)
+                    }
+                },
                 onWindowList: { [tmux] sessionId, paneId in
                     let panes = await tmux.refreshPanes()
                     let allWindows = LocalTmuxWindow.groupPanes(panes)
@@ -1009,6 +1020,13 @@
                 // pushSessionStateToAll() runs via onDescriptionChanged, not here.
                 if case let .setSessionColor(spec) = command.command {
                     winManager.setSessionColor(spec.color, for: spec.sessionName)
+                    return .success(for: command.id)
+                }
+
+                // Handle session emoji (applied to every pane in the session).
+                // pushSessionStateToAll() runs via onDescriptionChanged, not here.
+                if case let .setSessionEmoji(spec) = command.command {
+                    winManager.setSessionEmoji(spec.emoji, for: spec.sessionName)
                     return .success(for: command.id)
                 }
 

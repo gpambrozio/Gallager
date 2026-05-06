@@ -547,6 +547,28 @@ public struct SetSessionColor: CommandSpec, Equatable {
     }
 }
 
+/// Set a custom emoji icon for a tmux session. Returns success/failure.
+/// Persisted as the tmux `@gallager-emoji` user option so the icon in the
+/// sidebar comes back after restarting the host app.
+public struct SetSessionEmoji: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// The session name to set the emoji for
+    public let sessionName: String
+
+    /// The emoji string, or nil to clear
+    public let emoji: String?
+
+    public init(sessionName: String, emoji: String?) {
+        self.sessionName = sessionName
+        self.emoji = emoji
+    }
+
+    public var commandType: CommandType {
+        .setSessionEmoji(self)
+    }
+}
+
 /// Rename a tmux window. Returns success/failure.
 /// Applied on the host via `tmux rename-window`, which also implicitly disables
 /// tmux's automatic-rename so the tab stops tracking the running command.
@@ -793,6 +815,8 @@ public enum CommandType: Codable, Sendable, Equatable {
     case setSessionDescription(SetSessionDescription)
     /// Set a custom color dot for a tmux session
     case setSessionColor(SetSessionColor)
+    /// Set a custom emoji icon for a tmux session
+    case setSessionEmoji(SetSessionEmoji)
     /// Rename a tmux window (shown in the tab)
     case setWindowName(SetWindowName)
     /// Split a tmux pane
@@ -878,6 +902,11 @@ public enum CommandType: Codable, Sendable, Equatable {
     /// Create a setSessionColor command
     public static func setSessionColor(sessionName: String, color: SessionColor?) -> CommandType {
         .setSessionColor(SetSessionColor(sessionName: sessionName, color: color))
+    }
+
+    /// Create a setSessionEmoji command
+    public static func setSessionEmoji(sessionName: String, emoji: String?) -> CommandType {
+        .setSessionEmoji(SetSessionEmoji(sessionName: sessionName, emoji: emoji))
     }
 
     /// Create a setWindowName command

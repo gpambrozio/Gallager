@@ -425,6 +425,42 @@ public actor MacOSDriver {
         }
     }
 
+    /// Write text to the system pasteboard so a subsequent `paste()` (Cmd+V)
+    /// inserts it into the focused field. Useful for input AppleScript
+    /// keystroke can't deliver — emoji, multi-codepoint glyphs, etc.
+    public func writeClipboard(text: String) async throws {
+        logger.info("Writing to clipboard: \(text.prefix(30))")
+        // `pbcopy` reads stdin and sets the system clipboard. The trailing
+        // newline that an `echo` would add is suppressed with `printf %s`.
+        let result = try await processRunner.run(
+            "/bin/sh",
+            arguments: ["-c", "printf %s \"$1\" | /usr/bin/pbcopy", "sh", text]
+        )
+        guard result.isSuccess else {
+            throw MacOSDriverError.appleScriptFailed(
+                "pbcopy failed: \(result.stderrString)"
+            )
+        }
+    }
+
+    /// Press Cmd+V in the macOS app, pasting the current clipboard contents
+    /// into the focused field. Pairs with `writeClipboard(text:)` to enter
+    /// characters AppleScript keystroke can't type directly.
+    public func paste() async throws {
+        let pid = try requirePID()
+        logger.info("Pasting via Cmd+V")
+        let script = """
+        tell application "System Events"
+            tell (first process whose unix id is \(pid))
+                set frontmost to true
+                delay 0.1
+                keystroke "v" using command down
+            end tell
+        end tell
+        """
+        try await runAppleScript(script)
+    }
+
     /// Type text into the macOS app via AppleScript keystroke.
     /// - Parameters:
     ///   - charDelay: Seconds to wait between each character (0 = type all at once).
