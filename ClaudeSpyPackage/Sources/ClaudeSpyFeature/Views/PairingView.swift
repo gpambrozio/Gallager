@@ -1,16 +1,21 @@
 #if os(iOS)
     import ClaudeSpyCommon
     import ClaudeSpyEncryption
+    import Dependencies
     import SwiftUI
 
     /// View for entering a pairing code to connect with a host.
     struct PairingView: View {
         @Environment(IOSSettings.self) private var settings
         @Environment(\.e2eeService) private var e2eeService
+        @Environment(\.scenePhase) private var scenePhase
 
         @State private var pairingCode = ""
         @State private var isLoading = false
         @State private var errorMessage: String?
+        @State private var clipboardSuggestion: String?
+        @State private var handledClipboardCode: String?
+        @State private var showClipboardPasteConfirmation = false
         @FocusState private var isInputFocused: Bool
 
         /// Called when pairing is successful with the new PairedHost
@@ -52,6 +57,29 @@
                 .padding()
             }
             .scrollDismissesKeyboard(.interactively)
+            .onAppear {
+                checkClipboardForPairingCode()
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase == .active {
+                    checkClipboardForPairingCode()
+                }
+            }
+            .alert(
+                "Pairing Code on Clipboard",
+                isPresented: $showClipboardPasteConfirmation,
+                presenting: clipboardSuggestion
+            ) { code in
+                Button("Use \(code)") {
+                    applyClipboardSuggestion(code)
+                }
+                Button("Cancel", role: .cancel) {
+                    handledClipboardCode = code
+                    clipboardSuggestion = nil
+                }
+            } message: { _ in
+                Text("Found a pairing code in your clipboard. Use it to pair?")
+            }
         }
 
         private var compactHeaderSection: some View {
@@ -200,6 +228,44 @@
                 Text(text)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+        }
+
+        // MARK: - Clipboard Detection
+
+        /// Reads the system clipboard and, if it contains a valid pairing code,
+        /// surfaces the paste-confirmation dialog.
+        private func checkClipboardForPairingCode() {
+            // Don't override anything the user has already typed or a pairing in flight.
+            guard pairingCode.isEmpty, !isLoading else { return }
+
+            @Dependency(ClipboardClient.self) var clipboard
+            let detected = PairingCodeValidator.pairingCode(from: clipboard.getString())
+
+            guard let detected else {
+                clipboardSuggestion = nil
+                showClipboardPasteConfirmation = false
+                return
+            }
+
+            // If we already prompted (and the user dismissed or applied) this
+            // exact code, don't keep nagging them.
+            guard detected != handledClipboardCode else { return }
+
+            clipboardSuggestion = detected
+            showClipboardPasteConfirmation = true
+        }
+
+        private func applyClipboardSuggestion(_ code: String) {
+            clipboardSuggestion = nil
+            // Avoid re-prompting for the same code if pairing fails and the
+            // user comes back to this view.
+            handledClipboardCode = code
+            // Drop focus so the keyboard doesn't pop up over the in-flight
+            // pairing progress.
+            isInputFocused = false
+            // Setting `pairingCode` triggers the existing onChange handler, which
+            // filters input and auto-submits when the code is complete.
+            pairingCode = code
         }
 
         // MARK: - Actions
