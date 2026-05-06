@@ -345,15 +345,15 @@ final public class PairingManager {
     /// Called when a new viewer device name arrives over the WebSocket
     /// (`HostRegisteredMessage.viewerDeviceName` or `ViewerConnectedMessage.deviceName`)
     /// so renaming the device on iOS propagates to the macOS UI without re-pairing.
-    public func updateViewerDeviceName(deviceId: String, deviceName: String) {
-        guard let settings, let viewer = settings.getPairing(id: deviceId) else { return }
+    public func updateViewerDeviceName(pairId: String, deviceName: String) {
+        guard let settings, let viewer = settings.getPairing(id: pairId) else { return }
         guard viewer.deviceName != deviceName else { return }
 
         var updated = viewer
         updated.deviceName = deviceName
         settings.updatePairing(updated)
         logger.info("Updated paired viewer device name", metadata: [
-            "deviceId": "\(deviceId)",
+            "pairId": "\(pairId)",
             "deviceName": "\(deviceName)",
         ])
     }

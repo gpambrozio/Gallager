@@ -1160,9 +1160,9 @@
 
             // Persist viewer device name updates received over the WebSocket so
             // renaming the iOS device propagates to the macOS settings UI.
-            connectionManager.onPartnerDeviceNameReceived = { [weak self] deviceId, deviceName in
+            connectionManager.onPartnerDeviceNameReceived = { [weak self] pairId, deviceName in
                 self?.pairingManager?.updateViewerDeviceName(
-                    deviceId: deviceId,
+                    pairId: pairId,
                     deviceName: deviceName
                 )
             }

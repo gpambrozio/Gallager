@@ -382,6 +382,11 @@
         /// field loses focus, so we only reconnect when something differs.
         @State private var lastCommittedDeviceName = ""
 
+        /// Tracks focus on the device-name field so we can also commit when
+        /// the user dismisses the keyboard by tapping elsewhere — `onSubmit`
+        /// alone would silently discard the draft.
+        @FocusState private var deviceNameFieldFocused: Bool
+
         /// Available monospace fonts for terminal display
         static let availableFonts = [
             "Menlo",
@@ -527,7 +532,11 @@
                         .textInputAutocapitalization(.words)
                         .autocorrectionDisabled()
                         .submitLabel(.done)
+                        .focused($deviceNameFieldFocused)
                         .onSubmit { commitDeviceName() }
+                        .onChange(of: deviceNameFieldFocused) { _, isFocused in
+                            if !isFocused { commitDeviceName() }
+                        }
                         .accessibilityIdentifier("device-name-field")
                 } header: {
                     Text("Device Name")
@@ -590,7 +599,7 @@
         /// along on the next `RegisterViewerMessage`.
         private func commitDeviceName() {
             let trimmed = deviceNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard trimmed != lastCommittedDeviceName.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            guard trimmed != lastCommittedDeviceName else {
                 return
             }
 
