@@ -81,6 +81,17 @@ public struct MainView: View {
             // Consume any pending menu bar selection that was set before this view appeared
             applyPendingMenuBarSelection()
         }
+        .task {
+            // Periodically rescan configured folders so newly created Claude
+            // projects show up without requiring an app restart. Runs silently
+            // (no loading indicator) so the New Session popover doesn't flicker
+            // while a user is browsing the list.
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard !Task.isCancelled else { break }
+                await loadProjects(showLoadingIndicator: false)
+            }
+        }
         .onChange(of: settings.additionalClaudeFolders) {
             Task { await loadProjects() }
         }
@@ -1527,10 +1538,14 @@ public struct MainView: View {
 
     // MARK: - New Session Actions
 
-    private func loadProjects() async {
-        isLoadingProjects = true
+    private func loadProjects(showLoadingIndicator: Bool = true) async {
+        if showLoadingIndicator {
+            isLoadingProjects = true
+        }
         projects = await coordinator.scanProjects()
-        isLoadingProjects = false
+        if showLoadingIndicator {
+            isLoadingProjects = false
+        }
     }
 
     /// Calculates optimal terminal dimensions based on available detail pane space.
