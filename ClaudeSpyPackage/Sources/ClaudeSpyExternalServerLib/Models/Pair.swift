@@ -1,15 +1,16 @@
 import Foundation
 
 /// Represents a paired host and viewer device
-struct Pair: Sendable, Codable {
+struct Pair: Codable {
     /// Unique identifier for this pairing
     let id: String
 
     /// Host device identifier
     let hostDeviceId: String
 
-    /// Host device display name
-    let hostDeviceName: String
+    /// Host device display name.
+    /// Mutable so the host can change its display name without re-pairing.
+    var hostDeviceName: String
 
     /// Host username (e.g., "john")
     var hostUsername: String
@@ -24,8 +25,10 @@ struct Pair: Sendable, Codable {
     /// Viewer device identifier
     let viewerDeviceId: String
 
-    /// Viewer device display name
-    let viewerDeviceName: String
+    /// Viewer device display name.
+    /// Mutable so the user can rename their iOS device on the iOS settings
+    /// screen and have the host pick up the new name without re-pairing.
+    var viewerDeviceName: String
 
     /// Viewer public key for E2EE (Base64-encoded)
     /// Mutable to allow key updates on reconnection

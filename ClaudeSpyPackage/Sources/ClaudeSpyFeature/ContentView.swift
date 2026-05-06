@@ -372,6 +372,21 @@
         @Environment(IOSSettings.self) private var settings
         @Environment(ViewerConnectionManager.self) private var connectionManager
 
+        /// In-flight edit buffer for the device name field. Synced to/from
+        /// `settings.deviceName` so the field shows the system name when no
+        /// custom name is set.
+        @State private var deviceNameDraft = ""
+
+        /// The device name that was committed to settings on the last edit.
+        /// Used to detect whether the user actually changed the name when the
+        /// field loses focus, so we only reconnect when something differs.
+        @State private var lastCommittedDeviceName = ""
+
+        /// Tracks focus on the device-name field so we can also commit when
+        /// the user dismisses the keyboard by tapping elsewhere — `onSubmit`
+        /// alone would silently discard the draft.
+        @FocusState private var deviceNameFieldFocused: Bool
+
         /// Available monospace fonts for terminal display
         static let availableFonts = [
             "Menlo",
@@ -413,6 +428,24 @@
                             }
                         }
                     }
+                }
+
+                // Device Name Section
+                Section {
+                    TextField(settings.systemDeviceName, text: $deviceNameDraft)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+                        .submitLabel(.done)
+                        .focused($deviceNameFieldFocused)
+                        .onSubmit { commitDeviceName() }
+                        .onChange(of: deviceNameFieldFocused) { _, isFocused in
+                            if !isFocused { commitDeviceName() }
+                        }
+                        .accessibilityIdentifier("device-name-field")
+                } header: {
+                    Text("Device Name")
+                } footer: {
+                    Text("Shown to the Macs you've paired with. Leave blank to use the system name (\(settings.systemDeviceName)).")
                 }
 
                 // Paired Hosts Section
@@ -519,8 +552,6 @@
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
-
-                    LabeledContent("Device Name", value: settings.deviceName)
                 }
 
                 // Why Gallager Section
@@ -553,6 +584,50 @@
                 }
             }
             .navigationTitle("Settings")
+            .onAppear {
+                deviceNameDraft = settings.customDeviceName ?? ""
+                lastCommittedDeviceName = deviceNameDraft
+            }
+            .onDisappear {
+                // SwiftUI tears down the view (and `@FocusState`) when the
+                // sheet dismisses, so `.onChange(of: deviceNameFieldFocused)`
+                // can't be relied on as the only commit trigger. Commit any
+                // pending edit here so closing the sheet preserves the name.
+                commitDeviceName()
+            }
+        }
+
+        /// Persist the edited device name and push the update to paired hosts.
+        ///
+        /// Treats whitespace-only input as "clear back to system name" by
+        /// storing `nil`, which makes `IOSSettings.deviceName` fall back to
+        /// `UIDevice.current.name`. To propagate the change to already-connected
+        /// hosts, disconnects and reconnects all of them — the new name rides
+        /// along on the next `RegisterViewerMessage`.
+        private func commitDeviceName() {
+            let trimmed = deviceNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed != lastCommittedDeviceName else {
+                return
+            }
+
+            settings.customDeviceName = trimmed.isEmpty ? nil : trimmed
+            lastCommittedDeviceName = trimmed
+
+            // Push the new name to any currently connected hosts by reconnecting.
+            guard
+                settings.isPaired,
+                let serverURL = URL(string: settings.externalServerURL)
+            else { return }
+
+            Task {
+                await connectionManager.disconnectAll()
+                await connectionManager.connectAll(
+                    pairedHosts: settings.pairedHosts,
+                    serverURL: serverURL,
+                    deviceId: settings.deviceId,
+                    deviceName: settings.deviceName
+                )
+            }
         }
 
         private var connectionStatusColor: Color {

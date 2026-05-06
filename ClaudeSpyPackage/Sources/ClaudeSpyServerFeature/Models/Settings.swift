@@ -84,8 +84,10 @@ public struct PairedViewer: Codable, Identifiable, Sendable, Hashable {
     /// Unique pair identifier (also serves as Identifiable id)
     public let id: String
 
-    /// Display name of the viewer
-    public let deviceName: String
+    /// Display name of the viewer.
+    /// Mutable so the viewer can rename their device on the iOS app and have
+    /// the host pick up the new name without re-pairing.
+    public var deviceName: String
 
     /// Partner's public key for E2EE (Base64-encoded)
     public let partnerPublicKey: String
