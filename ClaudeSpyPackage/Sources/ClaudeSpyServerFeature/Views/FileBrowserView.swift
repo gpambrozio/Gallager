@@ -514,6 +514,9 @@ struct FileBrowserView: View {
                             item: .constant(viewState.fileTree.root),
                             parent: .constant(nil),
                             viewState: viewState,
+                            linkLabel: { _, _, link in
+                                fileRowLabel(name: link.wrappedValue.url.lastPathComponent, itemId: link.wrappedValue.id)
+                            },
                             fileLabel: { cursor, _, proxy in
                                 fileRowLabel(name: cursor.name, itemId: proxy.id)
                             },

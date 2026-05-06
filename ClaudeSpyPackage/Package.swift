@@ -11,8 +11,8 @@ import PackageDescription
 /// Yams is Apple-only via GallagerCLI) — anything else here would be dead weight
 /// on the relay build.
 ///
-/// (ProjectNavigator 1.7.0 was the canary: it required Swift 6.2 while the
-/// jammy Docker image ships Swift 6.1, blocking `swift package resolve`.)
+/// (ProjectNavigator 1.7.0+ requires Swift 6.2 while the jammy Docker image
+/// ships Swift 6.1, blocking `swift package resolve` if included on Linux.)
 func macOnlyDependencies() -> [Package.Dependency] {
     #if os(macOS)
         return [
