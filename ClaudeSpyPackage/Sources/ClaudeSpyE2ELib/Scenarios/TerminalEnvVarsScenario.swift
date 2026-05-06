@@ -38,9 +38,11 @@ public enum TerminalEnvVarsScenario {
         Shortcut.tmuxClearAndSetPrompt(target: "${envPane}")
 
         // 4. Print the env vars we care about — both groups, sequentially.
-        //    `export` output format is shell-dependent (`export FOO='bar'` in
-        //    zsh, `declare -x FOO="bar"` in bash) so assertions match name +
-        //    value as separate substrings rather than `NAME=value` literally.
+        //    Assumes zsh (macOS default and the shell our wrapper resolves on
+        //    CI), where `export` without args prints raw `KEY=VALUE` lines —
+        //    no quoting, no `export ` prefix — so literal substring matches
+        //    work directly. bash would emit `declare -x KEY="VALUE"` which
+        //    would defeat the literal assertions below.
         Shortcut.tmuxRunCommand(target: "${envPane}", command: "export | grep TERM_")
         TestStep.wait(seconds: 1)
         Shortcut.tmuxRunCommand(
@@ -50,18 +52,16 @@ public enum TerminalEnvVarsScenario {
         TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "mac-env-vars-output")
 
-        // 5. Capture the pane and verify all 5 vars surfaced
+        // 5. Capture the pane and verify all 5 KEY=VALUE pairs surfaced
         TestStep.tmuxCapturePaneContent(target: "${envPane}", storeAs: "envOutput")
 
         // TERM_PROGRAM* (default-command wrapper path)
-        TestStep.assertStoredContains(key: "envOutput", substring: "TERM_PROGRAM")
-        TestStep.assertStoredContains(key: "envOutput", substring: "iTerm.app")
-        TestStep.assertStoredContains(key: "envOutput", substring: "TERM_PROGRAM_VERSION")
-        TestStep.assertStoredContains(key: "envOutput", substring: "3.6.6")
+        TestStep.assertStoredContains(key: "envOutput", substring: "TERM_PROGRAM=iTerm.app")
+        TestStep.assertStoredContains(key: "envOutput", substring: "TERM_PROGRAM_VERSION=3.6.6")
 
         // baseEnvironmentVars (tmux `-e` path)
-        TestStep.assertStoredContains(key: "envOutput", substring: "CLAUDE_CODE_NO_FLICKER")
-        TestStep.assertStoredContains(key: "envOutput", substring: "DISABLE_AUTO_UPDATE")
-        TestStep.assertStoredContains(key: "envOutput", substring: "DISABLE_UPDATE_PROMPT")
+        TestStep.assertStoredContains(key: "envOutput", substring: "CLAUDE_CODE_NO_FLICKER=1")
+        TestStep.assertStoredContains(key: "envOutput", substring: "DISABLE_AUTO_UPDATE=true")
+        TestStep.assertStoredContains(key: "envOutput", substring: "DISABLE_UPDATE_PROMPT=true")
     }
 }
