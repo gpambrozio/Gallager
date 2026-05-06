@@ -384,9 +384,20 @@ else
     fi
     ok "Simulator: ${_BOLD}$SIM_NAME${_RESET} ($SIM_UDID)"
 
+    # Build macOS targets contiguously so the Sparkle precompiled module stays
+    # consistent between consumers. Interleaving an iOS build between the macOS
+    # app and the E2E coordinator caused intermittent "header has been modified"
+    # PCM-cache failures because the iOS build path regenerates Sparkle's
+    # umbrella header.
     step "Building macOS app (ClaudeSpyServer)"
     xcodebuild "${XCODEBUILD_FLAGS[@]}" \
         -scheme ClaudeSpyServer \
+        -destination 'platform=macOS' \
+        build 2>&1 | xcsift --format toon --warnings --executable
+
+    step "Building E2E coordinator"
+    xcodebuild "${XCODEBUILD_FLAGS[@]}" \
+        -scheme ClaudeSpyE2E \
         -destination 'platform=macOS' \
         build 2>&1 | xcsift --format toon --warnings --executable
 
@@ -401,12 +412,6 @@ else
         -scheme ClaudeSpyE2EHost \
         -destination "id=$SIM_UDID" \
         build-for-testing 2>&1 | xcsift --format toon --warnings --executable
-
-    step "Building E2E coordinator"
-    xcodebuild "${XCODEBUILD_FLAGS[@]}" \
-        -scheme ClaudeSpyE2E \
-        -destination 'platform=macOS' \
-        build 2>&1 | xcsift --format toon --warnings --executable
 fi
 
 # =====================================================
