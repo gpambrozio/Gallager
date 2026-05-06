@@ -63,58 +63,66 @@ Multiple panes in the same session share one control client connection. The cont
 
 ### PipePaneReader (`ClaudeSpyServerFeature/Services/PipePaneReader.swift`)
 
-`actor` managing FIFO-based raw byte delivery from tmux `pipe-pane` for a single pane.
+`actor` managing FIFO-based raw byte delivery from tmux `pipe-pane` for a single pane. One reader instance lives for the pane's full lifetime — mirror toggling never restarts it.
 
 **Features:**
 - Creates per-pane FIFO (`/tmp/claudespy-pipe-<id>.fifo`)
 - Starts `pipe-pane -O "cat > fifo"` via control mode command
-- Reads raw PTY bytes, filtering only tmux `ESC k ... ESC \` title sequences
+- Reads raw PTY bytes, filtering tmux `ESC k ... ESC \` title sequences and parsing OSC 9/777/9;4/0/2/52 events
 - AsyncStream + single consumer task for strict FIFO ordering
-- Supports buffering during initial capture (collects without delivering, then flushes)
+- Forwards events through a single `PipePaneReaderDelegate` (`@MainActor` protocol, one method per event type)
+
+**Three data-delivery modes:**
+- **`scanOnly`** (default after `startPipePane`): parser doesn't build `filteredData`, data bytes are discarded. OSC events still flow.
+- **`buffering`** (`setBuffering(true)`): bytes queued instead of forwarded. Used while a `capture-pane` snapshot is being taken.
+- **`live`** (`flushBuffer`): drains the queue to the delegate in order, then forwards subsequent bytes directly.
 
 **Lifecycle:**
-- `startPipePane(buffering:)` - create FIFO, send pipe-pane command, open for reading
-- `stopBufferingAndFlush()` - deliver buffered data and switch to live delivery
-- `stopPipePane()` - clean up FIFO, close file handle (must be called for cleanup)
-
-### PaneStream (`ClaudeSpyServerFeature/Services/PaneStream.swift`)
-
-`@Observable @MainActor` class managing streaming to a single pane.
-
-**States:** `disconnected` → `connecting` → `connected` | `error`
-
-**Data Flow:**
-```
-tmux PTY ──pipe-pane──→ FIFO ──→ PipePaneReader ──→ PaneStream.onData
-                                                            ↓
-                                                   subscriber callbacks
-
-TmuxControlClient ──%layout-change──→ dimension change callback
-```
-
-**Connection Flow:**
-1. Start PipePaneReader with buffering (raw bytes collected but not delivered)
-2. Capture initial state via control mode (`capture-pane` through `TmuxControlClientManager`)
-3. Flush buffered pipe-pane data (switch to live delivery)
-
-**Features:** Initial content capture via control mode, live data via pipe-pane, dimension tracking via control mode events
+- `setDelegate(_:)` - attach the delegate that receives data + OSC events
+- `startPipePane(controlClientManager:sessionName:)` - create FIFO, send pipe-pane command, open for reading. Reader starts in scan-only mode
+- `setBuffering(_:)` - flip into buffering mode (bytes queued) or back to scan-only mode (queue dropped, bytes discarded)
+- `flushBuffer()` - drain the queue through the delegate and switch to live mode
+- `stopPipePane()` - clean up FIFO, close file handle (called when the pane disappears)
 
 ### PaneStreamManager (`ClaudeSpyServerFeature/Services/PaneStreamManager.swift`)
 
-`@Observable @MainActor` multiplexing streams to multiple subscribers.
+`@Observable @MainActor` owning one `PipePaneReader` per known pane and multiplexing its events to subscribers. Conforms to `PipePaneReaderDelegate`, so all event wiring lives in one place.
 
-**Subscription Model:**
-- Multiple consumers (mirror windows, TerminalStreamService) subscribe to the same pane
-- Single PaneStream per pane, shared by all subscribers
-- Returns `SubscriptionResult` with initial content captured atomically with subscription
-- Stream auto-disconnects when last subscriber unsubscribes
+**Per-pane lifecycle:**
+- New pane discovered → `startReader` creates a `PipePaneReader`, attaches the manager as delegate, calls `startPipePane()` (scan-only mode)
+- Pane disappears → `tearDownReader` calls `stopPipePane`, unregisters dimensions, drops the entry
+
+**Data Flow:**
+```
+tmux PTY ──pipe-pane──→ FIFO ──→ PipePaneReader ──→ PipePaneReaderDelegate
+                                                            ↓
+                                                   subscriber callbacks
+
+TmuxControlClient ──%layout-change──→ updateDimensions → subscriber onDimensionChange
+```
+
+**Subscribe flow (first subscriber on a pane):**
+1. `setBuffering(true)` — start retaining live bytes
+2. Refresh dimensions via `tmuxService.getPaneDimensions`, register pane for control-mode dimension tracking
+3. `capture-pane` snapshot via control mode
+4. Add subscriber to the reader's context
+5. `flushBuffer()` — buffered bytes flow through `didReceiveData` → `forwardData` → subscriber's `onData`. Subsequent bytes flow live.
+
+**Unsubscribe flow (last subscriber leaves):**
+- `setBuffering(false)` returns the reader to scan-only mode. The reader stays attached to the FIFO so OSC events keep flowing for desktop notifications + sidebar UI.
 
 **Methods:**
-- `subscribe(paneId:target:onData:onDimensionChange:)` - subscribe with callbacks
-- `unsubscribe(_:)` - remove subscription (disconnects stream if last)
+- `startMonitoring(panes:)` - create readers for all initial panes (called once on startup)
+- `updateMonitoring(panes:)` - tear down readers for dead panes, start readers for new panes (called on periodic refresh and on `%session-changed`)
+- `subscribe(paneId:target:onData:onDimensionChange:onTitleChange:onNotification:onClipboard:)` - subscribe with callbacks
+- `unsubscribe(_:)` - remove subscription (returns reader to scan-only if last)
 - `currentContent(for:)` - capture current terminal content without subscribing (for multi-device initial state)
 - `updateDimensions(paneId:width:height:)` - propagate dimension changes
+- `reportTitleChange(paneId:title:fromSubscription:)` - forward a title detected by a subscriber's SwiftTerm to other subscribers
+- `mouseModeSequences(for:)` - DEC private mode escape sequences for the pane's current mouse tracking mode
 - `disconnectAll()` - shutdown cleanup
+
+**Internal state:** A single `readers: [String: ReaderContext]` dictionary keyed by paneId. Each context holds the reader, target, sessionName, dimensions, subscriber UUIDs, and the latest known title.
 
 ### MirrorWindowManager (`ClaudeSpyServerFeature/Managers/MirrorWindowManager.swift`)
 
