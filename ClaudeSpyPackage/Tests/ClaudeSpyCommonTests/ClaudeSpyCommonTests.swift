@@ -393,3 +393,66 @@ struct IsTerminalResponseTests {
         #expect(!TerminalResponseFilter.isTerminalResponse(data[...]))
     }
 }
+
+// MARK: - TerminalURLDetector
+
+@Suite("TerminalURLDetector regex detection")
+struct TerminalURLDetectorRegexTests {
+    @Test("Detects a simple plain-text URL surrounded by spaces")
+    func detectsPlainURL() {
+        let line = "see https://example.com for details"
+        let urls = TerminalURLDetector.detectURLs(row: 0) { $0 == 0 ? line : nil }
+
+        #expect(urls.count == 1)
+        #expect(urls.first?.url == "https://example.com")
+        #expect(urls.first?.startCol == 4)
+        #expect(urls.first?.endCol == 4 + "https://example.com".utf16.count)
+    }
+
+    @Test("Stops URL match at NULL char from uninitialized terminal cells (issue #462)")
+    func urlStopsAtNullChar() {
+        // Reproduces issue #462: when a shell prompt theme writes right-aligned
+        // content (e.g. exit code) via cursor positioning, the cells between
+        // the typed URL and the right-aligned text are never written. SwiftTerm's
+        // `BufferLine.translateToString` returns NULL chars (`\u{0}`, from
+        // CharData.code == 0) for those cells. The URL regex must treat NULL
+        // as a terminator — otherwise the match runs past the URL into the
+        // right-aligned content, painting the underline across the whole line.
+        let line = "$ git clone http://github.com/idonotexist/repo\u{0}\u{0}\u{0}\u{0}\u{0}130"
+        let urls = TerminalURLDetector.detectURLs(row: 0) { $0 == 0 ? line : nil }
+
+        #expect(urls.count == 1)
+        #expect(urls.first?.url == "http://github.com/idonotexist/repo")
+        let prefixCount = "$ git clone ".utf16.count
+        let urlCount = "http://github.com/idonotexist/repo".utf16.count
+        #expect(urls.first?.startCol == prefixCount)
+        #expect(urls.first?.endCol == prefixCount + urlCount)
+    }
+
+    @Test("Stops URL match at any control character")
+    func urlStopsAtControlChars() {
+        // Cells written with literal control chars (rare but possible — e.g.
+        // `cat -v` style output) should also terminate URL matching. Test a
+        // representative sampling: SOH, BEL, BS, ESC, DEL.
+        for control in ["\u{1}", "\u{7}", "\u{8}", "\u{1B}", "\u{7F}"] {
+            let line = "x http://example.com\(control)trailing"
+            let urls = TerminalURLDetector.detectURLs(row: 0) { $0 == 0 ? line : nil }
+
+            #expect(urls.count == 1, "Failed for control char \\u{\(String(control.unicodeScalars.first!.value, radix: 16))}")
+            #expect(urls.first?.url == "http://example.com")
+        }
+    }
+
+    @Test("Allows tabs and existing whitespace to terminate URLs (regression check)")
+    func urlStopsAtTabAndSpace() {
+        let withTab = "x http://example.com\tfollowing"
+        let urlsTab = TerminalURLDetector.detectURLs(row: 0) { $0 == 0 ? withTab : nil }
+        #expect(urlsTab.count == 1)
+        #expect(urlsTab.first?.url == "http://example.com")
+
+        let withSpace = "x http://example.com following"
+        let urlsSpace = TerminalURLDetector.detectURLs(row: 0) { $0 == 0 ? withSpace : nil }
+        #expect(urlsSpace.count == 1)
+        #expect(urlsSpace.first?.url == "http://example.com")
+    }
+}
