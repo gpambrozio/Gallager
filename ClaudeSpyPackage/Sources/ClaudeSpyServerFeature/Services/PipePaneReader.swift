@@ -4,7 +4,29 @@
     import Foundation
     import Logging
 
+    /// Receives events parsed by `PipePaneReader`.
+    ///
+    /// All methods are called on the main actor; the reader awaits each call so
+    /// events are delivered in strict FIFO order with respect to the underlying
+    /// pipe-pane stream.
+    @MainActor
+    protocol PipePaneReaderDelegate: AnyObject, Sendable {
+        func pipePaneReader(_ paneId: String, didReceiveData data: Data)
+        func pipePaneReader(
+            _ paneId: String,
+            didReceiveNotification notification: TerminalStreamMessage.TerminalNotification
+        )
+        func pipePaneReader(_ paneId: String, didReceiveTitle title: String)
+        func pipePaneReader(_ paneId: String, didReceiveClipboard content: String)
+        func pipePaneReader(_ paneId: String, didReceiveProgress progress: TerminalProgressState)
+    }
+
     /// Manages FIFO-based raw byte delivery from tmux pipe-pane for a single pane.
+    ///
+    /// A single `PipePaneReader` lives for the full lifetime of its tmux pane.
+    /// It starts in scan-only mode (data discarded, OSC notifications still
+    /// extracted) and switches into buffering / live modes via
+    /// `setBuffering(_:)` and `flushBuffer()` when subscribers attach.
     ///
     /// Instead of parsing `%output` events from control mode (which requires octal unescaping,
     /// UTF-8 reconstruction, and line-boundary handling), this reads raw PTY bytes directly
@@ -17,7 +39,24 @@
     /// 3. tmux starts `cat > fifo` subprocess (blocks on open until reader connects)
     /// 4. Open FIFO for reading (unblocks writer, data flows)
     actor PipePaneReader {
-        private let paneId: String
+        /// Three data-delivery modes the reader can be in.
+        ///
+        /// - `scanOnly`: parser is in scan-only mode (no `filteredData` built),
+        ///   incoming bytes are discarded. OSC notification/title/clipboard/progress
+        ///   events still flow to the delegate. This is the default after start
+        ///   and the resting state when no subscribers are attached.
+        /// - `buffering`: parser builds `filteredData`, but bytes are queued
+        ///   for a later `flushBuffer()` instead of being forwarded. Used during
+        ///   an initial `capture-pane` snapshot so live bytes that arrive
+        ///   between "buffering on" and "snapshot taken" aren't dropped.
+        /// - `live`: parser builds `filteredData` and bytes flow directly to the
+        ///   delegate. The state after `flushBuffer()` returns.
+        private enum Mode { case scanOnly, buffering, live }
+
+        /// `paneId` never changes after init; expose nonisolated so the delegate
+        /// (which receives the id with every callback) doesn't need to cross
+        /// actor boundaries to read it.
+        nonisolated let paneId: String
         private let logger: Logger
 
         // FIFO state
@@ -25,12 +64,10 @@
         private var fileHandle: FileHandle?
         private var isRunning = false
 
-        // Data delivery
-        private var dataHandler: (@Sendable (Data) -> Void)?
-        private var notificationHandler: (@Sendable (TerminalStreamMessage.TerminalNotification) -> Void)?
-        private var titleChangeHandler: (@Sendable (String) -> Void)?
-        private var clipboardHandler: (@Sendable (String) -> Void)?
-        private var progressHandler: (@Sendable (TerminalProgressState) -> Void)?
+        // Delivery
+        private weak var delegate: (any PipePaneReaderDelegate)?
+        private var mode: Mode = .scanOnly
+        private var buffer: [Data] = []
 
         // AsyncStream for FIFO-ordered data processing.
         // readabilityHandler yields into this stream; a single consumer task
@@ -39,18 +76,14 @@
         private var dataContinuation: AsyncStream<Data>.Continuation?
         private var consumerTask: Task<Void, Never>?
 
-        // Buffering during initial capture
-        private var isBuffering = false
-        private var buffer: [Data] = []
-
         // Incomplete tmux escape sequence buffer (ESC k ... ESC \ split across reads)
         private var tmuxEscapeBuffer = Data()
 
-        // Parser for OSC 9/777 notification sequences
-        private var notificationParser: TerminalNotificationParser
+        // Parser for OSC 9/777 notification sequences. `scanOnly` is flipped
+        // by `setBuffering(_:)` so the same instance can be reused across modes.
+        private var notificationParser = TerminalNotificationParser(scanOnly: true)
 
-        init(paneId: String, scanOnly: Bool = false) {
-            self.notificationParser = TerminalNotificationParser(scanOnly: scanOnly)
+        init(paneId: String) {
             self.paneId = paneId
             self.logger = Logger(label: "com.claudespy.pipepane.\(paneId)")
 
@@ -66,47 +99,31 @@
 
         // MARK: - Public API
 
-        /// Sets the handler for incoming raw data.
-        func setDataHandler(_ handler: @escaping @Sendable (Data) -> Void) {
-            dataHandler = handler
-        }
-
-        /// Sets the handler for terminal notifications (OSC 9/777).
-        func setNotificationHandler(_ handler: @escaping @Sendable (TerminalStreamMessage.TerminalNotification) -> Void) {
-            notificationHandler = handler
-        }
-
-        /// Sets the handler for terminal title changes (OSC 0/2).
-        func setTitleChangeHandler(_ handler: @escaping @Sendable (String) -> Void) {
-            titleChangeHandler = handler
-        }
-
-        /// Sets the handler for clipboard content (OSC 52).
-        func setClipboardHandler(_ handler: @escaping @Sendable (String) -> Void) {
-            clipboardHandler = handler
-        }
-
-        /// Sets the handler for progress updates (OSC 9;4).
-        func setProgressHandler(_ handler: @escaping @Sendable (TerminalProgressState) -> Void) {
-            progressHandler = handler
+        /// Sets the delegate that receives parsed events. Stored weakly; the
+        /// delegate must outlive the reader.
+        func setDelegate(_ delegate: (any PipePaneReaderDelegate)?) {
+            self.delegate = delegate
         }
 
         /// Starts pipe-pane for this pane, creating the FIFO and opening it for reading.
         ///
+        /// The reader begins in scan-only mode — bytes are parsed for OSC events
+        /// but discarded otherwise. Use `setBuffering(true)` + `flushBuffer()`
+        /// when a subscriber attaches and wants live bytes.
+        ///
         /// - Parameter controlClientManager: Used to send the pipe-pane command
         /// - Parameter sessionName: The tmux session name for the control client
-        /// - Parameter buffering: If true, data is buffered until `stopBufferingAndFlush()` is called
         func startPipePane(
             controlClientManager: TmuxControlClientManager,
-            sessionName: String,
-            buffering: Bool = true
+            sessionName: String
         ) async throws {
             guard !isRunning else {
                 logger.warning("pipe-pane already running for \(paneId)")
                 return
             }
 
-            isBuffering = buffering
+            mode = .scanOnly
+            notificationParser.scanOnly = true
             buffer = []
 
             // Clean up any stale FIFO from a previous crash
@@ -167,7 +184,7 @@
 
             // Note: readabilityHandler captures `continuation` strongly, so the handler
             // keeps yielding if PipePaneReader is deallocated without stopPipePane().
-            // Callers MUST call stopPipePane() to clean up — see PaneStream.disconnect().
+            // Callers MUST call stopPipePane() to clean up — see PaneStreamManager.
             let fd = handle.fileDescriptor
             handle.readabilityHandler = { [weak self] _ in
                 // Read directly from the file descriptor to avoid NSFileHandle's
@@ -197,19 +214,42 @@
             logger.info("pipe-pane started for \(paneId)")
         }
 
-        /// Stops buffering and flushes all buffered data to the handler.
-        func stopBufferingAndFlush() {
-            guard isBuffering else { return }
-            isBuffering = false
-
-            let bufferedData = buffer
+        /// Switches data-delivery mode.
+        ///
+        /// - `true`: Switch to buffering mode. The parser starts building
+        ///   `filteredData` and incoming bytes are queued instead of forwarded
+        ///   to the delegate. Drop any prior buffered bytes first — buffering
+        ///   is meant to start clean before a `capture-pane` snapshot.
+        /// - `false`: Switch back to scan-only mode. The parser stops building
+        ///   `filteredData`, the queue is discarded, and only OSC events keep
+        ///   flowing. Call when the last subscriber leaves.
+        ///
+        /// Use `flushBuffer()` to drain the queue and transition into live mode
+        /// (bytes flow directly to the delegate).
+        func setBuffering(_ enabled: Bool) {
             buffer = []
-
-            for data in bufferedData {
-                dataHandler?(data)
+            if enabled {
+                notificationParser.scanOnly = false
+                mode = .buffering
+            } else {
+                notificationParser.scanOnly = true
+                mode = .scanOnly
             }
+        }
 
-            logger.debug("Flushed \(bufferedData.count) buffered chunks for \(paneId)")
+        /// Drains any queued bytes through the delegate in the order they were
+        /// received, then transitions to live mode (subsequent bytes flow
+        /// directly to the delegate). The buffer is empty after this call.
+        func flushBuffer() async {
+            let toFlush = buffer
+            buffer = []
+            mode = .live
+            notificationParser.scanOnly = false
+            let count = toFlush.count
+            for chunk in toFlush {
+                await delegate?.pipePaneReader(paneId, didReceiveData: chunk)
+            }
+            logger.debug("Flushed \(count) buffered chunks for \(paneId)")
         }
 
         /// Stops pipe-pane and cleans up all resources.
@@ -243,22 +283,19 @@
             cleanupFifo()
 
             isRunning = false
-            isBuffering = false
+            mode = .scanOnly
             buffer = []
             tmuxEscapeBuffer = Data()
             notificationParser.reset()
-            dataHandler = nil
-            notificationHandler = nil
-            titleChangeHandler = nil
-            clipboardHandler = nil
-            progressHandler = nil
+            notificationParser.scanOnly = true
+            delegate = nil
 
             logger.info("pipe-pane stopped for \(paneId)")
         }
 
         // MARK: - Data Processing
 
-        private func processIncomingData(_ data: Data) {
+        private func processIncomingData(_ data: Data) async {
             // Filter tmux-specific escape sequences (ESC k ... ESC \)
             let tmuxFiltered = filterTmuxEscapeSequences(data)
             guard !tmuxFiltered.isEmpty else { return }
@@ -278,31 +315,36 @@
 
             // Report any detected notifications
             for notification in parseResult.notifications {
-                notificationHandler?(notification)
+                await delegate?.pipePaneReader(paneId, didReceiveNotification: notification)
             }
 
             // Report title changes (OSC 0/2)
             if let title = parseResult.titleChange {
-                titleChangeHandler?(title)
+                await delegate?.pipePaneReader(paneId, didReceiveTitle: title)
             }
 
             // Report clipboard content (OSC 52)
             if let clipboardContent = parseResult.clipboardContent {
-                clipboardHandler?(clipboardContent)
+                await delegate?.pipePaneReader(paneId, didReceiveClipboard: clipboardContent)
             }
 
             // Report progress updates (OSC 9;4)
             if let progressUpdate = parseResult.progressUpdate {
-                progressHandler?(progressUpdate)
+                await delegate?.pipePaneReader(paneId, didReceiveProgress: progressUpdate)
             }
 
             let filtered = parseResult.filteredData
             guard !filtered.isEmpty else { return }
 
-            if isBuffering {
+            switch mode {
+            case .scanOnly:
+                // Parser was in scanOnly mode so filteredData should already be empty;
+                // defensive drop in case mode changed mid-chunk.
+                break
+            case .buffering:
                 buffer.append(filtered)
-            } else {
-                dataHandler?(filtered)
+            case .live:
+                await delegate?.pipePaneReader(paneId, didReceiveData: filtered)
             }
         }
 
@@ -382,8 +424,8 @@
         }
 
         /// Exposes processIncomingData for testing.
-        func testProcessIncomingData(_ data: Data) {
-            processIncomingData(data)
+        func testProcessIncomingData(_ data: Data) async {
+            await processIncomingData(data)
         }
 
         /// Exposes fifoPath for testing.
@@ -391,19 +433,11 @@
             fifoPath
         }
 
-        /// Sets buffering state for testing.
-        func testSetBuffering(_ enabled: Bool) {
-            isBuffering = enabled
-            if enabled {
-                buffer = []
-            }
-        }
-
         // MARK: - Lifecycle
 
         private func handleEOF() {
             logger.warning("EOF on pipe-pane FIFO for \(paneId) — cat process may have died")
-            // Don't clean up here — the caller (PaneStream) should handle reconnection
+            // Don't clean up here — the caller (PaneStreamManager) should handle reconnection
             // or cleanup via stopPipePane()
             fileHandle?.readabilityHandler = nil
         }

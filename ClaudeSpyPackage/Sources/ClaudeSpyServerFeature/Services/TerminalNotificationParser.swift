@@ -42,7 +42,9 @@
         private static let maxBufferSize = 8_192
 
         /// When true, skips building filtered output data — only extracts notifications.
-        let scanOnly: Bool
+        /// Mutable so a long-lived parser can flip between modes without being rebuilt
+        /// (e.g. when a pane gains its first subscriber and starts forwarding bytes).
+        var scanOnly: Bool
 
         /// Buffer for incomplete OSC sequences split across reads
         private var oscBuffer = Data()

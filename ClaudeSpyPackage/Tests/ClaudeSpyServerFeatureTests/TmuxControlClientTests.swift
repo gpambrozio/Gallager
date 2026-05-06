@@ -1,7 +1,47 @@
 #if os(macOS)
+    import ClaudeSpyNetworking
     import Foundation
     import Testing
     @testable import ClaudeSpyServerFeature
+
+    /// Captures every event a `PipePaneReader` emits so tests can assert on the
+    /// exact stream the delegate sees. Lives on the main actor (matching the
+    /// `PipePaneReaderDelegate` isolation).
+    @MainActor
+    final private class CapturingDelegate: PipePaneReaderDelegate {
+        var data: [Data] = []
+        var notifications: [TerminalStreamMessage.TerminalNotification] = []
+        var titles: [String] = []
+        var clipboards: [String] = []
+        var progress: [TerminalProgressState] = []
+
+        func pipePaneReader(_ paneId: String, didReceiveData data: Data) {
+            self.data.append(data)
+        }
+
+        func pipePaneReader(
+            _ paneId: String,
+            didReceiveNotification notification: TerminalStreamMessage.TerminalNotification
+        ) {
+            notifications.append(notification)
+        }
+
+        func pipePaneReader(_ paneId: String, didReceiveTitle title: String) {
+            titles.append(title)
+        }
+
+        func pipePaneReader(_ paneId: String, didReceiveClipboard content: String) {
+            clipboards.append(content)
+        }
+
+        func pipePaneReader(_ paneId: String, didReceiveProgress progress: TerminalProgressState) {
+            self.progress.append(progress)
+        }
+
+        var concatenatedData: Data {
+            data.reduce(Data()) { $0 + $1 }
+        }
+    }
 
     @Suite("TmuxControlClient Tests")
     struct TmuxControlClientTests {
@@ -220,21 +260,6 @@
     struct PipePaneReaderTests {
         @Suite("Tmux Escape Filtering")
         struct TmuxEscapeFilteringTests {
-            /// Helper to run filterTmuxEscapeSequences by feeding data through the reader
-            private func filterData(_ data: Data) async -> Data {
-                let reader = PipePaneReader(paneId: "%0")
-                nonisolated(unsafe) var received = [Data]()
-                await reader.setDataHandler { received.append($0) }
-
-                // Feed data through the reader's processing by simulating pipe-pane delivery
-                // We use a direct approach: test the filtering via the actor's internal method
-                // by starting pipe-pane with buffering, then flushing
-                await reader.testProcessIncomingData(data)
-                await reader.stopBufferingAndFlush()
-
-                return received.reduce(Data()) { $0 + $1 }
-            }
-
             @Test("Regular data passes through unchanged")
             func regularData() async {
                 let reader = PipePaneReader(paneId: "%0")
@@ -312,33 +337,92 @@
         }
 
         @Suite("Buffering")
+        @MainActor
         struct BufferingTests {
-            @Test("Data is buffered when buffering is enabled")
-            func dataBuffered() async {
+            @Test("setBuffering(true) → bytes arrive → flushBuffer() delivers them in order")
+            func bufferedBytesFlushedInOrder() async {
                 let reader = PipePaneReader(paneId: "%0")
-                nonisolated(unsafe) var received = [Data]()
-                await reader.setDataHandler { received.append($0) }
+                let delegate = CapturingDelegate()
+                await reader.setDelegate(delegate)
 
-                // Enable buffering and process data
-                await reader.testSetBuffering(true)
-                await reader.testProcessIncomingData(Data("hello".utf8))
-                #expect(received.isEmpty)
+                await reader.setBuffering(true)
+                await reader.testProcessIncomingData(Data("first ".utf8))
+                await reader.testProcessIncomingData(Data("second ".utf8))
+                await reader.testProcessIncomingData(Data("third".utf8))
 
-                // Flush
-                await reader.stopBufferingAndFlush()
-                #expect(received.count == 1)
-                #expect(String(data: received[0], encoding: .utf8) == "hello")
+                #expect(delegate.data.isEmpty, "Buffered bytes must not reach delegate before flush")
+
+                await reader.flushBuffer()
+
+                #expect(delegate.data.count == 3)
+                let combined = String(data: delegate.concatenatedData, encoding: .utf8)
+                #expect(combined == "first second third")
             }
 
-            @Test("Data is delivered immediately when not buffering")
-            func dataImmediate() async {
+            @Test("setBuffering(false) stops Data delivery but keeps OSC events flowing")
+            func scanOnlyStillEmitsOSC() async {
                 let reader = PipePaneReader(paneId: "%0")
-                nonisolated(unsafe) var received = [Data]()
-                await reader.setDataHandler { received.append($0) }
+                let delegate = CapturingDelegate()
+                await reader.setDelegate(delegate)
 
-                await reader.testSetBuffering(false)
-                await reader.testProcessIncomingData(Data("hello".utf8))
-                #expect(received.count == 1)
+                // Default mode after creation is scan-only — explicit toggle just
+                // mirrors what the manager does on last-unsubscribe.
+                await reader.setBuffering(false)
+
+                // OSC 9 notification + plain text in one chunk.
+                var input = Data()
+                input.append(contentsOf: "before".utf8)
+                input.append(0x1B) // ESC
+                input.append(0x5D) // ]
+                input.append(contentsOf: "9;hello".utf8)
+                input.append(0x07) // BEL
+                input.append(contentsOf: "after".utf8)
+
+                await reader.testProcessIncomingData(input)
+
+                #expect(delegate.data.isEmpty, "Scan-only mode must not deliver data bytes")
+                #expect(delegate.notifications.count == 1, "OSC 9 notification must still flow")
+            }
+
+            @Test("flushBuffer transitions to live: subsequent bytes flow directly")
+            func flushTransitionsToLive() async {
+                let reader = PipePaneReader(paneId: "%0")
+                let delegate = CapturingDelegate()
+                await reader.setDelegate(delegate)
+
+                await reader.setBuffering(true)
+                await reader.testProcessIncomingData(Data("buffered".utf8))
+                await reader.flushBuffer()
+
+                #expect(delegate.data.count == 1)
+
+                // Live mode: bytes go straight to the delegate, in the same order
+                // relative to the previously buffered chunk.
+                await reader.testProcessIncomingData(Data(" live".utf8))
+                #expect(delegate.data.count == 2)
+                let combined = String(data: delegate.concatenatedData, encoding: .utf8)
+                #expect(combined == "buffered live")
+            }
+
+            @Test("Toggling buffering on→off→on starts a fresh buffer (off drops queue)")
+            func togglingBufferingDropsQueueOnDisable() async {
+                let reader = PipePaneReader(paneId: "%0")
+                let delegate = CapturingDelegate()
+                await reader.setDelegate(delegate)
+
+                await reader.setBuffering(true)
+                await reader.testProcessIncomingData(Data("dropped".utf8))
+
+                // Manager calls setBuffering(false) when the last subscriber leaves;
+                // any bytes that hadn't been flushed are intentionally discarded.
+                await reader.setBuffering(false)
+
+                // Re-enable buffering and confirm the queue starts fresh.
+                await reader.setBuffering(true)
+                await reader.testProcessIncomingData(Data("kept".utf8))
+                await reader.flushBuffer()
+                #expect(delegate.data.count == 1)
+                #expect(String(data: delegate.data[0], encoding: .utf8) == "kept")
             }
         }
     }

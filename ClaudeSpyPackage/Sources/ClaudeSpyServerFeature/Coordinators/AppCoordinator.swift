@@ -921,7 +921,7 @@
             let initialPanes = await tmuxService.refreshPanes()
             windowManager.updatePaneStates(from: initialPanes)
             await windowManager.refreshGitBranches()
-            await paneStreamManager.startNotificationMonitoring(panes: initialPanes)
+            await paneStreamManager.startMonitoring(panes: initialPanes)
             paneStreamManager.startPeriodicPaneRefresh(tmuxService: tmuxService)
 
             // Detect Claude Code instances already running in tmux panes
@@ -944,7 +944,7 @@
                     let panes = await tmuxForCleanup.refreshPanes()
                     winManager.updatePaneStates(from: panes)
                     await terminalStreaming.stopStreamsForClosedPanes(currentPanes: panes)
-                    await paneStreaming.updateNotificationMonitoring(panes: panes)
+                    await paneStreaming.updateMonitoring(panes: panes)
                     self?.updateSleepPrevention()
                 }
             }
