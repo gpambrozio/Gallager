@@ -64,51 +64,59 @@
         // MARK: - Sections
 
         private var codeInputSection: some View {
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    ForEach(0..<codeLength, id: \.self) { index in
-                        codeDigitView(at: index)
+            VStack(spacing: 16) {
+                // The digit cells + hidden text field share a tap target so
+                // tapping anywhere on the row focuses the field. The
+                // PasteButton sits outside this group so its taps aren't
+                // swallowed by the focus gesture.
+                VStack(spacing: 8) {
+                    HStack(spacing: 8) {
+                        ForEach(0..<codeLength, id: \.self) { index in
+                            codeDigitView(at: index)
+                        }
                     }
+
+                    // Hidden text field for input
+                    TextField("", text: $pairingCode)
+                        .keyboardType(.asciiCapable)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                        .focused($isInputFocused)
+                        .frame(width: 1, height: 1)
+                        .opacity(0.01)
+                        .onChange(of: pairingCode) { _, newValue in
+                            // Filter to letters only and limit length
+                            let filtered = newValue
+                                .uppercased()
+                                .filter { $0.isLetter }
+                                .prefix(codeLength)
+                            pairingCode = String(filtered)
+
+                            // Clear error when typing
+                            if errorMessage != nil {
+                                errorMessage = nil
+                            }
+
+                            // Auto-pair when code is complete
+                            if pairingCode.count == codeLength, !isLoading {
+                                Task {
+                                    await performPairing()
+                                }
+                            }
+                        }
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    isInputFocused = true
                 }
 
                 PasteButton(payloadType: String.self) { strings in
-                    applyPastedString(strings.first)
+                    Task { @MainActor in
+                        applyPastedString(strings.first)
+                    }
                 }
                 .buttonBorderShape(.capsule)
                 .labelStyle(.titleAndIcon)
-
-                // Hidden text field for input
-                TextField("", text: $pairingCode)
-                    .keyboardType(.asciiCapable)
-                    .textInputAutocapitalization(.characters)
-                    .autocorrectionDisabled()
-                    .focused($isInputFocused)
-                    .frame(width: 1, height: 1)
-                    .opacity(0.01)
-                    .onChange(of: pairingCode) { _, newValue in
-                        // Filter to letters only and limit length
-                        let filtered = newValue
-                            .uppercased()
-                            .filter { $0.isLetter }
-                            .prefix(codeLength)
-                        pairingCode = String(filtered)
-
-                        // Clear error when typing
-                        if errorMessage != nil {
-                            errorMessage = nil
-                        }
-
-                        // Auto-pair when code is complete
-                        if pairingCode.count == codeLength, !isLoading {
-                            Task {
-                                await performPairing()
-                            }
-                        }
-                    }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                isInputFocused = true
             }
             .onAppear {
                 // Auto-focus on appear
