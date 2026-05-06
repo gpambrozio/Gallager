@@ -50,6 +50,9 @@
         /// Callback for clipboard content (OSC 52)
         var onClipboard: (@MainActor (String) -> Void)?
 
+        /// Callback for progress updates (OSC 9;4)
+        var onProgress: (@MainActor (TerminalProgressState) -> Void)?
+
         /// Number of lines in scrollback
         private(set) var scrollbackLines = 0
 
@@ -132,6 +135,16 @@
                 await reader.setClipboardHandler { [weak self] content in
                     Task { @MainActor [weak self] in
                         self?.onClipboard?(content)
+                    }
+                }
+
+                // Set up progress handler for OSC 9;4 sequences. Without this,
+                // progress updates from the mirrored pane are parsed but dropped
+                // on the floor, freezing the sidebar bar at whatever value was
+                // last seen before the mirror switch.
+                await reader.setProgressHandler { [weak self] progress in
+                    Task { @MainActor [weak self] in
+                        self?.onProgress?(progress)
                     }
                 }
 
