@@ -248,6 +248,84 @@ func sessionSetColorRejectsUnknownValue() async {
     #expect(response.error?.code == "invalid_params")
 }
 
+// MARK: - session.set_emoji
+
+@Test
+func sessionSetEmojiListedInCapabilities() async {
+    let router = LiveAPIRequestRouter()
+    let request = JSONRPCRequest(id: "set-emoji-cap", method: "system.capabilities", params: [:])
+    let response = await router.handleRequest(request)
+    if case let .array(methods) = response.result?["methods"] {
+        let names = methods.compactMap(\.stringValue)
+        #expect(names.contains("session.set_emoji"))
+    } else {
+        Issue.record("Expected methods array")
+    }
+}
+
+@Test
+func sessionSetEmojiRejectsWhenCallbackMissing() async {
+    let router = LiveAPIRequestRouter()
+    let request = JSONRPCRequest(id: "set-emoji-1", method: "session.set_emoji", params: [
+        "emoji": .string("🚀"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == false)
+    #expect(response.error?.code == "internal_error")
+}
+
+@Test
+func sessionSetEmojiForwardsValueAndSession() async {
+    let received = LockedValue<(String?, String?, String?)>((nil, nil, nil))
+    let router = LiveAPIRequestRouter(
+        onSessionSetEmoji: { emoji, sessionId, paneId in
+            await received.set((emoji, sessionId, paneId))
+        }
+    )
+    let request = JSONRPCRequest(id: "set-emoji-2", method: "session.set_emoji", params: [
+        "emoji": .string("🚀"),
+        "session_id": .string("workers"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == true)
+    let (emoji, sessionId, _) = await received.get()
+    #expect(emoji == "🚀")
+    #expect(sessionId == "workers")
+}
+
+@Test
+func sessionSetEmojiAllowsOmittingEmojiToClear() async {
+    let received = LockedValue<String?>("🚀")
+    let router = LiveAPIRequestRouter(
+        onSessionSetEmoji: { emoji, _, _ in
+            await received.set(emoji)
+        }
+    )
+    let request = JSONRPCRequest(id: "set-emoji-3", method: "session.set_emoji", params: [
+        "session_id": .string("foo"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == true)
+    #expect(await received.get() == nil)
+}
+
+@Test
+func sessionSetEmojiTreatsEmptyStringAsClear() async {
+    let received = LockedValue<String?>("🚀")
+    let router = LiveAPIRequestRouter(
+        onSessionSetEmoji: { emoji, _, _ in
+            await received.set(emoji)
+        }
+    )
+    let request = JSONRPCRequest(id: "set-emoji-4", method: "session.set_emoji", params: [
+        "emoji": .string(""),
+        "session_id": .string("foo"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == true)
+    #expect(await received.get() == nil)
+}
+
 // MARK: - window.set_name
 
 @Test

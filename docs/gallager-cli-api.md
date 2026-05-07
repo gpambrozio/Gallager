@@ -163,6 +163,25 @@ gallager set-color none                  # clear
 
 ---
 
+#### `set-emoji <emoji>`
+
+Set or clear the sidebar emoji icon for a session. The choice is persisted as the `@gallager-emoji` tmux user option so it survives an app restart. Pass `none` (or an empty string) to clear.
+
+Like `set-title` and `set-color`, emoji icons always apply at session scope — every window in the session shows the same icon. Any platform-supported emoji works (e.g. `"🚀"`, `"🐛"`, `"📝"`); non-emoji input is rejected with a validation error so arbitrary text doesn't get persisted.
+
+```bash
+gallager set-emoji "🚀" --session workers
+gallager set-emoji "🐛"                  # current pane's session via $TMUX_PANE
+gallager set-emoji none                  # clear
+```
+
+**JSON-RPC**
+- Method: `session.set_emoji`
+- Params: `{ "emoji": string, "session_id"?: string, "pane_id"?: string }` _(empty `emoji` clears)_
+- Response: `{ "ok": true }`
+
+---
+
 #### `select-session <id>`
 
 Switch the app to a session by ID.
@@ -658,7 +677,7 @@ gallager identify
 | `--socket <path>` | Override the socket path (takes priority over `$GALLAGER_SOCKET` and the default fallback) |
 | `--json` | Print the raw JSON-RPC response instead of formatted output |
 | `--pane <id>` | Target a specific pane by tmux pane ID (e.g. `%3`). Overrides the active pane for input commands |
-| `--session <id>` | Target a specific session. Used by `list-windows`, `new-window`, `set-title`, `set-color` |
+| `--session <id>` | Target a specific session. Used by `list-windows`, `new-window`, `set-title`, `set-color`, `set-emoji` |
 | `--window <id>` | Target a specific window. Used by `list-panes` |
 
 ---

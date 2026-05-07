@@ -134,6 +134,13 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// Persisted via the tmux `@gallager-color` user option.
     public var customColor: SessionColor?
 
+    // MARK: - Custom Emoji
+
+    /// User-assigned emoji for this session, shown as a small icon in the
+    /// sidebar. Free-form text so any platform-supported emoji works.
+    /// Persisted via the tmux `@gallager-emoji` user option.
+    public var customEmoji: String?
+
     // MARK: - Terminal State
 
     /// Terminal title detected via OSC escape sequences
@@ -200,6 +207,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         isWindowActive: Bool = false,
         customDescription: String? = nil,
         customColor: SessionColor? = nil,
+        customEmoji: String? = nil,
         terminalTitle: String? = nil,
         gitBranch: String? = nil,
         claudeSession: ClaudeSession? = nil,
@@ -223,6 +231,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         self.isWindowActive = isWindowActive
         self.customDescription = customDescription
         self.customColor = customColor
+        self.customEmoji = customEmoji
         self.terminalTitle = terminalTitle
         self.gitBranch = gitBranch
         self.claudeSession = claudeSession

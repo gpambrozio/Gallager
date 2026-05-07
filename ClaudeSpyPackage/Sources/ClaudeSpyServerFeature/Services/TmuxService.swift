@@ -284,10 +284,11 @@ final public class TmuxService {
     ///      always have at least one pane, so non-empty list-sessions means
     ///      list-panes lied).
     private func queryRefreshOutcome(attachedSessions: Set<String>) async -> RefreshOutcome {
-        // `customColor` sits before `customDescription` because it's a single
-        // token with no `|`, while a description may contain `|` and is
-        // rejoined from the trailing components by `PaneInfo.init(fromTmuxOutput:)`.
-        let format = "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_title}|#{window_layout}|#{window_name}|#{window_active}|#{\(Self.colorOptionKey)}|#{\(Self.descriptionOptionKey)}"
+        // `customColor` and `customEmoji` sit before `customDescription`
+        // because they're single tokens with no `|`, while a description may
+        // contain `|` and is rejoined from the trailing components by
+        // `PaneInfo.init(fromTmuxOutput:)`.
+        let format = "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_title}|#{window_layout}|#{window_name}|#{window_active}|#{\(Self.colorOptionKey)}|#{\(Self.emojiOptionKey)}|#{\(Self.descriptionOptionKey)}"
 
         let result: ProcessResult
         do {
@@ -1758,6 +1759,10 @@ final public class TmuxService {
     /// Stored at session scope just like `descriptionOptionKey`.
     private static let colorOptionKey = "@gallager-color"
 
+    /// The tmux user option key used to persist Gallager session emoji icons.
+    /// Stored at session scope just like `descriptionOptionKey`.
+    private static let emojiOptionKey = "@gallager-emoji"
+
     /// Persists the custom description for a session as a tmux user option.
     ///
     /// Writes `@gallager-description` at session scope so it survives app restarts
@@ -1814,6 +1819,36 @@ final public class TmuxService {
             let result = try await runTmuxCommand([
                 "set-option", "-u", "-t", target,
                 Self.colorOptionKey,
+            ])
+            guard result.isSuccess else {
+                throw TmuxError.commandFailed(message: result.stderrString)
+            }
+        }
+    }
+
+    /// Persists the custom emoji for a session as a tmux user option.
+    ///
+    /// Mirrors `setSessionDescription` — writes `@gallager-emoji` at session
+    /// scope after sweeping any window-level overrides.
+    /// - Parameters:
+    ///   - emoji: The emoji string, or `nil` to clear the option.
+    ///   - sessionName: The tmux session name.
+    public func setSessionEmoji(_ emoji: String?, for sessionName: String) async throws {
+        await sweepWindowOverrides(of: Self.emojiOptionKey, in: sessionName)
+
+        let target = Self.sessionTarget(sessionName)
+        if let emoji, !emoji.isEmpty {
+            let result = try await runTmuxCommand([
+                "set-option", "-t", target,
+                Self.emojiOptionKey, emoji,
+            ])
+            guard result.isSuccess else {
+                throw TmuxError.commandFailed(message: result.stderrString)
+            }
+        } else {
+            let result = try await runTmuxCommand([
+                "set-option", "-u", "-t", target,
+                Self.emojiOptionKey,
             ])
             guard result.isSuccess else {
                 throw TmuxError.commandFailed(message: result.stderrString)

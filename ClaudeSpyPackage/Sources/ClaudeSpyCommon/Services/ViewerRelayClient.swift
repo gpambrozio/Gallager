@@ -387,6 +387,8 @@ final public class ViewerRelayClient {
             return (try? await sendCommand(spec, paneId: "").get()) != nil
         case let .setSessionColor(spec):
             return (try? await sendCommand(spec, paneId: "").get()) != nil
+        case let .setSessionEmoji(spec):
+            return (try? await sendCommand(spec, paneId: "").get()) != nil
         case let .setWindowName(spec):
             return (try? await sendCommand(spec, paneId: "").get()) != nil
         case let .splitTmuxPane(spec):
