@@ -9,9 +9,8 @@ graph TB
     subgraph Mac["Mac (ClaudeSpyServer)"]
         TMUX[tmux session]
         TCC[TmuxControlClient]
-        PPR[PipePaneReader]
-        PS[PaneStream]
-        PSM[PaneStreamManager]
+        PPR[PipePaneReader<br/>one per pane]
+        PSM[PaneStreamManager<br/>delegate + multiplexer]
         TSS[TerminalStreamService]
         DCM[DeviceConnectionManager]
         MV[Mac Mirror View<br/>SwiftTerm]
@@ -30,10 +29,9 @@ graph TB
     end
 
     TMUX -->|"control mode (-f no-output)"| TCC
-    TCC -->|commands, events| PS
+    TCC -->|commands, events| PSM
     TMUX -->|"pipe-pane raw bytes"| PPR
-    PPR -->|onData| PS
-    PS -->|onData callback| PSM
+    PPR -->|"PipePaneReaderDelegate (data + OSC)"| PSM
     PSM -->|subscriber| MV
     PSM -->|subscriber| TSS
     TSS -->|batched| DCM
@@ -56,24 +54,26 @@ sequenceDiagram
     participant T as tmux
     participant TCC as TmuxControlClient
     participant PPR as PipePaneReader
-    participant PS as PaneStream
+    participant PSM as PaneStreamManager
 
     TCC->>T: tmux -C attach -t session -f no-output,ignore-size
     T-->>TCC: (control mode ready)
 
-    PS->>PPR: startPipePane()
+    PSM->>PPR: setDelegate(self) + startPipePane()
+    Note over PPR: starts in scan-only mode
     PPR->>T: pipe-pane -O "cat > /tmp/fifo"
     PPR->>PPR: Open FIFO for reading
 
     loop Raw PTY Bytes
         T->>PPR: raw bytes via FIFO
         PPR->>PPR: Filter tmux ESC k title sequences
-        PPR->>PS: dataHandler(data)
+        PPR->>PPR: Parse OSC notification/title/clipboard/progress
+        PPR->>PSM: PipePaneReaderDelegate.didReceive*
     end
 
     T->>TCC: %layout-change
     TCC->>TCC: Update cached dimensions
-    TCC->>PS: Dimension change callback
+    TCC->>PSM: Dimension change callback
 ```
 
 **Key Files:**
@@ -82,11 +82,15 @@ sequenceDiagram
 - `ClaudeSpyServerFeature/Services/TmuxService.swift`
 
 **PipePaneReader** is an actor that:
-- Manages a per-pane FIFO (`/tmp/claudespy-pipe-<id>.fifo`) for raw byte delivery
+- Manages a per-pane FIFO (`/tmp/claudespy-pipe-<id>.fifo`) for raw byte delivery. One reader instance per tmux pane lives for the pane's full lifetime — mirror toggling never restarts it
 - Reads raw PTY bytes via `pipe-pane -O` piped through the FIFO
-- Filters only tmux's `ESC k ... ESC \` title sequences
+- Filters only tmux's `ESC k ... ESC \` title sequences and parses OSC 9/777/9;4/0/2/52 notification, title, clipboard, and progress events
 - Uses AsyncStream + single consumer task for strict FIFO ordering of data chunks
-- Supports buffering during initial capture (collects data without delivering, then flushes)
+- Forwards events through a single `PipePaneReaderDelegate` (`@MainActor`) — one method per event type so missing a wiring becomes a compile error
+- Has three data-delivery modes:
+  - **`scanOnly`** (default after `startPipePane`): parser doesn't build `filteredData`, data bytes are discarded. OSC events still flow.
+  - **`buffering`** (`setBuffering(true)`): bytes queued instead of forwarded; used while a `capture-pane` snapshot is being taken so live bytes that arrive during the snapshot aren't dropped.
+  - **`live`** (`flushBuffer`): drains the queue to the delegate in order, then forwards subsequent bytes directly.
 
 **TmuxControlClient** is an actor that:
 - Maintains a long-lived `tmux -C attach -f no-output,ignore-size` process
@@ -96,39 +100,49 @@ sequenceDiagram
 
 ### 2. Local Stream Management (Mac)
 
-**PaneStream** manages a single pane's connection lifecycle:
+**PaneStreamManager** owns one `PipePaneReader` per known pane and multiplexes its events to subscribers. It conforms to `PipePaneReaderDelegate` so all event wiring lives in exactly one place.
+
+The reader's data-delivery mode is the state machine that used to belong to a separate `PaneStream`:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> disconnected
-    disconnected --> connecting: connect()
-    connecting --> connected: validation success
-    connecting --> error: validation failed
-    connected --> disconnected: disconnect()
-    error --> disconnected: reset
+    [*] --> scanOnly: startPipePane (pane discovered)
+    scanOnly --> buffering: subscribe → setBuffering(true)
+    buffering --> live: capture-pane done → flushBuffer
+    live --> scanOnly: last unsubscribe → setBuffering(false)
+    scanOnly --> [*]: pane removed → stopPipePane
 ```
 
-**PaneStreamManager** multiplexes streams to multiple subscribers:
+`subscribe(paneId:target:...)` follows the canonical sequence:
+
+1. `setBuffering(true)` — start retaining live bytes.
+2. `capture-pane` snapshot via control mode.
+3. Add subscriber.
+4. `flushBuffer()` — drain the queue through the delegate (this manager) → `forwardData` → subscriber's `onData`. Subsequent bytes flow live.
+
+When the last subscriber leaves, the manager only calls `setBuffering(false)`. The reader stays attached to the FIFO, so OSC events (notifications, titles, progress, clipboard) keep flowing for desktop notifications and sidebar UI.
 
 ```mermaid
 graph LR
     subgraph PaneStreamManager
-        PS1[PaneStream<br/>session:0.1]
-        PS2[PaneStream<br/>session:0.2]
+        R1[PipePaneReader<br/>session:0.1]
+        R2[PipePaneReader<br/>session:0.2]
     end
 
-    PS1 --> S1[Mirror Window]
-    PS1 --> S2[TerminalStreamService]
-    PS2 --> S3[Mirror Window 2]
-    PS2 --> S4[TerminalStreamService]
+    R1 -->|delegate| PSM[PaneStreamManager]
+    R2 -->|delegate| PSM
+
+    PSM --> S1[Mirror Window]
+    PSM --> S2[TerminalStreamService]
+    PSM --> S3[Mirror Window 2]
+    PSM --> S4[TerminalStreamService]
 ```
 
 **Key Files:**
-- `ClaudeSpyServerFeature/Services/PaneStream.swift`
 - `ClaudeSpyServerFeature/Services/PaneStreamManager.swift`
 - `ClaudeSpyServerFeature/Services/PipePaneReader.swift`
 
-Subscribers share a single stream—when the last subscriber unsubscribes, the stream disconnects. PaneStream owns a `PipePaneReader` for live data and uses `TmuxControlClientManager` for commands and dimension tracking.
+Subscribers share a single reader. PaneStreamManager uses `TmuxControlClientManager` for commands (capture-pane, pipe-pane attach) and dimension tracking; per-pane state lives in a single `readers: [String: ReaderContext]` dictionary that records the reader, target, dimensions, subscriber set, and latest title.
 
 ### 3. Mac Mirror View
 
@@ -303,7 +317,6 @@ sequenceDiagram
     participant TMUX as tmux
     participant PPR as PipePaneReader
     participant TCC as TmuxControlClient
-    participant PS as PaneStream
     participant PSM as PaneStreamManager
     participant MV as Mac Mirror
     participant TSS as TerminalStreamService
@@ -313,24 +326,29 @@ sequenceDiagram
     participant SC as StreamCoordinator
     participant IV as iOS Terminal
 
-    Note over TMUX,IV: Initial Stream Setup (first device)
+    Note over TMUX,IV: Pane Discovery (once per pane)
+
+    PSM->>PPR: setDelegate(self) + startPipePane()
+    PPR->>TCC: sendCommand("pipe-pane -O ...")
+    TCC->>TMUX: pipe-pane command
+    Note over PPR: Reader runs in scan-only mode<br/>OSC events flow but bytes are discarded
+
+    Note over TMUX,IV: First Subscriber on Pane
 
     RC->>SRV: StartTerminalStream command
     SRV->>DCM: Forward command
     DCM->>TSS: Start stream for pane
     TSS->>PSM: subscribe(paneId)
-    PSM->>PS: connect()
-    PS->>PPR: startPipePane(buffering: true)
-    PPR->>TCC: sendCommand("pipe-pane -O ...")
-    TCC->>TMUX: pipe-pane command
-    PS->>TCC: sendCommand("capture-pane ...")
+    PSM->>PPR: setBuffering(true)
+    Note over PPR: bytes now queued, not discarded
+    PSM->>TCC: sendCommand("capture-pane ...")
     TCC->>TMUX: capture-pane command
     TMUX-->>TCC: capture result
-    TCC-->>PS: initial content
-    PS->>PPR: stopBufferingAndFlush()
-    PPR-->>PS: buffered data delivered
-    PS-->>PSM: onData(initial content)
-    PSM-->>TSS: subscriber callback
+    TCC-->>PSM: initial content
+    PSM->>PPR: flushBuffer()
+    PPR->>PSM: didReceiveData (queued bytes, in order)
+    Note over PPR: subsequent bytes flow live to delegate
+    PSM-->>TSS: subscriber callback (initial + buffered)
     TSS->>DCM: sendTerminalStreamToAll(initialState)
     DCM->>SRV: Encrypted per device
     SRV->>RC: Forward to iOS
@@ -351,8 +369,7 @@ sequenceDiagram
 
     loop Terminal Output
         TMUX->>PPR: raw PTY bytes via FIFO
-        PPR->>PS: dataHandler(data)
-        PS-->>PSM: onData(data)
+        PPR->>PSM: didReceiveData(data)
         PSM-->>MV: subscriber callback (immediate)
         PSM-->>TSS: subscriber callback
         TSS->>TSS: Buffer (batch)
@@ -362,6 +379,13 @@ sequenceDiagram
         RC->>SC: onTerminalStream(dataChunk)
         SC->>IV: feed(data)
     end
+
+    Note over TMUX,IV: Last Subscriber Leaves
+
+    DCM->>TSS: stopStreaming
+    TSS->>PSM: unsubscribe
+    PSM->>PPR: setBuffering(false)
+    Note over PPR: returns to scan-only mode<br/>FIFO stays attached for OSC events
 ```
 
 ## Key Architectural Decisions
@@ -371,7 +395,8 @@ sequenceDiagram
 | **Hybrid: control mode + pipe-pane** | Control mode for commands/events, pipe-pane for raw PTY bytes. Eliminates octal unescaping, UTF-8 reconstruction, and line-boundary splitting that caused rendering artifacts |
 | **FIFO-based pipe-pane delivery** | Per-pane FIFO (`/tmp/claudespy-pipe-<id>.fifo`) avoids spawning a persistent subprocess; tmux's `cat > fifo` blocks until reader connects |
 | **AsyncStream ordering** | Single consumer task per data source (PipePaneReader, TmuxControlClient, TerminalStreamService) prevents reordering that occurs with unstructured `Task {}` per callback |
-| **Buffering during initial capture** | PipePaneReader collects raw bytes without delivering while capture-pane runs, then flushes — eliminates gap between capture and live stream |
+| **One persistent reader per pane** | PipePaneReader is created at pane discovery and lives until the pane is removed. Mirror toggling switches its delivery mode (`scanOnly`/`buffering`/`live`) instead of detaching/reattaching `pipe-pane`, eliminating the FIFO swap window where bytes could be lost. All event wiring lives on a single `PipePaneReaderDelegate` so missing a handler is a compile error |
+| **Buffering during initial capture** | PipePaneReader queues raw bytes during the `capture-pane` snapshot, then `flushBuffer()` drains the queue to the delegate in order before switching to live mode — eliminates the gap between capture and live stream |
 | **Stream manager decoupling** | Streaming works without mirror window open, only needs iOS connection |
 | **Data batching (8KB/50ms)** | Prevents network saturation from high-frequency output |
 | **Subscription model** | Multiple consumers (UI + remote) share one stream efficiently |
@@ -384,10 +409,10 @@ sequenceDiagram
 
 | Type | Location | Purpose |
 |------|----------|---------|
-| `PipePaneReader` | ServerFeature | Per-pane FIFO reader for raw PTY bytes via pipe-pane |
+| `PipePaneReader` | ServerFeature | Per-pane FIFO reader for raw PTY bytes via pipe-pane. Three delivery modes (scanOnly/buffering/live), one per pane lifetime |
+| `PipePaneReaderDelegate` | ServerFeature | `@MainActor` protocol for receiving data + OSC events from a reader |
 | `TmuxControlClient` | ServerFeature | Control mode connection for commands and event notifications |
-| `PaneStream` | ServerFeature | Single pane stream lifecycle (owns PipePaneReader + control client registration) |
-| `PaneStreamManager` | ServerFeature | Multiplexes streams to subscribers |
+| `PaneStreamManager` | ServerFeature | Owns one reader per pane, conforms to `PipePaneReaderDelegate`, multiplexes events to subscribers |
 | `TerminalStreamService` | ServerFeature | Batches and sends to remote, ref-counted per device |
 | `DeviceConnectionManager` | ServerFeature | Multi-device WebSocket coordinator |
 | `DeviceConnection` | ServerFeature | Single iOS device WebSocket + E2EE |

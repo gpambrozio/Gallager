@@ -652,13 +652,9 @@ final public class TmuxService {
         // (lines above the visible area). We output them here; they get pushed
         // into SwiftTerm's scrollback buffer when Part 2 writes the visible area.
         //
-        // Scrollback is suppressed in two cases:
-        // 1. The visible area is mostly empty (screenWasCleared) — indicates
-        //    `clear` was just run and the scrollback is stale pre-clear history.
-        // 2. The scrollback has fewer lines than the terminal height — indicates
-        //    `clear` was run and the screen has since been re-filled. After
-        //    clear, tmux trims the pushed blank lines, leaving only a small
-        //    number of stale lines in the scrollback capture.
+        // Scrollback is suppressed when the visible area is mostly empty —
+        // that's the right-after-clear state where the scrollback is stale
+        // pre-clear history that would pollute the mirror.
         let nonEmptyVisibleCount = visibleLines.count { line in
             !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
@@ -672,17 +668,14 @@ final public class TmuxService {
             }
             let scrollbackLinesList = trimmed.split(separator: "\n", omittingEmptySubsequences: false)
 
-            // Skip scrollback when it has fewer lines than the terminal
-            // height. This catches the case where `clear` (or \e[2J) was run
-            // and the screen has since been re-filled — the screenWasCleared
-            // heuristic above only detects clears when the visible area is
-            // still mostly empty. After clear + fill, the scrollback contains
-            // only a small number of stale pre-clear lines (tmux trims the
-            // blank pushed lines), while genuine scrollback from continuous
-            // output (e.g., `seq 1 200`) produces many more lines than height.
-            let hasEnoughScrollback = scrollbackLinesList.count >= height
-
-            if !scrollbackLinesList.isEmpty, hasEnoughScrollback {
+            // Once we have any scrollback at all, push it through. Earlier
+            // versions skipped scrollback when its line count was below the
+            // pane height, on the assumption that "real" scrollback is always
+            // larger than one screen — but small genuine output (e.g.
+            // `seq 1 100` in a 61-row mirror, ~39 history lines) was being
+            // dropped. Match tmux's own scrollback behavior instead: anything
+            // tmux retains, the mirror retains.
+            if !scrollbackLinesList.isEmpty {
                 hasScrollback = true
                 for line in scrollbackLinesList {
                     // Strip any trailing CR (tmux may output \r\n line endings)
