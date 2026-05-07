@@ -292,6 +292,8 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         TerminalProgressBarScenario.scenario,
         SessionColorSyncScenario.scenario,
         AppearanceModeScenario.scenario,
+        RenameViewerDeviceScenario.scenario,
+        TerminalEnvVarsScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {
