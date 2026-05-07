@@ -24,6 +24,15 @@ TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
 DATE_DISPLAY=$(date +"%Y-%m-%d %H:%M:%S")
 E2E_ARGS=()
 
+# Use a dedicated DerivedData folder for the report run and wipe it on exit.
+# This forces a fresh SPM resolution every report so a stale package checkout
+# from another branch (e.g. ProjectNavigator 1.8.0 left over from a different
+# PR's build) can't carry into this run. e2e-test.sh already honors
+# SANDBOX_DERIVED_DATA as its DerivedData override.
+REPORT_DERIVED_DATA="${TMPDIR:-/tmp}/claudespy-e2e-report-derived-data"
+export SANDBOX_DERIVED_DATA="$REPORT_DERIVED_DATA"
+trap 'rm -rf "$REPORT_DERIVED_DATA"' EXIT
+
 # =====================================================
 # PARSE ARGUMENTS
 # =====================================================
