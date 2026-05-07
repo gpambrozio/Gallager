@@ -39,9 +39,6 @@ public enum TableRenderingScenario {
         TestStep.tmuxCreateSession(name: "table-test", width: 80, height: 24)
         TestStep.tmuxCreateSession(name: "table-helper", width: 80, height: 24)
 
-        // Use a plain prompt so it doesn't interfere with table rendering
-        Shortcut.tmuxClearAndSetPrompt(target: "table-test:0")
-
         // ── Draw table using DEC line-drawing characters ──────────────
         //
         // This Python script uses ESC(0 / ESC(B to switch into and out of
@@ -65,9 +62,11 @@ public enum TableRenderingScenario {
         TestStep.log("Injecting table-drawing script")
         TestStep.injectScript(name: "draw_table.py")
 
-        // ── Select pane on macOS and iOS BEFORE running script ─────────
-        // Both platforms will be streaming the terminal when the table
-        // is drawn, exercising the live SO/SI → UTF-8 translation path.
+        // ── Select pane on macOS and iOS BEFORE clear/setup ────────────
+        // Both platforms must be streaming when we run `clear`, so the
+        // mirror's SwiftTerm sees the clear directly and pre-clear shell
+        // history doesn't end up in the scrollback that capture-pane
+        // would later replay on re-selection.
 
         Shortcut.openPanesWindow()
 
@@ -76,6 +75,9 @@ public enum TableRenderingScenario {
 
         TestStep.log("Opening terminal pane on iOS mirror")
         Shortcut.iosConnectToSession(sessionName: "table-test")
+
+        // Use a plain prompt so it doesn't interfere with table rendering
+        Shortcut.tmuxClearAndSetPrompt(target: "table-test:0")
 
         // ── Draw table while both platforms are streaming ────────────
 

@@ -34,9 +34,6 @@ public enum EmojiTableRenderingScenario {
         TestStep.tmuxCreateSession(name: "emoji-tbl", width: 80, height: 35)
         TestStep.tmuxCreateSession(name: "emoji-helper", width: 80, height: 24)
 
-        Shortcut.tmuxRunCommand(target: "emoji-tbl:0", command: #"export PS1='$ '"#)
-        TestStep.wait(seconds: 0.5)
-
         // -- Copy the Python script that draws all three tables ----------
         //
         // Uses UTF-8 box-drawing characters directly (not DEC line-drawing)
@@ -46,9 +43,11 @@ public enum EmojiTableRenderingScenario {
         TestStep.log("Injecting emoji table rendering script")
         TestStep.injectScript(name: "emoji_tables.py")
 
-        // -- Select pane on macOS and iOS BEFORE running script --------
-        // Both platforms will be streaming the terminal when the emoji
-        // tables are drawn, exercising the live wide-character rendering.
+        // -- Select pane on macOS and iOS BEFORE clear/prompt setup ----
+        // Both platforms must be streaming when we run the prompt + clear
+        // commands, so the mirror's SwiftTerm sees them directly and
+        // pre-clear shell history doesn't end up in the scrollback that
+        // capture-pane would later replay on re-selection.
 
         Shortcut.openPanesWindow()
         TestStep.macResizeWindow(width: 1_100, height: 700)
@@ -58,6 +57,12 @@ public enum EmojiTableRenderingScenario {
 
         TestStep.log("Opening terminal pane on iOS mirror")
         Shortcut.iosConnectToSession(sessionName: "emoji-tbl")
+
+        // Plain prompt + clear, run while both platforms are streaming.
+        Shortcut.tmuxRunCommand(target: "emoji-tbl:0", command: #"export PS1='$ '"#)
+        TestStep.wait(seconds: 0.5)
+        Shortcut.tmuxRunCommand(target: "emoji-tbl:0", command: "clear")
+        TestStep.wait(seconds: 1)
 
         // -- Run script while both platforms are streaming ----------------
 
