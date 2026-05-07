@@ -70,6 +70,9 @@ final class FileBrowserState {
     private(set) var reverseIds: [UUID: String] = [:]
     /// Folder paths whose children have been loaded.
     var loadedFolderPaths: Set<String> = []
+    /// Filesystem paths that are symbolic links, used to render them with a
+    /// distinct visual style in the navigator.
+    var symlinkedPaths: Set<String> = []
     /// All files under the directory, cached for search.
     var allFiles: [FileSearchResult] = []
     /// The directory path for which `allFiles` was loaded.
@@ -254,6 +257,7 @@ struct FileBrowserView: View {
         state.loadedPath = directoryPath
         state.stableIds = result.stableIds
         state.loadedFolderPaths = result.loadedFolderPaths
+        state.symlinkedPaths = result.symlinkedPaths
 
         // Clear the selection if the previously selected path no longer exists
         // in the rebuilt tree; otherwise `fileDetailView` would render against
@@ -464,13 +468,16 @@ struct FileBrowserView: View {
 
     // MARK: - File Browser Content
 
-    private func fileRowLabel(name: String, itemId: UUID) -> some View {
+    private func fileRowLabel(name: String, itemId: UUID, isSymlink: Bool) -> some View {
         Label {
             Text(name)
                 .font(.callout)
+                .italic(isSymlink)
         } icon: {
-            Symbols.docPlaintextFill.image
-                .foregroundStyle(.secondary)
+            symlinkBadgedIcon(
+                Symbols.docPlaintextFill.image.foregroundStyle(.secondary),
+                isSymlink: isSymlink
+            )
         }
         .fileContextMenu(
             fullPath: state.reverseIds[itemId],
@@ -480,38 +487,16 @@ struct FileBrowserView: View {
         )
     }
 
-    /// A symlink uses a distinct icon so it isn't visually mistaken for a regular
-    /// file, and resolves its target type so the context menu's `isDirectory`
-    /// (which gates "Open in New Tab") matches the link's destination.
-    private func linkRowLabel(name: String, itemId: UUID) -> some View {
-        let fullPath = state.reverseIds[itemId]
-        let targetIsDirectory: Bool = {
-            guard let fullPath else { return false }
-            var isDir: ObjCBool = false
-            return FileManager.default.fileExists(atPath: fullPath, isDirectory: &isDir) && isDir.boolValue
-        }()
-        return Label {
-            Text(name)
-                .font(.callout)
-        } icon: {
-            Symbols.link.image
-                .foregroundStyle(.secondary)
-        }
-        .fileContextMenu(
-            fullPath: fullPath,
-            directoryPath: directoryPath,
-            isDirectory: targetIsDirectory,
-            onOpenFileInNewTab: targetIsDirectory ? nil : onOpenFileInNewTab
-        )
-    }
-
-    private func folderRowLabel(name: String, itemId: UUID) -> some View {
+    private func folderRowLabel(name: String, itemId: UUID, isSymlink: Bool) -> some View {
         Label {
             Text(name)
                 .font(.callout)
+                .italic(isSymlink)
         } icon: {
-            Symbols.folderFill.image
-                .foregroundStyle(.blue)
+            symlinkBadgedIcon(
+                Symbols.folderFill.image.foregroundStyle(.blue),
+                isSymlink: isSymlink
+            )
         }
         .fileContextMenu(
             fullPath: state.reverseIds[itemId],
@@ -519,6 +504,27 @@ struct FileBrowserView: View {
             isDirectory: true,
             onOpenFileInNewTab: onOpenFileInNewTab
         )
+    }
+
+    /// Overlays a small filled-link badge on the bottom-trailing corner of an icon
+    /// so symlinks read as their target type (file vs. folder) while still being
+    /// visibly distinguishable from regular entries.
+    @ViewBuilder
+    private func symlinkBadgedIcon(_ content: some View, isSymlink: Bool) -> some View {
+        content.overlay(alignment: .bottomTrailing) {
+            if isSymlink {
+                Symbols.linkCircleFill.image
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.white, .blue)
+                    .symbolRenderingMode(.palette)
+                    .offset(x: 3, y: 2)
+            }
+        }
+    }
+
+    private func isSymlinked(_ itemId: UUID) -> Bool {
+        guard let path = state.reverseIds[itemId] else { return false }
+        return state.symlinkedPaths.contains(path)
     }
 
     @ViewBuilder
@@ -539,14 +545,26 @@ struct FileBrowserView: View {
                             item: .constant(viewState.fileTree.root),
                             parent: .constant(nil),
                             viewState: viewState,
-                            linkLabel: { cursor, _, link in
-                                linkRowLabel(name: cursor.name, itemId: link.wrappedValue.id)
+                            linkLabel: { _, _, _ in
+                                // Our loader resolves symlinks into .file or .folder entries
+                                // (so symlinked folders stay expandable), so .link entries
+                                // never reach this closure. Symlink rendering is handled by
+                                // fileLabel / folderLabel via state.symlinkedPaths.
+                                EmptyView()
                             },
                             fileLabel: { cursor, _, proxy in
-                                fileRowLabel(name: cursor.name, itemId: proxy.id)
+                                fileRowLabel(
+                                    name: cursor.name,
+                                    itemId: proxy.id,
+                                    isSymlink: isSymlinked(proxy.id)
+                                )
                             },
                             folderLabel: { cursor, _, folder in
-                                folderRowLabel(name: cursor.name, itemId: folder.wrappedValue.id)
+                                folderRowLabel(
+                                    name: cursor.name,
+                                    itemId: folder.wrappedValue.id,
+                                    isSymlink: isSymlinked(folder.wrappedValue.id)
+                                )
                             }
                         )
                         .navigatorFilter { !skippedNavigatorEntries.contains($0) }
