@@ -255,10 +255,20 @@ public struct PairingStatus: Codable, Sendable {
     public let valid: Bool
     public let hostConnected: Bool
     public let viewerConnected: Bool
+    /// Device name the viewer reported when it completed pairing. `nil` until
+    /// the viewer has called `/api/pairing/complete`. Lets the host adopt the
+    /// viewer's chosen name for `PairedViewer` instead of a placeholder.
+    public let viewerDeviceName: String?
 
-    public init(valid: Bool, hostConnected: Bool, viewerConnected: Bool) {
+    public init(
+        valid: Bool,
+        hostConnected: Bool,
+        viewerConnected: Bool,
+        viewerDeviceName: String? = nil
+    ) {
         self.valid = valid
         self.hostConnected = hostConnected
         self.viewerConnected = viewerConnected
+        self.viewerDeviceName = viewerDeviceName
     }
 }

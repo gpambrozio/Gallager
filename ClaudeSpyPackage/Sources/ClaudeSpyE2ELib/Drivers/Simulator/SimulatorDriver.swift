@@ -118,7 +118,8 @@ public actor SimulatorDriver {
         logger.info("Installing app: \(appPath)")
         _ = try await processRunner.runOrThrow(
             "/usr/bin/xcrun",
-            arguments: ["simctl", "install", udid, appPath]
+            arguments: ["simctl", "install", udid, appPath],
+            timeout: 120
         )
     }
 
@@ -208,7 +209,8 @@ public actor SimulatorDriver {
         logger.info("Installing E2E host app: \(hostAppPath)")
         _ = try await processRunner.runOrThrow(
             "/usr/bin/xcrun",
-            arguments: ["simctl", "install", udid, hostAppPath]
+            arguments: ["simctl", "install", udid, hostAppPath],
+            timeout: 120
         )
 
         // Start xcodebuild test-without-building in the background
@@ -245,7 +247,7 @@ public actor SimulatorDriver {
     }
 
     /// Wait for the runner's HTTP server to become responsive
-    private func waitForRunnerReady(timeout: TimeInterval = 30) async throws {
+    private func waitForRunnerReady(timeout: TimeInterval = 120) async throws {
         logger.info("Waiting for XCTest runner to be ready...")
         let deadline = Date().addingTimeInterval(timeout)
 
@@ -467,6 +469,19 @@ public actor SimulatorDriver {
         )
 
         return result.stdoutString
+    }
+
+    /// Clear the simulator clipboard by piping `/dev/null` into `simctl pbcopy`.
+    /// Used to drive `PasteButton` into a deterministic disabled state for screenshots.
+    public func clearClipboard() async throws {
+        guard let udid else {
+            throw SimulatorDriverError.simulatorNotRunning
+        }
+
+        _ = try await processRunner.runOrThrow(
+            "/bin/sh",
+            arguments: ["-c", "/usr/bin/xcrun simctl pbcopy \(udid) < /dev/null"]
+        )
     }
 
     // MARK: - Version Override

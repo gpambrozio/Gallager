@@ -80,8 +80,22 @@ final public class MirrorWindowManager {
             }
         }
 
-        // Remove stale entries
-        let stalePaneIds = paneStates.keys.filter { !currentPaneIds.contains($0) }
+        // Remove stale entries — but skip hook-only minimal states. `handleHookEvent`
+        // creates a `PaneState(paneId:claudeSession:)` with default-empty `sessionName`
+        // when a hook arrives for a pane the windowManager hasn't yet observed; the
+        // first refresh that sees the pane fills in metadata. A refresh whose
+        // `list-panes` snapshot was taken BEFORE the hook arrived (the subprocess
+        // ran while MainActor was suspended) won't include that pane, and removing
+        // the entry here would silently drop the SessionStart and lose the project
+        // decoration. Empty `sessionName` is a reliable signal that no refresh has
+        // confirmed the pane yet — refresh-derived entries always carry the tmux
+        // session name. The next refresh that does see the pane confirms it; if the
+        // pane truly never appears in tmux a follow-up hook with the same paneId
+        // updates in place rather than accumulating.
+        let stalePaneIds = paneStates.keys.filter { paneId in
+            guard !currentPaneIds.contains(paneId) else { return false }
+            return paneStates[paneId]?.sessionName.isEmpty == false
+        }
         for paneId in stalePaneIds {
             removeStaleState(paneId: paneId)
         }

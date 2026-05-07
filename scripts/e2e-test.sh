@@ -5,13 +5,25 @@
 
 set -eo pipefail
 
+# Add Homebrew to PATH if not already present (needed on CI VMs)
+if [[ ":$PATH:" != *":/opt/homebrew/bin:"* ]] && [ -d /opt/homebrew/bin ]; then
+    export PATH="/opt/homebrew/bin:$PATH"
+fi
+
+# Unlock the login keychain so codesign can access signing certificates in SSH/CI sessions.
+# Uses KEYCHAIN_PASSWORD env var if set, otherwise tries the default CI password.
+if [ -f ~/Library/Keychains/login.keychain-db ]; then
+    security unlock-keychain -p "${KEYCHAIN_PASSWORD:-admin}" ~/Library/Keychains/login.keychain-db 2>/dev/null || true
+fi
+
 # =====================================================
 # CONFIGURATION
 # =====================================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 WORKSPACE="$PROJECT_ROOT/ClaudeSpy.xcworkspace"
-DERIVED_DATA="${SANDBOX_DERIVED_DATA:-$PROJECT_ROOT/build/e2e-derived-data}"
+_E2E_DD_DEFAULT="${TMPDIR:-/tmp}/claudespy-e2e-derived-data"
+DERIVED_DATA="${REPORT_DERIVED_DATA:-${SANDBOX_DERIVED_DATA:-$_E2E_DD_DEFAULT}}"
 SIM_NAME="iPhone 17 Pro"
 E2E_TMPDIR="${TMPDIR:-/tmp}/claudespy-e2e"
 mkdir -p "$E2E_TMPDIR"
@@ -372,9 +384,20 @@ else
     fi
     ok "Simulator: ${_BOLD}$SIM_NAME${_RESET} ($SIM_UDID)"
 
+    # Build macOS targets contiguously so the Sparkle precompiled module stays
+    # consistent between consumers. Interleaving an iOS build between the macOS
+    # app and the E2E coordinator caused intermittent "header has been modified"
+    # PCM-cache failures because the iOS build path regenerates Sparkle's
+    # umbrella header.
     step "Building macOS app (ClaudeSpyServer)"
     xcodebuild "${XCODEBUILD_FLAGS[@]}" \
         -scheme ClaudeSpyServer \
+        -destination 'platform=macOS' \
+        build 2>&1 | xcsift --format toon --warnings --executable
+
+    step "Building E2E coordinator"
+    xcodebuild "${XCODEBUILD_FLAGS[@]}" \
+        -scheme ClaudeSpyE2E \
         -destination 'platform=macOS' \
         build 2>&1 | xcsift --format toon --warnings --executable
 
@@ -389,12 +412,6 @@ else
         -scheme ClaudeSpyE2EHost \
         -destination "id=$SIM_UDID" \
         build-for-testing 2>&1 | xcsift --format toon --warnings --executable
-
-    step "Building E2E coordinator"
-    xcodebuild "${XCODEBUILD_FLAGS[@]}" \
-        -scheme ClaudeSpyE2E \
-        -destination 'platform=macOS' \
-        build 2>&1 | xcsift --format toon --warnings --executable
 fi
 
 # =====================================================

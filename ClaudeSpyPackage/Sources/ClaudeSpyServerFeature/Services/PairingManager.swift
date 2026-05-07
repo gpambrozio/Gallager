@@ -294,7 +294,7 @@ final public class PairingManager {
 
                     if status.viewerConnected {
                         // Viewer has completed pairing!
-                        await completePairing(pairId: pairId)
+                        await completePairing(pairId: pairId, viewerDeviceName: status.viewerDeviceName)
                         break
                     }
                 } catch {
@@ -307,7 +307,7 @@ final public class PairingManager {
         }
     }
 
-    private func completePairing(pairId: String) async {
+    private func completePairing(pairId: String, viewerDeviceName: String?) async {
         guard let settings else { return }
 
         // Create new paired viewer without partner's public key.
@@ -316,9 +316,13 @@ final public class PairingManager {
         // 2. Viewer connects → server sends viewerConnected with viewer public key
         // Either path calls ConnectedViewer.establishE2EEWithPartner() and
         // persists the key via onPartnerKeyReceived → updatePartnerPublicKey().
+        //
+        // The device name comes from the server, which captured it when the
+        // viewer called `/api/pairing/complete`. Falls back to "Viewer" only
+        // when the server response somehow omitted it (older server, race).
         let viewer = PairedViewer(
             id: pairId,
-            deviceName: "Viewer",
+            deviceName: viewerDeviceName ?? "Viewer",
             partnerPublicKey: "",
             partnerPublicKeyId: "",
             pairedAt: Date()
@@ -334,6 +338,24 @@ final public class PairingManager {
         onViewerPaired?(viewer)
 
         logger.info("Pairing completed (partner key will be received via WebSocket)", metadata: ["pairId": "\(pairId)"])
+    }
+
+    /// Update the stored device name for a paired viewer.
+    ///
+    /// Called when a new viewer device name arrives over the WebSocket
+    /// (`HostRegisteredMessage.viewerDeviceName` or `ViewerConnectedMessage.deviceName`)
+    /// so renaming the device on iOS propagates to the macOS UI without re-pairing.
+    public func updateViewerDeviceName(pairId: String, deviceName: String) {
+        guard let settings, let viewer = settings.getPairing(id: pairId) else { return }
+        guard viewer.deviceName != deviceName else { return }
+
+        var updated = viewer
+        updated.deviceName = deviceName
+        settings.updatePairing(updated)
+        logger.info("Updated paired viewer device name", metadata: [
+            "pairId": "\(pairId)",
+            "deviceName": "\(deviceName)",
+        ])
     }
 }
 
