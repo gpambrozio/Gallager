@@ -59,10 +59,7 @@ public enum EmojiTableRenderingScenario {
         Shortcut.iosConnectToSession(sessionName: "emoji-tbl")
 
         // Plain prompt + clear, run while both platforms are streaming.
-        Shortcut.tmuxRunCommand(target: "emoji-tbl:0", command: #"export PS1='$ '"#)
-        TestStep.wait(seconds: 0.5)
-        Shortcut.tmuxRunCommand(target: "emoji-tbl:0", command: "clear")
-        TestStep.wait(seconds: 1)
+        Shortcut.tmuxClearAndSetPrompt(target: "emoji-tbl:0")
 
         // -- Run script while both platforms are streaming ----------------
 
