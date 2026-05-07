@@ -45,6 +45,14 @@
         /// Latest clipboard content from each pane, keyed by pane ID
         @State private var clipboardContents: [String: String] = [:]
 
+        /// The last value this view wrote to the system pasteboard.
+        ///
+        /// Used to dedupe redundant writes when `clipboardContents` republishes
+        /// the same value. Reading the clipboard back to compare would trigger
+        /// iOS's paste-permission prompt whenever a different process owns the
+        /// pasteboard, so we track the last write locally instead.
+        @State private var lastWrittenClipboardContent: String?
+
         /// Tracks app foreground state for clipboard sync
         @Environment(\.scenePhase) private var scenePhase
 
@@ -329,9 +337,10 @@
                     let activePaneId,
                     let content = clipboardContents[activePaneId],
                     scenePhase == .active,
-                    content != clipboard.getString()
+                    content != lastWrittenClipboardContent
                 else { return }
                 clipboard.setString(content)
+                lastWrittenClipboardContent = content
             }
             .onChange(of: activePaneId) { oldValue, newValue in
                 updateActiveService()
