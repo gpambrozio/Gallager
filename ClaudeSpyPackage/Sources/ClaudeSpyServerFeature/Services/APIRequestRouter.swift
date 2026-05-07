@@ -671,8 +671,7 @@
             switch trimmed.lowercased() {
             case "",
                  "clear",
-                 "none",
-                 "removed":
+                 "none":
                 return .success(nil)
             case "warning":
                 return .success(.warning)

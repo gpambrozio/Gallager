@@ -657,7 +657,7 @@
                 onPaneSetLayout: { [tmux] target, layout in
                     try await tmux.selectLayout(target: target, layout: layout)
                 },
-                onPaneSetProgress: { [tmux, weak self] state, paneId in
+                onPaneSetProgress: { [tmux, winManager, weak self] state, paneId in
                     // Resolve the target pane: use the explicit ID, otherwise
                     // fall back to the globally active pane. The CLI fills
                     // `pane_id` from `$TMUX_PANE` when no `--pane` flag is
@@ -679,6 +679,10 @@
                     // both write to `PaneState.progress` and last-write-wins.
                     let resolved: TerminalProgressState = state ?? .removed
                     await MainActor.run {
+                        // Reconcile pane state first so a freshly-created pane
+                        // (not yet in `paneStates`) survives the early-exit
+                        // guard inside `setPaneProgress`.
+                        winManager.updatePaneStates(from: panes)
                         self?.applyProgressUpdate(paneId: target, state: resolved)
                     }
                 },

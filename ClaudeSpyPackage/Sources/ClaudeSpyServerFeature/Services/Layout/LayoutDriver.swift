@@ -91,7 +91,7 @@
             tmuxAccessor: @escaping TmuxAccessor,
             descriptionApplier: @escaping DescriptionApplier,
             colorApplier: @escaping ColorApplier,
-            progressApplier: @escaping ProgressApplier = { _, _ in },
+            progressApplier: @escaping ProgressApplier,
             processRunner: ProcessRunner = .liveValue,
             logger: Logger = Logger(label: "com.claudespy.layoutdriver")
         ) {

@@ -187,7 +187,11 @@ struct SetProgressCommand: ParsableCommand {
             case "error":
                 print("Set pane progress to error.")
             default:
-                if let int = Int(value) {
+                // Mirror the server-side parser: accept "75" or "75%" so the
+                // confirmation message stays specific when users copy a value
+                // that includes the percent sign.
+                let stripped = value.hasSuffix("%") ? String(value.dropLast()) : value
+                if let int = Int(stripped) {
                     print("Set pane progress to \(int)%.")
                 } else {
                     print("Set pane progress.")
