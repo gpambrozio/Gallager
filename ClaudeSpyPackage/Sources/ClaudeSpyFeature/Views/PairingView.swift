@@ -16,11 +16,7 @@
         /// Called when pairing is successful with the new PairedHost
         var onPaired: ((PairedHost) -> Void)?
 
-        private static var downloadURL: URL {
-            let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
-            return URL(staticString: "https://updates.gustavo.eng.br")
-                .appending(path: "Gallager-\(version).dmg")
-        }
+        private static let downloadURL = URL(staticString: "https://updates.gustavo.eng.br/Gallager.dmg")
 
         private let codeLength = 6
 
