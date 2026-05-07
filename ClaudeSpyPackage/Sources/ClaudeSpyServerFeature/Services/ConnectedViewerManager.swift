@@ -39,6 +39,10 @@ final public class ConnectedViewerManager {
     /// Called when partner's public key is received (for persisting to settings)
     public var onPartnerKeyReceived: (@MainActor @Sendable (String, String, String) async -> Void)?
 
+    /// Called when the partner's device name is received (for persisting to settings).
+    /// Parameters are: viewerId, deviceName.
+    public var onPartnerDeviceNameReceived: (@MainActor @Sendable (String, String) async -> Void)?
+
     /// Called when a pairing was removed by the other side.
     /// Parameter is the pairId that was unpaired.
     public var onUnpaired: (@MainActor @Sendable (String) async -> Void)?
@@ -289,6 +293,11 @@ final public class ConnectedViewerManager {
         connection.onPartnerKeyReceived = { [weak self, viewerId] publicKey, keyId in
             guard let self else { return }
             await self.onPartnerKeyReceived?(viewerId, publicKey, keyId)
+        }
+
+        connection.onPartnerDeviceNameReceived = { [weak self, viewerId] deviceName in
+            guard let self else { return }
+            await self.onPartnerDeviceNameReceived?(viewerId, deviceName)
         }
 
         connection.onUnpaired = { [weak self, viewerId] in

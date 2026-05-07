@@ -49,6 +49,14 @@ public enum FreshPairingScenario {
         TestStep.waitForHostConnected(timeout: 15)
         TestStep.waitForViewerConnected(timeout: 15)
         TestStep.macWaitForElement(titled: "Viewer connected", timeout: 15)
+
+        // 10. The Paired Viewers cell on Remote Access should now show the
+        //     iOS device's actual name (UIDevice.current.name on the
+        //     simulator contains "iPhone") instead of the old "Viewer"
+        //     placeholder. This guards the rename feature on the default
+        //     pairing path; RenameViewerDeviceScenario covers the custom
+        //     rename round-trip.
+        TestStep.macWaitForElement(titled: "iPhone", timeout: 15)
         TestStep.macScreenshot(label: "mac-connected", tolerance: 5)
     }
 }

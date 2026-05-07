@@ -154,6 +154,11 @@ final public class ConnectedViewer: Identifiable {
     /// Called when partner's public key is received (for persisting to settings)
     public var onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)?
 
+    /// Called when the partner's device name is received (for persisting to settings).
+    /// Fires whenever the relay reports a (possibly updated) viewer device name —
+    /// e.g. on `HostRegisteredMessage.viewerDeviceName` or `ViewerConnectedMessage.deviceName`.
+    public var onPartnerDeviceNameReceived: (@MainActor @Sendable (String) async -> Void)?
+
     /// Called when the server notifies that this pairing was removed by the other side
     public var onUnpaired: (@MainActor @Sendable () async -> Void)?
 
@@ -473,6 +478,12 @@ final public class ConnectedViewer: Identifiable {
                 reconnectionAttempt = 0
                 await updateState(.connected)
                 connectedViewerDeviceName = response.viewerDeviceName
+
+                // Persist the viewer name to settings so the UI shows the user's
+                // chosen device name instead of the placeholder from initial pairing.
+                if let viewerDeviceName = response.viewerDeviceName {
+                    await onPartnerDeviceNameReceived?(viewerDeviceName)
+                }
                 // `isViewerConnected` is deliberately NOT set here — it's flipped to
                 // true only after the viewer's peerHello arrives and passes the
                 // compatibility check. Setting it eagerly would surface the peer as
@@ -516,6 +527,13 @@ final public class ConnectedViewer: Identifiable {
 
         case let .viewerConnected(connectedMessage):
             logger.info("Viewer device connected")
+
+            // Persist the viewer name to settings if the relay included one,
+            // so a renamed iOS device propagates to the macOS UI.
+            if let deviceName = connectedMessage.deviceName {
+                connectedViewerDeviceName = deviceName
+                await onPartnerDeviceNameReceived?(deviceName)
+            }
 
             // `isViewerConnected` stays false until peerHello validation succeeds —
             // see `.peerHello` below. Keeping the flag off during the handshake

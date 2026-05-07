@@ -232,6 +232,32 @@ actor PairingService {
         logger.debug("Updated viewer public key for pair", metadata: ["pairId": "\(pairId)"])
     }
 
+    /// Update the host's device name for a pair (called when host reconnects).
+    /// Lets the host change its display name without re-pairing.
+    func updateHostDeviceName(pairId: String, deviceName: String) {
+        guard var pair = activePairs[pairId], pair.hostDeviceName != deviceName else { return }
+        pair.hostDeviceName = deviceName
+        activePairs[pairId] = pair
+        savePairs()
+        logger.debug("Updated host device name for pair", metadata: [
+            "pairId": "\(pairId)",
+            "deviceName": "\(deviceName)",
+        ])
+    }
+
+    /// Update the viewer's device name for a pair (called when viewer reconnects).
+    /// Lets the user rename their iOS device and have hosts pick it up.
+    func updateViewerDeviceName(pairId: String, deviceName: String) {
+        guard var pair = activePairs[pairId], pair.viewerDeviceName != deviceName else { return }
+        pair.viewerDeviceName = deviceName
+        activePairs[pairId] = pair
+        savePairs()
+        logger.debug("Updated viewer device name for pair", metadata: [
+            "pairId": "\(pairId)",
+            "deviceName": "\(deviceName)",
+        ])
+    }
+
     // MARK: - Push Token Management
 
     /// Register a push token for a pair

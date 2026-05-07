@@ -71,6 +71,50 @@ final public class TmuxService {
         "DISABLE_UPDATE_PROMPT=true",
     ]
 
+    /// Absolute path to the user's login shell. Mirrors tmux's own resolution
+    /// chain: `$SHELL` → passwd entry's `pw_shell` → POSIX-guaranteed `/bin/sh`.
+    /// Resolved once at first access and baked into `defaultCommandWrapper`
+    /// rather than relying on `${SHELL}` indirection inside `/bin/sh -c`, so
+    /// the spawned pane runs the exact shell we logged.
+    private static let userShellPath: String = {
+        if let shell = ProcessInfo.processInfo.environment["SHELL"], !shell.isEmpty {
+            return shell
+        }
+        if let pw = getpwuid(geteuid())?.pointee, let cstr = pw.pw_shell {
+            let resolved = String(cString: cstr)
+            if !resolved.isEmpty { return resolved }
+        }
+        return "/bin/sh"
+    }()
+
+    /// POSIX single-quote a string for safe substitution into a `/bin/sh -c` command.
+    /// Handles paths with spaces or quotes (rare for shell paths, but cheap to be correct).
+    private static func posixSingleQuote(_ string: String) -> String {
+        "'" + string.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
+    }
+
+    /// Wrapper command installed as tmux's `default-command` so every spawned shell
+    /// reports as iTerm. Required for OSC 9;4 progress sequences: Claude Code only
+    /// emits them when it believes it's running under iTerm.
+    ///
+    /// `-e TERM_PROGRAM=iTerm.app` on `new-session` doesn't work — tmux 3.2+
+    /// unconditionally overwrites `TERM_PROGRAM=tmux` and
+    /// `TERM_PROGRAM_VERSION=<tmux-version>` at shell-spawn time (see tmux's
+    /// `spawn.c`), after the session env has been applied. The override happens
+    /// before `exec(shell)`, so we re-export here — the prefix runs *after*
+    /// tmux's hardcoded set and wins.
+    ///
+    /// `<userShellPath> -l` mirrors what tmux does when `default-command` is
+    /// empty (login shell from `default-shell`). Honors any `$SHELL` that
+    /// accepts `-l` as the login-shell flag (zsh/bash/fish/xonsh) — nushell
+    /// would error and would need the `exec -a "-name"` argv[0] convention
+    /// instead (works because tmux runs `default-command` via `/bin/sh -c`,
+    /// which on macOS is bash and supports `exec -a`).
+    private static let defaultCommandWrapper: String = {
+        let shell = posixSingleQuote(userShellPath)
+        return "TERM_PROGRAM=iTerm.app TERM_PROGRAM_VERSION=3.6.6 exec \(shell) -l"
+    }()
+
     /// Path to the Gallager CLI for the `$VISUAL` environment variable.
     /// When set, Ctrl-G in Claude Code opens the in-app prompt editor via `Gallager edit`.
     public var editorCLIPath: String?
@@ -2166,7 +2210,16 @@ final public class TmuxService {
         //     the shell command name before we rename it
         let firstWindowName = isClaudeProject ? "claude" : "terminal 1"
         let allEnvironmentVars = terminalEnvironmentVars + extraEnvironment
+        // Chain `set-option -g default-command … ; new-session …` in one tmux
+        // invocation. `set-option` needs a running server, but we need the
+        // wrapper installed *before* `new-session` so the first pane uses it.
+        // Within a single tmux call the server is started, then commands run
+        // in order — so set-option succeeds and the new session inherits the
+        // just-set global default-command. Repeating this on every session
+        // create is harmless (idempotent) and avoids tracking server lifetime.
         var args = [
+            "set-option", "-g", "default-command", Self.defaultCommandWrapper,
+            ";",
             "new-session",
             "-d",
             "-s", sessionName,

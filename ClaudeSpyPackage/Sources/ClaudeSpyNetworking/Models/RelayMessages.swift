@@ -322,8 +322,16 @@ public struct ViewerConnectedMessage: Codable, Sendable {
     /// Unique identifier for the public key
     public let publicKeyId: String
 
-    public init(publicKey: String, publicKeyId: String) {
+    /// Device name the partner is reporting (viewer name when sent to host,
+    /// host name when sent to viewer). `nil` when the partner hasn't been seen
+    /// before or when the relay is using the legacy notification path that
+    /// doesn't carry a name. Lets either side update the stored device name
+    /// without waiting for a full re-pair.
+    public let deviceName: String?
+
+    public init(publicKey: String, publicKeyId: String, deviceName: String? = nil) {
         self.publicKey = publicKey
         self.publicKeyId = publicKeyId
+        self.deviceName = deviceName
     }
 }
