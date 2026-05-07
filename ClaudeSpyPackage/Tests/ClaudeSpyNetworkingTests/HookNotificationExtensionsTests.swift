@@ -12,8 +12,8 @@ struct HookNotificationAskUserQuestionTests {
                 question: text,
                 header: "Q",
                 options: [
-                    AskUserQuestionParameters.AskUserQuestionOption(label: "Yes", description: nil),
-                    AskUserQuestionParameters.AskUserQuestionOption(label: "No", description: nil),
+                    AskUserQuestionParameters.AskUserQuestionOption(label: "Yes", description: "Yes"),
+                    AskUserQuestionParameters.AskUserQuestionOption(label: "No", description: "No"),
                 ],
                 multiSelect: false
             )

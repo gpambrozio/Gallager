@@ -339,8 +339,8 @@ public struct MonitorParameters: Codable, Sendable, Equatable {
 public struct AgentParameters: Codable, Sendable, Equatable {
     public let prompt: String
     public let description: String
-    public let subagentType: String?
-    public let model: String?
+    public let subagentType: String
+    public let model: Model?
     public let resume: String?
     public let runInBackground: Bool?
     public let maxTurns: Int?
@@ -348,6 +348,43 @@ public struct AgentParameters: Codable, Sendable, Equatable {
     public let teamName: String?
     public let mode: AgentMode?
     public let isolation: Isolation?
+
+    public enum Model: Codable, Sendable, Equatable {
+        case sonnet
+        case opus
+        case haiku
+        case unknown(String)
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            let raw = try container.decode(String.self)
+            switch raw {
+            case "sonnet": self = .sonnet
+            case "opus": self = .opus
+            case "haiku": self = .haiku
+            default: self = .unknown(raw)
+            }
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.singleValueContainer()
+            switch self {
+            case .sonnet: try container.encode("sonnet")
+            case .opus: try container.encode("opus")
+            case .haiku: try container.encode("haiku")
+            case let .unknown(raw): try container.encode(raw)
+            }
+        }
+
+        public var displayName: String {
+            switch self {
+            case .sonnet: "sonnet"
+            case .opus: "opus"
+            case .haiku: "haiku"
+            case let .unknown(raw): raw
+            }
+        }
+    }
 
     public enum AgentMode: Codable, Sendable, Equatable {
         case acceptEdits
@@ -422,8 +459,8 @@ public struct AgentParameters: Codable, Sendable, Equatable {
     public init(
         prompt: String,
         description: String,
-        subagentType: String? = nil,
-        model: String? = nil,
+        subagentType: String,
+        model: Model? = nil,
         resume: String? = nil,
         runInBackground: Bool? = nil,
         maxTurns: Int? = nil,
@@ -579,10 +616,10 @@ public struct AskUserQuestionParameters: Codable, Sendable, Equatable {
 
     public struct AskUserQuestionOption: Codable, Sendable, Equatable {
         public let label: String
-        public let description: String?
+        public let description: String
         public let preview: String?
 
-        public init(label: String, description: String? = nil, preview: String? = nil) {
+        public init(label: String, description: String, preview: String? = nil) {
             self.label = label
             self.description = description
             self.preview = preview

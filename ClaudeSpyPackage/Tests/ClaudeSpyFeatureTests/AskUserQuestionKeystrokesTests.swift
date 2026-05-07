@@ -16,7 +16,7 @@ struct AskUserQuestionKeystrokesTests {
         let options = (0..<optionCount).map { index in
             AskUserQuestionParameters.AskUserQuestionOption(
                 label: "Option \(index + 1)",
-                description: nil
+                description: "Option \(index + 1)"
             )
         }
         return .init(
