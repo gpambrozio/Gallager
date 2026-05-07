@@ -26,11 +26,7 @@
 
         var body: some View {
             ScrollView {
-                VStack(spacing: 16) {
-                    Text("Pair with Host")
-                        .font(.title)
-                        .fontWeight(.bold)
-
+                VStack(spacing: 12) {
                     compactHeaderSection
 
                     codeInputSection
@@ -52,6 +48,8 @@
                 .padding()
             }
             .scrollDismissesKeyboard(.interactively)
+            .navigationTitle("Pair with Host")
+            .navigationBarTitleDisplayMode(.inline)
         }
 
         private var compactHeaderSection: some View {
@@ -64,45 +62,59 @@
         // MARK: - Sections
 
         private var codeInputSection: some View {
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    ForEach(0..<codeLength, id: \.self) { index in
-                        codeDigitView(at: index)
-                    }
-                }
-
-                // Hidden text field for input
-                TextField("", text: $pairingCode)
-                    .keyboardType(.asciiCapable)
-                    .textInputAutocapitalization(.characters)
-                    .autocorrectionDisabled()
-                    .focused($isInputFocused)
-                    .frame(width: 1, height: 1)
-                    .opacity(0.01)
-                    .onChange(of: pairingCode) { _, newValue in
-                        // Filter to letters only and limit length
-                        let filtered = newValue
-                            .uppercased()
-                            .filter { $0.isLetter }
-                            .prefix(codeLength)
-                        pairingCode = String(filtered)
-
-                        // Clear error when typing
-                        if errorMessage != nil {
-                            errorMessage = nil
+            VStack(spacing: 16) {
+                // The digit cells + hidden text field share a tap target so
+                // tapping anywhere on the row focuses the field. The
+                // PasteButton sits outside this group so its taps aren't
+                // swallowed by the focus gesture.
+                VStack(spacing: 0) {
+                    HStack(spacing: 8) {
+                        ForEach(0..<codeLength, id: \.self) { index in
+                            codeDigitView(at: index)
                         }
+                    }
 
-                        // Auto-pair when code is complete
-                        if pairingCode.count == codeLength, !isLoading {
-                            Task {
-                                await performPairing()
+                    // Hidden text field for input
+                    TextField("", text: $pairingCode)
+                        .keyboardType(.asciiCapable)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                        .focused($isInputFocused)
+                        .frame(width: 1, height: 1)
+                        .opacity(0.01)
+                        .onChange(of: pairingCode) { _, newValue in
+                            // Filter to letters only and limit length
+                            let filtered = newValue
+                                .uppercased()
+                                .filter { $0.isLetter }
+                                .prefix(codeLength)
+                            pairingCode = String(filtered)
+
+                            // Clear error when typing
+                            if errorMessage != nil {
+                                errorMessage = nil
+                            }
+
+                            // Auto-pair when code is complete
+                            if pairingCode.count == codeLength, !isLoading {
+                                Task {
+                                    await performPairing()
+                                }
                             }
                         }
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    isInputFocused = true
+                }
+
+                PasteButton(payloadType: String.self) { strings in
+                    Task { @MainActor in
+                        applyPastedString(strings.first)
                     }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                isInputFocused = true
+                }
+                .buttonBorderShape(.capsule)
+                .labelStyle(.titleAndIcon)
             }
             .onAppear {
                 // Auto-focus on appear
@@ -118,8 +130,8 @@
                 : ""
 
             return Text(character)
-                .font(.system(size: 32, weight: .bold, design: .monospaced))
-                .frame(width: 44, height: 56)
+                .font(.system(size: 28, weight: .bold, design: .monospaced))
+                .frame(width: 40, height: 50)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
                         .fill(Color.gray.opacity(0.15))
@@ -157,7 +169,7 @@
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             }
-            .padding()
+            .padding(12)
             .background(
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color.gray.opacity(0.1))
@@ -182,7 +194,7 @@
                 }
                 .buttonStyle(.bordered)
             }
-            .padding()
+            .padding(12)
             .background(
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color.gray.opacity(0.1))
@@ -200,6 +212,23 @@
                 Text(text)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+        }
+
+        // MARK: - Clipboard Detection
+
+        /// Validates a pasted string against `PairingCodeValidator`. If it
+        /// looks like a pairing code, drops it into the input — the existing
+        /// `onChange` handler filters and auto-submits.
+        private func applyPastedString(_ raw: String?) {
+            guard
+                !isLoading,
+                let normalized = PairingCodeValidator.pairingCode(from: raw)
+            else { return }
+
+            // Drop focus so the keyboard doesn't pop up over the in-flight
+            // pairing progress.
+            isInputFocused = false
+            pairingCode = normalized
         }
 
         // MARK: - Actions
