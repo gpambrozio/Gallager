@@ -480,6 +480,31 @@ struct FileBrowserView: View {
         )
     }
 
+    /// A symlink uses a distinct icon so it isn't visually mistaken for a regular
+    /// file, and resolves its target type so the context menu's `isDirectory`
+    /// (which gates "Open in New Tab") matches the link's destination.
+    private func linkRowLabel(name: String, itemId: UUID) -> some View {
+        let fullPath = state.reverseIds[itemId]
+        let targetIsDirectory: Bool = {
+            guard let fullPath else { return false }
+            var isDir: ObjCBool = false
+            return FileManager.default.fileExists(atPath: fullPath, isDirectory: &isDir) && isDir.boolValue
+        }()
+        return Label {
+            Text(name)
+                .font(.callout)
+        } icon: {
+            Symbols.link.image
+                .foregroundStyle(.secondary)
+        }
+        .fileContextMenu(
+            fullPath: fullPath,
+            directoryPath: directoryPath,
+            isDirectory: targetIsDirectory,
+            onOpenFileInNewTab: targetIsDirectory ? nil : onOpenFileInNewTab
+        )
+    }
+
     private func folderRowLabel(name: String, itemId: UUID) -> some View {
         Label {
             Text(name)
@@ -515,7 +540,7 @@ struct FileBrowserView: View {
                             parent: .constant(nil),
                             viewState: viewState,
                             linkLabel: { cursor, _, link in
-                                fileRowLabel(name: cursor.name, itemId: link.wrappedValue.id)
+                                linkRowLabel(name: cursor.name, itemId: link.wrappedValue.id)
                             },
                             fileLabel: { cursor, _, proxy in
                                 fileRowLabel(name: cursor.name, itemId: proxy.id)
@@ -819,7 +844,9 @@ private struct PDFViewRepresentable: NSViewRepresentable {
         }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
 
     func makeNSView(context: Context) -> PDFView {
         let view = PDFView()
