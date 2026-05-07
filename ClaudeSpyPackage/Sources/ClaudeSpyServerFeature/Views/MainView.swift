@@ -81,6 +81,17 @@ public struct MainView: View {
             // Consume any pending menu bar selection that was set before this view appeared
             applyPendingMenuBarSelection()
         }
+        .task {
+            // Silently rescan every 60s so new projects appear without restarting.
+            while true {
+                do {
+                    try await Task.sleep(for: .seconds(60))
+                } catch {
+                    return
+                }
+                await loadProjects(showLoadingIndicator: false)
+            }
+        }
         .onChange(of: settings.additionalClaudeFolders) {
             Task { await loadProjects() }
         }
@@ -398,6 +409,13 @@ public struct MainView: View {
                             _ = await manager.sendCommand(command, paneId: "", hostId: host.id)
                         }
                     },
+                    onSetEmoji: { sessionName, emoji in
+                        Task {
+                            guard let manager = coordinator.viewerConnectionManager else { return }
+                            let command = SetSessionEmoji(sessionName: sessionName, emoji: emoji)
+                            _ = await manager.sendCommand(command, paneId: "", hostId: host.id)
+                        }
+                    },
                     onToggleYolo: { paneId, enabled in
                         Task {
                             guard let manager = coordinator.viewerConnectionManager else { return }
@@ -420,6 +438,7 @@ public struct MainView: View {
         let activeWindow = session.activeWindow
         let description = activeWindow?.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customDescription }
         let color = activeWindow?.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customColor }
+        let emoji = activeWindow?.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customEmoji }
         let claudePane = session.windows.flatMap(\.panes).first { windowManager.paneStates[$0.paneId]?.claudeSession != nil }
         let activePane = activeWindow?.activePane
         let isSessionAttached = tmuxService.attachedSessionNames.contains(session.sessionName)
@@ -442,8 +461,12 @@ public struct MainView: View {
         .modifier(DescriptionEditingModifier(
             sessionName: session.sessionName,
             currentDescription: description,
+            currentEmoji: emoji,
             onSetDescription: { sessionName, description in
                 windowManager.setSessionDescription(description, for: sessionName)
+            },
+            onSetEmoji: { sessionName, emoji in
+                windowManager.setSessionEmoji(emoji, for: sessionName)
             },
             additionalMenu: {
                 ColorContextMenuButtons(currentColor: color) { newColor in
@@ -1527,10 +1550,14 @@ public struct MainView: View {
 
     // MARK: - New Session Actions
 
-    private func loadProjects() async {
-        isLoadingProjects = true
+    private func loadProjects(showLoadingIndicator: Bool = true) async {
+        if showLoadingIndicator {
+            isLoadingProjects = true
+        }
         projects = await coordinator.scanProjects()
-        isLoadingProjects = false
+        if showLoadingIndicator {
+            isLoadingProjects = false
+        }
     }
 
     /// Calculates optimal terminal dimensions based on available detail pane space.
@@ -1856,20 +1883,25 @@ private struct SessionSidebarRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            if let cliSessionState {
-                SessionStatusIndicator(cliState: cliSessionState)
-                    .font(.system(size: 16))
-                    .frame(width: 20)
-            } else if let claudeSession {
-                SessionStatusIndicator(session: claudeSession)
-                    .font(.system(size: 16))
-                    .frame(width: 20)
-            } else {
-                Symbols.terminal.image
-                    .font(.system(size: 16))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20)
+            VStack(spacing: 2) {
+                if let cliSessionState {
+                    SessionStatusIndicator(cliState: cliSessionState)
+                        .font(.system(size: 16))
+                } else if let claudeSession {
+                    SessionStatusIndicator(session: claudeSession)
+                        .font(.system(size: 16))
+                } else {
+                    Symbols.terminal.image
+                        .font(.system(size: 16))
+                        .foregroundStyle(.secondary)
+                }
+
+                if let customEmoji = primaryPaneState?.customEmoji {
+                    SessionEmojiBadge(emoji: customEmoji)
+                        .font(.system(size: 14))
+                }
             }
+            .frame(width: 20)
 
             SessionFieldsView(
                 fields: claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields,
@@ -2491,6 +2523,7 @@ private struct RemoteHostSidebarSection: View {
     let onCreate: (ClaudeProjectInfo?) -> Void
     let onSetDescription: (String, String?) -> Void
     let onSetColor: (String, SessionColor?) -> Void
+    let onSetEmoji: (String, String?) -> Void
     let onToggleYolo: (String, Bool) -> Void
     let onCloseSession: (String) -> Void
 
@@ -2582,8 +2615,10 @@ private struct RemoteHostSidebarSection: View {
         .modifier(DescriptionEditingModifier(
             sessionName: session.sessionName,
             currentDescription: session.customDescription,
+            currentEmoji: session.customEmoji,
             isDisabled: connection?.isHostConnected != true,
             onSetDescription: onSetDescription,
+            onSetEmoji: onSetEmoji,
             additionalMenu: {
                 ColorContextMenuButtons(
                     currentColor: session.customColor,
@@ -2791,20 +2826,25 @@ private struct RemoteSessionSidebarRow: View {
 
     private var rowContent: some View {
         HStack(alignment: .top, spacing: 8) {
-            if let cliSessionState {
-                SessionStatusIndicator(cliState: cliSessionState)
-                    .font(.system(size: 16))
-                    .frame(width: 20)
-            } else if let claudeSession {
-                SessionStatusIndicator(session: claudeSession)
-                    .font(.system(size: 16))
-                    .frame(width: 20)
-            } else {
-                Symbols.terminal.image
-                    .font(.system(size: 16))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20)
+            VStack(spacing: 2) {
+                if let cliSessionState {
+                    SessionStatusIndicator(cliState: cliSessionState)
+                        .font(.system(size: 16))
+                } else if let claudeSession {
+                    SessionStatusIndicator(session: claudeSession)
+                        .font(.system(size: 16))
+                } else {
+                    Symbols.terminal.image
+                        .font(.system(size: 16))
+                        .foregroundStyle(.secondary)
+                }
+
+                if let customEmoji = session.customEmoji {
+                    SessionEmojiBadge(emoji: customEmoji)
+                        .font(.system(size: 14))
+                }
             }
+            .frame(width: 20)
 
             SessionFieldsView(
                 fields: claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields,

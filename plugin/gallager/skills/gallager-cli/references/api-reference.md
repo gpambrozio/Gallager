@@ -99,6 +99,15 @@ session-only targeting rules as `session.set_title`. Pass `color: ""` (or
   `green`, `blue`, `purple`, `pink`, `gray` (aliases: `violet`/`magenta`/
   `grey`).
 
+### `session.set_emoji` — `gallager set-emoji <emoji> [--session]`
+Writes the sidebar emoji icon (`@gallager-emoji` tmux user option). Same
+session-only targeting rules as `session.set_title`. Pass `emoji: ""` (or
+`none` from the CLI) to clear. The CLI rejects non-emoji input locally with
+a validation error so arbitrary text never reaches the server.
+- Params: `{ "emoji": string, "session_id"?: string, "pane_id"?: string }`
+- Result: `{}`
+- Errors: `not_found` when the target doesn't resolve.
+
 ### `session.select` — `gallager select-session <id>`
 - Params: `{ "session_id": string }`
 - Result: `{}`

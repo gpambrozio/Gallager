@@ -41,6 +41,7 @@
         "session.set_state",
         "session.set_title",
         "session.set_color",
+        "session.set_emoji",
         "window.list",
         "window.create",
         "window.select",
@@ -97,6 +98,9 @@
         /// Parameters: (color, sessionId, paneId). `color` is `nil` to clear.
         /// Always applies at session scope.
         let onSessionSetColor: (@Sendable (SessionColor?, String?, String?) async throws -> Void)?
+        /// Parameters: (emoji, sessionId, paneId). `emoji` is `nil` to clear.
+        /// Always applies at session scope.
+        let onSessionSetEmoji: (@Sendable (String?, String?, String?) async throws -> Void)?
 
         let onWindowList: (@Sendable (String?, String?) async -> [[String: JSONValue]])?
         /// Parameters: (sessionId, path, paneId, name).
@@ -156,6 +160,7 @@
             onSessionSetState: (@Sendable (String, String?, String?) async throws -> Int)? = nil,
             onSessionSetTitle: (@Sendable (String?, String?, String?) async throws -> Void)? = nil,
             onSessionSetColor: (@Sendable (SessionColor?, String?, String?) async throws -> Void)? = nil,
+            onSessionSetEmoji: (@Sendable (String?, String?, String?) async throws -> Void)? = nil,
             onWindowList: (@Sendable (String?, String?) async -> [[String: JSONValue]])? = nil,
             onWindowCreate: (
                 @Sendable (String?, String?, String?, String?) async throws -> [String: JSONValue]
@@ -190,6 +195,7 @@
             self.onSessionSetState = onSessionSetState
             self.onSessionSetTitle = onSessionSetTitle
             self.onSessionSetColor = onSessionSetColor
+            self.onSessionSetEmoji = onSessionSetEmoji
             self.onWindowList = onWindowList
             self.onWindowCreate = onWindowCreate
             self.onWindowSelect = onWindowSelect
@@ -370,6 +376,20 @@
                         return .internalError(id: id, "Session set_color not available")
                     }
                     try await callback(color, sessionId, paneId)
+                    return .ok(id: id)
+
+                case "session.set_emoji":
+                    // `emoji` is optional; nil/empty clears the emoji. Free-
+                    // form text so any platform-supported emoji works. Always
+                    // applies at session scope.
+                    let rawEmoji = params["emoji"]?.stringValue
+                    let emoji: String? = (rawEmoji?.isEmpty == false) ? rawEmoji : nil
+                    let sessionId = params["session_id"]?.stringValue
+                    let paneId = params["pane_id"]?.stringValue
+                    guard let callback = onSessionSetEmoji else {
+                        return .internalError(id: id, "Session set_emoji not available")
+                    }
+                    try await callback(emoji, sessionId, paneId)
                     return .ok(id: id)
 
                 // MARK: - Windows

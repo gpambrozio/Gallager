@@ -261,6 +261,69 @@ struct SetColorCommand: ParsableCommand {
     }
 }
 
+struct SetEmojiCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "set-emoji",
+        abstract: "Set a custom emoji icon shown next to a session in the sidebar",
+        discussion: """
+        Emoji always apply to a whole session — every window in the session
+        renders the same icon. Persisted as the tmux user option
+        `@gallager-emoji` so it survives app restarts. Pass an empty string
+        or "none" to clear the emoji.
+
+        Any platform-supported emoji works (e.g. "🚀", "🐛", "📝").
+
+        Targeting:
+          --session SESSION  the session to update
+          (none)             defaults to the calling pane's session via $TMUX_PANE
+        """
+    )
+
+    @Argument(help: "Emoji character. Pass an empty string (\"\") or \"none\" to clear.")
+    var emoji: String
+
+    @OptionGroup var options: GlobalOptions
+
+    func run() throws {
+        // Pass an empty string when the user requested to clear so the API
+        // treats it consistently with `set-title` and `set-color`.
+        let normalized: String
+        if emoji.lowercased() == "none" || emoji.isEmpty {
+            normalized = ""
+        } else {
+            // Reject non-emoji input so arbitrary text doesn't get persisted
+            // to tmux and broadcast to viewers — matches how `set-color`
+            // rejects unknown color names via `SessionColor.parse`.
+            guard emoji.unicodeScalars.contains(where: \.properties.isEmoji) else {
+                throw ValidationError(
+                    "\"\(emoji)\" doesn't contain an emoji. Pass an emoji character (e.g. \"🚀\") or \"none\"/\"\" to clear."
+                )
+            }
+            normalized = emoji
+        }
+        var params: [String: JSONValue] = ["emoji": .string(normalized)]
+        if let session = options.session {
+            params["session_id"] = .string(session)
+        } else if let pane = options.callingPaneId {
+            params["pane_id"] = .string(pane)
+        }
+        let response = try executeRequest(
+            method: "session.set_emoji",
+            params: params,
+            options: options
+        )
+        if options.json {
+            printResponse(response, json: true)
+        } else if response.ok {
+            if normalized.isEmpty {
+                print("Cleared session emoji.")
+            } else {
+                print("Set session emoji to \(normalized).")
+            }
+        }
+    }
+}
+
 struct SessionStateCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "session-state",

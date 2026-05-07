@@ -155,6 +155,13 @@ public enum TestStep: Sendable {
     )
     /// Read the clipboard and store in context
     case macReadClipboard(storeAs: String, instance: Int = 0)
+    /// Write text to the system clipboard. Useful for entering characters
+    /// AppleScript keystroke can't handle (e.g. emoji) before triggering a
+    /// `macPaste` into a focused field.
+    case macWriteClipboard(text: String, instance: Int = 0)
+    /// Press Cmd+V in the macOS app, pasting the current system clipboard
+    /// contents into the focused field.
+    case macPaste(instance: Int = 0)
     /// Wait for a text element to appear in the macOS app's accessibility tree
     case macWaitForElement(titled: String, timeout: TimeInterval = 10, instance: Int = 0)
     /// Wait for a text element to disappear from the macOS app's accessibility tree

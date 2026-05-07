@@ -107,6 +107,12 @@
                                 let command = SetSessionColor(sessionName: sessionName, color: color)
                                 _ = await connectionManager.sendCommand(command, paneId: "", hostId: host.id)
                             }
+                        },
+                        onSetEmoji: { sessionName, emoji in
+                            Task {
+                                let command = SetSessionEmoji(sessionName: sessionName, emoji: emoji)
+                                _ = await connectionManager.sendCommand(command, paneId: "", hostId: host.id)
+                            }
                         }
                     )
                 }
@@ -231,6 +237,7 @@
         let onNewSession: () -> Void
         var onSetDescription: (String, String?) -> Void = { _, _ in }
         var onSetColor: (String, SessionColor?) -> Void = { _, _ in }
+        var onSetEmoji: (String, String?) -> Void = { _, _ in }
 
         @Environment(SessionStore.self) private var sessionStore
 
@@ -305,10 +312,15 @@
                             cliSessionState: cliSessionState,
                             isActive: sessionStore.isPaneActive(paneId: claudePane.paneId, hostId: host.id),
                             customDescription: session.customDescription,
+                            customEmoji: session.customEmoji,
                             windowCount: session.windows.count
                         )
                     } else if let pane = activePaneInSession {
-                        TerminalRowView(pane: pane, windowCount: session.windows.count)
+                        TerminalRowView(
+                            pane: pane,
+                            customEmoji: session.customEmoji,
+                            windowCount: session.windows.count
+                        )
                     }
                 }
                 // The visual progress bar is rendered as an .overlay outside
@@ -343,8 +355,10 @@
             .modifier(DescriptionEditingModifier(
                 sessionName: session.sessionName,
                 currentDescription: session.customDescription,
+                currentEmoji: session.customEmoji,
                 isDisabled: connection?.isHostConnected != true,
                 onSetDescription: onSetDescription,
+                onSetEmoji: onSetEmoji,
                 additionalMenu: {
                     ColorContextMenuButtons(
                         currentColor: session.customColor,
@@ -511,18 +525,27 @@
         var cliSessionState: CLISessionState?
         let isActive: Bool
         var customDescription: String?
+        var customEmoji: String?
         var windowCount = 1
 
         var body: some View {
             HStack(alignment: .top, spacing: 12) {
-                Group {
-                    if let cliSessionState {
-                        SessionStatusIndicator(cliState: cliSessionState)
-                    } else {
-                        SessionStatusIndicator(session: session)
+                VStack(spacing: 2) {
+                    Group {
+                        if let cliSessionState {
+                            SessionStatusIndicator(cliState: cliSessionState)
+                        } else {
+                            SessionStatusIndicator(session: session)
+                        }
+                    }
+                    .frame(width: 20, height: 20)
+
+                    if let customEmoji {
+                        SessionEmojiBadge(emoji: customEmoji)
+                            .font(.system(size: 16))
                     }
                 }
-                .frame(width: 20, height: 20)
+                .frame(width: 20)
 
                 VStack(alignment: .leading, spacing: 4) {
                     // Custom description shown prominently if set
@@ -592,6 +615,7 @@
     /// Row view for plain terminals (no Claude session)
     struct TerminalRowView: View {
         let pane: PaneState
+        var customEmoji: String?
         var windowCount = 1
 
         /// Display name derived from current path or pane ID
@@ -609,16 +633,24 @@
 
         var body: some View {
             HStack(alignment: .top, spacing: 12) {
-                Group {
-                    if let cliState = pane.cliSessionState {
-                        SessionStatusIndicator(cliState: cliState)
-                    } else {
-                        // Terminal icon instead of activity indicator
-                        Symbols.terminal.image
-                            .foregroundStyle(.secondary)
+                VStack(spacing: 2) {
+                    Group {
+                        if let cliState = pane.cliSessionState {
+                            SessionStatusIndicator(cliState: cliState)
+                        } else {
+                            // Terminal icon instead of activity indicator
+                            Symbols.terminal.image
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(width: 20, height: 20)
+
+                    if let customEmoji {
+                        SessionEmojiBadge(emoji: customEmoji)
+                            .font(.system(size: 16))
                     }
                 }
-                .frame(width: 20, height: 20)
+                .frame(width: 20)
 
                 VStack(alignment: .leading, spacing: 4) {
                     // Custom description shown prominently if set
