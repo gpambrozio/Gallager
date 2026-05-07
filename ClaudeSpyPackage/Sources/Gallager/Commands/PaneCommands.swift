@@ -132,3 +132,67 @@ struct CapturePaneCommand: ParsableCommand {
         }
     }
 }
+
+struct SetProgressCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "set-progress",
+        abstract: "Set the sidebar progress bar for a pane",
+        discussion: """
+        Overrides the per-pane progress bar that the host normally derives from
+        `OSC 9;4` sequences emitted by terminal programs. The override syncs
+        through the same path as the OSC value, so every connected viewer
+        (host sidebar, Mac viewer, iOS) sees the same bar.
+
+        Accepted values:
+          0–100         Determinate percentage (blue bar)
+          warning       Full yellow warning bar
+          error         Full red error bar
+          clear / none  Clear the bar
+
+        Targeting:
+          --pane PANE   Target a specific pane by tmux pane ID (e.g. %3)
+          (none)        Defaults to the calling pane via $TMUX_PANE
+
+        A subsequent `OSC 9;4` sequence on the same pane overrides whatever the
+        CLI set, and a subsequent CLI `set-progress` call overrides whatever
+        the OSC sequence put there — the most-recent update wins.
+        """
+    )
+
+    @Argument(help: "Progress value: 0–100, 'warning', 'error', or 'clear'/'none'.")
+    var value: String
+
+    @OptionGroup var options: GlobalOptions
+
+    func run() throws {
+        var params: [String: JSONValue] = ["value": .string(value)]
+        if let pane = options.pane ?? options.callingPaneId {
+            params["pane_id"] = .string(pane)
+        }
+        let response = try executeRequest(
+            method: "pane.set_progress",
+            params: params,
+            options: options
+        )
+        if options.json {
+            printResponse(response, json: true)
+        } else if response.ok {
+            let normalized = value.lowercased()
+            switch normalized {
+            case "clear",
+                 "none":
+                print("Cleared pane progress.")
+            case "warning":
+                print("Set pane progress to warning.")
+            case "error":
+                print("Set pane progress to error.")
+            default:
+                if let int = Int(value) {
+                    print("Set pane progress to \(int)%.")
+                } else {
+                    print("Set pane progress.")
+                }
+            }
+        }
+    }
+}

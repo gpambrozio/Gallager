@@ -83,6 +83,7 @@
             "sleep_before",
             "sleep_after",
             "claude",
+            "progress",
         ]
 
         static let supportedClaudeKeys: Set = [
@@ -460,6 +461,7 @@
                 let suppressHistory = try parseBool(map["suppress_history"], path: "\(path).suppress_history")
                 let sleepBefore = try parseDouble(map["sleep_before"], path: "\(path).sleep_before") ?? 0
                 let sleepAfter = try parseDouble(map["sleep_after"], path: "\(path).sleep_after") ?? 0
+                let progress = try parseProgress(map["progress"], path: "\(path).progress", warnings: &warnings)
                 return LayoutConfig.Pane(
                     shellCommands: shellCommands,
                     startDirectory: startDir,
@@ -469,7 +471,8 @@
                     suppressHistory: suppressHistory,
                     sleepBefore: sleepBefore,
                     sleepAfter: sleepAfter,
-                    claude: claude
+                    claude: claude,
+                    progress: progress
                 )
             default:
                 throw LayoutConfigError(
@@ -570,6 +573,83 @@
         }
 
         // MARK: - Primitive helpers
+
+        /// Parses the optional `progress:` field on a pane. Accepts either a
+        /// number (`0`–`100`), a string number (`"50"` / `"50%"`), or one of
+        /// the named states: `warning`, `error`, `clear`/`none`. Mirrors the
+        /// surface of the CLI's `set-progress` command. Returns `nil` for
+        /// unset / explicit `null` / explicit clear so the driver only
+        /// applies a value when the YAML asked for one.
+        private func parseProgress(
+            _ value: JSONValue?,
+            path: String,
+            warnings: inout [String]
+        ) throws -> TerminalProgressState? {
+            guard let value else { return nil }
+            switch value {
+            case .null:
+                return nil
+            case let .int(i):
+                guard (0...100).contains(i) else {
+                    let msg = "progress percentage must be 0-100 (got \(i))"
+                    if lenient {
+                        warnings.append("\(path): \(msg)")
+                        return nil
+                    }
+                    throw LayoutConfigError(path: path, message: msg)
+                }
+                return .normal(i)
+            case let .double(d):
+                let i = Int(d.rounded())
+                guard (0...100).contains(i) else {
+                    let msg = "progress percentage must be 0-100 (got \(d))"
+                    if lenient {
+                        warnings.append("\(path): \(msg)")
+                        return nil
+                    }
+                    throw LayoutConfigError(path: path, message: msg)
+                }
+                return .normal(i)
+            case let .string(raw):
+                let expanded = try expand(raw, path: path, warnings: &warnings)
+                let trimmed = expanded.trimmingCharacters(in: .whitespacesAndNewlines)
+                switch trimmed.lowercased() {
+                case "",
+                     "clear",
+                     "none",
+                     "removed":
+                    return nil
+                case "warning":
+                    return .warning
+                case "error":
+                    return .error
+                default:
+                    let stripped = trimmed.hasSuffix("%") ? String(trimmed.dropLast()) : trimmed
+                    guard let percent = Int(stripped) else {
+                        let msg = "Unknown progress value '\(raw)'. Use 0-100, 'warning', 'error', or 'clear'."
+                        if lenient {
+                            warnings.append("\(path): \(msg)")
+                            return nil
+                        }
+                        throw LayoutConfigError(path: path, message: msg)
+                    }
+                    guard (0...100).contains(percent) else {
+                        let msg = "progress percentage must be 0-100 (got \(percent))"
+                        if lenient {
+                            warnings.append("\(path): \(msg)")
+                            return nil
+                        }
+                        throw LayoutConfigError(path: path, message: msg)
+                    }
+                    return .normal(percent)
+                }
+            default:
+                throw LayoutConfigError(
+                    path: path,
+                    message: "expected number or string (got \(value.typeName))"
+                )
+            }
+        }
 
         private func parseColor(
             _ value: JSONValue?,

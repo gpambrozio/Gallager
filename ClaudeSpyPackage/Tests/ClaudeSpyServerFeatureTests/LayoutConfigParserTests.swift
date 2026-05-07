@@ -314,6 +314,88 @@
         }
     }
 
+    // MARK: - Pane progress
+
+    @Test
+    func parsesNumericProgress() throws {
+        let parser = LayoutConfigParser(lenient: false, environment: [:])
+        let value: JSONValue = .object([
+            "session_name": .string("dev"),
+            "windows": .array([
+                .object([
+                    "panes": .array([
+                        .object(["progress": .int(50)]),
+                        .object(["progress": .string("75%")]),
+                    ]),
+                ]),
+            ]),
+        ])
+        let config = try parser.parse(value)
+        #expect(config.windows[0].panes[0].progress == .normal(50))
+        #expect(config.windows[0].panes[1].progress == .normal(75))
+    }
+
+    @Test
+    func parsesNamedProgressStates() throws {
+        let parser = LayoutConfigParser(lenient: false, environment: [:])
+        let value: JSONValue = .object([
+            "session_name": .string("dev"),
+            "windows": .array([
+                .object([
+                    "panes": .array([
+                        .object(["progress": .string("warning")]),
+                        .object(["progress": .string("error")]),
+                        .object(["progress": .string("clear")]),
+                        .object(["progress": .string("none")]),
+                    ]),
+                ]),
+            ]),
+        ])
+        let config = try parser.parse(value)
+        #expect(config.windows[0].panes[0].progress == .warning)
+        #expect(config.windows[0].panes[1].progress == .error)
+        // "clear" / "none" both leave progress unset so the driver applies
+        // nothing — same intent as omitting the key entirely.
+        #expect(config.windows[0].panes[2].progress == nil)
+        #expect(config.windows[0].panes[3].progress == nil)
+    }
+
+    @Test
+    func progressOutOfRangeThrowsInStrictMode() {
+        let parser = LayoutConfigParser(lenient: false, environment: [:])
+        let value: JSONValue = .object([
+            "session_name": .string("dev"),
+            "windows": .array([
+                .object([
+                    "panes": .array([
+                        .object(["progress": .int(150)]),
+                    ]),
+                ]),
+            ]),
+        ])
+        #expect(throws: LayoutConfigError.self) {
+            _ = try parser.parse(value)
+        }
+    }
+
+    @Test
+    func progressUnknownStringThrowsInStrictMode() {
+        let parser = LayoutConfigParser(lenient: false, environment: [:])
+        let value: JSONValue = .object([
+            "session_name": .string("dev"),
+            "windows": .array([
+                .object([
+                    "panes": .array([
+                        .object(["progress": .string("flibbertigibbet")]),
+                    ]),
+                ]),
+            ]),
+        ])
+        #expect(throws: LayoutConfigError.self) {
+            _ = try parser.parse(value)
+        }
+    }
+
     // MARK: - Hooks
 
     @Test
