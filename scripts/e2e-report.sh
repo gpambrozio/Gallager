@@ -30,7 +30,7 @@ E2E_ARGS=()
 # PR's build) can't carry into this run. e2e-test.sh already honors
 # SANDBOX_DERIVED_DATA as its DerivedData override.
 REPORT_DERIVED_DATA="${TMPDIR:-/tmp}/claudespy-e2e-report-derived-data"
-export SANDBOX_DERIVED_DATA="$REPORT_DERIVED_DATA"
+export REPORT_DERIVED_DATA
 trap 'rm -rf "$REPORT_DERIVED_DATA"' EXIT
 
 # =====================================================
