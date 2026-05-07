@@ -6,9 +6,12 @@
 
     /// Receives events parsed by `PipePaneReader`.
     ///
-    /// All methods are called on the main actor; the reader awaits each call so
-    /// events are delivered in strict FIFO order with respect to the underlying
-    /// pipe-pane stream.
+    /// All methods are called on the main actor. The reader dispatches each
+    /// chunk's events as a single fire-and-forget Task to MainActor, so the
+    /// FIFO consumer pulling from the pipe-pane stream is never blocked
+    /// waiting on rendering. MainActor Tasks of the same priority dispatched
+    /// from the reader actor run in submission order, preserving stream
+    /// ordering across chunks.
     @MainActor
     protocol PipePaneReaderDelegate: AnyObject, Sendable {
         func pipePaneReader(_ paneId: String, didReceiveData data: Data)
@@ -76,11 +79,11 @@
         private var dataContinuation: AsyncStream<Data>.Continuation?
         private var consumerTask: Task<Void, Never>?
 
-        // Incomplete tmux escape sequence buffer (ESC k ... ESC \ split across reads)
+        /// Incomplete tmux escape sequence buffer (ESC k ... ESC \ split across reads)
         private var tmuxEscapeBuffer = Data()
 
-        // Parser for OSC 9/777 notification sequences. `scanOnly` is flipped
-        // by `setBuffering(_:)` so the same instance can be reused across modes.
+        /// Parser for OSC 9/777 notification sequences. `scanOnly` is flipped
+        /// by `setBuffering(_:)` so the same instance can be reused across modes.
         private var notificationParser = TerminalNotificationParser(scanOnly: true)
 
         init(paneId: String) {
@@ -241,27 +244,25 @@
         /// received, then transitions to live mode (subsequent bytes flow
         /// directly to the delegate). The buffer is empty after this call.
         ///
-        /// Stays in `.buffering` mode while iterating. Each `await delegate…`
-        /// suspends the actor, and during that suspension the consumer task
-        /// can deliver fresh bytes via `processIncomingData`. If we flipped to
-        /// `.live` up-front those bytes would race past whatever was still in
-        /// `toFlush`; keeping `.buffering` parks them on the queue, and the
-        /// outer `while` catches them in the next iteration. The flip to
-        /// `.live` only happens once the queue is fully empty, with no
-        /// `await` between the empty check and the mode change.
-        func flushBuffer() async {
+        /// Delivery is fire-and-forget: chunks are dispatched as a single
+        /// MainActor Task per call, so the actor never suspends mid-flush
+        /// and concurrent writers can't interleave with the buffered chunks.
+        /// Subsequent `processIncomingData` calls in `.live` mode dispatch
+        /// their own Tasks; MainActor processes them in submission order
+        /// after this flush Task completes.
+        func flushBuffer() {
             notificationParser.scanOnly = false
-            var totalChunks = 0
-            while !buffer.isEmpty {
-                let toFlush = buffer
-                buffer = []
-                totalChunks += toFlush.count
-                for chunk in toFlush {
-                    await delegate?.pipePaneReader(paneId, didReceiveData: chunk)
+            let toFlush = buffer
+            buffer = []
+            mode = .live
+            if !toFlush.isEmpty {
+                dispatchToDelegate { [paneId] delegate in
+                    for chunk in toFlush {
+                        delegate.pipePaneReader(paneId, didReceiveData: chunk)
+                    }
                 }
             }
-            mode = .live
-            logger.debug("Flushed \(totalChunks) buffered chunks for \(paneId)")
+            logger.debug("Flushed \(toFlush.count) buffered chunks for \(paneId)")
         }
 
         /// Stops pipe-pane and cleans up all resources.
@@ -307,7 +308,7 @@
 
         // MARK: - Data Processing
 
-        private func processIncomingData(_ data: Data) async {
+        private func processIncomingData(_ data: Data) {
             // Filter tmux-specific escape sequences (ESC k ... ESC \)
             let tmuxFiltered = filterTmuxEscapeSequences(data)
             guard !tmuxFiltered.isEmpty else { return }
@@ -325,38 +326,68 @@
             // Parse and strip OSC 9/777 notification sequences
             let parseResult = notificationParser.parse(kittyFiltered)
 
-            // Report any detected notifications
-            for notification in parseResult.notifications {
-                await delegate?.pipePaneReader(paneId, didReceiveNotification: notification)
-            }
-
-            // Report title changes (OSC 0/2)
-            if let title = parseResult.titleChange {
-                await delegate?.pipePaneReader(paneId, didReceiveTitle: title)
-            }
-
-            // Report clipboard content (OSC 52)
-            if let clipboardContent = parseResult.clipboardContent {
-                await delegate?.pipePaneReader(paneId, didReceiveClipboard: clipboardContent)
-            }
-
-            // Report progress updates (OSC 9;4)
-            if let progressUpdate = parseResult.progressUpdate {
-                await delegate?.pipePaneReader(paneId, didReceiveProgress: progressUpdate)
-            }
-
+            // Determine what (if any) data goes to the live delegate; for
+            // buffering mode we append synchronously so the buffer's order
+            // is determined by actor serialization, not by MainActor timing.
             let filtered = parseResult.filteredData
-            guard !filtered.isEmpty else { return }
-
+            let liveData: Data?
             switch mode {
             case .scanOnly:
-                // Parser was in scanOnly mode so filteredData should already be empty;
-                // defensive drop in case mode changed mid-chunk.
-                break
+                liveData = nil
             case .buffering:
-                buffer.append(filtered)
+                if !filtered.isEmpty { buffer.append(filtered) }
+                liveData = nil
             case .live:
-                await delegate?.pipePaneReader(paneId, didReceiveData: filtered)
+                liveData = filtered.isEmpty ? nil : filtered
+            }
+
+            let notifications = parseResult.notifications
+            let title = parseResult.titleChange
+            let clipboard = parseResult.clipboardContent
+            let progress = parseResult.progressUpdate
+
+            guard
+                !notifications.isEmpty
+                || title != nil
+                || clipboard != nil
+                || progress != nil
+                || liveData != nil
+            else { return }
+
+            dispatchToDelegate { [paneId] delegate in
+                for notification in notifications {
+                    delegate.pipePaneReader(paneId, didReceiveNotification: notification)
+                }
+                if let title { delegate.pipePaneReader(paneId, didReceiveTitle: title) }
+                if let clipboard { delegate.pipePaneReader(paneId, didReceiveClipboard: clipboard) }
+                if let progress { delegate.pipePaneReader(paneId, didReceiveProgress: progress) }
+                if let liveData { delegate.pipePaneReader(paneId, didReceiveData: liveData) }
+            }
+        }
+
+        /// Dispatches a fire-and-forget MainActor Task that delivers events
+        /// for one chunk to the delegate, in the order the closure invokes
+        /// methods. Tasks at the same priority dispatched from this actor run
+        /// in submission order on MainActor, so cross-chunk stream order is
+        /// preserved without blocking the FIFO consumer task.
+        private func dispatchToDelegate(
+            _ deliver: @escaping @Sendable @MainActor (any PipePaneReaderDelegate) -> Void
+        ) {
+            // `delegate` is weak; capture it inside the Task so a deallocation
+            // between dispatch and execution simply drops the events.
+            let weakRef = WeakDelegate(delegate)
+            Task { @MainActor in
+                guard let delegate = weakRef.value else { return }
+                deliver(delegate)
+            }
+        }
+
+        /// Tiny weak holder so we can capture the delegate reference into a
+        /// `Sendable` closure without retaining it.
+        private struct WeakDelegate: @unchecked Sendable {
+            weak var value: (any PipePaneReaderDelegate)?
+            init(_ value: (any PipePaneReaderDelegate)?) {
+                self.value = value
             }
         }
 
@@ -435,9 +466,22 @@
             filterTmuxEscapeSequences(data)
         }
 
-        /// Exposes processIncomingData for testing.
-        func testProcessIncomingData(_ data: Data) async {
-            await processIncomingData(data)
+        /// Exposes processIncomingData for testing. The data path itself is
+        /// synchronous, but delegate delivery is fire-and-forget on MainActor;
+        /// tests must call `testWaitForDelivery()` before asserting on the
+        /// delegate so any dispatched Tasks have run.
+        func testProcessIncomingData(_ data: Data) {
+            processIncomingData(data)
+        }
+
+        /// Drains any MainActor delivery Tasks dispatched by prior
+        /// `testProcessIncomingData` / `flushBuffer` calls. Tests assert on
+        /// delegate state only after this returns.
+        func testWaitForDelivery() async {
+            // Hop to MainActor and back. Tasks at the same priority dispatched
+            // from this actor run on MainActor in submission order; this trip
+            // queues behind them, so by the time we resume, they've all run.
+            await Task { @MainActor in }.value
         }
 
         /// Exposes fifoPath for testing.

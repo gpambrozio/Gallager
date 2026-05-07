@@ -51,42 +51,42 @@
         struct SessionNameExtractionTests {
             @Test("Full pane target extracts session name")
             @MainActor
-            func fullPaneTarget() async {
+            func fullPaneTarget() {
                 let result = TmuxControlClientManager.extractSessionName(from: "mysession:0.1")
                 #expect(result == "mysession")
             }
 
             @Test("Window target extracts session name")
             @MainActor
-            func windowTarget() async {
+            func windowTarget() {
                 let result = TmuxControlClientManager.extractSessionName(from: "mysession:0")
                 #expect(result == "mysession")
             }
 
             @Test("Session only returns session name")
             @MainActor
-            func sessionOnly() async {
+            func sessionOnly() {
                 let result = TmuxControlClientManager.extractSessionName(from: "mysession")
                 #expect(result == "mysession")
             }
 
             @Test("Session with spaces before colon")
             @MainActor
-            func sessionWithSpaces() async {
+            func sessionWithSpaces() {
                 let result = TmuxControlClientManager.extractSessionName(from: "my session:0.1")
                 #expect(result == "my session")
             }
 
             @Test("Session with numbers")
             @MainActor
-            func sessionWithNumbers() async {
+            func sessionWithNumbers() {
                 let result = TmuxControlClientManager.extractSessionName(from: "session123:2.0")
                 #expect(result == "session123")
             }
 
             @Test("Pane ID format extracts correctly")
             @MainActor
-            func paneIdFormat() async {
+            func paneIdFormat() {
                 // Sometimes targets might be pane IDs like %0
                 let result = TmuxControlClientManager.extractSessionName(from: "%0")
                 #expect(result == "%0")
@@ -353,6 +353,7 @@
                 #expect(delegate.data.isEmpty, "Buffered bytes must not reach delegate before flush")
 
                 await reader.flushBuffer()
+                await reader.testWaitForDelivery()
 
                 #expect(delegate.data.count == 3)
                 let combined = String(data: delegate.concatenatedData, encoding: .utf8)
@@ -379,6 +380,7 @@
                 input.append(contentsOf: "after".utf8)
 
                 await reader.testProcessIncomingData(input)
+                await reader.testWaitForDelivery()
 
                 #expect(delegate.data.isEmpty, "Scan-only mode must not deliver data bytes")
                 #expect(delegate.notifications.count == 1, "OSC 9 notification must still flow")
@@ -394,13 +396,17 @@
                 await reader.testProcessIncomingData(Data("A".utf8))
                 await reader.testProcessIncomingData(Data("B".utf8))
 
-                // Submit fresh bytes concurrently with the flush. If flushBuffer
-                // flips mode to .live before the queue is drained, the late "C"
-                // chunk can race past still-buffered "A"/"B" chunks and produce
-                // out-of-order delivery (e.g. "ACB").
+                // Actor serialization: whichever method enters the actor first
+                // runs to completion. If flushBuffer wins, it dispatches a Task
+                // for [A, B] then flips mode to .live; the late C call then sees
+                // .live and dispatches its own Task. If the late call wins, it
+                // appends C to the buffer; flushBuffer then dispatches a Task
+                // for [A, B, C]. Either way, MainActor processes the dispatched
+                // Tasks in submission order, yielding "ABC".
                 async let flushTask: () = reader.flushBuffer()
                 async let lateTask: () = reader.testProcessIncomingData(Data("C".utf8))
                 _ = await (flushTask, lateTask)
+                await reader.testWaitForDelivery()
 
                 let combined = String(data: delegate.concatenatedData, encoding: .utf8) ?? ""
                 #expect(combined == "ABC", "Expected A,B,C in order, got: \(combined)")
@@ -415,12 +421,14 @@
                 await reader.setBuffering(true)
                 await reader.testProcessIncomingData(Data("buffered".utf8))
                 await reader.flushBuffer()
+                await reader.testWaitForDelivery()
 
                 #expect(delegate.data.count == 1)
 
                 // Live mode: bytes go straight to the delegate, in the same order
                 // relative to the previously buffered chunk.
                 await reader.testProcessIncomingData(Data(" live".utf8))
+                await reader.testWaitForDelivery()
                 #expect(delegate.data.count == 2)
                 let combined = String(data: delegate.concatenatedData, encoding: .utf8)
                 #expect(combined == "buffered live")
@@ -443,6 +451,7 @@
                 await reader.setBuffering(true)
                 await reader.testProcessIncomingData(Data("kept".utf8))
                 await reader.flushBuffer()
+                await reader.testWaitForDelivery()
                 #expect(delegate.data.count == 1)
                 #expect(String(data: delegate.data[0], encoding: .utf8) == "kept")
             }
