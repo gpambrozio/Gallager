@@ -90,6 +90,9 @@ Dump the full iOS accessibility tree to the console log. For debugging only — 
 ### `iosReadClipboard(storeAs: String)`
 Read the iOS simulator's general pasteboard and store its contents in the execution context under the given key. Use to assert clipboard sync from the host (e.g. OSC 52 → viewer pasteboard).
 
+### `iosClearClipboard`
+Clear the iOS simulator's general pasteboard (pipes `/dev/null` into `simctl pbcopy`). Use before screenshotting views whose appearance depends on clipboard contents — most notably SwiftUI's `PasteButton`, which auto-enables when the pasteboard carries matching payload — so baselines don't drift with whatever the simulator pasteboard happened to be holding.
+
 ### `iosSetAppVersion(appVersion: String?, minRequiredPartnerVersion: String?)`
 Update the iOS app's `VersionCompatibility` overrides at runtime and kick a reconnect. `nil` clears the override; a non-nil value replaces it. Used by version-mismatch scenarios to simulate an in-place "app update" without relaunching.
 
