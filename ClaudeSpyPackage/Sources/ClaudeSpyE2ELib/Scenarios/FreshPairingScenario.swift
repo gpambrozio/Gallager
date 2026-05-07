@@ -20,6 +20,10 @@ public enum FreshPairingScenario {
         // 4. Launch iOS in simulator
         TestStep.launchIOSApp()
         TestStep.iosWaitForElement(.labelContains("pairing code"), timeout: 15)
+        // Clear clipboard so the SwiftUI PasteButton is in a deterministic
+        // disabled state — otherwise baselines depend on whatever happens to
+        // be on the simulator's pasteboard from a prior run.
+        TestStep.iosClearClipboard
         TestStep.iosScreenshot(label: "ios-pairing-view")
 
         // 5. Generate pairing code on macOS
