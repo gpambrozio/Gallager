@@ -43,6 +43,9 @@ public enum UnpairFromIOSScenario {
 
         // 6. Verify iOS returns to pairing view
         TestStep.iosWaitForElement(.labelContains("pairing code"), timeout: 10)
+        // Clear clipboard so the SwiftUI PasteButton is in a deterministic
+        // disabled state — the unpair flow may have left a code on the board.
+        TestStep.iosClearClipboard
         TestStep.iosScreenshot(label: "ios-back-to-pairing")
     }
 }

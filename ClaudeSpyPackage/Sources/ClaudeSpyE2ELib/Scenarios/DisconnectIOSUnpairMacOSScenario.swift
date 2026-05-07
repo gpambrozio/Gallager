@@ -29,6 +29,9 @@ public enum DisconnectIOSUnpairMacOSScenario {
         //    since the pairing was removed, causing iOS to clean up its pairing data.
         TestStep.serverUnblockDevice(.viewer)
         TestStep.iosWaitForElement(.labelContains("pairing code"), timeout: 30)
+        // Clear clipboard so the SwiftUI PasteButton is in a deterministic
+        // disabled state — the previous pairing may have left a code on the board.
+        TestStep.iosClearClipboard
         TestStep.iosScreenshot(label: "ios-invalid-pair-cleanup")
     }
 }

@@ -442,6 +442,10 @@ public actor TestOrchestrator {
             context.set(storeAs, value: value)
             logger.info("Stored iOS clipboard as '\(storeAs)': \(value)")
 
+        case .iosClearClipboard:
+            try await simulatorDriver.clearClipboard()
+            logger.info("Cleared iOS clipboard")
+
         case let .iosSetAppVersion(appVersion, minRequiredPartnerVersion):
             try await simulatorDriver.setAppVersion(
                 appVersion: appVersion,

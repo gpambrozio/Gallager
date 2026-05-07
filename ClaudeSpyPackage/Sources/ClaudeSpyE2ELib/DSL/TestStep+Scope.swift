@@ -36,6 +36,7 @@ public extension TestStep {
              .iosScreenshot,
              .iosLogUI,
              .iosReadClipboard,
+             .iosClearClipboard,
              .iosSetAppVersion:
             return .ios
         // macOS app (specific instance)
