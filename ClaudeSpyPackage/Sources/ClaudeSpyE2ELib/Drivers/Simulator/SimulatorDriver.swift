@@ -471,6 +471,19 @@ public actor SimulatorDriver {
         return result.stdoutString
     }
 
+    /// Clear the simulator clipboard by piping `/dev/null` into `simctl pbcopy`.
+    /// Used to drive `PasteButton` into a deterministic disabled state for screenshots.
+    public func clearClipboard() async throws {
+        guard let udid else {
+            throw SimulatorDriverError.simulatorNotRunning
+        }
+
+        _ = try await processRunner.runOrThrow(
+            "/bin/sh",
+            arguments: ["-c", "/usr/bin/xcrun simctl pbcopy \(udid) < /dev/null"]
+        )
+    }
+
     // MARK: - Version Override
 
     /// Update the iOS app's `VersionCompatibility` overrides at runtime and kick a

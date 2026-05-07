@@ -79,6 +79,11 @@ public enum TestStep: Sendable {
     case iosLogUI
     /// Read the iOS simulator clipboard and store in context
     case iosReadClipboard(storeAs: String)
+    /// Clear the iOS simulator clipboard. Useful before screenshotting views
+    /// whose appearance depends on clipboard contents (e.g. SwiftUI's
+    /// `PasteButton`, which is enabled whenever the pasteboard has matching
+    /// payload). Forces the disabled state so baselines are deterministic.
+    case iosClearClipboard
     /// Update the iOS app's `VersionCompatibility` overrides at runtime and kick
     /// a reconnect. `nil` clears the override; a non-nil value replaces it. Used
     /// by version-mismatch scenarios to simulate an in-place "app update".
