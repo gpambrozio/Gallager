@@ -331,6 +331,14 @@
         /// sent to tmux as-is, bypassing TmuxKey conversion.
         var onRawInput: (@MainActor (Data) -> Void)?
 
+        /// Callback invoked when the user pastes an image (Cmd+V with image clipboard
+        /// contents). When set, the terminal hands the image off to the host instead
+        /// of sending Ctrl+V locally. Used by the remote terminal mirror to forward
+        /// images over the relay so the host's foreground app can paste them.
+        /// Returning `true` consumes the paste; returning `false` falls back to the
+        /// local Ctrl+V behaviour.
+        var onImagePaste: (@MainActor (ClipboardImage) -> Bool)?
+
         /// Callback invoked when the terminal title changes (via OSC 0 or OSC 2 escape sequences).
         var onTitleChange: (@MainActor (String) -> Void)?
 
@@ -957,8 +965,14 @@
                     return true
                 }
 
-                // If clipboard has an image, send Ctrl+V so the terminal app can handle it
-                if clipboard.hasImage() {
+                // If clipboard has an image, hand it off to the remote-paste
+                // path when set (viewer of a remote host) — otherwise fall back
+                // to the local Ctrl+V flow that lets the in-pane terminal app
+                // read the host's pasteboard directly.
+                if let image = clipboard.getImage() {
+                    if let onImagePaste, onImagePaste(image) {
+                        return true
+                    }
                     onInput?([.ctrl("v")])
                     return true
                 }

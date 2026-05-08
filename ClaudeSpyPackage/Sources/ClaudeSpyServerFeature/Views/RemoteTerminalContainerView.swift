@@ -35,6 +35,7 @@ struct RemoteTerminalContainerView: View {
     @State private var streamWidth = 80
     @State private var streamHeight = 24
     @State private var terminalTitle: String?
+    @State private var imageUpload: ImageUploadState?
 
     private var windowTitle: String {
         if let terminalTitle, !terminalTitle.isEmpty {
@@ -59,9 +60,19 @@ struct RemoteTerminalContainerView: View {
                 },
                 onTitleChange: { title in
                     terminalTitle = title
+                },
+                onImagePaste: { image in
+                    startImageUpload(image)
                 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .center) {
+                if let imageUpload {
+                    ImageUploadOverlay(state: imageUpload, onCancel: cancelImageUpload)
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.15), value: imageUpload?.id)
 
             if showStatusBar ?? settings.showStatusBar {
                 statusBar
@@ -83,6 +94,77 @@ struct RemoteTerminalContainerView: View {
                 onStreamEnd?()
             }
         }
+    }
+
+    private func startImageUpload(_ image: ClipboardImage) {
+        // Cancel any in-flight upload before starting a new one. Two rapid
+        // Cmd+V presses should not race two SendImage commands at the host,
+        // and a rapid second paste should also short-circuit any in-flight
+        // failure auto-dismiss timer.
+        imageUpload?.cancel()
+
+        // Refuse images that won't fit the relay's WebSocket frame budget
+        // before we even open the connection — the user gets a clear error
+        // instead of a silent disconnect on the wire.
+        if image.data.count > SendImage.maxRawBytes {
+            let mb = Double(image.data.count) / (1_024 * 1_024)
+            let message = String(
+                format: "Image is %.1f MB. The relay only supports images under %d KB.",
+                mb,
+                SendImage.maxRawBytes / 1_024
+            )
+            imageUpload = .failed(
+                sizeBytes: image.data.count,
+                message: message,
+                dismissTask: dismissTimer(after: .seconds(4))
+            )
+            return
+        }
+
+        let sizeBytes = image.data.count
+        let task = Task { @MainActor in
+            let result = await connection.relayClient.sendCommand(
+                SendImage(data: image.data, format: image.format),
+                paneId: paneId,
+                timeout: 30
+            )
+            // Treat cancellation as silent — the user already saw the popover
+            // dismiss when they hit Cancel and we don't want a transient
+            // "failed" flash to take its place.
+            if Task.isCancelled { return }
+            switch result {
+            case .success:
+                imageUpload = nil
+            case let .failure(error):
+                if error is CancellationError {
+                    imageUpload = nil
+                } else {
+                    imageUpload = .failed(
+                        sizeBytes: sizeBytes,
+                        message: error.localizedDescription,
+                        dismissTask: dismissTimer(after: .seconds(3))
+                    )
+                }
+            }
+        }
+        imageUpload = .uploading(sizeBytes: sizeBytes, task: task)
+    }
+
+    /// Spawns an auto-dismiss timer that clears `imageUpload` after the given
+    /// duration. Returned so the caller can cancel it if a new upload starts
+    /// before the timer fires.
+    private func dismissTimer(after delay: Duration) -> Task<Void, Never> {
+        Task { @MainActor in
+            try? await Task.sleep(for: delay)
+            if !Task.isCancelled {
+                imageUpload = nil
+            }
+        }
+    }
+
+    private func cancelImageUpload() {
+        imageUpload?.cancel()
+        imageUpload = nil
     }
 
     private var statusBar: some View {
@@ -130,6 +212,117 @@ struct RemoteTerminalContainerView: View {
     }
 }
 
+// MARK: - Image Upload State
+
+/// Transient state for an in-flight or just-failed image paste upload.
+/// Each case owns the task whose cancellation will tear down the matching UI
+/// — the in-flight relay request for `.uploading`, the auto-dismiss timer for
+/// `.failed`. We carry a per-state `id` so SwiftUI's `.animation(value:)` can
+/// drive a transition between consecutive uploads without forcing Equatable
+/// on `Task`, which is a reference type.
+private enum ImageUploadState {
+    case uploading(id: UUID, sizeBytes: Int, task: Task<Void, Never>)
+    case failed(id: UUID, sizeBytes: Int, message: String, dismissTask: Task<Void, Never>)
+
+    static func uploading(sizeBytes: Int, task: Task<Void, Never>) -> ImageUploadState {
+        .uploading(id: UUID(), sizeBytes: sizeBytes, task: task)
+    }
+
+    static func failed(
+        sizeBytes: Int,
+        message: String,
+        dismissTask: Task<Void, Never>
+    ) -> ImageUploadState {
+        .failed(id: UUID(), sizeBytes: sizeBytes, message: message, dismissTask: dismissTask)
+    }
+
+    var id: UUID {
+        switch self {
+        case let .uploading(id, _, _),
+             let .failed(id, _, _, _):
+            id
+        }
+    }
+
+    var sizeBytes: Int {
+        switch self {
+        case let .uploading(_, sizeBytes, _),
+             let .failed(_, sizeBytes, _, _):
+            sizeBytes
+        }
+    }
+
+    var failureMessage: String? {
+        if case let .failed(_, _, message, _) = self { return message }
+        return nil
+    }
+
+    func cancel() {
+        switch self {
+        case let .uploading(_, _, task):
+            task.cancel()
+        case let .failed(_, _, _, dismissTask):
+            dismissTask.cancel()
+        }
+    }
+}
+
+// MARK: - Image Upload Overlay
+
+/// Popover-style overlay shown while an image paste is being forwarded to the
+/// remote host. Includes a cancel button so a user can abort large uploads.
+private struct ImageUploadOverlay: View {
+    let state: ImageUploadState
+    let onCancel: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if state.failureMessage == nil {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Symbols.exclamationmarkTriangle.image
+                    .foregroundStyle(.yellow)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(state.failureMessage == nil ? "Sending image…" : "Image paste failed")
+                    .font(.headline)
+                Text(state.failureMessage ?? sizeDescription)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            if state.failureMessage == nil {
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                    .accessibilityIdentifier("image-upload-cancel")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(.separator)
+        }
+        .shadow(radius: 8, y: 2)
+        .accessibilityIdentifier("image-upload-overlay")
+    }
+
+    private var sizeDescription: String {
+        let bytes = Double(state.sizeBytes)
+        if bytes >= 1_024 * 1_024 {
+            return String(format: "%.1f MB", bytes / (1_024 * 1_024))
+        }
+        if bytes >= 1_024 {
+            return String(format: "%.0f KB", bytes / 1_024)
+        }
+        return "\(state.sizeBytes) B"
+    }
+}
+
 // MARK: - Stream State
 
 enum RemoteStreamState: Equatable {
@@ -151,6 +344,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
     let onFocus: (@MainActor () -> Void)?
     let onStateChange: @MainActor (RemoteStreamState, Int, Int) -> Void
     let onTitleChange: @MainActor (String) -> Void
+    let onImagePaste: @MainActor (ClipboardImage) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -171,6 +365,14 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         )
         coordinator.terminalView.isEditorActive = isEditorActive
         coordinator.terminalView.onBecomeFirstResponder = onFocus
+        // Route image pastes through the SwiftUI parent so the upload state
+        // and cancel popover live alongside the terminal view in the body
+        // hierarchy. Returning `true` consumes the paste — `Ctrl+V` is sent
+        // by the host once it has the bytes on its pasteboard.
+        coordinator.terminalView.onImagePaste = { image in
+            onImagePaste(image)
+            return true
+        }
 
         return coordinator.terminalView
     }
@@ -179,9 +381,13 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         context.coordinator.updateSettings(settings)
         context.coordinator.updateContainerSize(nsView.frame.size)
 
-        // Re-bind focus callback so closures captured here reflect the
-        // current parent state on every layout pass.
+        // Re-bind focus and paste callbacks so closures captured here reflect
+        // the current parent state on every layout pass.
         nsView.onBecomeFirstResponder = onFocus
+        nsView.onImagePaste = { image in
+            onImagePaste(image)
+            return true
+        }
 
         // Update editor-active flag. When the editor just closed, restore first
         // responder to the terminal so typing resumes without a manual click.
@@ -283,6 +489,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         func stop() {
             terminalView.onRawInput = nil
             terminalView.onInput = nil
+            terminalView.onImagePaste = nil
 
             keystrokeDebouncer?.cancelAll()
             keystrokeDebouncer = nil
