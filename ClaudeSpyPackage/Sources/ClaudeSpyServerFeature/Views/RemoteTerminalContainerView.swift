@@ -171,7 +171,11 @@ struct RemoteTerminalContainerView: View {
         let task = Task { @MainActor in
             // Read off the main actor — `Data(contentsOf:)` synchronously
             // reads the whole file, and we shouldn't block UI for large drops.
-            let readResult = await Task.detached { () -> Result<[DroppedFile], Error> in
+            // The detached task also returns the running total so the @MainActor
+            // side never has to base64-decode each `DroppedFile.data` again
+            // just to learn its size.
+            let readResult = await Task.detached {
+                () -> Result<(files: [DroppedFile], totalBytes: Int), Error> in
                 do {
                     var entries: [DroppedFile] = []
                     var total = 0
@@ -183,7 +187,7 @@ struct RemoteTerminalContainerView: View {
                         }
                         entries.append(DroppedFile(name: url.lastPathComponent, data: data))
                     }
-                    return .success(entries)
+                    return .success((entries, total))
                 } catch {
                     return .failure(error)
                 }
@@ -192,8 +196,21 @@ struct RemoteTerminalContainerView: View {
             if Task.isCancelled { return }
 
             switch readResult {
-            case let .success(files):
-                let totalBytes = files.reduce(0) { $0 + ($1.data?.count ?? 0) }
+            case let .success((files, totalBytes)):
+                // Now that we know the real size, refresh the in-flight upload
+                // state so the overlay shows actual bytes instead of the 0 B
+                // placeholder it carried while the read was running. Preserve
+                // the existing `id` and `task` so SwiftUI doesn't trigger a new
+                // transition and `cancelUpload()` keeps tearing down the same
+                // task.
+                if case let .uploading(id, _, _, currentTask) = upload {
+                    upload = .uploading(
+                        id: id,
+                        kind: .files(count: files.count),
+                        sizeBytes: totalBytes,
+                        task: currentTask
+                    )
+                }
                 let result = await connection.relayClient.sendCommand(
                     SendDroppedFiles(files: files),
                     paneId: paneId,

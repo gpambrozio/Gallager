@@ -1554,10 +1554,23 @@
                 return .failure(for: command.id, error: "No files in drop payload")
             }
 
+            // Decode each file's bytes once into a local array. `DroppedFile.data`
+            // base64-decodes on every access, so reading it for both the size
+            // check and the write below would do the work twice per file.
+            var decoded: [(name: String, data: Data)] = []
+            decoded.reserveCapacity(spec.files.count)
+            var totalBytes = 0
+            for file in spec.files {
+                guard let data = file.data else {
+                    return .failure(for: command.id, error: "File '\(file.name)' had no data")
+                }
+                totalBytes += data.count
+                decoded.append((file.name, data))
+            }
+
             // Defence-in-depth size cap. The viewer enforces the same limit
             // before the upload starts; this catches a structurally-valid
             // payload that bypasses the viewer check.
-            let totalBytes = spec.files.reduce(0) { $0 + ($1.data?.count ?? 0) }
             guard totalBytes <= SendDroppedFiles.maxRawBytes else {
                 return .failure(for: command.id, error: "Dropped files exceed maximum size")
             }
@@ -1586,27 +1599,30 @@
                 )
             }
 
+            // Within a single drop two files can share `lastPathComponent` (e.g.
+            // two `README.md` from different folders). Track names already used
+            // in this drop and append a counter suffix on collision so the
+            // second `.atomic` write doesn't silently clobber the first.
+            var usedNames: Set<String> = []
             var savedURLs: [URL] = []
-            for file in spec.files {
-                guard let data = file.data else {
-                    return .failure(for: command.id, error: "File '\(file.name)' had no data")
-                }
+            for entry in decoded {
                 // Sanitize the filename — `lastPathComponent` returns `..`,
                 // `.`, `/`, and NUL-bearing names verbatim, so an explicit
                 // reject list is needed to keep writes confined to
                 // `dropDir`. Anything that fails the check gets replaced
                 // with a UUID so the drop still completes (and we don't
                 // leak the invalid name through an error message).
-                let baseName = (file.name as NSString).lastPathComponent
+                let baseName = (entry.name as NSString).lastPathComponent
                 let isInvalid = baseName.isEmpty
                     || baseName == "."
                     || baseName == ".."
                     || baseName.contains("/")
                     || baseName.contains("\0")
-                let safeName = isInvalid ? UUID().uuidString : baseName
+                let candidate = isInvalid ? UUID().uuidString : baseName
+                let safeName = Self.uniqueDropName(candidate, in: &usedNames)
                 let target = dropDir.appendingPathComponent(safeName)
                 do {
-                    try data.write(to: target, options: .atomic)
+                    try entry.data.write(to: target, options: .atomic)
                 } catch {
                     return .failure(
                         for: command.id,
@@ -1631,6 +1647,31 @@
                 return .success(for: command.id)
             } catch {
                 return .failure(for: command.id, error: error.localizedDescription)
+            }
+        }
+
+        /// Returns `name` unchanged on first use, otherwise inserts a `-N`
+        /// counter before the extension until a free slot is found. Mutates
+        /// `usedNames` so the caller can reuse it across the iteration.
+        private static func uniqueDropName(
+            _ name: String,
+            in usedNames: inout Set<String>
+        ) -> String {
+            if usedNames.insert(name).inserted {
+                return name
+            }
+            let ns = name as NSString
+            let stem = ns.deletingPathExtension
+            let ext = ns.pathExtension
+            var index = 1
+            while true {
+                let candidate = ext.isEmpty
+                    ? "\(stem)-\(index)"
+                    : "\(stem)-\(index).\(ext)"
+                if usedNames.insert(candidate).inserted {
+                    return candidate
+                }
+                index += 1
             }
         }
 

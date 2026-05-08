@@ -1492,8 +1492,12 @@ final public class TmuxService {
     ) async throws {
         // Tmux's `-` form reads from stdin, but our ProcessRunner doesn't
         // expose stdin — write to a tmp file and pass the path instead.
+        // Use a `gallager-drop-buf-` prefix so this scratch file shares the
+        // top-level `gallager-drop-` namespace AppCoordinator's startup sweep
+        // already cleans, but stays distinguishable from the per-drop landing
+        // directories created by `handleSendDroppedFiles`.
         let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("gallager-drop-\(UUID().uuidString)")
+            .appendingPathComponent("gallager-drop-buf-\(UUID().uuidString)")
         try Data(content.utf8).write(to: tmpURL, options: .atomic)
         defer { try? FileManager.default.removeItem(at: tmpURL) }
 

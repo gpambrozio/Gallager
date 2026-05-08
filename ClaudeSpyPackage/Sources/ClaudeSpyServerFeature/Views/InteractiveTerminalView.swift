@@ -1022,7 +1022,13 @@
         }
 
         override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-            draggingEntered(sender)
+            // `draggingUpdated` fires repeatedly during a drag; bail out fast
+            // when no drop handler is wired so we don't pay for the pasteboard
+            // class read on every event. `draggingEntered` repeats this guard
+            // — the explicit early-return here just keeps the hot path from
+            // depending on that internal detail.
+            guard onFileDrop != nil else { return [] }
+            return draggingEntered(sender)
         }
 
         override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
