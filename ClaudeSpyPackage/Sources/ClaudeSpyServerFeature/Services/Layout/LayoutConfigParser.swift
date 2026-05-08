@@ -576,10 +576,11 @@
 
         /// Parses the optional `progress:` field on a pane. Accepts either a
         /// number (`0`–`100`), a string number (`"50"` / `"50%"`), or one of
-        /// the named states: `warning`, `error`, `clear`/`none`. Mirrors the
-        /// surface of the CLI's `set-progress` command. Returns `nil` for
-        /// unset / explicit `null` / explicit clear so the driver only
-        /// applies a value when the YAML asked for one.
+        /// the named states: `indeterminate`, `warning`, `error`,
+        /// `clear`/`none`. Mirrors the surface of the CLI's `set-progress`
+        /// command. Returns `nil` for unset / explicit `null` / explicit
+        /// clear so the driver only applies a value when the YAML asked for
+        /// one.
         private func parseProgress(
             _ value: JSONValue?,
             path: String,
@@ -619,6 +620,8 @@
                      "none",
                      "removed":
                     return nil
+                case "indeterminate":
+                    return .indeterminate
                 case "warning":
                     return .warning
                 case "error":
@@ -626,7 +629,7 @@
                 default:
                     let stripped = trimmed.hasSuffix("%") ? String(trimmed.dropLast()) : trimmed
                     guard let percent = Int(stripped) else {
-                        let msg = "Unknown progress value '\(raw)'. Use 0-100, 'warning', 'error', or 'clear'."
+                        let msg = "Unknown progress value '\(raw)'. Use 0-100, 'indeterminate', 'warning', 'error', or 'clear'."
                         if lenient {
                             warnings.append("\(path): \(msg)")
                             return nil

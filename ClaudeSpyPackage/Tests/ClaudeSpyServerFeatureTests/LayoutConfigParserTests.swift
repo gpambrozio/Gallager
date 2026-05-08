@@ -345,6 +345,7 @@
                     "panes": .array([
                         .object(["progress": .string("warning")]),
                         .object(["progress": .string("error")]),
+                        .object(["progress": .string("indeterminate")]),
                         .object(["progress": .string("clear")]),
                         .object(["progress": .string("none")]),
                     ]),
@@ -354,10 +355,11 @@
         let config = try parser.parse(value)
         #expect(config.windows[0].panes[0].progress == .warning)
         #expect(config.windows[0].panes[1].progress == .error)
+        #expect(config.windows[0].panes[2].progress == .indeterminate)
         // "clear" / "none" both leave progress unset so the driver applies
         // nothing — same intent as omitting the key entirely.
-        #expect(config.windows[0].panes[2].progress == nil)
         #expect(config.windows[0].panes[3].progress == nil)
+        #expect(config.windows[0].panes[4].progress == nil)
     }
 
     @Test

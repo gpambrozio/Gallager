@@ -414,19 +414,20 @@ CLI and OSC updates share `PaneState.progress` and last-write-wins each other �
 ```bash
 gallager set-progress 50                  # 50% determinate (blue)
 gallager set-progress 75 --pane %3        # explicit pane target
+gallager set-progress indeterminate       # animated blue scanner (no specific %)
 gallager set-progress warning             # full yellow warning bar
 gallager set-progress error               # full red error bar
 gallager set-progress clear               # remove the bar (alias: none, "")
 ```
 
-Accepted values: `0`–`100` (with or without a trailing `%`), `warning`, `error`, `clear` / `none` / empty string.
+Accepted values: `0`–`100` (with or without a trailing `%`), `indeterminate`, `warning`, `error`, `clear` / `none` / empty string.
 
 **JSON-RPC**
 - Method: `pane.set_progress`
 - Params: `{ "value": "50", "pane_id": "%3" }` _(pane_id is optional; the CLI fills it from `$TMUX_PANE` when no `--pane` flag is given)_
 - Response: `{ "ok": true }`
 
-This value can also be set declaratively inside `gallager apply` YAML — set `progress: 50` (or `progress: warning`) on a pane spec to apply the value at session-creation time. Re-applying syncs the value (and clearing the field clears the bar).
+This value can also be set declaratively inside `gallager apply` YAML — set `progress: 50` (or `progress: warning`, `progress: indeterminate`) on a pane spec to apply the value at session-creation time. Re-applying syncs the value (and clearing the field clears the bar).
 
 ---
 
@@ -534,7 +535,7 @@ windows:
       - vim                     # bare string = shell_command
       - shell_command: ["tail -f log"]
         start_directory: ./logs
-        progress: 50            # Gallager extension; 0-100, warning, error, or clear
+        progress: 50            # Gallager extension; 0-100, indeterminate, warning, error, or clear
       - claude:                 # Gallager extension
           project: ~/code/foo
           args: ["--resume"]

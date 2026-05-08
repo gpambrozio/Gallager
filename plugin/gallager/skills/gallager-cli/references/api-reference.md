@@ -218,6 +218,7 @@ call replaces the value (and vice versa).
 - Result: `{}`
 - Accepted `value` strings:
   - `"0"` … `"100"` (with optional `%`) — determinate blue bar
+  - `"indeterminate"` — animated blue scanner (same as `OSC 9;4;3`)
   - `"warning"` — full yellow warning bar
   - `"error"` — full red error bar
   - `"clear"` / `"none"` / `""` — remove the bar
