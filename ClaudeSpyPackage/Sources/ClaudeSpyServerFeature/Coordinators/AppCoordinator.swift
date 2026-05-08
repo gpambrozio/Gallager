@@ -1441,6 +1441,10 @@
             }
         }
 
+        // @MainActor: this handler writes to NSPasteboard via ClipboardClient.setImage,
+        // which calls AppKit APIs that must run on the main thread. Static methods
+        // do not inherit @MainActor from the enclosing class, so make it explicit.
+        @MainActor
         private static func handleSendImage(
             command: CommandMessage,
             spec: SendImage,
@@ -1448,6 +1452,14 @@
         ) async -> CommandResponseMessage {
             guard let imageData = spec.data, !imageData.isEmpty else {
                 return .failure(for: command.id, error: "Empty image payload")
+            }
+
+            // Defence-in-depth size cap. The viewer enforces SendImage.maxRawBytes
+            // before sending, but a structurally-valid TIFF that sneaks past the
+            // viewer's check (relay limit change, crafted message) would otherwise
+            // write an arbitrarily large payload to the host's pasteboard.
+            guard imageData.count <= SendImage.maxRawBytes else {
+                return .failure(for: command.id, error: "Image payload exceeds maximum size")
             }
 
             // Reject mislabelled or truncated payloads before writing them to

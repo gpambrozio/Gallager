@@ -335,8 +335,16 @@
         /// contents). When set, the terminal hands the image off to the host instead
         /// of sending Ctrl+V locally. Used by the remote terminal mirror to forward
         /// images over the relay so the host's foreground app can paste them.
-        /// Returning `true` consumes the paste; returning `false` falls back to the
-        /// local Ctrl+V behaviour.
+        ///
+        /// Return-value contract:
+        /// - `true`: handler consumed the paste; the terminal does nothing further.
+        /// - `false`: fall back to the local Ctrl+V flow — **not** "skip the paste".
+        ///   The local fallback sends `Ctrl+V` into the pane, which makes the
+        ///   in-pane app read the *host's* pasteboard. Do not return `false` to
+        ///   signal a forward failure: the user would silently get a Ctrl+V into
+        ///   the pane against the wrong (unmodified host) clipboard. Failures
+        ///   should be surfaced by the handler itself; always return `true` once
+        ///   the handler has taken responsibility for the paste.
         var onImagePaste: (@MainActor (ClipboardImage) -> Bool)?
 
         /// Callback invoked when the terminal title changes (via OSC 0 or OSC 2 escape sequences).

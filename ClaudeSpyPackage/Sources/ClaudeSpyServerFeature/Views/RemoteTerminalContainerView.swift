@@ -94,6 +94,12 @@ struct RemoteTerminalContainerView: View {
                 onStreamEnd?()
             }
         }
+        // Tear down any in-flight upload or auto-dismiss timer when the view
+        // is removed from the hierarchy (e.g. window closed mid-failure),
+        // so detached tasks don't survive the view that owned them.
+        .onDisappear {
+            cancelImageUpload()
+        }
     }
 
     private func startImageUpload(_ image: ClipboardImage) {
