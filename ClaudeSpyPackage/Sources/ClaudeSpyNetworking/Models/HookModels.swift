@@ -120,7 +120,9 @@ public struct ClaudeSession: Codable, Sendable {
              .stop,
              .notification,
              .stopFailure,
-             .elicitation:
+             .elicitation,
+             .teammateIdle,
+             .taskCompleted:
             handledUpToEventId = latest.id
         case .setup,
              .sessionEnd,
@@ -134,9 +136,7 @@ public struct ClaudeSession: Codable, Sendable {
              .userPromptExpansion,
              .subagentStart,
              .subagentStop,
-             .teammateIdle,
              .taskCreated,
-             .taskCompleted,
              .preCompact,
              .postCompact,
              .instructionsLoaded,
@@ -191,24 +191,24 @@ public struct HookEvent: Identifiable, Codable, Sendable, Equatable {
              .subagentStart,
              .subagentStop,
              .taskCreated,
-             .taskCompleted:
+             .taskCompleted,
+             .elicitation,
+             .elicitationResult:
             return true
         case .stop,
-             .stopFailure:
+             .stopFailure,
+             .teammateIdle,
+             .sessionEnd:
             return false
         case .sessionStart,
              .setup,
-             .sessionEnd,
              .notification,
-             .teammateIdle,
              .preCompact,
              .postCompact,
              .instructionsLoaded,
              .configChange,
              .cwdChanged,
              .fileChanged,
-             .elicitation,
-             .elicitationResult,
              .worktreeCreate,
              .worktreeRemove,
              .unknown:
