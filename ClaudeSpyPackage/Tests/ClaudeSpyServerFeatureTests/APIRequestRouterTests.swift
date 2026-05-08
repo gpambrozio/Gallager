@@ -643,6 +643,26 @@ func paneSetProgressForwardsWarningAndError() async {
 }
 
 @Test
+func paneSetProgressForwardsIndeterminate() async {
+    // Indeterminate is the same state OSC 9;4;3 produces — an animated
+    // scanner with no specific percentage. Mirrors the named-state flow
+    // alongside `warning` and `error`.
+    let received = LockedValue<TerminalProgressState?>(nil)
+    let router = LiveAPIRequestRouter(
+        onPaneSetProgress: { state, _ in
+            await received.set(state)
+        }
+    )
+    let response = await router.handleRequest(JSONRPCRequest(
+        id: "p-indet",
+        method: "pane.set_progress",
+        params: ["value": .string("indeterminate")]
+    ))
+    #expect(response.ok == true)
+    #expect(await received.get() == .indeterminate)
+}
+
+@Test
 func paneSetProgressClearsWithSentinels() async {
     // "clear", "none" and the empty string all funnel into `nil`
     // (which the AppCoordinator side translates to `.removed` so that

@@ -144,10 +144,11 @@ struct SetProgressCommand: ParsableCommand {
         (host sidebar, Mac viewer, iOS) sees the same bar.
 
         Accepted values:
-          0–100         Determinate percentage (blue bar)
-          warning       Full yellow warning bar
-          error         Full red error bar
-          clear / none  Clear the bar
+          0–100          Determinate percentage (blue bar)
+          indeterminate  Animated scanner (blue, no specific percentage)
+          warning        Full yellow warning bar
+          error          Full red error bar
+          clear / none   Clear the bar
 
         Targeting:
           --pane PANE   Target a specific pane by tmux pane ID (e.g. %3)
@@ -159,7 +160,7 @@ struct SetProgressCommand: ParsableCommand {
         """
     )
 
-    @Argument(help: "Progress value: 0–100, 'warning', 'error', or 'clear'/'none'.")
+    @Argument(help: "Progress value: 0–100, 'indeterminate', 'warning', 'error', or 'clear'/'none'.")
     var value: String
 
     @OptionGroup var options: GlobalOptions
@@ -186,6 +187,8 @@ struct SetProgressCommand: ParsableCommand {
                 print("Set pane progress to warning.")
             case "error":
                 print("Set pane progress to error.")
+            case "indeterminate":
+                print("Set pane progress to indeterminate.")
             default:
                 // Mirror the server-side parser: accept "75" or "75%" so the
                 // confirmation message stays specific when users copy a value

@@ -508,14 +508,15 @@
                 case "pane.set_progress":
                     // `value` is required; pass an explicit clear sentinel
                     // ("clear" / "none" / "") to remove the bar. Otherwise it's
-                    // a 0–100 number, "warning", or "error". The server stores
-                    // the resolved state on `PaneState.progress` exactly the
-                    // same way `OSC 9;4` updates do — same source of truth, so
-                    // CLI and OSC overrides last-write-wins each other.
+                    // a 0–100 number, "indeterminate", "warning", or "error".
+                    // The server stores the resolved state on
+                    // `PaneState.progress` exactly the same way `OSC 9;4`
+                    // updates do — same source of truth, so CLI and OSC
+                    // overrides last-write-wins each other.
                     guard let raw = params["value"]?.stringValue else {
                         return .invalidParams(
                             id: id,
-                            "value required (0-100, 'warning', 'error', or 'clear')"
+                            "value required (0-100, 'indeterminate', 'warning', 'error', or 'clear')"
                         )
                     }
                     let parsedProgress: TerminalProgressState?
@@ -655,15 +656,10 @@
         ///
         /// `nil` means the bar should be cleared. Recognised inputs:
         /// - `"clear"`, `"none"`, `""` → `nil` (clear)
+        /// - `"indeterminate"` → `.indeterminate` (animated scanner — same as `OSC 9;4;3`)
         /// - `"warning"` → `.warning`
         /// - `"error"` → `.error`
         /// - integer in `0...100` → `.normal(value)`
-        ///
-        /// `state=3` (indeterminate) is intentionally excluded from the CLI
-        /// surface — the spinner UI is `TimelineView`-driven and would render
-        /// non-deterministically frame-to-frame, so screenshot tests on it are
-        /// flaky. Programs that want indeterminate output can still emit raw
-        /// `OSC 9;4;3` sequences; the host handles those the same as before.
         public enum ProgressParseResult: Sendable, Equatable {
             case success(TerminalProgressState?)
             case failure(String)
@@ -676,6 +672,8 @@
                  "clear",
                  "none":
                 return .success(nil)
+            case "indeterminate":
+                return .success(.indeterminate)
             case "warning":
                 return .success(.warning)
             case "error":
@@ -685,7 +683,7 @@
                 let stripped = trimmed.hasSuffix("%") ? String(trimmed.dropLast()) : trimmed
                 guard let percent = Int(stripped) else {
                     return .failure(
-                        "Unknown progress value '\(raw)'. Use 0-100, 'warning', 'error', or 'clear'."
+                        "Unknown progress value '\(raw)'. Use 0-100, 'indeterminate', 'warning', 'error', or 'clear'."
                     )
                 }
                 guard (0...100).contains(percent) else {
