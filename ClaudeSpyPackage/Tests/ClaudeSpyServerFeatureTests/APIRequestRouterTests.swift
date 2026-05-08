@@ -595,6 +595,135 @@ func paneSetLayoutForwardsTargetAndLayout() async {
     #expect(layout == "main-vertical")
 }
 
+// MARK: - pane.set_progress
+
+@Test
+func paneSetProgressForwardsNumericValueAndPaneId() async {
+    let received = LockedValue<(TerminalProgressState?, String?)>((nil, nil))
+    let router = LiveAPIRequestRouter(
+        onPaneSetProgress: { state, paneId in
+            await received.set((state, paneId))
+        }
+    )
+    let request = JSONRPCRequest(id: "p1", method: "pane.set_progress", params: [
+        "value": .string("75"),
+        "pane_id": .string("%3"),
+    ])
+    let response = await router.handleRequest(request)
+    #expect(response.ok == true)
+    let (state, paneId) = await received.get()
+    #expect(state == .normal(75))
+    #expect(paneId == "%3")
+}
+
+@Test
+func paneSetProgressForwardsWarningAndError() async {
+    let received = LockedValue<TerminalProgressState?>(nil)
+    let router = LiveAPIRequestRouter(
+        onPaneSetProgress: { state, _ in
+            await received.set(state)
+        }
+    )
+
+    let warningResponse = await router.handleRequest(JSONRPCRequest(
+        id: "p2",
+        method: "pane.set_progress",
+        params: ["value": .string("warning")]
+    ))
+    #expect(warningResponse.ok == true)
+    #expect(await received.get() == .warning)
+
+    let errorResponse = await router.handleRequest(JSONRPCRequest(
+        id: "p3",
+        method: "pane.set_progress",
+        params: ["value": .string("error")]
+    ))
+    #expect(errorResponse.ok == true)
+    #expect(await received.get() == .error)
+}
+
+@Test
+func paneSetProgressClearsWithSentinels() async {
+    // "clear", "none" and the empty string all funnel into `nil`
+    // (which the AppCoordinator side translates to `.removed` so that
+    // `setPaneProgress` wipes the bar). All three need to behave identically
+    // so users don't have to memorise which clear-spelling the CLI accepts.
+    for raw in ["clear", "none", ""] {
+        let received = LockedValue<TerminalProgressState?>(.normal(50))
+        let router = LiveAPIRequestRouter(
+            onPaneSetProgress: { state, _ in
+                await received.set(state)
+            }
+        )
+        let response = await router.handleRequest(JSONRPCRequest(
+            id: "p-clear-\(raw)",
+            method: "pane.set_progress",
+            params: ["value": .string(raw)]
+        ))
+        #expect(response.ok == true)
+        #expect(await received.get() == nil)
+    }
+}
+
+@Test
+func paneSetProgressAcceptsPercentSuffix() async {
+    let received = LockedValue<TerminalProgressState?>(nil)
+    let router = LiveAPIRequestRouter(
+        onPaneSetProgress: { state, _ in
+            await received.set(state)
+        }
+    )
+    let response = await router.handleRequest(JSONRPCRequest(
+        id: "p4",
+        method: "pane.set_progress",
+        params: ["value": .string("42%")]
+    ))
+    #expect(response.ok == true)
+    #expect(await received.get() == .normal(42))
+}
+
+@Test
+func paneSetProgressRejectsOutOfRangeValues() async {
+    let router = LiveAPIRequestRouter(
+        onPaneSetProgress: { _, _ in }
+    )
+    let response = await router.handleRequest(JSONRPCRequest(
+        id: "p5",
+        method: "pane.set_progress",
+        params: ["value": .string("150")]
+    ))
+    #expect(response.ok == false)
+    #expect(response.error?.code == "invalid_params")
+}
+
+@Test
+func paneSetProgressRejectsUnknownStrings() async {
+    let router = LiveAPIRequestRouter(
+        onPaneSetProgress: { _, _ in }
+    )
+    let response = await router.handleRequest(JSONRPCRequest(
+        id: "p6",
+        method: "pane.set_progress",
+        params: ["value": .string("flibbertigibbet")]
+    ))
+    #expect(response.ok == false)
+    #expect(response.error?.code == "invalid_params")
+}
+
+@Test
+func paneSetProgressRequiresValue() async {
+    let router = LiveAPIRequestRouter(
+        onPaneSetProgress: { _, _ in }
+    )
+    let response = await router.handleRequest(JSONRPCRequest(
+        id: "p7",
+        method: "pane.set_progress",
+        params: [:]
+    ))
+    #expect(response.ok == false)
+    #expect(response.error?.code == "invalid_params")
+}
+
 // MARK: - layout.apply
 
 @Test

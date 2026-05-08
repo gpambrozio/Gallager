@@ -443,6 +443,16 @@ public struct MainView: View {
         let activePane = activeWindow?.activePane
         let isSessionAttached = tmuxService.attachedSessionNames.contains(session.sessionName)
         let isSelected = selectedWindow.map { selected in session.windows.contains(where: { $0.id == selected.id }) } ?? false
+        // Compute progress here (and not just inside the row) so we can expose
+        // a sibling AX element OUTSIDE the Button label below — when the row
+        // shows a "Working" indicator, SwiftUI flips the merged button to
+        // `AXBusyIndicator` and absorbs the inner `TerminalProgressBar`'s
+        // separate accessibility element, dropping its `accessibilityValue`.
+        // The outer mirror keeps `valueContains("60%")` queries working.
+        let sessionProgress: TerminalProgressState? = session.windows.lazy
+            .flatMap(\.panes)
+            .compactMap { windowManager.paneStates[$0.paneId]?.progress }
+            .first
 
         return Button {
             // Select the session's active window
@@ -458,6 +468,20 @@ public struct MainView: View {
         .buttonStyle(.plain)
         .help(help ?? "")
         .listRowBackground(isSelected && selectedRemoteSession == nil ? Color.accentColor.opacity(0.2) : nil)
+        .accessibilityChildren {
+            // When the row contains a "Working" ProgressView, SwiftUI merges
+            // the Button's children into one `AXBusyIndicator` element and
+            // its numeric value clobbers the inner `TerminalProgressBar`'s
+            // string `accessibilityValue`. `accessibilityChildren` declares
+            // an extra AX-only child that sits outside that merge so e2e
+            // queries (and VoiceOver) can read `Terminal progress` + `60%`
+            // regardless of the row's working status.
+            if let sessionProgress {
+                Text("Terminal progress")
+                    .accessibilityLabel("Terminal progress")
+                    .accessibilityValue(sessionProgress.accessibilityValueString)
+            }
+        }
         .modifier(DescriptionEditingModifier(
             sessionName: session.sessionName,
             currentDescription: description,
@@ -2597,6 +2621,14 @@ private struct RemoteHostSidebarSection: View {
         let claudePane = session.windows.flatMap(\.panes).first(where: { $0.claudeSession != nil })
         let isSelected = selectedRemoteSession?.sessionName == session.sessionName
             && selectedRemoteSession?.hostId == host.id
+        // See `sessionButton` — when the row gains a "Working" indicator the
+        // merged button becomes `AXBusyIndicator` and swallows the bar's
+        // separate accessibility element. Mirror the bar AX info on a sibling
+        // outside the Button label so `valueContains` queries keep working.
+        let sessionProgress: TerminalProgressState? = session.windows.lazy
+            .flatMap(\.panes)
+            .compactMap(\.progress)
+            .first
 
         Button {
             onSelect(RemoteSessionSelection(
@@ -2613,6 +2645,13 @@ private struct RemoteHostSidebarSection: View {
         }
         .buttonStyle(.plain)
         .listRowBackground(isSelected ? Color.accentColor.opacity(0.2) : nil)
+        .accessibilityChildren {
+            if let sessionProgress {
+                Text("Terminal progress")
+                    .accessibilityLabel("Terminal progress")
+                    .accessibilityValue(sessionProgress.accessibilityValueString)
+            }
+        }
         .modifier(DescriptionEditingModifier(
             sessionName: session.sessionName,
             currentDescription: session.customDescription,

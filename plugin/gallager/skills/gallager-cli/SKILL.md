@@ -84,7 +84,7 @@ If `gallager` is not on `PATH`, ask the user to run **Gallager menu → Install 
 
 ## Core mental model
 
-Every command is one of: `list-*` (inspect), `new-*` / `split-pane` / `start-project` (create), `select-*` (focus), `close-*` (destroy), `rename-window` (relabel a tab), `send` / `send-key` (input), `set-title` / `set-color` / `set-emoji` / `session-state` (label), `capture-pane` (read), `notify` (alert), `edit` (block on prompt editor), or a utility (`ping`, `capabilities`, `identify`, `wait-ready`).
+Every command is one of: `list-*` (inspect), `new-*` / `split-pane` / `start-project` (create), `select-*` (focus), `close-*` (destroy), `rename-window` (relabel a tab), `send` / `send-key` (input), `set-title` / `set-color` / `set-emoji` / `session-state` / `set-progress` (label), `capture-pane` (read), `notify` (alert), `edit` (block on prompt editor), or a utility (`ping`, `capabilities`, `identify`, `wait-ready`).
 
 Commands default to the **current** session/window/pane (inferred from the calling shell's `$TMUX_PANE`). Override with `--session <id>`, `--window <id>`, or `--pane <id>` when targeting something else. (`set-title`, `set-color`, and `set-emoji` are session-only — they accept `--session` but not `--window` or `--pane`.)
 
@@ -131,6 +131,11 @@ gallager split-pane down --pane %3 --path ~/logs
 gallager select-pane %3
 gallager capture-pane                      # plain text of visible buffer (calling pane)
 gallager capture-pane --pane %3 --scrollback   # include full scrollback history
+gallager set-progress 50                   # blue determinate bar at 50% on calling pane
+gallager set-progress 75 --pane %3         # explicit pane target
+gallager set-progress warning              # full yellow warning bar
+gallager set-progress error                # full red error bar
+gallager set-progress clear                # remove the bar (alias: none, "")
 
 # Input — `send` is raw (include \n yourself or pass --enter); `send-key` is named
 gallager send $'make test\n'               # Bash: $'...' expands \n
@@ -178,6 +183,7 @@ gallager start-project ~/code/proj -- --resume   # forwards `--resume` to claude
 - **`notify` attaches pane context automatically** when `$TMUX_PANE` is set, so tapping the iOS notification jumps to the right pane.
 - **`start-project` always runs `claude`.** Unlike `new-session --path`, which only auto-runs claude when the **Auto-run Claude in project folders** setting is on, `start-project` always launches the configured claude command in the new pane. Pass extra arguments after `--` to forward them (e.g. `start-project ~/code/foo -- --resume`).
 - **`session-state` is a CLI override.** It flips the sidebar indicator (`working`, `idle`, `waiting`, `clear`) without changing the underlying tmux/Claude state — useful when scripting fake activity for demos or marking a manual workflow as needing attention. The override is wiped automatically when a Claude hook event for the same pane updates working/notification state, so live sessions revert to reality on their own. Target with `--pane` or `--session`; with neither flag it marks the calling pane (via `$TMUX_PANE`).
+- **`set-progress` writes the same per-pane progress bar that `OSC 9;4` drives.** Accepted values are `0`–`100` (determinate blue bar), `warning` (yellow), `error` (red), and `clear`/`none`/`""` (clear). Targets the pane given by `--pane`, otherwise the calling pane via `$TMUX_PANE`. CLI updates and OSC sequences share `PaneState.progress`, so they override each other on a most-recent-write-wins basis — a script can set the bar before a long task and a subsequent `OSC 9;4` from the running program will reset it. Inside a `gallager apply` YAML, set `progress: 50` (or `progress: warning`) on a pane to apply the same value at session-creation time; re-applying syncs the value (and clearing the field clears the bar).
 
 ## Composing with other tools
 

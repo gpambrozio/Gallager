@@ -402,6 +402,31 @@ gallager select-pane %3
 
 ---
 
+#### `set-progress <value>`
+
+Set or clear the per-pane sidebar progress bar that the host normally derives from `OSC 9;4` terminal sequences. The override syncs through the same path the OSC reader uses, so every connected viewer (host sidebar, Mac viewer, iOS) sees the same bar.
+
+CLI and OSC updates share `PaneState.progress` and last-write-wins each other — a script can set the bar before kicking off a task, and a subsequent `OSC 9;4` sequence emitted by the running program replaces it (and vice versa).
+
+```bash
+gallager set-progress 50                  # 50% determinate (blue)
+gallager set-progress 75 --pane %3        # explicit pane target
+gallager set-progress warning             # full yellow warning bar
+gallager set-progress error               # full red error bar
+gallager set-progress clear               # remove the bar (alias: none, "")
+```
+
+Accepted values: `0`–`100` (with or without a trailing `%`), `warning`, `error`, `clear` / `none` / empty string.
+
+**JSON-RPC**
+- Method: `pane.set_progress`
+- Params: `{ "value": "50", "pane_id": "%3" }` _(pane_id is optional; the CLI fills it from `$TMUX_PANE` when no `--pane` flag is given)_
+- Response: `{ "ok": true }`
+
+This value can also be set declaratively inside `gallager apply` YAML — set `progress: 50` (or `progress: warning`) on a pane spec to apply the value at session-creation time. Re-applying syncs the value (and clearing the field clears the bar).
+
+---
+
 ### Input
 
 #### `send <text>`
@@ -504,6 +529,7 @@ windows:
       - vim                     # bare string = shell_command
       - shell_command: ["tail -f log"]
         start_directory: ./logs
+        progress: 50            # Gallager extension; 0-100, warning, error, or clear
       - claude:                 # Gallager extension
           project: ~/code/foo
           args: ["--resume"]
@@ -592,7 +618,7 @@ gallager capabilities --json | jq '.result.methods[]'
       "session.list", "session.create", "session.select", "session.current", "session.close",
       "session.set_state", "session.set_title", "session.set_color",
       "window.list", "window.create", "window.select", "window.close", "window.set_name",
-      "pane.list", "pane.split", "pane.select", "pane.capture", "pane.set_layout",
+      "pane.list", "pane.split", "pane.select", "pane.capture", "pane.set_layout", "pane.set_progress",
       "input.send_text", "input.send_key",
       "notification.create",
       "editor.open",

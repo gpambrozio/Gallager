@@ -28,6 +28,7 @@ struct GallagerCLI: ParsableCommand {
             SplitPaneCommand.self,
             SelectPaneCommand.self,
             CapturePaneCommand.self,
+            SetProgressCommand.self,
             // Input
             SendCommand.self,
             SendKeyCommand.self,
