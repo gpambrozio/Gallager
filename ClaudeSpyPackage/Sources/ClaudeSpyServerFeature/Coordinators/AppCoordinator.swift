@@ -1201,20 +1201,11 @@
                     return .success(for: command.id)
                 }
 
-                // Handle remote image paste: place the image on the host's
-                // pasteboard and send Ctrl+V into the target tmux pane so the
-                // foreground app (e.g. Claude Code) reads it.
-                if case let .sendImage(spec) = command.command {
-                    return await Self.handleSendImage(
-                        command: command,
-                        spec: spec,
-                        tmuxService: tmux
-                    )
-                }
-
-                // Handle remote file drop: save each file into $TMPDIR under
-                // a per-drop subdirectory and paste the resolved paths into
-                // the target tmux pane via the bracketed-paste buffer.
+                // Handle remote file drop or image paste: save each file into
+                // $TMPDIR under a per-drop subdirectory and paste the resolved
+                // paths into the target tmux pane via the bracketed-paste
+                // buffer. Image pastes ride this flow too — the viewer wraps
+                // the clipboard image as a single synthetic `DroppedFile`.
                 if case let .sendDroppedFiles(spec) = command.command {
                     return await Self.handleSendDroppedFiles(
                         command: command,
@@ -1672,62 +1663,6 @@
                     return candidate
                 }
                 index += 1
-            }
-        }
-
-        // @MainActor: this handler writes to NSPasteboard via ClipboardClient.setImage,
-        // which calls AppKit APIs that must run on the main thread. Static methods
-        // do not inherit @MainActor from the enclosing class, so make it explicit.
-        @MainActor
-        private static func handleSendImage(
-            command: CommandMessage,
-            spec: SendImage,
-            tmuxService: TmuxService
-        ) async -> CommandResponseMessage {
-            guard let imageData = spec.data, !imageData.isEmpty else {
-                return .failure(for: command.id, error: "Empty image payload")
-            }
-
-            // Defence-in-depth size cap. The viewer enforces SendImage.maxRawBytes
-            // before sending, but a structurally-valid TIFF that sneaks past the
-            // viewer's check (relay limit change, crafted message) would otherwise
-            // write an arbitrarily large payload to the host's pasteboard.
-            guard imageData.count <= SendImage.maxRawBytes else {
-                return .failure(for: command.id, error: "Image payload exceeds maximum size")
-            }
-
-            // Reject mislabelled or truncated payloads before writing them to
-            // the user's pasteboard with the wrong UTI. A misrouted clipboard
-            // entry is much harder to recover from than a clean error.
-            guard SendImage.validates(imageData, as: spec.format) else {
-                return .failure(
-                    for: command.id,
-                    error: "Image payload does not match declared \(spec.format.rawValue) format"
-                )
-            }
-
-            // Verify the target pane still exists before mutating shared state
-            // (the host's pasteboard). If the pane was killed between the
-            // viewer's Cmd+V and this handler, we'd otherwise overwrite the
-            // host user's clipboard for nothing.
-            let panes = await tmuxService.refreshPanes()
-            guard panes.contains(where: { $0.paneId == command.paneId }) else {
-                return .failure(for: command.id, error: "Pane \(command.paneId) not found")
-            }
-
-            // Place the image on the host's pasteboard so the in-pane app
-            // (e.g. Claude Code) sees it when we send Ctrl+V below.
-            @Dependency(ClipboardClient.self) var clipboard
-            clipboard.setImage(ClipboardImage(data: imageData, format: spec.format))
-
-            do {
-                // Send Ctrl+V into the pane. This mirrors the local Cmd+V flow
-                // in InteractiveTerminalView where image paste is delegated to
-                // the terminal app via Ctrl+V.
-                try await tmuxService.sendBatchKeys(command.paneId, keys: ["C-v"])
-                return .success(for: command.id)
-            } catch {
-                return .failure(for: command.id, error: error.localizedDescription)
             }
         }
 

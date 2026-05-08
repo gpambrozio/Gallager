@@ -107,7 +107,7 @@ struct RemoteTerminalContainerView: View {
 
     private func startImageUpload(_ image: ClipboardImage) {
         // Cancel any in-flight upload before starting a new one. Two rapid
-        // Cmd+V presses should not race two SendImage commands at the host,
+        // Cmd+V presses should not race two upload commands at the host,
         // and a rapid second paste should also short-circuit any in-flight
         // failure auto-dismiss timer.
         upload?.cancel()
@@ -115,12 +115,12 @@ struct RemoteTerminalContainerView: View {
         // Refuse images that won't fit the relay's WebSocket frame budget
         // before we even open the connection — the user gets a clear error
         // instead of a silent disconnect on the wire.
-        if image.data.count > SendImage.maxRawBytes {
+        if image.data.count > SendDroppedFiles.maxRawBytes {
             let mb = Double(image.data.count) / (1_024 * 1_024)
             let message = String(
-                format: "Image is %.1f MB. The relay only supports images under %d KB.",
+                format: "Image is %.1f MB. The relay only supports drops under %d KB.",
                 mb,
-                SendImage.maxRawBytes / 1_024
+                SendDroppedFiles.maxRawBytes / 1_024
             )
             upload = .failed(
                 kind: .image,
@@ -131,10 +131,19 @@ struct RemoteTerminalContainerView: View {
             return
         }
 
+        // The image rides the same `SendDroppedFiles` flow Finder drops use,
+        // wrapped as a single synthetic file. The host saves it to
+        // `$TMPDIR/gallager-drop-<UUID>/pasted-image-<UUID>.<ext>` and
+        // bracketed-pastes the resolved path into the target tmux pane, so
+        // the in-pane app (Claude Code, vim, …) reads the image off disk
+        // instead of the host's pasteboard.
         let sizeBytes = image.data.count
+        let name = "pasted-image-\(UUID().uuidString).\(image.format.fileExtension)"
+        let file = DroppedFile(name: name, data: image.data)
+
         let task = Task { @MainActor in
             let result = await connection.relayClient.sendCommand(
-                SendImage(data: image.data, format: image.format),
+                SendDroppedFiles(files: [file]),
                 paneId: paneId,
                 timeout: 30
             )
