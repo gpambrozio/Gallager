@@ -3,18 +3,15 @@ import Foundation
 /// E2E scenario: pasting an image on a Mac viewer forwards it to the Mac host.
 ///
 /// 1. Pair two Mac apps (host + viewer) and create a tmux session.
-/// 2. Place a small known PNG on the viewer's file-backed clipboard.
-/// 3. Press Cmd+V on the viewer's remote terminal mirror.
-/// 4. Verify the image arrives on the host's pasteboard with byte-for-byte
-///    parity, proving the SendImage round trip works end-to-end.
-///
-/// The host-side handler also dispatches `Ctrl+V` into the target tmux pane
-/// so the foreground app (e.g. Claude Code) can read the pasteboard. We
-/// don't assert on tmux pane content here — `Ctrl+V` produces no visible
-/// output in a default zsh prompt, and Claude Code is not running in this
-/// scenario. The clipboard parity check is what proves the feature works;
-/// the keystroke side of the host handler is exercised by the same code
-/// path used by every other `sendBatchKeys` call already covered by tests.
+/// 2. Start `ctrl_v_listener.py` in the host pane so the foreground process
+///    blocks on stdin and can detect a Ctrl+V byte the moment it lands.
+/// 3. Place a small known PNG on the viewer's file-backed clipboard.
+/// 4. Press Cmd+V on the viewer's remote terminal mirror.
+/// 5. Verify two things end-to-end:
+///    - the image arrives on the host's pasteboard with byte-for-byte parity,
+///    - the listener prints `CTRL_V_RECEIVED`, proving the host handler
+///      also dispatches `Ctrl+V` into the target tmux pane (so a real
+///      foreground app like Claude Code would read the pasteboard).
 public enum ImagePasteRemoteScenario {
     /// Smallest valid PNG: a 1×1 fully-transparent pixel. Hard-coded so the
     /// scenario stays self-contained and the byte stream we assert against
@@ -79,6 +76,19 @@ public enum ImagePasteRemoteScenario {
             instance: 1
         )
 
+        // Start a Ctrl+V listener in the host pane *before* the paste is
+        // dispatched, so the foreground process is already blocked on
+        // stdin when the host handler synthesises Ctrl+V. The listener
+        // prints `CTRL_V_RECEIVED` and exits on hit, or `NO_CTRL_V` on a
+        // 10s idle timeout — either way we get a deterministic marker
+        // we can grep from the captured pane content.
+        TestStep.injectScript(name: "ctrl_v_listener.py")
+        Shortcut.tmuxRunCommand(
+            target: "image-paste:0",
+            command: "python3 $TMPDIR/ctrl_v_listener.py"
+        )
+        TestStep.wait(seconds: 1)
+
         // Activate the viewer so its terminal NSWindow is key — Cmd+V is
         // routed by `performKeyEquivalent`, which only fires on the focused
         // pane. Without this guard a sibling Settings window can swallow
@@ -91,14 +101,30 @@ public enum ImagePasteRemoteScenario {
         // PNG and dispatch a SendImage command via the relay.
         TestStep.macPaste(instance: 1)
 
-        // Wait for the relay round-trip and the host's pasteboard write.
-        TestStep.wait(seconds: 5)
+        // Wait for the relay round-trip, the host's pasteboard write, the
+        // synthesised Ctrl+V into the pane, and the listener's print +
+        // exit before we capture the pane content.
+        TestStep.wait(seconds: 6)
 
         // ── Verify the host pasteboard has the same PNG bytes ───────
         TestStep.macReadClipboardImage(storeAs: "imagePaste.host", instance: 0)
         TestStep.assertStoredEqual(
             key: "imagePaste.host",
             otherKey: "imagePaste.original"
+        )
+
+        // ── Verify the host pane received Ctrl+V ────────────────────
+        TestStep.tmuxCapturePaneContent(
+            target: "image-paste:0",
+            storeAs: "imagePaste.paneContent"
+        )
+        TestStep.assertStoredContains(
+            key: "imagePaste.paneContent",
+            substring: "CTRL_V_RECEIVED"
+        )
+        TestStep.assertStoredNotContains(
+            key: "imagePaste.paneContent",
+            substring: "NO_CTRL_V"
         )
     }
 }
