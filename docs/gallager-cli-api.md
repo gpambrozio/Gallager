@@ -23,6 +23,9 @@ gallager send "echo hello\n"
 # Send a desktop notification from a script
 gallager notify --title "Build done" --body "Tests passed"
 
+# Same notification, also pushed to paired iOS devices
+gallager notify --title "Build done" --body "Tests passed" --push
+
 # Open a file in the in-app prompt editor (blocks until submitted)
 gallager edit /tmp/prompt.txt
 ```
@@ -483,14 +486,17 @@ gallager send-key escape --pane %3
 
 Send a desktop notification through Gallager's notification system. Notifications appear identically to terminal-triggered ones. If `$TMUX_PANE` is set, the notification includes pane context so tapping it navigates to that pane.
 
+Pass `--push` to also forward the notification to every paired iOS viewer through the relay server. This reuses the same encrypted-push pipeline that Claude hook events use, so the alert falls back to APNs whenever the viewer is offline. Without `--push` the notification stays local to macOS Notification Center.
+
 ```bash
 gallager notify --title "Deploy done" --body "Production updated successfully"
 gallager notify --title "Alert" --subtitle "CI" --body "Tests failed on main"
+gallager notify --title "Build green" --body "All checks passed" --push
 ```
 
 **JSON-RPC**
 - Method: `notification.create`
-- Params: `{ "title": "Deploy done", "body": "Production updated successfully", "subtitle": "CI" }` _(subtitle is optional)_
+- Params: `{ "title": "Deploy done", "body": "Production updated successfully", "subtitle": "CI", "push": true }` _(subtitle and push are optional)_
 - Response: `{ "ok": true }`
 
 ---
