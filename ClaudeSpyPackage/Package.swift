@@ -18,7 +18,7 @@ func macOnlyDependencies() -> [Package.Dependency] {
         return [
             .package(url: "https://github.com/gpambrozio/SFSymbolsMacro", branch: "swift-syntax-602"),
             .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.13.0"),
-            .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
+            .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1"),
             .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
             // Pinned to 1.7.0: 1.8.0 added a required `linkLabel:` parameter
             // (and `LinkLabelView` generic) to `FileNavigator.init`, breaking our
