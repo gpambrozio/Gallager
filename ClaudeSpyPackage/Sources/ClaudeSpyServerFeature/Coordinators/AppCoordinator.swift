@@ -213,6 +213,15 @@
             // Clean up any stale pipe-pane FIFOs from previous crashes
             PipePaneReader.cleanupStaleFifos()
 
+            // Sweep any leftover `gallager-drop-*` directories from prior
+            // sessions. Each remote drop drops a per-UUID subdir under
+            // `$TMPDIR`, normally short-lived: the inner pane app reads
+            // the file before the user moves on. macOS does its own lazy
+            // pruning, but a long-running session benefits from explicit
+            // cleanup at launch so the host doesn't accumulate hundreds
+            // of small folders.
+            sweepStaleDropDirectories()
+
             // Start dock icon management (hides dock icon initially, shows when windows open)
             await dockIconService.startObserving()
 
@@ -1191,6 +1200,17 @@
                     )
                 }
 
+                // Handle remote file drop: save each file into $TMPDIR under
+                // a per-drop subdirectory and paste the resolved paths into
+                // the target tmux pane via the bracketed-paste buffer.
+                if case let .sendDroppedFiles(spec) = command.command {
+                    return await Self.handleSendDroppedFiles(
+                        command: command,
+                        spec: spec,
+                        tmuxService: tmux
+                    )
+                }
+
                 // Regular commands execute on the actor executor
                 return await executor.execute(command)
             }
@@ -1480,6 +1500,122 @@
                 try await tmuxService.killSession(spec.sessionName)
                 windowManager.updatePaneStates(from: tmuxService.panes)
                 await connectionManager?.pushSessionStateToAll()
+                return .success(for: command.id)
+            } catch {
+                return .failure(for: command.id, error: error.localizedDescription)
+            }
+        }
+
+        /// Removes any `$TMPDIR/gallager-drop-*` directories left over
+        /// from a previous run. Called once at startup so the host doesn't
+        /// accumulate per-drop landing directories indefinitely after
+        /// crashes or unexpected shutdowns. Only matches our own
+        /// `gallager-drop-` prefix so unrelated `$TMPDIR` content is left
+        /// alone. Failures are silent — best-effort cleanup.
+        private func sweepStaleDropDirectories() {
+            let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            let fm = FileManager.default
+            guard
+                let entries = try? fm.contentsOfDirectory(
+                    at: tmp,
+                    includingPropertiesForKeys: nil
+                )
+            else { return }
+            for entry in entries where entry.lastPathComponent.hasPrefix("gallager-drop-") {
+                try? fm.removeItem(at: entry)
+            }
+        }
+
+        /// Saves each file in `spec.files` to a unique subdirectory of
+        /// `$TMPDIR`, builds the same shell-escaped path string the local
+        /// drop path produces, then loads + pastes it into `command.paneId`
+        /// via tmux's bracketed-paste buffer. The subdirectory is named
+        /// `gallager-drop-<UUID>` so concurrent drops can't clobber each
+        /// other; the original filename is preserved inside so
+        /// downstream readers (Claude Code, vim, etc.) see a useful name.
+        private static func handleSendDroppedFiles(
+            command: CommandMessage,
+            spec: SendDroppedFiles,
+            tmuxService: TmuxService
+        ) async -> CommandResponseMessage {
+            guard !spec.files.isEmpty else {
+                return .failure(for: command.id, error: "No files in drop payload")
+            }
+
+            // Defence-in-depth size cap. The viewer enforces the same limit
+            // before the upload starts; this catches a structurally-valid
+            // payload that bypasses the viewer check.
+            let totalBytes = spec.files.reduce(0) { $0 + ($1.data?.count ?? 0) }
+            guard totalBytes <= SendDroppedFiles.maxRawBytes else {
+                return .failure(for: command.id, error: "Dropped files exceed maximum size")
+            }
+
+            // Verify the target pane still exists before writing files to
+            // disk. If the pane was killed between the user's drop and this
+            // handler we'd otherwise leave orphan files in $TMPDIR.
+            let panes = await tmuxService.refreshPanes()
+            guard panes.contains(where: { $0.paneId == command.paneId }) else {
+                return .failure(for: command.id, error: "Pane \(command.paneId) not found")
+            }
+
+            // Save each file under a dedicated subdirectory so duplicate
+            // names across drops can't collide.
+            let dropDir = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("gallager-drop-\(UUID().uuidString)", isDirectory: true)
+            do {
+                try FileManager.default.createDirectory(
+                    at: dropDir,
+                    withIntermediateDirectories: true
+                )
+            } catch {
+                return .failure(
+                    for: command.id,
+                    error: "Failed to create drop directory: \(error.localizedDescription)"
+                )
+            }
+
+            var savedURLs: [URL] = []
+            for file in spec.files {
+                guard let data = file.data else {
+                    return .failure(for: command.id, error: "File '\(file.name)' had no data")
+                }
+                // Sanitize the filename — `lastPathComponent` returns `..`,
+                // `.`, `/`, and NUL-bearing names verbatim, so an explicit
+                // reject list is needed to keep writes confined to
+                // `dropDir`. Anything that fails the check gets replaced
+                // with a UUID so the drop still completes (and we don't
+                // leak the invalid name through an error message).
+                let baseName = (file.name as NSString).lastPathComponent
+                let isInvalid = baseName.isEmpty
+                    || baseName == "."
+                    || baseName == ".."
+                    || baseName.contains("/")
+                    || baseName.contains("\0")
+                let safeName = isInvalid ? UUID().uuidString : baseName
+                let target = dropDir.appendingPathComponent(safeName)
+                do {
+                    try data.write(to: target, options: .atomic)
+                } catch {
+                    return .failure(
+                        for: command.id,
+                        error: "Failed to write \(safeName): \(error.localizedDescription)"
+                    )
+                }
+                savedURLs.append(target)
+            }
+
+            guard let content = DroppedPathFormatter.format(urls: savedURLs) else {
+                return .failure(for: command.id, error: "No valid paths after saving files")
+            }
+
+            do {
+                // Per-drop buffer name — see TerminalContainerView for why
+                // a stable name can lose drops under rapid double-drop.
+                try await tmuxService.loadAndPasteBuffer(
+                    target: command.paneId,
+                    content: content,
+                    bufferName: "gallager-drop-\(UUID().uuidString.prefix(8))"
+                )
                 return .success(for: command.id)
             } catch {
                 return .failure(for: command.id, error: error.localizedDescription)

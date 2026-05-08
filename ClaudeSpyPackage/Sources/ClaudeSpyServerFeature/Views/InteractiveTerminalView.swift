@@ -347,6 +347,13 @@
         ///   the handler has taken responsibility for the paste.
         var onImagePaste: (@MainActor (ClipboardImage) -> Bool)?
 
+        /// Callback invoked when the user drops files from Finder onto the
+        /// terminal. The wrapper view extracts file URLs from the dragging
+        /// pasteboard and hands them to this callback so the local pane can
+        /// paste the paths via tmux's bracketed-paste buffer, and the remote
+        /// pane can ship the bytes to its host.
+        var onFileDrop: (@MainActor ([URL]) -> Void)?
+
         /// Callback invoked when the terminal title changes (via OSC 0 or OSC 2 escape sequences).
         var onTitleChange: (@MainActor (String) -> Void)?
 
@@ -418,6 +425,7 @@
             setupScrollOverlay()
             setupHorizontalScroller()
             setupFocusBorder()
+            registerForDraggedTypes([.fileURL])
         }
 
         @available(*, unavailable)
@@ -998,6 +1006,51 @@
             default:
                 return false
             }
+        }
+
+        // MARK: - File Drop (Drag from Finder)
+
+        override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+            // Don't promise a copy if there's nothing wired to receive it
+            // — otherwise AppKit would show a copy cursor that's about to
+            // be rejected by `prepareForDragOperation`.
+            guard
+                onFileDrop != nil,
+                sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: nil)
+            else { return [] }
+            return .copy
+        }
+
+        override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+            draggingEntered(sender)
+        }
+
+        override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+            // No callback wired (no pane yet) — refuse to accept the drop so
+            // AppKit shows the user the "rejected" animation instead of
+            // silently absorbing the drag.
+            onFileDrop != nil
+        }
+
+        override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+            guard
+                let onFileDrop,
+                let urls = sender.draggingPasteboard.readObjects(
+                    forClasses: [NSURL.self],
+                    options: [.urlReadingFileURLsOnly: true]
+                ) as? [URL],
+                !urls.isEmpty
+            else { return false }
+            onFileDrop(urls)
+            return true
+        }
+
+        /// Test hook: simulate a file drop without going through AppKit's
+        /// dragging machinery. Used by `TestAccessibilityServer` so E2E
+        /// scenarios can exercise the drop flow even though they can't drag
+        /// from a real Finder.
+        func simulateFileDrop(_ urls: [URL]) {
+            onFileDrop?(urls)
         }
 
         override func keyDown(with event: NSEvent) {

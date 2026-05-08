@@ -89,7 +89,8 @@
                             )
                             let response = Data(
                                 "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
-                                    .utf8)
+                                    .utf8
+                            )
                             connection.send(content: response, completion: .contentProcessed { _ in
                                 connection.cancel()
                             })
@@ -115,7 +116,25 @@
                             )
                             let response = Data(
                                 "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
-                                    .utf8)
+                                    .utf8
+                            )
+                            connection.send(content: response, completion: .contentProcessed { _ in
+                                connection.cancel()
+                            })
+                        }
+                    } else if request.hasPrefix("POST /drop-files") {
+                        // Simulates a Finder file drop on a specific terminal
+                        // pane. Body is `paneId\npath1\npath2\n...` —
+                        // newline-separated to keep the wire format trivial
+                        // for the E2E orchestrator without re-introducing
+                        // JSON parsing in this tiny test server.
+                        let body = Self.extractRequestBody(from: request)
+                        Task { @MainActor [weak self] in
+                            let outcome = self?.handleDropFiles(rawBody: body) ?? "no_server"
+                            let response = Data(
+                                "HTTP/1.1 200 OK\r\nContent-Length: \(outcome.utf8.count)\r\nConnection: close\r\n\r\n\(outcome)"
+                                    .utf8
+                            )
                             connection.send(content: response, completion: .contentProcessed { _ in
                                 connection.cancel()
                             })
@@ -140,7 +159,8 @@
                             let body = found ? "ok" : "not_found"
                             let response = Data(
                                 "HTTP/1.1 200 OK\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n\(body)"
-                                    .utf8)
+                                    .utf8
+                            )
                             connection.send(content: response, completion: .contentProcessed { _ in
                                 connection.cancel()
                             })
@@ -169,10 +189,9 @@
                     let parts = pair.components(separatedBy: "=")
                     guard parts.count == 2, parts[0] == key else { continue }
                     // Decode URL encoding: + → space, then percent-decode
-                    let decoded = parts[1]
+                    return parts[1]
                         .replacingOccurrences(of: "+", with: " ")
                         .removingPercentEncoding ?? parts[1]
-                    return decoded
                 }
                 return nil
             }
@@ -185,6 +204,68 @@
                 for subview in view.subviews {
                     if let found = findSplitView(in: subview) {
                         return found
+                    }
+                }
+                return nil
+            }
+
+            /// Extract the body of an HTTP request from a raw request string.
+            /// Splits on "\r\n\r\n" — the standard HTTP separator between
+            /// headers and body. Returns the empty string if no body is
+            /// present (e.g., a header-only request was received).
+            private nonisolated static func extractRequestBody(from request: String) -> String {
+                guard let range = request.range(of: "\r\n\r\n") else { return "" }
+                return String(request[range.upperBound...])
+            }
+
+            /// Resolve a `paneId\npath1\npath2…` body into a real file drop
+            /// on the matching `InteractiveTerminalView`. Returns the
+            /// HTTP response body — `ok`, `not_found`, or `bad_request`.
+            private func handleDropFiles(rawBody: String) -> String {
+                let lines = rawBody
+                    .split(separator: "\n", omittingEmptySubsequences: false)
+                    .map { String($0).trimmingCharacters(in: CharacterSet(charactersIn: "\r")) }
+                guard lines.count >= 2 else { return "bad_request" }
+
+                let paneId = lines[0]
+                let paths = lines.dropFirst().filter { !$0.isEmpty }
+                guard !paths.isEmpty else { return "bad_request" }
+
+                guard let terminal = findInteractiveTerminal(forPaneId: paneId) else {
+                    return "not_found"
+                }
+                let urls = paths.map { URL(fileURLWithPath: $0) }
+                terminal.simulateFileDrop(urls)
+                return "ok"
+            }
+
+            /// Walks all visible windows looking for an
+            /// `InteractiveTerminalView` whose accessibility identifier
+            /// matches `terminal-<paneId>`. Returns the first match.
+            private func findInteractiveTerminal(forPaneId paneId: String) -> InteractiveTerminalView? {
+                let identifier = "terminal-\(paneId)"
+                for window in NSApp.windows where window.isVisible {
+                    if
+                        let contentView = window.contentView,
+                        let match = findTerminalView(in: contentView, identifier: identifier) {
+                        return match
+                    }
+                }
+                return nil
+            }
+
+            private func findTerminalView(
+                in view: NSView,
+                identifier: String
+            ) -> InteractiveTerminalView? {
+                if
+                    let terminal = view as? InteractiveTerminalView,
+                    terminal.terminalAccessibilityIdentifier == identifier {
+                    return terminal
+                }
+                for subview in view.subviews {
+                    if let match = findTerminalView(in: subview, identifier: identifier) {
+                        return match
                     }
                 }
                 return nil

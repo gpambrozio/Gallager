@@ -94,6 +94,8 @@ public extension TestStep {
             return .macOS(instance: instance)
         case let .macPaste(instance):
             return .macOS(instance: instance)
+        case let .macDropFilesOnPane(_, _, instance):
+            return .macOS(instance: instance)
         case let .macWaitForElement(_, _, instance):
             return .macOS(instance: instance)
         case let .macWaitForElementToDisappear(_, _, instance):

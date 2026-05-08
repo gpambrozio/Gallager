@@ -64,6 +64,28 @@ enum MacAppHTTPClient {
         return body == "ok"
     }
 
+    /// Trigger a simulated Finder file drop on the given tmux pane.
+    /// Calls the in-process `/drop-files` test endpoint, which finds the
+    /// matching `InteractiveTerminalView` and invokes `simulateFileDrop`.
+    /// Body format is `paneId\npath1\npath2…`.
+    @discardableResult
+    static func dropFilesOnPane(
+        paneId: String,
+        paths: [String],
+        port: UInt16 = defaultPort
+    ) async throws -> Bool {
+        let url = URL(string: "http://127.0.0.1:\(port)/drop-files")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
+        let body = ([paneId] + paths).joined(separator: "\n")
+        request.httpBody = Data(body.utf8)
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let responseBody = String(data: data, encoding: .utf8) ?? ""
+        logger.info("HTTP drop-files paneId=\(paneId) paths=\(paths.count): \(responseBody)")
+        return responseBody == "ok"
+    }
+
     /// Send a hook event to the macOS app's real hook server (`/api/hooks`).
     /// Reads the hook server port from the given port file (defaults to `~/.claudespy-port`).
     @discardableResult

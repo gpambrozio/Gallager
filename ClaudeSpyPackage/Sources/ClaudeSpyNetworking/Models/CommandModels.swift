@@ -748,6 +748,53 @@ public struct SendImage: CommandSpec, Equatable {
     }
 }
 
+/// One file in a `SendDroppedFiles` payload — original filename plus base64-encoded bytes.
+public struct DroppedFile: Codable, Sendable, Equatable {
+    /// The original filename as it appeared in Finder. The host saves to a
+    /// per-drop subdirectory of `$TMPDIR` so collisions across drops can't
+    /// clobber each other; the filename itself is preserved so Claude Code (or
+    /// any other in-pane reader) sees a human-readable path.
+    public let name: String
+
+    /// Base64-encoded file bytes.
+    public let dataBase64: String
+
+    public init(name: String, data: Data) {
+        self.name = name
+        self.dataBase64 = data.base64EncodedString()
+    }
+
+    public var data: Data? {
+        Data(base64Encoded: dataBase64)
+    }
+}
+
+/// Forward a Finder file drop from a Mac viewer to a remote Mac host. The
+/// host saves each file to `$TMPDIR/gallager-drop-<UUID>/<name>`, joins the
+/// resolved paths into a shell-escaped string, and pastes the result into
+/// the target tmux pane via `tmux load-buffer` + `paste-buffer -p` so apps
+/// that have enabled bracketed-paste mode see it as a paste event.
+public struct SendDroppedFiles: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// Maximum total raw bytes a viewer should attempt to send across all
+    /// files in one drop. The relay enforces a 1 MiB max WebSocket frame and
+    /// base64 adds ~33% overhead, so 700 KiB raw stays under the ceiling.
+    /// Mirrors `SendImage.maxRawBytes` so both upload paths share one limit.
+    public static let maxRawBytes = 700 * 1_024
+
+    /// The dropped files in the order the user dropped them.
+    public let files: [DroppedFile]
+
+    public init(files: [DroppedFile]) {
+        self.files = files
+    }
+
+    public var commandType: CommandType {
+        .sendDroppedFiles(self)
+    }
+}
+
 /// Create a new tmux window in an existing session. Returns success/failure.
 /// On success, the response's `paneId` field contains the new window's first pane ID.
 public struct CreateTmuxWindow: CommandSpec, Equatable {
@@ -903,6 +950,9 @@ public enum CommandType: Codable, Sendable, Equatable {
     case killTmuxSession(KillTmuxSession)
     /// Send an image from a viewer to be pasted into the host's tmux pane
     case sendImage(SendImage)
+    /// Forward a Finder file drop from a Mac viewer; host saves files to
+    /// `$TMPDIR` and pastes the resolved paths into the target tmux pane.
+    case sendDroppedFiles(SendDroppedFiles)
 
     // MARK: - Convenience Factory Methods
 
@@ -1016,6 +1066,11 @@ public enum CommandType: Codable, Sendable, Equatable {
     /// Create a sendImage command
     public static func sendImage(data: Data, format: ImageFormat) -> CommandType {
         .sendImage(SendImage(data: data, format: format))
+    }
+
+    /// Create a sendDroppedFiles command
+    public static func sendDroppedFiles(_ files: [DroppedFile]) -> CommandType {
+        .sendDroppedFiles(SendDroppedFiles(files: files))
     }
 
     /// Create a checkRunningProcesses command

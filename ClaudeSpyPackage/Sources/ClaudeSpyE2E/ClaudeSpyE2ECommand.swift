@@ -285,6 +285,8 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         ClipboardSyncScenario.scenario,
         ClipboardSyncMacViewerScenario.scenario,
         ImagePasteRemoteScenario.scenario,
+        FileDropLocalScenario.scenario,
+        FileDropRemoteScenario.scenario,
         UnderlineLeakScenario.scenario,
         BackgroundLeakScenario.scenario,
         VersionMismatchOldIOSViewerScenario.scenario,

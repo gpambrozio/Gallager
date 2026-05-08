@@ -1476,6 +1476,48 @@ final public class TmuxService {
         key.hasSuffix(";") ? String(key.dropLast()) + "\\;" : key
     }
 
+    /// Loads `content` into a named tmux buffer and pastes it into `target`,
+    /// preserving bracketed-paste markers so apps that have enabled DEC mode
+    /// 2004 see it as a single paste event. Used by the file-drop flow:
+    /// `content` is the shell-escaped, space-separated path string from
+    /// `DroppedPathFormatter`.
+    ///
+    /// `bufferName` is fixed per-call so concurrent drops don't trample tmux's
+    /// global anonymous buffer. `paste-buffer -d` deletes the named buffer
+    /// after pasting so it doesn't accumulate across drops.
+    public func loadAndPasteBuffer(
+        target: String,
+        content: String,
+        bufferName: String
+    ) async throws {
+        // Tmux's `-` form reads from stdin, but our ProcessRunner doesn't
+        // expose stdin — write to a tmp file and pass the path instead.
+        let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("gallager-drop-\(UUID().uuidString)")
+        try Data(content.utf8).write(to: tmpURL, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: tmpURL) }
+
+        let load = try await runTmuxCommand([
+            "load-buffer",
+            "-b", bufferName,
+            tmpURL.path,
+        ])
+        guard load.isSuccess else {
+            throw TmuxError.commandFailed(message: load.stderrString)
+        }
+
+        let paste = try await runTmuxCommand([
+            "paste-buffer",
+            "-p", // honor bracketed-paste mode
+            "-d", // delete the named buffer afterwards
+            "-b", bufferName,
+            "-t", target,
+        ])
+        guard paste.isSuccess else {
+            throw TmuxError.commandFailed(message: paste.stderrString)
+        }
+    }
+
     /// Resizes a tmux pane to the specified dimensions
     /// - Parameters:
     ///   - target: The pane target (e.g., "%5" or "session:0.1")

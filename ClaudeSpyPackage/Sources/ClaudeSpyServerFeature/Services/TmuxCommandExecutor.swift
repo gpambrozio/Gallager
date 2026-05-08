@@ -74,7 +74,8 @@ public actor TmuxCommandExecutor {
                  .checkRunningProcesses,
                  .killTmuxWindow,
                  .killTmuxSession,
-                 .sendImage:
+                 .sendImage,
+                 .sendDroppedFiles:
                 // These commands are handled by AppCoordinator, should not reach here
                 logger.warning("Command should be handled by AppCoordinator, not executor")
             }

@@ -620,6 +620,14 @@ public actor TestOrchestrator {
         case let .macPaste(instance):
             try await macDriver(for: instance).paste()
 
+        case let .macDropFilesOnPane(paneId, paths, instance):
+            let resolvedPaneId = context.resolve(paneId)
+            let resolvedPaths = paths.map { context.resolve($0) }
+            try await macDriver(for: instance).dropFilesOnPane(
+                paneId: resolvedPaneId,
+                paths: resolvedPaths
+            )
+
         case let .macWaitForElement(titled, timeout, instance):
             let resolvedTitle = context.resolve(titled)
             try await macDriver(for: instance).waitForElement(titled: resolvedTitle, timeout: timeout)
