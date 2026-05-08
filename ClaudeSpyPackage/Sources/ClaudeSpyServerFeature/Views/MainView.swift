@@ -1973,6 +1973,7 @@ private struct SessionSidebarRow: View {
         .overlay(alignment: .bottom) {
             if let sessionProgress {
                 TerminalProgressBar(state: sessionProgress)
+                    .padding(.bottom, -4)
             }
         }
     }
@@ -2859,6 +2860,7 @@ private struct RemoteSessionSidebarRow: View {
             .overlay(alignment: .bottom) {
                 if let sessionProgress {
                     TerminalProgressBar(state: sessionProgress)
+                        .padding(.bottom, -4)
                 }
             }
     }
