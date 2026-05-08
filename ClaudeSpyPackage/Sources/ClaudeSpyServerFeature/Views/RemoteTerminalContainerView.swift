@@ -288,6 +288,7 @@ private struct ImageUploadOverlay: View {
                     .controlSize(.small)
             } else {
                 Symbols.exclamationmarkTriangle.image
+                    .fontWeight(.bold)
                     .foregroundStyle(.yellow)
             }
 
@@ -295,7 +296,7 @@ private struct ImageUploadOverlay: View {
                 Text(state.failureMessage == nil ? "Sending image…" : "Image paste failed")
                     .font(.headline)
                 Text(state.failureMessage ?? sizeDescription)
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
@@ -308,7 +309,7 @@ private struct ImageUploadOverlay: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(.background, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(.separator)
@@ -327,6 +328,28 @@ private struct ImageUploadOverlay: View {
         }
         return "\(state.sizeBytes) B"
     }
+}
+
+#Preview("Uploading") {
+    ImageUploadOverlay(
+        state: .uploading(sizeBytes: 412_000, task: Task { }),
+        onCancel: { }
+    )
+    .padding(40)
+    .background(Color.gray.opacity(0.3))
+}
+
+#Preview("Failed") {
+    ImageUploadOverlay(
+        state: .failed(
+            sizeBytes: 1_572_864,
+            message: "Image is 1.5 MB. The relay only supports images under 700 KB.",
+            dismissTask: Task { }
+        ),
+        onCancel: { }
+    )
+    .padding(40)
+    .background(Color.gray.opacity(0.3))
 }
 
 // MARK: - Stream State
