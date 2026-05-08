@@ -247,9 +247,9 @@ Named keys: `enter`, `tab`, `escape`, `backspace`, `delete`, `up`, `down`, `left
 
 ## Notifications
 
-### `notification.create` — `gallager notify --title --body [--subtitle] [--push]`
+### `notification.create` — `gallager notify --title --body [--push]`
 If `$TMUX_PANE` is set, the CLI attaches `pane_id` so the notification can deep-link back to the originating pane. Pass `--push` (or `push: true`) to also forward the notification to every paired iOS viewer through the relay server — the same encrypted-push path Claude hook events use, so the alert falls back to APNs when the viewer is offline.
-- Params: `{ "title": string, "body": string, "subtitle"?: string, "pane_id"?: string, "push"?: bool }`
+- Params: `{ "title": string, "body": string, "pane_id"?: string, "push"?: bool }`
 - Result: `{}`
 
 ## Editor

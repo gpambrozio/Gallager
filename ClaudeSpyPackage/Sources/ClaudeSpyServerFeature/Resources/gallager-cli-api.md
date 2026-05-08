@@ -476,13 +476,12 @@ Pass `--push` to also forward the notification to every paired iOS viewer throug
 
 ```bash
 gallager notify --title "Deploy done" --body "Production updated successfully"
-gallager notify --title "Alert" --subtitle "CI" --body "Tests failed on main"
 gallager notify --title "Build green" --body "All checks passed" --push
 ```
 
 **JSON-RPC**
 - Method: `notification.create`
-- Params: `{ "title": "Deploy done", "body": "Production updated successfully", "subtitle": "CI", "push": true }` _(subtitle and push are optional)_
+- Params: `{ "title": "Deploy done", "body": "Production updated successfully", "push": true }` _(`push` is optional)_
 - Response: `{ "ok": true }`
 
 ---

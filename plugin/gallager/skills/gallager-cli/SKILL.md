@@ -145,7 +145,6 @@ gallager send-key enter                    # enter|tab|escape|backspace|delete|u
 
 # Notifications (tapping on iOS jumps back to the calling pane if $TMUX_PANE is set)
 gallager notify --title "Build done" --body "All tests passed"
-gallager notify --title "Alert" --subtitle "CI" --body "Tests failed on main"
 gallager notify --title "Build done" --body "All tests passed" --push  # also push to paired iOS devices
 
 # Prompt editor (blocks until the user submits/cancels in the app)

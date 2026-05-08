@@ -708,9 +708,9 @@
                     }
                     try await tmux.sendKeys(target, keys: key)
                 },
-                onNotify: { [weak self, notificationService] title, body, subtitle, paneId, push in
+                onNotify: { [weak self, notificationService] title, body, paneId, push in
                     let notification = TerminalStreamMessage.TerminalNotification(
-                        title: subtitle ?? title,
+                        title: title,
                         body: body
                     )
                     let targetPane = paneId ?? "system"
@@ -722,7 +722,7 @@
                     // isn't connected via WebSocket.
                     if push, let manager = await self?.connectedViewerManager {
                         await manager.sendCustomPushNotificationToAll(
-                            title: subtitle ?? title,
+                            title: title,
                             body: body,
                             paneId: paneId
                         )
