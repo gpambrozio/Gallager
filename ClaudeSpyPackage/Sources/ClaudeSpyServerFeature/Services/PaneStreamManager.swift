@@ -3,20 +3,24 @@
     import Foundation
     import Logging
 
-    /// Manages PaneStream instances and their subscribers.
+    /// Manages a single persistent `PipePaneReader` per tmux pane and routes its
+    /// events to subscribers.
     ///
-    /// This manager owns PaneStream instances independently of UI (mirror windows).
-    /// Both mirror windows and terminal streaming can subscribe to the same stream,
-    /// enabling streaming to work without requiring a mirror window to be open.
+    /// One reader is created when a pane is discovered and torn down only when
+    /// the pane disappears. Mirroring a pane never restarts the reader; it
+    /// merely toggles the reader's data-delivery mode (`scanOnly` → `buffering`
+    /// → `live`) and adds the caller to the subscriber set. This keeps OSC
+    /// event handlers wired in exactly one place and removes the FIFO
+    /// detach/reattach window that used to lose bytes on every mirror toggle.
     ///
     /// Usage:
-    /// 1. Call `subscribe(paneId:target:...)` to get a subscription ID
-    /// 2. Data and dimension changes flow to your callbacks
-    /// 3. Call `unsubscribe(_:)` when done
-    /// 4. Stream is automatically disconnected when last subscriber leaves
+    /// 1. Call `subscribe(paneId:target:...)` to get a subscription ID.
+    /// 2. Data and dimension changes flow to your callbacks.
+    /// 3. Call `unsubscribe(_:)` when done.
+    /// 4. Reader returns to scan-only mode when the last subscriber leaves.
     @Observable
     @MainActor
-    final public class PaneStreamManager {
+    final public class PaneStreamManager: PipePaneReaderDelegate {
         // MARK: - Types
 
         /// A subscription to a pane stream
@@ -30,13 +34,28 @@
             let onClipboard: (@MainActor (String) -> Void)?
         }
 
-        /// Context for a managed stream
-        private struct StreamContext {
-            let stream: PaneStream
+        /// Per-pane state owned by the manager.
+        ///
+        /// One context exists for every known pane regardless of subscriber
+        /// count — `subscriberIds` is empty while the reader is in scan-only
+        /// mode and non-empty while it's in live mode. Dimensions live here
+        /// so they can be queried for a pane that doesn't (yet) have a
+        /// subscriber.
+        private struct ReaderContext {
+            let reader: PipePaneReader
             let target: String
+            let sessionName: String
+            var width: Int
+            var height: Int
             var subscriberIds: Set<UUID>
-            /// Current terminal title detected via OSC escape sequences
+            /// Last terminal title detected via OSC 0/2 or seeded from tmux's
+            /// `pane_title`. Cleared only when the reader is torn down.
             var terminalTitle: String?
+            /// Whether `controlClientManager.registerPaneDimensions` has been
+            /// called for this pane. Registered on first subscriber so the
+            /// dimension-change callback is wired before any subscriber needs
+            /// it; unregistered when the reader is torn down.
+            var hasRegisteredDimensions: Bool
         }
 
         // MARK: - Properties
@@ -45,26 +64,11 @@
         private let tmuxService: TmuxService
         private let controlClientManager: TmuxControlClientManager
 
-        /// Active streams keyed by paneId
-        private var streams: [String: StreamContext] = [:]
+        /// Active per-pane state keyed by paneId. One entry per known pane.
+        private var readers: [String: ReaderContext] = [:]
 
         /// All subscriptions keyed by subscription ID
         private var subscriptions: [UUID: Subscription] = [:]
-
-        /// Context for a lightweight notification-only reader
-        private struct NotificationReaderContext {
-            let reader: PipePaneReader
-            let sessionName: String
-            /// The pane target (e.g., "mysession:0.1") for mapping title changes
-            let target: String
-        }
-
-        /// Lightweight notification-only readers for panes that aren't fully mirrored
-        private var notificationReaders: [String: NotificationReaderContext] = [:]
-
-        /// Titles detected by notification readers (before a full stream exists).
-        /// Used to seed new stream contexts so late-joining subscribers get the title.
-        private var notificationReaderTitles: [String: String] = [:]
 
         /// Task for periodic pane discovery (needed to detect new tmux sessions)
         private var paneRefreshTask: Task<Void, Never>?
@@ -73,8 +77,8 @@
         /// regardless of which subscribers are active. Used by macOS to show desktop notifications.
         public var onNotification: (@MainActor (String, TerminalStreamMessage.TerminalNotification) -> Void)?
 
-        /// Global title change handler — called when a title change is detected on a
-        /// notification-only reader (inactive pane). Parameters: (paneId, target, title).
+        /// Global title change handler — called whenever a title is detected on
+        /// any pane. Parameters: (paneId, target, title).
         public var onTitleChange: (@MainActor (String, String, String) -> Void)?
 
         /// Global progress handler — called for any `OSC 9;4` progress update on any pane.
@@ -83,25 +87,26 @@
 
         // MARK: - Public State
 
-        /// Pane IDs that currently have active streams
+        /// Pane IDs that currently have at least one active subscriber (mirror or relay viewer).
         public var activeStreamPaneIds: [String] {
-            Array(streams.keys)
+            readers.compactMap { $0.value.subscriberIds.isEmpty ? nil : $0.key }
         }
 
-        /// Check if a pane has an active stream
+        /// Whether a pane has at least one active subscriber.
         public func hasActiveStream(paneId: String) -> Bool {
-            streams[paneId] != nil
+            guard let context = readers[paneId] else { return false }
+            return !context.subscriberIds.isEmpty
         }
 
-        /// Get current dimensions for a pane (if streaming)
+        /// Get current dimensions for a pane.
         public func dimensions(for paneId: String) -> (width: Int, height: Int)? {
-            guard let context = streams[paneId] else { return nil }
-            return (context.stream.width, context.stream.height)
+            guard let context = readers[paneId] else { return nil }
+            return (context.width, context.height)
         }
 
-        /// Get current terminal title for a pane (if streaming and title has been set)
+        /// Get current terminal title for a pane (if a title has been seen).
         public func terminalTitle(for paneId: String) -> String? {
-            streams[paneId]?.terminalTitle
+            readers[paneId]?.terminalTitle
         }
 
         /// Known default pane titles to filter out when seeding from tmux state.
@@ -155,9 +160,11 @@
 
         /// Subscribe to a pane stream.
         ///
-        /// Creates a new PaneStream if one doesn't exist for this pane,
-        /// or reuses an existing one. Returns the initial content captured
-        /// atomically with the subscription to avoid timing gaps.
+        /// On the first subscriber for a pane, the reader is switched into
+        /// buffering mode, a `capture-pane` snapshot is taken, then the reader
+        /// is flushed into live mode — so live bytes that arrive during the
+        /// snapshot aren't dropped. On subsequent subscribers, the existing
+        /// live reader is reused and only a fresh snapshot is captured.
         ///
         /// - Parameters:
         ///   - paneId: The pane ID (e.g., "%1")
@@ -187,16 +194,133 @@
                 onNotification: onNotification,
                 onClipboard: onClipboard
             )
-            subscriptions[subscriptionId] = subscription
 
+            let sessionName = TmuxControlClientManager.extractSessionName(from: target)
+
+            // Pane discovery normally creates the reader before any subscribe is
+            // possible, but a subscribe can race in (e.g. a pane created seconds
+            // before the next refresh). Start a reader on demand so the first
+            // viewer doesn't have to wait for the periodic refresh tick.
+            if readers[paneId] == nil {
+                let dims = (try? await tmuxService.getPaneDimensions(target)) ?? (width: 80, height: 24)
+                await startReader(
+                    paneId: paneId,
+                    sessionName: sessionName,
+                    target: target,
+                    initialWidth: dims.width,
+                    initialHeight: dims.height,
+                    seedTitle: nil
+                )
+            }
+
+            guard var context = readers[paneId] else {
+                throw TmuxError.invalidPane(target: target)
+            }
+
+            let isFirstSubscriber = context.subscriberIds.isEmpty
             let initialContent: Data
             let width: Int
             let height: Int
 
-            // Get or create stream
-            if var context = streams[paneId] {
-                // Existing stream - capture initial content for this subscriber
-                // Don't call onData - return it instead so caller handles it appropriately
+            if isFirstSubscriber {
+                // Claim the slot synchronously before any await. Two concurrent
+                // subscribes for the same fresh pane could otherwise both observe
+                // `subscriberIds.isEmpty` here (the await chain below yields the
+                // main actor) and both take the first-subscriber path — the
+                // second's `setBuffering(true)` would clear the first's buffer.
+                //
+                // Safe to insert before `flushBuffer`: the reader transitions
+                // scanOnly → buffering during this path, so no data bytes flow
+                // to subscribers until the explicit `flushBuffer()` at the end.
+                // OSC events (title/notification/clipboard/progress) bypass
+                // `subscriberIds` for `forwardNotification`/global handlers, so
+                // they're unaffected by an early insert.
+                context.subscriberIds.insert(subscriptionId)
+                readers[paneId] = context
+                subscriptions[subscriptionId] = subscription
+
+                // 1. Retain live bytes during the snapshot so we don't drop any
+                //    between "buffering on" and "snapshot taken". Bytes that
+                //    arrive in this window also appear in the capture's screen
+                //    state — the duplicate is intentional and idempotent in
+                //    SwiftTerm; tightening the fence is tracked as future work
+                //    in issue #476.
+                await context.reader.setBuffering(true)
+
+                // 2. Refresh dimensions from tmux. capture-pane uses these to
+                //    size the visible region; if we trust a stale value the
+                //    snapshot can clip or pad incorrectly.
+                if let dims = try? await tmuxService.getPaneDimensions(target) {
+                    context.width = dims.width
+                    context.height = dims.height
+                }
+
+                // 3. Register dimension tracking once per reader so future
+                //    layout-change events flow into `updateDimensions`.
+                if !context.hasRegisteredDimensions {
+                    do {
+                        try await controlClientManager.registerPaneDimensions(
+                            paneId: paneId,
+                            sessionName: sessionName,
+                            dimensions: (width: context.width, height: context.height)
+                        )
+                        context.hasRegisteredDimensions = true
+                    } catch {
+                        logger.warning("Failed to register pane dimensions", metadata: [
+                            "paneId": "\(paneId)",
+                            "error": "\(error)",
+                        ])
+                    }
+                }
+
+                // 4. Take the snapshot. capture-pane is the only source of
+                //    historical content; pipe-pane only delivers future bytes.
+                do {
+                    initialContent = try await tmuxService.capturePaneViaControlMode(
+                        paneId: paneId,
+                        width: context.width,
+                        height: context.height,
+                        controlClientManager: controlClientManager,
+                        sessionName: sessionName
+                    )
+                } catch {
+                    // Roll back our claim. The reader stays alive in scan-only
+                    // mode so retries don't pay the start cost.
+                    await context.reader.setBuffering(false)
+                    if var rolled = readers[paneId] {
+                        rolled.subscriberIds.remove(subscriptionId)
+                        readers[paneId] = rolled
+                    }
+                    subscriptions.removeValue(forKey: subscriptionId)
+                    throw error
+                }
+
+                readers[paneId] = context
+                width = context.width
+                height = context.height
+
+                // 5. Drain the queue into live delivery. Flushed bytes flow
+                //    through the delegate (this manager) → forwardData →
+                //    subscriber's onData callback.
+                await context.reader.flushBuffer()
+
+                // Send the seeded title (if any) to the first subscriber.
+                if let title = context.terminalTitle, let cb = onTitleChange {
+                    cb(title)
+                }
+
+                logger.info("First subscriber on pane reader", metadata: [
+                    "paneId": "\(paneId)",
+                    "target": "\(target)",
+                    "subscriptionId": "\(subscriptionId)",
+                ])
+            } else {
+                // Existing live reader — capture a fresh snapshot for this new
+                // viewer FIRST, then insert into `subscriberIds`. Inserting
+                // before the snapshot would let `forwardData` deliver live
+                // bytes to this subscriber's `onData` before the caller has
+                // received `initialContent` and seeded its terminal, which
+                // produces out-of-order rendering.
                 do {
                     initialContent = try await tmuxService.capturePaneWithScrollbackForStreaming(target)
                 } catch {
@@ -207,89 +331,27 @@
                     initialContent = Data()
                 }
 
-                width = context.stream.width
-                height = context.stream.height
-
-                // Now add subscriber so they receive future incremental updates
-                context.subscriberIds.insert(subscriptionId)
-                streams[paneId] = context
-
-                // Send current terminal title to late-joining subscriber
-                if let currentTitle = context.terminalTitle, let callback = onTitleChange {
-                    callback(currentTitle)
+                // Re-fetch the context — a concurrent unsubscribe or pane
+                // teardown could have mutated it during the await above.
+                guard var refreshed = readers[paneId] else {
+                    throw TmuxError.invalidPane(target: target)
                 }
 
-                logger.info("Added subscriber to existing stream", metadata: [
+                width = refreshed.width
+                height = refreshed.height
+
+                refreshed.subscriberIds.insert(subscriptionId)
+                readers[paneId] = refreshed
+                subscriptions[subscriptionId] = subscription
+
+                if let title = refreshed.terminalTitle, let cb = onTitleChange {
+                    cb(title)
+                }
+
+                logger.info("Added subscriber to existing pane reader", metadata: [
                     "paneId": "\(paneId)",
                     "subscriptionId": "\(subscriptionId)",
-                    "totalSubscribers": "\(context.subscriberIds.count)",
-                ])
-            } else {
-                // Stop notification-only reader first — both use the same FIFO path
-                await stopNotificationReader(paneId: paneId)
-
-                // Create new stream with control client manager for real-time updates
-                let stream = PaneStream(
-                    target: target,
-                    tmuxService: tmuxService,
-                    controlClientManager: controlClientManager
-                )
-
-                // Set up callbacks to forward to all subscribers
-                stream.onData = { [weak self] data in
-                    self?.forwardData(paneId: paneId, data: data)
-                }
-                stream.onDimensionChange = { [weak self] width, height in
-                    self?.forwardDimensionChange(paneId: paneId, width: width, height: height)
-                }
-                stream.onNotification = { [weak self] notification in
-                    self?.forwardNotification(paneId: paneId, notification: notification)
-                }
-                stream.onTitleChange = { [weak self] title in
-                    self?.handleStreamTitleChange(paneId: paneId, title: title)
-                }
-                stream.onClipboard = { [weak self] content in
-                    self?.forwardClipboard(paneId: paneId, content: content)
-                }
-                stream.onProgress = { [weak self] progress in
-                    self?.onProgress?(paneId, progress)
-                }
-
-                // Seed with title detected by notification reader (if any)
-                let savedTitle = notificationReaderTitles.removeValue(forKey: paneId)
-
-                // Store context BEFORE connect() so callbacks work if triggered during connect
-                streams[paneId] = StreamContext(
-                    stream: stream,
-                    target: target,
-                    subscriberIds: [subscriptionId],
-                    terminalTitle: savedTitle
-                )
-
-                // Connect and get initial content atomically
-                // The content is captured right after control client registration,
-                // ensuring no gap between initial state and live updates
-                do {
-                    initialContent = try await stream.connect()
-                } catch {
-                    // Clean up on failure
-                    streams.removeValue(forKey: paneId)
-                    subscriptions.removeValue(forKey: subscriptionId)
-                    throw error
-                }
-
-                width = stream.width
-                height = stream.height
-
-                // Send saved title to the first subscriber
-                if let savedTitle {
-                    onTitleChange?(savedTitle)
-                }
-
-                logger.info("Created new stream", metadata: [
-                    "paneId": "\(paneId)",
-                    "target": "\(target)",
-                    "subscriptionId": "\(subscriptionId)",
+                    "totalSubscribers": "\(refreshed.subscriberIds.count)",
                 ])
             }
 
@@ -303,7 +365,9 @@
 
         /// Unsubscribe from a pane stream.
         ///
-        /// If this is the last subscriber, the stream is disconnected.
+        /// If this is the last subscriber, the reader returns to scan-only
+        /// mode (data discarded, OSC events still parsed) but stays attached
+        /// to the FIFO. The reader is only torn down when the pane disappears.
         ///
         /// - Parameter subscriptionId: The subscription ID returned from subscribe()
         public func unsubscribe(_ subscriptionId: UUID) async {
@@ -314,31 +378,21 @@
 
             let paneId = subscription.paneId
 
-            guard var context = streams[paneId] else {
-                logger.warning("Stream not found for pane: \(paneId)")
+            guard var context = readers[paneId] else {
+                logger.warning("Reader not found for pane: \(paneId)")
                 return
             }
 
             context.subscriberIds.remove(subscriptionId)
+            readers[paneId] = context
 
             if context.subscriberIds.isEmpty {
-                // Last subscriber - disconnect stream
-                let sessionName = TmuxControlClientManager.extractSessionName(from: context.target)
-                let target = context.target
-                await context.stream.disconnect()
-                streams.removeValue(forKey: paneId)
-
-                // Restart notification-only reader so we still detect OSC 9/777 and title changes
-                await startNotificationReader(paneId: paneId, sessionName: sessionName, target: target)
-
-                logger.info("Disconnected stream (no subscribers), restarted notification reader", metadata: [
+                await context.reader.setBuffering(false)
+                logger.info("Last subscriber gone, reader returned to scan-only mode", metadata: [
                     "paneId": "\(paneId)",
                 ])
             } else {
-                // Update context with remaining subscribers
-                streams[paneId] = context
-
-                logger.info("Removed subscriber from stream", metadata: [
+                logger.info("Removed subscriber from reader", metadata: [
                     "paneId": "\(paneId)",
                     "subscriptionId": "\(subscriptionId)",
                     "remainingSubscribers": "\(context.subscriberIds.count)",
@@ -348,10 +402,14 @@
 
         /// Update dimensions for a pane (called when tmux refreshes pane info).
         ///
-        /// This propagates dimension changes to the stream and all subscribers.
+        /// Stored on the reader context and forwarded to all subscribers.
         public func updateDimensions(paneId: String, width: Int, height: Int) {
-            guard let context = streams[paneId] else { return }
-            context.stream.updateDimensions(width: width, height: height)
+            guard var context = readers[paneId] else { return }
+            guard width != context.width || height != context.height else { return }
+            context.width = width
+            context.height = height
+            readers[paneId] = context
+            forwardDimensionChange(paneId: paneId, width: width, height: height)
         }
 
         /// Report a terminal title change detected by a subscriber's SwiftTerm instance.
@@ -365,10 +423,10 @@
         ///   - title: The new terminal title
         ///   - fromSubscription: The subscription ID reporting the change (excluded from forwarding)
         public func reportTitleChange(paneId: String, title: String, fromSubscription: UUID) {
-            guard var context = streams[paneId] else { return }
+            guard var context = readers[paneId] else { return }
             guard !title.isEmpty, context.terminalTitle != title else { return }
             context.terminalTitle = title
-            streams[paneId] = context
+            readers[paneId] = context
 
             // Notify global handler so MirrorWindowManager stays in sync
             // even when the pane is streamed without a local mirror window
@@ -384,13 +442,13 @@
         /// duplicate data forwarding), this captures the current terminal state.
         ///
         /// - Parameter paneId: The pane ID to capture content for
-        /// - Returns: Current content, width, and height if the pane is streaming; nil otherwise
+        /// - Returns: Current content, width, and height if the pane has subscribers; nil otherwise
         public func currentContent(for paneId: String) async -> (content: Data, width: Int, height: Int)? {
-            guard let context = streams[paneId] else { return nil }
+            guard let context = readers[paneId], !context.subscriberIds.isEmpty else { return nil }
             guard let content = try? await tmuxService.capturePaneWithScrollbackForStreaming(context.target) else {
                 return nil
             }
-            return (content, context.stream.width, context.stream.height)
+            return (content, context.width, context.height)
         }
 
         /// Returns DEC private mode escape sequences to enable the pane's current mouse tracking mode.
@@ -401,9 +459,9 @@
         /// selection/scroll until the application redraws and re-emits the enable sequence.
         ///
         /// - Parameter paneId: The pane ID to query
-        /// - Returns: Escape sequence bytes (empty if mouse mode is off or the pane is not streaming)
+        /// - Returns: Escape sequence bytes (empty if mouse mode is off or the pane is not known)
         public func mouseModeSequences(for paneId: String) async -> Data {
-            guard let context = streams[paneId] else { return Data() }
+            guard let context = readers[paneId] else { return Data() }
             let mode: TmuxService.PaneMouseMode
             do {
                 mode = try await tmuxService.getPaneMouseMode(context.target)
@@ -431,54 +489,69 @@
             return Data(sequences.utf8)
         }
 
-        /// Disconnect all streams (called on app shutdown).
+        /// Disconnect all readers (called on app shutdown).
         public func disconnectAll() async {
-            let paneIds = Array(streams.keys)
+            let paneIds = Array(readers.keys)
             for paneId in paneIds {
-                if let context = streams.removeValue(forKey: paneId) {
-                    await context.stream.disconnect()
-                }
+                await tearDownReader(paneId: paneId)
             }
             subscriptions.removeAll()
-            await stopAllNotificationReaders()
-            logger.info("Disconnected all streams and notification readers")
+            paneRefreshTask?.cancel()
+            paneRefreshTask = nil
+            logger.info("Disconnected all pane readers")
         }
 
-        // MARK: - Notification Monitoring
+        // MARK: - Pane Lifecycle
 
-        /// Start notification-only readers for all panes not already fully mirrored.
-        ///
-        /// Called once on startup after initial pane discovery.
-        public func startNotificationMonitoring(panes: [PaneInfo]) async {
-            for pane in panes where streams[pane.paneId] == nil && notificationReaders[pane.paneId] == nil {
-                await startNotificationReader(paneId: pane.paneId, sessionName: pane.sessionName, target: pane.target)
+        /// Start readers for all panes not already known. Called once on
+        /// startup after initial pane discovery.
+        public func startMonitoring(panes: [PaneInfo]) async {
+            for pane in panes where readers[pane.paneId] == nil {
+                let seedTitle = isCustomPaneTitle(pane.paneTitle) ? pane.paneTitle : nil
+                await startReader(
+                    paneId: pane.paneId,
+                    sessionName: pane.sessionName,
+                    target: pane.target,
+                    initialWidth: pane.width,
+                    initialHeight: pane.height,
+                    seedTitle: seedTitle
+                )
             }
         }
 
-        /// Update notification readers based on current pane list.
+        /// Update readers based on the current pane list.
         ///
-        /// Stops readers for dead panes, starts readers for new panes.
-        public func updateNotificationMonitoring(panes: [PaneInfo]) async {
+        /// Tears down readers for dead panes, starts readers for new panes,
+        /// and seeds custom tmux pane titles that the OSC reader missed
+        /// (e.g. set during async startup before pipe-pane attached).
+        public func updateMonitoring(panes: [PaneInfo]) async {
             let currentPaneIds = Set(panes.map(\.paneId))
 
-            // Stop readers for panes that no longer exist
-            let staleIds = notificationReaders.keys.filter { !currentPaneIds.contains($0) }
+            let staleIds = readers.keys.filter { !currentPaneIds.contains($0) }
             for paneId in staleIds {
-                await stopNotificationReader(paneId: paneId)
+                await tearDownReader(paneId: paneId)
             }
 
-            // Start readers for new panes not already covered
-            for pane in panes where streams[pane.paneId] == nil && notificationReaders[pane.paneId] == nil {
-                await startNotificationReader(paneId: pane.paneId, sessionName: pane.sessionName, target: pane.target)
+            for pane in panes where readers[pane.paneId] == nil {
+                let seedTitle = isCustomPaneTitle(pane.paneTitle) ? pane.paneTitle : nil
+                await startReader(
+                    paneId: pane.paneId,
+                    sessionName: pane.sessionName,
+                    target: pane.target,
+                    initialWidth: pane.width,
+                    initialHeight: pane.height,
+                    seedTitle: seedTitle
+                )
             }
 
-            // For existing notification readers, check if tmux has a title that
-            // the pipe-pane listener missed (e.g., set during async startup).
-            for pane in panes where isCustomPaneTitle(pane.paneTitle) && notificationReaders[pane.paneId] != nil {
-                if notificationReaderTitles[pane.paneId] != pane.paneTitle {
-                    notificationReaderTitles[pane.paneId] = pane.paneTitle
-                    onTitleChange?(pane.paneId, pane.target, pane.paneTitle)
-                }
+            // Seed/update custom titles missed by the OSC reader (e.g. titles
+            // tmux already had before pipe-pane attached).
+            for pane in panes where isCustomPaneTitle(pane.paneTitle) {
+                guard var context = readers[pane.paneId] else { continue }
+                guard context.terminalTitle != pane.paneTitle else { continue }
+                context.terminalTitle = pane.paneTitle
+                readers[pane.paneId] = context
+                onTitleChange?(pane.paneId, pane.target, pane.paneTitle)
             }
         }
 
@@ -493,84 +566,104 @@
                     try? await Task.sleep(for: .seconds(10))
                     guard !Task.isCancelled else { break }
                     let panes = await tmuxService.refreshPanes()
-                    await self?.updateNotificationMonitoring(panes: panes)
+                    await self?.updateMonitoring(panes: panes)
                 }
             }
         }
 
-        /// Stop all notification readers (for shutdown).
-        public func stopAllNotificationReaders() async {
-            let paneIds = Array(notificationReaders.keys)
-            for paneId in paneIds {
-                await stopNotificationReader(paneId: paneId)
-            }
-            paneRefreshTask?.cancel()
-            paneRefreshTask = nil
-        }
+        // MARK: - Reader Lifecycle Helpers
 
-        // MARK: - Notification Reader Helpers
-
-        private func startNotificationReader(paneId: String, sessionName: String, target: String) async {
-            // scanOnly: true avoids building filtered output Data — only extracts notifications
-            // and title changes, reducing CPU/memory overhead for panes that may produce
-            // high-throughput output.
-            let reader = PipePaneReader(paneId: paneId, scanOnly: true)
-
-            // Set notification handler — no data handler means data is discarded
-            await reader.setNotificationHandler { [weak self] notification in
-                Task { @MainActor in
-                    self?.forwardNotification(paneId: paneId, notification: notification)
-                }
-            }
-
-            // Set title change handler for OSC 0/2 sequences on inactive panes
-            await reader.setTitleChangeHandler { [weak self] title in
-                Task { @MainActor in
-                    self?.notificationReaderTitles[paneId] = title
-                    self?.onTitleChange?(paneId, target, title)
-                }
-            }
-
-            // Forward OSC 9;4 progress updates from the per-pane reader.
-            await reader.setProgressHandler { [weak self] progress in
-                Task { @MainActor in
-                    self?.onProgress?(paneId, progress)
-                }
-            }
+        private func startReader(
+            paneId: String,
+            sessionName: String,
+            target: String,
+            initialWidth: Int,
+            initialHeight: Int,
+            seedTitle: String?
+        ) async {
+            let reader = PipePaneReader(paneId: paneId)
+            await reader.setDelegate(self)
 
             do {
                 try await reader.startPipePane(
                     controlClientManager: controlClientManager,
-                    sessionName: sessionName,
-                    buffering: false
+                    sessionName: sessionName
                 )
-                notificationReaders[paneId] = NotificationReaderContext(
+                readers[paneId] = ReaderContext(
                     reader: reader,
+                    target: target,
                     sessionName: sessionName,
-                    target: target
+                    width: initialWidth,
+                    height: initialHeight,
+                    subscriberIds: [],
+                    terminalTitle: seedTitle,
+                    hasRegisteredDimensions: false
                 )
-                logger.debug("Started notification reader", metadata: ["paneId": "\(paneId)"])
+                if let seedTitle {
+                    onTitleChange?(paneId, target, seedTitle)
+                }
+                logger.debug("Started reader", metadata: ["paneId": "\(paneId)"])
             } catch {
-                logger.debug("Failed to start notification reader", metadata: [
+                logger.debug("Failed to start reader", metadata: [
                     "paneId": "\(paneId)",
                     "error": "\(error)",
                 ])
             }
         }
 
-        private func stopNotificationReader(paneId: String) async {
-            guard let context = notificationReaders.removeValue(forKey: paneId) else { return }
+        private func tearDownReader(paneId: String) async {
+            guard let context = readers.removeValue(forKey: paneId) else { return }
+
+            // Drop subscriptions belonging to this pane (caller likely already
+            // unsubscribed, but this guards against shutdown ordering bugs).
+            for subId in context.subscriberIds {
+                subscriptions.removeValue(forKey: subId)
+            }
+
             await context.reader.stopPipePane(
                 controlClientManager: controlClientManager,
                 sessionName: context.sessionName
             )
-            logger.debug("Stopped notification reader", metadata: ["paneId": "\(paneId)"])
+
+            if context.hasRegisteredDimensions {
+                await controlClientManager.unregisterPane(
+                    paneId: paneId,
+                    sessionName: context.sessionName
+                )
+            }
+
+            logger.debug("Tore down reader", metadata: ["paneId": "\(paneId)"])
         }
 
-        // MARK: - Private Methods
+        // MARK: - PipePaneReaderDelegate
+
+        public func pipePaneReader(_ paneId: String, didReceiveData data: Data) {
+            forwardData(paneId: paneId, data: data)
+        }
+
+        public func pipePaneReader(
+            _ paneId: String,
+            didReceiveNotification notification: TerminalStreamMessage.TerminalNotification
+        ) {
+            forwardNotification(paneId: paneId, notification: notification)
+        }
+
+        public func pipePaneReader(_ paneId: String, didReceiveTitle title: String) {
+            handleStreamTitleChange(paneId: paneId, title: title)
+        }
+
+        public func pipePaneReader(_ paneId: String, didReceiveClipboard content: String) {
+            forwardClipboard(paneId: paneId, content: content)
+        }
+
+        public func pipePaneReader(_ paneId: String, didReceiveProgress progress: TerminalProgressState) {
+            onProgress?(paneId, progress)
+        }
+
+        // MARK: - Private Forwarding
 
         private func forwardData(paneId: String, data: Data) {
-            guard let context = streams[paneId] else { return }
+            guard let context = readers[paneId] else { return }
 
             for subscriberId in context.subscriberIds {
                 if let subscription = subscriptions[subscriberId] {
@@ -580,7 +673,7 @@
         }
 
         private func forwardDimensionChange(paneId: String, width: Int, height: Int) {
-            guard let context = streams[paneId] else { return }
+            guard let context = readers[paneId] else { return }
 
             for subscriberId in context.subscriberIds {
                 if
@@ -591,8 +684,8 @@
             }
         }
 
-        private func forwardTitleChange(paneId: String, title: String, excludingSubscription: UUID) {
-            guard let context = streams[paneId] else { return }
+        private func forwardTitleChange(paneId: String, title: String, excludingSubscription: UUID?) {
+            guard let context = readers[paneId] else { return }
 
             for subscriberId in context.subscriberIds where subscriberId != excludingSubscription {
                 if
@@ -603,29 +696,23 @@
             }
         }
 
-        /// Handle title change detected by PaneStream's PipePaneReader (from raw pipe-pane data).
-        /// Updates the stream context and forwards to all subscribers and the global handler.
+        /// Handle title change detected by the per-pane reader (from raw pipe-pane data).
+        /// Updates the reader context and forwards to all subscribers and the global handler.
         private func handleStreamTitleChange(paneId: String, title: String) {
-            guard var context = streams[paneId] else { return }
+            guard var context = readers[paneId] else { return }
             guard !title.isEmpty, context.terminalTitle != title else { return }
             context.terminalTitle = title
-            streams[paneId] = context
+            readers[paneId] = context
 
             // Notify global handler (MirrorWindowManager)
             onTitleChange?(paneId, context.target, title)
 
             // Forward to all subscribers
-            for subscriberId in context.subscriberIds {
-                if
-                    let subscription = subscriptions[subscriberId],
-                    let callback = subscription.onTitleChange {
-                    callback(title)
-                }
-            }
+            forwardTitleChange(paneId: paneId, title: title, excludingSubscription: nil)
         }
 
         private func forwardClipboard(paneId: String, content: String) {
-            guard let context = streams[paneId] else { return }
+            guard let context = readers[paneId] else { return }
             for subscriberId in context.subscriberIds {
                 if
                     let subscription = subscriptions[subscriberId],
@@ -639,12 +726,12 @@
             paneId: String,
             notification: TerminalStreamMessage.TerminalNotification
         ) {
-            // Call global handler unconditionally — notification-only readers
-            // don't have a stream context but still need desktop notifications
+            // Call global handler unconditionally — desktop notifications fire
+            // even for panes that aren't being mirrored.
             onNotification?(paneId, notification)
 
-            // Forward to per-subscriber handlers (only if a full stream exists)
-            guard let context = streams[paneId] else { return }
+            // Forward to per-subscriber handlers (only if a stream has subscribers)
+            guard let context = readers[paneId] else { return }
             for subscriberId in context.subscriberIds {
                 if
                     let subscription = subscriptions[subscriberId],
@@ -654,4 +741,5 @@
             }
         }
     }
+
 #endif

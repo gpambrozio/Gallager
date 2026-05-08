@@ -1754,78 +1754,76 @@
             #expect(allContent.contains { $0.contains("user@host") }, "Prompt still present")
         }
 
-        @Test("After clear + screen re-fill, stale scrollback is suppressed via line count")
+        @Test("Small genuine scrollback is rendered even when its line count is below pane height")
         @MainActor
-        func clearThenFillScreenSuppressesScrollback() throws {
-            // Scenario: user runs `clear`, then a script that fills the screen
-            // (e.g., python3 draw_table.py which also does \e[2J internally).
-            // The visible area is full (screenWasCleared = false), but the
-            // scrollback capture (-E -1) contains only a few stale pre-clear
-            // lines — tmux trims trailing blank lines from the pushed cleared
-            // area. Since the scrollback has fewer lines than the terminal
-            // height, it's suppressed.
+        func smallScrollbackBelowHeightIsIncluded() {
+            // Regression for the user-visible bug where `seq 1 100` in a tall
+            // mirror (e.g. 61 rows) produced ~39 history lines, less than the
+            // pane height. The earlier line-count heuristic incorrectly
+            // treated this as post-clear stale content and suppressed it,
+            // leaving the user unable to scroll back through the numbers.
+            //
+            // The mirror should match tmux's scrollback: anything tmux retains
+            // (history_size > 0) gets rendered. Pre-clear pollution is
+            // already handled by the screenWasCleared check (visible area is
+            // mostly empty right after `clear`), and tmux preserves pre-clear
+            // history naturally if the user later re-fills the screen — the
+            // mirror should match.
             let service = TmuxService()
-            let height = 24
+            let height = 61
+            let cols = 80
 
-            // Build scrollback: only pre-clear content (tmux -E -1 does NOT
-            // include the visible area, and trims trailing blank lines)
-            var scrollbackLines: [String] = []
-            scrollbackLines.append("user@host ~")
-            scrollbackLines.append("$ export PS1='$ '")
-            scrollbackLines.append("$ clear")
-            scrollbackLines.append("") // tmux keeps ~1 blank after clear
-            scrollbackLines.append("$ python3 /tmp/draw_table.py")
-            // Total: 5 lines (< height=24) → suppressed
-            let scrollbackOutput = scrollbackLines.joined(separator: "\n") + "\n"
+            // 39 lines of seq output — fewer than the pane height.
+            let scrollbackLines = (1...39).map { "Line \($0)" }
+            let scrollbackOutput = scrollbackLines.joined(separator: "\n")
 
-            // Visible: full screen with table content (drawn by script's \e[2J\e[H)
-            var visibleLinesList = ["Box-Drawing Table Rendering Test"]
-            for i in 1...15 {
-                visibleLinesList.append("Row \(i) data")
-            }
-            visibleLinesList.append("All services operational.")
-            visibleLinesList.append("$ ")
-            while visibleLinesList.count < height {
-                visibleLinesList.append("")
-            }
-            let visibleOutput = visibleLinesList.joined(separator: "\n") + "\n"
+            // Visible: 61 lines covering Line 40..Line 100.
+            let visibleLines = (40...100).map { "Line \($0)" }
+            let visibleOutput = visibleLines.joined(separator: "\n")
 
-            let data = service.processCapturePaneForStreaming(
+            let cursorOutput = "0,\(height - 1),1"
+
+            let initialData = service.processCapturePaneForStreaming(
                 scrollbackOutput: scrollbackOutput,
                 visibleOutput: visibleOutput,
-                cursorOutput: "2,17,1",
-                width: 80,
+                cursorOutput: cursorOutput,
+                width: cols,
                 height: height
             )
 
-            let oversizedRows = 200
-            let (terminal, _) = makeTerminal(cols: 80, rows: oversizedRows)
-            try terminal.feed(text: #require(String(data: data, encoding: .utf8)))
+            // Feed into a correctly-sized terminal so the height-1 LFs can
+            // actually push scrollback content into SwiftTerm's scrollback
+            // buffer (in an oversized terminal there's nothing to scroll).
+            let (terminal, _) = makeTerminal(cols: cols, rows: height)
+            terminal.feed(byteArray: Array(initialData))
 
+            // Walk both scrollback + visible via getScrollInvariantLine.
             var allContent: [String] = []
-            for row in 0..<oversizedRows {
-                let text = getRowText(terminal, row: row).filter { $0 != "\0" }
-                if !text.isEmpty { allContent.append(text) }
+            let totalLines = terminal.buffer.yDisp + terminal.rows
+            for row in 0..<totalLines {
+                guard let line = terminal.getScrollInvariantLine(row: row) else { continue }
+                let text = line.translateToString(trimRight: true)
+                if !text.isEmpty {
+                    allContent.append(text)
+                }
             }
 
-            // Pre-clear content should NOT appear (scrollback suppressed)
-            #expect(
-                !allContent.contains { $0.contains("export PS1") },
-                "Pre-clear content should be suppressed"
-            )
-            #expect(
-                !allContent.contains { $0.contains("clear") },
-                "$ clear should not appear"
-            )
-            // Visible content SHOULD appear
-            #expect(
-                allContent.contains { $0.contains("Box-Drawing Table") },
-                "Table content should be present"
-            )
-            #expect(
-                allContent.contains { $0.contains("Row 1 data") },
-                "Table rows should be present"
-            )
+            // Every line — scrollback (1..39) and visible (40..100) — should
+            // be present and continuous, not just the visible region.
+            let lineNumbers = allContent.compactMap { line -> Int? in
+                guard line.hasPrefix("Line ") else { return nil }
+                return Int(line.dropFirst(5))
+            }.sorted()
+
+            #expect(lineNumbers.first == 1, "First scrollback line should be 'Line 1', got first=\(String(describing: lineNumbers.first))")
+            #expect(lineNumbers.last == 100, "Last visible line should be 'Line 100', got last=\(String(describing: lineNumbers.last))")
+            #expect(lineNumbers.count == 100, "Expected all 100 lines, got \(lineNumbers.count)")
+            for index in 1..<lineNumbers.count {
+                #expect(
+                    lineNumbers[index] == lineNumbers[index - 1] + 1,
+                    "Gap in lines: \(lineNumbers[index - 1]) → \(lineNumbers[index])"
+                )
+            }
         }
 
         @Test("Scrollback IS output when there is genuine scrollback content")

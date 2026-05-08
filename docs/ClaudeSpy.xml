@@ -6,6 +6,43 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.29</title>
+         <sparkle:version>29</sparkle:version>
+         <sparkle:shortVersionString>1.29</sparkle:shortVersionString>
+         <pubDate>Thu, 07 May 2026 06:54:18 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.29
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Custom emoji icons for tmux sessions</strong>: Personalize sessions with emoji icons for easier identification at a glance.</li>
+<li><strong>Appearance picker</strong>: New appearance settings on both macOS and iOS, with session-color swatches in menus and a live preview in the prompt editor.</li>
+<li><strong>One-tap pairing on iOS</strong>: When a pairing code is detected in the iOS clipboard, the app now offers a one-tap paste to streamline device setup.</li>
+<li><strong>Editable iOS device names</strong>: Rename your iOS device, and see the updated name reflected on paired hosts.</li>
+<li><strong>Progress indicators in mirrored panes</strong>: OSC 9;4 progress updates from Claude Code are now forwarded through mirrored tmux panes, surfacing task progress in the UI.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Updated tool model list</strong>: Tool models now match the latest Claude Code documentation.</li>
+<li><strong>Faster project list refresh</strong>: The Claude project list on the host now refreshes every minute automatically.</li>
+<li><strong>ProjectNavigator upgraded to 1.8.0</strong>: Includes the latest improvements from the underlying navigation component.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>URL detection in terminal</strong>: URL matching no longer extends into uninitialized terminal cells, preventing spurious or overly long link selections.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.29.dmg"
+                    sparkle:edSignature="U7bU6+/FFoL498Y6eS4qABXVamRmE+Zft/uS+uUV0fJ5v7dAuzXLqxpQ6GdK0hicxDKUa/kThKUeffPTMZO2Aw=="
+                    length="30171153"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.28</title>
          <sparkle:version>28</sparkle:version>
          <sparkle:shortVersionString>1.28</sparkle:shortVersionString>

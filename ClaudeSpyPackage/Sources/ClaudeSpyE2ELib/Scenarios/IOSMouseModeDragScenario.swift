@@ -29,6 +29,14 @@ public enum IOSMouseModeDragScenario {
         // scrolling is meaningful.
         TestStep.log("Creating wide tmux session for iOS mouse-mode drag test")
         TestStep.tmuxCreateSession(name: "ios-mouse-drag", width: 200, height: 24)
+
+        // ── Connect iOS BEFORE clear/setup ───────────────────────
+        // iOS must be streaming when we run `clear`, so the mirror's
+        // SwiftTerm sees the clear directly and pre-clear shell history
+        // doesn't end up in the scrollback that capture-pane would replay.
+        Shortcut.iosConnectToSession(sessionName: "ios-mouse-drag")
+        TestStep.wait(seconds: 3)
+
         Shortcut.tmuxClearAndSetPrompt(target: "ios-mouse-drag:0")
 
         // ── Run the wide variant of mouse_test.py ────────────────
@@ -51,10 +59,6 @@ public enum IOSMouseModeDragScenario {
             storeAs: "mouseAnyFlag"
         )
         TestStep.assertStoredContains(key: "mouseAnyFlag", substring: "1")
-
-        // ── Connect iOS to the session ───────────────────────────
-        Shortcut.iosConnectToSession(sessionName: "ios-mouse-drag")
-        TestStep.wait(seconds: 3)
 
         // Baseline screenshot — terminal at horizontal offset 0,
         // so 'WIDE>0123456789|0123...' is visible at the left.
