@@ -1,4 +1,3 @@
-import ClaudeSpyNetworking
 import Dependencies
 import DependenciesMacros
 import Foundation
@@ -9,6 +8,22 @@ import os.log
 #elseif os(iOS)
     import UIKit
 #endif
+
+/// Image encoding format for a `ClipboardImage`. Determines the file
+/// extension when the image is wrapped as a synthetic `DroppedFile` for
+/// the relay-forward image-paste flow.
+public enum ImageFormat: String, Sendable, Equatable {
+    case png
+    case tiff
+
+    /// Filename extension to use when saving the clipboard image to disk.
+    public var fileExtension: String {
+        switch self {
+        case .png: "png"
+        case .tiff: "tiff"
+        }
+    }
+}
 
 /// Image bytes plus the format they're encoded in.
 public struct ClipboardImage: Sendable, Equatable {
@@ -49,9 +64,6 @@ public struct ClipboardClient: Sendable {
     /// Returns the current image on the clipboard, or nil if there is none
     /// (macOS only). Prefers PNG when available, falls back to TIFF.
     public var getImage: @Sendable () -> ClipboardImage? = { nil }
-
-    /// Writes image data to the clipboard with the given format (macOS only).
-    public var setImage: @Sendable (_ image: ClipboardImage) -> Void
 }
 
 // MARK: - File-Backed Implementation (E2E)
@@ -71,8 +83,7 @@ public extension ClipboardClient {
             setRichText: { _, plainText in store.write(plainText) },
             setFileURL: { _ in },
             hasImage: { store.readImage() != nil },
-            getImage: { store.readImage() },
-            setImage: { image in store.writeImage(image) }
+            getImage: { store.readImage() }
         )
     }
 }
@@ -144,23 +155,6 @@ final private class FileBackedClipboard: Sendable {
             return ClipboardImage(data: data, format: format)
         }
     }
-
-    func writeImage(_ image: ClipboardImage) {
-        lock.withLock {
-            do {
-                try image.data.write(to: URL(fileURLWithPath: imagePath), options: .atomic)
-                try image.format.rawValue.write(
-                    toFile: imageFormatPath,
-                    atomically: true,
-                    encoding: .utf8
-                )
-            } catch {
-                Self.logger.error(
-                    "Failed to write clipboard image at \(self.imagePath): \(error)"
-                )
-            }
-        }
-    }
 }
 
 // MARK: - DependencyKey
@@ -175,8 +169,7 @@ extension ClipboardClient: DependencyKey {
             setRichText: { _, plainText in store.value = plainText },
             setFileURL: { _ in },
             hasImage: { false },
-            getImage: { nil },
-            setImage: { _ in }
+            getImage: { nil }
         )
     }
 
@@ -215,12 +208,6 @@ extension ClipboardClient: DependencyKey {
                         return ClipboardImage(data: tiff, format: .tiff)
                     }
                     return nil
-                },
-                setImage: { image in
-                    let pb = NSPasteboard.general
-                    pb.clearContents()
-                    let type: NSPasteboard.PasteboardType = image.format == .png ? .png : .tiff
-                    pb.setData(image.data, forType: type)
                 }
             )
         #elseif os(iOS)
@@ -237,8 +224,7 @@ extension ClipboardClient: DependencyKey {
                 setRichText: { _, _ in },
                 setFileURL: { _ in },
                 hasImage: { false },
-                getImage: { nil },
-                setImage: { _ in }
+                getImage: { nil }
             )
         #endif
     }

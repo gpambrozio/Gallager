@@ -173,6 +173,14 @@ public enum TestStep: Sendable {
     /// Press Cmd+V in the macOS app, pasting the current system clipboard
     /// contents into the focused field.
     case macPaste(instance: Int = 0)
+    /// Simulate a Finder file drop onto the terminal view for a specific
+    /// pane. Drives the same code path as a real drop (registered drag
+    /// types, `performDragOperation`) without going through AppKit's
+    /// dragging machinery, which can't easily be triggered from outside
+    /// the app process. `paneId` is the tmux pane id (e.g. "%0"); `paths`
+    /// is the list of POSIX paths to drop. `${var}` interpolation is
+    /// supported in both fields.
+    case macDropFilesOnPane(paneId: String, paths: [String], instance: Int = 0)
     /// Wait for a text element to appear in the macOS app's accessibility tree
     case macWaitForElement(titled: String, timeout: TimeInterval = 10, instance: Int = 0)
     /// Wait for a text element to disappear from the macOS app's accessibility tree

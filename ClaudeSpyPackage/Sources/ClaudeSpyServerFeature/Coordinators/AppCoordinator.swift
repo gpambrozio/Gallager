@@ -213,6 +213,15 @@
             // Clean up any stale pipe-pane FIFOs from previous crashes
             PipePaneReader.cleanupStaleFifos()
 
+            // Sweep any leftover `gallager-drop-*` directories from prior
+            // sessions. Each remote drop drops a per-UUID subdir under
+            // `$TMPDIR`, normally short-lived: the inner pane app reads
+            // the file before the user moves on. macOS does its own lazy
+            // pruning, but a long-running session benefits from explicit
+            // cleanup at launch so the host doesn't accumulate hundreds
+            // of small folders.
+            sweepStaleDropDirectories()
+
             // Start dock icon management (hides dock icon initially, shows when windows open)
             await dockIconService.startObserving()
 
@@ -1192,11 +1201,13 @@
                     return .success(for: command.id)
                 }
 
-                // Handle remote image paste: place the image on the host's
-                // pasteboard and send Ctrl+V into the target tmux pane so the
-                // foreground app (e.g. Claude Code) reads it.
-                if case let .sendImage(spec) = command.command {
-                    return await Self.handleSendImage(
+                // Handle remote file drop or image paste: save each file into
+                // $TMPDIR under a per-drop subdirectory and paste the resolved
+                // paths into the target tmux pane via the bracketed-paste
+                // buffer. Image pastes ride this flow too — the viewer wraps
+                // the clipboard image as a single synthetic `DroppedFile`.
+                if case let .sendDroppedFiles(spec) = command.command {
+                    return await Self.handleSendDroppedFiles(
                         command: command,
                         spec: spec,
                         tmuxService: tmux
@@ -1498,59 +1509,160 @@
             }
         }
 
-        // @MainActor: this handler writes to NSPasteboard via ClipboardClient.setImage,
-        // which calls AppKit APIs that must run on the main thread. Static methods
-        // do not inherit @MainActor from the enclosing class, so make it explicit.
-        @MainActor
-        private static func handleSendImage(
+        /// Removes any `$TMPDIR/gallager-drop-*` directories left over
+        /// from a previous run. Called once at startup so the host doesn't
+        /// accumulate per-drop landing directories indefinitely after
+        /// crashes or unexpected shutdowns. Only matches our own
+        /// `gallager-drop-` prefix so unrelated `$TMPDIR` content is left
+        /// alone. Failures are silent — best-effort cleanup.
+        private func sweepStaleDropDirectories() {
+            let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            let fm = FileManager.default
+            guard
+                let entries = try? fm.contentsOfDirectory(
+                    at: tmp,
+                    includingPropertiesForKeys: nil
+                )
+            else { return }
+            for entry in entries where entry.lastPathComponent.hasPrefix("gallager-drop-") {
+                try? fm.removeItem(at: entry)
+            }
+        }
+
+        /// Saves each file in `spec.files` to a unique subdirectory of
+        /// `$TMPDIR`, builds the same shell-escaped path string the local
+        /// drop path produces, then loads + pastes it into `command.paneId`
+        /// via tmux's bracketed-paste buffer. The subdirectory is named
+        /// `gallager-drop-<UUID>` so concurrent drops can't clobber each
+        /// other; the original filename is preserved inside so
+        /// downstream readers (Claude Code, vim, etc.) see a useful name.
+        private static func handleSendDroppedFiles(
             command: CommandMessage,
-            spec: SendImage,
+            spec: SendDroppedFiles,
             tmuxService: TmuxService
         ) async -> CommandResponseMessage {
-            guard let imageData = spec.data, !imageData.isEmpty else {
-                return .failure(for: command.id, error: "Empty image payload")
+            guard !spec.files.isEmpty else {
+                return .failure(for: command.id, error: "No files in drop payload")
             }
 
-            // Defence-in-depth size cap. The viewer enforces SendImage.maxRawBytes
-            // before sending, but a structurally-valid TIFF that sneaks past the
-            // viewer's check (relay limit change, crafted message) would otherwise
-            // write an arbitrarily large payload to the host's pasteboard.
-            guard imageData.count <= SendImage.maxRawBytes else {
-                return .failure(for: command.id, error: "Image payload exceeds maximum size")
+            // Decode each file's bytes once into a local array. `DroppedFile.data`
+            // base64-decodes on every access, so reading it for both the size
+            // check and the write below would do the work twice per file.
+            var decoded: [(name: String, data: Data)] = []
+            decoded.reserveCapacity(spec.files.count)
+            var totalBytes = 0
+            for file in spec.files {
+                guard let data = file.data else {
+                    return .failure(for: command.id, error: "File '\(file.name)' had no data")
+                }
+                totalBytes += data.count
+                decoded.append((file.name, data))
             }
 
-            // Reject mislabelled or truncated payloads before writing them to
-            // the user's pasteboard with the wrong UTI. A misrouted clipboard
-            // entry is much harder to recover from than a clean error.
-            guard SendImage.validates(imageData, as: spec.format) else {
-                return .failure(
-                    for: command.id,
-                    error: "Image payload does not match declared \(spec.format.rawValue) format"
-                )
+            // Defence-in-depth size cap. The viewer enforces the same limit
+            // before the upload starts; this catches a structurally-valid
+            // payload that bypasses the viewer check.
+            guard totalBytes <= SendDroppedFiles.maxRawBytes else {
+                return .failure(for: command.id, error: "Dropped files exceed maximum size")
             }
 
-            // Verify the target pane still exists before mutating shared state
-            // (the host's pasteboard). If the pane was killed between the
-            // viewer's Cmd+V and this handler, we'd otherwise overwrite the
-            // host user's clipboard for nothing.
+            // Verify the target pane still exists before writing files to
+            // disk. If the pane was killed between the user's drop and this
+            // handler we'd otherwise leave orphan files in $TMPDIR.
             let panes = await tmuxService.refreshPanes()
             guard panes.contains(where: { $0.paneId == command.paneId }) else {
                 return .failure(for: command.id, error: "Pane \(command.paneId) not found")
             }
 
-            // Place the image on the host's pasteboard so the in-pane app
-            // (e.g. Claude Code) sees it when we send Ctrl+V below.
-            @Dependency(ClipboardClient.self) var clipboard
-            clipboard.setImage(ClipboardImage(data: imageData, format: spec.format))
+            // Save each file under a dedicated subdirectory so duplicate
+            // names across drops can't collide.
+            let dropDir = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("gallager-drop-\(UUID().uuidString)", isDirectory: true)
+            do {
+                try FileManager.default.createDirectory(
+                    at: dropDir,
+                    withIntermediateDirectories: true
+                )
+            } catch {
+                return .failure(
+                    for: command.id,
+                    error: "Failed to create drop directory: \(error.localizedDescription)"
+                )
+            }
+
+            // Within a single drop two files can share `lastPathComponent` (e.g.
+            // two `README.md` from different folders). Track names already used
+            // in this drop and append a counter suffix on collision so the
+            // second `.atomic` write doesn't silently clobber the first.
+            var usedNames: Set<String> = []
+            var savedURLs: [URL] = []
+            for entry in decoded {
+                // Sanitize the filename — `lastPathComponent` returns `..`,
+                // `.`, `/`, and NUL-bearing names verbatim, so an explicit
+                // reject list is needed to keep writes confined to
+                // `dropDir`. Anything that fails the check gets replaced
+                // with a UUID so the drop still completes (and we don't
+                // leak the invalid name through an error message).
+                let baseName = (entry.name as NSString).lastPathComponent
+                let isInvalid = baseName.isEmpty
+                    || baseName == "."
+                    || baseName == ".."
+                    || baseName.contains("/")
+                    || baseName.contains("\0")
+                let candidate = isInvalid ? UUID().uuidString : baseName
+                let safeName = Self.uniqueDropName(candidate, in: &usedNames)
+                let target = dropDir.appendingPathComponent(safeName)
+                do {
+                    try entry.data.write(to: target, options: .atomic)
+                } catch {
+                    return .failure(
+                        for: command.id,
+                        error: "Failed to write \(safeName): \(error.localizedDescription)"
+                    )
+                }
+                savedURLs.append(target)
+            }
+
+            guard let content = DroppedPathFormatter.format(urls: savedURLs) else {
+                return .failure(for: command.id, error: "No valid paths after saving files")
+            }
 
             do {
-                // Send Ctrl+V into the pane. This mirrors the local Cmd+V flow
-                // in InteractiveTerminalView where image paste is delegated to
-                // the terminal app via Ctrl+V.
-                try await tmuxService.sendBatchKeys(command.paneId, keys: ["C-v"])
+                // Per-drop buffer name — see TerminalContainerView for why
+                // a stable name can lose drops under rapid double-drop.
+                try await tmuxService.loadAndPasteBuffer(
+                    target: command.paneId,
+                    content: content,
+                    bufferName: "gallager-drop-\(UUID().uuidString.prefix(8))"
+                )
                 return .success(for: command.id)
             } catch {
                 return .failure(for: command.id, error: error.localizedDescription)
+            }
+        }
+
+        /// Returns `name` unchanged on first use, otherwise inserts a `-N`
+        /// counter before the extension until a free slot is found. Mutates
+        /// `usedNames` so the caller can reuse it across the iteration.
+        private static func uniqueDropName(
+            _ name: String,
+            in usedNames: inout Set<String>
+        ) -> String {
+            if usedNames.insert(name).inserted {
+                return name
+            }
+            let ns = name as NSString
+            let stem = ns.deletingPathExtension
+            let ext = ns.pathExtension
+            var index = 1
+            while true {
+                let candidate = ext.isEmpty
+                    ? "\(stem)-\(index)"
+                    : "\(stem)-\(index).\(ext)"
+                if usedNames.insert(candidate).inserted {
+                    return candidate
+                }
+                index += 1
             }
         }
 

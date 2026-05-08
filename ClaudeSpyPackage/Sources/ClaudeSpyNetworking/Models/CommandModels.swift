@@ -686,65 +686,52 @@ public struct SendRawInput: CommandSpec, Equatable {
     }
 }
 
-/// Image encoding format for clipboard transfer.
-public enum ImageFormat: String, Codable, Sendable, Equatable {
-    case png
-    case tiff
-}
+/// One file in a `SendDroppedFiles` payload — original filename plus base64-encoded bytes.
+/// Used for both Finder file drops and Cmd+V image pastes (an image paste is
+/// shipped as a single synthetic `DroppedFile`).
+public struct DroppedFile: Codable, Sendable, Equatable {
+    /// The original filename as it appeared in Finder. The host saves to a
+    /// per-drop subdirectory of `$TMPDIR` so collisions across drops can't
+    /// clobber each other; the filename itself is preserved so Claude Code (or
+    /// any other in-pane reader) sees a human-readable path.
+    public let name: String
 
-/// Send an image from a viewer to the host so the host can place it on its
-/// pasteboard and send `Ctrl+V` into the target tmux pane. Used to forward
-/// Cmd+V image pastes from a Mac viewer to a remote Mac host.
-public struct SendImage: CommandSpec, Equatable {
-    public typealias Response = CommandResponseMessage
+    /// Base64-encoded file bytes.
+    public let dataBase64: String
 
-    /// Maximum raw (pre-base64) image bytes a viewer should attempt to send.
-    /// The relay enforces a 1 MiB max WebSocket frame; base64 encoding adds
-    /// ~33% overhead so 700 KiB raw stays comfortably under that ceiling.
-    /// Senders should refuse anything larger and surface a clear error
-    /// instead of letting the WebSocket connection close on them.
-    public static let maxRawBytes = 700 * 1_024
-
-    /// PNG file signature: 89 50 4E 47 0D 0A 1A 0A
-    private static let pngMagic: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
-    /// TIFF file signatures: II*\0 (little-endian) or MM\0* (big-endian)
-    private static let tiffMagicLE: [UInt8] = [0x49, 0x49, 0x2A, 0x00]
-    private static let tiffMagicBE: [UInt8] = [0x4D, 0x4D, 0x00, 0x2A]
-
-    /// Base64-encoded image bytes
-    public let imageBase64: String
-
-    /// The image's encoding format on the wire
-    public let format: ImageFormat
-
-    public init(data: Data, format: ImageFormat) {
-        self.imageBase64 = data.base64EncodedString()
-        self.format = format
+    public init(name: String, data: Data) {
+        self.name = name
+        self.dataBase64 = data.base64EncodedString()
     }
 
     public var data: Data? {
-        Data(base64Encoded: imageBase64)
+        Data(base64Encoded: dataBase64)
+    }
+}
+
+/// Forward a Finder file drop from a Mac viewer to a remote Mac host. The
+/// host saves each file to `$TMPDIR/gallager-drop-<UUID>/<name>`, joins the
+/// resolved paths into a shell-escaped string, and pastes the result into
+/// the target tmux pane via `tmux load-buffer` + `paste-buffer -p` so apps
+/// that have enabled bracketed-paste mode see it as a paste event.
+public struct SendDroppedFiles: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// Maximum total raw bytes a viewer should attempt to send across all
+    /// files in one drop. The relay enforces a 1 MiB max WebSocket frame and
+    /// base64 adds ~33% overhead, so 700 KiB raw stays under the ceiling.
+    /// Mirrors `SendImage.maxRawBytes` so both upload paths share one limit.
+    public static let maxRawBytes = 700 * 1_024
+
+    /// The dropped files in the order the user dropped them.
+    public let files: [DroppedFile]
+
+    public init(files: [DroppedFile]) {
+        self.files = files
     }
 
     public var commandType: CommandType {
-        .sendImage(self)
-    }
-
-    /// Returns true if `data` starts with the magic bytes for `format`. Used
-    /// by the host to reject mislabelled or truncated payloads before they
-    /// land on the user's pasteboard with the wrong UTI.
-    public static func validates(_ data: Data, as format: ImageFormat) -> Bool {
-        switch format {
-        case .png:
-            return startsWith(data, pngMagic)
-        case .tiff:
-            return startsWith(data, tiffMagicLE) || startsWith(data, tiffMagicBE)
-        }
-    }
-
-    private static func startsWith(_ data: Data, _ prefix: [UInt8]) -> Bool {
-        guard data.count >= prefix.count else { return false }
-        return data.prefix(prefix.count).elementsEqual(prefix)
+        .sendDroppedFiles(self)
     }
 }
 
@@ -901,8 +888,10 @@ public enum CommandType: Codable, Sendable, Equatable {
     case killTmuxWindow(KillTmuxWindow)
     /// Kill (close) a tmux session
     case killTmuxSession(KillTmuxSession)
-    /// Send an image from a viewer to be pasted into the host's tmux pane
-    case sendImage(SendImage)
+    /// Forward a Finder file drop or Cmd+V image paste from a Mac viewer; host
+    /// saves the bytes to `$TMPDIR` and pastes the resolved paths into the
+    /// target tmux pane via tmux's bracketed-paste buffer.
+    case sendDroppedFiles(SendDroppedFiles)
 
     // MARK: - Convenience Factory Methods
 
@@ -1013,9 +1002,9 @@ public enum CommandType: Codable, Sendable, Equatable {
         .sendRawInput(SendRawInput(data: data))
     }
 
-    /// Create a sendImage command
-    public static func sendImage(data: Data, format: ImageFormat) -> CommandType {
-        .sendImage(SendImage(data: data, format: format))
+    /// Create a sendDroppedFiles command
+    public static func sendDroppedFiles(_ files: [DroppedFile]) -> CommandType {
+        .sendDroppedFiles(SendDroppedFiles(files: files))
     }
 
     /// Create a checkRunningProcesses command

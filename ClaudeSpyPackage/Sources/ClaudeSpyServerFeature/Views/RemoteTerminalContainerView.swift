@@ -35,7 +35,7 @@ struct RemoteTerminalContainerView: View {
     @State private var streamWidth = 80
     @State private var streamHeight = 24
     @State private var terminalTitle: String?
-    @State private var imageUpload: ImageUploadState?
+    @State private var upload: UploadState?
 
     private var windowTitle: String {
         if let terminalTitle, !terminalTitle.isEmpty {
@@ -63,16 +63,19 @@ struct RemoteTerminalContainerView: View {
                 },
                 onImagePaste: { image in
                     startImageUpload(image)
+                },
+                onFileDrop: { urls in
+                    startFileDropUpload(urls)
                 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .center) {
-                if let imageUpload {
-                    ImageUploadOverlay(state: imageUpload, onCancel: cancelImageUpload)
+                if let upload {
+                    UploadOverlay(state: upload, onCancel: cancelUpload)
                         .transition(.opacity)
                 }
             }
-            .animation(.easeOut(duration: 0.15), value: imageUpload?.id)
+            .animation(.easeOut(duration: 0.15), value: upload?.id)
 
             if showStatusBar ?? settings.showStatusBar {
                 statusBar
@@ -98,28 +101,29 @@ struct RemoteTerminalContainerView: View {
         // is removed from the hierarchy (e.g. window closed mid-failure),
         // so detached tasks don't survive the view that owned them.
         .onDisappear {
-            cancelImageUpload()
+            cancelUpload()
         }
     }
 
     private func startImageUpload(_ image: ClipboardImage) {
         // Cancel any in-flight upload before starting a new one. Two rapid
-        // Cmd+V presses should not race two SendImage commands at the host,
+        // Cmd+V presses should not race two upload commands at the host,
         // and a rapid second paste should also short-circuit any in-flight
         // failure auto-dismiss timer.
-        imageUpload?.cancel()
+        upload?.cancel()
 
         // Refuse images that won't fit the relay's WebSocket frame budget
         // before we even open the connection — the user gets a clear error
         // instead of a silent disconnect on the wire.
-        if image.data.count > SendImage.maxRawBytes {
+        if image.data.count > SendDroppedFiles.maxRawBytes {
             let mb = Double(image.data.count) / (1_024 * 1_024)
             let message = String(
-                format: "Image is %.1f MB. The relay only supports images under %d KB.",
+                format: "Image is %.1f MB. The relay only supports drops under %d KB.",
                 mb,
-                SendImage.maxRawBytes / 1_024
+                SendDroppedFiles.maxRawBytes / 1_024
             )
-            imageUpload = .failed(
+            upload = .failed(
+                kind: .image,
                 sizeBytes: image.data.count,
                 message: message,
                 dismissTask: dismissTimer(after: .seconds(4))
@@ -127,10 +131,19 @@ struct RemoteTerminalContainerView: View {
             return
         }
 
+        // The image rides the same `SendDroppedFiles` flow Finder drops use,
+        // wrapped as a single synthetic file. The host saves it to
+        // `$TMPDIR/gallager-drop-<UUID>/pasted-image-<UUID>.<ext>` and
+        // bracketed-pastes the resolved path into the target tmux pane, so
+        // the in-pane app (Claude Code, vim, …) reads the image off disk
+        // instead of the host's pasteboard.
         let sizeBytes = image.data.count
+        let name = "pasted-image-\(UUID().uuidString).\(image.format.fileExtension)"
+        let file = DroppedFile(name: name, data: image.data)
+
         let task = Task { @MainActor in
             let result = await connection.relayClient.sendCommand(
-                SendImage(data: image.data, format: image.format),
+                SendDroppedFiles(files: [file]),
                 paneId: paneId,
                 timeout: 30
             )
@@ -140,12 +153,13 @@ struct RemoteTerminalContainerView: View {
             if Task.isCancelled { return }
             switch result {
             case .success:
-                imageUpload = nil
+                upload = nil
             case let .failure(error):
                 if error is CancellationError {
-                    imageUpload = nil
+                    upload = nil
                 } else {
-                    imageUpload = .failed(
+                    upload = .failed(
+                        kind: .image,
                         sizeBytes: sizeBytes,
                         message: error.localizedDescription,
                         dismissTask: dismissTimer(after: .seconds(3))
@@ -153,24 +167,118 @@ struct RemoteTerminalContainerView: View {
                 }
             }
         }
-        imageUpload = .uploading(sizeBytes: sizeBytes, task: task)
+        upload = .uploading(kind: .image, sizeBytes: sizeBytes, task: task)
     }
 
-    /// Spawns an auto-dismiss timer that clears `imageUpload` after the given
+    /// Reads each dropped file's bytes off-main-actor and ships them as a
+    /// single `SendDroppedFiles` command. The host saves them to `$TMPDIR`
+    /// and pastes the resolved paths via tmux's bracketed-paste buffer.
+    private func startFileDropUpload(_ urls: [URL]) {
+        upload?.cancel()
+        guard !urls.isEmpty else { return }
+
+        let task = Task { @MainActor in
+            // Read off the main actor — `Data(contentsOf:)` synchronously
+            // reads the whole file, and we shouldn't block UI for large drops.
+            // The detached task also returns the running total so the @MainActor
+            // side never has to base64-decode each `DroppedFile.data` again
+            // just to learn its size.
+            let readResult = await Task.detached {
+                () -> Result<(files: [DroppedFile], totalBytes: Int), Error> in
+                do {
+                    var entries: [DroppedFile] = []
+                    var total = 0
+                    for url in urls {
+                        let data = try Data(contentsOf: url)
+                        total += data.count
+                        if total > SendDroppedFiles.maxRawBytes {
+                            throw FileDropError.tooLarge(totalBytes: total)
+                        }
+                        entries.append(DroppedFile(name: url.lastPathComponent, data: data))
+                    }
+                    return .success((entries, total))
+                } catch {
+                    return .failure(error)
+                }
+            }.value
+
+            if Task.isCancelled { return }
+
+            switch readResult {
+            case let .success((files, totalBytes)):
+                // Now that we know the real size, refresh the in-flight upload
+                // state so the overlay shows actual bytes instead of the 0 B
+                // placeholder it carried while the read was running. Preserve
+                // the existing `id` and `task` so SwiftUI doesn't trigger a new
+                // transition and `cancelUpload()` keeps tearing down the same
+                // task.
+                if case let .uploading(id, _, _, currentTask) = upload {
+                    upload = .uploading(
+                        id: id,
+                        kind: .files(count: files.count),
+                        sizeBytes: totalBytes,
+                        task: currentTask
+                    )
+                }
+                let result = await connection.relayClient.sendCommand(
+                    SendDroppedFiles(files: files),
+                    paneId: paneId,
+                    timeout: 30
+                )
+                if Task.isCancelled { return }
+                switch result {
+                case .success:
+                    upload = nil
+                case let .failure(error):
+                    if error is CancellationError {
+                        upload = nil
+                    } else {
+                        upload = .failed(
+                            kind: .files(count: files.count),
+                            sizeBytes: totalBytes,
+                            message: error.localizedDescription,
+                            dismissTask: dismissTimer(after: .seconds(3))
+                        )
+                    }
+                }
+            case let .failure(error):
+                let message: String
+                if case let FileDropError.tooLarge(totalBytes) = error {
+                    let mb = Double(totalBytes) / (1_024 * 1_024)
+                    message = String(
+                        format: "Dropped files total %.1f MB. The relay only supports drops under %d KB.",
+                        mb,
+                        SendDroppedFiles.maxRawBytes / 1_024
+                    )
+                } else {
+                    message = error.localizedDescription
+                }
+                upload = .failed(
+                    kind: .files(count: urls.count),
+                    sizeBytes: 0,
+                    message: message,
+                    dismissTask: dismissTimer(after: .seconds(4))
+                )
+            }
+        }
+        upload = .uploading(kind: .files(count: urls.count), sizeBytes: 0, task: task)
+    }
+
+    /// Spawns an auto-dismiss timer that clears `upload` after the given
     /// duration. Returned so the caller can cancel it if a new upload starts
     /// before the timer fires.
     private func dismissTimer(after delay: Duration) -> Task<Void, Never> {
         Task { @MainActor in
             try? await Task.sleep(for: delay)
             if !Task.isCancelled {
-                imageUpload = nil
+                upload = nil
             }
         }
     }
 
-    private func cancelImageUpload() {
-        imageUpload?.cancel()
-        imageUpload = nil
+    private func cancelUpload() {
+        upload?.cancel()
+        upload = nil
     }
 
     private var statusBar: some View {
@@ -218,67 +326,105 @@ struct RemoteTerminalContainerView: View {
     }
 }
 
-// MARK: - Image Upload State
+// MARK: - Upload State
 
-/// Transient state for an in-flight or just-failed image paste upload.
+/// What kind of payload an `UploadState` represents — drives only the user-
+/// facing label so the same overlay works for image pastes and file drops.
+private enum UploadKind: Equatable {
+    case image
+    case files(count: Int)
+}
+
+/// Local error type for off-main-actor file reads.
+private enum FileDropError: Error {
+    case tooLarge(totalBytes: Int)
+}
+
+/// Transient state for an in-flight or just-failed image paste / file drop.
 /// Each case owns the task whose cancellation will tear down the matching UI
 /// — the in-flight relay request for `.uploading`, the auto-dismiss timer for
 /// `.failed`. We carry a per-state `id` so SwiftUI's `.animation(value:)` can
 /// drive a transition between consecutive uploads without forcing Equatable
 /// on `Task`, which is a reference type.
-private enum ImageUploadState {
-    case uploading(id: UUID, sizeBytes: Int, task: Task<Void, Never>)
-    case failed(id: UUID, sizeBytes: Int, message: String, dismissTask: Task<Void, Never>)
-
-    static func uploading(sizeBytes: Int, task: Task<Void, Never>) -> ImageUploadState {
-        .uploading(id: UUID(), sizeBytes: sizeBytes, task: task)
-    }
-
-    static func failed(
+private enum UploadState {
+    case uploading(id: UUID, kind: UploadKind, sizeBytes: Int, task: Task<Void, Never>)
+    case failed(
+        id: UUID,
+        kind: UploadKind,
         sizeBytes: Int,
         message: String,
         dismissTask: Task<Void, Never>
-    ) -> ImageUploadState {
-        .failed(id: UUID(), sizeBytes: sizeBytes, message: message, dismissTask: dismissTask)
+    )
+
+    static func uploading(
+        kind: UploadKind,
+        sizeBytes: Int,
+        task: Task<Void, Never>
+    ) -> UploadState {
+        .uploading(id: UUID(), kind: kind, sizeBytes: sizeBytes, task: task)
+    }
+
+    static func failed(
+        kind: UploadKind,
+        sizeBytes: Int,
+        message: String,
+        dismissTask: Task<Void, Never>
+    ) -> UploadState {
+        .failed(
+            id: UUID(),
+            kind: kind,
+            sizeBytes: sizeBytes,
+            message: message,
+            dismissTask: dismissTask
+        )
     }
 
     var id: UUID {
         switch self {
-        case let .uploading(id, _, _),
-             let .failed(id, _, _, _):
+        case let .uploading(id, _, _, _),
+             let .failed(id, _, _, _, _):
             id
+        }
+    }
+
+    var kind: UploadKind {
+        switch self {
+        case let .uploading(_, kind, _, _),
+             let .failed(_, kind, _, _, _):
+            kind
         }
     }
 
     var sizeBytes: Int {
         switch self {
-        case let .uploading(_, sizeBytes, _),
-             let .failed(_, sizeBytes, _, _):
+        case let .uploading(_, _, sizeBytes, _),
+             let .failed(_, _, sizeBytes, _, _):
             sizeBytes
         }
     }
 
     var failureMessage: String? {
-        if case let .failed(_, _, message, _) = self { return message }
+        if case let .failed(_, _, _, message, _) = self { return message }
         return nil
     }
 
     func cancel() {
         switch self {
-        case let .uploading(_, _, task):
+        case let .uploading(_, _, _, task):
             task.cancel()
-        case let .failed(_, _, _, dismissTask):
+        case let .failed(_, _, _, _, dismissTask):
             dismissTask.cancel()
         }
     }
 }
 
-// MARK: - Image Upload Overlay
+// MARK: - Upload Overlay
 
-/// Popover-style overlay shown while an image paste is being forwarded to the
-/// remote host. Includes a cancel button so a user can abort large uploads.
-private struct ImageUploadOverlay: View {
-    let state: ImageUploadState
+/// Popover-style overlay shown while an image paste or file drop is being
+/// forwarded to the remote host. Includes a cancel button so a user can
+/// abort large uploads.
+private struct UploadOverlay: View {
+    let state: UploadState
     let onCancel: () -> Void
 
     var body: some View {
@@ -293,7 +439,7 @@ private struct ImageUploadOverlay: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(state.failureMessage == nil ? "Sending image…" : "Image paste failed")
+                Text(headlineText)
                     .font(.headline)
                 Text(state.failureMessage ?? sizeDescription)
                     .font(.subheadline)
@@ -304,7 +450,7 @@ private struct ImageUploadOverlay: View {
             if state.failureMessage == nil {
                 Button("Cancel", action: onCancel)
                     .keyboardShortcut(.cancelAction)
-                    .accessibilityIdentifier("image-upload-cancel")
+                    .accessibilityIdentifier("upload-overlay-cancel")
             }
         }
         .padding(.horizontal, 16)
@@ -315,7 +461,20 @@ private struct ImageUploadOverlay: View {
                 .stroke(.separator)
         }
         .shadow(radius: 8, y: 2)
-        .accessibilityIdentifier("image-upload-overlay")
+        .accessibilityIdentifier("upload-overlay")
+    }
+
+    private var headlineText: String {
+        switch (state.kind, state.failureMessage) {
+        case (.image, .none):
+            return "Sending image…"
+        case (.image, .some):
+            return "Image paste failed"
+        case let (.files(count), .none):
+            return count == 1 ? "Sending file…" : "Sending \(count) files…"
+        case (.files, .some):
+            return "File drop failed"
+        }
     }
 
     private var sizeDescription: String {
@@ -330,22 +489,32 @@ private struct ImageUploadOverlay: View {
     }
 }
 
-#Preview("Uploading") {
-    ImageUploadOverlay(
-        state: .uploading(sizeBytes: 412_000, task: Task { }),
+#Preview("Uploading image") {
+    UploadOverlay(
+        state: .uploading(kind: .image, sizeBytes: 412_000, task: Task { }),
         onCancel: { }
     )
     .padding(40)
     .background(Color.gray.opacity(0.3))
 }
 
-#Preview("Failed") {
-    ImageUploadOverlay(
+#Preview("Image failed") {
+    UploadOverlay(
         state: .failed(
+            kind: .image,
             sizeBytes: 1_572_864,
             message: "Image is 1.5 MB. The relay only supports images under 700 KB.",
             dismissTask: Task { }
         ),
+        onCancel: { }
+    )
+    .padding(40)
+    .background(Color.gray.opacity(0.3))
+}
+
+#Preview("Sending files") {
+    UploadOverlay(
+        state: .uploading(kind: .files(count: 3), sizeBytes: 0, task: Task { }),
         onCancel: { }
     )
     .padding(40)
@@ -374,6 +543,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
     let onStateChange: @MainActor (RemoteStreamState, Int, Int) -> Void
     let onTitleChange: @MainActor (String) -> Void
     let onImagePaste: @MainActor (ClipboardImage) -> Void
+    let onFileDrop: @MainActor ([URL]) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -402,6 +572,12 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             onImagePaste(image)
             return true
         }
+        // Same shape as image paste: let the SwiftUI parent run the upload
+        // overlay; the host will save the files and dispatch the paste once
+        // the bytes have arrived.
+        coordinator.terminalView.onFileDrop = { urls in
+            onFileDrop(urls)
+        }
 
         return coordinator.terminalView
     }
@@ -416,6 +592,9 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         nsView.onImagePaste = { image in
             onImagePaste(image)
             return true
+        }
+        nsView.onFileDrop = { urls in
+            onFileDrop(urls)
         }
 
         // Update editor-active flag. When the editor just closed, restore first
@@ -519,6 +698,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             terminalView.onRawInput = nil
             terminalView.onInput = nil
             terminalView.onImagePaste = nil
+            terminalView.onFileDrop = nil
 
             keystrokeDebouncer?.cancelAll()
             keystrokeDebouncer = nil

@@ -632,6 +632,25 @@ public actor MacOSDriver {
         }
     }
 
+    // MARK: - File Drop Simulation
+
+    /// Trigger a simulated Finder file drop on the given tmux pane via the
+    /// in-process `/drop-files` test endpoint. Drives the same code path as
+    /// a real drop on `InteractiveTerminalView`.
+    public func dropFilesOnPane(paneId: String, paths: [String]) async throws {
+        logger.info("Simulating file drop on pane \(paneId): \(paths)")
+        let success = try await MacAppHTTPClient.dropFilesOnPane(
+            paneId: paneId,
+            paths: paths,
+            port: testAccessibilityPort
+        )
+        if !success {
+            throw MacOSDriverError.elementNotFound(
+                "drop-files endpoint failed for pane \(paneId)"
+            )
+        }
+    }
+
     // MARK: - Hook Events
 
     /// Send a hook event to the macOS app's real hook server (`/api/hooks`).

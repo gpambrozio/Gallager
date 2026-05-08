@@ -411,7 +411,7 @@ final public class ViewerRelayClient {
             return (try? await sendCommand(spec, paneId: "").get()) != nil
         case let .killTmuxSession(spec):
             return (try? await sendCommand(spec, paneId: "").get()) != nil
-        case let .sendImage(spec):
+        case let .sendDroppedFiles(spec):
             return (try? await sendCommand(spec, paneId: paneId).get()) != nil
         }
     }
