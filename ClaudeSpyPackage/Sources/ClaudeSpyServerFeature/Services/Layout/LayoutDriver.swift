@@ -71,10 +71,19 @@
             _ color: SessionColor?,
             _ sessionName: String
         ) async -> Void
+        /// Applies a per-pane progress override through the same
+        /// MirrorWindowManager path the CLI's `set-progress` uses. Treated as
+        /// a no-op when the pane isn't yet tracked (the apply driver makes
+        /// sure paneStates is refreshed first).
+        public typealias ProgressApplier = @Sendable (
+            _ progress: TerminalProgressState?,
+            _ paneId: String
+        ) async -> Void
 
         let tmuxAccessor: TmuxAccessor
         let descriptionApplier: DescriptionApplier
         let colorApplier: ColorApplier
+        let progressApplier: ProgressApplier
         let processRunner: ProcessRunner
         let logger: Logger
 
@@ -82,12 +91,14 @@
             tmuxAccessor: @escaping TmuxAccessor,
             descriptionApplier: @escaping DescriptionApplier,
             colorApplier: @escaping ColorApplier,
+            progressApplier: @escaping ProgressApplier,
             processRunner: ProcessRunner = .liveValue,
             logger: Logger = Logger(label: "com.claudespy.layoutdriver")
         ) {
             self.tmuxAccessor = tmuxAccessor
             self.descriptionApplier = descriptionApplier
             self.colorApplier = colorApplier
+            self.progressApplier = progressApplier
             self.processRunner = processRunner
             self.logger = logger
         }
@@ -497,6 +508,19 @@
                     planned.append("sleep \(pane.sleepAfter)s after pane[\(paneOffset)] commands")
                     if !dryRun {
                         try? await Task.sleep(for: .seconds(pane.sleepAfter))
+                    }
+                }
+
+                // Apply the optional initial progress bar declared in the
+                // YAML. Sent through the same `MirrorWindowManager` path
+                // the OSC 9;4 reader (and the runtime CLI) uses, so a
+                // re-applied layout can set the bar even if the pane was
+                // already running and the bar can later be overridden by
+                // any new OSC sequence the pane emits.
+                if let progress = pane.progress {
+                    planned.append("pane[\(paneOffset)] set_progress \(progress.accessibilityValueString)")
+                    if !dryRun {
+                        await progressApplier(progress, paneId)
                     }
                 }
             }

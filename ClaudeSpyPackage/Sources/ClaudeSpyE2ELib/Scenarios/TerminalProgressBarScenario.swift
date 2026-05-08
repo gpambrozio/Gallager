@@ -261,5 +261,118 @@ public enum TerminalProgressBarScenario {
         TestStep.macScreenshot(label: "viewer-mirrored-progress-cleared", instance: 1)
         TestStep.iosWaitForElementToDisappear(.labelContains("Terminal progress"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-mirrored-progress-cleared")
+
+        // ── Phase 11: CLI override of an OSC-driven bar ──────────────────
+        //
+        // The new `gallager set-progress` CLI writes to `PaneState.progress`
+        // through the same `MirrorWindowManager.setPaneProgress` path that
+        // the OSC 9;4 reader uses. Both the OSC sequence and the CLI call
+        // therefore last-write-wins each other on the host's single
+        // source of truth, and the resulting state propagates to every
+        // viewer through the same `pushSessionStateToAll` machinery.
+        //
+        // 11a: re-emit a determinate OSC value, then have the CLI flip it
+        // to a different value. The host + viewer + iOS must all agree on
+        // the CLI's value (proving CLI > OSC) and there must be no race
+        // where one platform still shows the stale OSC value.
+
+        TestStep.log("Phase 11a: emitting OSC 9;4;1;30 — bar at 30% via OSC")
+        Shortcut.tmuxRunCommand(
+            target: "e2e-progress:0.0",
+            command: "printf '\\e]9;4;1;30\\a'"
+        )
+        TestStep.macWaitForElementQuery(
+            .allOf([.labelContains("Terminal progress"), .valueContains("30%")]),
+            timeout: 5
+        )
+
+        TestStep.log("Phase 11a: CLI override — set-progress 90 on the same pane")
+        // The host's API socket is `gallager-e2e.sock` (set in AppCoordinator
+        // when running with `--e2e-test`). The CLI binary lives next to the
+        // app under `Contents/MacOS/GallagerCLI` — same path the
+        // GallagerCLIScenario uses to drive the CLI.
+        Shortcut.tmuxRunCommand(
+            target: "e2e-progress:0.0",
+            command: #"GALLAGER_SOCKET="$TMPDIR/gallager-e2e.sock" "${macOSAppPath}/Contents/MacOS/GallagerCLI" set-progress 90 > /tmp/e2e-progress-cli-override.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(
+            path: "/tmp/e2e-progress-cli-override.txt",
+            storeAs: "progressCLIOverrideResult"
+        )
+        TestStep.assertStoredContains(
+            key: "progressCLIOverrideResult",
+            substring: "Set pane progress to 90%."
+        )
+
+        // Bar must show 90% (the CLI value) on every platform, not 30%
+        // (the previous OSC value) — proves CLI > OSC and that the new
+        // value syncs to the Mac viewer and iOS.
+        TestStep.macWaitForElementQuery(
+            .allOf([.labelContains("Terminal progress"), .valueContains("90%")]),
+            timeout: 5
+        )
+        TestStep.macScreenshot(label: "host-cli-overrides-osc-90")
+        TestStep.macWaitForElementQuery(
+            .allOf([.labelContains("Terminal progress"), .valueContains("90%")]),
+            timeout: 5,
+            instance: 1
+        )
+        TestStep.macScreenshot(label: "viewer-cli-overrides-osc-90", instance: 1)
+        TestStep.iosWaitForElement(
+            .allOf([.labelContains("Terminal progress"), .valueContains("90%")]),
+            timeout: 5
+        )
+        TestStep.iosScreenshot(label: "ios-cli-overrides-osc-90")
+
+        // ── Phase 12: OSC override of a CLI-driven bar ───────────────────
+        //
+        // The reverse case: the CLI just set the bar to 90%. Now the
+        // running pane emits an OSC 9;4;4 (warning) sequence, which must
+        // replace the CLI value on every platform.
+
+        TestStep.log("Phase 12: emitting OSC 9;4;4 after CLI set 90% — OSC wins")
+        Shortcut.tmuxRunCommand(
+            target: "e2e-progress:0.0",
+            command: "printf '\\e]9;4;4\\a'"
+        )
+        TestStep.macWaitForElementQuery(
+            .allOf([.labelContains("Terminal progress"), .valueContains("warning")]),
+            timeout: 5
+        )
+        TestStep.macScreenshot(label: "host-osc-overrides-cli-warning")
+        TestStep.macWaitForElementQuery(
+            .allOf([.labelContains("Terminal progress"), .valueContains("warning")]),
+            timeout: 5,
+            instance: 1
+        )
+        TestStep.macScreenshot(label: "viewer-osc-overrides-cli-warning", instance: 1)
+        TestStep.iosWaitForElement(
+            .allOf([.labelContains("Terminal progress"), .valueContains("warning")]),
+            timeout: 5
+        )
+        TestStep.iosScreenshot(label: "ios-osc-overrides-cli-warning")
+
+        // ── Phase 13: CLI clear after OSC ────────────────────────────────
+        //
+        // Final guard: the CLI's `clear` form still wipes the bar even
+        // when the most recent change was an OSC sequence — same path,
+        // last-write-wins.
+
+        TestStep.log("Phase 13: CLI set-progress clear — bar disappears everywhere")
+        Shortcut.tmuxRunCommand(
+            target: "e2e-progress:0.0",
+            command: #"GALLAGER_SOCKET="$TMPDIR/gallager-e2e.sock" "${macOSAppPath}/Contents/MacOS/GallagerCLI" set-progress clear"#
+        )
+        TestStep.macWaitForElementToDisappear(titled: "Terminal progress", timeout: 5)
+        TestStep.macScreenshot(label: "host-cli-clear-after-osc")
+        TestStep.macWaitForElementToDisappear(
+            titled: "Terminal progress",
+            timeout: 5,
+            instance: 1
+        )
+        TestStep.macScreenshot(label: "viewer-cli-clear-after-osc", instance: 1)
+        TestStep.iosWaitForElementToDisappear(.labelContains("Terminal progress"), timeout: 5)
+        TestStep.iosScreenshot(label: "ios-cli-clear-after-osc")
     }
 }
