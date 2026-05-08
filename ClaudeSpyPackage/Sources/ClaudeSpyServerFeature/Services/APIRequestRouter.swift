@@ -137,7 +137,10 @@
         let onSendText: (@Sendable (String, String?, Bool) async throws -> Void)?
         let onSendKey: (@Sendable (String, String?) async throws -> Void)?
 
-        let onNotify: (@Sendable (String, String, String?, String?) async -> Void)?
+        /// Parameters: (title, body, paneId, push). When `push` is true, the
+        /// host also forwards an encrypted push notification to paired iOS
+        /// viewers (delivered via APNs when the viewer is offline).
+        let onNotify: (@Sendable (String, String, String?, Bool) async -> Void)?
 
         let onEditorOpen: (@Sendable (String, String) async -> Void)?
 
@@ -186,7 +189,7 @@
             )? = nil,
             onSendText: (@Sendable (String, String?, Bool) async throws -> Void)? = nil,
             onSendKey: (@Sendable (String, String?) async throws -> Void)? = nil,
-            onNotify: (@Sendable (String, String, String?, String?) async -> Void)? = nil,
+            onNotify: (@Sendable (String, String, String?, Bool) async -> Void)? = nil,
             onEditorOpen: (@Sendable (String, String) async -> Void)? = nil,
             onIdentify: (@Sendable (String?) async -> [String: JSONValue]?)? = nil,
             onProjectList: (@Sendable () async -> [[String: JSONValue]])? = nil,
@@ -555,9 +558,9 @@
                     guard let body = params["body"]?.stringValue else {
                         return .invalidParams(id: id, "body required")
                     }
-                    let subtitle = params["subtitle"]?.stringValue
                     let paneId = params["pane_id"]?.stringValue
-                    await onNotify?(title, body, subtitle, paneId)
+                    let push = params["push"]?.boolValue == true
+                    await onNotify?(title, body, paneId, push)
                     return .ok(id: id)
 
                 // MARK: - Editor

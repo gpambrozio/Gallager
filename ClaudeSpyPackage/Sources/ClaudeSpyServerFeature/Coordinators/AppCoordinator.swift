@@ -717,13 +717,25 @@
                     }
                     try await tmux.sendKeys(target, keys: key)
                 },
-                onNotify: { [notificationService] title, body, subtitle, paneId in
+                onNotify: { [weak self, notificationService] title, body, paneId, push in
                     let notification = TerminalStreamMessage.TerminalNotification(
-                        title: subtitle ?? title,
+                        title: title,
                         body: body
                     )
                     let targetPane = paneId ?? "system"
                     notificationService.showNotification(targetPane, notification)
+
+                    // Forward to paired iOS viewers when --push is requested.
+                    // Reuses the encrypted-push path that hook events go through,
+                    // so the notification falls back to APNs whenever the viewer
+                    // isn't connected via WebSocket.
+                    if push, let manager = await self?.connectedViewerManager {
+                        await manager.sendCustomPushNotificationToAll(
+                            title: title,
+                            body: body,
+                            paneId: paneId
+                        )
+                    }
                 },
                 onEditorOpen: { [editorManager] paneId, filePath in
                     await editorManager.handleAPIEditRequest(paneId: paneId, filePath: filePath)
