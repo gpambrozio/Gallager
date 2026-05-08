@@ -403,12 +403,10 @@ struct ToolInputView: View {
 
             case let .agent(params):
                 headerRow("Run Agent")
-                if let subagentType = params.subagentType {
-                    detailRow("Type:", subagentType)
-                }
+                detailRow("Type:", params.subagentType)
                 detailRow("Task:", params.description)
                 if let model = params.model {
-                    detailRow("Model:", model)
+                    detailRow("Model:", model.displayName)
                 }
 
             case let .todoWrite(params):

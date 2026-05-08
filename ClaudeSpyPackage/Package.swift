@@ -20,12 +20,10 @@ func macOnlyDependencies() -> [Package.Dependency] {
             .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.13.0"),
             .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1"),
             .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
-            // Pinned to 1.7.0: 1.8.0 added a required `linkLabel:` parameter
-            // (and `LinkLabelView` generic) to `FileNavigator.init`, breaking our
-            // call site in `FileBrowserView`.
-            .package(url: "https://github.com/mchakravarty/ProjectNavigator", exact: "1.7.0"),
+            .package(url: "https://github.com/mchakravarty/ProjectNavigator", from: "1.8.0"),
             .package(url: "https://github.com/gonzalezreal/textual", from: "0.3.1"),
             .package(url: "https://github.com/jpsim/Yams", from: "5.0.0"),
+            .package(url: "https://github.com/sergius-la/SwiftEmojiPicker", from: "2.2.1"),
         ]
     #else
         return []
@@ -40,7 +38,7 @@ func macOnlyTargetDependencies(for target: String) -> [Target.Dependency] {
     #if os(macOS)
         switch target {
         case "ClaudeSpyCommon":
-            return [.sfSymbolsMacro]
+            return [.sfSymbolsMacro, .swiftEmojiPicker]
         case "ClaudeSpyFeature":
             return [.swiftTerm]
         case "ClaudeSpyServerFeature":
@@ -132,6 +130,10 @@ extension Target.Dependency {
 
         static var files: Self {
             .product(name: "Files", package: "ProjectNavigator")
+        }
+
+        static var swiftEmojiPicker: Self {
+            .product(name: "SwiftEmojiPicker", package: "SwiftEmojiPicker")
         }
     #endif
 

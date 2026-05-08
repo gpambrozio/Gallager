@@ -102,6 +102,13 @@
             public var sleepBefore: Double
             public var sleepAfter: Double
             public var claude: ClaudePane?
+            /// Initial sidebar progress bar to apply once the pane is created.
+            /// Mirrors the runtime `gallager set-progress` CLI: the value is
+            /// written through the same `MirrorWindowManager` path the OSC
+            /// 9;4 reader uses, so a re-applied layout overrides whatever the
+            /// pane is currently showing (and can be overridden again by a
+            /// later OSC sequence). `nil` means "leave it alone".
+            public var progress: TerminalProgressState?
 
             public init(
                 shellCommands: [String] = [],
@@ -112,7 +119,8 @@
                 suppressHistory: Bool? = nil,
                 sleepBefore: Double = 0,
                 sleepAfter: Double = 0,
-                claude: ClaudePane? = nil
+                claude: ClaudePane? = nil,
+                progress: TerminalProgressState? = nil
             ) {
                 self.shellCommands = shellCommands
                 self.startDirectory = startDirectory
@@ -123,6 +131,7 @@
                 self.sleepBefore = sleepBefore
                 self.sleepAfter = sleepAfter
                 self.claude = claude
+                self.progress = progress
             }
         }
 

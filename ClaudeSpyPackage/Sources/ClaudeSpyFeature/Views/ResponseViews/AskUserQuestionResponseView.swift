@@ -240,8 +240,8 @@ struct AskUserQuestionResponseView: View {
                         .foregroundStyle(.primary)
                         .multilineTextAlignment(.leading)
 
-                    if let description = option.description, !description.isEmpty {
-                        Text(description)
+                    if !option.description.isEmpty {
+                        Text(option.description)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.leading)

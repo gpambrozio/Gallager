@@ -514,6 +514,17 @@
                         winManager.setSessionColor(color, for: resolvedSession)
                     }
                 },
+                onSessionSetEmoji: { [tmux, winManager] emoji, sessionId, paneId in
+                    let resolvedSession = try await Self.resolveSessionTarget(
+                        sessionId: sessionId,
+                        paneId: paneId,
+                        tmux: tmux,
+                        method: "session.set_emoji"
+                    )
+                    await MainActor.run {
+                        winManager.setSessionEmoji(emoji, for: resolvedSession)
+                    }
+                },
                 onWindowList: { [tmux] sessionId, paneId in
                     let panes = await tmux.refreshPanes()
                     let allWindows = LocalTmuxWindow.groupPanes(panes)
@@ -646,6 +657,35 @@
                 onPaneSetLayout: { [tmux] target, layout in
                     try await tmux.selectLayout(target: target, layout: layout)
                 },
+                onPaneSetProgress: { [tmux, winManager, weak self] state, paneId in
+                    // Resolve the target pane: use the explicit ID, otherwise
+                    // fall back to the globally active pane. The CLI fills
+                    // `pane_id` from `$TMUX_PANE` when no `--pane` flag is
+                    // given, so most calls already arrive with an explicit ID.
+                    let panes = await tmux.refreshPanes()
+                    let target: String? = await MainActor.run {
+                        if
+                            let paneId,
+                            panes.contains(where: { $0.paneId == paneId }) {
+                            return paneId
+                        }
+                        return panes.first(where: { $0.isActive && $0.isWindowActive })?.paneId
+                    }
+                    guard let target else {
+                        throw APIError.notFound("No matching pane found")
+                    }
+                    // `applyProgressUpdate` is the same path `OSC 9;4` updates
+                    // travel through, so a CLI override and an OSC sequence
+                    // both write to `PaneState.progress` and last-write-wins.
+                    let resolved: TerminalProgressState = state ?? .removed
+                    await MainActor.run {
+                        // Reconcile pane state first so a freshly-created pane
+                        // (not yet in `paneStates`) survives the early-exit
+                        // guard inside `setPaneProgress`.
+                        winManager.updatePaneStates(from: panes)
+                        self?.applyProgressUpdate(paneId: target, state: resolved)
+                    }
+                },
                 onSendText: { [tmux] text, paneId, appendEnter in
                     let target: String = await MainActor.run {
                         paneId ?? tmux.panes.first(where: { $0.isActive && $0.isWindowActive })?.paneId ?? "%0"
@@ -763,7 +803,7 @@
                     }
                 },
                 onLayoutApply: {
-                    [tmux, winManager, claudeCommandPath] config, rebuild, detach, dryRun, lenient, requireCreate, configPath in
+                    [tmux, winManager, claudeCommandPath, weak self] config, rebuild, detach, dryRun, lenient, requireCreate, configPath in
                     let parser = LayoutConfigParser(
                         lenient: lenient,
                         environment: ProcessInfo.processInfo.environment
@@ -779,6 +819,22 @@
                         colorApplier: { color, sessionName in
                             await MainActor.run {
                                 winManager.setSessionColor(color, for: sessionName)
+                            }
+                        },
+                        progressApplier: { [weak self] progress, paneId in
+                            // Reconcile pane state first so newly-created
+                            // panes are tracked before `setPaneProgress` runs.
+                            // `applyProgressUpdate` then drives the same
+                            // MirrorWindowManager → viewer push the OSC 9;4
+                            // reader uses, so initial-progress in YAML lands
+                            // identically to a runtime CLI call.
+                            let panes = await tmux.refreshPanes()
+                            await MainActor.run {
+                                winManager.updatePaneStates(from: panes)
+                                self?.applyProgressUpdate(
+                                    paneId: paneId,
+                                    state: progress ?? .removed
+                                )
                             }
                         }
                     )
@@ -921,7 +977,7 @@
             let initialPanes = await tmuxService.refreshPanes()
             windowManager.updatePaneStates(from: initialPanes)
             await windowManager.refreshGitBranches()
-            await paneStreamManager.startNotificationMonitoring(panes: initialPanes)
+            await paneStreamManager.startMonitoring(panes: initialPanes)
             paneStreamManager.startPeriodicPaneRefresh(tmuxService: tmuxService)
 
             // Detect Claude Code instances already running in tmux panes
@@ -944,7 +1000,7 @@
                     let panes = await tmuxForCleanup.refreshPanes()
                     winManager.updatePaneStates(from: panes)
                     await terminalStreaming.stopStreamsForClosedPanes(currentPanes: panes)
-                    await paneStreaming.updateNotificationMonitoring(panes: panes)
+                    await paneStreaming.updateMonitoring(panes: panes)
                     self?.updateSleepPrevention()
                 }
             }
@@ -999,16 +1055,23 @@
                 }
 
                 // Handle session description (applied to every pane in the session)
-                // pushSessionStateToAll() runs via onDescriptionChanged, not here.
+                // pushSessionStateToAll() runs via onSessionMetadataChanged, not here.
                 if case let .setSessionDescription(spec) = command.command {
                     winManager.setSessionDescription(spec.description, for: spec.sessionName)
                     return .success(for: command.id)
                 }
 
                 // Handle session color (applied to every pane in the session).
-                // pushSessionStateToAll() runs via onDescriptionChanged, not here.
+                // pushSessionStateToAll() runs via onSessionMetadataChanged, not here.
                 if case let .setSessionColor(spec) = command.command {
                     winManager.setSessionColor(spec.color, for: spec.sessionName)
+                    return .success(for: command.id)
+                }
+
+                // Handle session emoji (applied to every pane in the session).
+                // pushSessionStateToAll() runs via onSessionMetadataChanged, not here.
+                if case let .setSessionEmoji(spec) = command.command {
+                    winManager.setSessionEmoji(spec.emoji, for: spec.sessionName)
                     return .success(for: command.id)
                 }
 
@@ -1179,8 +1242,9 @@
                 await connectionManager?.pushSessionStateToAll()
             }
 
-            // Push session state when window descriptions change locally
-            windowManager.onDescriptionChanged = { [weak connectionManager] in
+            // Push session state when session metadata (description, color,
+            // emoji) changes locally.
+            windowManager.onSessionMetadataChanged = { [weak connectionManager] in
                 await connectionManager?.pushSessionStateToAll()
             }
         }

@@ -17,9 +17,8 @@ ClaudeSpy is a native macOS application that mirrors tmux panes in dedicated win
 | **TmuxService** | `@Observable @MainActor` | Abstracts all tmux CLI interactions — pane discovery, content capture, session creation |
 | **TmuxControlClient** | `actor` | Control mode connection (`-f no-output`) for commands and event notifications |
 | **TmuxControlClientManager** | `@Observable @MainActor` | Manages TmuxControlClient instances per tmux session (one client per session) |
-| **PipePaneReader** | `actor` | Per-pane FIFO reader for raw PTY bytes via pipe-pane |
-| **PaneStream** | `@Observable @MainActor` | Manages streaming connection lifecycle for a single pane (owns PipePaneReader) |
-| **PaneStreamManager** | `@Observable @MainActor` | Multiplexes streams to subscribers (mirror windows, iOS streaming) |
+| **PipePaneReader** | `actor` | Per-pane FIFO reader for raw PTY bytes via pipe-pane. One instance lives for the pane's full lifetime, with three internal modes (`scanOnly` → `buffering` → `live`) toggled by the manager |
+| **PaneStreamManager** | `@Observable @MainActor` | Owns one `PipePaneReader` per known pane and multiplexes events to subscribers (mirror windows, iOS streaming). Conforms to `PipePaneReaderDelegate` |
 
 ### Window Management
 
@@ -100,7 +99,7 @@ HookServerService events → MirrorWindowManager.handleHookEvent()
                          → DeviceConnectionManager.sendHookEventToAll()
                          → SleepPreventionManager.updateForSessionCount()
 
-TmuxControlClientManager dimension changes → PaneStreamManager.updateDimensions()
+TmuxControlClientManager dimension changes → PaneStreamManager.updateDimensions(paneId:width:height:)
 TmuxControlClientManager pane exits       → MirrorWindowManager.updatePaneStates()
                                           → TerminalStreamService.stopStreamsForClosedPanes()
                                           → SleepPreventionManager.updateForSessionCount()
@@ -123,15 +122,14 @@ tmux session
     ├── pipe-pane -O "cat > /tmp/claudespy-pipe-<id>.fifo" (raw PTY bytes)
     │
     ▼
-PipePaneReader (actor)
-    │ Reads raw bytes from FIFO, filters tmux title sequences
+PipePaneReader (actor, one per pane)
+    │ Reads raw bytes from FIFO, filters tmux title sequences,
+    │ parses OSC notification/title/clipboard/progress events,
+    │ and forwards via PipePaneReaderDelegate
     │
     ▼
-PaneStream (per-pane lifecycle)
-    │ onData callback
-    │
-    ▼
-PaneStreamManager (multiplexer)
+PaneStreamManager (delegate + multiplexer)
+    │ Routes events to subscribers, owns reader lifecycle
     │
     ├──→ Mirror Window (SwiftTerm) — immediate display
     │
@@ -172,9 +170,9 @@ AppCoordinator event handler
 Multiple iOS devices can watch the same pane simultaneously:
 
 - **TerminalStreamService** uses reference counting (`deviceSubscriberCount` per stream)
-- First subscriber creates the PaneStreamManager subscription
+- First subscriber creates the PaneStreamManager subscription, which switches the per-pane reader from scan-only into live mode
 - Additional subscribers reuse the existing stream and receive current content
-- Each `stopStreaming` decrements the count; stream only stops when count reaches 0
+- Each `stopStreaming` decrements the count; the manager subscription is dropped when count reaches 0, returning the reader to scan-only mode (it stays attached to the FIFO for the pane's full lifetime)
 - System-level cleanups (`stopAllStreams`, `stopStreamsForClosedPanes`) use `force: true` to bypass count
 
 **DeviceConnectionManager** broadcasts to all connected devices:
@@ -190,10 +188,10 @@ See `docs/streaming-architecture.md` for the full streaming data flow.
 @MainActor (UI thread)                    Actor-Isolated (background)
 ─────────────────────                    ─────────────────────────────
 TmuxService                              ProcessRunner
-PaneStream                               TmuxControlClient
-PaneStreamManager                        PipePaneReader
-MirrorWindowManager                      TmuxCommandExecutor
-TerminalStreamService                    HookServerService
+PaneStreamManager                        TmuxControlClient
+MirrorWindowManager                      PipePaneReader
+TerminalStreamService                    TmuxCommandExecutor
+                                         HookServerService
                                          ClaudeProjectScanner
 DeviceConnectionManager
 DeviceConnection
@@ -235,10 +233,10 @@ ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/
 │   ├── ExternalServerClient.swift     # Legacy single-device client
 │   ├── LoginItemService.swift         # Launch at login (SMAppService)
 │   ├── PairingManager.swift           # Device pairing flow
-│   ├── PaneStream.swift               # Single pane stream lifecycle
-│   ├── PaneStreamManager.swift        # Multi-subscriber stream multiplexer
-│   ├── PipePaneReader.swift           # Per-pane FIFO reader for raw PTY bytes
+│   ├── PaneStreamManager.swift        # Per-pane reader lifecycle + multi-subscriber multiplexer
+│   ├── PipePaneReader.swift           # Per-pane FIFO reader (one per pane, scanOnly/buffering/live modes)
 │   ├── PluginService.swift            # Claude Code plugin management
+│   ├── StreamState.swift              # View-side connection state enum
 │   ├── TerminalLauncher.swift         # External terminal app integration
 │   ├── TerminalStreamService.swift    # iOS streaming with batching
 │   ├── TmuxCommandExecutor.swift      # Remote command execution

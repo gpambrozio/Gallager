@@ -39,15 +39,20 @@ public struct FileTreeLoadResult: Sendable {
     public let stableIds: [String: UUID]
     /// Filesystem paths of folders whose children have been loaded.
     public let loadedFolderPaths: Set<String>
+    /// Filesystem paths that are symbolic links. Used by the navigator to render
+    /// links with a distinct visual indicator (italic name + link badge).
+    public let symlinkedPaths: Set<String>
 
     public init(
         root: FullFileOrFolder<TextFileContents>,
         stableIds: [String: UUID],
-        loadedFolderPaths: Set<String>
+        loadedFolderPaths: Set<String>,
+        symlinkedPaths: Set<String> = []
     ) {
         self.root = root
         self.stableIds = stableIds
         self.loadedFolderPaths = loadedFolderPaths
+        self.symlinkedPaths = symlinkedPaths
     }
 }
 
@@ -133,15 +138,22 @@ extension FileSystemLoadingService: DependencyKey {
                 await Task.detached {
                     var ids = stableIds
                     var loadedPaths = Set<String>()
+                    var symlinkedPaths = Set<String>()
                     let root = loadDirectory(
                         at: url,
                         path: url.path,
                         depth: 1,
                         expandedPaths: expandedPaths,
                         stableIds: &ids,
-                        loadedPaths: &loadedPaths
+                        loadedPaths: &loadedPaths,
+                        symlinkedPaths: &symlinkedPaths
                     )
-                    return FileTreeLoadResult(root: root, stableIds: ids, loadedFolderPaths: loadedPaths)
+                    return FileTreeLoadResult(
+                        root: root,
+                        stableIds: ids,
+                        loadedFolderPaths: loadedPaths,
+                        symlinkedPaths: symlinkedPaths
+                    )
                 }.value
             },
             detectFileKind: { path in
@@ -741,7 +753,8 @@ private func loadDirectory(
     depth: Int,
     expandedPaths: Set<String>,
     stableIds: inout [String: UUID],
-    loadedPaths: inout Set<String>
+    loadedPaths: inout Set<String>,
+    symlinkedPaths: inout Set<String>
 ) -> FullFileOrFolder<TextFileContents> {
     let folderUUID = stableIds[path] ?? {
         let id = UUID()
@@ -753,7 +766,7 @@ private func loadDirectory(
     guard
         let items = try? fm.contentsOfDirectory(
             at: url,
-            includingPropertiesForKeys: [.isDirectoryKey],
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
             options: []
         )
     else {
@@ -775,17 +788,36 @@ private func loadDirectory(
 
         if skippedEntries.contains(name) { continue }
 
-        let isDirectory = (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
-        let childPath = item.path
+        // URL.isDirectoryKey reports false for any symlink — even one pointing to a folder —
+        // so symlinks need an explicit follow via FileManager.fileExists to classify the target.
+        let resourceValues = try? item.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        let isSymbolicLink = resourceValues?.isSymbolicLink == true
+        let isDirectory: Bool
+        if isSymbolicLink {
+            var dirFlag: ObjCBool = false
+            isDirectory = fm.fileExists(atPath: item.path, isDirectory: &dirFlag) && dirFlag.boolValue
+        } else {
+            isDirectory = resourceValues?.isDirectory == true
+        }
+        // Preserve the symlink-relative path through recursion so paths shown to the user
+        // and stored in stableIds reflect the link chain rather than the resolved target.
+        let childPath = path + "/" + name
+        if isSymbolicLink {
+            symlinkedPaths.insert(childPath)
+        }
 
         if isDirectory {
+            // contentsOfDirectory(at:) refuses to traverse a symlink (POSIX "Not a directory"),
+            // so resolve before recursing while keeping childPath as the symlink path.
+            let urlForRecursion = isSymbolicLink ? item.resolvingSymlinksInPath() : item
             children[name] = loadDirectory(
-                at: item,
+                at: urlForRecursion,
                 path: childPath,
                 depth: depth - 1,
                 expandedPaths: expandedPaths,
                 stableIds: &stableIds,
-                loadedPaths: &loadedPaths
+                loadedPaths: &loadedPaths,
+                symlinkedPaths: &symlinkedPaths
             )
         } else {
             let fileUUID = stableIds[childPath] ?? {

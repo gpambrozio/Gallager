@@ -41,6 +41,7 @@
         "session.set_state",
         "session.set_title",
         "session.set_color",
+        "session.set_emoji",
         "window.list",
         "window.create",
         "window.select",
@@ -51,6 +52,7 @@
         "pane.select",
         "pane.capture",
         "pane.set_layout",
+        "pane.set_progress",
         "input.send_text",
         "input.send_key",
         "notification.create",
@@ -97,6 +99,9 @@
         /// Parameters: (color, sessionId, paneId). `color` is `nil` to clear.
         /// Always applies at session scope.
         let onSessionSetColor: (@Sendable (SessionColor?, String?, String?) async throws -> Void)?
+        /// Parameters: (emoji, sessionId, paneId). `emoji` is `nil` to clear.
+        /// Always applies at session scope.
+        let onSessionSetEmoji: (@Sendable (String?, String?, String?) async throws -> Void)?
 
         let onWindowList: (@Sendable (String?, String?) async -> [[String: JSONValue]])?
         /// Parameters: (sessionId, path, paneId, name).
@@ -123,6 +128,11 @@
         let onPaneCapture: (@Sendable (String?, Bool) async throws -> String)?
         /// Parameters: (sessionId or window target, layout name or hex).
         let onPaneSetLayout: (@Sendable (String, String) async throws -> Void)?
+        /// Parameters: (state, paneId). `state` is `nil` to clear the bar.
+        /// `paneId` is `nil` to target the calling/active pane.
+        let onPaneSetProgress: (
+            @Sendable (TerminalProgressState?, String?) async throws -> Void
+        )?
 
         let onSendText: (@Sendable (String, String?, Bool) async throws -> Void)?
         let onSendKey: (@Sendable (String, String?) async throws -> Void)?
@@ -156,6 +166,7 @@
             onSessionSetState: (@Sendable (String, String?, String?) async throws -> Int)? = nil,
             onSessionSetTitle: (@Sendable (String?, String?, String?) async throws -> Void)? = nil,
             onSessionSetColor: (@Sendable (SessionColor?, String?, String?) async throws -> Void)? = nil,
+            onSessionSetEmoji: (@Sendable (String?, String?, String?) async throws -> Void)? = nil,
             onWindowList: (@Sendable (String?, String?) async -> [[String: JSONValue]])? = nil,
             onWindowCreate: (
                 @Sendable (String?, String?, String?, String?) async throws -> [String: JSONValue]
@@ -170,6 +181,9 @@
             onPaneSelect: (@Sendable (String) async throws -> Void)? = nil,
             onPaneCapture: (@Sendable (String?, Bool) async throws -> String)? = nil,
             onPaneSetLayout: (@Sendable (String, String) async throws -> Void)? = nil,
+            onPaneSetProgress: (
+                @Sendable (TerminalProgressState?, String?) async throws -> Void
+            )? = nil,
             onSendText: (@Sendable (String, String?, Bool) async throws -> Void)? = nil,
             onSendKey: (@Sendable (String, String?) async throws -> Void)? = nil,
             onNotify: (@Sendable (String, String, String?, String?) async -> Void)? = nil,
@@ -190,6 +204,7 @@
             self.onSessionSetState = onSessionSetState
             self.onSessionSetTitle = onSessionSetTitle
             self.onSessionSetColor = onSessionSetColor
+            self.onSessionSetEmoji = onSessionSetEmoji
             self.onWindowList = onWindowList
             self.onWindowCreate = onWindowCreate
             self.onWindowSelect = onWindowSelect
@@ -200,6 +215,7 @@
             self.onPaneSelect = onPaneSelect
             self.onPaneCapture = onPaneCapture
             self.onPaneSetLayout = onPaneSetLayout
+            self.onPaneSetProgress = onPaneSetProgress
             self.onSendText = onSendText
             self.onSendKey = onSendKey
             self.onNotify = onNotify
@@ -372,6 +388,20 @@
                     try await callback(color, sessionId, paneId)
                     return .ok(id: id)
 
+                case "session.set_emoji":
+                    // `emoji` is optional; nil/empty clears the emoji. Free-
+                    // form text so any platform-supported emoji works. Always
+                    // applies at session scope.
+                    let rawEmoji = params["emoji"]?.stringValue
+                    let emoji: String? = (rawEmoji?.isEmpty == false) ? rawEmoji : nil
+                    let sessionId = params["session_id"]?.stringValue
+                    let paneId = params["pane_id"]?.stringValue
+                    guard let callback = onSessionSetEmoji else {
+                        return .internalError(id: id, "Session set_emoji not available")
+                    }
+                    try await callback(emoji, sessionId, paneId)
+                    return .ok(id: id)
+
                 // MARK: - Windows
 
                 case "window.list":
@@ -471,6 +501,31 @@
                     return JSONRPCResponse(id: id, result: [
                         "content": .string(content),
                     ])
+
+                case "pane.set_progress":
+                    // `value` is required; pass an explicit clear sentinel
+                    // ("clear" / "none" / "") to remove the bar. Otherwise it's
+                    // a 0–100 number, "warning", or "error". The server stores
+                    // the resolved state on `PaneState.progress` exactly the
+                    // same way `OSC 9;4` updates do — same source of truth, so
+                    // CLI and OSC overrides last-write-wins each other.
+                    guard let raw = params["value"]?.stringValue else {
+                        return .invalidParams(
+                            id: id,
+                            "value required (0-100, 'warning', 'error', or 'clear')"
+                        )
+                    }
+                    let parsedProgress: TerminalProgressState?
+                    switch Self.parseProgressValue(raw) {
+                    case let .success(state): parsedProgress = state
+                    case let .failure(message): return .invalidParams(id: id, message)
+                    }
+                    let paneId = params["pane_id"]?.stringValue
+                    guard let callback = onPaneSetProgress else {
+                        return .internalError(id: id, "Pane set_progress not available")
+                    }
+                    try await callback(parsedProgress, paneId)
+                    return .ok(id: id)
 
                 // MARK: - Input
 
@@ -590,6 +645,50 @@
                 return .internalError(id: id, error.localizedDescription)
             } catch {
                 return .internalError(id: id, error.localizedDescription)
+            }
+        }
+
+        /// Parses a CLI progress value into a `TerminalProgressState?`.
+        ///
+        /// `nil` means the bar should be cleared. Recognised inputs:
+        /// - `"clear"`, `"none"`, `""` → `nil` (clear)
+        /// - `"warning"` → `.warning`
+        /// - `"error"` → `.error`
+        /// - integer in `0...100` → `.normal(value)`
+        ///
+        /// `state=3` (indeterminate) is intentionally excluded from the CLI
+        /// surface — the spinner UI is `TimelineView`-driven and would render
+        /// non-deterministically frame-to-frame, so screenshot tests on it are
+        /// flaky. Programs that want indeterminate output can still emit raw
+        /// `OSC 9;4;3` sequences; the host handles those the same as before.
+        public enum ProgressParseResult: Sendable, Equatable {
+            case success(TerminalProgressState?)
+            case failure(String)
+        }
+
+        public static func parseProgressValue(_ raw: String) -> ProgressParseResult {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            switch trimmed.lowercased() {
+            case "",
+                 "clear",
+                 "none":
+                return .success(nil)
+            case "warning":
+                return .success(.warning)
+            case "error":
+                return .success(.error)
+            default:
+                // Accept "50" or "50%" so users can copy values from a UI label.
+                let stripped = trimmed.hasSuffix("%") ? String(trimmed.dropLast()) : trimmed
+                guard let percent = Int(stripped) else {
+                    return .failure(
+                        "Unknown progress value '\(raw)'. Use 0-100, 'warning', 'error', or 'clear'."
+                    )
+                }
+                guard (0...100).contains(percent) else {
+                    return .failure("Progress percentage must be 0-100 (got \(percent)).")
+                }
+                return .success(.normal(percent))
             }
         }
     }

@@ -572,6 +572,13 @@ public actor TestOrchestrator {
             logger.info("  Clipboard value\(suffix): \(value) → stored as ${\(storeAs)}")
             context.set(storeAs, value: value)
 
+        case let .macWriteClipboard(text, instance):
+            let resolved = context.resolve(text)
+            try await macDriver(for: instance).writeClipboard(text: resolved)
+
+        case let .macPaste(instance):
+            try await macDriver(for: instance).paste()
+
         case let .macWaitForElement(titled, timeout, instance):
             let resolvedTitle = context.resolve(titled)
             try await macDriver(for: instance).waitForElement(titled: resolvedTitle, timeout: timeout)

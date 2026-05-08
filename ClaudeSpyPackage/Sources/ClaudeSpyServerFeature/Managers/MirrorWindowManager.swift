@@ -15,8 +15,9 @@ final public class MirrorWindowManager {
     /// Task for periodic session validation
     private var sessionValidationTask: Task<Void, Never>?
 
-    /// Called when window descriptions change, to push updated state to viewers
-    public var onDescriptionChanged: (@MainActor @Sendable () async -> Void)?
+    /// Called when session metadata (description, color, or emoji) changes,
+    /// to push updated state to viewers.
+    public var onSessionMetadataChanged: (@MainActor @Sendable () async -> Void)?
 
     /// Interval between session validation checks (in seconds)
     private let validationInterval: TimeInterval = 5
@@ -392,7 +393,7 @@ final public class MirrorWindowManager {
         }
         Task { [tmuxService] in
             try? await tmuxService.setSessionDescription(normalizedDescription, for: sessionName)
-            await onDescriptionChanged?()
+            await onSessionMetadataChanged?()
         }
     }
 
@@ -418,7 +419,34 @@ final public class MirrorWindowManager {
                     "error": "\(error)",
                 ])
             }
-            await onDescriptionChanged?()
+            await onSessionMetadataChanged?()
+        }
+    }
+
+    // MARK: - Session Emoji
+
+    /// Sets a custom emoji for a session, applied to every pane so it survives
+    /// switching windows. Persisted as a tmux user option (see `TmuxService`).
+    /// - Parameters:
+    ///   - emoji: The emoji string, or nil/empty to clear
+    ///   - sessionName: The tmux session name
+    public func setSessionEmoji(_ emoji: String?, for sessionName: String) {
+        let normalizedEmoji = emoji?.isEmpty == true ? nil : emoji
+        // Optimistic local update for immediate UI feedback; tmux remains the source
+        // of truth and the next refresh reconciles from it.
+        for (paneId, state) in paneStates where state.sessionName == sessionName {
+            paneStates[paneId]?.customEmoji = normalizedEmoji
+        }
+        Task { [tmuxService, logger] in
+            do {
+                try await tmuxService.setSessionEmoji(normalizedEmoji, for: sessionName)
+            } catch {
+                logger.warning("Failed to persist session emoji", metadata: [
+                    "session": "\(sessionName)",
+                    "error": "\(error)",
+                ])
+            }
+            await onSessionMetadataChanged?()
         }
     }
 

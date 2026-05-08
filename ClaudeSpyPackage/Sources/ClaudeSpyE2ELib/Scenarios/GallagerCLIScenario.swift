@@ -386,6 +386,43 @@ public enum GallagerCLIScenario {
         TestStep.readFile(path: "/tmp/e2e-cli-color-bad.txt", storeAs: "colorBadResult")
         TestStep.assertStoredContains(key: "colorBadResult", substring: "Unknown color")
 
+        // 16e. set-emoji — assigns an emoji icon to a session, persisted as
+        // the tmux `@gallager-emoji` user option and rendered as a small
+        // emoji badge in the sidebar row. Each platform exposes the badge
+        // with `accessibilityLabel("emoji <value>")`.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager set-emoji 🚀 --session e2e-api > /tmp/e2e-cli-emoji-set.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-emoji-set.txt", storeAs: "emojiSetResult")
+        TestStep.assertStoredContains(key: "emojiSetResult", substring: "Set session emoji to 🚀.")
+        TestStep.macWaitForElement(titled: "emoji 🚀", timeout: 10)
+        TestStep.macScreenshot(label: "mac-emoji-set")
+
+        // 16f. Verify the emoji option was actually persisted on the tmux
+        // server. `display-message -p '#{@gallager-emoji}'` reads the user
+        // option back for the session, so we know set-emoji hit tmux and not
+        // just the UI.
+        TestStep.tmuxStoreDisplayMessage(
+            target: "e2e-api",
+            format: "#{@gallager-emoji}",
+            storeAs: "tmuxEmojiOption"
+        )
+        TestStep.assertStoredContains(key: "tmuxEmojiOption", substring: "🚀")
+
+        // 16g. set-emoji none clears the emoji. The badge disappears and the
+        // tmux option is unset.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager set-emoji none --session e2e-api > /tmp/e2e-cli-emoji-clear.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-emoji-clear.txt", storeAs: "emojiClearResult")
+        TestStep.assertStoredContains(key: "emojiClearResult", substring: "Cleared session emoji.")
+        TestStep.macWaitForElementToDisappear(titled: "emoji 🚀", timeout: 10)
+        TestStep.macScreenshot(label: "mac-emoji-cleared")
+
         // 17. new-session --color creates a session that opens with the color
         // already set, so the dot appears as soon as the row renders.
         Shortcut.tmuxRunCommand(
@@ -426,5 +463,104 @@ public enum GallagerCLIScenario {
         TestStep.wait(seconds: 2)
         TestStep.readFile(path: "/tmp/e2e-cli-rename-bad.txt", storeAs: "renameBadResult")
         TestStep.assertStoredContains(key: "renameBadResult", substring: "name cannot be empty")
+
+        // 19. set-progress — overrides the per-pane progress bar that the
+        // host normally derives from `OSC 9;4` sequences. The override syncs
+        // through the same `MirrorWindowManager.setPaneProgress` path used by
+        // the OSC reader, so the e2e-api row's progress bar appears in the
+        // sidebar exactly the same way as a sequence-driven update.
+
+        // 19a. Use --pane to set progress on a pane of a different session.
+        // $PANE_ID was captured back at step 6 — it points at e2e-api's pane.
+        // The bar must show up on the e2e-api row, not on cli-test.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager set-progress 60 --pane "$PANE_ID" > /tmp/e2e-cli-progress-60.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-progress-60.txt", storeAs: "progress60Result")
+        TestStep.assertStoredContains(key: "progress60Result", substring: "Set pane progress to 60%.")
+        TestStep.macWaitForElementQuery(
+            .allOf([.labelContains("Terminal progress"), .valueContains("60%")]),
+            timeout: 10
+        )
+        TestStep.macScreenshot(label: "mac-progress-60-other-session")
+
+        // 19b. warning state — full yellow bar.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager set-progress warning --pane "$PANE_ID" > /tmp/e2e-cli-progress-warning.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(
+            path: "/tmp/e2e-cli-progress-warning.txt",
+            storeAs: "progressWarningResult"
+        )
+        TestStep.assertStoredContains(
+            key: "progressWarningResult",
+            substring: "Set pane progress to warning."
+        )
+        TestStep.macWaitForElementQuery(
+            .allOf([.labelContains("Terminal progress"), .valueContains("warning")]),
+            timeout: 10
+        )
+        TestStep.macScreenshot(label: "mac-progress-warning-other-session")
+
+        // 19c. clear — bar disappears from the e2e-api row.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager set-progress clear --pane "$PANE_ID" > /tmp/e2e-cli-progress-clear.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-progress-clear.txt", storeAs: "progressClearResult")
+        TestStep.assertStoredContains(
+            key: "progressClearResult",
+            substring: "Cleared pane progress."
+        )
+        TestStep.macWaitForElementToDisappear(titled: "Terminal progress", timeout: 10)
+        TestStep.macScreenshot(label: "mac-progress-cleared-other-session")
+
+        // 19d. No --pane: TMUX_PANE-default targeting marks the calling
+        // pane (cli-test:0). The bar must appear on the cli-test row, not
+        // on e2e-api. We click cli-test in the sidebar so the screenshot
+        // captures the row with its progress bar.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager set-progress error > /tmp/e2e-cli-progress-default.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(
+            path: "/tmp/e2e-cli-progress-default.txt",
+            storeAs: "progressDefaultResult"
+        )
+        TestStep.assertStoredContains(
+            key: "progressDefaultResult",
+            substring: "Set pane progress to error."
+        )
+        // Wait for the error bar to surface on cli-test's row (not e2e-api).
+        // The row's combined AX value contains both the session name and the
+        // bar's "error" value, so a query that requires both proves the bar
+        // landed on the calling pane's session — not on e2e-api or any
+        // other tracked pane.
+        TestStep.macWaitForElementQuery(
+            .allOf([
+                .valueContains("cli-test"),
+                .labelContains("Terminal progress"),
+                .valueContains("error"),
+            ]),
+            timeout: 10
+        )
+        TestStep.macClickButton(titled: "cli-test")
+        TestStep.wait(seconds: 1)
+        TestStep.macScreenshot(label: "mac-progress-error-calling-pane")
+
+        // Cleanup: clear the bar so later scenarios don't observe a
+        // lingering progress override on the calling pane.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager set-progress clear > /dev/null 2>&1"#
+        )
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementToDisappear(titled: "Terminal progress", timeout: 10)
     }
 }

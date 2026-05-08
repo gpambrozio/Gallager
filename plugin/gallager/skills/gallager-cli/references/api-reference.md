@@ -99,6 +99,15 @@ session-only targeting rules as `session.set_title`. Pass `color: ""` (or
   `green`, `blue`, `purple`, `pink`, `gray` (aliases: `violet`/`magenta`/
   `grey`).
 
+### `session.set_emoji` — `gallager set-emoji <emoji> [--session]`
+Writes the sidebar emoji icon (`@gallager-emoji` tmux user option). Same
+session-only targeting rules as `session.set_title`. Pass `emoji: ""` (or
+`none` from the CLI) to clear. The CLI rejects non-emoji input locally with
+a validation error so arbitrary text never reaches the server.
+- Params: `{ "emoji": string, "session_id"?: string, "pane_id"?: string }`
+- Result: `{}`
+- Errors: `not_found` when the target doesn't resolve.
+
 ### `session.select` — `gallager select-session <id>`
 - Params: `{ "session_id": string }`
 - Result: `{}`
@@ -197,6 +206,25 @@ included. Useful for grepping pane output without leaving the calling shell.
 - Result: `{ "text": string }`
 - The CLI fills `pane_id` from `$TMUX_PANE` when no targeting flag is given,
   so the capture defaults to the calling pane.
+
+### `pane.set_progress` — `gallager set-progress <value> [--pane]`
+Writes the per-pane sidebar progress bar that the host normally derives
+from `OSC 9;4` sequences emitted by terminal programs. The CLI override
+syncs through the same `PaneState.progress` path, so every connected
+viewer (host sidebar, Mac viewer, iOS) sees the same bar. CLI and OSC
+updates last-write-wins each other — a `OSC 9;4` arriving after a CLI
+call replaces the value (and vice versa).
+- Params: `{ "value": string, "pane_id"?: string }`
+- Result: `{}`
+- Accepted `value` strings:
+  - `"0"` … `"100"` (with optional `%`) — determinate blue bar
+  - `"warning"` — full yellow warning bar
+  - `"error"` — full red error bar
+  - `"clear"` / `"none"` / `""` — remove the bar
+- The CLI fills `pane_id` from `$TMUX_PANE` when no `--pane` flag is given,
+  so the override targets the calling pane by default.
+- Errors: `invalid_params` for an unrecognised string or out-of-range
+  percentage; `not_found` when no pane resolves.
 
 ## Input
 

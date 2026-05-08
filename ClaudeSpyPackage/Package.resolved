@@ -1,5 +1,5 @@
 {
-  "originHash" : "ed33edbcb27c794a185bb278e67ef79e0dd5e5b917f68c48406d0a37fa37e232",
+  "originHash" : "3ffce9b6784b10c8d66a215d1d5894cc1cc9fb3ddc45f29e2e0b58167de527cd",
   "pins" : [
     {
       "identity" : "apns",
@@ -69,8 +69,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/mchakravarty/ProjectNavigator",
       "state" : {
-        "revision" : "c62003c4c79e92b8dea9efb8d08c55db1a2e9cce",
-        "version" : "1.7.0"
+        "revision" : "03da648ded0a3478035f82ea3572f78820cacdbb",
+        "version" : "1.8.0"
       }
     },
     {
@@ -332,6 +332,15 @@
       "state" : {
         "revision" : "395a77f0aa927f0ff73941d7ac35f2b46d47c9db",
         "version" : "1.6.3"
+      }
+    },
+    {
+      "identity" : "swiftemojipicker",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/sergius-la/SwiftEmojiPicker",
+      "state" : {
+        "revision" : "c1091a476d98a26ff4ee11eaeba3fe742e88d672",
+        "version" : "2.2.1"
       }
     },
     {

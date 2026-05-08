@@ -78,8 +78,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/mchakravarty/ProjectNavigator",
       "state" : {
-        "revision" : "c62003c4c79e92b8dea9efb8d08c55db1a2e9cce",
-        "version" : "1.7.0"
+        "revision" : "03da648ded0a3478035f82ea3572f78820cacdbb",
+        "version" : "1.8.0"
       }
     },
     {
