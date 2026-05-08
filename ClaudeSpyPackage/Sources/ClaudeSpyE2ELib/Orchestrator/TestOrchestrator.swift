@@ -576,6 +576,47 @@ public actor TestOrchestrator {
             let resolved = context.resolve(text)
             try await macDriver(for: instance).writeClipboard(text: resolved)
 
+        case let .macWriteClipboardImage(base64, format, instance):
+            let resolvedBase64 = context.resolve(base64)
+            guard let data = Data(base64Encoded: resolvedBase64) else {
+                throw NSError(
+                    domain: "ImagePasteScenario",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Invalid base64 image data"]
+                )
+            }
+            let basePath = clipboardFilePath(for: instance)
+            try data.write(to: URL(fileURLWithPath: basePath + ".image"), options: .atomic)
+            try format.write(
+                toFile: basePath + ".image.format",
+                atomically: true,
+                encoding: .utf8
+            )
+            let suffix = instance > 0 ? " (mac\(instance + 1))" : ""
+            logger.info("  Wrote image to clipboard\(suffix): \(data.count) bytes (\(format))")
+
+        case let .macReadClipboardImage(storeAs, instance):
+            let basePath = clipboardFilePath(for: instance)
+            let imagePath = basePath + ".image"
+            let value: String
+            if
+                let data = FileManager.default.contents(atPath: imagePath), !data.isEmpty {
+                value = data.base64EncodedString()
+            } else {
+                value = ""
+            }
+            let suffix = instance > 0 ? " (mac\(instance + 1))" : ""
+            logger.info("  Clipboard image\(suffix): \(value.count) base64 chars → stored as ${\(storeAs)}")
+            context.set(storeAs, value: value)
+
+        case let .macClearClipboard(instance):
+            let basePath = clipboardFilePath(for: instance)
+            try? "".write(toFile: basePath, atomically: true, encoding: .utf8)
+            try? FileManager.default.removeItem(atPath: basePath + ".image")
+            try? FileManager.default.removeItem(atPath: basePath + ".image.format")
+            let suffix = instance > 0 ? " (mac\(instance + 1))" : ""
+            logger.info("  Cleared file-backed clipboard\(suffix)")
+
         case let .macPaste(instance):
             try await macDriver(for: instance).paste()
 

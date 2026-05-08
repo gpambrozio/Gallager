@@ -159,6 +159,17 @@ public enum TestStep: Sendable {
     /// AppleScript keystroke can't handle (e.g. emoji) before triggering a
     /// `macPaste` into a focused field.
     case macWriteClipboard(text: String, instance: Int = 0)
+    /// Place image bytes on the file-backed clipboard for the given app
+    /// instance, simulating "user copied an image to the clipboard". The data
+    /// is provided as base-64 so scenarios can stay declarative.
+    case macWriteClipboardImage(base64: String, format: String, instance: Int = 0)
+    /// Read image bytes off the file-backed clipboard for the given app
+    /// instance and store them as base-64 in the execution context. Empty
+    /// string when no image is present.
+    case macReadClipboardImage(storeAs: String, instance: Int = 0)
+    /// Clear both text and image entries on the file-backed clipboard for the
+    /// given app instance. Use to wipe stale state between scenarios.
+    case macClearClipboard(instance: Int = 0)
     /// Press Cmd+V in the macOS app, pasting the current system clipboard
     /// contents into the focused field.
     case macPaste(instance: Int = 0)

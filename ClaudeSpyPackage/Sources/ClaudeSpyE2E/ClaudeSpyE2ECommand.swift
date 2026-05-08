@@ -123,6 +123,14 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             dashboardReporter = dr
             reporters.append(dr)
         }
+
+        // Resolve scenarios up front for the non-interactive run so the
+        // Gallager progress reporter knows the total count.
+        let scenariosToRun: [TestScenario] = interactive ? [] : resolveScenarios()
+        if !interactive {
+            reporters.append(GallagerProgressReporter(totalScenarios: scenariosToRun.count))
+        }
+
         let reporter = CompositeReporter(reporters)
 
         let orchestrator = TestOrchestrator(
@@ -144,7 +152,6 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         if interactive {
             try await runInteractive(orchestrator: orchestrator)
         } else {
-            let scenariosToRun = resolveScenarios()
             await dashboardReporter?.sendRunStarted(totalScenarios: scenariosToRun.count)
             try await runTests(scenarios: scenariosToRun, orchestrator: orchestrator)
         }
@@ -277,6 +284,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         CloseRemoteWindowMacScenario.scenario,
         ClipboardSyncScenario.scenario,
         ClipboardSyncMacViewerScenario.scenario,
+        ImagePasteRemoteScenario.scenario,
         UnderlineLeakScenario.scenario,
         BackgroundLeakScenario.scenario,
         VersionMismatchOldIOSViewerScenario.scenario,

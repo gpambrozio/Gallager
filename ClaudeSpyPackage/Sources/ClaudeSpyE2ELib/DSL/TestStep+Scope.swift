@@ -86,6 +86,12 @@ public extension TestStep {
             return .macOS(instance: instance)
         case let .macWriteClipboard(_, instance):
             return .macOS(instance: instance)
+        case let .macWriteClipboardImage(_, _, instance):
+            return .macOS(instance: instance)
+        case let .macReadClipboardImage(_, instance):
+            return .macOS(instance: instance)
+        case let .macClearClipboard(instance):
+            return .macOS(instance: instance)
         case let .macPaste(instance):
             return .macOS(instance: instance)
         case let .macWaitForElement(_, _, instance):

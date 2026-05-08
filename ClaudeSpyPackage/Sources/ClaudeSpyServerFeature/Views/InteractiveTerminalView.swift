@@ -331,6 +331,22 @@
         /// sent to tmux as-is, bypassing TmuxKey conversion.
         var onRawInput: (@MainActor (Data) -> Void)?
 
+        /// Callback invoked when the user pastes an image (Cmd+V with image clipboard
+        /// contents). When set, the terminal hands the image off to the host instead
+        /// of sending Ctrl+V locally. Used by the remote terminal mirror to forward
+        /// images over the relay so the host's foreground app can paste them.
+        ///
+        /// Return-value contract:
+        /// - `true`: handler consumed the paste; the terminal does nothing further.
+        /// - `false`: fall back to the local Ctrl+V flow — **not** "skip the paste".
+        ///   The local fallback sends `Ctrl+V` into the pane, which makes the
+        ///   in-pane app read the *host's* pasteboard. Do not return `false` to
+        ///   signal a forward failure: the user would silently get a Ctrl+V into
+        ///   the pane against the wrong (unmodified host) clipboard. Failures
+        ///   should be surfaced by the handler itself; always return `true` once
+        ///   the handler has taken responsibility for the paste.
+        var onImagePaste: (@MainActor (ClipboardImage) -> Bool)?
+
         /// Callback invoked when the terminal title changes (via OSC 0 or OSC 2 escape sequences).
         var onTitleChange: (@MainActor (String) -> Void)?
 
@@ -957,8 +973,14 @@
                     return true
                 }
 
-                // If clipboard has an image, send Ctrl+V so the terminal app can handle it
-                if clipboard.hasImage() {
+                // If clipboard has an image, hand it off to the remote-paste
+                // path when set (viewer of a remote host) — otherwise fall back
+                // to the local Ctrl+V flow that lets the in-pane terminal app
+                // read the host's pasteboard directly.
+                if let image = clipboard.getImage() {
+                    if let onImagePaste, onImagePaste(image) {
+                        return true
+                    }
                     onInput?([.ctrl("v")])
                     return true
                 }

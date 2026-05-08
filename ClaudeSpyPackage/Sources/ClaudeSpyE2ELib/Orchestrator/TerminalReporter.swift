@@ -69,9 +69,6 @@ final public class TerminalReporter: TestProgressReporter, @unchecked Sendable {
 
     public func stepCompleted(_ stepNumber: Int, screenshot: TestOrchestrator.ScreenshotResult?) async {
         clearCurrentLine()
-        if let ss = screenshot {
-            writeScreenshotResult(ss)
-        }
     }
 
     public func stepFailed(
@@ -82,7 +79,14 @@ final public class TerminalReporter: TestProgressReporter, @unchecked Sendable {
     ) async {
         clearCurrentLine()
         if let ss = screenshot {
-            writeScreenshotResult(ss)
+            let camera = styled("  [screenshot]", .dim)
+            let detail: String
+            if let diff = ss.diffPercentage {
+                detail = styled(String(format: "%.2f%% diff - MISMATCH", diff), .red)
+            } else {
+                detail = styled("MISMATCH", .red)
+            }
+            writeln("\(camera) \(ss.label): \(detail)")
         }
         let marker = styled("  FAIL", .red, .bold)
         let stepInfo = styled("step \(stepNumber)", .dim)
@@ -157,32 +161,5 @@ final public class TerminalReporter: TestProgressReporter, @unchecked Sendable {
             writeln(styled(summary, .red, .bold))
         }
         writeln()
-    }
-
-    // MARK: - Private
-
-    private func writeScreenshotResult(_ ss: TestOrchestrator.ScreenshotResult) {
-        let camera = styled("  [screenshot]", .dim)
-        let label = ss.label
-
-        if ss.baselineCreated {
-            let status = styled("baseline created", .yellow)
-            writeln("\(camera) \(label): \(status)")
-        } else if ss.passed {
-            if let diff = ss.diffPercentage {
-                let diffStr = String(format: "%.2f%%", diff)
-                let status = styled("match (\(diffStr) diff)", .green)
-                writeln("\(camera) \(label): \(status)")
-            }
-        } else {
-            if let diff = ss.diffPercentage {
-                let diffStr = String(format: "%.2f%%", diff)
-                let status = styled("\(diffStr) diff - MISMATCH", .red)
-                writeln("\(camera) \(label): \(status)")
-            } else {
-                let status = styled("MISMATCH", .red)
-                writeln("\(camera) \(label): \(status)")
-            }
-        }
     }
 }
