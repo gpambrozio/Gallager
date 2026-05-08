@@ -121,7 +121,7 @@ Plus the standard `node_exporter` metrics for host CPU/RAM/disk/net, including t
 | `host-load-high` | warning | `node_load5 / cpu_count > 2` for 10m | Sustained CPU contention; usually a noisy-neighbor container |
 | `host-swap-thrash` | warning | `rate(pswpin+pswpout) > 100` for 5m | Memory pressure; an OOM kill is usually imminent |
 | `high-memory` | warning | host MemAvailable < 15% for 10m | General memory pressure |
-| `disk-full` | warning | `/` > 80% used for 30m | Investigate `du -shx /var/lib/docker/*` |
+| `disk-full` | warning | `/` > 85% used for 30m | Investigate `du -shx /var/lib/docker/*` |
 | `high-relay-rate` | warning | message rate > 50/s for 15m | Legitimate spike or runaway client |
 
 ### Diagnosing host-pressure alerts

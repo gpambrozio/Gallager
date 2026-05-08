@@ -8,7 +8,7 @@ spec:
   interval: 5m
   rules:
     - uid: disk-full
-      title: Root filesystem > 80% used
+      title: Root filesystem > 85% used
       condition: B
       data:
         - refId: A
@@ -30,13 +30,13 @@ spec:
             refId: B
             expression: A
             conditions:
-              - evaluator: { type: gt, params: [80] }
+              - evaluator: { type: gt, params: [85] }
                 operator: { type: and }
       noDataState: NoData
       execErrState: Error
       for: 30m
       annotations:
-        summary: "Root filesystem above 80% used"
+        summary: "Root filesystem above 85% used"
         description: "Investigate large files: `du -shx /var/lib/docker/* | sort -h`."
       labels:
         severity: warning
