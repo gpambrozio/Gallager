@@ -13,8 +13,8 @@ struct NotifyCommand: ParsableCommand {
     @Option(name: .long, help: "Notification body")
     var body: String
 
-    @Option(name: .long, help: "Notification subtitle")
-    var subtitle: String?
+    @Flag(name: .long, help: "Also push to paired iOS devices via the relay server")
+    var push = false
 
     @OptionGroup var options: GlobalOptions
 
@@ -23,9 +23,11 @@ struct NotifyCommand: ParsableCommand {
             "title": .string(title),
             "body": .string(body),
         ]
-        if let subtitle { params["subtitle"] = .string(subtitle) }
         if let tmuxPane = ProcessInfo.processInfo.environment["TMUX_PANE"] {
             params["pane_id"] = .string(tmuxPane)
+        }
+        if push {
+            params["push"] = .bool(true)
         }
         let response = try executeRequest(method: "notification.create", params: params, options: options)
         printResponse(response, json: options.json)

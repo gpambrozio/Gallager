@@ -233,6 +233,27 @@ final public class ConnectedViewerManager {
         }
     }
 
+    /// Send an encrypted push notification with arbitrary title/body to every
+    /// connected viewer. Used by `notification.create --push` so a single CLI
+    /// call reaches all paired iOS devices.
+    public func sendCustomPushNotificationToAll(
+        title: String,
+        body: String,
+        paneId: String?
+    ) async {
+        await withTaskGroup(of: Void.self) { group in
+            for connection in connections.values where connection.state.isConnected {
+                group.addTask {
+                    await connection.sendCustomPushNotification(
+                        title: title,
+                        body: body,
+                        paneId: paneId
+                    )
+                }
+            }
+        }
+    }
+
     /// Send terminal stream data to all connected viewers.
     public func sendTerminalStreamToAll(_ streamMessage: TerminalStreamMessage) async {
         await withTaskGroup(of: Void.self) { group in

@@ -145,7 +145,7 @@ gallager send-key enter                    # enter|tab|escape|backspace|delete|u
 
 # Notifications (tapping on iOS jumps back to the calling pane if $TMUX_PANE is set)
 gallager notify --title "Build done" --body "All tests passed"
-gallager notify --title "Alert" --subtitle "CI" --body "Tests failed on main"
+gallager notify --title "Build done" --body "All tests passed" --push  # also push to paired iOS devices
 
 # Prompt editor (blocks until the user submits/cancels in the app)
 gallager edit /tmp/prompt.txt
@@ -181,6 +181,7 @@ gallager start-project ~/code/proj -- --resume   # forwards `--resume` to claude
 - **Socket resolution order**: `--socket` flag → `$GALLAGER_SOCKET` → `$TMPDIR/gallager.sock`. Inside Gallager-managed panes, `$GALLAGER_SOCKET` is set for you. Note: `$GALLAGER_SOCKET` is Gallager's JSON-RPC socket, separate from the tmux socket `tmux -S` uses.
 - **`gallager edit` blocks.** It returns only after the user submits or cancels the prompt in the app. Great for interactive workflows, wrong for fire-and-forget scripts.
 - **`notify` attaches pane context automatically** when `$TMUX_PANE` is set, so tapping the iOS notification jumps to the right pane.
+- **`notify --push` mirrors the desktop banner to paired iOS devices.** Without `--push`, the notification only appears in macOS Notification Center; with `--push`, the host also sends an encrypted push payload through the relay server and (when the viewer is offline) APNs, exactly the same path Claude hook events use. Requires the host to have at least one paired viewer; without one the flag is a no-op (the local banner still shows). The pane context from `$TMUX_PANE` carries over so taps on the phone deep-link back to the originating pane.
 - **`start-project` always runs `claude`.** Unlike `new-session --path`, which only auto-runs claude when the **Auto-run Claude in project folders** setting is on, `start-project` always launches the configured claude command in the new pane. Pass extra arguments after `--` to forward them (e.g. `start-project ~/code/foo -- --resume`).
 - **`session-state` is a CLI override.** It flips the sidebar indicator (`working`, `idle`, `waiting`, `clear`) without changing the underlying tmux/Claude state — useful when scripting fake activity for demos or marking a manual workflow as needing attention. The override is wiped automatically when a Claude hook event for the same pane updates working/notification state, so live sessions revert to reality on their own. Target with `--pane` or `--session`; with neither flag it marks the calling pane (via `$TMUX_PANE`).
 - **`set-progress` writes the same per-pane progress bar that `OSC 9;4` drives.** Accepted values are `0`–`100` (determinate blue bar), `warning` (yellow), `error` (red), and `clear`/`none`/`""` (clear). Targets the pane given by `--pane`, otherwise the calling pane via `$TMUX_PANE`. CLI updates and OSC sequences share `PaneState.progress`, so they override each other on a most-recent-write-wins basis — a script can set the bar before a long task and a subsequent `OSC 9;4` from the running program will reset it. Inside a `gallager apply` YAML, set `progress: 50` (or `progress: warning`) on a pane to apply the same value at session-creation time; re-applying syncs the value (and clearing the field clears the bar).

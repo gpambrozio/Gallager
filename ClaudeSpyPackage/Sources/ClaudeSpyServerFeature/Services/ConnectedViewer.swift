@@ -284,6 +284,43 @@ final public class ConnectedViewer: Identifiable {
         await sendEncryptedPushNotification(for: event)
     }
 
+    /// Send an encrypted push notification with arbitrary title/body to this
+    /// viewer. Used by `notification.create --push` so CLI-triggered alerts
+    /// follow the same APNs path as Claude hook events.
+    public func sendCustomPushNotification(
+        title: String,
+        body: String,
+        paneId: String?
+    ) async {
+        guard state.isConnected else {
+            logger.debug("Not connected to \(viewerName), cannot send custom push")
+            return
+        }
+
+        guard await e2eeService.isSessionEstablished else {
+            logger.error("E2EE session not established, cannot send custom push")
+            return
+        }
+
+        let content = NotificationContent(
+            title: title,
+            body: body,
+            eventType: "cli.notify",
+            pairId: id,
+            paneId: paneId,
+            timestamp: Date()
+        )
+
+        do {
+            let encryptedContent = try await e2eeService.encrypt(content)
+            let payload = EncryptedPushPayload(encryptedContent: encryptedContent, pairId: id)
+            await send(.encryptedPush(payload))
+            pushNotificationLog.logPushSent("cli.notify", paneId)
+        } catch {
+            logger.error("Failed to encrypt custom push notification: \(error)")
+        }
+    }
+
     /// Send terminal stream data to viewer (encrypted)
     public func sendTerminalStream(_ streamMessage: TerminalStreamMessage) async {
         guard state.isConnected else {
