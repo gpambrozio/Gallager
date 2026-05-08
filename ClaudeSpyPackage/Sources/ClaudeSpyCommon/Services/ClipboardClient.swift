@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Dependencies
 import DependenciesMacros
 import Foundation
@@ -8,6 +9,17 @@ import os.log
 #elseif os(iOS)
     import UIKit
 #endif
+
+/// Image bytes plus the format they're encoded in.
+public struct ClipboardImage: Sendable, Equatable {
+    public let data: Data
+    public let format: ImageFormat
+
+    public init(data: Data, format: ImageFormat) {
+        self.data = data
+        self.format = format
+    }
+}
 
 /// A dependency for reading and writing the system clipboard.
 ///
@@ -33,6 +45,13 @@ public struct ClipboardClient: Sendable {
 
     /// Returns true if the clipboard contains image data (macOS only).
     public var hasImage: @Sendable () -> Bool = { false }
+
+    /// Returns the current image on the clipboard, or nil if there is none
+    /// (macOS only). Prefers PNG when available, falls back to TIFF.
+    public var getImage: @Sendable () -> ClipboardImage? = { nil }
+
+    /// Writes image data to the clipboard with the given format (macOS only).
+    public var setImage: @Sendable (_ image: ClipboardImage) -> Void
 }
 
 // MARK: - File-Backed Implementation (E2E)
@@ -51,7 +70,9 @@ public extension ClipboardClient {
             clear: { store.clear() },
             setRichText: { _, plainText in store.write(plainText) },
             setFileURL: { _ in },
-            hasImage: { false }
+            hasImage: { store.readImage() != nil },
+            getImage: { store.readImage() },
+            setImage: { image in store.writeImage(image) }
         )
     }
 }
@@ -67,6 +88,18 @@ final private class FileBackedClipboard: Sendable {
 
     init(path: String) {
         self.path = path
+    }
+
+    /// Path used to persist binary image bytes. Sibling to the text file so
+    /// the E2E runner and tests can read and write images via a deterministic
+    /// path without having to pry into the binary clipboard format.
+    private var imagePath: String {
+        path + ".image"
+    }
+
+    /// Path used to persist the image format alongside the bytes.
+    private var imageFormatPath: String {
+        path + ".image.format"
     }
 
     func read() -> String? {
@@ -91,8 +124,40 @@ final private class FileBackedClipboard: Sendable {
         lock.withLock {
             do {
                 try "".write(toFile: path, atomically: true, encoding: .utf8)
+                try? FileManager.default.removeItem(atPath: imagePath)
+                try? FileManager.default.removeItem(atPath: imageFormatPath)
             } catch {
                 Self.logger.error("Failed to clear clipboard file at \(self.path): \(error)")
+            }
+        }
+    }
+
+    func readImage() -> ClipboardImage? {
+        lock.withLock {
+            guard let data = FileManager.default.contents(atPath: imagePath), !data.isEmpty else {
+                return nil
+            }
+            let formatData = FileManager.default.contents(atPath: imageFormatPath) ?? Data()
+            let formatString = String(data: formatData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let format = ImageFormat(rawValue: formatString) ?? .png
+            return ClipboardImage(data: data, format: format)
+        }
+    }
+
+    func writeImage(_ image: ClipboardImage) {
+        lock.withLock {
+            do {
+                try image.data.write(to: URL(fileURLWithPath: imagePath), options: .atomic)
+                try image.format.rawValue.write(
+                    toFile: imageFormatPath,
+                    atomically: true,
+                    encoding: .utf8
+                )
+            } catch {
+                Self.logger.error(
+                    "Failed to write clipboard image at \(self.imagePath): \(error)"
+                )
             }
         }
     }
@@ -109,7 +174,9 @@ extension ClipboardClient: DependencyKey {
             clear: { store.value = nil },
             setRichText: { _, plainText in store.value = plainText },
             setFileURL: { _ in },
-            hasImage: { false }
+            hasImage: { false },
+            getImage: { nil },
+            setImage: { _ in }
         )
     }
 
@@ -138,6 +205,22 @@ extension ClipboardClient: DependencyKey {
                 hasImage: {
                     let pb = NSPasteboard.general
                     return pb.data(forType: .png) != nil || pb.data(forType: .tiff) != nil
+                },
+                getImage: {
+                    let pb = NSPasteboard.general
+                    if let png = pb.data(forType: .png) {
+                        return ClipboardImage(data: png, format: .png)
+                    }
+                    if let tiff = pb.data(forType: .tiff) {
+                        return ClipboardImage(data: tiff, format: .tiff)
+                    }
+                    return nil
+                },
+                setImage: { image in
+                    let pb = NSPasteboard.general
+                    pb.clearContents()
+                    let type: NSPasteboard.PasteboardType = image.format == .png ? .png : .tiff
+                    pb.setData(image.data, forType: type)
                 }
             )
         #elseif os(iOS)
@@ -153,7 +236,9 @@ extension ClipboardClient: DependencyKey {
                 },
                 setRichText: { _, _ in },
                 setFileURL: { _ in },
-                hasImage: { false }
+                hasImage: { false },
+                getImage: { nil },
+                setImage: { _ in }
             )
         #endif
     }
