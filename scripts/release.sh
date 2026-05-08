@@ -43,6 +43,7 @@ NC='\033[0m'
 SKIP_NOTARIZE=false
 LOCAL_SIGNING=false
 SKIP_UPLOAD=false
+BETA=false
 NOTARYTOOL_PROFILE="notarytool-profile"
 TEAM_ID="XG2WG7U93U"
 
@@ -61,6 +62,10 @@ while [[ $# -gt 0 ]]; do
             SKIP_UPLOAD=true
             shift
             ;;
+        --beta)
+            BETA=true
+            shift
+            ;;
         --notarytool-profile)
             NOTARYTOOL_PROFILE="$2"
             shift 2
@@ -71,7 +76,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--skip-notarize] [--local-signing] [--skip-upload]"
+            echo "Usage: $0 [--skip-notarize] [--local-signing] [--skip-upload] [--beta]"
             exit 1
             ;;
     esac
@@ -145,27 +150,29 @@ rollback_on_failure() {
 check_prerequisites() {
     log_info "Checking prerequisites..."
 
-    if ! command -v lftp &> /dev/null; then
-        log_error "lftp is not installed. Install with: brew install lftp"
-    fi
+    if [ "$BETA" != true ]; then
+        if ! command -v lftp &> /dev/null; then
+            log_error "lftp is not installed. Install with: brew install lftp"
+        fi
 
-    if ! command -v op &> /dev/null; then
-        log_error "1Password CLI is not installed. Install with: brew install --cask 1password-cli"
-    fi
+        if ! command -v op &> /dev/null; then
+            log_error "1Password CLI is not installed. Install with: brew install --cask 1password-cli"
+        fi
 
-    if ! command -v create-dmg &> /dev/null; then
-        log_error "create-dmg is not installed. Install with: brew install create-dmg"
-    fi
+        if ! command -v create-dmg &> /dev/null; then
+            log_error "create-dmg is not installed. Install with: brew install create-dmg"
+        fi
 
-    if ! command -v sign_update &> /dev/null; then
-        log_warning "Sparkle sign_update not found. Install with: brew install sparkle"
+        if ! command -v sign_update &> /dev/null; then
+            log_warning "Sparkle sign_update not found. Install with: brew install sparkle"
+        fi
     fi
 
     if ! command -v xcrun &> /dev/null; then
         log_error "Xcode command line tools are not installed."
     fi
 
-    if [[ -n $(git -C "$PROJECT_ROOT" status --porcelain) ]]; then
+    if [ "$BETA" != true ] && [[ -n $(git -C "$PROJECT_ROOT" status --porcelain) ]]; then
         log_warning "Git working directory has uncommitted changes."
         read -p "Continue anyway? (y/N) " -n 1 -r
         echo ""
@@ -596,9 +603,55 @@ $commits"
 }
 
 # =====================================================
+# Beta build (build, sign, notarize, copy to ~)
+# =====================================================
+run_beta_build() {
+    echo ""
+    echo "=========================================="
+    echo "  ClaudeSpy Beta Build"
+    echo "=========================================="
+    echo ""
+
+    check_prerequisites
+
+    local version
+    version=$(get_version)
+    local build_number
+    build_number=$(get_build_number)
+    log_info "Building beta of version $version (build $build_number)"
+
+    build_archive
+    export_archive
+    verify_bundled_plugin
+    notarize_app
+
+    local app_path="$EXPORT_PATH/$APP_NAME.app"
+    local dest_path="$HOME/$APP_NAME.app"
+
+    log_info "Copying app to $dest_path..."
+    rm -rf "$dest_path"
+    cp -R "$app_path" "$dest_path" || log_error "Failed to copy app to $dest_path"
+
+    rm -rf "$BUILD_DIR"
+
+    echo ""
+    echo "=========================================="
+    echo "  Beta Build Complete!"
+    echo "=========================================="
+    echo ""
+    log_success "Beta app available at $dest_path"
+    echo ""
+}
+
+# =====================================================
 # Main
 # =====================================================
 main() {
+    if [ "$BETA" = true ]; then
+        run_beta_build
+        exit 0
+    fi
+
     echo ""
     echo "=========================================="
     echo "  ClaudeSpy Release Script"
