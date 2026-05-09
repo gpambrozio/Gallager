@@ -15,6 +15,14 @@ private let skippedNavigatorEntries: Set = [
     ".TemporaryItems", ".DocumentRevisions-V100",
 ]
 
+/// Which kind of search the file browser is currently performing.
+public enum FileSearchMode: String, CaseIterable, Sendable {
+    /// Match file names / paths (existing behavior).
+    case name
+    /// Match the contents of files (issue #432).
+    case content
+}
+
 /// A file opened as its own tab to the right of the file explorer tab.
 /// Identified by a stable UUID so re-opens select the existing tab and
 /// deletion state can be tracked without losing the tab.
@@ -79,10 +87,21 @@ final class FileBrowserState {
     var allFilesDirectoryPath: String?
     /// Current search query, preserved across tab switches.
     var searchQuery = ""
-    /// Selected file path in search results, preserved across tab switches.
+    /// Whether the user is searching by file name (default) or by file
+    /// contents. Both modes share `searchQuery` so toggling preserves what the
+    /// user already typed.
+    var searchMode: FileSearchMode = .name
+    /// Selected file path in name-search results, preserved across tab switches.
     var selectedSearchPath: String?
-    /// Cached search results matching the current query.
+    /// Cached file-name results matching the current query.
     var cachedSearchResults: [FileSearchResult] = []
+    /// Cached content-search matches for the current query.
+    var cachedContentSearchResults: [FileTextSearchMatch] = []
+    /// Selected match id (`fullPath:lineNumber`) in the content-search list.
+    var selectedContentSearchMatchID: String?
+    /// True while a content search is running for the current query, so the
+    /// UI can show a progress indicator until the first batch lands.
+    var isContentSearchRunning = false
     /// When set, the navigator expands every ancestor folder, selects this path,
     /// and clears the value. Used by "Show in File Explorer" so a tab can route
     /// the user back to the tree even when the containing folders are collapsed.
@@ -172,8 +191,10 @@ struct FileBrowserView: View {
     let onOpenFileInNewTab: (String) -> Void
 
     @Dependency(FileSystemLoadingService.self) private var fileSystemService
+    @Dependency(FileTextSearchService.self) private var textSearchService
 
     @State private var loadTreeTask: Task<Void, Never>?
+    @State private var contentSearchTask: Task<Void, Never>?
 
     var body: some View {
         if let viewState = state.viewState {
@@ -216,6 +237,12 @@ struct FileBrowserView: View {
                 }
                 .task(id: state.pendingRevealPath) {
                     await revealPendingPathIfNeeded()
+                }
+                .onDisappear {
+                    // Content searches can spawn a `git ls-files` process and
+                    // walk the tree reading text files; if the user navigates
+                    // away mid-search there's no reason to keep going.
+                    contentSearchTask?.cancel()
                 }
         } else {
             ProgressView("Loading files...")
@@ -375,15 +402,19 @@ struct FileBrowserView: View {
                 .foregroundStyle(.secondary)
                 .font(.caption)
 
-            TextField("Search files...", text: $state.searchQuery)
-                .textFieldStyle(.plain)
-                .font(.callout)
-                .accessibilityLabel("Search files")
+            TextField(
+                state.searchMode == .name ? "Search files..." : "Search file contents...",
+                text: $state.searchQuery
+            )
+            .textFieldStyle(.plain)
+            .font(.callout)
+            .accessibilityLabel(state.searchMode == .name ? "Search files" : "Search file contents")
 
             if !state.searchQuery.isEmpty {
                 Button {
                     state.searchQuery = ""
                     state.selectedSearchPath = nil
+                    state.selectedContentSearchMatchID = nil
                 } label: {
                     Symbols.xmarkCircleFill.image
                         .foregroundStyle(.secondary)
@@ -392,6 +423,19 @@ struct FileBrowserView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Clear search")
             }
+
+            // Compact segmented picker on the same row as the search field so
+            // adding a content-search mode doesn't grow the search bar's
+            // vertical footprint and squeeze rows out of the file tree.
+            Picker("Search mode", selection: $state.searchMode) {
+                Text("Name").tag(FileSearchMode.name)
+                Text("Content").tag(FileSearchMode.content)
+            }
+            .pickerStyle(.segmented)
+            .controlSize(.small)
+            .labelsHidden()
+            .frame(width: 110)
+            .accessibilityLabel("Search mode")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -422,6 +466,39 @@ struct FileBrowserView: View {
         )
     }
 
+    /// Cancels any in-flight content search and starts a new one for the
+    /// current `searchQuery`. Streamed batches accumulate into
+    /// `cachedContentSearchResults` as they arrive.
+    private func recomputeContentSearchResults() {
+        contentSearchTask?.cancel()
+        guard !state.searchQuery.isEmpty else {
+            state.cachedContentSearchResults = []
+            state.isContentSearchRunning = false
+            state.selectedContentSearchMatchID = nil
+            return
+        }
+        let query = state.searchQuery
+        let directoryURL = URL(fileURLWithPath: directoryPath)
+        state.cachedContentSearchResults = []
+        state.selectedContentSearchMatchID = nil
+        state.isContentSearchRunning = true
+        contentSearchTask = Task { @MainActor in
+            // Small debounce so rapid keystrokes don't spawn searches we'd
+            // immediately throw away. The cancellation above already handles
+            // the live-typing case; this just keeps things calm if a new task
+            // was started before its predecessor was cancelled.
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            for await batch in textSearchService.searchFileContents(directoryURL, query) {
+                guard !Task.isCancelled else { return }
+                guard state.searchQuery == query else { return }
+                state.cachedContentSearchResults.append(contentsOf: batch)
+            }
+            guard !Task.isCancelled else { return }
+            state.isContentSearchRunning = false
+        }
+    }
+
     @ViewBuilder
     private var fileSearchResultsList: some View {
         if state.cachedSearchResults.isEmpty {
@@ -432,6 +509,40 @@ struct FileBrowserView: View {
                 ForEach(state.cachedSearchResults) { result in
                     searchResultRow(result)
                         .tag(result.fullPath)
+                        .fileContextMenu(
+                            fullPath: result.fullPath,
+                            directoryPath: directoryPath,
+                            isDirectory: false,
+                            onOpenFileInNewTab: onOpenFileInNewTab
+                        )
+                }
+            }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+        }
+    }
+
+    @ViewBuilder
+    private var contentSearchResultsList: some View {
+        if state.cachedContentSearchResults.isEmpty {
+            if state.isContentSearchRunning {
+                ProgressView("Searching...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ContentUnavailableView.search(text: state.searchQuery)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        } else {
+            List(selection: $state.selectedContentSearchMatchID) {
+                ForEach(state.cachedContentSearchResults) { match in
+                    contentSearchResultRow(match)
+                        .tag(match.id)
+                        .fileContextMenu(
+                            fullPath: match.fullPath,
+                            directoryPath: directoryPath,
+                            isDirectory: false,
+                            onOpenFileInNewTab: onOpenFileInNewTab
+                        )
                 }
             }
             .listStyle(.sidebar)
@@ -463,6 +574,45 @@ struct FileBrowserView: View {
                     .lineLimit(1)
                     .padding(.leading, 24)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func contentSearchResultRow(_ match: FileTextSearchMatch) -> some View {
+        let directory: String = {
+            guard let lastSlash = match.relativePath.lastIndex(of: "/") else { return "" }
+            return String(match.relativePath[..<lastSlash])
+        }()
+
+        VStack(alignment: .leading, spacing: 2) {
+            Label {
+                HStack(spacing: 4) {
+                    Text(match.name)
+                        .font(.callout)
+                        .lineLimit(1)
+                    Text(":\(match.lineNumber)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } icon: {
+                Symbols.docPlaintextFill.image
+                    .foregroundStyle(.secondary)
+            }
+
+            if !directory.isEmpty {
+                Text(directory)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .padding(.leading, 24)
+            }
+
+            Text(match.lineText)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .padding(.leading, 24)
+                .accessibilityLabel("Match line: \(match.lineText)")
         }
     }
 
@@ -509,7 +659,6 @@ struct FileBrowserView: View {
     /// Overlays a small filled-link badge on the bottom-trailing corner of an icon
     /// so symlinks read as their target type (file vs. folder) while still being
     /// visibly distinguishable from regular entries.
-    @ViewBuilder
     private func symlinkBadgedIcon(_ content: some View, isSymlink: Bool) -> some View {
         content.overlay(alignment: .bottomTrailing) {
             if isSymlink {
@@ -572,7 +721,12 @@ struct FileBrowserView: View {
                     .listStyle(.sidebar)
                     .scrollContentBackground(.hidden)
                 } else {
-                    fileSearchResultsList
+                    switch state.searchMode {
+                    case .name:
+                        fileSearchResultsList
+                    case .content:
+                        contentSearchResultsList
+                    }
                 }
             }
             .frame(width: state.sidebarWidth)
@@ -583,10 +737,34 @@ struct FileBrowserView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onChange(of: state.searchQuery, initial: true) {
-            recomputeSearchResults()
+            switch state.searchMode {
+            case .name:
+                recomputeSearchResults()
+            case .content:
+                recomputeContentSearchResults()
+            }
+        }
+        .onChange(of: state.searchMode) {
+            // Selection clears on mode switch — the two modes use different
+            // selection stores, and a content-search selection has no meaning
+            // in the file-name list (and vice versa).
+            state.selectedSearchPath = nil
+            state.selectedContentSearchMatchID = nil
+            switch state.searchMode {
+            case .name:
+                contentSearchTask?.cancel()
+                state.cachedContentSearchResults = []
+                state.isContentSearchRunning = false
+                recomputeSearchResults()
+            case .content:
+                state.cachedSearchResults = []
+                recomputeContentSearchResults()
+            }
         }
         .onChange(of: state.allFiles) {
-            recomputeSearchResults()
+            if state.searchMode == .name {
+                recomputeSearchResults()
+            }
         }
         .onChange(of: state.cachedSearchResults) {
             // Drop the selection if the previously selected file is no longer
@@ -597,6 +775,13 @@ struct FileBrowserView: View {
                 state.selectedSearchPath = nil
             }
         }
+        .onChange(of: state.cachedContentSearchResults) {
+            if
+                let selected = state.selectedContentSearchMatchID,
+                !state.cachedContentSearchResults.contains(where: { $0.id == selected }) {
+                state.selectedContentSearchMatchID = nil
+            }
+        }
     }
 
     @ViewBuilder
@@ -604,7 +789,7 @@ struct FileBrowserView: View {
         viewState: FileNavigatorViewState<TextFileContents>
     ) -> some View {
         if !state.searchQuery.isEmpty {
-            if let path = state.selectedSearchPath {
+            if let path = selectedSearchResultPath {
                 let relativePath = path.hasPrefix(directoryPath + "/")
                     ? String(path.dropFirst(directoryPath.count + 1))
                     : URL(fileURLWithPath: path).lastPathComponent
@@ -619,10 +804,14 @@ struct FileBrowserView: View {
                     LiveFileContentView(filePath: path, scrollOffsetY: scrollBinding(for: path))
                 }
             } else {
+                let title = state.searchMode == .name ? "Search for Files" : "Search File Contents"
+                let description = state.searchMode == .name
+                    ? "Type a file name to search, then select a result to view."
+                    : "Type to search inside files, then select a result to view."
                 ContentUnavailableView(
-                    "Search for Files",
+                    title,
                     symbol: .magnifyingglass,
-                    description: "Type a file name to search, then select a result to view."
+                    description: description
                 )
             }
         } else if
@@ -675,6 +864,18 @@ struct FileBrowserView: View {
             get: { state.scrollOffsets[path] ?? 0 },
             set: { state.scrollOffsets[path] = $0 }
         )
+    }
+
+    /// Resolves the currently-selected search result to its file path,
+    /// regardless of which search mode is active.
+    private var selectedSearchResultPath: String? {
+        switch state.searchMode {
+        case .name:
+            return state.selectedSearchPath
+        case .content:
+            guard let id = state.selectedContentSearchMatchID else { return nil }
+            return state.cachedContentSearchResults.first(where: { $0.id == id })?.fullPath
+        }
     }
 }
 

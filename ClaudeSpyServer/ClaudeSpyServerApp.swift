@@ -214,6 +214,7 @@ struct TmuxPaneMirrorApp: App {
                     ]),
                 ]
                 $0[FileSystemLoadingService.self] = .inMemory(tree: fakeTree, dynamicEntries: dynamicEntries)
+                $0[FileTextSearchService.self] = .inMemory(tree: fakeTree, dynamicEntries: dynamicEntries)
                 $0[LoginItemService.self] = LoginItemService(
                     isEnabled: { false },
                     setEnabled: { _ in }
