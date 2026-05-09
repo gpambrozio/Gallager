@@ -79,11 +79,15 @@ public enum FileTextSearchScenario {
         // ── Phase 3: Selecting a content match opens that file ──
         TestStep.log("Phase 3: Selecting a content-search result loads the file in the detail pane")
 
-        // Click the hello.txt match. The detail pane should show its full
-        // body including the second line "This is a plain text file.",
-        // which we use as the assertion target since it doesn't appear in
-        // any other fake-file fixture.
-        TestStep.macCGClick(titled: "hello.txt")
+        // Results are now grouped by file: each file is a DisclosureGroup
+        // header whose accessibility label is the file name, and individual
+        // match rows live under it labelled "Line <n>: <line>". Clicking
+        // the header would toggle disclosure rather than selecting, so we
+        // target hello.txt's match row directly. The detail pane should
+        // then show the file body including the second line "This is a
+        // plain text file." — used as the assertion target since it
+        // doesn't appear in any other fake-file fixture.
+        TestStep.macCGClick(titled: "Line 1: Hello, world!")
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(.anyTextMatches("This is a plain text file"), timeout: 5)
         TestStep.macScreenshot(label: "mac-text-search-content-selected")
