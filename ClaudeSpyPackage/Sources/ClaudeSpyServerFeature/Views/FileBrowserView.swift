@@ -1341,23 +1341,24 @@ private struct MarkdownContentView: View {
 /// on first appearance and updates it on every user scroll, so
 /// switching tabs/sessions and returning preserves the position.
 ///
-/// `highlightLine` (1-based) tints the matched line via an
-/// `AttributedString` background and scrolls so the line lands at
-/// the viewport center. When set on initial load it overrides
-/// `savedScrollY` — the user wants to see the match, not the
-/// previous reading position.
+/// `highlightLine` (1-based) marks the matched line: a positional
+/// `Rectangle` overlay tints it and the view scrolls so the line
+/// lands at the viewport center. When set on initial load it
+/// overrides `savedScrollY` — the user wants to see the match,
+/// not the previous reading position.
 ///
 /// Built from two side-by-side SwiftUI `Text` views inside a single
-/// `ScrollView`: the gutter shows numbers as a single newline-joined
-/// string and the content shows the file as one `Text` with
+/// `ScrollView`: the gutter shows numbers as a newline-joined string
+/// (cached) and the content is one `Text(text)` with
 /// `.textSelection(.enabled)`, so cross-line drag selection still
-/// works. Earlier attempts at NSTextView ran into a layer-compositing
-/// bug where mutating the text view inside `updateNSView` left
-/// neighbouring SwiftUI surfaces (tab bar, sidebar) unrendered until
-/// the next input event; the SwiftUI-only layout sidesteps that
-/// entirely at the cost of slightly less precise scroll-to-line
-/// (we use the AppKit monospaced font's reported line height to
-/// estimate a Y target rather than asking a layout manager).
+/// works. The highlight is an `.overlay` rectangle keyed off the
+/// monospaced font's line height — clicking a different match in the
+/// same file just moves the rect, no `AttributedString` rebuild and
+/// no `Text` re-layout. Earlier attempts at NSTextView ran into a
+/// layer-compositing bug where mutating the text view inside
+/// `updateNSView` left neighbouring SwiftUI surfaces (tab bar,
+/// sidebar) unrendered until the next input event; the SwiftUI-only
+/// layout sidesteps that.
 private struct PlainTextContentView: View {
     let text: String
     var savedScrollY: Binding<CGFloat>?
@@ -1370,16 +1371,21 @@ private struct PlainTextContentView: View {
     /// scroll notifications driven by layout/restore are ignored so they
     /// don't overwrite the saved offset with intermediate values.
     @State private var isTrackingUserScroll = false
+    /// Cached line count for the loaded `text`. Recomputed only when
+    /// `text` changes (in `.task(id: text)`); body reads it as-is so
+    /// re-renders triggered by highlight/scroll-state changes don't
+    /// re-tokenize the entire file.
+    @State private var lineCount = 0
+    /// Cached newline-joined "1\n2\n…\nN" string for the gutter Text.
+    /// Recomputed only when `text` changes; body reads it as-is.
+    @State private var gutterText = ""
 
     private var scrollY: Binding<CGFloat> {
         savedScrollY ?? $localScrollY
     }
 
     var body: some View {
-        let lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
-        let lineCount = lines.count
-        let gutterText = lineNumbersString(lineCount: lineCount)
-        let attributed = highlightedContent(text: text, lines: lines, line: highlightLine)
+        let lineHeight = monospacedLineHeight()
         ScrollView {
             HStack(alignment: .top, spacing: 0) {
                 Text(gutterText)
@@ -1391,11 +1397,20 @@ private struct PlainTextContentView: View {
                     .padding(.trailing, 8)
                     .background(Color.secondary.opacity(0.05))
 
-                Text(attributed)
+                Text(text)
                     .font(.system(.body, design: .monospaced))
                     .textSelection(.enabled)
-                    .padding(.leading, 8)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .overlay(alignment: .topLeading) {
+                        if let line = highlightLine, line >= 1 {
+                            Rectangle()
+                                .fill(Color.accentColor.opacity(0.20))
+                                .frame(height: lineHeight)
+                                .offset(y: CGFloat(line - 1) * lineHeight)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .padding(.leading, 8)
             }
             .padding(.vertical, 8)
         }
@@ -1412,6 +1427,14 @@ private struct PlainTextContentView: View {
             viewportHeight = newHeight
         }
         .task(id: text) {
+            // Recompute the cached gutter once per file load so body
+            // re-renders driven by highlight/scroll state can read
+            // them without re-tokenizing the entire file. Cheap enough
+            // for the 2 MB cap the search service enforces.
+            let count = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).count
+            lineCount = count
+            gutterText = Self.lineNumbersString(lineCount: count)
+
             // On (re)load, prefer the highlight line over the saved Y
             // offset — if the parent gave us a match line, the user
             // just clicked a search result and expects to see it, not
@@ -1465,41 +1488,8 @@ private struct PlainTextContentView: View {
 
     /// Newline-joined "1\n2\n3\n…" string sized to match the file's
     /// line count, used directly as the gutter's `Text` content.
-    private func lineNumbersString(lineCount: Int) -> String {
+    private static func lineNumbersString(lineCount: Int) -> String {
         guard lineCount > 0 else { return "" }
         return (1...lineCount).map(String.init).joined(separator: "\n")
-    }
-
-    /// Builds an `AttributedString` for the file content with the
-    /// matched line tinted by the system accent colour. When
-    /// `highlightLine` is `nil` or out of bounds, returns the plain
-    /// content unchanged.
-    private func highlightedContent(
-        text: String,
-        lines: [Substring],
-        line: Int?
-    ) -> AttributedString {
-        var attributed = AttributedString(text)
-        guard let line, line >= 1, line <= lines.count else { return attributed }
-
-        // Sum the byte-length of preceding lines plus their newline
-        // separators to find this line's character offset in `text`.
-        // `Substring.count` is the UTF-16-equivalent character count
-        // matching the indices SwiftUI's Text uses.
-        var charOffset = 0
-        for index in 0..<(line - 1) {
-            charOffset += lines[index].count + 1
-        }
-        let lineLength = lines[line - 1].count
-        guard
-            let stringStart = text.index(text.startIndex, offsetBy: charOffset, limitedBy: text.endIndex),
-            let stringEnd = text.index(stringStart, offsetBy: lineLength, limitedBy: text.endIndex)
-        else {
-            return attributed
-        }
-        if let attRange = Range<AttributedString.Index>(stringStart..<stringEnd, in: attributed) {
-            attributed[attRange].backgroundColor = .accentColor.opacity(0.20)
-        }
-        return attributed
     }
 }
