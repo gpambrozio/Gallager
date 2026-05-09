@@ -1555,10 +1555,16 @@ private struct PlainTextContentView: NSViewRepresentable {
         // Initial layout & scroll has to wait one runloop tick: textContainer
         // sizing and glyph generation haven't happened yet, so a synchronous
         // scrollRangeToVisible would clamp to (0, 0).
+        let initialLine = highlightLine
         DispatchQueue.main.async { [weak coordinator = context.coordinator] in
             guard let coordinator else { return }
             attachClipObserver(scrollView: scrollView, coordinator: coordinator)
-            apply(textView: textView, scrollView: scrollView, coordinator: coordinator, animated: false)
+            apply(
+                textView: textView,
+                scrollView: scrollView,
+                coordinator: coordinator,
+                highlightLine: initialLine
+            )
         }
 
         return scrollView
@@ -1579,11 +1585,20 @@ private struct PlainTextContentView: NSViewRepresentable {
         }
         context.coordinator.lastAppliedHighlight = highlightLine
 
-        // Animate scroll when only the highlight line changes (user clicked a
-        // different match in the same file). On a fresh text load the
-        // animated scroll would visibly fly past the content, so skip it.
-        let animated = !textChanged && highlightChanged
-        apply(textView: textView, scrollView: scrollView, coordinator: context.coordinator, animated: animated)
+        // Defer the highlight + scroll mutations until SwiftUI finishes
+        // its current update pass. Doing them synchronously inside
+        // `updateNSView` interleaves with SwiftUI's layout/draw cycle and
+        // leaves the window's other layer-backed surfaces (tab bar,
+        // sidebar) in an unrendered state until the next input event.
+        let line = highlightLine
+        DispatchQueue.main.async { [coordinator = context.coordinator] in
+            apply(
+                textView: textView,
+                scrollView: scrollView,
+                coordinator: coordinator,
+                highlightLine: line
+            )
+        }
     }
 
     static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
@@ -1613,15 +1628,17 @@ private struct PlainTextContentView: NSViewRepresentable {
         }
     }
 
-    /// Applies the current `text` / `highlightLine` to the live NSTextView.
-    /// Scrolls to the highlight line (centered) if one is set; otherwise
-    /// restores the saved Y offset on first attach. Re-applied from
-    /// `updateNSView` whenever either input changes.
+    /// Applies the requested `highlightLine` to the live NSTextView and
+    /// scrolls so the line lands at the viewport center. Falls back to
+    /// restoring the saved Y offset when no line is highlighted (initial
+    /// attach for tabs / non-search file selection). Always invoked from
+    /// the next runloop tick so we don't interleave with SwiftUI's layout
+    /// pass.
     private func apply(
         textView: NSTextView,
         scrollView: NSScrollView,
         coordinator: Coordinator,
-        animated: Bool
+        highlightLine: Int?
     ) {
         applyHighlight(textView: textView, line: highlightLine)
         coordinator.isRestoring = true
@@ -1632,7 +1649,7 @@ private struct PlainTextContentView: NSViewRepresentable {
             DispatchQueue.main.async { coordinator.isRestoring = false }
         }
         if let line = highlightLine {
-            centerScroll(textView: textView, scrollView: scrollView, line: line, animated: animated)
+            centerScroll(textView: textView, scrollView: scrollView, line: line)
         } else if let savedY = coordinator.savedScrollY?.wrappedValue, savedY > 0 {
             scrollView.contentView.scroll(to: NSPoint(x: 0, y: savedY))
             scrollView.reflectScrolledClipView(scrollView.contentView)
@@ -1655,15 +1672,14 @@ private struct PlainTextContentView: NSViewRepresentable {
 
     /// Scrolls so the requested line sits at the vertical center of the
     /// viewport. Falls back to a top-anchored position when the line is too
-    /// near the start of the document to center cleanly. No animation —
-    /// `NSAnimationContext.allowsImplicitAnimation` propagates into
-    /// SwiftUI's layer-backed parents and ends up flashing tabs / sidebar
-    /// blank for the duration of the scroll. Plain scroll is fine.
+    /// near the start of the document to center cleanly. Called from a
+    /// deferred async block so SwiftUI's layout pass can finish first;
+    /// scrolling synchronously while SwiftUI is mid-update was leaving
+    /// other layer-backed surfaces (tab bar, sidebar) unrendered.
     private func centerScroll(
         textView: NSTextView,
         scrollView: NSScrollView,
-        line: Int,
-        animated _: Bool
+        line: Int
     ) {
         guard
             let layoutManager = textView.layoutManager,
