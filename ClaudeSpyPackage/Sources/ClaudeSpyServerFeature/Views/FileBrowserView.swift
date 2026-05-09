@@ -1518,29 +1518,27 @@ private struct PlainTextContentView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
+        // `scrollableTextView()` is Apple's canonical NSTextView setup —
+        // wires up the layout manager, text container, autoresizing, and
+        // initial sizing so the text view is immediately ready to render
+        // when added to the view hierarchy. Hand-rolling the same setup
+        // produced a (0, 0) text container before SwiftUI installed the
+        // view, which left the document area unable to lay out glyphs.
+        let scrollView = NSTextView.scrollableTextView()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
-        scrollView.drawsBackground = false
 
-        let textView = NSTextView()
+        guard let textView = scrollView.documentView as? NSTextView else {
+            return scrollView
+        }
         textView.isEditable = false
         textView.isSelectable = true
         textView.allowsUndo = false
         textView.font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
         textView.textContainerInset = NSSize(width: 6, height: 8)
-        textView.isHorizontallyResizable = false
-        textView.isVerticallyResizable = true
-        textView.autoresizingMask = [.width]
-        textView.minSize = NSSize(width: 0, height: 0)
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.textContainer?.widthTracksTextView = true
-        textView.drawsBackground = false
         textView.string = text
-
-        scrollView.documentView = textView
 
         // Attach the line-number gutter. Sized at construction; we recompute
         // the width whenever the text changes so growing files (more digits)
@@ -1656,13 +1654,16 @@ private struct PlainTextContentView: NSViewRepresentable {
     }
 
     /// Scrolls so the requested line sits at the vertical center of the
-    /// viewport. Falls back to top-anchored scroll when the line is too
-    /// near the start to center cleanly.
+    /// viewport. Falls back to a top-anchored position when the line is too
+    /// near the start of the document to center cleanly. No animation —
+    /// `NSAnimationContext.allowsImplicitAnimation` propagates into
+    /// SwiftUI's layer-backed parents and ends up flashing tabs / sidebar
+    /// blank for the duration of the scroll. Plain scroll is fine.
     private func centerScroll(
         textView: NSTextView,
         scrollView: NSScrollView,
         line: Int,
-        animated: Bool
+        animated _: Bool
     ) {
         guard
             let layoutManager = textView.layoutManager,
@@ -1676,19 +1677,8 @@ private struct PlainTextContentView: NSViewRepresentable {
         let inset = textView.textContainerInset.height
         var targetY = (lineRect.midY + inset) - viewportHeight / 2
         targetY = max(0, targetY)
-
-        let target = NSPoint(x: 0, y: targetY)
-        if animated {
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.2
-                ctx.allowsImplicitAnimation = true
-                scrollView.contentView.animator().setBoundsOrigin(target)
-                scrollView.reflectScrolledClipView(scrollView.contentView)
-            }
-        } else {
-            scrollView.contentView.scroll(to: target)
-            scrollView.reflectScrolledClipView(scrollView.contentView)
-        }
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetY))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     /// Resolves the (1-based) `line` to a character range in `nsString`.
