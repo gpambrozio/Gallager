@@ -16,7 +16,7 @@ private let skippedNavigatorEntries: Set = [
 ]
 
 /// Which kind of search the file browser is currently performing.
-public enum FileSearchMode: String, CaseIterable, Sendable {
+enum FileSearchMode: String, CaseIterable, Sendable {
     /// Match file names / paths (existing behavior).
     case name
     /// Match the contents of files (issue #432).
@@ -252,8 +252,14 @@ struct FileBrowserView: View {
                 .onDisappear {
                     // Content searches can spawn a `git ls-files` process and
                     // walk the tree reading text files; if the user navigates
-                    // away mid-search there's no reason to keep going.
+                    // away mid-search there's no reason to keep going. Clear
+                    // the running flag here too — once the task is cancelled,
+                    // its `state.isContentSearchRunning = false` line at the
+                    // tail won't run, which would otherwise leave the search
+                    // results list stuck on the "Searching..." spinner if the
+                    // user came back without typing a new query.
                     contentSearchTask?.cancel()
+                    state.isContentSearchRunning = false
                 }
         } else {
             ProgressView("Loading files...")
@@ -576,12 +582,18 @@ struct FileBrowserView: View {
         }
     }
 
+    /// Returns the directory portion of a relative path (everything before the
+    /// final slash), or `""` if the path has no directory component. Used by
+    /// both result-row builders to render the dimmed parent-folder hint under
+    /// the file name.
+    private func directorySegment(of relativePath: String) -> String {
+        guard let lastSlash = relativePath.lastIndex(of: "/") else { return "" }
+        return String(relativePath[..<lastSlash])
+    }
+
     @ViewBuilder
     private func searchResultRow(_ result: FileSearchResult) -> some View {
-        let directory: String = {
-            guard let lastSlash = result.relativePath.lastIndex(of: "/") else { return "" }
-            return String(result.relativePath[..<lastSlash])
-        }()
+        let directory = directorySegment(of: result.relativePath)
 
         VStack(alignment: .leading, spacing: 2) {
             Label {
@@ -605,13 +617,13 @@ struct FileBrowserView: View {
 
     @ViewBuilder
     private func contentSearchResultRow(_ match: FileTextSearchMatch) -> some View {
-        let directory: String = {
-            guard let lastSlash = match.relativePath.lastIndex(of: "/") else { return "" }
-            return String(match.relativePath[..<lastSlash])
-        }()
+        let directory = directorySegment(of: match.relativePath)
 
         VStack(alignment: .leading, spacing: 2) {
             Label {
+                // The HStack carries a combined accessibility label so
+                // VoiceOver reads "main.swift, line 6" as one element instead
+                // of two ("main.swift", pause, ":6").
                 HStack(spacing: 4) {
                     Text(match.name)
                         .font(.callout)
@@ -620,6 +632,8 @@ struct FileBrowserView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(match.name), line \(match.lineNumber)")
             } icon: {
                 Symbols.docPlaintextFill.image
                     .foregroundStyle(.secondary)
@@ -802,9 +816,11 @@ struct FileBrowserView: View {
             }
         }
         .onChange(of: state.cachedContentSearchResults) {
-            if
-                let selected = state.selectedContentSearchMatchID,
-                !state.cachedContentSearchResults.contains(where: { $0.id == selected }) {
+            // Fires once per streaming batch, so cheap-path-out when there's
+            // nothing selected — that's the common case while results stream
+            // in (the user can't pick a row that doesn't exist yet).
+            guard let selected = state.selectedContentSearchMatchID else { return }
+            if !state.cachedContentSearchResults.contains(where: { $0.id == selected }) {
                 state.selectedContentSearchMatchID = nil
             }
         }

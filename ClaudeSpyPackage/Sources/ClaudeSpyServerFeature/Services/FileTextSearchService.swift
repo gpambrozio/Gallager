@@ -134,7 +134,7 @@ public extension FileTextSearchService {
                         var lineNumber = 0
                         for line in content.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
                             lineNumber += 1
-                            if line.lowercased().contains(lowered) {
+                            if line.range(of: lowered, options: .caseInsensitive) != nil {
                                 batch.append(FileTextSearchMatch(
                                     fullPath: fullPath,
                                     relativePath: relativePath,
@@ -170,6 +170,11 @@ private let maxLineDisplayLength = 240
 /// Number of matches to accumulate before yielding a batch.
 private let searchBatchSize = 50
 
+/// Number of file paths to accumulate before yielding a batch from the
+/// enumeration stage (`git ls-files` parser and the directory walker). Kept
+/// as a named constant so both producers share the same threshold.
+private let searchFilesBatchSize = 100
+
 /// Walks every file under `rootURL` (respecting `.gitignore` when in a git work
 /// tree), reads each as UTF-8 text, and yields batches of matches whose lines
 /// case-insensitively contain `query`.
@@ -178,6 +183,10 @@ private func searchFilesUnder(
     query: String,
     continuation: AsyncStream<[FileTextSearchMatch]>.Continuation
 ) async {
+    // Pre-lowercase the needle once and run a case-insensitive `range(of:)`
+    // per line. The previous `line.lowercased().contains(...)` allocated a
+    // fresh copy of every line, which adds up on near-cap (≈2 MB) source
+    // files where the line count can run into the tens of thousands.
     let lowered = query.lowercased()
     let rootPath = rootURL.path
     var batch: [FileTextSearchMatch] = []
@@ -203,7 +212,7 @@ private func searchFilesUnder(
             var lineNumber = 0
             for line in content.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
                 lineNumber += 1
-                if line.lowercased().contains(lowered) {
+                if line.range(of: lowered, options: .caseInsensitive) != nil {
                     batch.append(FileTextSearchMatch(
                         fullPath: fileResult.fullPath,
                         relativePath: fileResult.relativePath,
@@ -305,7 +314,7 @@ private func runGitLsFilesForSearch(
                 relativePath: relativePath,
                 name: name
             ))
-            if batch.count >= 100 {
+            if batch.count >= searchFilesBatchSize {
                 continuation.yield(batch)
                 batch.removeAll(keepingCapacity: true)
             }
@@ -356,7 +365,7 @@ private func walkDirectoryForSearch(
                     relativePath: relativePath,
                     name: name
                 ))
-                if batch.count >= 100 {
+                if batch.count >= searchFilesBatchSize {
                     continuation.yield(batch)
                     batch.removeAll(keepingCapacity: true)
                 }
