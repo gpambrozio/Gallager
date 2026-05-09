@@ -11,9 +11,12 @@ import Foundation
 /// 4. The same right-click context menu offered on tree rows (Copy Path,
 ///    Copy Relative Path, Open, Show in Finder, …) is also available on
 ///    content-search and name-search result cells.
-/// 5. An empty content query yields a "Search File Contents" placeholder;
+/// 5. Switching to a different tab and back preserves the content-search
+///    cache and the selected match — no re-walk of the tree, no lost
+///    selection (a cached-query gate on `recomputeContentSearchResults`).
+/// 6. An empty content query yields a "Search File Contents" placeholder;
 ///    a query with no matches falls through to `ContentUnavailableView.search`.
-/// 6. Toggling back to Name mode after a content search re-uses the typed
+/// 7. Toggling back to Name mode after a content search re-uses the typed
 ///    query against the file-name index (the picker preserves the query so
 ///    users don't have to retype).
 ///
@@ -112,10 +115,42 @@ public enum FileTextSearchScenario {
         TestStep.assertStoredContains(key: "contentSearchCopiedRel", substring: "src/main.swift")
         TestStep.assertStoredNotContains(key: "contentSearchCopiedRel", substring: "/Users/")
 
-        // ── Phase 5: No-results state in content mode ──
-        TestStep.log("Phase 5: Content search with no matches falls through to the empty state")
+        // ── Phase 5: Tab switch preserves the cached search + selection ──
+        TestStep.log("Phase 5: Leaving the Files tab and returning preserves results and selection")
 
-        TestStep.macCGClick(titled: "Search file contents")
+        // Phase 4's right-click likely shifted the row selection onto
+        // main.swift, so re-pin it to hello.txt's match for a deterministic
+        // assertion target after we round-trip tabs.
+        TestStep.macCGClick(titled: "Line 1: Hello, world!")
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementQuery(.anyTextMatches("This is a plain text file"), timeout: 5)
+
+        // Switch to the tmux window's terminal tab. The file-browser view
+        // disappears and its `.onDisappear` cancels any in-flight search,
+        // but the cached results and selection live on the parent state.
+        TestStep.macClickButton(titled: "filetextsearch:0")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElementQuery(.anyTextMatches("FILE TEXT SEARCH TEST"), timeout: 5)
+        TestStep.macWaitForElementQueryToDisappear(.anyTextMatches("This is a plain text file"), timeout: 3)
+        TestStep.macScreenshot(label: "mac-text-search-tab-switch-terminal")
+
+        // Return to the Files tab. Without the cached-query gate the
+        // `.onChange(initial: true)` re-fire would blow the cache away and
+        // re-run the file walk, losing the selection; with the gate the
+        // same results, the snippet text, and the loaded file body all
+        // survive the round trip.
+        TestStep.macClickButton(titled: "Files")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "hello.txt", timeout: 5)
+        TestStep.macWaitForElement(titled: "main.swift", timeout: 5)
+        TestStep.macWaitForElementQuery(.anyTextMatches("Hello, world"), timeout: 5)
+        TestStep.macWaitForElementQuery(.anyTextMatches("This is a plain text file"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-text-search-tab-switch-back")
+
+        // ── Phase 6: No-results state in content mode ──
+        TestStep.log("Phase 6: Content search with no matches falls through to the empty state")
+
+        TestStep.macCGClick(titled: "Search contents")
         TestStep.wait(seconds: 0.5)
         TestStep.macSelectAll()
         TestStep.macType(text: "zzznonexistentcontent")
@@ -123,8 +158,8 @@ public enum FileTextSearchScenario {
         TestStep.macWaitForElementQuery(.anyTextMatches("Check the spelling"), timeout: 5)
         TestStep.macScreenshot(label: "mac-text-search-content-no-results")
 
-        // ── Phase 6: Switch back to Name mode preserves the query ──
-        TestStep.log("Phase 6: Toggle back to Name mode — query persists, name index is used")
+        // ── Phase 7: Switch back to Name mode preserves the query ──
+        TestStep.log("Phase 7: Toggle back to Name mode — query persists, name index is used")
 
         // Reset to a query that hits a unique source comment so we can
         // tell name-mode and content-mode results apart by inspecting the
@@ -132,7 +167,7 @@ public enum FileTextSearchScenario {
         // is the doc comment `/// A helper function for testing folder
         // recursion.` — which the content-search row renders below the
         // file name + line number, and the name-search row does not.
-        TestStep.macCGClick(titled: "Search file contents")
+        TestStep.macCGClick(titled: "Search contents")
         TestStep.wait(seconds: 0.5)
         TestStep.macSelectAll()
         TestStep.macType(text: "helper")
@@ -152,8 +187,8 @@ public enum FileTextSearchScenario {
         TestStep.macWaitForElementQueryToDisappear(.anyTextMatches("A helper function"), timeout: 5)
         TestStep.macScreenshot(label: "mac-text-search-back-to-name")
 
-        // ── Phase 7: Clearing the query restores the tree ──
-        TestStep.log("Phase 7: Clear search restores the file tree")
+        // ── Phase 8: Clearing the query restores the tree ──
+        TestStep.log("Phase 8: Clear search restores the file tree")
 
         TestStep.macClickButton(titled: "Clear search")
         TestStep.wait(seconds: 1)

@@ -97,6 +97,12 @@ final class FileBrowserState {
     var cachedSearchResults: [FileSearchResult] = []
     /// Cached content-search matches for the current query.
     var cachedContentSearchResults: [FileTextSearchMatch] = []
+    /// Query and directory the content-search cache was computed for. Used to
+    /// short-circuit re-running the search when the view re-mounts (tab
+    /// switch) — without these markers, `.onChange(initial: true)` would blow
+    /// the cache away and lose the user's selection on every return.
+    var cachedContentSearchQuery: String?
+    var cachedContentSearchDirectory: String?
     /// Selected match id (`fullPath:lineNumber`) in the content-search list.
     var selectedContentSearchMatchID: String?
     /// True while a content search is running for the current query, so the
@@ -508,17 +514,31 @@ struct FileBrowserView: View {
     /// Cancels any in-flight content search and starts a new one for the
     /// current `searchQuery`. Streamed batches accumulate into
     /// `cachedContentSearchResults` as they arrive.
+    ///
+    /// When the cached results already correspond to the current query and
+    /// directory (e.g. the user just returned to this tab), this is a no-op
+    /// so the user's selection and accumulated results survive tab switches.
     private func recomputeContentSearchResults() {
-        contentSearchTask?.cancel()
         guard !state.searchQuery.isEmpty else {
+            contentSearchTask?.cancel()
             state.cachedContentSearchResults = []
+            state.cachedContentSearchQuery = nil
+            state.cachedContentSearchDirectory = nil
             state.isContentSearchRunning = false
             state.selectedContentSearchMatchID = nil
             return
         }
         let query = state.searchQuery
+        if
+            state.cachedContentSearchQuery == query,
+            state.cachedContentSearchDirectory == directoryPath {
+            return
+        }
+        contentSearchTask?.cancel()
         let directoryURL = URL(fileURLWithPath: directoryPath)
         state.cachedContentSearchResults = []
+        state.cachedContentSearchQuery = query
+        state.cachedContentSearchDirectory = directoryPath
         state.selectedContentSearchMatchID = nil
         state.isContentSearchRunning = true
         contentSearchTask = Task { @MainActor in
@@ -741,6 +761,8 @@ struct FileBrowserView: View {
             case .name:
                 contentSearchTask?.cancel()
                 state.cachedContentSearchResults = []
+                state.cachedContentSearchQuery = nil
+                state.cachedContentSearchDirectory = nil
                 state.isContentSearchRunning = false
                 recomputeSearchResults()
             case .content:
