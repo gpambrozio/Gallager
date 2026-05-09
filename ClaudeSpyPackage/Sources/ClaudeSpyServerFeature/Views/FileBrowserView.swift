@@ -948,7 +948,11 @@ struct FileBrowserView: View {
                         .foregroundStyle(.secondary)
                         .padding(8)
                     Divider()
-                    LiveFileContentView(filePath: path, scrollOffsetY: scrollBinding(for: path))
+                    LiveFileContentView(
+                        filePath: path,
+                        scrollOffsetY: scrollBinding(for: path),
+                        highlightLine: selectedContentSearchLine
+                    )
                 }
             } else {
                 let title = state.searchMode == .name ? "Search for Files" : "Search File Contents"
@@ -1024,6 +1028,16 @@ struct FileBrowserView: View {
             return state.cachedContentSearchResults.first(where: { $0.id == id })?.fullPath
         }
     }
+
+    /// 1-based line number of the currently-selected content-search match,
+    /// used to drive scroll-to-line in the detail pane. Nil for the name
+    /// search list (those rows have no per-line semantics) and when no
+    /// match is selected yet.
+    private var selectedContentSearchLine: Int? {
+        guard state.searchMode == .content else { return nil }
+        guard let id = state.selectedContentSearchMatchID else { return nil }
+        return state.cachedContentSearchResults.first(where: { $0.id == id })?.lineNumber
+    }
 }
 
 // MARK: - Open File Tab Content View
@@ -1086,6 +1100,11 @@ struct OpenFileTabContentView: View {
 private struct LiveFileContentView: View {
     let filePath: String
     var scrollOffsetY: Binding<CGFloat>?
+    /// Optional 1-based line number to highlight and scroll into view. Used
+    /// by the content-search detail pane to surface the matched line; only
+    /// honored by the plain-text branch since markdown/PDF/HTML rendering
+    /// doesn't preserve line semantics.
+    var highlightLine: Int?
 
     @Dependency(FileSystemLoadingService.self) private var fileSystemService
 
@@ -1130,7 +1149,11 @@ private struct LiveFileContentView: View {
                     }
                 case .text:
                     if let text {
-                        PlainTextContentView(text: text, savedScrollY: scrollOffsetY)
+                        PlainTextContentView(
+                            text: text,
+                            savedScrollY: scrollOffsetY,
+                            highlightLine: highlightLine
+                        )
                     }
                 case .unsupported:
                     ContentUnavailableView(
@@ -1453,12 +1476,22 @@ private struct MarkdownContentView: View {
 /// returning preserves the position. When `nil`, an internal `@State` provides
 /// ephemeral storage.
 ///
-/// Trade-off vs. `TextEditor`/`NSTextView`: there's no native cmd-F find bar,
-/// and `Text` lays out the entire string up-front (so very large files render
-/// slower than `NSTextView`'s glyph-range layout would).
+/// `highlightLine` (1-based) marks a single line as the active match: that
+/// row gets an accent-tinted background and the view auto-scrolls so the
+/// line is centered. Used by the content-search detail pane so clicking a
+/// match in the sidebar lands the user on the matched line. When set on
+/// initial load it overrides `savedScrollY` — the user wants to see the
+/// match, not the previous scroll position.
+///
+/// Trade-off vs. `TextEditor`/`NSTextView`: there's no native cmd-F find bar
+/// and cross-line text selection is broken (each line is its own `Text` so
+/// the gutter can stay aligned and the scroll-to-line proxy can address
+/// rows by id). Acceptable for the "preview a match" flow this view backs.
+/// Keeping `LazyVStack` so files with thousands of lines don't blow layout.
 private struct PlainTextContentView: View {
     let text: String
     var savedScrollY: Binding<CGFloat>?
+    var highlightLine: Int?
 
     @State private var scrollPosition = ScrollPosition(edge: .top)
     @State private var localScrollY: CGFloat = 0
@@ -1472,37 +1505,95 @@ private struct PlainTextContentView: View {
     }
 
     var body: some View {
-        ScrollView {
-            Text(text)
+        let lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).map(String.init)
+        let gutterWidth = lineNumberGutterWidth(lineCount: lines.count)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                        let lineNumber = index + 1
+                        sourceLineRow(
+                            lineNumber: lineNumber,
+                            line: line,
+                            gutterWidth: gutterWidth,
+                            isHighlighted: highlightLine == lineNumber
+                        )
+                        .id(lineNumber)
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+            .scrollPosition($scrollPosition)
+            .onScrollGeometryChange(for: CGFloat.self) { proxy in
+                proxy.contentOffset.y
+            } action: { _, newValue in
+                guard isTrackingUserScroll else { return }
+                scrollY.wrappedValue = newValue
+            }
+            .task(id: text) {
+                // On (re)load, prefer the highlight line over the saved Y
+                // offset: if the parent gave us a match line, the user just
+                // clicked a search result and expects to see it, not the
+                // previous reading position.
+                isTrackingUserScroll = false
+                try? await Task.sleep(for: .milliseconds(100))
+                guard !Task.isCancelled else { return }
+                if let line = highlightLine {
+                    proxy.scrollTo(line, anchor: .center)
+                } else {
+                    let target = scrollY.wrappedValue
+                    scrollPosition.scrollTo(y: target)
+                }
+                try? await Task.sleep(for: .milliseconds(100))
+                guard !Task.isCancelled else { return }
+                isTrackingUserScroll = true
+            }
+            .onChange(of: highlightLine) { _, newValue in
+                // Animate when the parent picks a different match in an
+                // already-loaded file (the initial-load case is handled by
+                // the .task above without animation, so opening a fresh
+                // file doesn't visibly fly past the content).
+                guard let line = newValue else { return }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(line, anchor: .center)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func sourceLineRow(
+        lineNumber: Int,
+        line: String,
+        gutterWidth: CGFloat,
+        isHighlighted: Bool
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 0) {
+            Text("\(lineNumber)")
+                .font(.system(.body, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(.tertiary)
+                .frame(width: gutterWidth, alignment: .trailing)
+                .padding(.trailing, 8)
+                .background(Color.secondary.opacity(0.05))
+            // An empty line still needs a glyph to occupy a row height,
+            // otherwise SwiftUI collapses it and the gutter row count
+            // diverges from the file's line count.
+            Text(line.isEmpty ? " " : line)
                 .font(.system(.body, design: .monospaced))
                 .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                .padding()
+                .padding(.leading, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(isHighlighted ? Color.accentColor.opacity(0.20) : Color.clear)
         }
-        .scrollPosition($scrollPosition)
-        .onScrollGeometryChange(for: CGFloat.self) { proxy in
-            proxy.contentOffset.y
-        } action: { _, newValue in
-            guard isTrackingUserScroll else { return }
-            scrollY.wrappedValue = newValue
-        }
-        .task(id: text) {
-            // Wait for the initial layout to produce a real content size
-            // before scrolling; doing this synchronously would clamp to 0
-            // because the Text hasn't measured itself yet.
-            //
-            // Reset the tracking gate first: when `text` changes (file
-            // edited on disk → re-read), the flag is still `true` from the
-            // previous run, so layout-driven scroll events would clobber
-            // the saved offset before `scrollTo` runs.
-            let target = scrollY.wrappedValue
-            isTrackingUserScroll = false
-            try? await Task.sleep(for: .milliseconds(100))
-            guard !Task.isCancelled else { return }
-            scrollPosition.scrollTo(y: target)
-            try? await Task.sleep(for: .milliseconds(50))
-            guard !Task.isCancelled else { return }
-            isTrackingUserScroll = true
-        }
+    }
+
+    /// Width budget for the line-number gutter, sized to fit the largest
+    /// line number plus a small breathing-room pad. Keeps the gutter
+    /// consistent for the whole document so columns line up as the user
+    /// scrolls through wide and narrow line numbers alike.
+    private func lineNumberGutterWidth(lineCount: Int) -> CGFloat {
+        let digits = String(max(lineCount, 1)).count
+        return CGFloat(digits) * 10 + 8
     }
 }
