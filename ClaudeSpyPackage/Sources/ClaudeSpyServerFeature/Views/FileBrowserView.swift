@@ -690,12 +690,19 @@ struct FileBrowserView: View {
 
     @ViewBuilder
     private func contentSearchMatchRow(_ match: FileTextSearchMatch) -> some View {
-        Text(highlightedLine(match.lineText, query: state.searchQuery))
-            .font(.system(.caption, design: .monospaced))
-            .foregroundStyle(.primary)
-            .lineLimit(2)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityLabel("Line \(match.lineNumber): \(match.lineText)")
+        HStack(spacing: 6) {
+            Text(highlightedLine(match.lineText, query: state.searchQuery))
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("\(match.lineNumber)")
+                .font(.caption2)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Line \(match.lineNumber): \(match.lineText)")
     }
 
     /// Builds an `AttributedString` that highlights every case-insensitive
