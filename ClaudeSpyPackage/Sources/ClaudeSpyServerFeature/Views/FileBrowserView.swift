@@ -1468,394 +1468,174 @@ private struct MarkdownContentView: View {
     }
 }
 
-/// Renders plain monospaced text in a `ScrollView` with selection enabled.
+/// Renders plain monospaced text inside a `ScrollView`, with a left
+/// line-number gutter and an optional one-line highlight that the
+/// content-search detail pane uses to surface the matched line.
 ///
-/// `savedScrollY` is an optional binding owned by an open file tab. When set,
-/// the view restores its scroll position from the binding on first appearance
-/// and updates it on every user scroll, so switching tabs/sessions and
-/// returning preserves the position. When `nil`, the view simply starts at
-/// the top.
+/// `savedScrollY` is an optional binding owned by an open file tab.
+/// When set, the view restores its scroll position from the binding
+/// on first appearance and updates it on every user scroll, so
+/// switching tabs/sessions and returning preserves the position.
 ///
-/// `highlightLine` (1-based) marks a single line as the active match: that
-/// line gets an accent-tinted background via `NSLayoutManager` temporary
-/// attributes and the view auto-scrolls so the line lands at the viewport
-/// center. Used by the content-search detail pane so clicking a match in
-/// the sidebar lands the user on the matched line. When set on initial
-/// load it overrides `savedScrollY` — the user wants to see the match,
-/// not the previous reading position.
+/// `highlightLine` (1-based) tints the matched line via an
+/// `AttributedString` background and scrolls so the line lands at
+/// the viewport center. When set on initial load it overrides
+/// `savedScrollY` — the user wants to see the match, not the
+/// previous reading position.
 ///
-/// Backed by `NSTextView` so multi-line text selection (drag, cmd-A,
-/// cmd-shift-arrow) and cmd-F find work natively. The line-number gutter
-/// is a custom `NSRulerView` subclass that walks the layout manager's
-/// line fragments at draw time.
-private struct PlainTextContentView: NSViewRepresentable {
+/// Built from two side-by-side SwiftUI `Text` views inside a single
+/// `ScrollView`: the gutter shows numbers as a single newline-joined
+/// string and the content shows the file as one `Text` with
+/// `.textSelection(.enabled)`, so cross-line drag selection still
+/// works. Earlier attempts at NSTextView ran into a layer-compositing
+/// bug where mutating the text view inside `updateNSView` left
+/// neighbouring SwiftUI surfaces (tab bar, sidebar) unrendered until
+/// the next input event; the SwiftUI-only layout sidesteps that
+/// entirely at the cost of slightly less precise scroll-to-line
+/// (we use the AppKit monospaced font's reported line height to
+/// estimate a Y target rather than asking a layout manager).
+private struct PlainTextContentView: View {
     let text: String
     var savedScrollY: Binding<CGFloat>?
     var highlightLine: Int?
 
-    @MainActor
-    final class Coordinator {
-        var savedScrollY: Binding<CGFloat>?
-        var lastAppliedText: String?
-        var lastAppliedHighlight: Int?
-        var observer: NSObjectProtocol?
-        weak var observedClipView: NSClipView?
-        /// Suppresses the bounds-changed observer while we programmatically
-        /// scroll (initial restore, scroll-to-match), so the saved offset
-        /// doesn't get stomped with the intermediate values the framework
-        /// reports during the restore.
-        var isRestoring = false
+    @State private var scrollPosition = ScrollPosition(edge: .top)
+    @State private var localScrollY: CGFloat = 0
+    @State private var viewportHeight: CGFloat = 0
+    /// Set to `true` after the initial restore completes. Until then,
+    /// scroll notifications driven by layout/restore are ignored so they
+    /// don't overwrite the saved offset with intermediate values.
+    @State private var isTrackingUserScroll = false
 
-        func detachObserver() {
-            if let observer {
-                NotificationCenter.default.removeObserver(observer)
-                self.observer = nil
+    private var scrollY: Binding<CGFloat> {
+        savedScrollY ?? $localScrollY
+    }
+
+    var body: some View {
+        let lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+        let lineCount = lines.count
+        let gutterText = lineNumbersString(lineCount: lineCount)
+        let attributed = highlightedContent(text: text, lines: lines, line: highlightLine)
+        ScrollView {
+            HStack(alignment: .top, spacing: 0) {
+                Text(gutterText)
+                    .font(.system(.body, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: gutterWidth(lineCount: lineCount), alignment: .trailing)
+                    .padding(.trailing, 8)
+                    .background(Color.secondary.opacity(0.05))
+
+                Text(attributed)
+                    .font(.system(.body, design: .monospaced))
+                    .textSelection(.enabled)
+                    .padding(.leading, 8)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            observedClipView = nil
+            .padding(.vertical, 8)
         }
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeNSView(context: Context) -> NSScrollView {
-        // `scrollableTextView()` is Apple's canonical NSTextView setup —
-        // wires up the layout manager, text container, autoresizing, and
-        // initial sizing so the text view is immediately ready to render
-        // when added to the view hierarchy. Hand-rolling the same setup
-        // produced a (0, 0) text container before SwiftUI installed the
-        // view, which left the document area unable to lay out glyphs.
-        let scrollView = NSTextView.scrollableTextView()
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
-        scrollView.borderType = .noBorder
-
-        guard let textView = scrollView.documentView as? NSTextView else {
-            return scrollView
+        .scrollPosition($scrollPosition)
+        .onScrollGeometryChange(for: CGFloat.self) { proxy in
+            proxy.contentOffset.y
+        } action: { _, newValue in
+            guard isTrackingUserScroll else { return }
+            scrollY.wrappedValue = newValue
         }
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.allowsUndo = false
-        textView.font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
-        textView.textContainerInset = NSSize(width: 6, height: 8)
-        textView.string = text
-
-        // Attach the line-number gutter. Sized at construction; we recompute
-        // the width whenever the text changes so growing files (more digits)
-        // don't push line numbers off the edge.
-        let ruler = LineNumberRulerView(textView: textView)
-        scrollView.verticalRulerView = ruler
-        scrollView.hasVerticalRuler = true
-        scrollView.rulersVisible = true
-
-        context.coordinator.savedScrollY = savedScrollY
-        context.coordinator.lastAppliedText = text
-        context.coordinator.lastAppliedHighlight = highlightLine
-
-        // Initial layout & scroll has to wait one runloop tick: textContainer
-        // sizing and glyph generation haven't happened yet, so a synchronous
-        // scrollRangeToVisible would clamp to (0, 0).
-        let initialLine = highlightLine
-        DispatchQueue.main.async { [weak coordinator = context.coordinator] in
-            guard let coordinator else { return }
-            attachClipObserver(scrollView: scrollView, coordinator: coordinator)
-            apply(
-                textView: textView,
-                scrollView: scrollView,
-                coordinator: coordinator,
-                highlightLine: initialLine
-            )
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.height
+        } action: { newHeight in
+            viewportHeight = newHeight
         }
-
-        return scrollView
-    }
-
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NSTextView else { return }
-        context.coordinator.savedScrollY = savedScrollY
-
-        let textChanged = context.coordinator.lastAppliedText != text
-        let highlightChanged = context.coordinator.lastAppliedHighlight != highlightLine
-        guard textChanged || highlightChanged else { return }
-
-        if textChanged {
-            textView.string = text
-            (scrollView.verticalRulerView as? LineNumberRulerView)?.invalidateLineCount()
-            context.coordinator.lastAppliedText = text
+        .task(id: text) {
+            // On (re)load, prefer the highlight line over the saved Y
+            // offset — if the parent gave us a match line, the user
+            // just clicked a search result and expects to see it, not
+            // the previous reading position.
+            isTrackingUserScroll = false
+            try? await Task.sleep(for: .milliseconds(100))
+            guard !Task.isCancelled else { return }
+            if let line = highlightLine, line >= 1 {
+                scrollPosition.scrollTo(y: targetY(for: line))
+            } else {
+                scrollPosition.scrollTo(y: scrollY.wrappedValue)
+            }
+            try? await Task.sleep(for: .milliseconds(50))
+            guard !Task.isCancelled else { return }
+            isTrackingUserScroll = true
         }
-        context.coordinator.lastAppliedHighlight = highlightLine
-
-        // Defer the highlight + scroll mutations until SwiftUI finishes
-        // its current update pass. Doing them synchronously inside
-        // `updateNSView` interleaves with SwiftUI's layout/draw cycle and
-        // leaves the window's other layer-backed surfaces (tab bar,
-        // sidebar) in an unrendered state until the next input event.
-        let line = highlightLine
-        DispatchQueue.main.async { [coordinator = context.coordinator] in
-            apply(
-                textView: textView,
-                scrollView: scrollView,
-                coordinator: coordinator,
-                highlightLine: line
-            )
-        }
-    }
-
-    static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
-        coordinator.detachObserver()
-    }
-
-    /// Wires the clip-view bounds observer that mirrors user scrolls back
-    /// into `savedScrollY`. The observer is suppressed while the view is
-    /// programmatically scrolling so initial-restore / scroll-to-match
-    /// don't clobber the saved offset.
-    private func attachClipObserver(scrollView: NSScrollView, coordinator: Coordinator) {
-        let clip = scrollView.contentView
-        guard coordinator.observedClipView !== clip else { return }
-        coordinator.detachObserver()
-        clip.postsBoundsChangedNotifications = true
-        coordinator.observedClipView = clip
-        coordinator.observer = NotificationCenter.default.addObserver(
-            forName: NSView.boundsDidChangeNotification,
-            object: clip,
-            queue: nil
-        ) { [weak coordinator, weak clip] _ in
-            MainActor.assumeIsolated {
-                guard let coordinator, let clip else { return }
-                guard !coordinator.isRestoring else { return }
-                coordinator.savedScrollY?.wrappedValue = clip.bounds.origin.y
+        .onChange(of: highlightLine) { _, newValue in
+            // Animate when the parent picks a different match in an
+            // already-loaded file (the .task above handles the
+            // fresh-file case without animation).
+            guard let line = newValue, line >= 1 else { return }
+            withAnimation(.easeInOut(duration: 0.2)) {
+                scrollPosition.scrollTo(y: targetY(for: line))
             }
         }
     }
 
-    /// Applies the requested `highlightLine` to the live NSTextView and
-    /// scrolls so the line lands at the viewport center. Falls back to
-    /// restoring the saved Y offset when no line is highlighted (initial
-    /// attach for tabs / non-search file selection). Always invoked from
-    /// the next runloop tick so we don't interleave with SwiftUI's layout
-    /// pass.
-    private func apply(
-        textView: NSTextView,
-        scrollView: NSScrollView,
-        coordinator: Coordinator,
-        highlightLine: Int?
-    ) {
-        applyHighlight(textView: textView, line: highlightLine)
-        coordinator.isRestoring = true
-        defer {
-            // Release the suppression on the next runloop tick so any
-            // bounds-changed notifications triggered by the scroll have
-            // fired before we accept user-scroll updates again.
-            DispatchQueue.main.async { coordinator.isRestoring = false }
-        }
-        if let line = highlightLine {
-            centerScroll(textView: textView, scrollView: scrollView, line: line)
-        } else if let savedY = coordinator.savedScrollY?.wrappedValue, savedY > 0 {
-            scrollView.contentView.scroll(to: NSPoint(x: 0, y: savedY))
-            scrollView.reflectScrolledClipView(scrollView.contentView)
-        }
+    /// Estimated Y offset that puts the requested 1-based line at the
+    /// vertical centre of the viewport. Uses AppKit's monospaced font
+    /// line height since SwiftUI Text uses the same metrics.
+    private func targetY(for line: Int) -> CGFloat {
+        let topPadding: CGFloat = 8
+        let lineHeight = monospacedLineHeight()
+        let lineY = CGFloat(line - 1) * lineHeight + topPadding
+        let centeredY = lineY + lineHeight / 2 - viewportHeight / 2
+        return max(0, centeredY)
     }
 
-    /// Adds an accent-tinted background to the matched line via the layout
-    /// manager's temporary-attribute store. Temporary attributes don't
-    /// affect the underlying string (so cmd-A copy still produces clean
-    /// text) and are cheap to update — perfect for a transient highlight.
-    private func applyHighlight(textView: NSTextView, line: Int?) {
-        guard let layoutManager = textView.layoutManager else { return }
-        let nsString = textView.string as NSString
-        let fullRange = NSRange(location: 0, length: nsString.length)
-        layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: fullRange)
-        guard let line, let lineRange = lineCharacterRange(in: nsString, line: line) else { return }
-        let highlight = NSColor.controlAccentColor.withAlphaComponent(0.22)
-        layoutManager.addTemporaryAttribute(.backgroundColor, value: highlight, forCharacterRange: lineRange)
+    private func monospacedLineHeight() -> CGFloat {
+        let font = NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        return NSLayoutManager().defaultLineHeight(for: font)
     }
 
-    /// Scrolls so the requested line sits at the vertical center of the
-    /// viewport. Falls back to a top-anchored position when the line is too
-    /// near the start of the document to center cleanly. Called from a
-    /// deferred async block so SwiftUI's layout pass can finish first;
-    /// scrolling synchronously while SwiftUI is mid-update was leaving
-    /// other layer-backed surfaces (tab bar, sidebar) unrendered.
-    private func centerScroll(
-        textView: NSTextView,
-        scrollView: NSScrollView,
-        line: Int
-    ) {
-        guard
-            let layoutManager = textView.layoutManager,
-            let textContainer = textView.textContainer
-        else { return }
-        let nsString = textView.string as NSString
-        guard let lineRange = lineCharacterRange(in: nsString, line: line) else { return }
-        let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
-        let lineRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-        let viewportHeight = scrollView.contentView.bounds.height
-        let inset = textView.textContainerInset.height
-        var targetY = (lineRect.midY + inset) - viewportHeight / 2
-        targetY = max(0, targetY)
-        scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetY))
-        scrollView.reflectScrolledClipView(scrollView.contentView)
-    }
-
-    /// Resolves the (1-based) `line` to a character range in `nsString`.
-    /// Returns `nil` if the file has fewer lines than requested.
-    private func lineCharacterRange(in nsString: NSString, line: Int) -> NSRange? {
-        guard line >= 1 else { return nil }
-        var currentLine = 1
-        var charIndex = 0
-        let length = nsString.length
-        while charIndex <= length {
-            let range = nsString.lineRange(for: NSRange(location: charIndex, length: 0))
-            if currentLine == line {
-                return range
-            }
-            currentLine += 1
-            let next = NSMaxRange(range)
-            if next == charIndex { break }
-            charIndex = next
-        }
-        return nil
-    }
-}
-
-// MARK: - Line Number Ruler View
-
-/// Custom `NSRulerView` that draws 1-based line numbers next to the
-/// matching lines of an attached `NSTextView`. Walks the layout manager's
-/// glyph ranges at draw time so the gutter stays aligned with the text
-/// view's actual line breaks (including soft-wrapping).
-final private class LineNumberRulerView: NSRulerView {
-    private static let labelFont: NSFont = .monospacedSystemFont(ofSize: 11, weight: .regular)
-    private static let horizontalPadding: CGFloat = 8
-
-    init(textView: NSTextView) {
-        super.init(scrollView: textView.enclosingScrollView, orientation: .verticalRuler)
-        clientView = textView
-        invalidateLineCount()
-
-        // Re-measure (and redraw) when the document changes so the gutter
-        // grows to fit larger line numbers.
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(textDidChange),
-            name: NSText.didChangeNotification,
-            object: textView
-        )
-    }
-
-    @available(*, unavailable)
-    required init(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    @objc
-    private func textDidChange(_ notification: Notification) {
-        invalidateLineCount()
-    }
-
-    /// Recomputes `ruleThickness` from the digit count of the largest line
-    /// number, then asks AppKit to redraw. Idempotent — safe to call from
-    /// the text-change notification and the SwiftUI update path.
-    func invalidateLineCount() {
-        guard let textView = clientView as? NSTextView else { return }
-        let lineCount = (textView.string as NSString).numberOfLines()
+    /// Width budget for the line-number gutter. Sized to fit the
+    /// largest line number's digit count plus a small breathing-room
+    /// pad so columns line up consistently as the user scrolls.
+    private func gutterWidth(lineCount: Int) -> CGFloat {
         let digits = String(max(lineCount, 1)).count
-        let sample = String(repeating: "0", count: digits) as NSString
-        let labelWidth = sample.size(withAttributes: [.font: Self.labelFont]).width
-        ruleThickness = max(36, labelWidth + Self.horizontalPadding * 2)
-        needsDisplay = true
+        return CGFloat(digits) * 10 + 8
     }
 
-    override func drawHashMarksAndLabels(in rect: NSRect) {
+    /// Newline-joined "1\n2\n3\n…" string sized to match the file's
+    /// line count, used directly as the gutter's `Text` content.
+    private func lineNumbersString(lineCount: Int) -> String {
+        guard lineCount > 0 else { return "" }
+        return (1...lineCount).map(String.init).joined(separator: "\n")
+    }
+
+    /// Builds an `AttributedString` for the file content with the
+    /// matched line tinted by the system accent colour. When
+    /// `highlightLine` is `nil` or out of bounds, returns the plain
+    /// content unchanged.
+    private func highlightedContent(
+        text: String,
+        lines: [Substring],
+        line: Int?
+    ) -> AttributedString {
+        var attributed = AttributedString(text)
+        guard let line, line >= 1, line <= lines.count else { return attributed }
+
+        // Sum the byte-length of preceding lines plus their newline
+        // separators to find this line's character offset in `text`.
+        // `Substring.count` is the UTF-16-equivalent character count
+        // matching the indices SwiftUI's Text uses.
+        var charOffset = 0
+        for index in 0..<(line - 1) {
+            charOffset += lines[index].count + 1
+        }
+        let lineLength = lines[line - 1].count
         guard
-            let textView = clientView as? NSTextView,
-            let layoutManager = textView.layoutManager,
-            let textContainer = textView.textContainer
+            let stringStart = text.index(text.startIndex, offsetBy: charOffset, limitedBy: text.endIndex),
+            let stringEnd = text.index(stringStart, offsetBy: lineLength, limitedBy: text.endIndex)
         else {
-            return
+            return attributed
         }
-
-        // Background + trailing separator so the gutter reads as a
-        // distinct strip rather than blending into the text.
-        NSColor.windowBackgroundColor.setFill()
-        rect.fill()
-        NSColor.separatorColor.setStroke()
-        let separator = NSBezierPath()
-        separator.move(to: NSPoint(x: bounds.maxX - 0.5, y: rect.minY))
-        separator.line(to: NSPoint(x: bounds.maxX - 0.5, y: rect.maxY))
-        separator.lineWidth = 1
-        separator.stroke()
-
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: Self.labelFont,
-            .foregroundColor: NSColor.tertiaryLabelColor,
-        ]
-
-        let nsString = textView.string as NSString
-        guard nsString.length > 0 else { return }
-        let yInset = textView.textContainerInset.height
-        let visibleRect = textView.visibleRect
-
-        // Restrict iteration to the visible glyph range — drawing every
-        // line number for a 25k-line file would be wasteful and slow.
-        let visibleGlyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
-        let visibleCharRange = layoutManager.characterRange(forGlyphRange: visibleGlyphRange, actualGlyphRange: nil)
-
-        // Compute the line number at the start of the visible range. This
-        // is O(visibleStart) which is bounded by the scroll position — for
-        // typical source files, fast enough to redo every draw pass.
-        var lineNumber = 1
-        nsString.enumerateSubstrings(
-            in: NSRange(location: 0, length: visibleCharRange.location),
-            options: [.byLines, .substringNotRequired]
-        ) { _, _, _, _ in
-            lineNumber += 1
+        if let attRange = Range<AttributedString.Index>(stringStart..<stringEnd, in: attributed) {
+            attributed[attRange].backgroundColor = .accentColor.opacity(0.20)
         }
-
-        let lastVisibleChar = min(NSMaxRange(visibleCharRange), nsString.length)
-        var charIndex = nsString.lineRange(for: NSRange(location: visibleCharRange.location, length: 0)).location
-        while charIndex < lastVisibleChar {
-            let lineRange = nsString.lineRange(for: NSRange(location: charIndex, length: 0))
-            let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
-            let lineRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-
-            // Translate from text-view coordinates (which are scrolled by
-            // the scroll view) to the ruler's own coordinate space, which
-            // shares the scrollView's clip-view origin.
-            let y = lineRect.origin.y + yInset - visibleRect.origin.y
-
-            let label = "\(lineNumber)" as NSString
-            let labelSize = label.size(withAttributes: attributes)
-            let labelRect = NSRect(
-                x: bounds.maxX - labelSize.width - Self.horizontalPadding,
-                y: y + (lineRect.height - labelSize.height) / 2,
-                width: labelSize.width,
-                height: labelSize.height
-            )
-            label.draw(in: labelRect, withAttributes: attributes)
-
-            lineNumber += 1
-            let next = NSMaxRange(lineRange)
-            if next == charIndex { break }
-            charIndex = next
-        }
-    }
-}
-
-private extension NSString {
-    /// Counts hard line breaks. Used to size the line-number gutter.
-    /// `enumerateSubstrings(options: .byLines)` skips the trailing empty
-    /// line for a file ending in `\n`, matching Xcode/VS Code behavior
-    /// (the "phantom" trailing line isn't numbered).
-    func numberOfLines() -> Int {
-        guard length > 0 else { return 0 }
-        var count = 0
-        enumerateSubstrings(
-            in: NSRange(location: 0, length: length),
-            options: [.byLines, .substringNotRequired]
-        ) { _, _, _, _ in
-            count += 1
-        }
-        return max(count, 1)
+        return attributed
     }
 }
