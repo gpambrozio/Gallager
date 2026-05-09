@@ -111,6 +111,13 @@ final class FileBrowserState {
     /// the view being destroyed and rebuilt when the user switches tmux windows
     /// or sessions and returns to the same file.
     var scrollOffsets: [String: CGFloat] = [:]
+    /// Monotonic counter bumped from outside the view (e.g., the Cmd-Shift-F
+    /// menu command) to request the search field take keyboard focus. The view
+    /// observes the value and drives `@FocusState` when it changes; using a
+    /// counter (rather than a Bool) re-fires focus even when the field is
+    /// already focused, so the user can re-trigger the shortcut to land back
+    /// on the field after selecting a result.
+    var searchFieldFocusRequest = 0
 }
 
 /// Open-file-tab state scoped to a tmux session, so tabs and selection survive
@@ -195,6 +202,7 @@ struct FileBrowserView: View {
 
     @State private var loadTreeTask: Task<Void, Never>?
     @State private var contentSearchTask: Task<Void, Never>?
+    @FocusState private var isSearchFieldFocused: Bool
 
     var body: some View {
         if let viewState = state.viewState {
@@ -237,6 +245,9 @@ struct FileBrowserView: View {
                 }
                 .task(id: state.pendingRevealPath) {
                     await revealPendingPathIfNeeded()
+                }
+                .task(id: state.searchFieldFocusRequest) {
+                    await applySearchFieldFocusIfRequested()
                 }
                 .onDisappear {
                     // Content searches can spawn a `git ls-files` process and
@@ -336,6 +347,20 @@ struct FileBrowserView: View {
         }
     }
 
+    /// Drives `@FocusState` when an external caller bumps
+    /// `state.searchFieldFocusRequest`. The first run (request == 0) is a
+    /// no-op — `.task(id:)` always fires once on mount, but we only want to
+    /// steal focus when something actually requested it. The brief sleep gives
+    /// SwiftUI a tick to insert a freshly-mounted TextField into the responder
+    /// chain before we ask it to become first responder; otherwise the focus
+    /// request lands on a non-existent field and is silently dropped.
+    private func applySearchFieldFocusIfRequested() async {
+        guard state.searchFieldFocusRequest > 0 else { return }
+        try? await Task.sleep(for: .milliseconds(50))
+        guard !Task.isCancelled else { return }
+        isSearchFieldFocused = true
+    }
+
     /// Reveals `state.pendingRevealPath` by loading and expanding each ancestor
     /// folder, then selects the leaf. Clears the pending value when done so the
     /// task only fires once per request.
@@ -408,6 +433,7 @@ struct FileBrowserView: View {
             )
             .textFieldStyle(.plain)
             .font(.callout)
+            .focused($isSearchFieldFocused)
             .accessibilityLabel(state.searchMode == .name ? "Search files" : "Search file contents")
 
             if !state.searchQuery.isEmpty {

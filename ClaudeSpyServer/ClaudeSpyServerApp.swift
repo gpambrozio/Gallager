@@ -338,6 +338,13 @@ struct TmuxPaneMirrorApp: App {
                 .keyboardShortcut("w", modifiers: .command)
             }
 
+            CommandGroup(after: .textEditing) {
+                Button("Find in Files") {
+                    NotificationCenter.default.post(name: .openContentSearch, object: nil)
+                }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
+            }
+
             // Edit menu - Copy as Rich Text / Copy with Control Sequences
             CommandGroup(after: .pasteboard) {
                 Divider()
