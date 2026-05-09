@@ -23,18 +23,6 @@ enum FileSearchMode: String, CaseIterable, Sendable {
     case content
 }
 
-/// One file's worth of content-search matches, used by the grouped results
-/// list. Identified by `fullPath` so SwiftUI can preserve disclosure state
-/// across streaming batches (each batch arrives, the array gets re-bucketed,
-/// but the same path keeps the same identity).
-struct ContentSearchGroup: Identifiable {
-    var id: String { fullPath }
-    let fullPath: String
-    let relativePath: String
-    let name: String
-    var matches: [FileTextSearchMatch]
-}
-
 /// A file opened as its own tab to the right of the file explorer tab.
 /// Identified by a stable UUID so re-opens select the existing tab and
 /// deletion state can be tracked without losing the tab.
@@ -453,13 +441,13 @@ struct FileBrowserView: View {
                 .font(.caption)
 
             TextField(
-                state.searchMode == .name ? "Search files..." : "Search file contents...",
+                state.searchMode == .name ? "Search files" : "Search contents",
                 text: $state.searchQuery
             )
             .textFieldStyle(.plain)
             .font(.callout)
             .focused($isSearchFieldFocused)
-            .accessibilityLabel(state.searchMode == .name ? "Search files" : "Search file contents")
+            .accessibilityLabel(state.searchMode == .name ? "Search files" : "Search contents")
 
             if !state.searchQuery.isEmpty {
                 Button {
@@ -571,161 +559,6 @@ struct FileBrowserView: View {
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)
         }
-    }
-
-    @ViewBuilder
-    private var contentSearchResultsList: some View {
-        let groups = contentSearchGroups
-        if groups.isEmpty {
-            if state.isContentSearchRunning {
-                ProgressView("Searching...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ContentUnavailableView.search(text: state.searchQuery)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        } else {
-            List(selection: $state.selectedContentSearchMatchID) {
-                ForEach(groups) { group in
-                    DisclosureGroup(isExpanded: groupExpansionBinding(group)) {
-                        ForEach(group.matches) { match in
-                            contentSearchMatchRow(match)
-                                .tag(match.id)
-                                .fileContextMenu(
-                                    fullPath: match.fullPath,
-                                    directoryPath: directoryPath,
-                                    isDirectory: false,
-                                    onOpenFileInNewTab: onOpenFileInNewTab
-                                )
-                        }
-                    } label: {
-                        contentSearchFileHeader(group)
-                            .fileContextMenu(
-                                fullPath: group.fullPath,
-                                directoryPath: directoryPath,
-                                isDirectory: false,
-                                onOpenFileInNewTab: onOpenFileInNewTab
-                            )
-                    }
-                }
-            }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
-        }
-    }
-
-    /// Buckets the streaming `cachedContentSearchResults` into per-file groups
-    /// preserving first-occurrence order. Recomputed each render — the result
-    /// is bounded by the search batch limits and the work is a single pass, so
-    /// a cache here would just complicate invalidation.
-    private var contentSearchGroups: [ContentSearchGroup] {
-        var groups: [ContentSearchGroup] = []
-        var indexByPath: [String: Int] = [:]
-        for match in state.cachedContentSearchResults {
-            if let i = indexByPath[match.fullPath] {
-                groups[i].matches.append(match)
-            } else {
-                indexByPath[match.fullPath] = groups.count
-                groups.append(ContentSearchGroup(
-                    fullPath: match.fullPath,
-                    relativePath: match.relativePath,
-                    name: match.name,
-                    matches: [match]
-                ))
-            }
-        }
-        return groups
-    }
-
-    /// Default-expanded binding: a path that's *not* in
-    /// `collapsedContentSearchFiles` is shown open. Writing `false` adds the
-    /// path; writing `true` removes it. Tracking only the user-collapsed set
-    /// (rather than the expanded set) keeps default-expanded semantics for
-    /// new files arriving in streaming batches without us having to mutate
-    /// state on every batch.
-    private func groupExpansionBinding(_ group: ContentSearchGroup) -> Binding<Bool> {
-        Binding(
-            get: { !state.collapsedContentSearchFiles.contains(group.fullPath) },
-            set: { isExpanded in
-                if isExpanded {
-                    state.collapsedContentSearchFiles.remove(group.fullPath)
-                } else {
-                    state.collapsedContentSearchFiles.insert(group.fullPath)
-                }
-            }
-        )
-    }
-
-    @ViewBuilder
-    private func contentSearchFileHeader(_ group: ContentSearchGroup) -> some View {
-        let directory = directorySegment(of: group.relativePath)
-        HStack(spacing: 6) {
-            Label {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(group.name)
-                        .font(.callout)
-                        .lineLimit(1)
-                    if !directory.isEmpty {
-                        Text(directory)
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                    }
-                }
-            } icon: {
-                Symbols.docPlaintextFill.image
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 4)
-            Text("\(group.matches.count)")
-                .font(.caption2)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 1)
-                .background(Capsule().fill(Color.secondary.opacity(0.18)))
-                .accessibilityLabel("\(group.matches.count) matches")
-        }
-    }
-
-    @ViewBuilder
-    private func contentSearchMatchRow(_ match: FileTextSearchMatch) -> some View {
-        HStack(spacing: 6) {
-            Text(highlightedLine(match.lineText, query: state.searchQuery))
-                .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Text("\(match.lineNumber)")
-                .font(.caption2)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Line \(match.lineNumber): \(match.lineText)")
-    }
-
-    /// Builds an `AttributedString` that highlights every case-insensitive
-    /// occurrence of `query` inside `text`. The highlight uses the system
-    /// accent color at low opacity so it adapts to the user's chosen accent
-    /// (Apple's pink/purple, blue, etc.) rather than a fixed yellow that
-    /// might clash in dark mode.
-    private func highlightedLine(_ text: String, query: String) -> AttributedString {
-        var attributed = AttributedString(text)
-        guard !query.isEmpty else { return attributed }
-        let lowered = text.lowercased()
-        let needle = query.lowercased()
-        var cursor = lowered.startIndex
-        while
-            cursor < lowered.endIndex,
-            let range = lowered.range(of: needle, range: cursor..<lowered.endIndex) {
-            if let attRange = Range<AttributedString.Index>(range, in: attributed) {
-                attributed[attRange].backgroundColor = Color.accentColor.opacity(0.35)
-                attributed[attRange].foregroundColor = .primary
-            }
-            cursor = range.upperBound
-        }
-        return attributed
     }
 
     /// Returns the directory portion of a relative path (everything before the
@@ -870,11 +703,20 @@ struct FileBrowserView: View {
                     case .name:
                         fileSearchResultsList
                     case .content:
-                        contentSearchResultsList
+                        ContentSearchResultsList(
+                            matches: state.cachedContentSearchResults,
+                            query: state.searchQuery,
+                            isRunning: state.isContentSearchRunning,
+                            selection: $state.selectedContentSearchMatchID,
+                            collapsedFiles: $state.collapsedContentSearchFiles,
+                            directoryPath: directoryPath,
+                            onOpenFileInNewTab: onOpenFileInNewTab
+                        )
                     }
                 }
             }
             .frame(width: state.sidebarWidth)
+            .background(.thinMaterial)
 
             ResizableDivider(dimension: $state.sidebarWidth, minDimension: 150, maxDimension: 400)
 
