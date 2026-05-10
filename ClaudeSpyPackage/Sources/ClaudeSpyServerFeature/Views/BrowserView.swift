@@ -358,3 +358,65 @@ struct BrowserURLConfirmationView: View {
         .fixedSize(horizontal: false, vertical: true)
     }
 }
+
+// MARK: - Previews
+
+private enum BrowserPreviewSample {
+    /// A `data:` URL renders synchronously without a network round-trip, so
+    /// previews don't depend on host connectivity or DNS.
+    static var inlineHTMLURL: URL {
+        // swiftlint:disable:next force_unwrapping
+        URL(string: "data:text/html;base64," + Data("""
+        <!doctype html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <title>Preview Page</title>
+            <style>
+              body { font: 16px/1.4 -apple-system, sans-serif; padding: 24px; }
+              h1 { color: #1d6fdb; }
+            </style>
+          </head>
+          <body>
+            <h1>Preview Page</h1>
+            <p>This page is loaded from a <code>data:</code> URL so the preview
+              renders without a network connection.</p>
+            <ul>
+              <li>One</li>
+              <li>Two</li>
+              <li>Three</li>
+            </ul>
+          </body>
+        </html>
+        """.utf8).base64EncodedString())!
+    }
+
+    // swiftlint:disable:next force_unwrapping
+    static let pullRequestURL = URL(string: "https://github.com/gpambrozio/ClaudeSpy/pull/499")!
+}
+
+#Preview("BrowserTabContentView") {
+    BrowserTabContentView(
+        state: BrowserTabState(initialURL: BrowserPreviewSample.inlineHTMLURL),
+        onTitleChange: { _ in },
+        onURLChange: { _ in }
+    )
+    .frame(width: 720, height: 480)
+}
+
+#Preview("BrowserURLConfirmationView — short URL") {
+    BrowserURLConfirmationView(
+        url: BrowserPreviewSample.pullRequestURL,
+        onResolve: { _, _ in },
+        onCancel: { }
+    )
+}
+
+#Preview("BrowserURLConfirmationView — long URL") {
+    BrowserURLConfirmationView(
+        // swiftlint:disable:next force_unwrapping
+        url: URL(string: "https://example.com/very/long/path/with?many=query&parameters=so&we=can&see=how&the=sheet&handles=it&plus=more&content=here#anchor")!,
+        onResolve: { _, _ in },
+        onCancel: { }
+    )
+}
