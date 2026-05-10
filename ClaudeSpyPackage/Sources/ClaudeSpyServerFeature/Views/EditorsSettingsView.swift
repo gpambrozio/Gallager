@@ -58,10 +58,12 @@ struct EditorsSettingsView: View {
 
                 Button("Detect Installed Editors") {
                     @Dependency(EditorClient.self) var client
-                    let detected = client.detectInstalledKnownEditors()
-                    let existingBundles = Set(settings.editors.compactMap(\.bundleIdentifier))
-                    for editor in detected where !existingBundles.contains(editor.bundleIdentifier ?? "") {
-                        settings.addEditor(editor)
+                    Task {
+                        let detected = await client.detectInstalledKnownEditors()
+                        let existingBundles = Set(settings.editors.compactMap(\.bundleIdentifier))
+                        for editor in detected where !existingBundles.contains(editor.bundleIdentifier ?? "") {
+                            settings.addEditor(editor)
+                        }
                     }
                 }
                 .help("Re-scan for known editors that are installed and add any missing ones")
@@ -152,8 +154,8 @@ struct EditorsSettingsView: View {
     private func addEditor(at url: URL) {
         let bundle = Bundle(url: url)
         let bundleId = bundle?.bundleIdentifier
-        let displayName = bundle?.infoDictionary?["CFBundleName"] as? String
-            ?? bundle?.infoDictionary?["CFBundleDisplayName"] as? String
+        let displayName = bundle?.infoDictionary?["CFBundleDisplayName"] as? String
+            ?? bundle?.infoDictionary?["CFBundleName"] as? String
             ?? url.deletingPathExtension().lastPathComponent
         let editor = EditorConfiguration(
             displayName: displayName,

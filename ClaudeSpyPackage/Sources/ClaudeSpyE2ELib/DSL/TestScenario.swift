@@ -292,6 +292,11 @@ public enum TestStep: Sendable {
     case storeValue(key: String, value: String)
     /// Read a file's contents and store in the execution context (supports `${var}` interpolation in path)
     case readFile(path: String, storeAs: String)
+    /// Delete a file at the given path (no-op if it doesn't exist). Used between
+    /// phases to clear an append-only fixture log so subsequent
+    /// `waitForFileContains` assertions don't pass on stale entries from earlier
+    /// phases. Path supports `${var}` interpolation.
+    case removeFile(path: String)
     /// Poll a file until it contains a substring, then store its contents (supports `${var}` interpolation)
     case waitForFileContains(
         path: String, substring: String, storeAs: String, timeout: TimeInterval = 20, pollInterval: TimeInterval = 1

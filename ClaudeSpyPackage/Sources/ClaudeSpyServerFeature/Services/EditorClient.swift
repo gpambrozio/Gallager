@@ -79,7 +79,13 @@
         /// Returns the subset of `KnownEditor.defaults` whose bundle identifiers
         /// resolve to an installed `.app` on the system. Used to seed the user's
         /// editor list on first launch.
-        public var detectInstalledKnownEditors: @Sendable () -> [EditorConfiguration] = { [] }
+        ///
+        /// Async because the live implementation calls
+        /// `NSWorkspace.urlForApplication(withBundleIdentifier:)` once per
+        /// candidate editor — each is a synchronous Launch Services lookup that
+        /// can take tens of milliseconds, which would block the MainActor when
+        /// called from a SwiftUI button action or at app launch.
+        public var detectInstalledKnownEditors: @Sendable () async -> [EditorConfiguration] = { [] }
 
         /// Launches `editor` against `filePath`. The returned `Bool` is `true`
         /// when the launch was attempted successfully — failures (missing path
@@ -97,16 +103,21 @@
         public static var liveValue: EditorClient {
             EditorClient(
                 detectInstalledKnownEditors: {
-                    KnownEditor.defaults.compactMap { known in
-                        let workspace = NSWorkspace.shared
-                        guard workspace.urlForApplication(withBundleIdentifier: known.bundleIdentifier) != nil else {
-                            return nil
+                    // Off the MainActor: NSWorkspace.urlForApplication runs a
+                    // synchronous Launch Services query per candidate, so the
+                    // 13-entry scan can stall the main thread if not hopped off.
+                    await Task.detached {
+                        KnownEditor.defaults.compactMap { known in
+                            let workspace = NSWorkspace.shared
+                            guard workspace.urlForApplication(withBundleIdentifier: known.bundleIdentifier) != nil else {
+                                return nil
+                            }
+                            return EditorConfiguration(
+                                displayName: known.displayName,
+                                bundleIdentifier: known.bundleIdentifier
+                            )
                         }
-                        return EditorConfiguration(
-                            displayName: known.displayName,
-                            bundleIdentifier: known.bundleIdentifier
-                        )
-                    }
+                    }.value
                 },
                 openFile: { editor, filePath in
                     let fileURL = URL(fileURLWithPath: filePath)
@@ -130,7 +141,8 @@
 
                     if let path = editor.executablePath {
                         let appURL = URL(fileURLWithPath: path)
-                        if path.hasSuffix(".app") || (try? appURL.resourceValues(forKeys: [.isApplicationKey]).isApplication == true) == true {
+                        let isApplication = (try? appURL.resourceValues(forKeys: [.isApplicationKey]).isApplication) == true
+                        if path.hasSuffix(".app") || isApplication {
                             let configuration = NSWorkspace.OpenConfiguration()
                             configuration.activates = true
                             do {
@@ -171,19 +183,24 @@
             )
         }
 
-        /// E2E factory: detection returns a single "Fake Editor" entry pointing
-        /// at `scriptPath`, and `openFile` runs the script with the file path as
-        /// its only argument. When `logPath` is set, it's exported as
-        /// `GALLAGER_FAKE_EDITOR_LOG` so the script appends every received file
-        /// path to that file — the test scenario can poll it to assert the
-        /// dispatch genuinely went through the editor process.
+        /// E2E factory: detection returns two stub entries — "Fake Editor" and
+        /// "Fake Editor 2" — both pointing at `scriptPath`. Having more than
+        /// one editor lets scenarios exercise the multi-row rendering of the
+        /// "Open in Editor" submenu and the Cmd+E confirmation dialog. Both
+        /// names dispatch through the same Python script, so the test can pick
+        /// either and still assert against the same log file.
+        ///
+        /// When `logPath` is set, it's exported as `GALLAGER_FAKE_EDITOR_LOG`
+        /// so the script appends every received file path to that file — the
+        /// test scenario can poll it to assert the dispatch genuinely went
+        /// through the editor process.
         public static func fakeScript(scriptPath: String, logPath: String?) -> EditorClient {
-            let editor = EditorConfiguration(
-                displayName: "Fake Editor",
-                executablePath: scriptPath
-            )
+            let editors = [
+                EditorConfiguration(displayName: "Fake Editor", executablePath: scriptPath),
+                EditorConfiguration(displayName: "Fake Editor 2", executablePath: scriptPath),
+            ]
             return EditorClient(
-                detectInstalledKnownEditors: { [editor] },
+                detectInstalledKnownEditors: { editors },
                 openFile: { config, filePath in
                     let path = config.executablePath ?? scriptPath
                     let process = Process()

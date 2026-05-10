@@ -23,7 +23,7 @@ def main() -> int:
     )
 
     args = sys.argv[1:]
-    timestamp = datetime.datetime.utcnow().isoformat()
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
     try:
         with open(log_path, "a", encoding="utf-8") as f:

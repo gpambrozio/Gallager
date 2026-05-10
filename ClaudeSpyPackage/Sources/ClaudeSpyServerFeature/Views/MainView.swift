@@ -3020,8 +3020,6 @@ private struct EditorPickerDialogModifier: ViewModifier {
     @Environment(AppSettings.self) private var settings
     @Environment(\.openSettings) private var openSettings
 
-    @Dependency(EditorClient.self) private var editorClient
-
     private var dialogIsPresented: Binding<Bool> {
         Binding(
             get: { editorPickerPath != nil },
@@ -3050,9 +3048,17 @@ private struct EditorPickerDialogModifier: ViewModifier {
     private func dialogActions(path: String) -> some View {
         ForEach(settings.editors) { editor in
             Button(editor.displayName) {
-                let client = editorClient
+                // Resolve the dependency inside the action so test overrides
+                // installed via `withDependencies` are picked up correctly —
+                // stored properties on a ViewModifier would re-resolve on every
+                // body evaluation and side-step scoped overrides.
+                @Dependency(EditorClient.self) var client
+                let editorName = editor.displayName
                 Task {
-                    _ = await client.openFile(editor, path)
+                    let launched = await client.openFile(editor, path)
+                    if !launched {
+                        postEditorLaunchFailed(editorName: editorName, path: path)
+                    }
                 }
                 editorPickerPath = nil
             }
@@ -3083,6 +3089,16 @@ private struct AlertsModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            // Routed through here so editor-launch failures surface via the
+            // same alert affordance as other transient errors. Defined inside
+            // the existing alerts modifier (rather than as a new chained
+            // `.onReceive` in `MainView.body`) to keep the body's modifier
+            // chain inside SwiftUI's type-checker budget.
+            .onReceive(NotificationCenter.default.publisher(for: .editorLaunchFailed)) { notification in
+                if let message = notification.userInfo?[editorLaunchFailedMessageKey] as? String {
+                    attachError = message
+                }
+            }
             .alert("Terminal Error", isPresented: .init(
                 get: { attachError != nil },
                 set: { if !$0 { attachError = nil } }

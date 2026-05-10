@@ -158,6 +158,7 @@ public extension TestStep {
              .wait,
              .storeValue,
              .readFile,
+             .removeFile,
              .waitForFileContains,
              .log:
             return .universal

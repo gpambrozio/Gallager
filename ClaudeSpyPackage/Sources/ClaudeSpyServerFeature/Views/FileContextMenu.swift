@@ -62,6 +62,20 @@ extension View {
     }
 }
 
+/// Posts ``Notification.Name/editorLaunchFailed`` with a human-readable
+/// message describing the failed launch. `MainView` listens for this and
+/// surfaces it via the shared alert state.
+func postEditorLaunchFailed(editorName: String, path: String) {
+    let fileName = URL(fileURLWithPath: path).lastPathComponent
+    NotificationCenter.default.post(
+        name: .editorLaunchFailed,
+        object: nil,
+        userInfo: [
+            editorLaunchFailedMessageKey: "Couldn't open \(fileName) in \(editorName). The editor may no longer be installed.",
+        ]
+    )
+}
+
 /// "Open in Editor" submenu, used by the file context menu and the Cmd+E
 /// keyboard menu. Reads the editor list from `AppSettings` and routes the
 /// chosen launch through the `EditorClient` dependency so E2E tests can
@@ -84,8 +98,13 @@ struct OpenInEditorMenu: View {
                 ForEach(settings.editors) { editor in
                     Button(editor.displayName) {
                         @Dependency(EditorClient.self) var client
+                        let path = fullPath
+                        let editorName = editor.displayName
                         Task {
-                            _ = await client.openFile(editor, fullPath)
+                            let launched = await client.openFile(editor, path)
+                            if !launched {
+                                postEditorLaunchFailed(editorName: editorName, path: path)
+                            }
                         }
                     }
                     .accessibilityLabel("Open in \(editor.displayName)")

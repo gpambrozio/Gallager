@@ -17,7 +17,10 @@ import Foundation
 ///
 /// In E2E mode the macOS app's `EditorClient` dependency is replaced with
 /// `EditorClient.fakeScript(...)` (see `--fake-editor-script`), which:
-/// - returns a single editor named "Fake Editor" from `detectInstalledKnownEditors`
+/// - returns *two* editors ("Fake Editor", "Fake Editor 2") from
+///   `detectInstalledKnownEditors` so the menu and dialog render their
+///   multi-row layout — a single-entry list would never exercise the
+///   `ForEach` paths.
 /// - launches `fake_editor.py` with the file path as its only argument
 /// - additionally appends each `(filePath)` to a known log so the assertion
 ///   does not race with the script's own write
@@ -51,11 +54,14 @@ public enum OpenInEditorScenario {
         // ── Phase 2: "Open in Editor" via tree context menu ──────
         //
         // Right-click `hello.txt` in the tree. The "Open in Editor" submenu
-        // surfaces the single fake editor registered by the E2E launch arg.
-        // Picking it launches our Python script with the file path; the
-        // log file under `$TMPDIR` then contains the absolute path to
-        // `hello.txt`.
+        // surfaces the two fake editors registered by the E2E launch arg.
+        // Picking "Fake Editor" launches our Python script with the file
+        // path; the log file under `$TMPDIR` then contains the absolute path
+        // to `hello.txt`.
         TestStep.log("Phase 2: 'Open in Editor → Fake Editor' on a tree file")
+
+        // Clean slate so subsequent phases can re-assert against a fresh log.
+        TestStep.removeFile(path: "${fakeEditorLogPath}")
 
         TestStep.macContextSubmenuClick(
             elementTitle: "hello.txt",
@@ -82,6 +88,10 @@ public enum OpenInEditorScenario {
         // itself. The shared `FileContextMenu` should expose the same
         // submenu for tab right-clicks.
         TestStep.log("Phase 3: 'Open in Editor' from a file-tab context menu")
+        // Clear the log so the README.md assertion can't accidentally
+        // pass against a stale Phase 2 entry that happens to contain
+        // README.md (it doesn't today, but stays honest if fixtures shift).
+        TestStep.removeFile(path: "${fakeEditorLogPath}")
         TestStep.macContextMenuClick(elementTitle: "README.md", menuItem: "Open in New Tab")
         TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "File tab: README.md", timeout: 5)
@@ -105,7 +115,8 @@ public enum OpenInEditorScenario {
         //
         // Open `hello.txt` in a new tab (so the tab is focused), then send
         // Cmd+E via AppleScript keystroke. The `Open in Editor` confirmation
-        // dialog appears; click "Fake Editor" to dispatch.
+        // dialog appears showing both fake editors; click "Fake Editor 2" to
+        // exercise the second row and dispatch.
         TestStep.log("Phase 4: Cmd+E on a focused file tab")
         TestStep.macClickButton(titled: "Files")
         TestStep.wait(seconds: 1)
@@ -115,23 +126,28 @@ public enum OpenInEditorScenario {
         TestStep.macClickButton(titled: "File tab: hello.txt")
         TestStep.wait(seconds: 1)
 
+        // Wipe the log so the post-dispatch assertion can't be satisfied by a
+        // stale Phase 2 entry — that was the original false-positive in this
+        // phase. With a fresh log, `waitForFileContains` only succeeds if the
+        // Cmd+E dispatch actually ran the script.
+        TestStep.removeFile(path: "${fakeEditorLogPath}")
+
         // Send Cmd+E to trigger the top-level "Open in Editor…" command. The
         // confirmation dialog appears showing the editor list.
         TestStep.macPressShortcut(key: "e", modifiers: [.command])
         TestStep.wait(seconds: 1)
+        // Both editors should be visible in the multi-row dialog.
         TestStep.macWaitForElement(titled: "Fake Editor", timeout: 5)
+        TestStep.macWaitForElement(titled: "Fake Editor 2", timeout: 5)
         TestStep.macScreenshot(label: "mac-cmd-e-dialog")
         // SwiftUI's confirmationDialog renders its action buttons in a sheet
         // whose AXPress handler is unreliable from outside the process; a
-        // CGEvent click at the element's frame goes through correctly.
-        TestStep.macCGClick(titled: "Fake Editor")
+        // CGEvent click at the element's frame goes through correctly. Clicking
+        // the second-row entry also exercises the multi-editor `ForEach`.
+        TestStep.macCGClick(titled: "Fake Editor 2")
         TestStep.wait(seconds: 1)
 
-        // The log already contains earlier entries — assert the new line
-        // mentions hello.txt by polling for the count of "hello.txt"
-        // appearances. We use waitForFileContains, which only checks for the
-        // substring's presence; the log was already non-empty after Phase 2.
-        // Re-reading and counting occurrences keeps the assertion meaningful.
+        // Fresh log → only the Cmd+E dispatch can put "hello.txt" in there.
         TestStep.waitForFileContains(
             path: "${fakeEditorLogPath}",
             substring: "hello.txt",
@@ -141,16 +157,18 @@ public enum OpenInEditorScenario {
         TestStep.assertStoredContains(key: "cmdELog", substring: "hello.txt")
         TestStep.macScreenshot(label: "mac-cmd-e-dispatched")
 
-        // ── Phase 5: Settings → Editors tab shows the fake editor ─
+        // ── Phase 5: Settings → Editors tab shows both fake editors ─
         //
-        // The Settings window's new "Editors" tab should list the fake
-        // editor seeded by the E2E launch arg.
-        TestStep.log("Phase 5: Settings → Editors lists the fake editor")
+        // The Settings window's new "Editors" tab should list both editors
+        // seeded by the E2E launch arg. Asserting on both rows guards
+        // against a regression that collapses the multi-row list view.
+        TestStep.log("Phase 5: Settings → Editors lists both fake editors")
         TestStep.macOpenSettings()
         TestStep.wait(seconds: 2)
         TestStep.macSelectSettingsTab("Editors")
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "Editor: Fake Editor", timeout: 5)
+        TestStep.macWaitForElement(titled: "Editor: Fake Editor 2", timeout: 5)
         TestStep.macScreenshot(label: "mac-settings-editors-tab")
         // The settings window's title reflects the selected tab, not "Settings",
         // so close it via the active tab title rather than guessing the chrome.

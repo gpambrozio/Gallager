@@ -689,10 +689,13 @@ final public class AppSettings {
     /// On first launch (or when the user explicitly hasn't seeded yet), populate
     /// `editors` with the editors that are currently installed on the host.
     /// Subsequent calls are no-ops because `hasSeededEditors` is set to true.
-    public func seedEditorsIfEmpty(using client: EditorClient) {
+    ///
+    /// Async because the live `detectInstalledKnownEditors` runs Launch
+    /// Services lookups off the MainActor.
+    public func seedEditorsIfEmpty(using client: EditorClient) async {
         guard !hasSeededEditors else { return }
         if editors.isEmpty {
-            editors = client.detectInstalledKnownEditors()
+            editors = await client.detectInstalledKnownEditors()
         }
         hasSeededEditors = true
     }

@@ -912,6 +912,11 @@ public actor TestOrchestrator {
             context.set(storeAs, value: content)
             logger.info("  Read file (\(content.count) chars) → stored as ${\(storeAs)}")
 
+        case let .removeFile(path):
+            let resolvedPath = context.resolve(path)
+            try? FileManager.default.removeItem(atPath: resolvedPath)
+            logger.info("  Removed file (if present): \(resolvedPath)")
+
         case let .waitForFileContains(path, substring, storeAs, timeout, pollInterval):
             let resolvedPath = context.resolve(path)
             let resolvedSubstring = context.resolve(substring)
