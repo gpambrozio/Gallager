@@ -1508,7 +1508,15 @@ public struct MainView: View {
             sessionFileTabsStates[sessionName] = SessionFileTabsState()
         }
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
-        if let existingIndex = tabs.openBrowserTabs.firstIndex(where: { $0.url == url }) {
+        // Match on the tab's live `currentURL` (driven by the WKWebView) rather
+        // than the value stored on `BrowserTab`. After the user navigates away
+        // from the opening URL, `BrowserTab.url` advances with them; re-using
+        // that for de-dup would let a second click on the original URL spawn a
+        // duplicate tab. Re-focusing is the intended behaviour.
+        let existingIndex = tabs.openBrowserTabs.firstIndex { tab in
+            tabs.browserStates[tab.id]?.currentURL == url
+        }
+        if let existingIndex {
             if let originWindowId {
                 tabs.openBrowserTabs[existingIndex].originWindowId = originWindowId
             }

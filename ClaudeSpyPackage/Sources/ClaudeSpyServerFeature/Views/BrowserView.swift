@@ -32,8 +32,10 @@ struct BrowserTab: Identifiable, Equatable {
         self.originWindowId = originWindowId
     }
 
-    /// Label rendered on the tab strip. Falls back to the URL host (then the
-    /// full URL string) when the page hasn't reported a title yet.
+    /// Label rendered on the tab strip. Falls back to the URL host (then a
+    /// truncated form of the full URL string) when the page hasn't reported a
+    /// title yet. The truncation keeps long query/fragment URLs from
+    /// overflowing the tab strip's max label width.
     var tabLabel: String {
         if let title = displayTitle, !title.isEmpty {
             return title
@@ -41,7 +43,11 @@ struct BrowserTab: Identifiable, Equatable {
         if let host = url.host, !host.isEmpty {
             return host
         }
-        return url.absoluteString
+        let absolute = url.absoluteString
+        if absolute.count > 50 {
+            return absolute.prefix(50) + "…"
+        }
+        return absolute
     }
 }
 
@@ -82,20 +88,18 @@ final class BrowserTabState {
         self.currentURL = initialURL
         self.urlFieldText = initialURL.absoluteString
 
-        observers.append(webView.observe(\.url, options: [.new]) { [weak self] _, change in
+        observers.append(webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                let newURL = change.newValue ?? nil
-                self.currentURL = newURL
-                if let newURL {
+                self.currentURL = webView.url
+                if let newURL = webView.url {
                     self.urlFieldText = newURL.absoluteString
                 }
             }
         })
-        observers.append(webView.observe(\.title, options: [.new]) { [weak self] _, change in
+        observers.append(webView.observe(\.title, options: [.new]) { [weak self] webView, _ in
             MainActor.assumeIsolated {
-                guard let self else { return }
-                self.pageTitle = change.newValue ?? nil
+                self?.pageTitle = webView.title
             }
         })
         observers.append(webView.observe(\.canGoBack, options: [.new]) { [weak self] webView, _ in
@@ -132,14 +136,17 @@ final class BrowserTabState {
 
     /// Coerces user input into a usable URL. Adds an `https://` scheme when
     /// missing and the input looks like a host or path-bearing URL; returns
-    /// `nil` for empty input.
+    /// `nil` for empty input. Percent-encodes the trimmed input so values that
+    /// contain spaces or other URL-illegal characters (e.g. a pasted query
+    /// string) still produce a non-nil URL instead of silently no-opping.
     static func normalizedURL(from text: String) -> URL? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         if let url = URL(string: trimmed), url.scheme != nil {
             return url
         }
-        return URL(string: "https://\(trimmed)")
+        let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? trimmed
+        return URL(string: "https://\(encoded)")
     }
 }
 
@@ -324,5 +331,6 @@ struct BrowserURLConfirmationView: View {
         }
         .padding(20)
         .frame(width: 420)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
