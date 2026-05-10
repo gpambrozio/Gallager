@@ -1369,11 +1369,13 @@
         }
 
         /// Opens a URL by giving `onOpenURL` first chance to handle it. Falls
-        /// back to `NSWorkspace.shared.open` when the callback is absent or
-        /// declines to handle the URL.
+        /// back to the `URLOpener` dependency (`NSWorkspace.shared.open` in
+        /// production, a file-backed log in E2E tests) when the callback is
+        /// absent or declines to handle the URL.
         private func openURL(_ url: URL) {
             if onOpenURL?(url) == true { return }
-            NSWorkspace.shared.open(url)
+            @Dependency(URLOpener.self) var urlOpener
+            urlOpener.openInDefaultBrowser(url)
         }
 
         // MARK: - URL Underlines

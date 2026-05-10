@@ -206,7 +206,7 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.wait(seconds: 1)
 
         // ── Phase 7: .alwaysInDefaultBrowser → no new in-app tab ─
-        TestStep.log("Phase 7: With .alwaysInDefaultBrowser, clicking link 4 falls through to NSWorkspace — no new in-app tab")
+        TestStep.log("Phase 7: With .alwaysInDefaultBrowser, clicking link 4 routes via URLOpener — no new in-app tab")
         TestStep.macClickButton(titled: "weblinks")
         TestStep.macClickButton(titled: "weblinks:0")
         TestStep.wait(seconds: 1)
@@ -225,6 +225,19 @@ public enum BrowserTabFromTerminalLinkScenario {
             timeout: 5
         )
         TestStep.macScreenshot(label: "mac-default-browser-no-new-tab")
+
+        // The default-browser log is the in-app stand-in for `NSWorkspace.open`
+        // during E2E. Phases 1, 3 and 5 all opened in-app browser tabs, so the
+        // only entry should be link 4 — the click that ran after the picker
+        // was flipped to `.alwaysInDefaultBrowser`. The `?v=2` and `?v=3`
+        // not-contains catch a regression where the routing leaked an earlier
+        // click to the default browser; link 1 has no query marker, so its
+        // absence is covered by the visible browser-tab screenshots in
+        // Phases 1/3/5 rather than a log assertion.
+        TestStep.readFile(path: "${defaultBrowserLogPath}", storeAs: "defaultBrowserLog")
+        TestStep.assertStoredContains(key: "defaultBrowserLog", substring: "\(healthURL)?v=4")
+        TestStep.assertStoredNotContains(key: "defaultBrowserLog", substring: "\(healthURL)?v=2")
+        TestStep.assertStoredNotContains(key: "defaultBrowserLog", substring: "\(healthURL)?v=3")
 
         // Tear down so we don't carry state into the next scenario.
         Shortcut.tmuxRunCommand(target: "weblinks:0", command: "exit")

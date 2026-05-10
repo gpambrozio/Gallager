@@ -2,6 +2,7 @@ import AppKit
 import ClaudeSpyCommon
 import ClaudeSpyEncryption
 import ClaudeSpyNetworking
+import Dependencies
 import SwiftUI
 
 /// The main application view showing available tmux windows in a sidebar layout
@@ -1612,7 +1613,8 @@ public struct MainView: View {
                 settings.browserLinkBehavior = .alwaysInApp
             }
         case .defaultBrowser:
-            NSWorkspace.shared.open(prompt.url)
+            @Dependency(URLOpener.self) var urlOpener
+            urlOpener.openInDefaultBrowser(prompt.url)
             if rememberChoice {
                 settings.browserLinkBehavior = .alwaysInDefaultBrowser
             }

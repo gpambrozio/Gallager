@@ -1,5 +1,6 @@
 import AppKit
 import ClaudeSpyCommon
+import Dependencies
 import SwiftUI
 @preconcurrency import WebKit
 
@@ -255,7 +256,8 @@ struct BrowserTabContentView: View {
 
             Button {
                 if let url = state.currentURL {
-                    NSWorkspace.shared.open(url)
+                    @Dependency(URLOpener.self) var urlOpener
+                    urlOpener.openInDefaultBrowser(url)
                 }
             } label: {
                 Symbols.arrowUpRightSquare.image
