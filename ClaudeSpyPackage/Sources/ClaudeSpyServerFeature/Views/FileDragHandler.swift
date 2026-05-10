@@ -20,7 +20,7 @@ extension View {
     func draggableFile(path: String?) -> some View {
         if let path {
             onDrag {
-                NSItemProvider(object: URL(fileURLWithPath: path) as NSURL)
+                NSItemProvider(object: URL(filePath: path) as NSURL)
             }
         } else {
             self
