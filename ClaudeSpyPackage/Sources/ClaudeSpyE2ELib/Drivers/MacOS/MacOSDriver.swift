@@ -275,6 +275,25 @@ public actor MacOSDriver {
         }
     }
 
+    /// CGEvent left-click at the centre of an element matching the query.
+    /// Use to target elements by accessibility identifier (e.g. an individual
+    /// terminal pane via `.identifier("terminal-%1")`) instead of brittle
+    /// hard-coded screen coordinates.
+    public func cgClick(matching query: ElementQuery) async throws {
+        let pid = try requirePID()
+        logger.info("CGEvent clicking element matching query")
+        _ = try await Polling.waitFor(
+            description: "macOS UI element for cg-click",
+            timeout: 5,
+            pollInterval: 0.5
+        ) {
+            MacOSAccessibility.findElement(appPID: pid, matching: query)
+        }
+        if !MacOSAccessibility.cgClick(appPID: pid, matching: query) {
+            throw MacOSDriverError.elementNotFound("query for cg-click")
+        }
+    }
+
     // MARK: - Right-Click / Context Menu
 
     /// Right-click on an element to open its context menu.

@@ -7,6 +7,7 @@ public extension Notification.Name {
     static let openPanesWindow = Notification.Name("openPanesWindow")
     static let closeCurrentTab = Notification.Name("closeCurrentTab")
     static let openCurrentTabInEditor = Notification.Name("openCurrentTabInEditor")
+    static let openContentSearch = Notification.Name("openContentSearch")
     /// Posted when `EditorClient.openFile` returns `false`. `userInfo` carries
     /// a human-readable message under ``editorLaunchFailedMessageKey`` so
     /// `MainView` can surface the failure through its shared alert state.

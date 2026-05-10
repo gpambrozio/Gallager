@@ -75,13 +75,21 @@ public enum MultiPaneWindowScenario {
 
         TestStep.log("Stage 3a: Verify clicking a pane in the mirror calls select-pane on tmux")
 
-        // After splitting twice, tmux's active pane is .2 (the most-recently
-        // created bottom-right pane). Window: (10,10) sized 1200x700 with
-        // sidebar; the sidebar + chrome push the terminal area to roughly
-        // x=290..1240 and y=110..700. Layout: pane 0 = left half (centre
-        // x≈517, y≈400), pane 1 = top-right (centre x≈995, y≈245), pane 2 =
-        // bottom-right (centre x≈995, y≈540).
-        TestStep.macClickAtPoint(x: 517, y: 400)
+        // Drive each click through the pane's accessibility identifier
+        // (`terminal-%N`) and let the AX layer find its on-screen centre.
+        // Hard-coded screen coordinates were flaky: a 1-px boundary shift in
+        // the horizontal split — which depends on the exact rendered window
+        // height — sent the (995, 245) "top-right" click into the bottom-right
+        // pane and broke `pane_active` for pane .1.
+        //
+        // The `wait(seconds: 1)` after each click gives the previous click's
+        // responder transition (and the resulting `select-pane` round-trip
+        // back to tmux) time to settle before the next click fires; clicking
+        // back-to-back occasionally let the second click reach the AX tree
+        // mid-focus-change.
+
+        TestStep.macCGClickElement(query: .identifier("terminal-%0"))
+        TestStep.wait(seconds: 1)
         TestStep.waitForTmuxDisplayMessage(
             target: "multi-pane:0.0",
             format: "#{pane_active}",
@@ -89,7 +97,8 @@ public enum MultiPaneWindowScenario {
             timeout: 5
         )
 
-        TestStep.macClickAtPoint(x: 995, y: 245)
+        TestStep.macCGClickElement(query: .identifier("terminal-%1"))
+        TestStep.wait(seconds: 1)
         TestStep.waitForTmuxDisplayMessage(
             target: "multi-pane:0.1",
             format: "#{pane_active}",
@@ -97,7 +106,8 @@ public enum MultiPaneWindowScenario {
             timeout: 5
         )
 
-        TestStep.macClickAtPoint(x: 995, y: 540)
+        TestStep.macCGClickElement(query: .identifier("terminal-%2"))
+        TestStep.wait(seconds: 1)
         TestStep.waitForTmuxDisplayMessage(
             target: "multi-pane:0.2",
             format: "#{pane_active}",

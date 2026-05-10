@@ -235,6 +235,7 @@ struct TmuxPaneMirrorApp: App {
                     ]),
                 ]
                 $0[FileSystemLoadingService.self] = .inMemory(tree: fakeTree, dynamicEntries: dynamicEntries)
+                $0[FileTextSearchService.self] = .inMemory(tree: fakeTree, dynamicEntries: dynamicEntries)
                 $0[LoginItemService.self] = LoginItemService(
                     isEnabled: { false },
                     setEnabled: { _ in }
@@ -370,6 +371,13 @@ struct TmuxPaneMirrorApp: App {
                     NotificationCenter.default.post(name: .openCurrentTabInEditor, object: nil)
                 }
                 .keyboardShortcut("e", modifiers: .command)
+            }
+
+            CommandGroup(after: .textEditing) {
+                Button("Find in Files") {
+                    NotificationCenter.default.post(name: .openContentSearch, object: nil)
+                }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
             }
 
             // Edit menu - Copy as Rich Text / Copy with Control Sequences
