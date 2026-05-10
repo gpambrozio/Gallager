@@ -218,6 +218,7 @@ struct BrowserTabContentView: View {
             }
             .buttonStyle(.borderless)
             .disabled(!state.canGoBack)
+            .keyboardShortcut("[", modifiers: .command)
             .help("Back")
             .accessibilityLabel("Back")
 
@@ -228,6 +229,7 @@ struct BrowserTabContentView: View {
             }
             .buttonStyle(.borderless)
             .disabled(!state.canGoForward)
+            .keyboardShortcut("]", modifiers: .command)
             .help("Forward")
             .accessibilityLabel("Forward")
 
@@ -247,6 +249,7 @@ struct BrowserTabContentView: View {
                 }
             }
             .buttonStyle(.borderless)
+            .keyboardShortcut("r", modifiers: .command)
             .help(state.isLoading ? "Stop" : "Reload")
             .accessibilityLabel(state.isLoading ? "Stop" : "Reload")
 
@@ -333,24 +336,25 @@ struct BrowserURLConfirmationView: View {
                 .textSelection(.enabled)
                 .foregroundStyle(.secondary)
 
-            Toggle("Always do this", isOn: $rememberChoice)
+            Toggle("Don't ask again.", isOn: $rememberChoice)
                 .help("Remember this choice and stop asking. You can change it later in Settings → General → Behavior.")
 
             HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) {
-                    onCancel()
+                Button("In App") {
+                    onResolve(.inApp, rememberChoice)
                 }
-                .keyboardShortcut(.cancelAction)
+                .keyboardShortcut(.defaultAction)
 
                 Button("In Default Browser") {
                     onResolve(.defaultBrowser, rememberChoice)
                 }
 
-                Button("In App") {
-                    onResolve(.inApp, rememberChoice)
+                Button("Cancel", role: .cancel) {
+                    onCancel()
                 }
-                .keyboardShortcut(.defaultAction)
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
             }
         }
         .padding(20)
