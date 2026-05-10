@@ -81,16 +81,17 @@ final class BrowserTabState {
     init(initialURL: URL) {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
-        // Without this, WKWebView ships a User-Agent missing the
-        // `Version/… Safari/…` suffix, which makes many sites think this is an
-        // old/unsupported browser and degrade their layout. Appending a
-        // Safari-style suffix here yields a UA equivalent to current Safari on
-        // macOS, so servers serve the modern desktop experience.
-        // swiftlint:disable:next custom_no_number_decimals
-        configuration.applicationNameForUserAgent = "Version/18.0 Safari/605.1.15"
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = true
+        // WKWebView's default User-Agent omits the `Version/… Safari/…`
+        // suffix, so sites like google.com fall back to a no-modern-browser
+        // layout. Forcing a full Safari UA via `customUserAgent` is the most
+        // reliable way to make servers serve the modern desktop experience —
+        // `applicationNameForUserAgent` was observed to not be enough in
+        // practice. Update the Safari version here when targeting newer macOS.
+        // swiftlint:disable:next custom_no_number_decimals
+        webView.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
         self.webView = webView
         self.currentURL = initialURL
         self.urlFieldText = initialURL.absoluteString
