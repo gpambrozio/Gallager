@@ -107,6 +107,27 @@ struct TmuxPaneMirrorApp: App {
                 clipboardFilePath = nil
             }
 
+            // E2E test support: register a fake editor backed by a Python script
+            // so scenarios can verify "Open in Editor" forwards the file path
+            // without launching real editor apps on the host.
+            let fakeEditorScript: String?
+            if let idx = CommandLine.arguments.firstIndex(of: "--fake-editor-script"),
+               idx + 1 < CommandLine.arguments.count
+            {
+                fakeEditorScript = CommandLine.arguments[idx + 1]
+            } else {
+                fakeEditorScript = nil
+            }
+            // E2E test support: where the fake editor writes the paths it received.
+            let fakeEditorLog: String?
+            if let idx = CommandLine.arguments.firstIndex(of: "--fake-editor-log"),
+               idx + 1 < CommandLine.arguments.count
+            {
+                fakeEditorLog = CommandLine.arguments[idx + 1]
+            } else {
+                fakeEditorLog = nil
+            }
+
             prepareDependencies {
                 $0[PreferencesService.self] = prefs
                 $0[SecretsService.self] = .inMemory()
@@ -235,6 +256,15 @@ struct TmuxPaneMirrorApp: App {
                     try? FileManager.default.removeItem(atPath: clipboardFilePath)
                     $0[ClipboardClient.self] = .fileBacked(path: clipboardFilePath)
                 }
+                if let fakeEditorScript {
+                    if let fakeEditorLog {
+                        try? FileManager.default.removeItem(atPath: fakeEditorLog)
+                    }
+                    $0[EditorClient.self] = .fakeScript(
+                        scriptPath: fakeEditorScript,
+                        logPath: fakeEditorLog
+                    )
+                }
             }
 
             // Force regular activation policy so the app has a menu bar
@@ -335,6 +365,11 @@ struct TmuxPaneMirrorApp: App {
                     NotificationCenter.default.post(name: .closeCurrentTab, object: nil)
                 }
                 .keyboardShortcut("w", modifiers: .command)
+
+                Button("Open in Editor…") {
+                    NotificationCenter.default.post(name: .openCurrentTabInEditor, object: nil)
+                }
+                .keyboardShortcut("e", modifiers: .command)
             }
 
             // Edit menu - Copy as Rich Text / Copy with Control Sequences

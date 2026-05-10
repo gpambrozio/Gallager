@@ -2,6 +2,7 @@ import AppKit
 import ClaudeSpyCommon
 import ClaudeSpyEncryption
 import ClaudeSpyNetworking
+import Dependencies
 import SwiftUI
 
 /// The main application view showing available tmux windows in a sidebar layout
@@ -55,6 +56,10 @@ public struct MainView: View {
     @State private var fileBrowserStates: [String: FileBrowserState] = [:]
     /// Cached open-file-tab strip per session (keyed by `sessionName`).
     @State private var sessionFileTabsStates: [String: SessionFileTabsState] = [:]
+
+    /// File path for which the "Open in Editor" picker is currently shown
+    /// (triggered by Cmd+E on a focused file tab).
+    @State private var editorPickerPath: String?
 
     public var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -207,6 +212,10 @@ public struct MainView: View {
             guard !fileBrowserActiveWindowIds.contains(window.id) else { return }
             requestCloseWindow(window)
         }
+        .modifier(EditorPickerDialogModifier(
+            editorPickerPath: $editorPickerPath,
+            onCmdE: { handleOpenCurrentTabInEditor() }
+        ))
         .onChange(of: windowManager.pendingSessionCount) {
             // When an event arrives on the already-selected session, no selection
             // change fires. Watch the pending count so we can auto-clear attention
@@ -1427,6 +1436,24 @@ public struct MainView: View {
     /// clear `selectedFileTabId` when the selected tab is removed, otherwise
     /// the id will dangle and the content area will render `OpenFileTabContentView`
     /// against a stale tab.
+    /// Resolves the path of the currently-selected file tab and stores it in
+    /// `editorPickerPath` so the Cmd+E confirmation dialog presents the editor
+    /// list. No-op when no file tab is focused.
+    private func handleOpenCurrentTabInEditor() {
+        guard let window = selectedWindow else { return }
+        guard
+            let sessionName = tmuxService.sessions
+                .first(where: { $0.windows.contains(where: { $0.id == window.id }) })?
+                .sessionName
+        else { return }
+        guard
+            let tabs = sessionFileTabsStates[sessionName],
+            let selectedId = tabs.selectedFileTabId,
+            let tab = tabs.openFileTabs.first(where: { $0.id == selectedId })
+        else { return }
+        editorPickerPath = tab.path
+    }
+
     private func closeOpenFileTab(_ tabId: UUID, sessionName: String) {
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
         guard let closedIndex = tabs.openFileTabs.firstIndex(where: { $0.id == tabId }) else { return }
@@ -2976,6 +3003,74 @@ private struct NewSessionRow: View {
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
+    }
+}
+
+// MARK: - Editor Picker Dialog Modifier
+
+/// Confirmation dialog driven by `editorPickerPath` that lists the user's
+/// configured editors and forwards the selection to ``EditorClient``.
+///
+/// Lives in its own modifier so the SwiftUI view-builder for `MainView.body`
+/// stays small enough for the type-checker to handle.
+private struct EditorPickerDialogModifier: ViewModifier {
+    @Binding var editorPickerPath: String?
+    let onCmdE: () -> Void
+
+    @Environment(AppSettings.self) private var settings
+    @Environment(\.openSettings) private var openSettings
+
+    @Dependency(EditorClient.self) private var editorClient
+
+    private var dialogIsPresented: Binding<Bool> {
+        Binding(
+            get: { editorPickerPath != nil },
+            set: { newValue in
+                if !newValue { editorPickerPath = nil }
+            }
+        )
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .openCurrentTabInEditor)) { _ in
+                onCmdE()
+            }
+            .confirmationDialog(
+                "Open in Editor",
+                isPresented: dialogIsPresented,
+                titleVisibility: .visible,
+                presenting: editorPickerPath,
+                actions: dialogActions,
+                message: dialogMessage
+            )
+    }
+
+    @ViewBuilder
+    private func dialogActions(path: String) -> some View {
+        ForEach(settings.editors) { editor in
+            Button(editor.displayName) {
+                let client = editorClient
+                Task {
+                    _ = await client.openFile(editor, path)
+                }
+                editorPickerPath = nil
+            }
+        }
+        if settings.editors.isEmpty {
+            Button("Configure Editors…") {
+                settings.selectedSettingsTab = .editors
+                openSettings()
+                editorPickerPath = nil
+            }
+        }
+        Button("Cancel", role: .cancel) {
+            editorPickerPath = nil
+        }
+    }
+
+    private func dialogMessage(path: String) -> some View {
+        Text(URL(fileURLWithPath: path).lastPathComponent)
     }
 }
 

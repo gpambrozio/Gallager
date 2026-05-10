@@ -19,6 +19,21 @@ public enum E2EDeviceType: String, Sendable {
     case viewer
 }
 
+/// Keyboard modifier flags accepted by ``TestStep/macPressShortcut(key:modifiers:instance:)``.
+/// Maps directly to `CGEventFlags` inside the macOS driver.
+public struct KeyboardModifiers: OptionSet, Sendable {
+    public let rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    public static let command = KeyboardModifiers(rawValue: 1 << 0)
+    public static let shift = KeyboardModifiers(rawValue: 1 << 1)
+    public static let option = KeyboardModifiers(rawValue: 1 << 2)
+    public static let control = KeyboardModifiers(rawValue: 1 << 3)
+}
+
 /// An individual test step that the orchestrator executes
 public enum TestStep: Sendable {
     // MARK: - Server
@@ -129,6 +144,12 @@ public enum TestStep: Sendable {
     case macPressSpace(instance: Int = 0)
     /// Press Cmd+A to select all text in the focused field
     case macSelectAll(instance: Int = 0)
+    /// Press a single character key with optional modifiers via CGEvent.
+    ///
+    /// Useful for invoking app-defined keyboard shortcuts that aren't bound to
+    /// the dedicated `macSelectAll` / `macPressReturn` steps. `key` must be a
+    /// single character; non-letter keys (Tab, Escape, …) have their own steps.
+    case macPressShortcut(key: String, modifiers: KeyboardModifiers = [], instance: Int = 0)
     /// CGEvent left-click on an element (bypasses AXPress, uses real mouse click).
     /// Use for selecting items in SwiftUI List/OutlineGroup.
     case macCGClick(titled: String, instance: Int = 0)

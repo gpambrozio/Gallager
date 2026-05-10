@@ -70,6 +70,8 @@ public extension TestStep {
             return .macOS(instance: instance)
         case let .macSelectAll(instance):
             return .macOS(instance: instance)
+        case let .macPressShortcut(_, _, instance):
+            return .macOS(instance: instance)
         case let .macCGClick(_, instance):
             return .macOS(instance: instance)
         case let .macRightClick(_, instance):

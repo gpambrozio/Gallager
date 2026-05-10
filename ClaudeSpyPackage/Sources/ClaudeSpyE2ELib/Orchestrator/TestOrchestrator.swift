@@ -152,8 +152,13 @@ public actor TestOrchestrator {
         context.set("tmuxSocket", value: tmuxSocket ?? NSTemporaryDirectory() + "claudespy-e2e.sock")
         context.set("notificationLogPath", value: notificationLogPath(for: 0))
         context.set("pushLogPath", value: pushLogPath(for: 0))
+        context.set("fakeEditorLogPath", value: fakeEditorLogPath(for: 0))
         context.set("scenarioName", value: scenarioDirName)
         context.set("macOSAppPath", value: macOSAppPath)
+
+        // Clear any leftover fake-editor log from a previous run so scenario
+        // assertions don't see stale entries.
+        try? FileManager.default.removeItem(atPath: fakeEditorLogPath(for: 0))
 
         var stepResults: [StepResult] = []
         var firstFailedStep: Int?
@@ -489,6 +494,18 @@ public actor TestOrchestrator {
                 FileManager.default.fileExists(atPath: sampleDir) {
                 arguments += ["--sample-files-dir", sampleDir]
             }
+            if
+                let fakeEditor = Bundle.module.url(
+                    forResource: "fake_editor",
+                    withExtension: "py",
+                    subdirectory: "Scripts"
+                ) {
+                let logPath = fakeEditorLogPath(for: instance)
+                arguments += [
+                    "--fake-editor-script", fakeEditor.path,
+                    "--fake-editor-log", logPath,
+                ]
+            }
             try await driver.launchApp(path: macOSAppPath, arguments: arguments)
 
         case let .terminateMacApp(instance):
@@ -532,6 +549,9 @@ public actor TestOrchestrator {
 
         case let .macSelectAll(instance):
             try await macDriver(for: instance).selectAll()
+
+        case let .macPressShortcut(key, modifiers, instance):
+            try await macDriver(for: instance).pressShortcut(key: key, modifiers: modifiers)
 
         case let .macCGClick(titled, instance):
             try await macDriver(for: instance).cgClick(titled: titled)
@@ -967,6 +987,16 @@ public actor TestOrchestrator {
     /// isolating clipboards between instances on the same machine.
     func clipboardFilePath(for instance: Int) -> String {
         NSTemporaryDirectory() + "claudespy-e2e-clipboard-\(instance).txt"
+    }
+
+    /// Return the path scenarios should read to verify the fake editor was
+    /// invoked with a given file. Each "Open in Editor" appends a line.
+    public static func fakeEditorLogPath(for instance: Int = 0) -> String {
+        NSTemporaryDirectory() + "claudespy-e2e-fake-editor-\(instance).log"
+    }
+
+    private func fakeEditorLogPath(for instance: Int) -> String {
+        Self.fakeEditorLogPath(for: instance)
     }
 
     // MARK: - Script Cleanup

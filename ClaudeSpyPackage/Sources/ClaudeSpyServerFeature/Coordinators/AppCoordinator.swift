@@ -184,6 +184,12 @@
 
             // Disable macOS automatic window restoration to prevent duplicate windows on launch
             preferences.setBool(false, "NSQuitAlwaysKeepsWindows")
+
+            // Pre-fill the editor list on first launch with whatever is installed
+            // on the host. Subsequent launches read the persisted list (which the
+            // user may have edited), so this is a one-shot.
+            @Dependency(EditorClient.self) var editorClient
+            settings.seedEditorsIfEmpty(using: editorClient)
         }
 
         // MARK: - Public API

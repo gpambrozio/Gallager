@@ -29,6 +29,9 @@ extension View {
                         onOpenFileInNewTab(fullPath)
                     }
                 }
+                if !isDirectory {
+                    OpenInEditorMenu(fullPath: fullPath)
+                }
                 if !isDirectory, let onShowInFileExplorer {
                     Button("Show in File Explorer") {
                         onShowInFileExplorer(fullPath)
@@ -53,6 +56,45 @@ extension View {
                         @Dependency(ClipboardClient.self) var clipboard
                         clipboard.setFileURL(URL(fileURLWithPath: fullPath))
                     }
+                }
+            }
+        }
+    }
+}
+
+/// "Open in Editor" submenu, used by the file context menu and the Cmd+E
+/// keyboard menu. Reads the editor list from `AppSettings` and routes the
+/// chosen launch through the `EditorClient` dependency so E2E tests can
+/// assert the file path was forwarded to the right editor.
+struct OpenInEditorMenu: View {
+    let fullPath: String
+
+    @Environment(AppSettings.self) private var settings
+    @Environment(\.openSettings) private var openSettings
+
+    var body: some View {
+        Menu("Open in Editor") {
+            if settings.editors.isEmpty {
+                Button("Configure Editors…") {
+                    @Bindable var bindable = settings
+                    bindable.selectedSettingsTab = .editors
+                    openSettings()
+                }
+            } else {
+                ForEach(settings.editors) { editor in
+                    Button(editor.displayName) {
+                        @Dependency(EditorClient.self) var client
+                        Task {
+                            _ = await client.openFile(editor, fullPath)
+                        }
+                    }
+                    .accessibilityLabel("Open in \(editor.displayName)")
+                }
+                Divider()
+                Button("Configure Editors…") {
+                    @Bindable var bindable = settings
+                    bindable.selectedSettingsTab = .editors
+                    openSettings()
                 }
             }
         }

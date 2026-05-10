@@ -247,6 +247,21 @@ public actor MacOSDriver {
         try await Task.sleep(for: .milliseconds(200))
     }
 
+    /// Press a single character key with optional modifiers via CGEvent.
+    /// Translates the character into its US-keyboard virtual key code so
+    /// scenarios can describe shortcuts as `pressShortcut(key: "e", .command)`.
+    public func pressShortcut(key: String, modifiers: KeyboardModifiers) async throws {
+        let pid = try requirePID()
+        logger.info("Pressing shortcut '\(modifiers)+\(key)' (PID \(pid))")
+        guard let virtualKey = MacOSAccessibility.virtualKeyCode(for: key) else {
+            throw MacOSDriverError.unsupportedShortcutKey(key)
+        }
+        MacOSAccessibility.focusApp(appPID: pid)
+        try await Task.sleep(for: .milliseconds(200))
+        MacOSAccessibility.pressKey(code: virtualKey, modifiers: modifiers.cgEventFlags)
+        try await Task.sleep(for: .milliseconds(200))
+    }
+
     // MARK: - CGEvent Click
 
     /// CGEvent left-click on an element (bypasses AXPress, uses real mouse click).
@@ -900,6 +915,7 @@ public enum MacOSDriverError: Error, LocalizedError {
     case elementNotFound(String)
     case hookEventFailed(String)
     case elementQueryTimedOut(query: String, diagnostic: String)
+    case unsupportedShortcutKey(String)
 
     public var errorDescription: String? {
         switch self {
@@ -915,6 +931,8 @@ public enum MacOSDriverError: Error, LocalizedError {
             "Hook event failed: \(message)"
         case let .elementQueryTimedOut(query, diagnostic):
             "Timed out waiting for: macOS UI element matching \(query)\nAX diagnostic:\n\(diagnostic)"
+        case let .unsupportedShortcutKey(key):
+            "Unsupported keyboard shortcut key: \(key)"
         }
     }
 }
