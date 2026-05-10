@@ -210,7 +210,7 @@ struct BrowserTabContentView: View {
     }
 
     private var navigationBar: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 14) {
             Button {
                 state.webView.goBack()
             } label: {
@@ -253,6 +253,18 @@ struct BrowserTabContentView: View {
             .help(state.isLoading ? "Stop" : "Reload")
             .accessibilityLabel(state.isLoading ? "Stop" : "Reload")
 
+            Button {
+                if let url = state.currentURL {
+                    NSWorkspace.shared.open(url)
+                }
+            } label: {
+                Symbols.arrowUpRightSquare.image
+            }
+            .buttonStyle(.borderless)
+            .disabled(state.currentURL == nil)
+            .help("Open in default browser")
+            .accessibilityLabel("Open in default browser")
+
             TextField("Enter URL", text: $state.urlFieldText)
                 .textFieldStyle(.roundedBorder)
                 .focused($isURLFieldFocused)
@@ -262,7 +274,8 @@ struct BrowserTabContentView: View {
                 }
                 .accessibilityLabel("URL")
         }
-        .padding(.horizontal, 8)
+        .padding(.trailing, 8)
+        .padding(.leading, 16)
         .padding(.vertical, 6)
         .background(.bar)
     }
