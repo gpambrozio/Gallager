@@ -82,17 +82,18 @@ final class BrowserTabState {
     init(initialURL: URL) {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
-        // Without this, WKWebView ships a User-Agent missing the
-        // `Version/… Safari/…` suffix, which makes many sites think this is an
-        // old/unsupported browser and degrade their layout. Appending a
-        // Safari-style suffix here yields a UA equivalent to current Safari on
-        // macOS, so servers serve the modern desktop experience.
-        // The version segment should track whatever the latest Safari release
-        // is — sites like google.com gate the modern HTML on a "recent enough"
-        // Safari heuristic, and an older value (e.g. 18.x) trips that gate
-        // even though the underlying WebKit is fully capable.
-        // swiftlint:disable:next custom_no_number_decimals
-        configuration.applicationNameForUserAgent = "Version/26.0 Safari/605.1.15"
+        // WKWebView's default User-Agent omits the `Version/… Safari/…` suffix,
+        // so sites like google.com gate their modern HTML behind a "recent
+        // enough Safari" sniff and serve a degraded layout. Append a
+        // Safari-shaped suffix so servers route us to the desktop experience.
+        //
+        // The `Version/X.Y` segment tracks the installed Safari (read from
+        // its bundle), keeping us aligned with whatever version checks sites
+        // are doing today without manual maintenance. The trailing
+        // `Safari/605.1.15` is a frozen build token Apple keeps stable across
+        // Safari versions for UA-sniff compatibility and isn't exposed by any
+        // public API — hardcoding is the supported approach.
+        configuration.applicationNameForUserAgent = Self.safariUserAgentSuffix()
         // Be explicit about JS + desktop content mode. `allowsContentJavaScript`
         // defaults to true, but pages like google.com fall back to a static
         // HTML rendering when their bootstrap script doesn't appear to run; the
@@ -164,6 +165,35 @@ final class BrowserTabState {
     /// `nil` for empty input. Percent-encodes the trimmed input so values that
     /// contain spaces or other URL-illegal characters (e.g. a pasted query
     /// string) still produce a non-nil URL instead of silently no-opping.
+    /// Composes the `Version/… Safari/…` UA suffix that `applicationNameForUserAgent`
+    /// appends to WKWebView's default User-Agent. The Safari version is read
+    /// from the installed Safari.app bundle so the value tracks the system
+    /// without manual bumps; the build token is frozen by Apple for UA-sniff
+    /// stability. When Safari can't be located (extremely unlikely on macOS),
+    /// falls back to a known-good recent value.
+    static func safariUserAgentSuffix() -> String {
+        // swiftlint:disable:next custom_no_number_decimals
+        let safariVersion = installedSafariVersion() ?? "26.0"
+        return "Version/\(safariVersion) Safari/605.1.15"
+    }
+
+    /// Returns the installed Safari's `CFBundleShortVersionString` (e.g.
+    /// `"26.4"`), or `nil` if Safari can't be located or has no version key.
+    /// Uses `NSWorkspace.urlForApplication(withBundleIdentifier:)` so the
+    /// lookup resolves correctly whether Safari lives in `/Applications` or
+    /// inside the system cryptex on macOS 13+.
+    private static func installedSafariVersion() -> String? {
+        guard
+            let safariURL = NSWorkspace.shared.urlForApplication(
+                withBundleIdentifier: "com.apple.Safari"
+            ),
+            let bundle = Bundle(url: safariURL),
+            let version = bundle.infoDictionary?["CFBundleShortVersionString"] as? String,
+            !version.isEmpty
+        else { return nil }
+        return version
+    }
+
     static func normalizedURL(from text: String) -> URL? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
