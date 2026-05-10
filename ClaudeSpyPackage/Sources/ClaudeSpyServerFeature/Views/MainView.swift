@@ -56,6 +56,10 @@ public struct MainView: View {
     /// Cached open-file-tab strip per session (keyed by `sessionName`).
     @State private var sessionFileTabsStates: [String: SessionFileTabsState] = [:]
 
+    /// In-flight terminal-link confirmation, shown when
+    /// `settings.browserLinkBehavior == .ask` and the user clicks a web URL.
+    @State private var pendingBrowserURLPrompt: PendingBrowserURLPrompt?
+
     public var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarContent
@@ -100,6 +104,18 @@ public struct MainView: View {
             closeConfirmation: $closeConfirmation,
             onPerformClose: { performClose($0) }
         ))
+        .sheet(item: $pendingBrowserURLPrompt) { prompt in
+            BrowserURLConfirmationView(
+                url: prompt.url,
+                onResolve: { choice, rememberChoice in
+                    pendingBrowserURLPrompt = nil
+                    resolveBrowserURLPrompt(prompt, choice: choice, rememberChoice: rememberChoice)
+                },
+                onCancel: {
+                    pendingBrowserURLPrompt = nil
+                }
+            )
+        }
         .onChange(of: tmuxService.panes) { _, newPanes in
             // Ensure pane states exist for all known panes so the detail view
             // can render immediately when a window is selected (without waiting
@@ -196,6 +212,13 @@ public struct MainView: View {
             let sessionName = tmuxService.sessions
                 .first(where: { $0.windows.contains(where: { $0.id == window.id }) })?
                 .sessionName
+            // If a browser tab is selected, Cmd-W closes that tab first.
+            if
+                let sessionName,
+                let selectedBrowserId = sessionFileTabsStates[sessionName]?.selectedBrowserTabId {
+                closeBrowserTab(selectedBrowserId, sessionName: sessionName)
+                return
+            }
             // If a file tab is selected, Cmd-W closes that tab first.
             if
                 let sessionName,
@@ -675,20 +698,27 @@ public struct MainView: View {
                 guard let sessionTabs, let id = sessionTabs.selectedFileTabId else { return nil }
                 return sessionTabs.openFileTabs.first(where: { $0.id == id })
             }()
+            let selectedBrowserTab: BrowserTab? = {
+                guard let sessionTabs, let id = sessionTabs.selectedBrowserTabId else { return nil }
+                return sessionTabs.openBrowserTabs.first(where: { $0.id == id })
+            }()
             let isFileBrowserActive = fileBrowserActiveWindowIds.contains(window.id)
-            let isAnyFileViewActive = isFileBrowserActive || selectedFileTab != nil
+            let isAnyFileViewActive = isFileBrowserActive || selectedFileTab != nil || selectedBrowserTab != nil
             VStack(spacing: 0) {
                 if let session {
                     WindowTabBar(
                         session: session,
                         selectedWindow: window,
-                        isFileBrowserSelected: isFileBrowserActive && selectedFileTab == nil,
+                        isFileBrowserSelected: isFileBrowserActive && selectedFileTab == nil && selectedBrowserTab == nil,
                         isAnyFileViewActive: isAnyFileViewActive,
                         openFileTabs: sessionTabs?.openFileTabs ?? [],
                         selectedFileTabId: sessionTabs?.selectedFileTabId,
+                        openBrowserTabs: sessionTabs?.openBrowserTabs ?? [],
+                        selectedBrowserTabId: sessionTabs?.selectedBrowserTabId,
                         onSelectWindow: { newWindow in
                             fileBrowserActiveWindowIds.remove(window.id)
                             sessionFileTabsStates[session.sessionName]?.selectedFileTabId = nil
+                            sessionFileTabsStates[session.sessionName]?.selectedBrowserTabId = nil
                             selectedWindow = newWindow
                             Task {
                                 try? await tmuxService.selectWindow(newWindow.id)
@@ -728,6 +758,7 @@ public struct MainView: View {
                                 sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
                             }
                             sessionFileTabsStates[session.sessionName]?.selectedFileTabId = nil
+                            sessionFileTabsStates[session.sessionName]?.selectedBrowserTabId = nil
                         },
                         onSelectFileTab: { tabId in
                             // Ensure FileBrowserView is mounted for the current
@@ -742,9 +773,16 @@ public struct MainView: View {
                                 sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
                             }
                             sessionFileTabsStates[session.sessionName]?.selectedFileTabId = tabId
+                            sessionFileTabsStates[session.sessionName]?.selectedBrowserTabId = nil
                         },
                         onCloseFileTab: { tabId in
                             closeOpenFileTab(tabId, sessionName: session.sessionName)
+                        },
+                        onSelectBrowserTab: { tabId in
+                            selectBrowserTab(tabId, sessionName: session.sessionName, windowId: window.id)
+                        },
+                        onCloseBrowserTab: { tabId in
+                            closeBrowserTab(tabId, sessionName: session.sessionName)
                         },
                         onShowInFileExplorer: { path in
                             fileBrowserActiveWindowIds.insert(window.id)
@@ -755,6 +793,7 @@ public struct MainView: View {
                                 sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
                             }
                             sessionFileTabsStates[session.sessionName]?.selectedFileTabId = nil
+                            sessionFileTabsStates[session.sessionName]?.selectedBrowserTabId = nil
                             fileBrowserStates[session.sessionName]?.pendingRevealPath = path
                         },
                         onAcceptOpenSuggestion: { suggestion in
@@ -770,6 +809,28 @@ public struct MainView: View {
                 }
 
                 if
+                    let selectedBrowserTab,
+                    let session,
+                    let browserTabState = sessionFileTabsStates[session.sessionName]?.browserStates[selectedBrowserTab.id] {
+                    BrowserTabContentView(
+                        state: browserTabState,
+                        onTitleChange: { newTitle in
+                            updateBrowserTabTitle(
+                                tabId: selectedBrowserTab.id,
+                                sessionName: session.sessionName,
+                                title: newTitle
+                            )
+                        },
+                        onURLChange: { newURL in
+                            updateBrowserTabURL(
+                                tabId: selectedBrowserTab.id,
+                                sessionName: session.sessionName,
+                                url: newURL
+                            )
+                        }
+                    )
+                    .id(selectedBrowserTab.id)
+                } else if
                     isFileBrowserActive,
                     let browserState,
                     let session,
@@ -1379,33 +1440,175 @@ public struct MainView: View {
         tabs.selectedFileTabId = newTab.id
     }
 
-    /// Routes a URL clicked in the terminal. When `openClickedFileInNewTab` is
-    /// enabled and the URL is a `file://` link, the file is opened as a new tab
-    /// next to the file browser. Returns `true` in that case so the caller
-    /// knows not to fall back to `NSWorkspace.shared.open`. Non-file URLs and
-    /// clicks made while the setting is off return `false` so the system
-    /// browser handles them as before.
+    /// Routes a URL clicked in the terminal. Three flows are possible:
+    ///
+    /// - `file://` URL with `openClickedFileInNewTab` enabled: opens the file
+    ///   in a new file tab. Returns `true`.
+    /// - http/https/ftp URL: the destination depends on
+    ///   `settings.browserLinkBehavior`. `.alwaysInApp` opens an in-app browser
+    ///   tab and returns `true`. `.alwaysInDefaultBrowser` returns `false` so
+    ///   the click falls through to `NSWorkspace.shared.open`. `.ask` shows a
+    ///   confirmation dialog (with a "remember my choice" toggle) and returns
+    ///   `true` so the system handler doesn't race with the user.
+    /// - Anything else: `false`, system handler takes over.
     private func handleTerminalURLClick(
         _ url: URL,
         directoryPath: String,
         session: LocalTmuxSession?,
         window: LocalTmuxWindow
     ) -> Bool {
-        guard
-            settings.openClickedFileInNewTab,
-            url.isFileURL,
-            let session
-        else {
+        if url.isFileURL {
+            guard settings.openClickedFileInNewTab, let session else {
+                return false
+            }
+            openFileInNewTab(
+                path: url.path,
+                directoryPath: directoryPath,
+                sessionName: session.sessionName,
+                windowId: window.id,
+                originWindowId: window.id
+            )
+            return true
+        }
+
+        guard let session, BrowserURLDispatcher.canHandle(url) else {
             return false
         }
-        openFileInNewTab(
-            path: url.path,
-            directoryPath: directoryPath,
-            sessionName: session.sessionName,
-            windowId: window.id,
-            originWindowId: window.id
-        )
-        return true
+
+        switch settings.browserLinkBehavior {
+        case .alwaysInApp:
+            openBrowserTab(
+                url: url,
+                sessionName: session.sessionName,
+                windowId: window.id,
+                originWindowId: window.id
+            )
+            return true
+        case .alwaysInDefaultBrowser:
+            return false
+        case .ask:
+            pendingBrowserURLPrompt = PendingBrowserURLPrompt(
+                url: url,
+                sessionName: session.sessionName,
+                windowId: window.id
+            )
+            return true
+        }
+    }
+
+    /// Opens (or re-selects) a browser tab for `url` in the given session,
+    /// activating it as the visible detail content.
+    private func openBrowserTab(
+        url: URL,
+        sessionName: String,
+        windowId: String,
+        originWindowId: String? = nil
+    ) {
+        if sessionFileTabsStates[sessionName] == nil {
+            sessionFileTabsStates[sessionName] = SessionFileTabsState()
+        }
+        guard let tabs = sessionFileTabsStates[sessionName] else { return }
+        if let existingIndex = tabs.openBrowserTabs.firstIndex(where: { $0.url == url }) {
+            if let originWindowId {
+                tabs.openBrowserTabs[existingIndex].originWindowId = originWindowId
+            }
+            tabs.selectedBrowserTabId = tabs.openBrowserTabs[existingIndex].id
+        } else {
+            let newTab = BrowserTab(url: url, originWindowId: originWindowId)
+            tabs.openBrowserTabs.append(newTab)
+            tabs.browserStates[newTab.id] = BrowserTabState(initialURL: url)
+            tabs.selectedBrowserTabId = newTab.id
+        }
+        // Switching to a browser tab takes the user out of the file tree/file tab.
+        tabs.selectedFileTabId = nil
+        fileBrowserActiveWindowIds.remove(windowId)
+    }
+
+    /// Selects an existing browser tab and ensures the file tree/file tab views
+    /// don't render alongside it.
+    private func selectBrowserTab(_ tabId: UUID, sessionName: String, windowId: String) {
+        guard let tabs = sessionFileTabsStates[sessionName] else { return }
+        tabs.selectedBrowserTabId = tabId
+        tabs.selectedFileTabId = nil
+        fileBrowserActiveWindowIds.remove(windowId)
+    }
+
+    /// Updates the cached page title for a browser tab so the tab strip
+    /// re-renders with the new label.
+    private func updateBrowserTabTitle(tabId: UUID, sessionName: String, title: String?) {
+        guard
+            let tabs = sessionFileTabsStates[sessionName],
+            let index = tabs.openBrowserTabs.firstIndex(where: { $0.id == tabId })
+        else { return }
+        if tabs.openBrowserTabs[index].displayTitle != title {
+            tabs.openBrowserTabs[index].displayTitle = title
+        }
+    }
+
+    /// Updates the recorded URL for a browser tab as the user navigates so
+    /// re-opening the same URL later picks the existing tab.
+    private func updateBrowserTabURL(tabId: UUID, sessionName: String, url: URL) {
+        guard
+            let tabs = sessionFileTabsStates[sessionName],
+            let index = tabs.openBrowserTabs.firstIndex(where: { $0.id == tabId })
+        else { return }
+        if tabs.openBrowserTabs[index].url != url {
+            tabs.openBrowserTabs[index].url = url
+        }
+    }
+
+    /// Removes a browser tab and its live web view. If the closed tab was
+    /// selected and originated from a terminal click, the original tmux window
+    /// becomes selected again — mirroring the file-tab close flow.
+    private func closeBrowserTab(_ tabId: UUID, sessionName: String) {
+        guard let tabs = sessionFileTabsStates[sessionName] else { return }
+        guard let closedIndex = tabs.openBrowserTabs.firstIndex(where: { $0.id == tabId }) else { return }
+        let closedTab = tabs.openBrowserTabs[closedIndex]
+        let wasSelected = tabs.selectedBrowserTabId == tabId
+        tabs.openBrowserTabs.remove(at: closedIndex)
+        tabs.browserStates.removeValue(forKey: tabId)
+        guard wasSelected else { return }
+        tabs.selectedBrowserTabId = nil
+
+        guard
+            let originWindowId = closedTab.originWindowId,
+            let originWindow = tmuxService.windows.first(where: { $0.id == originWindowId })
+        else { return }
+        if selectedWindow?.id != originWindow.id {
+            selectedRemoteSession = nil
+            selectedRemoteWindowId = nil
+            selectedWindow = originWindow
+            Task {
+                try? await tmuxService.selectWindow(originWindow.id)
+            }
+        }
+    }
+
+    /// Resolves the user's choice from the link confirmation dialog: opens the
+    /// URL via the chosen path and (when "always do this" is checked) updates
+    /// `settings.browserLinkBehavior` so subsequent clicks skip the prompt.
+    private func resolveBrowserURLPrompt(
+        _ prompt: PendingBrowserURLPrompt,
+        choice: BrowserPromptChoice,
+        rememberChoice: Bool
+    ) {
+        switch choice {
+        case .inApp:
+            openBrowserTab(
+                url: prompt.url,
+                sessionName: prompt.sessionName,
+                windowId: prompt.windowId,
+                originWindowId: prompt.windowId
+            )
+            if rememberChoice {
+                settings.browserLinkBehavior = .alwaysInApp
+            }
+        case .defaultBrowser:
+            NSWorkspace.shared.open(prompt.url)
+            if rememberChoice {
+                settings.browserLinkBehavior = .alwaysInDefaultBrowser
+            }
+        }
     }
 
     /// Removes a file tab. If the closed tab was selected, clears the selection.
@@ -2000,12 +2203,14 @@ private struct WindowTabBar: View {
     /// True only when the Files (tree) tab is the active view — i.e. the file browser
     /// is open and no file tab is currently selected.
     let isFileBrowserSelected: Bool
-    /// True when any non-terminal view is showing (file tree OR a file tab). Used to
-    /// deselect the underlying tmux window tab so it doesn't render as concurrently
-    /// selected with a file view.
+    /// True when any non-terminal view is showing (file tree, a file tab, or a
+    /// browser tab). Used to deselect the underlying tmux window tab so it
+    /// doesn't render as concurrently selected with another tab.
     let isAnyFileViewActive: Bool
     let openFileTabs: [OpenFileTab]
     let selectedFileTabId: UUID?
+    let openBrowserTabs: [BrowserTab]
+    let selectedBrowserTabId: UUID?
     let onSelectWindow: (LocalTmuxWindow) -> Void
     let onCloseWindow: (LocalTmuxWindow) -> Void
     let onNewWindow: () -> Void
@@ -2013,6 +2218,8 @@ private struct WindowTabBar: View {
     let onSelectFileBrowser: () -> Void
     let onSelectFileTab: (UUID) -> Void
     let onCloseFileTab: (UUID) -> Void
+    let onSelectBrowserTab: (UUID) -> Void
+    let onCloseBrowserTab: (UUID) -> Void
     let onShowInFileExplorer: (String) -> Void
     let onAcceptOpenSuggestion: (MarkdownOpenSuggestion) -> Void
 
@@ -2065,6 +2272,10 @@ private struct WindowTabBar: View {
                     openFileTabView(tab)
                 }
 
+                ForEach(openBrowserTabs) { tab in
+                    openBrowserTabView(tab)
+                }
+
                 if let suggestion = openSuggestionStore.suggestionsBySession[session.sessionName] {
                     openSuggestionBar(suggestion)
                 }
@@ -2081,6 +2292,7 @@ private struct WindowTabBar: View {
 
     @State private var hoveredWindowId: String?
     @State private var hoveredFileTabId: UUID?
+    @State private var hoveredBrowserTabId: UUID?
 
     private func windowTab(_ window: LocalTmuxWindow) -> some View {
         let isSelected = window.id == selectedWindow.id && !isAnyFileViewActive
@@ -2211,6 +2423,65 @@ private struct WindowTabBar: View {
         )
         .onHover { hovering in
             hoveredFileTabId = hovering ? tab.id : nil
+        }
+    }
+
+    @ViewBuilder
+    private func openBrowserTabView(_ tab: BrowserTab) -> some View {
+        let isSelected = tab.id == selectedBrowserTabId
+        let isHovered = hoveredBrowserTabId == tab.id
+
+        HStack(spacing: 0) {
+            Button {
+                onSelectBrowserTab(tab.id)
+            } label: {
+                HStack(spacing: 4) {
+                    Symbols.globe.image
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                    Text(tab.tabLabel)
+                        .font(.system(.caption, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: 160, alignment: .leading)
+                }
+                .padding(.leading, 12)
+                .padding(.trailing, 4)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(tab.url.absoluteString)
+            .accessibilityLabel("Browser tab: \(tab.tabLabel)")
+            .accessibilityValue(isSelected ? "selected" : "")
+
+            Button {
+                onCloseBrowserTab(tab.id)
+            } label: {
+                Symbols.xmark.image
+                    .font(.system(size: 8, weight: .bold))
+                    .frame(width: 14, height: 14)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .opacity(isSelected || isHovered ? 1 : 0)
+            .help("Close tab")
+            .padding(.trailing, 6)
+            .accessibilityLabel("Close browser tab: \(tab.tabLabel)")
+        }
+        .foregroundStyle(isSelected ? .primary : .secondary)
+        .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+        .overlay(alignment: .bottom) {
+            if isSelected {
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(height: 2)
+            }
+        }
+        .onHover { hovering in
+            hoveredBrowserTabId = hovering ? tab.id : nil
         }
     }
 

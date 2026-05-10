@@ -111,6 +111,18 @@ final class SessionFileTabsState {
     /// destroy and rebuild the file content view, dropping the user back to
     /// the top of the file.
     var scrollOffsets: [UUID: CGFloat] = [:]
+    /// Browser tabs opened via the "open in app" prompt or directly. The tab
+    /// struct is a value type — the live `WKWebView` and reactive metadata
+    /// live on `browserStates[tab.id]`.
+    var openBrowserTabs: [BrowserTab] = []
+    /// When non-nil, the content area shows this browser tab. Mutually
+    /// exclusive with `selectedFileTabId` and the file browser flag — only one
+    /// kind of detail content is rendered at a time.
+    var selectedBrowserTabId: UUID?
+    /// Live web-view state per browser tab. Kept separate from the tab struct
+    /// so SwiftUI can compare tabs cheaply while WKWebView state survives
+    /// switches between tabs/sessions.
+    var browserStates: [UUID: BrowserTabState] = [:]
 }
 
 /// A draggable vertical divider for resizing adjacent views.
@@ -509,7 +521,6 @@ struct FileBrowserView: View {
     /// Overlays a small filled-link badge on the bottom-trailing corner of an icon
     /// so symlinks read as their target type (file vs. folder) while still being
     /// visibly distinguishable from regular entries.
-    @ViewBuilder
     private func symlinkBadgedIcon(_ content: some View, isSymlink: Bool) -> some View {
         content.overlay(alignment: .bottomTrailing) {
             if isSymlink {

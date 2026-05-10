@@ -46,6 +46,7 @@ public enum Symbols: String {
     case folderFill = "folder.fill"
     case gearshape
     case gearshapeFill = "gearshape.fill"
+    case globe
     case handsAndSparklesFill = "hands.and.sparkles.fill"
     case house
     case infoCircle = "info.circle"
