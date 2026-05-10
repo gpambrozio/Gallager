@@ -815,7 +815,8 @@ struct FileBrowserView: View {
                     LiveFileContentView(
                         filePath: path,
                         scrollOffsetY: scrollBinding(for: path),
-                        highlightLine: selectedContentSearchLine
+                        highlightLine: selectedContentSearchLine,
+                        forceTextViewer: state.searchMode == .content
                     )
                 }
             } else {
@@ -969,6 +970,10 @@ private struct LiveFileContentView: View {
     /// honored by the plain-text branch since markdown/PDF/HTML rendering
     /// doesn't preserve line semantics.
     var highlightLine: Int?
+    /// When true, render `.markdown` and `.html` files as plain text so the
+    /// matched line is visible. Set by the content-search detail pane; the
+    /// rich viewers don't expose line semantics.
+    var forceTextViewer = false
 
     @Dependency(FileSystemLoadingService.self) private var fileSystemService
 
@@ -1040,7 +1045,11 @@ private struct LiveFileContentView: View {
     }
 
     private func loadContent() async {
-        kind = fileSystemService.detectFileKind(filePath)
+        var detected = fileSystemService.detectFileKind(filePath)
+        if forceTextViewer, detected == .markdown || detected == .html {
+            detected = .text
+        }
+        kind = detected
         // Clear all state first
         text = nil
         nsImage = nil
