@@ -305,6 +305,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         AppearanceModeScenario.scenario,
         RenameViewerDeviceScenario.scenario,
         TerminalEnvVarsScenario.scenario,
+        FileTextSearchScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {
