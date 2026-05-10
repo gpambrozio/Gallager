@@ -86,8 +86,12 @@ final class BrowserTabState {
         // old/unsupported browser and degrade their layout. Appending a
         // Safari-style suffix here yields a UA equivalent to current Safari on
         // macOS, so servers serve the modern desktop experience.
+        // The version segment should track whatever the latest Safari release
+        // is — sites like google.com gate the modern HTML on a "recent enough"
+        // Safari heuristic, and an older value (e.g. 18.x) trips that gate
+        // even though the underlying WebKit is fully capable.
         // swiftlint:disable:next custom_no_number_decimals
-        configuration.applicationNameForUserAgent = "Version/18.0 Safari/605.1.15"
+        configuration.applicationNameForUserAgent = "Version/26.0 Safari/605.1.15"
         // Be explicit about JS + desktop content mode. `allowsContentJavaScript`
         // defaults to true, but pages like google.com fall back to a static
         // HTML rendering when their bootstrap script doesn't appear to run; the
@@ -100,6 +104,10 @@ final class BrowserTabState {
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = true
+        // Allows Safari's Develop menu to attach Web Inspector to this view
+        // (right-click → Inspect Element). Crucial for diagnosing why a site
+        // misrenders or its JS bootstrap fails inside our embedded browser.
+        webView.isInspectable = true
         self.webView = webView
         self.currentURL = initialURL
         self.urlFieldText = initialURL.absoluteString
