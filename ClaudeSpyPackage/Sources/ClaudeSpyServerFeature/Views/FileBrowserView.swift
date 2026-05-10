@@ -1454,6 +1454,11 @@ private struct PlainTextContentView: View {
 /// observes the NSScrollView's clip-bounds changes) and only renders
 /// numbers for lines actually visible in the viewport, so a 30k-line
 /// file pays only for the lines on screen.
+///
+/// Drawn into a `Canvas` rather than a `ForEach` of `Text` views: the
+/// visible-range bounds change continuously while scrolling, which
+/// would otherwise force SwiftUI to diff a fresh view identity per
+/// line per frame. A single-pass canvas draw avoids that churn.
 private struct GutterView: View {
     let lineCount: Int
     let scrollY: CGFloat
@@ -1465,19 +1470,18 @@ private struct GutterView: View {
     var body: some View {
         let firstVisible = max(1, Int((scrollY - topInset) / lineHeight) + 1)
         let lastVisible = min(lineCount, Int(ceil((scrollY + viewportHeight - topInset) / lineHeight)) + 1)
-        ZStack(alignment: .topLeading) {
-            Color.secondary.opacity(0.05)
-            if lineCount > 0, firstVisible <= lastVisible {
-                ForEach(firstVisible...lastVisible, id: \.self) { line in
-                    Text("\(line)")
-                        .font(.system(.body, design: .monospaced))
-                        .monospacedDigit()
-                        .foregroundStyle(.tertiary)
-                        .frame(width: gutterWidth - 8, height: lineHeight, alignment: .trailing)
-                        .offset(y: topInset + CGFloat(line - 1) * lineHeight - scrollY)
-                }
+        Canvas(opaque: false, rendersAsynchronously: false) { ctx, _ in
+            guard lineCount > 0, firstVisible <= lastVisible else { return }
+            for line in firstVisible...lastVisible {
+                let y = topInset + CGFloat(line - 1) * lineHeight - scrollY + lineHeight / 2
+                let label = Text("\(line)")
+                    .font(.system(.body, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(.tertiary)
+                ctx.draw(label, at: CGPoint(x: gutterWidth - 8, y: y), anchor: .trailing)
             }
         }
+        .background(Color.secondary.opacity(0.05))
         .frame(width: gutterWidth, alignment: .topLeading)
         .clipped()
     }
@@ -1684,113 +1688,6 @@ final private class HighlightingTextView: NSTextView {
         guard rect.intersects(lineRect) else { return }
         NSColor.controlAccentColor.withAlphaComponent(0.20).setFill()
         lineRect.fill()
-    }
-}
-
-// MARK: - Line Number Ruler View (currently unused — diagnosing layer bug)
-
-/// Custom `NSRulerView` that draws 1-based line numbers next to the
-/// matching lines of an attached `NSTextView`. Walks the layout
-/// manager's glyph ranges at draw time (restricted to the visible
-/// glyph range), so the gutter scales with viewport size, not file size.
-final private class LineNumberRulerView: NSRulerView {
-    private static let labelFont: NSFont = .monospacedSystemFont(ofSize: 11, weight: .regular)
-    private static let horizontalPadding: CGFloat = 8
-
-    init(textView: NSTextView) {
-        super.init(scrollView: textView.enclosingScrollView, orientation: .verticalRuler)
-        clientView = textView
-        invalidateLineCount()
-    }
-
-    @available(*, unavailable)
-    required init(coder _: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    /// Recomputes `ruleThickness` from the digit count of the largest
-    /// line number, then asks AppKit to redraw. Idempotent — safe to
-    /// call from text-change paths and the controller's `setText`.
-    func invalidateLineCount() {
-        guard let textView = clientView as? NSTextView else { return }
-        let lineCount = (textView.string as NSString).numberOfLines()
-        let digits = String(max(lineCount, 1)).count
-        let sample = String(repeating: "0", count: digits) as NSString
-        let labelWidth = sample.size(withAttributes: [.font: Self.labelFont]).width
-        ruleThickness = max(36, labelWidth + Self.horizontalPadding * 2)
-        needsDisplay = true
-    }
-
-    override func drawHashMarksAndLabels(in rect: NSRect) {
-        guard
-            let textView = clientView as? NSTextView,
-            let layoutManager = textView.layoutManager,
-            let textContainer = textView.textContainer
-        else {
-            return
-        }
-
-        NSColor.windowBackgroundColor.setFill()
-        rect.fill()
-        NSColor.separatorColor.setStroke()
-        let separator = NSBezierPath()
-        separator.move(to: NSPoint(x: bounds.maxX - 0.5, y: rect.minY))
-        separator.line(to: NSPoint(x: bounds.maxX - 0.5, y: rect.maxY))
-        separator.lineWidth = 1
-        separator.stroke()
-
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: Self.labelFont,
-            .foregroundColor: NSColor.tertiaryLabelColor,
-        ]
-
-        let nsString = textView.string as NSString
-        guard nsString.length > 0 else { return }
-        let yInset = textView.textContainerInset.height
-        let visibleRect = textView.visibleRect
-
-        // Restrict iteration to the visible glyph range — drawing every
-        // line number for a 25k-line file would be wasteful and slow.
-        let visibleGlyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
-        let visibleCharRange = layoutManager.characterRange(forGlyphRange: visibleGlyphRange, actualGlyphRange: nil)
-
-        // Compute the line number at the start of the visible range.
-        // O(visibleStart), bounded by scroll position.
-        var lineNumber = 1
-        nsString.enumerateSubstrings(
-            in: NSRange(location: 0, length: visibleCharRange.location),
-            options: [.byLines, .substringNotRequired]
-        ) { _, _, _, _ in
-            lineNumber += 1
-        }
-
-        let lastVisibleChar = min(NSMaxRange(visibleCharRange), nsString.length)
-        var charIndex = nsString.lineRange(for: NSRange(location: visibleCharRange.location, length: 0)).location
-        while charIndex < lastVisibleChar {
-            let charLineRange = nsString.lineRange(for: NSRange(location: charIndex, length: 0))
-            let glyphRange = layoutManager.glyphRange(forCharacterRange: charLineRange, actualCharacterRange: nil)
-            let charLineRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-
-            // Translate from text-view coordinates (scrolled by the
-            // scroll view) to the ruler's coordinate space, which shares
-            // the scrollView's clip-view origin.
-            let y = charLineRect.origin.y + yInset - visibleRect.origin.y
-
-            let label = "\(lineNumber)" as NSString
-            let labelSize = label.size(withAttributes: attributes)
-            let labelRect = NSRect(
-                x: bounds.maxX - labelSize.width - Self.horizontalPadding,
-                y: y + (charLineRect.height - labelSize.height) / 2,
-                width: labelSize.width,
-                height: labelSize.height
-            )
-            label.draw(in: labelRect, withAttributes: attributes)
-
-            lineNumber += 1
-            let next = NSMaxRange(charLineRange)
-            if next == charIndex { break }
-            charIndex = next
-        }
     }
 }
 

@@ -285,14 +285,20 @@ private func runGitLsFilesForSearch(
     } catch {
         return
     }
+    // Reap the child unconditionally — a thrown error inside the read
+    // loop or a cancellation arriving mid-`availableData` would
+    // otherwise leave `git ls-files` running past the end of the
+    // search.
+    defer {
+        if process.isRunning { process.terminate() }
+        process.waitUntilExit()
+        _ = try? stderrPipe.fileHandleForReading.readToEnd()
+    }
     let handle = stdoutPipe.fileHandleForReading
     var buffer = Data()
     var batch: [FileSearchResult] = []
     while true {
-        if Task.isCancelled {
-            if process.isRunning { process.terminate() }
-            break
-        }
+        if Task.isCancelled { break }
         let chunk = handle.availableData
         if chunk.isEmpty { break }
         buffer.append(chunk)
@@ -323,8 +329,6 @@ private func runGitLsFilesForSearch(
     if !batch.isEmpty {
         continuation.yield(batch)
     }
-    process.waitUntilExit()
-    _ = try? stderrPipe.fileHandleForReading.readToEnd()
 }
 
 private func walkDirectoryForSearch(

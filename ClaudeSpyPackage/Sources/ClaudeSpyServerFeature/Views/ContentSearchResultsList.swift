@@ -30,6 +30,11 @@ struct ContentSearchResultsList: View {
 
     var body: some View {
         let groups = groupedMatches
+        // Lowercase the query once per render — `highlightedLine` is invoked
+        // per visible row and streaming batches re-render the full list, so
+        // doing the conversion inside the helper allocated a fresh string
+        // for every row on every batch.
+        let needle = query.lowercased()
         if groups.isEmpty {
             if isRunning {
                 ProgressView("Searching...")
@@ -43,7 +48,7 @@ struct ContentSearchResultsList: View {
                 ForEach(groups) { group in
                     DisclosureGroup(isExpanded: expansionBinding(for: group)) {
                         ForEach(group.matches) { match in
-                            row(match)
+                            row(match, needle: needle)
                                 .tag(match.id)
                                 .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 0, trailing: 8))
                                 .listRowSeparator(.hidden)
@@ -147,8 +152,8 @@ struct ContentSearchResultsList: View {
         }
     }
 
-    private func row(_ match: FileTextSearchMatch) -> some View {
-        Text(highlightedLine(match.lineText.trimmingCharacters(in: .whitespacesAndNewlines), query: query))
+    private func row(_ match: FileTextSearchMatch, needle: String) -> some View {
+        Text(highlightedLine(match.lineText.trimmingCharacters(in: .whitespacesAndNewlines), needle: needle))
             .lineLimit(1)
             .truncationMode(.tail)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -159,14 +164,14 @@ struct ContentSearchResultsList: View {
     }
 
     /// Builds an `AttributedString` that highlights every case-insensitive
-    /// occurrence of `query` inside `text`. The highlight uses the system
-    /// accent color at low opacity so it adapts to the user's chosen accent
-    /// rather than a fixed yellow that might clash in dark mode.
-    private func highlightedLine(_ text: String, query: String) -> AttributedString {
+    /// occurrence of `needle` (already lowercased by the caller) inside
+    /// `text`. The highlight uses the system accent color at low opacity so
+    /// it adapts to the user's chosen accent rather than a fixed yellow
+    /// that might clash in dark mode.
+    private func highlightedLine(_ text: String, needle: String) -> AttributedString {
         var attributed = AttributedString(text)
-        guard !query.isEmpty else { return attributed }
+        guard !needle.isEmpty else { return attributed }
         let lowered = text.lowercased()
-        let needle = query.lowercased()
         var cursor = lowered.startIndex
         while
             cursor < lowered.endIndex,
