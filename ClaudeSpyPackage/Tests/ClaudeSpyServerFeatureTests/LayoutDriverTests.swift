@@ -6,15 +6,12 @@
     @testable import ClaudeSpyServerFeature
 
     /// Integration tests for `LayoutDriver` that drive a real tmux server on a
-    /// per-test isolated socket. Skipped when tmux isn't installed at the
-    /// expected Homebrew path so the suite still runs on hosts without tmux.
+    /// per-test isolated socket. Skipped when tmux isn't installed in any of the
+    /// common locations (Homebrew, MacPorts, /usr/bin) so the suite still runs
+    /// on hosts without tmux.
     @Suite("LayoutDriver")
     struct LayoutDriverTests {
-        private static let tmuxPath = "/opt/homebrew/bin/tmux"
-
-        private static var tmuxAvailable: Bool {
-            FileManager.default.isExecutableFile(atPath: tmuxPath)
-        }
+        private static let tmuxPath: String? = TmuxBinaryLocator.liveValue.find()
 
         /// Regression test for issue #501: running `gallager apply` twice in a
         /// row against the same yaml must both succeed. Before the fix, the
@@ -27,11 +24,11 @@
         @Test("Applying twice in a row both succeed (#501)")
         @MainActor
         func applyingTwiceInARowBothSucceed() async throws {
-            try #require(Self.tmuxAvailable)
+            let tmuxPath = try #require(Self.tmuxPath)
 
             let socketPath = uniqueSocketPath()
             let sessionName = "issue501-twice"
-            defer { killServer(socketPath: socketPath) }
+            defer { killServer(tmuxPath: tmuxPath, socketPath: socketPath) }
 
             // TmuxService reads ProcessRunner via @Dependency, which has no
             // test default. Inject the live runner so list-sessions /
@@ -39,7 +36,7 @@
             try await withDependencies {
                 $0[ProcessRunner.self] = .liveValue
             } operation: {
-                let tmux = TmuxService(tmuxPath: Self.tmuxPath, socketPath: socketPath)
+                let tmux = TmuxService(tmuxPath: tmuxPath, socketPath: socketPath)
                 let driver = LayoutDriver(
                     tmuxAccessor: { tmux },
                     descriptionApplier: { _, _ in },
@@ -82,14 +79,16 @@
             return "/tmp/gallager-test-\(suffix).sock"
         }
 
-        private func killServer(socketPath: String) {
+        private func killServer(tmuxPath: String, socketPath: String) {
+            // Fire-and-forget: `kill-server` finishes in milliseconds, and
+            // `defer` doesn't support `async`, so we don't wait. Avoids
+            // blocking the @MainActor test on Process.waitUntilExit().
             let process = Process()
-            process.executableURL = URL(fileURLWithPath: Self.tmuxPath)
+            process.executableURL = URL(fileURLWithPath: tmuxPath)
             process.arguments = ["-S", socketPath, "kill-server"]
             process.standardError = Pipe()
             process.standardOutput = Pipe()
             try? process.run()
-            process.waitUntilExit()
         }
     }
 #endif
