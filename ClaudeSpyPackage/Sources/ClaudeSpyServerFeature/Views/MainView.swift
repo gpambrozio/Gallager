@@ -201,36 +201,10 @@ public struct MainView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             markSelectedSessionsHandledIfActive()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .closeCurrentTab)) { _ in
-            // Close remote tab if a remote session is selected
-            if
-                let remote = selectedRemoteSession,
-                let remoteWindow = selectedRemoteWindow {
-                requestCloseRemoteWindow(remoteWindow, hostId: remote.hostId)
-                return
-            }
-            guard let window = selectedWindow else { return }
-            let sessionName = tmuxService.sessions
-                .first(where: { $0.windows.contains(where: { $0.id == window.id }) })?
-                .sessionName
-            // If a browser tab is selected, Cmd-W closes that tab first.
-            if
-                let sessionName,
-                let selectedBrowserId = sessionFileTabsStates[sessionName]?.selectedBrowserTabId {
-                closeBrowserTab(selectedBrowserId, sessionName: sessionName)
-                return
-            }
-            // If a file tab is selected, Cmd-W closes that tab first.
-            if
-                let sessionName,
-                let selectedTabId = sessionFileTabsStates[sessionName]?.selectedFileTabId {
-                closeOpenFileTab(selectedTabId, sessionName: sessionName)
-                return
-            }
-            // The file browser tab itself has no close action — do nothing.
-            guard !fileBrowserActiveWindowIds.contains(window.id) else { return }
-            requestCloseWindow(window)
-        }
+        .modifier(MenuCommandsModifier(
+            onCloseCurrentTab: { handleCloseCurrentTab() },
+            onOpenContentSearch: { handleOpenContentSearch() }
+        ))
         .onChange(of: windowManager.pendingSessionCount) {
             // When an event arrives on the already-selected session, no selection
             // change fires. Watch the pending count so we can auto-clear attention
@@ -1390,6 +1364,67 @@ public struct MainView: View {
                 )
             }
         }
+    }
+
+    // MARK: - Menu Commands
+
+    /// Cmd-W handler. Routes through the same precedence the inline
+    /// `.onReceive(.closeCurrentTab)` used to: remote tab → file tab →
+    /// regular window. Lifted out so the body's modifier chain stays small
+    /// enough for the type checker to handle.
+    private func handleCloseCurrentTab() {
+        if
+            let remote = selectedRemoteSession,
+            let remoteWindow = selectedRemoteWindow {
+            requestCloseRemoteWindow(remoteWindow, hostId: remote.hostId)
+            return
+        }
+        guard let window = selectedWindow else { return }
+        let sessionName = tmuxService.sessions
+            .first(where: { $0.windows.contains(where: { $0.id == window.id }) })?
+            .sessionName
+        // If a browser tab is selected, Cmd-W closes that tab first.
+        if
+            let sessionName,
+            let selectedBrowserId = sessionFileTabsStates[sessionName]?.selectedBrowserTabId {
+            closeBrowserTab(selectedBrowserId, sessionName: sessionName)
+            return
+        }
+        // If a file tab is selected, Cmd-W closes that tab first.
+        if
+            let sessionName,
+            let selectedTabId = sessionFileTabsStates[sessionName]?.selectedFileTabId {
+            closeOpenFileTab(selectedTabId, sessionName: sessionName)
+            return
+        }
+        // The file browser tab itself has no close action — do nothing.
+        guard !fileBrowserActiveWindowIds.contains(window.id) else { return }
+        requestCloseWindow(window)
+    }
+
+    /// Cmd-Shift-F handler. Switches the currently-selected local session to
+    /// the file explorer tab, flips its search mode to content, and asks the
+    /// search field to take focus. Bails on remote sessions because remote
+    /// hosts have no file explorer surface to switch to.
+    private func handleOpenContentSearch() {
+        guard selectedRemoteSession == nil else { return }
+        guard let window = selectedWindow else { return }
+        guard
+            let session = tmuxService.sessions
+                .first(where: { $0.windows.contains(where: { $0.id == window.id }) }) else { return }
+
+        fileBrowserActiveWindowIds.insert(window.id)
+        if fileBrowserStates[session.sessionName] == nil {
+            fileBrowserStates[session.sessionName] = FileBrowserState()
+        }
+        if sessionFileTabsStates[session.sessionName] == nil {
+            sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
+        }
+        sessionFileTabsStates[session.sessionName]?.selectedFileTabId = nil
+
+        guard let browserState = fileBrowserStates[session.sessionName] else { return }
+        browserState.searchMode = .content
+        browserState.searchFieldFocusRequest += 1
     }
 
     // MARK: - File Browser Tabs
@@ -3257,6 +3292,26 @@ private struct NewSessionRow: View {
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
+    }
+}
+
+// MARK: - Menu Commands Modifier
+
+/// Bundles the global menu-driven notifications (Cmd-W, Cmd-Shift-F) into a
+/// single modifier so the main `body` chain stays under the Swift type
+/// checker's complexity threshold.
+private struct MenuCommandsModifier: ViewModifier {
+    let onCloseCurrentTab: () -> Void
+    let onOpenContentSearch: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .closeCurrentTab)) { _ in
+                onCloseCurrentTab()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openContentSearch)) { _ in
+                onOpenContentSearch()
+            }
     }
 }
 

@@ -15,6 +15,14 @@ private let skippedNavigatorEntries: Set = [
     ".TemporaryItems", ".DocumentRevisions-V100",
 ]
 
+/// Which kind of search the file browser is currently performing.
+enum FileSearchMode: String, CaseIterable, Sendable {
+    /// Match file names / paths (existing behavior).
+    case name
+    /// Match the contents of files (issue #432).
+    case content
+}
+
 /// A file opened as its own tab to the right of the file explorer tab.
 /// Identified by a stable UUID so re-opens select the existing tab and
 /// deletion state can be tracked without losing the tab.
@@ -79,10 +87,27 @@ final class FileBrowserState {
     var allFilesDirectoryPath: String?
     /// Current search query, preserved across tab switches.
     var searchQuery = ""
-    /// Selected file path in search results, preserved across tab switches.
+    /// Whether the user is searching by file name (default) or by file
+    /// contents. Both modes share `searchQuery` so toggling preserves what the
+    /// user already typed.
+    var searchMode: FileSearchMode = .name
+    /// Selected file path in name-search results, preserved across tab switches.
     var selectedSearchPath: String?
-    /// Cached search results matching the current query.
+    /// Cached file-name results matching the current query.
     var cachedSearchResults: [FileSearchResult] = []
+    /// Cached content-search matches for the current query.
+    var cachedContentSearchResults: [FileTextSearchMatch] = []
+    /// Query and directory the content-search cache was computed for. Used to
+    /// short-circuit re-running the search when the view re-mounts (tab
+    /// switch) — without these markers, `.onChange(initial: true)` would blow
+    /// the cache away and lose the user's selection on every return.
+    var cachedContentSearchQuery: String?
+    var cachedContentSearchDirectory: String?
+    /// Selected match id (`fullPath:lineNumber`) in the content-search list.
+    var selectedContentSearchMatchID: String?
+    /// True while a content search is running for the current query, so the
+    /// UI can show a progress indicator until the first batch lands.
+    var isContentSearchRunning = false
     /// When set, the navigator expands every ancestor folder, selects this path,
     /// and clears the value. Used by "Show in File Explorer" so a tab can route
     /// the user back to the tree even when the containing folders are collapsed.
@@ -92,6 +117,20 @@ final class FileBrowserState {
     /// the view being destroyed and rebuilt when the user switches tmux windows
     /// or sessions and returns to the same file.
     var scrollOffsets: [String: CGFloat] = [:]
+    /// Monotonic counter bumped from outside the view (e.g., the Cmd-Shift-F
+    /// menu command) to request the search field take keyboard focus. The view
+    /// observes the value and drives `@FocusState` when it changes; using a
+    /// counter (rather than a Bool) re-fires focus even when the field is
+    /// already focused, so the user can re-trigger the shortcut to land back
+    /// on the field after selecting a result.
+    var searchFieldFocusRequest = 0
+    /// Full paths of content-search file groups the user has manually
+    /// collapsed. New files default to expanded (a path absent from this set
+    /// is shown open) so streaming results stay visible without an extra
+    /// click; tracking *collapsed* state preserves user intent across
+    /// streaming batches without requiring us to write into the set every
+    /// time a new file appears in the results.
+    var collapsedContentSearchFiles: Set<String> = []
 }
 
 /// Open-file-tab state scoped to a tmux session, so tabs and selection survive
@@ -184,8 +223,11 @@ struct FileBrowserView: View {
     let onOpenFileInNewTab: (String) -> Void
 
     @Dependency(FileSystemLoadingService.self) private var fileSystemService
+    @Dependency(FileTextSearchService.self) private var textSearchService
 
     @State private var loadTreeTask: Task<Void, Never>?
+    @State private var contentSearchTask: Task<Void, Never>?
+    @FocusState private var isSearchFieldFocused: Bool
 
     var body: some View {
         if let viewState = state.viewState {
@@ -228,6 +270,21 @@ struct FileBrowserView: View {
                 }
                 .task(id: state.pendingRevealPath) {
                     await revealPendingPathIfNeeded()
+                }
+                .task(id: state.searchFieldFocusRequest) {
+                    await applySearchFieldFocusIfRequested()
+                }
+                .onDisappear {
+                    // Content searches can spawn a `git ls-files` process and
+                    // walk the tree reading text files; if the user navigates
+                    // away mid-search there's no reason to keep going. Clear
+                    // the running flag here too — once the task is cancelled,
+                    // its `state.isContentSearchRunning = false` line at the
+                    // tail won't run, which would otherwise leave the search
+                    // results list stuck on the "Searching..." spinner if the
+                    // user came back without typing a new query.
+                    contentSearchTask?.cancel()
+                    state.isContentSearchRunning = false
                 }
         } else {
             ProgressView("Loading files...")
@@ -321,6 +378,20 @@ struct FileBrowserView: View {
         }
     }
 
+    /// Drives `@FocusState` when an external caller bumps
+    /// `state.searchFieldFocusRequest`. The first run (request == 0) is a
+    /// no-op — `.task(id:)` always fires once on mount, but we only want to
+    /// steal focus when something actually requested it. The brief sleep gives
+    /// SwiftUI a tick to insert a freshly-mounted TextField into the responder
+    /// chain before we ask it to become first responder; otherwise the focus
+    /// request lands on a non-existent field and is silently dropped.
+    private func applySearchFieldFocusIfRequested() async {
+        guard state.searchFieldFocusRequest > 0 else { return }
+        try? await Task.sleep(for: .milliseconds(50))
+        guard !Task.isCancelled else { return }
+        isSearchFieldFocused = true
+    }
+
     /// Reveals `state.pendingRevealPath` by loading and expanding each ancestor
     /// folder, then selects the leaf. Clears the pending value when done so the
     /// task only fires once per request.
@@ -387,15 +458,20 @@ struct FileBrowserView: View {
                 .foregroundStyle(.secondary)
                 .font(.caption)
 
-            TextField("Search files...", text: $state.searchQuery)
-                .textFieldStyle(.plain)
-                .font(.callout)
-                .accessibilityLabel("Search files")
+            TextField(
+                state.searchMode == .name ? "Search files" : "Search contents",
+                text: $state.searchQuery
+            )
+            .textFieldStyle(.plain)
+            .font(.callout)
+            .focused($isSearchFieldFocused)
+            .accessibilityLabel(state.searchMode == .name ? "Search files" : "Search contents")
 
             if !state.searchQuery.isEmpty {
                 Button {
                     state.searchQuery = ""
                     state.selectedSearchPath = nil
+                    state.selectedContentSearchMatchID = nil
                 } label: {
                     Symbols.xmarkCircleFill.image
                         .foregroundStyle(.secondary)
@@ -404,6 +480,19 @@ struct FileBrowserView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Clear search")
             }
+
+            // Compact segmented picker on the same row as the search field so
+            // adding a content-search mode doesn't grow the search bar's
+            // vertical footprint and squeeze rows out of the file tree.
+            Picker("Search mode", selection: $state.searchMode) {
+                Text("Name").tag(FileSearchMode.name)
+                Text("Content").tag(FileSearchMode.content)
+            }
+            .pickerStyle(.segmented)
+            .controlSize(.small)
+            .labelsHidden()
+            .frame(width: 110)
+            .accessibilityLabel("Search mode")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -434,6 +523,53 @@ struct FileBrowserView: View {
         )
     }
 
+    /// Cancels any in-flight content search and starts a new one for the
+    /// current `searchQuery`. Streamed batches accumulate into
+    /// `cachedContentSearchResults` as they arrive.
+    ///
+    /// When the cached results already correspond to the current query and
+    /// directory (e.g. the user just returned to this tab), this is a no-op
+    /// so the user's selection and accumulated results survive tab switches.
+    private func recomputeContentSearchResults() {
+        guard !state.searchQuery.isEmpty else {
+            contentSearchTask?.cancel()
+            state.cachedContentSearchResults = []
+            state.cachedContentSearchQuery = nil
+            state.cachedContentSearchDirectory = nil
+            state.isContentSearchRunning = false
+            state.selectedContentSearchMatchID = nil
+            return
+        }
+        let query = state.searchQuery
+        if
+            state.cachedContentSearchQuery == query,
+            state.cachedContentSearchDirectory == directoryPath {
+            return
+        }
+        contentSearchTask?.cancel()
+        let directoryURL = URL(fileURLWithPath: directoryPath)
+        state.cachedContentSearchResults = []
+        state.cachedContentSearchQuery = query
+        state.cachedContentSearchDirectory = directoryPath
+        state.selectedContentSearchMatchID = nil
+        state.isContentSearchRunning = true
+        contentSearchTask = Task { @MainActor in
+            // Small debounce so rapid keystrokes don't spawn searches we'd
+            // immediately throw away. The cancellation above already handles
+            // the live-typing case; this just keeps things calm if a new task
+            // was started before its predecessor was cancelled.
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            for await batch in textSearchService.searchFileContents(directoryURL, query) {
+                guard !Task.isCancelled else { return }
+                guard state.searchQuery == query else { return }
+                state.cachedContentSearchResults.append(contentsOf: batch)
+            }
+            guard !Task.isCancelled else { return }
+            state.isContentSearchRunning = false
+        }
+    }
+
     @ViewBuilder
     private var fileSearchResultsList: some View {
         if state.cachedSearchResults.isEmpty {
@@ -444,6 +580,12 @@ struct FileBrowserView: View {
                 ForEach(state.cachedSearchResults) { result in
                     searchResultRow(result)
                         .tag(result.fullPath)
+                        .fileContextMenu(
+                            fullPath: result.fullPath,
+                            directoryPath: directoryPath,
+                            isDirectory: false,
+                            onOpenFileInNewTab: onOpenFileInNewTab
+                        )
                 }
             }
             .listStyle(.sidebar)
@@ -451,12 +593,18 @@ struct FileBrowserView: View {
         }
     }
 
+    /// Returns the directory portion of a relative path (everything before the
+    /// final slash), or `""` if the path has no directory component. Used by
+    /// both result-row builders to render the dimmed parent-folder hint under
+    /// the file name.
+    private func directorySegment(of relativePath: String) -> String {
+        guard let lastSlash = relativePath.lastIndex(of: "/") else { return "" }
+        return String(relativePath[..<lastSlash])
+    }
+
     @ViewBuilder
     private func searchResultRow(_ result: FileSearchResult) -> some View {
-        let directory: String = {
-            guard let lastSlash = result.relativePath.lastIndex(of: "/") else { return "" }
-            return String(result.relativePath[..<lastSlash])
-        }()
+        let directory = directorySegment(of: result.relativePath)
 
         VStack(alignment: .leading, spacing: 2) {
             Label {
@@ -583,10 +731,24 @@ struct FileBrowserView: View {
                     .listStyle(.sidebar)
                     .scrollContentBackground(.hidden)
                 } else {
-                    fileSearchResultsList
+                    switch state.searchMode {
+                    case .name:
+                        fileSearchResultsList
+                    case .content:
+                        ContentSearchResultsList(
+                            matches: state.cachedContentSearchResults,
+                            query: state.searchQuery,
+                            isRunning: state.isContentSearchRunning,
+                            selection: $state.selectedContentSearchMatchID,
+                            collapsedFiles: $state.collapsedContentSearchFiles,
+                            directoryPath: directoryPath,
+                            onOpenFileInNewTab: onOpenFileInNewTab
+                        )
+                    }
                 }
             }
             .frame(width: state.sidebarWidth)
+            .background(.thinMaterial)
 
             ResizableDivider(dimension: $state.sidebarWidth, minDimension: 150, maxDimension: 400)
 
@@ -594,10 +756,36 @@ struct FileBrowserView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onChange(of: state.searchQuery, initial: true) {
-            recomputeSearchResults()
+            switch state.searchMode {
+            case .name:
+                recomputeSearchResults()
+            case .content:
+                recomputeContentSearchResults()
+            }
+        }
+        .onChange(of: state.searchMode) {
+            // Selection clears on mode switch — the two modes use different
+            // selection stores, and a content-search selection has no meaning
+            // in the file-name list (and vice versa).
+            state.selectedSearchPath = nil
+            state.selectedContentSearchMatchID = nil
+            switch state.searchMode {
+            case .name:
+                contentSearchTask?.cancel()
+                state.cachedContentSearchResults = []
+                state.cachedContentSearchQuery = nil
+                state.cachedContentSearchDirectory = nil
+                state.isContentSearchRunning = false
+                recomputeSearchResults()
+            case .content:
+                state.cachedSearchResults = []
+                recomputeContentSearchResults()
+            }
         }
         .onChange(of: state.allFiles) {
-            recomputeSearchResults()
+            if state.searchMode == .name {
+                recomputeSearchResults()
+            }
         }
         .onChange(of: state.cachedSearchResults) {
             // Drop the selection if the previously selected file is no longer
@@ -608,6 +796,15 @@ struct FileBrowserView: View {
                 state.selectedSearchPath = nil
             }
         }
+        .onChange(of: state.cachedContentSearchResults) {
+            // Fires once per streaming batch, so cheap-path-out when there's
+            // nothing selected — that's the common case while results stream
+            // in (the user can't pick a row that doesn't exist yet).
+            guard let selected = state.selectedContentSearchMatchID else { return }
+            if !state.cachedContentSearchResults.contains(where: { $0.id == selected }) {
+                state.selectedContentSearchMatchID = nil
+            }
+        }
     }
 
     @ViewBuilder
@@ -615,7 +812,7 @@ struct FileBrowserView: View {
         viewState: FileNavigatorViewState<TextFileContents>
     ) -> some View {
         if !state.searchQuery.isEmpty {
-            if let path = state.selectedSearchPath {
+            if let path = selectedSearchResultPath {
                 let relativePath = path.hasPrefix(directoryPath + "/")
                     ? String(path.dropFirst(directoryPath.count + 1))
                     : URL(fileURLWithPath: path).lastPathComponent
@@ -627,13 +824,22 @@ struct FileBrowserView: View {
                         .foregroundStyle(.secondary)
                         .padding(8)
                     Divider()
-                    LiveFileContentView(filePath: path, scrollOffsetY: scrollBinding(for: path))
+                    LiveFileContentView(
+                        filePath: path,
+                        scrollOffsetY: scrollBinding(for: path),
+                        highlightLine: selectedContentSearchLine,
+                        forceTextViewer: state.searchMode == .content
+                    )
                 }
             } else {
+                let title = state.searchMode == .name ? "Search for Files" : "Search File Contents"
+                let description = state.searchMode == .name
+                    ? "Type a file name to search, then select a result to view."
+                    : "Type to search inside files, then select a result to view."
                 ContentUnavailableView(
-                    "Search for Files",
+                    title,
                     symbol: .magnifyingglass,
-                    description: "Type a file name to search, then select a result to view."
+                    description: description
                 )
             }
         } else if
@@ -686,6 +892,28 @@ struct FileBrowserView: View {
             get: { state.scrollOffsets[path] ?? 0 },
             set: { state.scrollOffsets[path] = $0 }
         )
+    }
+
+    /// Resolves the currently-selected search result to its file path,
+    /// regardless of which search mode is active.
+    private var selectedSearchResultPath: String? {
+        switch state.searchMode {
+        case .name:
+            return state.selectedSearchPath
+        case .content:
+            guard let id = state.selectedContentSearchMatchID else { return nil }
+            return state.cachedContentSearchResults.first(where: { $0.id == id })?.fullPath
+        }
+    }
+
+    /// 1-based line number of the currently-selected content-search match,
+    /// used to drive scroll-to-line in the detail pane. Nil for the name
+    /// search list (those rows have no per-line semantics) and when no
+    /// match is selected yet.
+    private var selectedContentSearchLine: Int? {
+        guard state.searchMode == .content else { return nil }
+        guard let id = state.selectedContentSearchMatchID else { return nil }
+        return state.cachedContentSearchResults.first(where: { $0.id == id })?.lineNumber
     }
 }
 
@@ -749,6 +977,15 @@ struct OpenFileTabContentView: View {
 private struct LiveFileContentView: View {
     let filePath: String
     var scrollOffsetY: Binding<CGFloat>?
+    /// Optional 1-based line number to highlight and scroll into view. Used
+    /// by the content-search detail pane to surface the matched line; only
+    /// honored by the plain-text branch since markdown/PDF/HTML rendering
+    /// doesn't preserve line semantics.
+    var highlightLine: Int?
+    /// When true, render `.markdown` and `.html` files as plain text so the
+    /// matched line is visible. Set by the content-search detail pane; the
+    /// rich viewers don't expose line semantics.
+    var forceTextViewer = false
 
     @Dependency(FileSystemLoadingService.self) private var fileSystemService
 
@@ -793,7 +1030,11 @@ private struct LiveFileContentView: View {
                     }
                 case .text:
                     if let text {
-                        PlainTextContentView(text: text, savedScrollY: scrollOffsetY)
+                        PlainTextContentView(
+                            text: text,
+                            savedScrollY: scrollOffsetY,
+                            highlightLine: highlightLine
+                        )
                     }
                 case .unsupported:
                     ContentUnavailableView(
@@ -816,7 +1057,11 @@ private struct LiveFileContentView: View {
     }
 
     private func loadContent() async {
-        kind = fileSystemService.detectFileKind(filePath)
+        var detected = fileSystemService.detectFileKind(filePath)
+        if forceTextViewer, detected == .markdown || detected == .html {
+            detected = .text
+        }
+        kind = detected
         // Clear all state first
         text = nil
         nsImage = nil
@@ -1108,64 +1353,367 @@ private struct MarkdownContentView: View {
     }
 }
 
-/// Renders plain monospaced text in a `ScrollView` with selection enabled.
+/// Renders monospaced text via `NSTextView` wrapped in `NSScrollView`,
+/// with a left line-number gutter (`NSRulerView`) and an optional
+/// one-line highlight that the content-search detail pane uses to
+/// surface the matched line.
 ///
-/// `savedScrollY` is an optional binding owned by an open file tab. When set,
-/// the view restores its scroll position from the binding on first appearance
-/// and updates it on every user scroll, so switching tabs/sessions and
-/// returning preserves the position. When `nil`, an internal `@State` provides
-/// ephemeral storage.
+/// `savedScrollY` is an optional binding owned by an open file tab.
+/// When set, the view restores its scroll position from the binding
+/// on first appearance and updates it on every user scroll, so
+/// switching tabs/sessions and returning preserves the position.
 ///
-/// Trade-off vs. `TextEditor`/`NSTextView`: there's no native cmd-F find bar,
-/// and `Text` lays out the entire string up-front (so very large files render
-/// slower than `NSTextView`'s glyph-range layout would).
+/// `highlightLine` (1-based) tints the matched line via a custom
+/// `NSTextView.drawBackground(in:)` override and the view scrolls so
+/// the line lands at the viewport center. When set on initial load it
+/// overrides `savedScrollY` — the user wants to see the match, not
+/// the previous reading position.
+///
+/// **Why AppKit.** SwiftUI's `Text` was forcing a full TextKit pass
+/// over the entire string on every body invocation — even at ~128 KB
+/// it was taking multi-second initial layout. `NSTextView` lays out
+/// non-contiguously (TextKit2), so opening a file and scrolling to a
+/// line is bounded by the visible glyph range, not the file size.
+///
+/// **Layer-backing discipline.** Earlier AppKit attempts left
+/// neighbouring SwiftUI surfaces (tab bar, sidebar, the detail-pane
+/// viewport itself) in an unrendered state until the next input event.
+/// The fix was finding STTextView, which sets `wantsLayer = true` on
+/// every view in its hierarchy — when the embedded scroll view shares
+/// its parent's layer with sibling SwiftUI views, AppKit's display
+/// invalidation propagates to those siblings without triggering a
+/// SwiftUI redraw of them. We give every AppKit view here its own
+/// backing layer so invalidation stays contained.
+///
+/// **Update discipline.** All text/highlight/scroll mutations are
+/// pushed through a `PlainTextController` from `.task(id: text)` and
+/// `.onChange(of: highlightLine)` rather than from `updateNSView`.
+/// Highlight is painted in a `drawBackground(in:)` override instead
+/// of `addTemporaryAttribute` so there are no layout-manager
+/// mutations either.
 private struct PlainTextContentView: View {
     let text: String
     var savedScrollY: Binding<CGFloat>?
+    var highlightLine: Int?
 
-    @State private var scrollPosition = ScrollPosition(edge: .top)
-    @State private var localScrollY: CGFloat = 0
-    /// Set to `true` after the initial restore completes. Until then, scroll
-    /// notifications from layout/restore are ignored so they don't overwrite
-    /// the saved offset with intermediate values (0 → restore).
-    @State private var isTrackingUserScroll = false
-
-    private var scrollY: Binding<CGFloat> {
-        savedScrollY ?? $localScrollY
-    }
+    @State private var controller = PlainTextController()
+    @State private var liveScrollY: CGFloat = 0
+    @State private var viewportHeight: CGFloat = 0
+    @State private var lineCount = 0
 
     var body: some View {
-        ScrollView {
-            Text(text)
-                .font(.system(.body, design: .monospaced))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                .padding()
-        }
-        .scrollPosition($scrollPosition)
-        .onScrollGeometryChange(for: CGFloat.self) { proxy in
-            proxy.contentOffset.y
-        } action: { _, newValue in
-            guard isTrackingUserScroll else { return }
-            scrollY.wrappedValue = newValue
+        let lineHeight = monospacedLineHeight()
+        let topInset: CGFloat = 8
+        HStack(alignment: .top, spacing: 0) {
+            GutterView(
+                lineCount: lineCount,
+                scrollY: liveScrollY,
+                viewportHeight: viewportHeight,
+                lineHeight: lineHeight,
+                topInset: topInset,
+                gutterWidth: gutterWidth(lineCount: lineCount)
+            )
+            PlainTextRepresentable(controller: controller)
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.height
+                } action: { newHeight in
+                    viewportHeight = newHeight
+                }
         }
         .task(id: text) {
-            // Wait for the initial layout to produce a real content size
-            // before scrolling; doing this synchronously would clamp to 0
-            // because the Text hasn't measured itself yet.
-            //
-            // Reset the tracking gate first: when `text` changes (file
-            // edited on disk → re-read), the flag is still `true` from the
-            // previous run, so layout-driven scroll events would clobber
-            // the saved offset before `scrollTo` runs.
-            let target = scrollY.wrappedValue
-            isTrackingUserScroll = false
-            try? await Task.sleep(for: .milliseconds(100))
-            guard !Task.isCancelled else { return }
-            scrollPosition.scrollTo(y: target)
+            controller.savedScrollY = savedScrollY
+            controller.liveScrollY = $liveScrollY
+            lineCount = (text as NSString).numberOfLines()
+            controller.setText(text)
+            controller.setHighlightLine(highlightLine)
+            // Wait one runloop tick before scrolling so the
+            // NSScrollView has its real frame — otherwise
+            // `scrollView.contentView.bounds.height` is 0 and the
+            // center-on-line math sticks the matched line at the
+            // top of the viewport on first click.
             try? await Task.sleep(for: .milliseconds(50))
             guard !Task.isCancelled else { return }
-            isTrackingUserScroll = true
+            if let line = highlightLine, line >= 1 {
+                controller.scrollToLine(line)
+            } else if let savedY = savedScrollY?.wrappedValue {
+                controller.restoreScroll(savedY)
+            }
         }
+        .onChange(of: highlightLine) { _, newValue in
+            controller.setHighlightLine(newValue)
+            if let line = newValue, line >= 1 {
+                controller.scrollToLine(line)
+            }
+        }
+    }
+
+    private func monospacedLineHeight() -> CGFloat {
+        let font = NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        return NSLayoutManager().defaultLineHeight(for: font)
+    }
+
+    /// Width budget for the line-number gutter — fits the largest line
+    /// number's digit count plus padding so columns line up consistently
+    /// as the user scrolls through wide and narrow line numbers alike.
+    private func gutterWidth(lineCount: Int) -> CGFloat {
+        let digits = String(max(lineCount, 1)).count
+        return CGFloat(digits) * 9 + 16
+    }
+}
+
+/// SwiftUI line-number gutter rendered alongside the AppKit text view.
+/// Reads the live scroll Y published by `PlainTextController` (which
+/// observes the NSScrollView's clip-bounds changes) and only renders
+/// numbers for lines actually visible in the viewport, so a 30k-line
+/// file pays only for the lines on screen.
+///
+/// Drawn into a `Canvas` rather than a `ForEach` of `Text` views: the
+/// visible-range bounds change continuously while scrolling, which
+/// would otherwise force SwiftUI to diff a fresh view identity per
+/// line per frame. A single-pass canvas draw avoids that churn.
+private struct GutterView: View {
+    let lineCount: Int
+    let scrollY: CGFloat
+    let viewportHeight: CGFloat
+    let lineHeight: CGFloat
+    let topInset: CGFloat
+    let gutterWidth: CGFloat
+
+    var body: some View {
+        let firstVisible = max(1, Int((scrollY - topInset) / lineHeight) + 1)
+        let lastVisible = min(lineCount, Int(ceil((scrollY + viewportHeight - topInset) / lineHeight)) + 1)
+        Canvas(opaque: false, rendersAsynchronously: false) { ctx, _ in
+            guard lineCount > 0, firstVisible <= lastVisible else { return }
+            for line in firstVisible...lastVisible {
+                let y = topInset + CGFloat(line - 1) * lineHeight - scrollY + lineHeight / 2
+                let label = Text("\(line)")
+                    .font(.system(.body, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(.tertiary)
+                ctx.draw(label, at: CGPoint(x: gutterWidth - 8, y: y), anchor: .trailing)
+            }
+        }
+        .background(Color.secondary.opacity(0.05))
+        .frame(width: gutterWidth, alignment: .topLeading)
+        .clipped()
+    }
+}
+
+/// Holds references to the live `NSTextView` / `NSScrollView` so the
+/// SwiftUI view can imperatively push text/highlight/scroll updates
+/// from `.task` / `.onChange` callbacks instead of going through
+/// `updateNSView`. See `PlainTextContentView`'s update-discipline note.
+@MainActor
+final private class PlainTextController {
+    weak var textView: HighlightingTextView?
+    weak var scrollView: NSScrollView?
+    /// External persistence binding (e.g. owned by the open-file tab).
+    /// Updated only on user-driven scrolls so the saved offset doesn't
+    /// get polluted by the intermediate values reported during a
+    /// programmatic scroll.
+    var savedScrollY: Binding<CGFloat>?
+    /// Local mirror of the current scroll Y, read by the SwiftUI gutter
+    /// to render only visible line numbers. Updated on both user and
+    /// programmatic scrolls so the gutter follows the text in lockstep.
+    var liveScrollY: Binding<CGFloat>?
+    private var observer: NSObjectProtocol?
+    /// Suppresses persistence into `savedScrollY` while we programmatically
+    /// scroll so the user's reading position doesn't get overwritten with
+    /// the intermediate values reported during the scroll. Does not affect
+    /// `liveScrollY`, which still tracks for the gutter.
+    private var isRestoringScroll = false
+
+    func attach(textView: HighlightingTextView, scrollView: NSScrollView) {
+        self.textView = textView
+        self.scrollView = scrollView
+        let clip = scrollView.contentView
+        clip.postsBoundsChangedNotifications = true
+        observer = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: clip,
+            queue: nil
+        ) { [weak self, weak clip] _ in
+            MainActor.assumeIsolated {
+                guard let self, let clip else { return }
+                let y = clip.bounds.origin.y
+                self.liveScrollY?.wrappedValue = y
+                guard !self.isRestoringScroll else { return }
+                self.savedScrollY?.wrappedValue = y
+            }
+        }
+    }
+
+    func setText(_ text: String) {
+        guard let textView else { return }
+        textView.string = text
+        textView.invalidateHighlightCache()
+    }
+
+    func setHighlightLine(_ line: Int?) {
+        textView?.highlightLine = line
+    }
+
+    func scrollToLine(_ line: Int) {
+        guard
+            let textView,
+            let scrollView,
+            line >= 1,
+            let layoutManager = textView.layoutManager,
+            let textContainer = textView.textContainer
+        else { return }
+        let nsString = textView.string as NSString
+        guard let charRange = characterRange(forLine: line, in: nsString) else { return }
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
+        let lineRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        let inset = textView.textContainerInset.height
+        let viewportHeight = scrollView.contentView.bounds.height
+        let centerY = lineRect.midY + inset - viewportHeight / 2
+        let target = NSPoint(x: 0, y: max(0, centerY))
+
+        isRestoringScroll = true
+        scrollView.contentView.scroll(to: target)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        Task { @MainActor [weak self] in self?.isRestoringScroll = false }
+    }
+
+    func restoreScroll(_ y: CGFloat) {
+        guard let scrollView, y > 0 else { return }
+        isRestoringScroll = true
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: y))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        Task { @MainActor [weak self] in self?.isRestoringScroll = false }
+    }
+
+    isolated deinit {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+    }
+}
+
+/// Resolves a 1-based `line` to its character range in `nsString`.
+/// Iterates by hard line breaks (matching Xcode/VS Code numbering).
+private func characterRange(forLine line: Int, in nsString: NSString) -> NSRange? {
+    guard line >= 1, nsString.length > 0 else { return nil }
+    var currentLine = 0
+    var result: NSRange?
+    nsString.enumerateSubstrings(
+        in: NSRange(location: 0, length: nsString.length),
+        options: [.byLines]
+    ) { _, _, enclosingRange, stop in
+        currentLine += 1
+        if currentLine == line {
+            result = enclosingRange
+            stop.pointee = true
+        }
+    }
+    return result
+}
+
+private struct PlainTextRepresentable: NSViewRepresentable {
+    let controller: PlainTextController
+
+    func makeNSView(context _: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        // Layer-back the scroll view so its display invalidation stays
+        // contained instead of bleeding into sibling SwiftUI surfaces.
+        // Without this, click-to-load left the tab bar / sidebar / this
+        // pane itself unrendered until the next input event. STTextView
+        // sets `wantsLayer = true` on every view in its hierarchy for
+        // exactly this reason.
+        scrollView.wantsLayer = true
+        scrollView.contentView.wantsLayer = true
+
+        let textView = HighlightingTextView()
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.allowsUndo = false
+        textView.font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        textView.textContainerInset = NSSize(width: 6, height: 8)
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.widthTracksTextView = true
+        textView.drawsBackground = false
+        textView.wantsLayer = true
+
+        scrollView.documentView = textView
+
+        controller.attach(textView: textView, scrollView: scrollView)
+        return scrollView
+    }
+
+    func updateNSView(_: NSScrollView, context _: Context) {
+        // Intentionally empty. All mutations are pushed via the
+        // controller from `.task` / `.onChange` callbacks, well outside
+        // SwiftUI's view-update pass.
+    }
+}
+
+/// `NSTextView` subclass that paints a highlight rect under one
+/// 1-based line during its background-draw pass. Avoids
+/// `addTemporaryAttribute` on the layout manager — those mutations
+/// triggered display invalidation that propagated to sibling SwiftUI
+/// surfaces in earlier attempts.
+final private class HighlightingTextView: NSTextView {
+    var highlightLine: Int? {
+        didSet {
+            guard oldValue != highlightLine else { return }
+            cachedHighlightCharRange = nil
+            needsDisplay = true
+        }
+    }
+
+    /// Character range of the highlighted line, computed lazily on first
+    /// draw and reused until the line/text changes. Avoids re-walking
+    /// the file on every redraw (e.g. while the user scrolls).
+    private var cachedHighlightCharRange: NSRange?
+
+    func invalidateHighlightCache() {
+        cachedHighlightCharRange = nil
+        needsDisplay = true
+    }
+
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        guard
+            let line = highlightLine,
+            line >= 1,
+            let layoutManager,
+            let textContainer
+        else { return }
+        if cachedHighlightCharRange == nil {
+            let nsString = string as NSString
+            cachedHighlightCharRange = characterRange(forLine: line, in: nsString)
+        }
+        guard let charRange = cachedHighlightCharRange else { return }
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
+        var lineRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        lineRect.origin.x = 0
+        lineRect.size.width = bounds.width
+        lineRect = lineRect.offsetBy(dx: 0, dy: textContainerInset.height)
+        guard rect.intersects(lineRect) else { return }
+        NSColor.controlAccentColor.withAlphaComponent(0.20).setFill()
+        lineRect.fill()
+    }
+}
+
+private extension NSString {
+    /// Counts hard line breaks. Used to size the line-number gutter.
+    func numberOfLines() -> Int {
+        guard length > 0 else { return 0 }
+        var count = 0
+        enumerateSubstrings(
+            in: NSRange(location: 0, length: length),
+            options: [.byLines, .substringNotRequired]
+        ) { _, _, _, _ in
+            count += 1
+        }
+        return max(count, 1)
     }
 }
