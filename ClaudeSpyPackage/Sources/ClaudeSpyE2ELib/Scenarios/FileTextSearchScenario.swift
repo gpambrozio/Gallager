@@ -236,6 +236,48 @@ public enum FileTextSearchScenario {
         TestStep.macWaitForElement(titled: "README.md", timeout: 5)
         TestStep.macScreenshot(label: "mac-text-search-tree-restored")
 
+        // ── Phase 10: Deep-line content match scrolls + highlights ──
+        TestStep.log("Phase 10: Markdown match scrolls plain-text viewer to a deep line and highlights it")
+
+        // Re-enter Content mode (Phase 8 toggled to Name; Phase 9 cleared
+        // the query). We search for `## BOTTOM` — a substring that only
+        // appears in `long.md`'s heading on line 128, well past the
+        // viewport top of the detail pane. Clicking the match must
+        //   (a) render `long.md` as plain text via `forceTextViewer`
+        //       (the markdown viewer would otherwise render `##` as a
+        //       heading and hide the literal line we just matched on),
+        //   (b) scroll the text view so line 128 lands roughly at the
+        //       viewport centre — `## BOTTOM MARKER` would be off-screen
+        //       in a default top-anchored layout for a 130-line file in
+        //       a ~600pt-tall pane, so visibility proves the scroll
+        //       actually happened, and
+        //   (c) paint the matched line via `HighlightingTextView`'s
+        //       `drawBackground(in:)` override.
+        // The screenshot baseline is the visual proof for (a) and (c) —
+        // NSTextView exposes its full text via `AXValue` regardless of
+        // scroll, so we can't AX-assert that the top of the file was
+        // scrolled off, but we can assert the match row resolved to the
+        // correct line number and that the file body loaded into the
+        // detail pane.
+        TestStep.macClickButton(titled: "Content")
+        TestStep.wait(seconds: 1)
+        TestStep.macCGClick(titled: "Search contents")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macType(text: "## BOTTOM")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "long.md", timeout: 5)
+        TestStep.macWaitForElementQuery(.anyTextMatches("Line 128: ## BOTTOM MARKER"), timeout: 5)
+
+        TestStep.macCGClick(titled: "Line 128: ## BOTTOM MARKER")
+        TestStep.wait(seconds: 1)
+        // `If you can read this line, you are at the bottom of the file.`
+        // is line 130 of `long.md`, immediately after the matched
+        // heading. Its appearance in the AX tree confirms `long.md`'s
+        // body was loaded into the detail pane (and not, say, blocked
+        // on the markdown renderer).
+        TestStep.macWaitForElementQuery(.anyTextMatches("If you can read this line"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-text-search-scroll-to-line")
+
         // Tear down the tmux session so leftover state doesn't bleed into
         // subsequent scenarios.
         Shortcut.tmuxRunCommand(target: "filetextsearch:0.0", command: "exit")
