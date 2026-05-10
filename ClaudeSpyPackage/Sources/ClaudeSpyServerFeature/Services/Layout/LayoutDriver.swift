@@ -166,7 +166,13 @@
                     shellEnvironment: shellEnvironment
                 )
                 if !dryRun, !detach {
-                    try await tmux.selectWindow("\(config.sessionName):!")
+                    // Trailing `:` resolves to the session's current window
+                    // unambiguously. `:!` (last/previous window) fails with
+                    // "can't find window: !" when the session has no window
+                    // history yet — i.e. a single-window session that's never
+                    // been switched away from — which made warm-attach apply
+                    // exit non-zero (issue #501).
+                    try await tmux.selectWindow("\(config.sessionName):")
                 }
                 return Result(
                     sessionName: config.sessionName,
@@ -317,7 +323,10 @@
             if !detach {
                 planned.append("session.select \(createdName)")
                 if !dryRun {
-                    try await tmux.selectWindow("\(createdName):!")
+                    // See issue #501: `:!` fails on freshly built sessions
+                    // (no previous-window history). Trailing `:` resolves to
+                    // the session's current window unambiguously.
+                    try await tmux.selectWindow("\(createdName):")
                 }
             }
 
