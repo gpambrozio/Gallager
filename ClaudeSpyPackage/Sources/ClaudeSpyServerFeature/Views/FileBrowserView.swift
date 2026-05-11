@@ -183,9 +183,11 @@ final class SessionFileTabsState {
     var selectedRightFileTabId: UUID?
     /// Selected browser tab on the right pane.
     var selectedRightBrowserTabId: UUID?
-    /// Width fraction occupied by the left pane (0.2…0.8). Default 0.5 puts
-    /// the divider in the middle. Persisted in memory across tab/session
-    /// switches in the same way as the rest of this state.
+    /// Width fraction occupied by the left pane. Clamped to
+    /// `[SplitLayout.minRatio, SplitLayout.maxRatio]` (0.15…0.85) by the
+    /// resize gesture. Default 0.5 puts the divider in the middle. Persisted
+    /// in memory across tab/session switches in the same way as the rest of
+    /// this state.
     var splitRatio: CGFloat = 0.5
 
     /// True when at least one file or browser tab has been sent to the right

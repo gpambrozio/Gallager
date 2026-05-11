@@ -686,16 +686,7 @@ public struct MainView: View {
                         selectedWindow: window,
                         isFileBrowserSelected: isFileBrowserActive && selectedFileTab == nil && selectedBrowserTab == nil,
                         isAnyFileViewActive: isAnyFileViewActive,
-                        openFileTabs: sessionTabs?.openFileTabs ?? [],
-                        selectedFileTabId: sessionTabs?.selectedFileTabId,
-                        openBrowserTabs: sessionTabs?.openBrowserTabs ?? [],
-                        selectedBrowserTabId: sessionTabs?.selectedBrowserTabId,
-                        isSplit: sessionTabs?.isSplit ?? false,
-                        splitRatio: sessionTabs?.splitRatio ?? 0.5,
-                        rightSideFileTabIds: sessionTabs?.rightSideFileTabIds ?? [],
-                        rightSideBrowserTabIds: sessionTabs?.rightSideBrowserTabIds ?? [],
-                        selectedRightFileTabId: sessionTabs?.selectedRightFileTabId,
-                        selectedRightBrowserTabId: sessionTabs?.selectedRightBrowserTabId,
+                        sessionTabs: sessionTabs,
                         onSelectWindow: { newWindow in
                             fileBrowserActiveWindowIds.remove(window.id)
                             sessionFileTabsStates[session.sessionName]?.selectedFileTabId = nil
@@ -1618,11 +1609,11 @@ public struct MainView: View {
     }
 
     /// Selects an existing file tab on whichever side it currently lives on.
-    /// Mirrors `selectBrowserTab` for browser tabs. When the tab is on the left,
-    /// the legacy behaviour applies (file browser is forced active so its
-    /// directoryChanges task keeps refreshing deletion state). On the right
-    /// side, only the right-pane selection is updated; the left side keeps
-    /// rendering whatever it was showing.
+    /// Mirrors `selectBrowserTab` for browser tabs. Both branches insert
+    /// `windowId` into `fileBrowserActiveWindowIds` so the tree's
+    /// `directoryChanges` task stays alive and keeps `isDeleted` fresh on
+    /// every file tab — including right-pane tabs whose pane no longer
+    /// surfaces the file browser tree directly.
     private func selectFileTab(_ tabId: UUID, sessionName: String, windowId: String) {
         if fileBrowserStates[sessionName] == nil {
             fileBrowserStates[sessionName] = FileBrowserState()
@@ -1631,12 +1622,12 @@ public struct MainView: View {
             sessionFileTabsStates[sessionName] = SessionFileTabsState()
         }
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
+        fileBrowserActiveWindowIds.insert(windowId)
         if tabs.rightSideFileTabIds.contains(tabId) {
             tabs.selectedRightFileTabId = tabId
             tabs.selectedRightBrowserTabId = nil
             return
         }
-        fileBrowserActiveWindowIds.insert(windowId)
         tabs.selectedFileTabId = tabId
         tabs.selectedBrowserTabId = nil
     }
@@ -2557,10 +2548,10 @@ private struct SplitDetailContent<Left: View, Right: View>: View {
     }
 
     private func divider(totalWidth: CGFloat) -> some View {
-        Rectangle()
-            .fill(Color.gray.opacity(0.3))
+        Color.clear
             .frame(width: SplitLayout.dividerWidth)
             .frame(maxHeight: .infinity)
+            .overlay(Divider())
             .contentShape(Rectangle().inset(by: -3))
             .onHover { hovering in
                 if hovering {
@@ -2603,26 +2594,10 @@ private struct WindowTabBar: View {
     /// browser tab). Used to deselect the underlying tmux window tab so it
     /// doesn't render as concurrently selected with another tab.
     let isAnyFileViewActive: Bool
-    let openFileTabs: [OpenFileTab]
-    let selectedFileTabId: UUID?
-    let openBrowserTabs: [BrowserTab]
-    let selectedBrowserTabId: UUID?
-    /// True when the detail content area is currently split (issue #498). Drives
-    /// the icon next to the close button on each file/browser tab — split icon
-    /// when collapsed, side-arrow icons when split.
-    let isSplit: Bool
-    /// Width fraction occupied by the left pane (matches the same value used
-    /// by `SplitDetailContent` so the tab strip's left/right partition lines
-    /// up with the content divider below it).
-    let splitRatio: CGFloat
-    /// File tab ids currently displayed on the right pane.
-    let rightSideFileTabIds: Set<UUID>
-    /// Browser tab ids currently displayed on the right pane.
-    let rightSideBrowserTabIds: Set<UUID>
-    /// Selected file tab id on the right pane, when split.
-    let selectedRightFileTabId: UUID?
-    /// Selected browser tab id on the right pane, when split.
-    let selectedRightBrowserTabId: UUID?
+    /// Per-session tab state (file/browser tabs, split layout, selections).
+    /// `nil` while a session hasn't materialised any tabs yet — the bar
+    /// renders as if the lists were empty and `isSplit` were `false`.
+    let sessionTabs: SessionFileTabsState?
     let onSelectWindow: (LocalTmuxWindow) -> Void
     let onCloseWindow: (LocalTmuxWindow) -> Void
     let onNewWindow: () -> Void
@@ -2644,30 +2619,55 @@ private struct WindowTabBar: View {
     @Environment(MirrorWindowManager.self) private var windowManager
     @Environment(MarkdownOpenSuggestionStore.self) private var openSuggestionStore
 
+    /// Cached width of the split-mode tab strip. Measured via the background
+    /// `onGeometryChange` so the HStack can drive intrinsic height instead of
+    /// being pinned by a `GeometryReader` parent — keeps the split and
+    /// non-split rows the same height under Dynamic Type and padding tweaks.
+    @State private var splitRowWidth: CGFloat = 0
+
+    // Read-only accessors that mirror `SessionFileTabsState`. Defined as
+    // computed properties (not stored) so observation tracking happens on
+    // every `body` evaluation — `sessionTabs` being `nil` is treated as an
+    // empty, non-split session.
+    private var openFileTabs: [OpenFileTab] { sessionTabs?.openFileTabs ?? [] }
+    private var openBrowserTabs: [BrowserTab] { sessionTabs?.openBrowserTabs ?? [] }
+    private var selectedFileTabId: UUID? { sessionTabs?.selectedFileTabId }
+    private var selectedBrowserTabId: UUID? { sessionTabs?.selectedBrowserTabId }
+    private var selectedRightFileTabId: UUID? { sessionTabs?.selectedRightFileTabId }
+    private var selectedRightBrowserTabId: UUID? { sessionTabs?.selectedRightBrowserTabId }
+    private var isSplit: Bool { sessionTabs?.isSplit ?? false }
+    private var splitRatio: CGFloat { sessionTabs?.splitRatio ?? 0.5 }
+    private func isFileTabOnRight(_ id: UUID) -> Bool {
+        sessionTabs?.isFileTabOnRight(id) ?? false
+    }
+
+    private func isBrowserTabOnRight(_ id: UUID) -> Bool {
+        sessionTabs?.isBrowserTabOnRight(id) ?? false
+    }
+
     var body: some View {
         Group {
             if isSplit {
-                GeometryReader { proxy in
-                    HStack(spacing: 0) {
-                        leftSection
-                            .frame(width: max(0, proxy.size.width * splitRatio - SplitLayout.dividerWidth / 2))
-                        // Visual gap matches the resize handle in the content
-                        // area below so left-pane tabs and right-pane tabs
-                        // line up with their content.
-                        Color.clear
-                            .frame(width: SplitLayout.dividerWidth)
-                        rightSection
-                            .frame(maxWidth: .infinity)
-                    }
+                HStack(spacing: 0) {
+                    leftSection
+                        .frame(width: max(0, splitRowWidth * splitRatio - SplitLayout.dividerWidth / 2))
+                    // Visual gap matches the resize handle in the content
+                    // area below so left-pane tabs and right-pane tabs
+                    // line up with their content.
+                    Color.clear
+                        .frame(width: SplitLayout.dividerWidth)
+                    rightSection
+                        .frame(maxWidth: .infinity)
+                }
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.width
+                } action: { newWidth in
+                    splitRowWidth = newWidth
                 }
                 .background(.bar)
                 .overlay(alignment: .bottom) {
                     Divider()
                 }
-                // The window tab strip has a natural height of ~28 pt with
-                // 6 pt vertical padding on its buttons. Pin it so the
-                // GeometryReader doesn't stretch the row.
-                .frame(height: 28)
             } else {
                 singleSection
                     .background(.bar)
@@ -2707,10 +2707,10 @@ private struct WindowTabBar: View {
                 tmuxWindowTabsRow
                 newWindowButton
                 fileBrowserButton
-                ForEach(openFileTabs.filter { !rightSideFileTabIds.contains($0.id) }) { tab in
+                ForEach(openFileTabs.filter { !isFileTabOnRight($0.id) }) { tab in
                     openFileTabView(tab)
                 }
-                ForEach(openBrowserTabs.filter { !rightSideBrowserTabIds.contains($0.id) }) { tab in
+                ForEach(openBrowserTabs.filter { !isBrowserTabOnRight($0.id) }) { tab in
                     openBrowserTabView(tab)
                 }
                 if let suggestion = openSuggestionStore.suggestionsBySession[session.sessionName] {
@@ -2727,10 +2727,10 @@ private struct WindowTabBar: View {
     private var rightSection: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
-                ForEach(openFileTabs.filter { rightSideFileTabIds.contains($0.id) }) { tab in
+                ForEach(openFileTabs.filter { isFileTabOnRight($0.id) }) { tab in
                     openFileTabView(tab)
                 }
-                ForEach(openBrowserTabs.filter { rightSideBrowserTabIds.contains($0.id) }) { tab in
+                ForEach(openBrowserTabs.filter { isBrowserTabOnRight($0.id) }) { tab in
                     openBrowserTabView(tab)
                 }
                 Spacer()
@@ -2857,7 +2857,7 @@ private struct WindowTabBar: View {
 
     @ViewBuilder
     private func openFileTabView(_ tab: OpenFileTab) -> some View {
-        let isOnRight = rightSideFileTabIds.contains(tab.id)
+        let isOnRight = isFileTabOnRight(tab.id)
         let isSelected = isOnRight
             ? tab.id == selectedRightFileTabId
             : tab.id == selectedFileTabId
@@ -2955,7 +2955,7 @@ private struct WindowTabBar: View {
 
     @ViewBuilder
     private func openBrowserTabView(_ tab: BrowserTab) -> some View {
-        let isOnRight = rightSideBrowserTabIds.contains(tab.id)
+        let isOnRight = isBrowserTabOnRight(tab.id)
         let isSelected = isOnRight
             ? tab.id == selectedRightBrowserTabId
             : tab.id == selectedBrowserTabId
