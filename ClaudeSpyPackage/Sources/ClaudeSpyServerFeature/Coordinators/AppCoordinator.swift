@@ -210,6 +210,14 @@
             guard !isServiceSetupComplete else { return }
             isServiceSetupComplete = true
 
+            // Pre-fill the editor list on first launch with whatever is installed
+            // on the host. Done here rather than in `init` so the Launch Services
+            // lookups don't block app startup on MainActor; subsequent launches
+            // read the persisted list (which the user may have edited), so this
+            // is a one-shot.
+            @Dependency(EditorClient.self) var editorClient
+            await settings.seedEditorsIfEmpty(using: editorClient)
+
             // Clean up any stale pipe-pane FIFOs from previous crashes
             PipePaneReader.cleanupStaleFifos()
 

@@ -32,6 +32,12 @@ public struct SettingsView: View {
                 }
                 .tag(SettingsTab.sidebarLayout)
 
+            EditorsSettingsView()
+                .tabItem {
+                    Label("Editors", symbol: .pencil)
+                }
+                .tag(SettingsTab.editors)
+
             RemoteAccessSettingsView()
                 .tabItem {
                     Label("Remote Access", symbol: .iphone)

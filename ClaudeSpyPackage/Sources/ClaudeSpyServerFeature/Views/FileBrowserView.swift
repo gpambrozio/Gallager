@@ -131,6 +131,33 @@ final class FileBrowserState {
     /// streaming batches without requiring us to write into the set every
     /// time a new file appears in the results.
     var collapsedContentSearchFiles: Set<String> = []
+
+    /// The path of the file currently shown in the detail pane: the active
+    /// search-result selection while a query is in progress, otherwise the
+    /// tree selection (folders return `nil`). Mirrors the routing in
+    /// ``FileBrowserView/fileDetailView(viewState:)`` so the Cmd+E menu
+    /// command can target the same file the user is looking at.
+    func selectedFilePath(directoryPath: String) -> String? {
+        if !searchQuery.isEmpty {
+            switch searchMode {
+            case .name:
+                return selectedSearchPath
+            case .content:
+                guard
+                    let id = selectedContentSearchMatchID,
+                    let match = cachedContentSearchResults.first(where: { $0.id == id })
+                else { return nil }
+                return match.fullPath
+            }
+        }
+        guard
+            let viewState,
+            let uuid = viewState.selection,
+            viewState.fileTree.proxy(for: uuid).file != nil,
+            let filePath = viewState.fileTree.filePath(of: uuid)
+        else { return nil }
+        return directoryPath + "/" + filePath.string
+    }
 }
 
 /// Open-file-tab state scoped to a tmux session, so tabs and selection survive
