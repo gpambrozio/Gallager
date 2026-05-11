@@ -124,7 +124,9 @@ struct BrowserSettingsView: View {
 
     private func ruleBehaviorBinding(for rule: BrowserDomainRule) -> Binding<BrowserLinkBehavior> {
         Binding(
-            get: { rule.behavior },
+            get: {
+                settings.browserDomainRules.first(where: { $0.id == rule.id })?.behavior ?? rule.behavior
+            },
             set: { newValue in
                 settings.updateBrowserDomainRule(id: rule.id, behavior: newValue)
             }
@@ -146,18 +148,26 @@ struct BrowserSettingsView: View {
         newDomainError = nil
     }
 
-    /// Strips a leading scheme and any path component from raw user input so
-    /// `https://example.com/foo` is stored as `example.com` — matching what
-    /// `URL.host` produces for incoming link clicks.
+    /// Parses raw user input into the canonical `host` or `host:port` key used
+    /// for rule storage and lookup. Strips any scheme/path/query so
+    /// `https://example.com/foo` becomes `example.com`, but preserves an
+    /// explicit non-default port so `example.com:8080` is matched only when a
+    /// clicked URL carries the same port.
     private func normalizedDomain(from raw: String) -> String {
-        var value = raw.lowercased()
-        if let schemeEnd = value.range(of: "://") {
-            value = String(value[schemeEnd.upperBound...])
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else { return "" }
+        let candidate = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
+        guard
+            let components = URLComponents(string: candidate),
+            let host = components.host,
+            !host.isEmpty
+        else {
+            return trimmed
         }
-        if let slash = value.firstIndex(of: "/") {
-            value = String(value[..<slash])
+        if let port = components.port {
+            return "\(host):\(port)"
         }
-        return value
+        return host
     }
 }
 

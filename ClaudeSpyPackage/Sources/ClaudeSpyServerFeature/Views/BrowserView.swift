@@ -390,8 +390,16 @@ struct BrowserURLConfirmationView: View {
 
     @State private var rememberScope: BrowserPromptRememberScope = .none
 
+    /// Canonical rule key for this URL: `host` for default-port URLs, or
+    /// `host:port` when the URL carries an explicit port. Used as both the
+    /// label on the per-domain "don't ask again" toggle and the key passed to
+    /// `setBrowserBehavior(_:for:)` so the saved rule matches future clicks on
+    /// the same host+port combination.
     private var host: String? {
         guard let host = url.host, !host.isEmpty else { return nil }
+        if let port = url.port {
+            return "\(host):\(port)"
+        }
         return host
     }
 
@@ -407,7 +415,7 @@ struct BrowserURLConfirmationView: View {
     private func isRememberDomain(_ host: String) -> Binding<Bool> {
         Binding(
             get: {
-                if case .domain = rememberScope { return true }
+                if case let .domain(scoped) = rememberScope { return scoped == host }
                 return false
             },
             set: { isOn in

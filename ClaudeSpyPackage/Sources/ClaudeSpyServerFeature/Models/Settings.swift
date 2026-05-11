@@ -655,10 +655,14 @@ final public class AppSettings {
     ///
     /// Host matching is case-insensitive and uses the URL's host verbatim — no
     /// suffix matching, so a rule for `example.com` does not cover
-    /// `sub.example.com`.
+    /// `sub.example.com`. When the URL carries an explicit port the lookup key
+    /// is `host:port`, so a rule for `example.com:8080` matches only that
+    /// host+port combination and a port-less rule for `example.com` matches
+    /// only URLs without an explicit port.
     public func browserBehavior(for url: URL) -> BrowserLinkBehavior? {
         guard let host = url.host?.lowercased() else { return nil }
-        return browserDomainRules.first(where: { $0.domain == host })?.behavior
+        let key = url.port.map { "\(host):\($0)" } ?? host
+        return browserDomainRules.first(where: { $0.domain == key })?.behavior
     }
 
     /// Sets the behavior for `domain`, replacing any existing rule for the
