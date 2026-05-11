@@ -8,7 +8,7 @@ struct RemoteHostSidebarSection: View {
     let connection: ViewerConnection?
     let sessionStore: SessionStore
     let creatingSelection: NewSessionCreatingState?
-    @Binding var selectedRemoteSession: RemoteSessionSelection?
+    let selectedRemoteSession: RemoteSessionSelection?
     let onSelect: (RemoteSessionSelection) -> Void
     let onCreate: (ClaudeProjectInfo?) -> Void
     let onSetDescription: (String, String?) -> Void

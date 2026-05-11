@@ -8,7 +8,7 @@ struct MainSidebarSectionHeader<Trailing: View, Popover: View>: View {
     let symbol: Symbols
     var isNewSessionDisabled: Bool
     let trailing: Trailing
-    let popover: Popover
+    let popover: () -> Popover
     let hasPopover: Bool
 
     @State private var showingPopover = false
@@ -37,7 +37,7 @@ struct MainSidebarSectionHeader<Trailing: View, Popover: View>: View {
                 .accessibilityLabel("Create new session")
                 .help("Create new session")
                 .popover(isPresented: $showingPopover) {
-                    popover
+                    popover()
                 }
             }
 
@@ -57,7 +57,7 @@ extension MainSidebarSectionHeader where Trailing == EmptyView, Popover == Empty
         self.symbol = symbol
         self.isNewSessionDisabled = false
         self.trailing = EmptyView()
-        self.popover = EmptyView()
+        self.popover = { EmptyView() }
         self.hasPopover = false
     }
 }
@@ -68,13 +68,13 @@ extension MainSidebarSectionHeader where Trailing == EmptyView {
         title: String,
         symbol: Symbols,
         isNewSessionDisabled: Bool = false,
-        @ViewBuilder popover: () -> Popover
+        @ViewBuilder popover: @escaping () -> Popover
     ) {
         self.title = title
         self.symbol = symbol
         self.isNewSessionDisabled = isNewSessionDisabled
         self.trailing = EmptyView()
-        self.popover = popover()
+        self.popover = popover
         self.hasPopover = true
     }
 }
@@ -86,13 +86,13 @@ extension MainSidebarSectionHeader {
         symbol: Symbols,
         isNewSessionDisabled: Bool = false,
         @ViewBuilder trailing: () -> Trailing,
-        @ViewBuilder popover: () -> Popover
+        @ViewBuilder popover: @escaping () -> Popover
     ) {
         self.title = title
         self.symbol = symbol
         self.isNewSessionDisabled = isNewSessionDisabled
         self.trailing = trailing()
-        self.popover = popover()
+        self.popover = popover
         self.hasPopover = true
     }
 }

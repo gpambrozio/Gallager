@@ -53,8 +53,8 @@ struct NewSessionContent: View {
                             isCreating: creatingSelection == .newTerminal,
                             isDisabled: isCreating
                         ) {
-                            dismiss()
                             onCreate(nil)
+                            dismiss()
                         }
                     }
 
@@ -85,8 +85,8 @@ struct NewSessionContent: View {
                                 isCreating: creatingSelection == .project(project.id),
                                 isDisabled: isCreating
                             ) {
-                                dismiss()
                                 onCreate(project)
+                                dismiss()
                             }
                         }
                     } else if !searchText.isEmpty {
@@ -117,10 +117,9 @@ struct NewSessionContent: View {
                 .focused($isSearchFocused)
                 .accessibilityLabel("Search projects")
                 .onSubmit {
-                    if filteredProjects.count == 1 {
-                        let project = filteredProjects[0]
-                        dismiss()
+                    if let project = filteredProjects.first, filteredProjects.count == 1 {
                         onCreate(project)
+                        dismiss()
                     }
                 }
 

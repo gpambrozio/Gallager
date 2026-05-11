@@ -82,10 +82,15 @@ public struct MainView: View {
         .task {
             // Initial load only - periodic refresh is handled by MirrorWindowManager
             await refreshPanes()
-            await loadProjects()
             trackedActiveSessionPaneIds = windowManager.activeSessionPaneIds
             // Consume any pending menu bar selection that was set before this view appeared
             applyPendingMenuBarSelection()
+        }
+        .task(id: settings.additionalClaudeFolders) {
+            // Initial load + reload whenever the configured folders change.
+            // `.task(id:)` cancels the previous load if folders change again
+            // while one is still in flight.
+            await loadProjects()
         }
         .task {
             // Silently rescan every 60s so new projects appear without restarting.
@@ -97,9 +102,6 @@ public struct MainView: View {
                 }
                 await loadProjects(showLoadingIndicator: false)
             }
-        }
-        .onChange(of: settings.additionalClaudeFolders) {
-            Task { await loadProjects() }
         }
         .modifier(MainViewAlertsModifier(
             attachError: $attachError,
@@ -387,7 +389,7 @@ public struct MainView: View {
                     connection: coordinator.viewerConnectionManager?.connection(for: host.id),
                     sessionStore: sessionStore,
                     creatingSelection: creatingSelection,
-                    selectedRemoteSession: $selectedRemoteSession,
+                    selectedRemoteSession: selectedRemoteSession,
                     onSelect: { selection in
                         selectedRemoteSession = selection
                         selectedRemoteWindowId = nil
@@ -783,6 +785,9 @@ public struct MainView: View {
                                 sessionName: session.sessionName,
                                 windowId: window.id
                             )
+                            markdownOpenSuggestionStore.dismiss(sessionName: session.sessionName)
+                        },
+                        onDismissOpenSuggestion: {
                             markdownOpenSuggestionStore.dismiss(sessionName: session.sessionName)
                         }
                     )

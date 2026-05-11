@@ -91,6 +91,16 @@ struct MainConnectionStatusView: View {
             }
             .controlSize(.small)
             .help("Cancel reconnection attempts")
+        } else if case .error = combinedState {
+            // Errored - show retry button (mirrors the disconnected "Connect" path
+            // but labeled to reflect that a prior attempt failed)
+            Button("Retry") {
+                Task {
+                    await connectionManager?.connectAll()
+                }
+            }
+            .controlSize(.small)
+            .help("Retry connecting to relay server")
         } else {
             // Disconnected but paired - show connect button
             Button("Connect") {

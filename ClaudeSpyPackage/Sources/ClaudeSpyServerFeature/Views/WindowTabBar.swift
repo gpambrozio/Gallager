@@ -29,6 +29,7 @@ struct WindowTabBar: View {
     let onCloseBrowserTab: (UUID) -> Void
     let onShowInFileExplorer: (String) -> Void
     let onAcceptOpenSuggestion: (MarkdownOpenSuggestion) -> Void
+    let onDismissOpenSuggestion: () -> Void
 
     @Environment(MirrorWindowManager.self) private var windowManager
     @Environment(MarkdownOpenSuggestionStore.self) private var openSuggestionStore
@@ -209,7 +210,7 @@ struct WindowTabBar: View {
             .controlSize(.mini)
             .accessibilityLabel("Open suggested file: Yes")
             Button("No") {
-                openSuggestionStore.dismiss(sessionName: session.sessionName)
+                onDismissOpenSuggestion()
             }
             .controlSize(.mini)
             .accessibilityLabel("Open suggested file: No")
