@@ -112,9 +112,9 @@ public struct MainView: View {
         .sheet(item: $pendingBrowserURLPrompt) { prompt in
             BrowserURLConfirmationView(
                 url: prompt.url,
-                onResolve: { choice, rememberChoice in
+                onResolve: { choice, rememberScope in
                     pendingBrowserURLPrompt = nil
-                    resolveBrowserURLPrompt(prompt, choice: choice, rememberChoice: rememberChoice)
+                    resolveBrowserURLPrompt(prompt, choice: choice, rememberScope: rememberScope)
                 },
                 onCancel: {
                     pendingBrowserURLPrompt = nil
@@ -1488,12 +1488,14 @@ public struct MainView: View {
     ///
     /// - `file://` URL with `openClickedFileInNewTab` enabled: opens the file
     ///   in a new file tab. Returns `true`.
-    /// - http/https/ftp URL: the destination depends on
-    ///   `settings.browserLinkBehavior`. `.alwaysInApp` opens an in-app browser
-    ///   tab and returns `true`. `.alwaysInDefaultBrowser` returns `false` so
-    ///   the click falls through to `NSWorkspace.shared.open`. `.ask` shows a
-    ///   confirmation dialog (with a "remember my choice" toggle) and returns
-    ///   `true` so the system handler doesn't race with the user.
+    /// - http/https/ftp URL: the destination depends on the effective behavior
+    ///   for the URL — a per-domain rule (`settings.browserBehavior(for:)`)
+    ///   takes precedence over the global `settings.browserLinkBehavior`.
+    ///   `.alwaysInApp` opens an in-app browser tab and returns `true`.
+    ///   `.alwaysInDefaultBrowser` returns `false` so the click falls through
+    ///   to `NSWorkspace.shared.open`. `.ask` shows a confirmation dialog
+    ///   (with "remember my choice" toggles) and returns `true` so the system
+    ///   handler doesn't race with the user.
     /// - Anything else: `false`, system handler takes over.
     private func handleTerminalURLClick(
         _ url: URL,
@@ -1519,7 +1521,9 @@ public struct MainView: View {
             return false
         }
 
-        switch settings.browserLinkBehavior {
+        let effective = settings.browserBehavior(for: url) ?? settings.browserLinkBehavior
+
+        switch effective {
         case .alwaysInApp:
             openBrowserTab(
                 url: url,
@@ -1637,13 +1641,16 @@ public struct MainView: View {
     }
 
     /// Resolves the user's choice from the link confirmation dialog: opens the
-    /// URL via the chosen path and (when "always do this" is checked) updates
-    /// `settings.browserLinkBehavior` so subsequent clicks skip the prompt.
+    /// URL via the chosen path and — depending on `rememberScope` — either
+    /// updates the global `settings.browserLinkBehavior` or adds a per-domain
+    /// rule via `settings.setBrowserBehavior(_:for:)` so subsequent clicks
+    /// skip the prompt for matching URLs.
     private func resolveBrowserURLPrompt(
         _ prompt: PendingBrowserURLPrompt,
         choice: BrowserPromptChoice,
-        rememberChoice: Bool
+        rememberScope: BrowserPromptRememberScope
     ) {
+        let resolved: BrowserLinkBehavior
         switch choice {
         case .inApp:
             openBrowserTab(
@@ -1652,15 +1659,20 @@ public struct MainView: View {
                 windowId: prompt.windowId,
                 originWindowId: prompt.windowId
             )
-            if rememberChoice {
-                settings.browserLinkBehavior = .alwaysInApp
-            }
+            resolved = .alwaysInApp
         case .defaultBrowser:
             @Dependency(URLOpener.self) var urlOpener
             urlOpener.openInDefaultBrowser(prompt.url)
-            if rememberChoice {
-                settings.browserLinkBehavior = .alwaysInDefaultBrowser
-            }
+            resolved = .alwaysInDefaultBrowser
+        }
+
+        switch rememberScope {
+        case .none:
+            break
+        case .global:
+            settings.browserLinkBehavior = resolved
+        case let .domain(host):
+            settings.setBrowserBehavior(resolved, for: host)
         }
     }
 

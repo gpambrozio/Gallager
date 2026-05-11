@@ -346,6 +346,15 @@ enum BrowserPromptChoice {
     case defaultBrowser
 }
 
+/// Scope of the user's "remember my choice" decision on the confirmation
+/// dialog: either no scope (one-off), the global setting, or a per-domain
+/// override.
+enum BrowserPromptRememberScope: Equatable {
+    case none
+    case global
+    case domain(String)
+}
+
 /// Schemes the in-app browser tab is willing to handle. `file://` is handled
 /// separately by the file tab flow; everything else falls through to the
 /// system default browser.
@@ -359,15 +368,53 @@ enum BrowserURLDispatcher {
 }
 
 /// Confirmation dialog shown when the user clicks a web link in the terminal
-/// and `settings.browserLinkBehavior == .ask`. Mirrors a standard macOS alert
-/// layout (title + message + accessory checkbox + actions) but as a SwiftUI
-/// sheet so the "Always do this" toggle can live alongside the buttons.
+/// and the effective behavior for that URL is `.ask`. Mirrors a standard
+/// macOS alert layout (title + message + accessory checkboxes + actions) but
+/// as a SwiftUI sheet so the "remember my choice" toggles can live alongside
+/// the buttons.
+///
+/// Two remember-my-choice toggles are presented when the URL has a host:
+///
+/// - "Don't ask again." — applies the choice to every domain by updating the
+///   global `browserLinkBehavior` setting.
+/// - "Don't ask again for {host}." — applies the choice only to the URL's
+///   host (added as a per-domain rule), leaving the global setting alone.
+///
+/// The two toggles are mutually exclusive: turning one on turns the other
+/// off. URLs without a host (e.g. an `ftp:///` style URL) hide the
+/// per-domain toggle entirely.
 struct BrowserURLConfirmationView: View {
     let url: URL
-    let onResolve: (BrowserPromptChoice, _ rememberChoice: Bool) -> Void
+    let onResolve: (BrowserPromptChoice, BrowserPromptRememberScope) -> Void
     let onCancel: () -> Void
 
-    @State private var rememberChoice = false
+    @State private var rememberScope: BrowserPromptRememberScope = .none
+
+    private var host: String? {
+        guard let host = url.host, !host.isEmpty else { return nil }
+        return host
+    }
+
+    private var isRememberGlobal: Binding<Bool> {
+        Binding(
+            get: { rememberScope == .global },
+            set: { isOn in
+                rememberScope = isOn ? .global : .none
+            }
+        )
+    }
+
+    private func isRememberDomain(_ host: String) -> Binding<Bool> {
+        Binding(
+            get: {
+                if case .domain = rememberScope { return true }
+                return false
+            },
+            set: { isOn in
+                rememberScope = isOn ? .domain(host) : .none
+            }
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -381,17 +428,24 @@ struct BrowserURLConfirmationView: View {
                 .textSelection(.enabled)
                 .foregroundStyle(.secondary)
 
-            Toggle("Don't ask again.", isOn: $rememberChoice)
-                .help("Remember this choice and stop asking. You can change it later in Settings → General → Behavior.")
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("Don't ask again.", isOn: isRememberGlobal)
+                    .help("Remember this choice for every domain. You can change it later in Settings → Browser.")
+
+                if let host {
+                    Toggle("Don't ask again for \(host).", isOn: isRememberDomain(host))
+                        .help("Remember this choice only for \(host). You can manage per-domain rules in Settings → Browser.")
+                }
+            }
 
             HStack {
                 Button("In App") {
-                    onResolve(.inApp, rememberChoice)
+                    onResolve(.inApp, rememberScope)
                 }
                 .keyboardShortcut(.defaultAction)
 
                 Button("In Default Browser") {
-                    onResolve(.defaultBrowser, rememberChoice)
+                    onResolve(.defaultBrowser, rememberScope)
                 }
 
                 Button("Cancel", role: .cancel) {
@@ -403,7 +457,7 @@ struct BrowserURLConfirmationView: View {
             }
         }
         .padding(20)
-        .frame(width: 420)
+        .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
     }
 }
