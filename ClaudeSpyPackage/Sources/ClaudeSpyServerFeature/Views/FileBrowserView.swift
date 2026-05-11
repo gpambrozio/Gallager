@@ -255,6 +255,15 @@ struct FileBrowserView: View {
     @State private var loadTreeTask: Task<Void, Never>?
     @State private var contentSearchTask: Task<Void, Never>?
     @FocusState private var isSearchFieldFocused: Bool
+    /// Drives focus onto the currently-visible List when the file browser
+    /// first appears. Pairs with `HighlightingTextView.acceptsFirstResponder`
+    /// — together they keep the List as first responder so its row selection
+    /// renders in the focused (accent) state rather than the unfocused (gray)
+    /// state. Without this initial focus, a launch that restores a selected
+    /// file would leave the sidebar List unfocused even before any view
+    /// could steal focus (see #509). Fired once on mount, so subsequent user
+    /// clicks (in the search field, etc.) retain natural focus behavior.
+    @FocusState private var isResultsListFocused: Bool
 
     var body: some View {
         if let viewState = state.viewState {
@@ -617,6 +626,7 @@ struct FileBrowserView: View {
             }
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)
+            .focused($isResultsListFocused)
         }
     }
 
@@ -766,6 +776,7 @@ struct FileBrowserView: View {
                     }
                     .listStyle(.sidebar)
                     .scrollContentBackground(.hidden)
+                    .focused($isResultsListFocused)
                 } else {
                     switch state.searchMode {
                     case .name:
@@ -778,7 +789,8 @@ struct FileBrowserView: View {
                             selection: $state.selectedContentSearchMatchID,
                             collapsedFiles: $state.collapsedContentSearchFiles,
                             directoryPath: directoryPath,
-                            onOpenFileInNewTab: onOpenFileInNewTab
+                            onOpenFileInNewTab: onOpenFileInNewTab,
+                            isFocused: $isResultsListFocused
                         )
                     }
                 }
@@ -840,6 +852,15 @@ struct FileBrowserView: View {
             if !state.cachedContentSearchResults.contains(where: { $0.id == selected }) {
                 state.selectedContentSearchMatchID = nil
             }
+        }
+        // Claim first-responder for whichever list is currently shown when
+        // the file browser appears, so the row selection renders in the
+        // focused (accent) state on launch. Skipped when the search field
+        // already has focus (e.g. arriving via Cmd-Shift-F) so we don't
+        // snatch focus mid-keystroke. See #509.
+        .task {
+            guard !isSearchFieldFocused else { return }
+            isResultsListFocused = true
         }
     }
 
@@ -1696,7 +1717,34 @@ private struct PlainTextRepresentable: NSViewRepresentable {
 /// `addTemporaryAttribute` on the layout manager — those mutations
 /// triggered display invalidation that propagated to sibling SwiftUI
 /// surfaces in earlier attempts.
+///
+/// **First-responder discipline.** Refuses first-responder status until
+/// the user explicitly clicks the view. AppKit otherwise hands first
+/// responder to the scroll view's document view (this NSTextView) as
+/// soon as it's added to the window, stealing focus from the file
+/// browser's List the moment a file loads. With the List unfocused, its
+/// row selection flips from the accent color to the unfocused gray —
+/// see #509. Allowing first responder on mouseDown means clicks-to-
+/// select-text still work; the user just doesn't lose row-selection
+/// focus on file load.
 final private class HighlightingTextView: NSTextView {
+    /// Flips to `true` the first time the user clicks this view. Until
+    /// then, the view refuses first-responder so that loading a file
+    /// doesn't snatch focus from the sidebar List.
+    private var hasBeenClicked = false
+
+    override var acceptsFirstResponder: Bool {
+        hasBeenClicked
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if !hasBeenClicked {
+            hasBeenClicked = true
+            window?.makeFirstResponder(self)
+        }
+        super.mouseDown(with: event)
+    }
+
     var highlightLine: Int? {
         didSet {
             guard oldValue != highlightLine else { return }

@@ -27,6 +27,9 @@ struct ContentSearchResultsList: View {
     @Binding var collapsedFiles: Set<String>
     let directoryPath: String
     let onOpenFileInNewTab: (String) -> Void
+    /// Forwarded from the parent's `@FocusState` so this list can claim
+    /// initial first-responder. See #509 for context.
+    var isFocused: FocusState<Bool>.Binding
 
     var body: some View {
         let groups = groupedMatches
@@ -77,6 +80,7 @@ struct ContentSearchResultsList: View {
             .listStyle(.plain)
             .environment(\.defaultMinListRowHeight, 16)
             .scrollContentBackground(.hidden)
+            .focused(isFocused)
         }
     }
 
@@ -203,6 +207,7 @@ private struct ContentSearchResultsListPreview: View {
 
     @State private var selection: String?
     @State private var collapsedFiles: Set<String> = []
+    @FocusState private var isListFocused: Bool
 
     var body: some View {
         ContentSearchResultsList(
@@ -212,7 +217,8 @@ private struct ContentSearchResultsListPreview: View {
             selection: $selection,
             collapsedFiles: $collapsedFiles,
             directoryPath: previewRoot,
-            onOpenFileInNewTab: { _ in }
+            onOpenFileInNewTab: { _ in },
+            isFocused: $isListFocused
         )
         .onAppear { collapsedFiles = initiallyCollapsed }
         .frame(width: 280, height: 520)
