@@ -255,11 +255,25 @@ final public class AppSettings {
         didSet { preferences.setBool(openClickedFileInNewTab, Keys.openClickedFileInNewTab) }
     }
 
+    /// Always open new file tabs on the split-view right pane (issue #498).
+    /// Off by default; when enabled, opening a file via terminal click or any
+    /// other path routes the new tab to the right side instead of the left.
+    public var alwaysOpenFilesInSplit: Bool = Defaults.alwaysOpenFilesInSplit {
+        didSet { preferences.setBool(alwaysOpenFilesInSplit, Keys.alwaysOpenFilesInSplit) }
+    }
+
     /// Where a clicked http/https/ftp link in the terminal should open.
     /// `.ask` shows a confirmation dialog with a remember-my-choice toggle that
     /// flips this setting on the user's behalf.
     public var browserLinkBehavior: BrowserLinkBehavior = Defaults.browserLinkBehavior {
         didSet { preferences.setString(browserLinkBehavior.rawValue, Keys.browserLinkBehavior) }
+    }
+
+    /// Always open new in-app browser tabs on the split-view right pane
+    /// (issue #498). Off by default; when enabled, terminal links resolved to
+    /// in-app tabs land on the right side.
+    public var alwaysOpenLinksInSplit: Bool = Defaults.alwaysOpenLinksInSplit {
+        didSet { preferences.setBool(alwaysOpenLinksInSplit, Keys.alwaysOpenLinksInSplit) }
     }
 
     /// Delay before attempting reconnection (in seconds)
@@ -389,9 +403,11 @@ final public class AppSettings {
         self.autoCopyOnSelect = preferences.optionalBool(Keys.autoCopyOnSelect) ?? Defaults.autoCopyOnSelect
         self.alwaysAutoResize = preferences.optionalBool(Keys.alwaysAutoResize) ?? Defaults.alwaysAutoResize
         self.openClickedFileInNewTab = preferences.optionalBool(Keys.openClickedFileInNewTab) ?? Defaults.openClickedFileInNewTab
+        self.alwaysOpenFilesInSplit = preferences.optionalBool(Keys.alwaysOpenFilesInSplit) ?? Defaults.alwaysOpenFilesInSplit
         self.browserLinkBehavior = BrowserLinkBehavior(
             rawValue: preferences.string(Keys.browserLinkBehavior) ?? ""
         ) ?? Defaults.browserLinkBehavior
+        self.alwaysOpenLinksInSplit = preferences.optionalBool(Keys.alwaysOpenLinksInSplit) ?? Defaults.alwaysOpenLinksInSplit
         self.reconnectDelay = preferences.optionalInt(Keys.reconnectDelay) ?? Defaults.reconnectDelay
         self.tmuxPath = preferences.string(Keys.tmuxPath) ?? Defaults.tmuxPath
         self.tmuxSocket = preferences.string(Keys.tmuxSocket) ?? Defaults.tmuxSocket
@@ -459,7 +475,9 @@ final public class AppSettings {
         case autoCopyOnSelect
         case alwaysAutoResize
         case openClickedFileInNewTab
+        case alwaysOpenFilesInSplit
         case browserLinkBehavior
+        case alwaysOpenLinksInSplit
         case reconnectDelay
         case tmuxPath
         case tmuxSocket
@@ -503,7 +521,9 @@ final public class AppSettings {
         static let autoCopyOnSelect = true
         static let alwaysAutoResize = true
         static let openClickedFileInNewTab = true
+        static let alwaysOpenFilesInSplit = false
         static let browserLinkBehavior = BrowserLinkBehavior.ask
+        static let alwaysOpenLinksInSplit = false
         static let reconnectDelay = 2
         static let tmuxPath = "/opt/homebrew/bin/tmux"
         static let tmuxSocket = ""

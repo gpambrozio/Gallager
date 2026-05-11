@@ -163,12 +163,18 @@ struct GeneralSettingsView: View {
                 Toggle("Open clicked file links in a new tab", isOn: $settings.openClickedFileInNewTab)
                     .help("When a file:// link is clicked in the terminal, open the file in a new tab instead of the system default browser")
 
+                Toggle("Always open files in split tab", isOn: $settings.alwaysOpenFilesInSplit)
+                    .help("When opening a file in a new tab, route it to the split-view right pane instead of the left.")
+
                 Picker("When clicking web links in terminal", selection: $settings.browserLinkBehavior) {
                     ForEach(BrowserLinkBehavior.allCases) { behavior in
                         Text(behavior.displayName).tag(behavior)
                     }
                 }
                 .help("How http/https/ftp links clicked in the terminal should open. \"Ask\" shows a one-time dialog with a \"remember my choice\" toggle.")
+
+                Toggle("Always open links in split tab", isOn: $settings.alwaysOpenLinksInSplit)
+                    .help("When opening a web link in an in-app browser tab, route it to the split-view right pane instead of the left.")
 
                 Toggle("Prevent sleep during active sessions", isOn: $settings.preventSleepDuringSessions)
                     .help("Keep host awake while Claude Code sessions are running")
