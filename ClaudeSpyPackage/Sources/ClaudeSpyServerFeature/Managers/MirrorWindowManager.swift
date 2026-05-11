@@ -1,3 +1,4 @@
+import AppKit
 import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import Dependencies
@@ -14,6 +15,23 @@ final public class MirrorWindowManager {
 
     /// Task for periodic session validation
     private var sessionValidationTask: Task<Void, Never>?
+
+    /// Task observing NSMenu tracking notifications so the validation loop
+    /// can stand down while the user has a menu open.
+    private var menuTrackingObservationTask: Task<Void, Never>?
+
+    /// Number of NSMenus currently in tracking mode (context menus, menu bar
+    /// menus, etc.). Bumped by `NSMenu.didBeginTrackingNotification` and
+    /// decremented by `NSMenu.didEndTrackingNotification` — both fire on
+    /// every menu open/close globally within the app.
+    ///
+    /// While this is > 0, `startPeriodicSessionValidation` skips its
+    /// `updatePaneStates` / `refreshGitBranches` cycle: mutating `paneStates`
+    /// or other `@Observable` state ripples through SwiftUI reconciliation
+    /// and AppKit interprets that as a reason to dismiss the open popup,
+    /// which is exactly what was killing the "Open in Editor" submenu
+    /// mid-hover every 5 seconds.
+    private var menuTrackingCount = 0
 
     /// Called when session metadata (description, color, or emoji) changes,
     /// to push updated state to viewers.
@@ -109,12 +127,18 @@ final public class MirrorWindowManager {
     public func startPeriodicSessionValidation() {
         // Cancel any existing task
         sessionValidationTask?.cancel()
+        startMenuTrackingObservation()
 
         sessionValidationTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(self?.validationInterval ?? 5))
 
                 guard !Task.isCancelled, let self else { break }
+
+                // While a menu is open, leave state alone — paneStates
+                // mutations dismiss the popup mid-hover. The next cycle
+                // (5 s later) will catch up once the user closes the menu.
+                guard menuTrackingCount == 0 else { continue }
 
                 // Refresh panes and update state
                 let panes = await self.tmuxService.refreshPanes()
@@ -128,6 +152,39 @@ final public class MirrorWindowManager {
     public func stopPeriodicSessionValidation() {
         sessionValidationTask?.cancel()
         sessionValidationTask = nil
+        menuTrackingObservationTask?.cancel()
+        menuTrackingObservationTask = nil
+    }
+
+    /// Watches for NSMenu tracking notifications so the validation loop can
+    /// pause itself while the user has a popup open. `didBeginTracking` and
+    /// `didEndTracking` post on every menu open/close globally — both
+    /// menu-bar drop-downs and SwiftUI `.contextMenu` / `Menu` popups.
+    private func startMenuTrackingObservation() {
+        guard menuTrackingObservationTask == nil else { return }
+        let center = NotificationCenter.default
+        menuTrackingObservationTask = Task { [weak self] in
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { [weak self] in
+                    for await _ in center.notifications(named: NSMenu.didBeginTrackingNotification) {
+                        await self?.incrementMenuTrackingCount()
+                    }
+                }
+                group.addTask { [weak self] in
+                    for await _ in center.notifications(named: NSMenu.didEndTrackingNotification) {
+                        await self?.decrementMenuTrackingCount()
+                    }
+                }
+            }
+        }
+    }
+
+    private func incrementMenuTrackingCount() {
+        menuTrackingCount += 1
+    }
+
+    private func decrementMenuTrackingCount() {
+        menuTrackingCount = max(0, menuTrackingCount - 1)
     }
 
     // MARK: - Session Management

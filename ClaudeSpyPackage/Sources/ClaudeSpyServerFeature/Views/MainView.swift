@@ -57,6 +57,10 @@ public struct MainView: View {
     /// Cached open-file-tab strip per session (keyed by `sessionName`).
     @State private var sessionFileTabsStates: [String: SessionFileTabsState] = [:]
 
+    /// File path for which the "Open in Editor" picker is currently shown
+    /// (triggered by Cmd+E on a focused file tab).
+    @State private var editorPickerPath: String?
+
     /// In-flight terminal-link confirmation, shown when
     /// `settings.browserLinkBehavior == .ask` and the user clicks a web URL.
     @State private var pendingBrowserURLPrompt: PendingBrowserURLPrompt?
@@ -204,6 +208,10 @@ public struct MainView: View {
         .modifier(MenuCommandsModifier(
             onCloseCurrentTab: { handleCloseCurrentTab() },
             onOpenContentSearch: { handleOpenContentSearch() }
+        ))
+        .modifier(EditorPickerDialogModifier(
+            editorPickerPath: $editorPickerPath,
+            onCmdE: { handleOpenCurrentTabInEditor() }
         ))
         .onChange(of: windowManager.pendingSessionCount) {
             // When an event arrives on the already-selected session, no selection
@@ -1939,6 +1947,37 @@ public struct MainView: View {
     /// clear `selectedFileTabId` when the selected tab is removed, otherwise
     /// the id will dangle and the content area will render `OpenFileTabContentView`
     /// against a stale tab.
+    /// Resolves the path of the currently-focused file (open file tab when one
+    /// is selected, otherwise the file selected in the file browser detail
+    /// pane) and stores it in `editorPickerPath` so the Cmd+E confirmation
+    /// dialog presents the editor list. No-op when nothing file-shaped is in
+    /// view.
+    private func handleOpenCurrentTabInEditor() {
+        guard let window = selectedWindow else { return }
+        guard
+            let sessionName = tmuxService.sessions
+                .first(where: { $0.windows.contains(where: { $0.id == window.id }) })?
+                .sessionName
+        else { return }
+
+        if
+            let tabs = sessionFileTabsStates[sessionName],
+            let selectedId = tabs.selectedFileTabId,
+            let tab = tabs.openFileTabs.first(where: { $0.id == selectedId }) {
+            editorPickerPath = tab.path
+            return
+        }
+
+        guard
+            fileBrowserActiveWindowIds.contains(window.id),
+            let browserState = fileBrowserStates[sessionName]
+        else { return }
+        let directoryPath = window.activePane?.currentPath ?? NSHomeDirectory()
+        if let path = browserState.selectedFilePath(directoryPath: directoryPath) {
+            editorPickerPath = path
+        }
+    }
+
     private func closeOpenFileTab(_ tabId: UUID, sessionName: String) {
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
         guard let closedIndex = tabs.openFileTabs.firstIndex(where: { $0.id == tabId }) else { return }
@@ -3831,6 +3870,80 @@ private struct MenuCommandsModifier: ViewModifier {
     }
 }
 
+// MARK: - Editor Picker Dialog Modifier
+
+/// Confirmation dialog driven by `editorPickerPath` that lists the user's
+/// configured editors and forwards the selection to ``EditorClient``.
+///
+/// Lives in its own modifier so the SwiftUI view-builder for `MainView.body`
+/// stays small enough for the type-checker to handle.
+private struct EditorPickerDialogModifier: ViewModifier {
+    @Binding var editorPickerPath: String?
+    let onCmdE: () -> Void
+
+    @Environment(AppSettings.self) private var settings
+    @Environment(\.openSettings) private var openSettings
+
+    private var dialogIsPresented: Binding<Bool> {
+        Binding(
+            get: { editorPickerPath != nil },
+            set: { newValue in
+                if !newValue { editorPickerPath = nil }
+            }
+        )
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .openCurrentTabInEditor)) { _ in
+                onCmdE()
+            }
+            .confirmationDialog(
+                "Open in Editor",
+                isPresented: dialogIsPresented,
+                titleVisibility: .visible,
+                presenting: editorPickerPath,
+                actions: dialogActions,
+                message: dialogMessage
+            )
+    }
+
+    @ViewBuilder
+    private func dialogActions(path: String) -> some View {
+        ForEach(settings.editors) { editor in
+            Button(editor.displayName) {
+                // Resolve the dependency inside the action so test overrides
+                // installed via `withDependencies` are picked up correctly —
+                // stored properties on a ViewModifier would re-resolve on every
+                // body evaluation and side-step scoped overrides.
+                @Dependency(EditorClient.self) var client
+                let editorName = editor.displayName
+                Task {
+                    let launched = await client.openFile(editor, path)
+                    if !launched {
+                        postEditorLaunchFailed(editorName: editorName, path: path)
+                    }
+                }
+                editorPickerPath = nil
+            }
+        }
+        if settings.editors.isEmpty {
+            Button("Configure Editors…") {
+                settings.selectedSettingsTab = .editors
+                openSettings()
+                editorPickerPath = nil
+            }
+        }
+        Button("Cancel", role: .cancel) {
+            editorPickerPath = nil
+        }
+    }
+
+    private func dialogMessage(path: String) -> some View {
+        Text(URL(fileURLWithPath: path).lastPathComponent)
+    }
+}
+
 // MARK: - Alerts Modifier
 
 private struct AlertsModifier: ViewModifier {
@@ -3840,6 +3953,16 @@ private struct AlertsModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            // Routed through here so editor-launch failures surface via the
+            // same alert affordance as other transient errors. Defined inside
+            // the existing alerts modifier (rather than as a new chained
+            // `.onReceive` in `MainView.body`) to keep the body's modifier
+            // chain inside SwiftUI's type-checker budget.
+            .onReceive(NotificationCenter.default.publisher(for: .editorLaunchFailed)) { notification in
+                if let message = notification.userInfo?[editorLaunchFailedMessageKey] as? String {
+                    attachError = message
+                }
+            }
             .alert("Terminal Error", isPresented: .init(
                 get: { attachError != nil },
                 set: { if !$0 { attachError = nil } }

@@ -274,6 +274,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         MouseSupportScenario.scenario,
         RemoteMouseSupportScenario.scenario,
         FileBrowserScenario.scenario,
+        OpenInEditorScenario.scenario,
         SidebarLayoutScenario.scenario,
         HostDisconnectClearsSessionsScenario.scenario,
         PromptEditorScenario.scenario,

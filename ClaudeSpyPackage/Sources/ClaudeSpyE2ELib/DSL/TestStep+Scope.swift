@@ -70,6 +70,8 @@ public extension TestStep {
             return .macOS(instance: instance)
         case let .macSelectAll(instance):
             return .macOS(instance: instance)
+        case let .macPressShortcut(_, _, instance):
+            return .macOS(instance: instance)
         case let .macCGClick(_, instance):
             return .macOS(instance: instance)
         case let .macCGClickElement(_, instance):
@@ -158,6 +160,7 @@ public extension TestStep {
              .wait,
              .storeValue,
              .readFile,
+             .removeFile,
              .waitForFileContains,
              .log:
             return .universal

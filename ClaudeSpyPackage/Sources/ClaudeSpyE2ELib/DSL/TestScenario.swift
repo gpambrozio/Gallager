@@ -19,6 +19,21 @@ public enum E2EDeviceType: String, Sendable {
     case viewer
 }
 
+/// Keyboard modifier flags accepted by ``TestStep/macPressShortcut(key:modifiers:instance:)``.
+/// Maps directly to `CGEventFlags` inside the macOS driver.
+public struct KeyboardModifiers: OptionSet, Sendable {
+    public let rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    public static let command = KeyboardModifiers(rawValue: 1 << 0)
+    public static let shift = KeyboardModifiers(rawValue: 1 << 1)
+    public static let option = KeyboardModifiers(rawValue: 1 << 2)
+    public static let control = KeyboardModifiers(rawValue: 1 << 3)
+}
+
 /// An individual test step that the orchestrator executes
 public enum TestStep: Sendable {
     // MARK: - Server
@@ -129,6 +144,12 @@ public enum TestStep: Sendable {
     case macPressSpace(instance: Int = 0)
     /// Press Cmd+A to select all text in the focused field
     case macSelectAll(instance: Int = 0)
+    /// Press a single character key with optional modifiers via CGEvent.
+    ///
+    /// Useful for invoking app-defined keyboard shortcuts that aren't bound to
+    /// the dedicated `macSelectAll` / `macPressReturn` steps. `key` must be a
+    /// single character; non-letter keys (Tab, Escape, …) have their own steps.
+    case macPressShortcut(key: String, modifiers: KeyboardModifiers = [], instance: Int = 0)
     /// CGEvent left-click on an element (bypasses AXPress, uses real mouse click).
     /// Use for selecting items in SwiftUI List/OutlineGroup.
     case macCGClick(titled: String, instance: Int = 0)
@@ -276,6 +297,11 @@ public enum TestStep: Sendable {
     case storeValue(key: String, value: String)
     /// Read a file's contents and store in the execution context (supports `${var}` interpolation in path)
     case readFile(path: String, storeAs: String)
+    /// Delete a file at the given path (no-op if it doesn't exist). Used between
+    /// phases to clear an append-only fixture log so subsequent
+    /// `waitForFileContains` assertions don't pass on stale entries from earlier
+    /// phases. Path supports `${var}` interpolation.
+    case removeFile(path: String)
     /// Poll a file until it contains a substring, then store its contents (supports `${var}` interpolation)
     case waitForFileContains(
         path: String, substring: String, storeAs: String, timeout: TimeInterval = 20, pollInterval: TimeInterval = 1

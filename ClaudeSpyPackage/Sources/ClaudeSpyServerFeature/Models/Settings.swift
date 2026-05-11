@@ -55,6 +55,7 @@ public enum SettingsTab: String, Sendable {
     case remoteAccess
     case remoteHosts
     case sidebarLayout
+    case editors
     case plugin
     case about
 }
@@ -369,6 +370,23 @@ final public class AppSettings {
         didSet { saveAdditionalClaudeFolders() }
     }
 
+    // MARK: - External Editor Settings
+
+    /// External editors the user can pick to open files with.
+    ///
+    /// On first launch this is empty; ``seedEditorsIfEmpty(using:)`` populates
+    /// it with the installed editors from ``EditorClient/detectInstalledKnownEditors``.
+    public var editors: [EditorConfiguration] = [] {
+        didSet { saveEditors() }
+    }
+
+    /// Whether we've already attempted the first-launch editor seeding. Persisted
+    /// so we don't re-seed an empty list when the user has explicitly removed all
+    /// of them.
+    public var hasSeededEditors: Bool = Defaults.hasSeededEditors {
+        didSet { preferences.setBool(hasSeededEditors, Keys.hasSeededEditors) }
+    }
+
     // MARK: - Plugin Settings
 
     /// Whether the user has completed the plugin setup (or dismissed it)
@@ -452,6 +470,10 @@ final public class AppSettings {
         // Project Scanning
         self.additionalClaudeFolders = Self.loadCodable(from: preferences, key: Keys.additionalClaudeFolders)
 
+        // External Editors
+        self.editors = Self.loadCodable(from: preferences, key: Keys.editors)
+        self.hasSeededEditors = preferences.optionalBool(Keys.hasSeededEditors) ?? Defaults.hasSeededEditors
+
         // Plugin
         self.hasCompletedPluginSetup = preferences.optionalBool(Keys.hasCompletedPluginSetup) ?? Defaults.hasCompletedPluginSetup
 
@@ -498,6 +520,9 @@ final public class AppSettings {
         case sidebarSortMode
         /// Project Scanning
         case additionalClaudeFolders
+        /// External Editors
+        case editors
+        case hasSeededEditors
         /// Plugin
         case hasCompletedPluginSetup
         // Launch at Login
@@ -535,6 +560,8 @@ final public class AppSettings {
         // Remote Access
         static let externalServerURL = "wss://claudespy.gustavo.eng.br"
         static let autoConnectToServer = true
+        /// External Editors
+        static let hasSeededEditors = false
         /// Plugin
         static let hasCompletedPluginSetup = false
         // Launch at Login
@@ -589,6 +616,13 @@ final public class AppSettings {
             return
         }
         preferences.setData(data, Keys.additionalClaudeFolders)
+    }
+
+    private func saveEditors() {
+        guard let data = try? JSONEncoder().encode(editors) else {
+            return
+        }
+        preferences.setData(data, Keys.editors)
     }
 
     private func saveSidebarTerminalFields() {
@@ -687,6 +721,41 @@ final public class AppSettings {
     /// Remove a Claude folder by its path.
     public func removeClaudeFolder(_ path: String) {
         additionalClaudeFolders.removeAll { $0 == path }
+    }
+
+    // MARK: - Editor Management
+
+    /// Adds an editor to the list. Returns the added editor.
+    @discardableResult
+    public func addEditor(_ editor: EditorConfiguration) -> EditorConfiguration {
+        editors.append(editor)
+        return editor
+    }
+
+    /// Removes an editor by its identifier.
+    public func removeEditor(id: UUID) {
+        editors.removeAll { $0.id == id }
+    }
+
+    /// Updates an existing editor in place. Looked up by `id`; no-op if not found.
+    public func updateEditor(_ editor: EditorConfiguration) {
+        if let index = editors.firstIndex(where: { $0.id == editor.id }) {
+            editors[index] = editor
+        }
+    }
+
+    /// On first launch (or when the user explicitly hasn't seeded yet), populate
+    /// `editors` with the editors that are currently installed on the host.
+    /// Subsequent calls are no-ops because `hasSeededEditors` is set to true.
+    ///
+    /// Async because the live `detectInstalledKnownEditors` runs Launch
+    /// Services lookups off the MainActor.
+    public func seedEditorsIfEmpty(using client: EditorClient) async {
+        guard !hasSeededEditors else { return }
+        if editors.isEmpty {
+            editors = await client.detectInstalledKnownEditors()
+        }
+        hasSeededEditors = true
     }
 
     // MARK: - Login Item Management
