@@ -624,6 +624,9 @@ struct FileBrowserView: View {
                     .padding(.leading, 24)
             }
         }
+        .draggableFile(path: result.fullPath) {
+            state.selectedSearchPath = result.fullPath
+        }
     }
 
     // MARK: - File Browser Content
@@ -645,6 +648,9 @@ struct FileBrowserView: View {
             isDirectory: false,
             onOpenFileInNewTab: onOpenFileInNewTab
         )
+        .draggableFile(path: state.reverseIds[itemId]) {
+            state.viewState?.selection = itemId
+        }
     }
 
     private func folderRowLabel(name: String, itemId: UUID, isSymlink: Bool) -> some View {
@@ -664,6 +670,9 @@ struct FileBrowserView: View {
             isDirectory: true,
             onOpenFileInNewTab: onOpenFileInNewTab
         )
+        .draggableFile(path: state.reverseIds[itemId]) {
+            state.viewState?.selection = itemId
+        }
     }
 
     /// Overlays a small filled-link badge on the bottom-trailing corner of an icon
