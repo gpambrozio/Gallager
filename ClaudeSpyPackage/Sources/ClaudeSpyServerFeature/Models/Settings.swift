@@ -60,6 +60,32 @@ public enum SettingsTab: String, Sendable {
     case about
 }
 
+/// Where a clicked http/https/ftp link in the terminal should open.
+///
+/// Drives the dialog presented to the user on a terminal link click and the
+/// "remember my choice" outcome — picking a non-`.ask` value here suppresses
+/// the prompt for subsequent clicks.
+public enum BrowserLinkBehavior: String, CaseIterable, Identifiable, Sendable {
+    /// Show a confirmation dialog with an "Always do this" checkbox.
+    case ask
+    /// Open in a new browser tab next to the file/terminal tabs.
+    case alwaysInApp
+    /// Forward to the system's default browser via `NSWorkspace`.
+    case alwaysInDefaultBrowser
+
+    public var id: String {
+        rawValue
+    }
+
+    public var displayName: String {
+        switch self {
+        case .ask: "Ask"
+        case .alwaysInApp: "Always in app"
+        case .alwaysInDefaultBrowser: "Always in default browser"
+        }
+    }
+}
+
 /// macOS-specific bridge from `AppearanceMode` to `NSAppearance`. The shared
 /// enum lives in `ClaudeSpyCommon` so iOS can reuse it for
 /// `.preferredColorScheme(_:)`.
@@ -230,6 +256,13 @@ final public class AppSettings {
         didSet { preferences.setBool(openClickedFileInNewTab, Keys.openClickedFileInNewTab) }
     }
 
+    /// Where a clicked http/https/ftp link in the terminal should open.
+    /// `.ask` shows a confirmation dialog with a remember-my-choice toggle that
+    /// flips this setting on the user's behalf.
+    public var browserLinkBehavior: BrowserLinkBehavior = Defaults.browserLinkBehavior {
+        didSet { preferences.setString(browserLinkBehavior.rawValue, Keys.browserLinkBehavior) }
+    }
+
     /// Delay before attempting reconnection (in seconds)
     public var reconnectDelay: Int = Defaults.reconnectDelay {
         didSet { preferences.setInt(reconnectDelay, Keys.reconnectDelay) }
@@ -374,6 +407,9 @@ final public class AppSettings {
         self.autoCopyOnSelect = preferences.optionalBool(Keys.autoCopyOnSelect) ?? Defaults.autoCopyOnSelect
         self.alwaysAutoResize = preferences.optionalBool(Keys.alwaysAutoResize) ?? Defaults.alwaysAutoResize
         self.openClickedFileInNewTab = preferences.optionalBool(Keys.openClickedFileInNewTab) ?? Defaults.openClickedFileInNewTab
+        self.browserLinkBehavior = BrowserLinkBehavior(
+            rawValue: preferences.string(Keys.browserLinkBehavior) ?? ""
+        ) ?? Defaults.browserLinkBehavior
         self.reconnectDelay = preferences.optionalInt(Keys.reconnectDelay) ?? Defaults.reconnectDelay
         self.tmuxPath = preferences.string(Keys.tmuxPath) ?? Defaults.tmuxPath
         self.tmuxSocket = preferences.string(Keys.tmuxSocket) ?? Defaults.tmuxSocket
@@ -445,6 +481,7 @@ final public class AppSettings {
         case autoCopyOnSelect
         case alwaysAutoResize
         case openClickedFileInNewTab
+        case browserLinkBehavior
         case reconnectDelay
         case tmuxPath
         case tmuxSocket
@@ -491,6 +528,7 @@ final public class AppSettings {
         static let autoCopyOnSelect = true
         static let alwaysAutoResize = true
         static let openClickedFileInNewTab = true
+        static let browserLinkBehavior = BrowserLinkBehavior.ask
         static let reconnectDelay = 2
         static let tmuxPath = "/opt/homebrew/bin/tmux"
         static let tmuxSocket = ""

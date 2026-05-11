@@ -153,6 +153,7 @@ public actor TestOrchestrator {
         context.set("notificationLogPath", value: notificationLogPath(for: 0))
         context.set("pushLogPath", value: pushLogPath(for: 0))
         context.set("fakeEditorLogPath", value: fakeEditorLogPath(for: 0))
+        context.set("defaultBrowserLogPath", value: defaultBrowserLogPath(for: 0))
         context.set("scenarioName", value: scenarioDirName)
         context.set("macOSAppPath", value: macOSAppPath)
 
@@ -482,6 +483,7 @@ public actor TestOrchestrator {
                 "--notification-log", notificationLogPath(for: instance),
                 "--push-log", pushLogPath(for: instance),
                 "--clipboard-file", clipboardFilePath(for: instance),
+                "--default-browser-log", defaultBrowserLogPath(for: instance),
             ]
             if let appVersion {
                 arguments += ["--app-version", appVersion]
@@ -1005,6 +1007,14 @@ public actor TestOrchestrator {
 
     private func fakeEditorLogPath(for instance: Int) -> String {
         Self.fakeEditorLogPath(for: instance)
+    }
+
+    /// Return the default-browser log path for the given instance number.
+    /// The macOS app appends URLs to this file instead of calling
+    /// `NSWorkspace.shared.open` so scenarios can verify
+    /// `.alwaysInDefaultBrowser` clicks without launching the real browser.
+    func defaultBrowserLogPath(for instance: Int) -> String {
+        NSTemporaryDirectory() + "claudespy-e2e-default-browser-\(instance).log"
     }
 
     // MARK: - Script Cleanup

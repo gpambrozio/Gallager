@@ -169,6 +169,13 @@ struct GeneralSettingsView: View {
                 Toggle("Open clicked file links in a new tab", isOn: $settings.openClickedFileInNewTab)
                     .help("When a file:// link is clicked in the terminal, open the file in a new tab instead of the system default browser")
 
+                Picker("When clicking web links in terminal", selection: $settings.browserLinkBehavior) {
+                    ForEach(BrowserLinkBehavior.allCases) { behavior in
+                        Text(behavior.displayName).tag(behavior)
+                    }
+                }
+                .help("How http/https/ftp links clicked in the terminal should open. \"Ask\" shows a one-time dialog with a \"remember my choice\" toggle.")
+
                 Toggle("Prevent sleep during active sessions", isOn: $settings.preventSleepDuringSessions)
                     .help("Keep host awake while Claude Code sessions are running")
 

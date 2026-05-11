@@ -165,15 +165,20 @@
         }
 
         override func mouseDown(with event: NSEvent) {
-            // In mouse mode, suppress the press if it lands on a `file://` link
-            // we'll handle in `mouseUp`. Otherwise SwiftTerm forwards a
-            // mouse-press SGR sequence to the terminal app (e.g. Claude Code),
-            // which can open the file from the press event before our
-            // `handleURLClick` runs in `mouseUp`.
+            // In mouse mode, suppress the press if it lands on a URL we'd
+            // intercept in `mouseUp` (file/http/https/ftp). Otherwise SwiftTerm
+            // forwards a mouse-press SGR sequence to the terminal app (e.g.
+            // Claude Code), which can open the link from the press event
+            // before our `handleURLClick` runs — Claude Code in particular
+            // shells out to `open(1)` for OSC 8 hyperlinks, racing past the
+            // `browserLinkBehavior` prompt.
             if
                 let interactive = interactiveView,
                 interactive.isMouseModeActive,
-                interactive.isClickOnFileURL(at: interactive.convert(event.locationInWindow, from: nil)) {
+                interactive.isClickOnInterceptableURL(
+                    at: interactive.convert(event.locationInWindow, from: nil),
+                    allowedSchemes: TerminalURLDetector.defaultAllowedSchemes.union(["file"])
+                ) {
                 onMouseDown?()
                 return
             }
@@ -224,13 +229,13 @@
 
             if let interactive = interactiveView {
                 let point = interactive.convert(event.locationInWindow, from: nil)
-                // In mouse mode, only `file://` links are intercepted —
-                // OSC 8 file links emitted by TUI apps (e.g. Claude Code)
-                // route through `onOpenURL` and open as in-app file tabs.
-                // All other URLs are owned by the terminal app.
-                let allowed: Set<String> = interactive.isMouseModeActive
-                    ? ["file"]
-                    : TerminalURLDetector.defaultAllowedSchemes.union(["file"])
+                // Intercept the same scheme set in both modes: in mouse mode
+                // the matching `mouseDown` carve-out has already suppressed
+                // the press for these URLs, so the TUI app never saw the
+                // click. Routing through `handleURLClick` then `onOpenURL`
+                // gives the host's `browserLinkBehavior` policy authority
+                // over OSC 8 hyperlinks rendered by TUIs like Claude Code.
+                let allowed = TerminalURLDetector.defaultAllowedSchemes.union(["file"])
                 if interactive.handleURLClick(at: point, allowedSchemes: allowed) {
                     return
                 }
@@ -1340,10 +1345,16 @@
             return false
         }
 
-        /// Whether the given point lies on a `file://` link. Used to suppress
-        /// the mouse-mode press so terminal apps (e.g. Claude Code) don't act
-        /// on the click before our `handleURLClick` runs in `mouseUp`.
-        fileprivate func isClickOnFileURL(at point: NSPoint) -> Bool {
+        /// Whether the given point lies on a URL we want to intercept (any of
+        /// `allowedSchemes`). Used to suppress the mouse-mode press so terminal
+        /// apps (e.g. Claude Code) don't act on the click before our
+        /// `handleURLClick` runs in `mouseUp` — e.g. opening the URL in the
+        /// system default browser via `open(1)`, which would race past the
+        /// `browserLinkBehavior` prompt.
+        fileprivate func isClickOnInterceptableURL(
+            at point: NSPoint,
+            allowedSchemes: Set<String>
+        ) -> Bool {
             guard let pos = gridPosition(for: point) else { return false }
             let terminal = terminalView.getTerminal()
             let closures = urlClosures(for: terminal)
@@ -1353,16 +1364,18 @@
                 cols: terminal.cols,
                 lineText: closures.lineText,
                 cellPayload: closures.cellPayload,
-                allowedSchemes: ["file"]
+                allowedSchemes: allowedSchemes
             ) != nil
         }
 
         /// Opens a URL by giving `onOpenURL` first chance to handle it. Falls
-        /// back to `NSWorkspace.shared.open` when the callback is absent or
-        /// declines to handle the URL.
+        /// back to the `URLOpener` dependency (`NSWorkspace.shared.open` in
+        /// production, a file-backed log in E2E tests) when the callback is
+        /// absent or declines to handle the URL.
         private func openURL(_ url: URL) {
             if onOpenURL?(url) == true { return }
-            NSWorkspace.shared.open(url)
+            @Dependency(URLOpener.self) var urlOpener
+            urlOpener.openInDefaultBrowser(url)
         }
 
         // MARK: - URL Underlines
@@ -1662,12 +1675,11 @@
 
         func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
             guard let url = URL(string: link) else { return }
-            // In mouse mode the terminal app owns clicks for non-file URLs.
-            // `file://` links remain interceptable so OSC 8 file links from
-            // TUI apps (e.g. Claude Code) still open as in-app tabs.
-            if isMouseModeActive, url.scheme?.lowercased() != "file" {
-                return
-            }
+            // In mouse mode the matching mouseDown/mouseUp carve-out already
+            // suppresses + intercepts the click before SwiftTerm gets a chance
+            // to fire this delegate, so reaching here in mouse mode means a
+            // non-mouse hyperlink activation (e.g. keyboard) — open through
+            // the same path as normal mode.
             openURL(url)
         }
 
