@@ -1,7 +1,6 @@
 ---
 name: baseline-review
 disable-model-invocation: true
-model: sonnet
 allowed-tools:
   - Bash(./.claude/skills/baseline-review/scripts/compare-baselines.sh *)
   - Bash(rm -rf /tmp/baseline-review)
