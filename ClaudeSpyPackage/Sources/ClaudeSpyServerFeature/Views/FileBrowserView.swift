@@ -162,13 +162,20 @@ final class FileBrowserState {
 
 /// Open-file-tab state scoped to a tmux session, so tabs and selection survive
 /// switches between windows in the same session.
+///
+/// Supports a split-view layout (issue #498): tabs whose ids appear in
+/// `rightSideFileTabIds` / `rightSideBrowserTabIds` belong to the right pane
+/// in the detail content area. The left pane keeps using
+/// `selectedFileTabId` / `selectedBrowserTabId`; the right pane uses
+/// `selectedRightFileTabId` / `selectedRightBrowserTabId`. The split is
+/// considered active whenever any tab is on the right side.
 @Observable
 @MainActor
 final class SessionFileTabsState {
     /// Files opened as their own tabs via the "Open in New Tab" context menu.
     var openFileTabs: [OpenFileTab] = []
     /// When non-nil, the content area shows this file tab instead of the tree
-    /// or terminal.
+    /// or terminal. Refers to a tab on the *left* side when split is active.
     var selectedFileTabId: UUID?
     /// Saved vertical scroll offset per open file tab. Lives here (not on
     /// `OpenFileTab` itself) so the `LiveFileContentView` can read/write the
@@ -183,12 +190,48 @@ final class SessionFileTabsState {
     var openBrowserTabs: [BrowserTab] = []
     /// When non-nil, the content area shows this browser tab. Mutually
     /// exclusive with `selectedFileTabId` and the file browser flag — only one
-    /// kind of detail content is rendered at a time.
+    /// kind of detail content is rendered at a time on the left side.
     var selectedBrowserTabId: UUID?
     /// Live web-view state per browser tab. Kept separate from the tab struct
     /// so SwiftUI can compare tabs cheaply while WKWebView state survives
     /// switches between tabs/sessions.
     var browserStates: [UUID: BrowserTabState] = [:]
+
+    // MARK: - Split View State (issue #498)
+
+    /// File tab ids that belong to the right pane in the split layout. When
+    /// non-empty (together with `rightSideBrowserTabIds`) the detail area
+    /// renders two panes separated by a draggable divider.
+    var rightSideFileTabIds: Set<UUID> = []
+    /// Browser tab ids that belong to the right pane in the split layout.
+    var rightSideBrowserTabIds: Set<UUID> = []
+    /// Selected file tab on the right pane. Mutually exclusive with
+    /// `selectedRightBrowserTabId`.
+    var selectedRightFileTabId: UUID?
+    /// Selected browser tab on the right pane.
+    var selectedRightBrowserTabId: UUID?
+    /// Width fraction occupied by the left pane. Clamped to
+    /// `[SplitLayout.minRatio, SplitLayout.maxRatio]` (0.15…0.85) by the
+    /// resize gesture. Default 0.5 puts the divider in the middle. Persisted
+    /// in memory across tab/session switches in the same way as the rest of
+    /// this state.
+    var splitRatio: CGFloat = 0.5
+
+    /// True when at least one file or browser tab has been sent to the right
+    /// pane. Drives the split content layout and the tab strip icons.
+    var isSplit: Bool {
+        !rightSideFileTabIds.isEmpty || !rightSideBrowserTabIds.isEmpty
+    }
+
+    /// Returns true if the given file tab id currently sits on the right pane.
+    func isFileTabOnRight(_ id: UUID) -> Bool {
+        rightSideFileTabIds.contains(id)
+    }
+
+    /// Returns true if the given browser tab id currently sits on the right pane.
+    func isBrowserTabOnRight(_ id: UUID) -> Bool {
+        rightSideBrowserTabIds.contains(id)
+    }
 }
 
 /// A draggable vertical divider for resizing adjacent views.
