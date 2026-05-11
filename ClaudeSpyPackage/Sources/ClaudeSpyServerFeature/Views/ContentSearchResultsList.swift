@@ -27,9 +27,6 @@ struct ContentSearchResultsList: View {
     @Binding var collapsedFiles: Set<String>
     let directoryPath: String
     let onOpenFileInNewTab: (String) -> Void
-    /// Forwarded from the parent's `@FocusState` so this list can claim
-    /// initial first-responder. See #509 for context.
-    var isFocused: FocusState<Bool>.Binding
 
     var body: some View {
         let groups = groupedMatches
@@ -51,10 +48,14 @@ struct ContentSearchResultsList: View {
                 ForEach(groups) { group in
                     DisclosureGroup(isExpanded: expansionBinding(for: group)) {
                         ForEach(group.matches) { match in
-                            row(match, needle: needle)
+                            let isSelected = selection == match.id
+                            row(match, needle: needle, isSelected: isSelected)
                                 .tag(match.id)
                                 .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 0, trailing: 8))
                                 .listRowSeparator(.hidden)
+                                .listRowBackground(
+                                    isSelected ? Color.accentColor : nil
+                                )
                                 .fileContextMenu(
                                     fullPath: match.fullPath,
                                     directoryPath: directoryPath,
@@ -80,7 +81,6 @@ struct ContentSearchResultsList: View {
             .listStyle(.plain)
             .environment(\.defaultMinListRowHeight, 16)
             .scrollContentBackground(.hidden)
-            .focused(isFocused)
         }
     }
 
@@ -156,13 +156,13 @@ struct ContentSearchResultsList: View {
         }
     }
 
-    private func row(_ match: FileTextSearchMatch, needle: String) -> some View {
+    private func row(_ match: FileTextSearchMatch, needle: String, isSelected: Bool) -> some View {
         Text(highlightedLine(match.lineText.trimmingCharacters(in: .whitespacesAndNewlines), needle: needle))
             .lineLimit(1)
             .truncationMode(.tail)
             .frame(maxWidth: .infinity, alignment: .leading)
             .font(.callout)
-            .foregroundStyle(.primary)
+            .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Line \(match.lineNumber): \(match.lineText)")
     }
@@ -207,7 +207,6 @@ private struct ContentSearchResultsListPreview: View {
 
     @State private var selection: String?
     @State private var collapsedFiles: Set<String> = []
-    @FocusState private var isListFocused: Bool
 
     var body: some View {
         ContentSearchResultsList(
@@ -217,8 +216,7 @@ private struct ContentSearchResultsListPreview: View {
             selection: $selection,
             collapsedFiles: $collapsedFiles,
             directoryPath: previewRoot,
-            onOpenFileInNewTab: { _ in },
-            isFocused: $isListFocused
+            onOpenFileInNewTab: { _ in }
         )
         .onAppear { collapsedFiles = initiallyCollapsed }
         .frame(width: 280, height: 520)
