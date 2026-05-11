@@ -107,6 +107,18 @@ struct TmuxPaneMirrorApp: App {
                 clipboardFilePath = nil
             }
 
+            // E2E test support: redirect default-browser opens to a log file
+            // so scenarios can verify `.alwaysInDefaultBrowser` clicks without
+            // actually launching the system browser on every run.
+            let defaultBrowserLogPath: String?
+            if let idx = CommandLine.arguments.firstIndex(of: "--default-browser-log"),
+               idx + 1 < CommandLine.arguments.count
+            {
+                defaultBrowserLogPath = CommandLine.arguments[idx + 1]
+            } else {
+                defaultBrowserLogPath = nil
+            }
+
             prepareDependencies {
                 $0[PreferencesService.self] = prefs
                 $0[SecretsService.self] = .inMemory()
@@ -235,6 +247,10 @@ struct TmuxPaneMirrorApp: App {
                     // Clean up any previous clipboard file
                     try? FileManager.default.removeItem(atPath: clipboardFilePath)
                     $0[ClipboardClient.self] = .fileBacked(path: clipboardFilePath)
+                }
+                if let defaultBrowserLogPath {
+                    try? FileManager.default.removeItem(atPath: defaultBrowserLogPath)
+                    $0[URLOpener.self] = .logged(path: defaultBrowserLogPath)
                 }
             }
 
