@@ -287,7 +287,7 @@ public struct MainView: View {
                 withAnimation {
                     proxy.scrollTo(windowId, anchor: .center)
                 }
-                Task { @MainActor in scrollToWindowId = nil }
+                scrollToWindowId = nil
             }
             .onChange(of: windowManager.activeSessionPaneIds) {
                 handleActiveSessionsChanged()
@@ -1742,10 +1742,12 @@ public struct MainView: View {
         if showLoadingIndicator {
             isLoadingProjects = true
         }
-        projects = await coordinator.scanProjects()
-        if showLoadingIndicator {
-            isLoadingProjects = false
+        defer {
+            if showLoadingIndicator {
+                isLoadingProjects = false
+            }
         }
+        projects = await coordinator.scanProjects()
     }
 
     /// Calculates optimal terminal dimensions based on available detail pane space.
