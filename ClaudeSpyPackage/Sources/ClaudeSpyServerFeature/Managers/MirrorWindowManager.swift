@@ -28,7 +28,6 @@ final public class MirrorWindowManager {
     private let logger = Logger(label: "com.claudespy.mirrorwindowmanager")
     private let settings: AppSettings
     private let tmuxService: TmuxService
-    private let menuTrackingMonitor: MenuTrackingMonitor
 
     /// Pane stream manager for sharing streams
     public var paneStreamManager: PaneStreamManager
@@ -40,14 +39,12 @@ final public class MirrorWindowManager {
         settings: AppSettings,
         tmuxService: TmuxService,
         paneStreamManager: PaneStreamManager,
-        editorSessionManager: EditorSessionManager,
-        menuTrackingMonitor: MenuTrackingMonitor
+        editorSessionManager: EditorSessionManager
     ) {
         self.settings = settings
         self.tmuxService = tmuxService
         self.paneStreamManager = paneStreamManager
         self.editorSessionManager = editorSessionManager
-        self.menuTrackingMonitor = menuTrackingMonitor
     }
 
     // MARK: - Pane State Management
@@ -119,12 +116,10 @@ final public class MirrorWindowManager {
 
                 guard !Task.isCancelled, let self else { break }
 
-                // While a menu is open, leave state alone — paneStates
-                // mutations dismiss the popup mid-hover. The next cycle
-                // catches up once the user closes the menu.
-                guard !self.menuTrackingMonitor.isTracking else { continue }
-
-                // Refresh panes and update state
+                // Refresh panes and update state. Right-click context menus
+                // host their own NSMenu (see StableContextMenu) so SwiftUI
+                // reconciliation from this refresh no longer dismisses an
+                // open popup mid-hover.
                 let panes = await self.tmuxService.refreshPanes()
                 self.updatePaneStates(from: panes)
                 await self.refreshGitBranches()
