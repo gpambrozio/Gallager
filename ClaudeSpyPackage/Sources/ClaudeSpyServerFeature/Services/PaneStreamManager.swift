@@ -63,6 +63,7 @@
         private let logger = Logger(label: "com.claudespy.panestreammanager")
         private let tmuxService: TmuxService
         private let controlClientManager: TmuxControlClientManager
+        private let menuTrackingMonitor: MenuTrackingMonitor
 
         /// Active per-pane state keyed by paneId. One entry per known pane.
         private var readers: [String: ReaderContext] = [:]
@@ -129,9 +130,14 @@
 
         // MARK: - Initialization
 
-        public init(tmuxService: TmuxService, controlClientManager: TmuxControlClientManager) {
+        public init(
+            tmuxService: TmuxService,
+            controlClientManager: TmuxControlClientManager,
+            menuTrackingMonitor: MenuTrackingMonitor
+        ) {
             self.tmuxService = tmuxService
             self.controlClientManager = controlClientManager
+            self.menuTrackingMonitor = menuTrackingMonitor
 
             // Wire up dimension changes from control client
             controlClientManager.setOnDimensionChange { [weak self] paneId, width, height in
@@ -564,9 +570,14 @@
             paneRefreshTask = Task { [weak self] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(10))
-                    guard !Task.isCancelled else { break }
+                    guard !Task.isCancelled, let self else { break }
+                    // While a menu is open, leave readers alone — mutating
+                    // `@Observable` state here ripples through SwiftUI and
+                    // causes AppKit to dismiss the popup mid-hover. The next
+                    // cycle catches up once the user closes the menu.
+                    guard !self.menuTrackingMonitor.isTracking else { continue }
                     let panes = await tmuxService.refreshPanes()
-                    await self?.updateMonitoring(panes: panes)
+                    await self.updateMonitoring(panes: panes)
                 }
             }
         }

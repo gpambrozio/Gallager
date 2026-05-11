@@ -63,6 +63,11 @@
         /// Control client manager for tmux control mode connections
         public let controlClientManager: TmuxControlClientManager
 
+        /// Shared NSMenu tracking observer. Pauses periodic refresh loops
+        /// while a menu/popup is open so SwiftUI reconciliation doesn't
+        /// dismiss it mid-hover.
+        private let menuTrackingMonitor: MenuTrackingMonitor
+
         /// Device pairing manager
         public private(set) var pairingManager: PairingManager?
 
@@ -149,10 +154,17 @@
                 socketPath: settings.tmuxSocket.isEmpty ? nil : settings.tmuxSocket
             )
 
+            // Shared monitor that pauses periodic state-mutating refreshes
+            // while an NSMenu is being tracked, so popups don't get
+            // dismissed mid-hover by SwiftUI reconciliation.
+            let menuTrackingMonitor = MenuTrackingMonitor()
+            self.menuTrackingMonitor = menuTrackingMonitor
+
             // Create pane stream manager with control client manager
             self.paneStreamManager = PaneStreamManager(
                 tmuxService: tmuxService,
-                controlClientManager: controlClientManager
+                controlClientManager: controlClientManager,
+                menuTrackingMonitor: menuTrackingMonitor
             )
 
             // Create terminal stream service
@@ -172,7 +184,8 @@
                 settings: settings,
                 tmuxService: tmuxService,
                 paneStreamManager: paneStreamManager,
-                editorSessionManager: editorManager
+                editorSessionManager: editorManager,
+                menuTrackingMonitor: menuTrackingMonitor
             )
 
             // CRITICAL: Load E2EEService synchronously from Keychain BEFORE any view rendering.

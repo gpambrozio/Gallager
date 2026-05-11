@@ -184,14 +184,17 @@ private struct PaneListPreview: View {
                 tmuxPath: settings.tmuxPath,
                 socketPath: settings.tmuxSocket.isEmpty ? nil : settings.tmuxSocket
             )
+            let menuTrackingMonitor = MenuTrackingMonitor()
             windowManager = MirrorWindowManager(
                 settings: settings,
                 tmuxService: tmuxService,
                 paneStreamManager: .init(
                     tmuxService: tmuxService,
-                    controlClientManager: controlClientManager
+                    controlClientManager: controlClientManager,
+                    menuTrackingMonitor: menuTrackingMonitor
                 ),
-                editorSessionManager: EditorSessionManager()
+                editorSessionManager: EditorSessionManager(),
+                menuTrackingMonitor: menuTrackingMonitor
             )
         }
     }
