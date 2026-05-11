@@ -16,6 +16,7 @@ public enum Symbols: String {
     case arrowTriangleBranch = "arrow.triangle.branch"
     case arrowUpCircleFill = "arrow.up.circle.fill"
     case arrowUpLeftAndArrowDownRight = "arrow.up.left.and.arrow.down.right"
+    case arrowUpRightSquare = "arrow.up.right.square"
     case bellBadgeFill = "bell.badge.fill"
     case bellFill = "bell.fill"
     case bolt
@@ -46,6 +47,7 @@ public enum Symbols: String {
     case folderFill = "folder.fill"
     case gearshape
     case gearshapeFill = "gearshape.fill"
+    case globe
     case handsAndSparklesFill = "hands.and.sparkles.fill"
     case house
     case infoCircle = "info.circle"
