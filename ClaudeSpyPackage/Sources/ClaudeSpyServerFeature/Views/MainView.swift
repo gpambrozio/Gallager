@@ -1596,6 +1596,7 @@ public struct MainView: View {
             let existingId = tabs.openFileTabs[existingIndex].id
             if tabs.rightSideFileTabIds.contains(existingId) {
                 tabs.selectedRightFileTabId = existingId
+                tabs.selectedRightBrowserTabId = nil
             } else {
                 tabs.selectedFileTabId = existingId
             }
@@ -1610,6 +1611,7 @@ public struct MainView: View {
         if useSplit {
             tabs.rightSideFileTabIds.insert(newTab.id)
             tabs.selectedRightFileTabId = newTab.id
+            tabs.selectedRightBrowserTabId = nil
         } else {
             tabs.selectedFileTabId = newTab.id
         }
@@ -1801,6 +1803,7 @@ public struct MainView: View {
             let existingId = tabs.openBrowserTabs[existingIndex].id
             if tabs.rightSideBrowserTabIds.contains(existingId) {
                 tabs.selectedRightBrowserTabId = existingId
+                tabs.selectedRightFileTabId = nil
             } else {
                 tabs.selectedBrowserTabId = existingId
                 tabs.selectedFileTabId = nil
@@ -1813,6 +1816,7 @@ public struct MainView: View {
             if useSplit {
                 tabs.rightSideBrowserTabIds.insert(newTab.id)
                 tabs.selectedRightBrowserTabId = newTab.id
+                tabs.selectedRightFileTabId = nil
             } else {
                 tabs.selectedBrowserTabId = newTab.id
                 tabs.selectedFileTabId = nil
