@@ -436,7 +436,10 @@
                     )
                 },
                 onSessionSelect: { [tmux] sessionId in
-                    try await tmux.selectWindow("\(sessionId):!")
+                    // Trailing `:` resolves to the session's current window;
+                    // `:!` would fail with "can't find window: !" on sessions
+                    // without prior window-switch history.
+                    try await tmux.selectWindow("\(sessionId):")
                 },
                 onSessionCurrent: { [tmux] in
                     await MainActor.run {
