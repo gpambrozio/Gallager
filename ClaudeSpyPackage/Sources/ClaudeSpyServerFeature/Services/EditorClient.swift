@@ -36,6 +36,23 @@
             self.bundleIdentifier = bundleIdentifier
             self.executablePath = executablePath
         }
+
+        /// The editor's app icon resolved via Launch Services, or `nil` when
+        /// neither the bundle identifier nor the executable path resolves to
+        /// an installed app — in which case callers should render a generic
+        /// fallback symbol.
+        public var nsIcon: NSImage? {
+            let workspace = NSWorkspace.shared
+            if
+                let bundleId = bundleIdentifier,
+                let url = workspace.urlForApplication(withBundleIdentifier: bundleId) {
+                return workspace.icon(forFile: url.path)
+            }
+            if let path = executablePath {
+                return workspace.icon(forFile: path)
+            }
+            return nil
+        }
     }
 
     /// A known editor we ship with the app. When the user's editor list is empty

@@ -1471,9 +1471,11 @@ public struct MainView: View {
     /// clear `selectedFileTabId` when the selected tab is removed, otherwise
     /// the id will dangle and the content area will render `OpenFileTabContentView`
     /// against a stale tab.
-    /// Resolves the path of the currently-selected file tab and stores it in
-    /// `editorPickerPath` so the Cmd+E confirmation dialog presents the editor
-    /// list. No-op when no file tab is focused.
+    /// Resolves the path of the currently-focused file (open file tab when one
+    /// is selected, otherwise the file selected in the file browser detail
+    /// pane) and stores it in `editorPickerPath` so the Cmd+E confirmation
+    /// dialog presents the editor list. No-op when nothing file-shaped is in
+    /// view.
     private func handleOpenCurrentTabInEditor() {
         guard let window = selectedWindow else { return }
         guard
@@ -1481,12 +1483,23 @@ public struct MainView: View {
                 .first(where: { $0.windows.contains(where: { $0.id == window.id }) })?
                 .sessionName
         else { return }
-        guard
+
+        if
             let tabs = sessionFileTabsStates[sessionName],
             let selectedId = tabs.selectedFileTabId,
-            let tab = tabs.openFileTabs.first(where: { $0.id == selectedId })
+            let tab = tabs.openFileTabs.first(where: { $0.id == selectedId }) {
+            editorPickerPath = tab.path
+            return
+        }
+
+        guard
+            fileBrowserActiveWindowIds.contains(window.id),
+            let browserState = fileBrowserStates[sessionName]
         else { return }
-        editorPickerPath = tab.path
+        let directoryPath = window.activePane?.currentPath ?? NSHomeDirectory()
+        if let path = browserState.selectedFilePath(directoryPath: directoryPath) {
+            editorPickerPath = path
+        }
     }
 
     private func closeOpenFileTab(_ tabId: UUID, sessionName: String) {

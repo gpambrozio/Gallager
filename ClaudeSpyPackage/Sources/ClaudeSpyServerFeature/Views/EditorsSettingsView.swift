@@ -124,19 +124,8 @@ struct EditorsSettingsView: View {
     }
 
     private func editorIcon(for editor: EditorConfiguration) -> some View {
-        let image: NSImage? = {
-            if
-                let bundleId = editor.bundleIdentifier,
-                let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
-                return NSWorkspace.shared.icon(forFile: url.path)
-            }
-            if let path = editor.executablePath {
-                return NSWorkspace.shared.icon(forFile: path)
-            }
-            return nil
-        }()
-        return Group {
-            if let image {
+        Group {
+            if let image = editor.nsIcon {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)

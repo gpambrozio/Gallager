@@ -96,7 +96,7 @@ struct OpenInEditorMenu: View {
                 }
             } else {
                 ForEach(settings.editors) { editor in
-                    Button(editor.displayName) {
+                    Button {
                         @Dependency(EditorClient.self) var client
                         let path = fullPath
                         let editorName = editor.displayName
@@ -104,6 +104,16 @@ struct OpenInEditorMenu: View {
                             let launched = await client.openFile(editor, path)
                             if !launched {
                                 postEditorLaunchFailed(editorName: editorName, path: path)
+                            }
+                        }
+                    } label: {
+                        Label {
+                            Text(editor.displayName)
+                        } icon: {
+                            if let icon = editor.nsIcon {
+                                Image(nsImage: icon)
+                            } else {
+                                Symbols.pencil.image
                             }
                         }
                     }
