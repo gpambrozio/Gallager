@@ -2648,17 +2648,19 @@ private struct WindowTabBar: View {
     var body: some View {
         Group {
             if isSplit {
-                HStack(spacing: 0) {
+                // Use `spacing:` for the visual gap so the row's height is
+                // driven by the `ScrollView(.horizontal)` siblings' intrinsic
+                // (content-based) vertical size instead of being inflated by
+                // a greedy spacer view. `fixedSize(vertical: true)` ensures
+                // the HStack reports that intrinsic height upward so the
+                // VStack parent still gives the detail area the remainder.
+                HStack(spacing: SplitLayout.dividerWidth) {
                     leftSection
                         .frame(width: max(0, splitRowWidth * splitRatio - SplitLayout.dividerWidth / 2))
-                    // Visual gap matches the resize handle in the content
-                    // area below so left-pane tabs and right-pane tabs
-                    // line up with their content.
-                    Color.clear
-                        .frame(width: SplitLayout.dividerWidth)
                     rightSection
                         .frame(maxWidth: .infinity)
                 }
+                .fixedSize(horizontal: false, vertical: true)
                 .onGeometryChange(for: CGFloat.self) { proxy in
                     proxy.size.width
                 } action: { newWidth in
