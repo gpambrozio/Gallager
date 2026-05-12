@@ -71,6 +71,11 @@ struct WindowTabBar: View {
     /// of where the drop will land.
     @State private var dropIndicator: TabDragKind?
 
+    /// Which section's trailing drop zone is currently hovered, if any. Drawn
+    /// separately from `dropIndicator` because the zone isn't a tab and has
+    /// its own visual treatment.
+    @State private var trailingDropTargetedSection: TabSection?
+
     /// Read-only accessors that mirror `SessionFileTabsState`. Defined as
     /// computed properties (not stored) so observation tracking happens on
     /// every `body` evaluation — `sessionTabs` being `nil` is treated as an
@@ -288,9 +293,15 @@ struct WindowTabBar: View {
                 if let suggestion = openSuggestionStore.suggestionsBySession[session.sessionName] {
                     openSuggestionBar(suggestion)
                 }
-                Spacer()
+                trailingDropZone(for: .single)
             }
             .padding(.horizontal, 8)
+            // Without this, the trailing drop zone's `maxWidth: .infinity`
+            // also propagates an unbounded vertical preference upward and
+            // the whole tab strip stretches to fill the parent VStack.
+            // Pinning the row to its natural ideal height keeps the strip
+            // the same compact size it was before drag-and-drop landed.
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -306,9 +317,10 @@ struct WindowTabBar: View {
                 if let suggestion = openSuggestionStore.suggestionsBySession[session.sessionName] {
                     openSuggestionBar(suggestion)
                 }
-                Spacer()
+                trailingDropZone(for: .left)
             }
             .padding(.leading, 8)
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -320,10 +332,35 @@ struct WindowTabBar: View {
                 ForEach(rightSectionOrder, id: \.self) { ref in
                     tabView(for: ref)
                 }
-                Spacer()
+                trailingDropZone(for: .right)
             }
             .padding(.trailing, 8)
+            .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// Trailing drop target that fills the rest of the tab strip so users can
+    /// drop a tab "past the last tab" to move it to the end of the section.
+    /// Acts as the layout `Spacer` would have — `maxWidth: .infinity` takes
+    /// the remaining horizontal slack. The surrounding HStack's
+    /// `fixedSize(vertical: true)` keeps the strip at its natural height so
+    /// the Color.clear hit area collapses to the same row height as the tabs.
+    private func trailingDropZone(for section: TabSection) -> some View {
+        let isTargeted = trailingDropTargetedSection == section
+        return Color.clear
+            .contentShape(Rectangle())
+            .frame(maxWidth: .infinity)
+            .overlay(alignment: .leading) {
+                DropIndicator(visible: isTargeted)
+                    .padding(.leading, 4)
+            }
+            .dropDestination(for: TabDragPayload.self) { payloads, _ in
+                handleEndDrop(payloads: payloads, section: section)
+            } isTargeted: { hovering in
+                trailingDropTargetedSection = hovering ? section : (
+                    trailingDropTargetedSection == section ? nil : trailingDropTargetedSection
+                )
+            }
     }
 
     /// Dispatches a unified-order entry to the right view. Returns `EmptyView`
@@ -696,6 +733,49 @@ struct WindowTabBar: View {
         return true
     }
 
+    /// Drop handler for the trailing drop zone of a section. Moves the
+    /// source to the end of that section so users can drag "past the last
+    /// tab" instead of having to drop onto a specific neighbour. In split
+    /// mode, "end of left section" means just before the first right-side
+    /// entry so the right pane's tabs keep their visual position.
+    private func handleEndDrop(payloads: [TabDragPayload], section: TabSection) -> Bool {
+        defer { trailingDropTargetedSection = nil }
+        guard let source = payloads.first else { return false }
+
+        var order = effectiveTabOrder
+        guard let sourceIndex = order.firstIndex(of: source) else { return false }
+
+        let moved = order.remove(at: sourceIndex)
+
+        let insertIndex: Int
+        switch section {
+        case .single,
+             .right:
+            insertIndex = order.count
+        case .left:
+            // Insert right after the last entry that belongs to the left
+            // section. Falls through to the end if the left section is
+            // empty (e.g. all file/browser tabs were sent to the right).
+            let lastLeftIndex = order.lastIndex { ref in
+                switch ref {
+                case .window,
+                     .fileExplorer:
+                    return true
+                case let .file(id):
+                    return !isFileTabOnRight(id)
+                case let .browser(id):
+                    return !isBrowserTabOnRight(id)
+                }
+            }
+            insertIndex = (lastLeftIndex ?? -1) + 1
+        }
+
+        order.insert(moved, at: min(insertIndex, order.count))
+        sessionTabs?.tabOrder = order
+        syncSubsequences(from: order)
+        return true
+    }
+
     /// Derives the windows / files / browsers subsequences from the unified
     /// `tabOrder` and pushes each one out to the matching reorder callback
     /// when it differs from the live data. Idempotent — re-invoking with the
@@ -745,6 +825,15 @@ enum TabDragPayload: Codable, Hashable, Transferable {
 /// view's state because the dropped value is consumed by the closure that
 /// fires after the user releases — the targeted state has to be tracked
 /// separately while the drag is still moving.
+/// Identifies which trailing drop zone is being targeted. The single section
+/// is used when the tab bar is not split; left/right correspond to the two
+/// sections of the split-mode bar.
+private enum TabSection: Hashable {
+    case single
+    case left
+    case right
+}
+
 private enum TabDragKind: Hashable {
     case window(String)
     case fileExplorer
