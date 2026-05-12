@@ -195,7 +195,9 @@ public struct MainView: View {
             let currentHostIdsSet = Set(currentHostIds)
             for key in remoteSessionTabsStates.keys {
                 // Keys are `"\(hostId):\(sessionName)"`, so the hostId is
-                // everything before the first colon.
+                // everything before the first colon. Safe because
+                // `PairedHost.id` is UUID-formatted (hex + hyphens, no colons);
+                // if that ever changes this split needs to change too.
                 let hostId = String(key.split(separator: ":", maxSplits: 1).first ?? "")
                 if !currentHostIdsSet.contains(hostId) {
                     remoteSessionTabsStates.removeValue(forKey: key)
@@ -1935,10 +1937,13 @@ public struct MainView: View {
         windowId: String,
         originWindowId: String? = nil
     ) {
-        if sessionFileTabsStates[sessionName] == nil {
-            sessionFileTabsStates[sessionName] = SessionFileTabsState()
+        let tabs: SessionFileTabsState
+        if let existing = sessionFileTabsStates[sessionName] {
+            tabs = existing
+        } else {
+            tabs = SessionFileTabsState()
+            sessionFileTabsStates[sessionName] = tabs
         }
-        guard let tabs = sessionFileTabsStates[sessionName] else { return }
         let useSplit = settings.alwaysOpenLinksInSplit
         // Match on the tab's live `currentURL` (driven by the WKWebView) rather
         // than the value stored on `BrowserTab`. After the user navigates away
@@ -2074,10 +2079,13 @@ public struct MainView: View {
         originWindowId: String? = nil
     ) {
         let key = remoteTabsKey(hostId: hostId, sessionName: sessionName)
-        if remoteSessionTabsStates[key] == nil {
-            remoteSessionTabsStates[key] = SessionFileTabsState()
+        let tabs: SessionFileTabsState
+        if let existing = remoteSessionTabsStates[key] {
+            tabs = existing
+        } else {
+            tabs = SessionFileTabsState()
+            remoteSessionTabsStates[key] = tabs
         }
-        guard let tabs = remoteSessionTabsStates[key] else { return }
         // De-dup on the live `currentURL` from the WKWebView, not the value
         // stored on `BrowserTab`. After the user navigates the tab away from
         // its opening URL, `BrowserTab.url` advances with them; matching on
@@ -2171,6 +2179,11 @@ public struct MainView: View {
             .filter { $0.sessionName == sessionName }
         if remoteWindows.contains(where: { $0.id == originWindowId }) {
             selectedRemoteWindowId = originWindowId
+        } else {
+            // Origin window no longer exists (e.g., closed on the host).
+            // Drop the stale selection so the UI lands on a clean
+            // "no window selected" state instead of a phantom id.
+            selectedRemoteWindowId = nil
         }
     }
 
