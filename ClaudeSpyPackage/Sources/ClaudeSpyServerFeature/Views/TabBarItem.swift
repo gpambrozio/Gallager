@@ -7,6 +7,11 @@ import SwiftUI
 /// selection highlighting (background + bottom underline), and the hover-driven
 /// reveal of the close button. Callers provide their own label content and
 /// stack their own context menus around the result.
+///
+/// Optionally renders a split-toggle button (used by file/browser tabs in
+/// `WindowTabBar` to move a tab between the left and right pane of the split
+/// layout) and a leading accent stripe (used to mark tabs that live on the
+/// right pane while the layout is split).
 struct TabBarItem<Label: View>: View {
     let isSelected: Bool
     let onSelect: () -> Void
@@ -15,6 +20,11 @@ struct TabBarItem<Label: View>: View {
     let closeAccessibilityLabel: String
     let closeHelp: String
     let closeDisabled: Bool
+    let splitSymbol: Symbols?
+    let onSplitToggle: (() -> Void)?
+    let splitHelp: String
+    let splitAccessibilityLabel: String
+    let showLeadingAccent: Bool
     let label: () -> Label
 
     @State private var isHovered = false
@@ -27,6 +37,11 @@ struct TabBarItem<Label: View>: View {
         closeAccessibilityLabel: String,
         closeHelp: String = "Close",
         closeDisabled: Bool = false,
+        splitSymbol: Symbols? = nil,
+        onSplitToggle: (() -> Void)? = nil,
+        splitHelp: String = "",
+        splitAccessibilityLabel: String = "",
+        showLeadingAccent: Bool = false,
         @ViewBuilder label: @escaping () -> Label
     ) {
         self.isSelected = isSelected
@@ -36,6 +51,11 @@ struct TabBarItem<Label: View>: View {
         self.closeAccessibilityLabel = closeAccessibilityLabel
         self.closeHelp = closeHelp
         self.closeDisabled = closeDisabled
+        self.splitSymbol = splitSymbol
+        self.onSplitToggle = onSplitToggle
+        self.splitHelp = splitHelp
+        self.splitAccessibilityLabel = splitAccessibilityLabel
+        self.showLeadingAccent = showLeadingAccent
         self.label = label
     }
 
@@ -51,6 +71,19 @@ struct TabBarItem<Label: View>: View {
             .buttonStyle(.plain)
             .accessibilityLabel(labelAccessibilityLabel)
             .accessibilityValue(isSelected ? "selected" : "")
+
+            if let splitSymbol, let onSplitToggle {
+                Button(action: onSplitToggle) {
+                    splitSymbol.image
+                        .font(.system(size: 9, weight: .bold))
+                        .frame(width: 14, height: 14)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help(splitHelp)
+                .accessibilityLabel(splitAccessibilityLabel)
+            }
 
             Button(action: onClose) {
                 Symbols.xmark.image
@@ -73,6 +106,15 @@ struct TabBarItem<Label: View>: View {
                 Rectangle()
                     .fill(Color.accentColor)
                     .frame(height: 2)
+            }
+        }
+        .overlay(alignment: .leading) {
+            // Subtle vertical accent so the user can tell at a glance which
+            // tabs live on the right pane when the layout is split.
+            if showLeadingAccent {
+                Rectangle()
+                    .fill(Color.accentColor.opacity(0.6))
+                    .frame(width: 2)
             }
         }
         .onHover { hovering in
