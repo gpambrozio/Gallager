@@ -28,6 +28,11 @@ struct ContentSearchResultsList: View {
     let directoryPath: String
     let onOpenFileInNewTab: (String) -> Void
 
+    /// Keeps the `List` first responder so its selection renders with the
+    /// focused accent color regardless of whether the user's last click
+    /// landed on a row's drag-source content or its edge — see issue #509.
+    @FocusState private var listFocused: Bool
+
     var body: some View {
         let groups = groupedMatches
         // Lowercase the query once per render — `highlightedLine` is invoked
@@ -77,6 +82,18 @@ struct ContentSearchResultsList: View {
             .listStyle(.plain)
             .environment(\.defaultMinListRowHeight, 16)
             .scrollContentBackground(.hidden)
+            .focused($listFocused)
+            .onChange(of: selection) { _, _ in listFocused = true }
+            .task {
+                // Brief sleep so SwiftUI has time to wire the underlying
+                // NSTableView into the responder chain — without it the focus
+                // request fires before the table is ready and AppKit silently
+                // drops it, leaving the selection in its unfocused-gray
+                // state on re-mounts (issue #509).
+                try? await Task.sleep(for: .milliseconds(50))
+                guard !Task.isCancelled else { return }
+                listFocused = true
+            }
         }
     }
 

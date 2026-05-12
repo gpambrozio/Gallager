@@ -298,6 +298,13 @@ struct FileBrowserView: View {
     @State private var loadTreeTask: Task<Void, Never>?
     @State private var contentSearchTask: Task<Void, Never>?
     @FocusState private var isSearchFieldFocused: Bool
+    /// Drives the file-browser `List` to stay first responder so its selection
+    /// renders with the focused accent color instead of AppKit's unemphasized
+    /// gray. `.onDrag` on each row consumes the mouse-down before the
+    /// underlying `NavigationLink` can request focus (see `FileDragHandler`),
+    /// so without this the tree's selection drops to gray after every click —
+    /// the root cause of issue #509.
+    @FocusState private var listFocused: Bool
 
     var body: some View {
         if let viewState = state.viewState {
@@ -460,6 +467,17 @@ struct FileBrowserView: View {
         try? await Task.sleep(for: .milliseconds(50))
         guard !Task.isCancelled else { return }
         isSearchFieldFocused = true
+    }
+
+    /// Claims first responder for whichever `List` is currently visible. The
+    /// brief sleep matches `applySearchFieldFocusIfRequested` — without it,
+    /// `.task` fires before the underlying NSTableView is in the responder
+    /// chain on tab-switch re-mounts, and AppKit silently drops the request,
+    /// leaving the selection in its unfocused-gray state (issue #509).
+    private func focusList() async {
+        try? await Task.sleep(for: .milliseconds(50))
+        guard !Task.isCancelled else { return }
+        listFocused = true
     }
 
     /// Reveals `state.pendingRevealPath` by loading and expanding each ancestor
@@ -660,6 +678,9 @@ struct FileBrowserView: View {
             }
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)
+            .focused($listFocused)
+            .onChange(of: state.selectedSearchPath) { _, _ in listFocused = true }
+            .task { await focusList() }
         }
     }
 
@@ -809,6 +830,9 @@ struct FileBrowserView: View {
                     }
                     .listStyle(.sidebar)
                     .scrollContentBackground(.hidden)
+                    .focused($listFocused)
+                    .onChange(of: viewState.selection) { _, _ in listFocused = true }
+                    .task { await focusList() }
                 } else {
                     switch state.searchMode {
                     case .name:
