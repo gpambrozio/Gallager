@@ -25,63 +25,73 @@ extension View {
     /// Right-click context menu using a native `NSMenu` whose lifecycle is
     /// decoupled from SwiftUI's view-body re-evaluations.
     ///
-    /// Unlike `.contextMenu { … }`, which AppKit can dismiss whenever the
-    /// underlying view's `setMenu:` is called during a parent re-render,
-    /// this builds the `NSMenu` lazily inside `NSView.menu(for:)` on
-    /// right-click. Parent re-renders touch the hosting view's `rootView`
-    /// but never re-attach a menu, so an open submenu (e.g. "Open in
-    /// Editor") survives `@Observable` mutations in any ancestor.
+    /// Implemented as a transparent overlay backed by an `NSView` that only
+    /// intercepts right-click / ctrl-click hit-tests and builds the menu
+    /// lazily inside `NSView.menu(for:)`. SwiftUI never sees a `setMenu:`
+    /// call on the underlying view, so an open submenu survives arbitrary
+    /// `@Observable` mutations in ancestors. The catcher lets every other
+    /// event (left-click, drag, hover, focus, accessibility traversal) pass
+    /// straight through to the SwiftUI content below, so accessibility
+    /// queries against the wrapped content keep working.
     func stableContextMenu(
         _ items: @escaping @MainActor () -> [ContextMenuItem]
     ) -> some View {
-        StableContextMenuContainer(content: self, items: items)
+        overlay(StableContextMenuCatcher(items: items))
     }
 }
 
-private struct StableContextMenuContainer<Content: View>: NSViewRepresentable {
-    let content: Content
+private struct StableContextMenuCatcher: NSViewRepresentable {
     let items: @MainActor () -> [ContextMenuItem]
 
-    func makeNSView(context: Context) -> StableContextMenuHostingView<Content> {
-        let view = StableContextMenuHostingView(rootView: content)
+    func makeNSView(context: Context) -> StableContextMenuCatcherView {
+        let view = StableContextMenuCatcherView()
         view.itemsBuilder = items
         return view
     }
 
-    func updateNSView(_ nsView: StableContextMenuHostingView<Content>, context: Context) {
-        nsView.rootView = content
+    func updateNSView(_ nsView: StableContextMenuCatcherView, context: Context) {
         nsView.itemsBuilder = items
     }
 }
 
-/// `NSHostingView` subclass that intercepts right-clicks via `menu(for:)`
-/// and returns a freshly-built `NSMenu`. The menu is never assigned to
-/// `self.menu`, so SwiftUI's `updateNSView` path never triggers
-/// `setMenu:` on AppKit — and `setMenu:` is the call that AppKit treats
-/// as a reason to dismiss any currently-tracking menu.
-final private class StableContextMenuHostingView<Content: View>: NSHostingView<Content> {
+/// Transparent `NSView` overlay that catches only right-click / ctrl-click
+/// hit-tests. Everything else (left-click, drag, hover, accessibility)
+/// falls through to the SwiftUI content below.
+final private class StableContextMenuCatcherView: NSView {
     var itemsBuilder: (@MainActor () -> [ContextMenuItem])?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        // Stay invisible in the accessibility tree — this view is a pure
+        // event catcher; the SwiftUI content below is what AX should see.
+        setAccessibilityElement(false)
+        setAccessibilityChildren([])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let event = NSApp.currentEvent else { return nil }
+        switch event.type {
+        case .rightMouseDown,
+             .rightMouseUp:
+            return self
+        case .leftMouseDown,
+             .leftMouseUp:
+            return event.modifierFlags.contains(.control) ? self : nil
+        default:
+            return nil
+        }
+    }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let itemsBuilder else { return nil }
         let items = itemsBuilder()
         guard !items.isEmpty else { return nil }
         return makeNSMenu(items: items)
-    }
-
-    // `NSHostingView` declares `init(rootView:)` as `required`, and Swift
-    // does not consider the superclass-defined init "inherited" through the
-    // generic + stored-property layout here — the compiler errors with
-    // "required initializer 'init(rootView:)' must be provided by subclass"
-    // if this stub is removed.
-    required init(rootView: Content) {
-        super.init(rootView: rootView)
-    }
-
-    @available(*, unavailable)
-    @MainActor
-    dynamic required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
     }
 }
 
@@ -115,7 +125,8 @@ final private class ContextMenuActionDispatcher: NSObject {
 /// ``ContextMenuActionDispatcher`` alive for the lifetime of the menu.
 /// Without this strong reference the dispatcher (referenced only via
 /// each item's `weak target`) would deallocate as soon as
-/// `NSHostingView.menu(for:)` returns, leaving every click a no-op.
+/// `StableContextMenuCatcherView.menu(for:)` returns, leaving every
+/// click a no-op.
 final private class StableContextMenu: NSMenu {
     private let dispatcher: ContextMenuActionDispatcher
 
