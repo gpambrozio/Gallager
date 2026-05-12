@@ -26,6 +26,12 @@ public struct SettingsView: View {
                 }
                 .tag(SettingsTab.appearance)
 
+            BrowserSettingsView()
+                .tabItem {
+                    Label("Browser", symbol: .globe)
+                }
+                .tag(SettingsTab.browser)
+
             SidebarLayoutSettingsView()
                 .tabItem {
                     Label("Sidebar", symbol: .listBulletClipboard)
@@ -171,13 +177,6 @@ struct GeneralSettingsView: View {
 
                 Toggle("Always open files in split tab", isOn: $settings.alwaysOpenFilesInSplit)
                     .help("When opening a file in a new tab, route it to the split-view right pane instead of the left.")
-
-                Picker("When clicking web links in terminal", selection: $settings.browserLinkBehavior) {
-                    ForEach(BrowserLinkBehavior.allCases) { behavior in
-                        Text(behavior.displayName).tag(behavior)
-                    }
-                }
-                .help("How http/https/ftp links clicked in the terminal should open. \"Ask\" shows a one-time dialog with a \"remember my choice\" toggle.")
 
                 Toggle("Always open links in split tab", isOn: $settings.alwaysOpenLinksInSplit)
                     .help("When opening a web link in an in-app browser tab, route it to the split-view right pane instead of the left.")

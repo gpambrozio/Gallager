@@ -52,6 +52,7 @@ extension PreferencesService {
 public enum SettingsTab: String, Sendable {
     case general
     case appearance
+    case browser
     case remoteAccess
     case remoteHosts
     case sidebarLayout
@@ -65,7 +66,7 @@ public enum SettingsTab: String, Sendable {
 /// Drives the dialog presented to the user on a terminal link click and the
 /// "remember my choice" outcome — picking a non-`.ask` value here suppresses
 /// the prompt for subsequent clicks.
-public enum BrowserLinkBehavior: String, CaseIterable, Identifiable, Sendable {
+public enum BrowserLinkBehavior: String, CaseIterable, Codable, Identifiable, Sendable {
     /// Show a confirmation dialog with an "Always do this" checkbox.
     case ask
     /// Open in a new browser tab next to the file/terminal tabs.
@@ -83,6 +84,24 @@ public enum BrowserLinkBehavior: String, CaseIterable, Identifiable, Sendable {
         case .alwaysInApp: "Always in app"
         case .alwaysInDefaultBrowser: "Always in default browser"
         }
+    }
+}
+
+/// A per-domain rule that overrides ``AppSettings/browserLinkBehavior`` for
+/// any http/https/ftp link whose host (case-insensitive) matches ``domain``.
+///
+/// Created by the user via the "Don't ask again for this domain" checkbox on
+/// the link confirmation dialog, or directly from the Browser settings tab.
+public struct BrowserDomainRule: Codable, Identifiable, Sendable, Hashable {
+    public let id: UUID
+    /// Lowercased host (e.g. `example.com`) — never `.ask`-only domains.
+    public var domain: String
+    public var behavior: BrowserLinkBehavior
+
+    public init(id: UUID = UUID(), domain: String, behavior: BrowserLinkBehavior) {
+        self.id = id
+        self.domain = domain.lowercased()
+        self.behavior = behavior
     }
 }
 
@@ -270,6 +289,15 @@ final public class AppSettings {
         didSet { preferences.setString(browserLinkBehavior.rawValue, Keys.browserLinkBehavior) }
     }
 
+    /// Per-domain overrides for ``browserLinkBehavior``.
+    ///
+    /// Looked up case-insensitively by URL host before the global setting is
+    /// consulted, so e.g. `example.com` can be forced to always open in-app
+    /// while every other host still goes through the dialog.
+    public var browserDomainRules: [BrowserDomainRule] = [] {
+        didSet { saveBrowserDomainRules() }
+    }
+
     /// Always open new in-app browser tabs on the split-view right pane
     /// (issue #498). Off by default; when enabled, terminal links resolved to
     /// in-app tabs land on the right side.
@@ -425,6 +453,7 @@ final public class AppSettings {
         self.browserLinkBehavior = BrowserLinkBehavior(
             rawValue: preferences.string(Keys.browserLinkBehavior) ?? ""
         ) ?? Defaults.browserLinkBehavior
+        self.browserDomainRules = Self.loadCodable(from: preferences, key: Keys.browserDomainRules)
         self.alwaysOpenLinksInSplit = preferences.optionalBool(Keys.alwaysOpenLinksInSplit) ?? Defaults.alwaysOpenLinksInSplit
         self.reconnectDelay = preferences.optionalInt(Keys.reconnectDelay) ?? Defaults.reconnectDelay
         self.tmuxPath = preferences.string(Keys.tmuxPath) ?? Defaults.tmuxPath
@@ -499,6 +528,7 @@ final public class AppSettings {
         case openClickedFileInNewTab
         case alwaysOpenFilesInSplit
         case browserLinkBehavior
+        case browserDomainRules
         case alwaysOpenLinksInSplit
         case reconnectDelay
         case tmuxPath
@@ -630,6 +660,54 @@ final public class AppSettings {
             return
         }
         preferences.setData(data, Keys.sidebarTerminalFields)
+    }
+
+    private func saveBrowserDomainRules() {
+        guard let data = try? JSONEncoder().encode(browserDomainRules) else {
+            return
+        }
+        preferences.setData(data, Keys.browserDomainRules)
+    }
+
+    // MARK: - Browser Domain Rule Management
+
+    /// Returns the per-domain behavior for `url` if one exists.
+    ///
+    /// Host matching is case-insensitive and uses the URL's host verbatim — no
+    /// suffix matching, so a rule for `example.com` does not cover
+    /// `sub.example.com`. When the URL carries an explicit port the lookup key
+    /// is `host:port`, so a rule for `example.com:8080` matches only that
+    /// host+port combination and a port-less rule for `example.com` matches
+    /// only URLs without an explicit port.
+    public func browserBehavior(for url: URL) -> BrowserLinkBehavior? {
+        guard let host = url.host?.lowercased() else { return nil }
+        let key = url.port.map { "\(host):\($0)" } ?? host
+        return browserDomainRules.first(where: { $0.domain == key })?.behavior
+    }
+
+    /// Sets the behavior for `domain`, replacing any existing rule for the
+    /// same (case-insensitively normalized) host.
+    public func setBrowserBehavior(_ behavior: BrowserLinkBehavior, for domain: String) {
+        let normalized = domain.lowercased()
+        guard !normalized.isEmpty else { return }
+        if let index = browserDomainRules.firstIndex(where: { $0.domain == normalized }) {
+            browserDomainRules[index].behavior = behavior
+        } else {
+            browserDomainRules.append(BrowserDomainRule(domain: normalized, behavior: behavior))
+        }
+    }
+
+    /// Updates a rule's behavior in place, looked up by `id`. No-op if not
+    /// found.
+    public func updateBrowserDomainRule(id: UUID, behavior: BrowserLinkBehavior) {
+        if let index = browserDomainRules.firstIndex(where: { $0.id == id }) {
+            browserDomainRules[index].behavior = behavior
+        }
+    }
+
+    /// Removes a per-domain rule by id.
+    public func removeBrowserDomainRule(id: UUID) {
+        browserDomainRules.removeAll { $0.id == id }
     }
 
     // MARK: - Pairing Management
