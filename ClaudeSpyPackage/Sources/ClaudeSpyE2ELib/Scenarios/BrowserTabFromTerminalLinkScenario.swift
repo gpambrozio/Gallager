@@ -30,7 +30,7 @@ import Foundation
 ///
 /// Flow:
 /// 1. Click link 1 with default `.ask` → confirmation sheet appears (now
-///    showing both "Don't ask again." and "Don't ask again for 127.0.0.1."
+///    showing both "Don't ask again." and "Don't ask again for 127.0.0.1:8765."
 ///    checkboxes).
 /// 2. Pick "In App" (no remember) → tab opens, setting stays `.ask`.
 /// 3. Switch to `other` session and back → browser tab is still the active
@@ -45,7 +45,7 @@ import Foundation
 ///    through to `URLOpener`).
 /// 9. Reset the global picker back to "Ask" so the per-domain leg starts
 ///    from a clean state.
-/// 10. Click link 5 → sheet appears, toggle "Don't ask again for 127.0.0.1.",
+/// 10. Click link 5 → sheet appears, toggle "Don't ask again for 127.0.0.1:8765.",
 ///     pick "In App" → adds a per-domain rule (global stays `.ask`).
 /// 11. Open Settings → Browser, confirm the rule appears in the list.
 /// 12. Click link 6 → opens directly via the per-domain rule (no sheet, even
@@ -54,11 +54,12 @@ import Foundation
 /// 14. Click link 7 → sheet appears again (no rule, global `.ask`).
 public enum BrowserTabFromTerminalLinkScenario {
     /// Window at (10, 10), size 1_200×700, sidebar 250. Title bar + tab bar
-    /// take ~100 pt; SF Mono 12 cells are ~14 pt tall. Each `printf` produces
-    /// two viewport rows (command echo + output), so the link rows after
-    /// seven sequential prints are 1, 3, 5, 7, 9, 11, 13. `x = 400` lands
-    /// inside the link text for every row (the visible label is padded so
-    /// the click target is wide enough to absorb sub-pixel font drift).
+    /// take ~100 pt; SF Mono 12 cells are ~14 pt tall. Each `printf`
+    /// produces two viewport rows (command echo + output), so the link
+    /// rows after seven sequential prints are 1, 3, 5, 7, 9, 11, 13.
+    /// `x = 400` lands inside the link text for every row (the visible
+    /// label is padded so the click target is wide enough to absorb
+    /// sub-pixel font drift).
     private static let linkClickX: Double = 400
     private static let link1Y: Double = 130
     private static let link2Y: Double = 158
@@ -90,34 +91,13 @@ public enum BrowserTabFromTerminalLinkScenario {
         // host `127.0.0.1`, so a single per-domain rule applies to every
         // one of them — exactly what the Phase 10–14 leg needs.
         let healthURL = "http://127.0.0.1:8765/health"
-        Shortcut.tmuxRunCommand(
-            target: "weblinks:0",
-            command: #"printf '\e]8;;\#(healthURL)\aOPEN-LINK-1-EASY-CLICK-TARGET\e]8;;\a\n'"#
-        )
-        Shortcut.tmuxRunCommand(
-            target: "weblinks:0",
-            command: #"printf '\e]8;;\#(healthURL)?v=2\aOPEN-LINK-2-EASY-CLICK-TARGET\e]8;;\a\n'"#
-        )
-        Shortcut.tmuxRunCommand(
-            target: "weblinks:0",
-            command: #"printf '\e]8;;\#(healthURL)?v=3\aOPEN-LINK-3-EASY-CLICK-TARGET\e]8;;\a\n'"#
-        )
-        Shortcut.tmuxRunCommand(
-            target: "weblinks:0",
-            command: #"printf '\e]8;;\#(healthURL)?v=4\aOPEN-LINK-4-EASY-CLICK-TARGET\e]8;;\a\n'"#
-        )
-        Shortcut.tmuxRunCommand(
-            target: "weblinks:0",
-            command: #"printf '\e]8;;\#(healthURL)?v=5\aOPEN-LINK-5-EASY-CLICK-TARGET\e]8;;\a\n'"#
-        )
-        Shortcut.tmuxRunCommand(
-            target: "weblinks:0",
-            command: #"printf '\e]8;;\#(healthURL)?v=6\aOPEN-LINK-6-EASY-CLICK-TARGET\e]8;;\a\n'"#
-        )
-        Shortcut.tmuxRunCommand(
-            target: "weblinks:0",
-            command: #"printf '\e]8;;\#(healthURL)?v=7\aOPEN-LINK-7-EASY-CLICK-TARGET\e]8;;\a\n'"#
-        )
+        for index in 1...7 {
+            let suffix = index == 1 ? "" : "?v=\(index)"
+            Shortcut.tmuxRunCommand(
+                target: "weblinks:0",
+                command: #"printf '\e]8;;\#(healthURL)\#(suffix)\aOPEN-LINK-\#(index)-EASY-CLICK-TARGET\e]8;;\a\n'"#
+            )
+        }
         TestStep.wait(seconds: 1)
 
         // Second session — its only role is to host the "switch away and
@@ -299,8 +279,8 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.macWaitForElement(titled: "Open this link?", timeout: 5)
 
         // ── Phase 10: Add a per-domain rule via the dialog ───────
-        TestStep.log("Phase 10: Toggle 'Don't ask again for 127.0.0.1.' + In App → adds a per-domain rule")
-        TestStep.macClickButton(titled: "Don't ask again for 127.0.0.1.")
+        TestStep.log("Phase 10: Toggle 'Don't ask again for 127.0.0.1:8765.' + In App → adds a per-domain rule")
+        TestStep.macClickButton(titled: "Don't ask again for 127.0.0.1:8765.")
         TestStep.wait(seconds: 0.5)
         TestStep.macScreenshot(label: "mac-confirmation-sheet-domain-remember-on")
         TestStep.macClickButton(titled: "In App")
@@ -316,7 +296,7 @@ public enum BrowserTabFromTerminalLinkScenario {
         // bare "127.0.0.1" string would also match the terminal panes in the
         // background (the OSC 8 URLs contain that host), which would race the
         // settings UI building out.
-        TestStep.macWaitForElement(titled: "Remove rule for 127.0.0.1", timeout: 5)
+        TestStep.macWaitForElement(titled: "Remove rule for 127.0.0.1:8765", timeout: 5)
         TestStep.wait(seconds: 0.5)
         TestStep.macScreenshot(label: "mac-settings-with-domain-rule")
         TestStep.macCloseWindow(titled: "Browser")
@@ -341,12 +321,12 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.log("Phase 13: Remove the per-domain rule from Settings → Browser")
         TestStep.macOpenSettings()
         TestStep.macWaitForWindow(titled: "Browser", timeout: 5)
-        TestStep.macClickButton(titled: "Remove rule for 127.0.0.1")
+        TestStep.macClickButton(titled: "Remove rule for 127.0.0.1:8765")
         TestStep.wait(seconds: 0.5)
         // Same as Phase 11: assert the remove-button help text vanishes, not
         // the host string, since the terminal panes' AX value still includes
         // "127.0.0.1" from the rendered OSC 8 link text.
-        TestStep.macWaitForElementToDisappear(titled: "Remove rule for 127.0.0.1", timeout: 5)
+        TestStep.macWaitForElementToDisappear(titled: "Remove rule for 127.0.0.1:8765", timeout: 5)
         TestStep.macScreenshot(label: "mac-settings-after-removing-rule")
         TestStep.macCloseWindow(titled: "Browser")
         TestStep.wait(seconds: 1)
