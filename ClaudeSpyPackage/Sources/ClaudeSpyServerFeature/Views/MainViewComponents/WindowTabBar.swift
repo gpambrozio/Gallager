@@ -576,7 +576,7 @@ struct WindowTabBar: View {
 /// Transferable payload used by the tab strip's drag-and-drop reorder. The
 /// enum cases preserve the kind of tab being moved so the drop handler can
 /// reject cross-kind drops (a terminal can't slot into the file-tab list).
-enum TabDragPayload: Codable, Hashable, Transferable {
+private enum TabDragPayload: Codable, Hashable, Transferable {
     case window(String)
     case file(UUID)
     case browser(UUID)
@@ -590,7 +590,7 @@ enum TabDragPayload: Codable, Hashable, Transferable {
 /// view's state because the dropped value is consumed by the closure that
 /// fires after the user releases — the targeted state has to be tracked
 /// separately while the drag is still moving.
-enum TabDragKind: Hashable {
+private enum TabDragKind: Hashable {
     case window(String)
     case file(UUID)
     case browser(UUID)
@@ -654,11 +654,11 @@ private struct TabDragPreview: View {
 }
 
 extension UTType {
-    /// Custom UTI used for tab-strip drags. Declared as a runtime placeholder
-    /// type because the payload never crosses process boundaries — it only
-    /// travels inside a single Gallager process so the type-identifier
-    /// database doesn't need a matching entry in the Info.plist.
+    /// Custom UTI used for tab-strip drags. The payload never crosses process
+    /// boundaries — it only travels inside a single Gallager process — so we
+    /// use `importedAs:` to avoid the runtime warning that `exportedAs:`
+    /// produces when the identifier isn't declared in the app's Info.plist.
     static var gallagerTabDrag: UTType {
-        UTType(exportedAs: "engineering.dx.gallager.tab-drag")
+        UTType(importedAs: "engineering.dx.gallager.tab-drag")
     }
 }

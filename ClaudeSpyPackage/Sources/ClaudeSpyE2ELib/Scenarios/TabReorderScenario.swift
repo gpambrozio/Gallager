@@ -168,8 +168,12 @@ public enum TabReorderScenario {
         TestStep.macScreenshot(label: "mac-tabreorder-after-close-winA")
 
         // ── Tear down ────────────────────────────────────────────────
-        Shortcut.tmuxRunCommand(target: "tabreorder:0", command: "exit")
-        Shortcut.tmuxRunCommand(target: "tabreorder-other:0", command: "exit")
+        // Use kill-session so every window in both sessions is cleaned up
+        // unconditionally. `exit`-on-pane only closes its own window and
+        // would leave the other windows (winB, terminal 1) and the second
+        // session running if the scenario aborted mid-flight.
+        TestStep.tmuxCommand(arguments: ["kill-session", "-t", "tabreorder"])
+        TestStep.tmuxCommand(arguments: ["kill-session", "-t", "tabreorder-other"])
         TestStep.wait(seconds: 2)
     }
 }

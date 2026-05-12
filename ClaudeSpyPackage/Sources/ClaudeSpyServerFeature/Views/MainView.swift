@@ -1998,7 +1998,7 @@ public struct MainView: View {
         // about:blank gives WKWebView a deterministic, offline starting page
         // so the new tab doesn't briefly flash a network error before the
         // user types a real URL.
-        guard let blank = URL(string: "about:blank") else { return }
+        let blank = URL(staticString: "about:blank")
         let newTab = BrowserTab(url: blank)
         let state = BrowserTabState(initialURL: blank)
         // Clear the URL field text so the user sees an empty input rather
@@ -2024,6 +2024,13 @@ public struct MainView: View {
     private func reorderWindows(in sessionName: String, to newOrder: [String]) {
         let previouslySelectedId = selectedWindow?.id
         let newSelectedIndex = previouslySelectedId.flatMap { newOrder.firstIndex(of: $0) }
+        // Clear the selection optimistically so the `onChange(of: tmuxService.panes)`
+        // handler that fires from inside `moveWindows`'s refreshPanes() bails
+        // out via its `guard let selected` early-return instead of resetting
+        // selectedWindow to an arbitrary fallback (the old id no longer exists
+        // post-renumber). We restore the correct, index-matched window below
+        // before pushing state to viewers.
+        selectedWindow = nil
         Task {
             do {
                 try await tmuxService.moveWindows(in: sessionName, to: newOrder)
