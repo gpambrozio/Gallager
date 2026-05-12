@@ -205,11 +205,24 @@ final class SessionFileTabsState {
     var rightSideFileTabIds: Set<UUID> = []
     /// Browser tab ids that belong to the right pane in the split layout.
     var rightSideBrowserTabIds: Set<UUID> = []
-    /// Selected file tab on the right pane. Mutually exclusive with
-    /// `selectedRightBrowserTabId`.
+    /// Window ids whose terminal content has been moved to the right pane.
+    /// At most one is rendered at a time (`selectedRightWindowId`); the set
+    /// records which window tabs visually live in the right tab strip.
+    var rightSideWindowIds: Set<String> = []
+    /// True when the file-explorer button has been dragged to the right
+    /// pane. Persists in the right tab strip until dragged back.
+    var isFileExplorerOnRight = false
+    /// True when the file explorer is the currently-shown content on the
+    /// right pane. Mutually exclusive with the other `selectedRight*` flags.
+    var isFileExplorerSelectedOnRight = false
+    /// Selected file tab on the right pane. Mutually exclusive with the
+    /// other `selectedRight*` selections — at most one right-pane source is
+    /// rendered at a time.
     var selectedRightFileTabId: UUID?
     /// Selected browser tab on the right pane.
     var selectedRightBrowserTabId: UUID?
+    /// Window whose terminal is currently rendered on the right pane.
+    var selectedRightWindowId: String?
     /// Width fraction occupied by the left pane. Clamped to
     /// `[SplitLayout.minRatio, SplitLayout.maxRatio]` (0.15…0.85) by the
     /// resize gesture. Default 0.5 puts the divider in the middle. Persisted
@@ -225,10 +238,14 @@ final class SessionFileTabsState {
     /// renders by iterating this array and dispatching on the case.
     var tabOrder: [TabDragPayload] = []
 
-    /// True when at least one file or browser tab has been sent to the right
-    /// pane. Drives the split content layout and the tab strip icons.
+    /// True when at least one tab — file, browser, window, or the file
+    /// explorer — has been sent to the right pane. Drives the split content
+    /// layout and the tab strip icons.
     var isSplit: Bool {
-        !rightSideFileTabIds.isEmpty || !rightSideBrowserTabIds.isEmpty
+        !rightSideFileTabIds.isEmpty
+            || !rightSideBrowserTabIds.isEmpty
+            || !rightSideWindowIds.isEmpty
+            || isFileExplorerOnRight
     }
 
     /// Returns true if the given file tab id currently sits on the right pane.
@@ -239,6 +256,12 @@ final class SessionFileTabsState {
     /// Returns true if the given browser tab id currently sits on the right pane.
     func isBrowserTabOnRight(_ id: UUID) -> Bool {
         rightSideBrowserTabIds.contains(id)
+    }
+
+    /// Returns true if the given window id currently has its terminal on
+    /// the right pane.
+    func isWindowOnRight(_ id: String) -> Bool {
+        rightSideWindowIds.contains(id)
     }
 }
 

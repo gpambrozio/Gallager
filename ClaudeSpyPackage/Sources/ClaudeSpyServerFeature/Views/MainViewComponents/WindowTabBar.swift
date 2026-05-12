@@ -39,6 +39,13 @@ struct WindowTabBar: View {
     let onToggleFileTabSplit: (UUID) -> Void
     /// Same as `onToggleFileTabSplit` but for browser tabs.
     let onToggleBrowserTabSplit: (UUID) -> Void
+    /// Toggles which side of the split a window's terminal lives on. Fired
+    /// when a window tab is dragged into the other section so the right
+    /// pane can render the terminal content directly.
+    let onToggleWindowSplit: (String) -> Void
+    /// Toggles which side of the split the file-explorer button lives on.
+    /// Fired when the folder button is dragged across the divider.
+    let onToggleFileExplorerSplit: () -> Void
     let onShowInFileExplorer: (String) -> Void
     let onAcceptOpenSuggestion: (MarkdownOpenSuggestion) -> Void
     /// Rearranges the tmux windows in the session to match the supplied id
@@ -118,6 +125,22 @@ struct WindowTabBar: View {
 
     private func isBrowserTabOnRight(_ id: UUID) -> Bool {
         sessionTabs?.isBrowserTabOnRight(id) ?? false
+    }
+
+    private func isWindowOnRight(_ id: String) -> Bool {
+        sessionTabs?.isWindowOnRight(id) ?? false
+    }
+
+    private var isFileExplorerOnRight: Bool {
+        sessionTabs?.isFileExplorerOnRight ?? false
+    }
+
+    private var isFileExplorerSelectedOnRight: Bool {
+        sessionTabs?.isFileExplorerSelectedOnRight ?? false
+    }
+
+    private var selectedRightWindowId: String? {
+        sessionTabs?.selectedRightWindowId
     }
 
     /// Source-of-truth ordering for the tab strip — reconciles the persisted
@@ -201,14 +224,14 @@ struct WindowTabBar: View {
     }
 
     /// Effective order restricted to entries visible on the left section in
-    /// split mode (everything except the file/browser tabs that have been
-    /// sent to the right pane).
+    /// split mode (everything that hasn't been dragged into the right pane).
     private var leftSectionOrder: [TabDragPayload] {
         effectiveTabOrder.filter { ref in
             switch ref {
-            case .window,
-                 .fileExplorer:
-                return true
+            case let .window(id):
+                return !isWindowOnRight(id)
+            case .fileExplorer:
+                return !isFileExplorerOnRight
             case let .file(id):
                 return !isFileTabOnRight(id)
             case let .browser(id):
@@ -218,17 +241,19 @@ struct WindowTabBar: View {
     }
 
     /// Effective order restricted to entries visible on the right section in
-    /// split mode (file/browser tabs flipped to the right side).
+    /// split mode (anything flipped to the right side — windows, the file
+    /// explorer, file tabs, or browser tabs).
     private var rightSectionOrder: [TabDragPayload] {
         effectiveTabOrder.filter { ref in
             switch ref {
+            case let .window(id):
+                return isWindowOnRight(id)
+            case .fileExplorer:
+                return isFileExplorerOnRight
             case let .file(id):
                 return isFileTabOnRight(id)
             case let .browser(id):
                 return isBrowserTabOnRight(id)
-            case .window,
-                 .fileExplorer:
-                return false
             }
         }
     }
@@ -416,6 +441,14 @@ struct WindowTabBar: View {
 
     private var fileBrowserButton: some View {
         let showDropIndicator = dropIndicator == .fileExplorer
+        // The button is "selected" when it drives the visible content of
+        // whichever pane it currently lives in — the left pane via the
+        // existing `isFileBrowserSelected` flag, or the right pane via
+        // `isFileExplorerSelectedOnRight` when the user has dragged it
+        // across the divider.
+        let isSelected = isFileExplorerOnRight
+            ? isFileExplorerSelectedOnRight
+            : isFileBrowserSelected
         return Button(action: onSelectFileBrowser) {
             Symbols.folderFill.image
                 .font(.caption)
@@ -426,8 +459,8 @@ struct WindowTabBar: View {
         .buttonStyle(.plain)
         .help("Browse files in \(session.sessionName)")
         .accessibilityLabel("Files")
-        .accessibilityValue(isFileBrowserSelected ? "selected" : "")
-        .tabStripItemStyle(isSelected: isFileBrowserSelected)
+        .accessibilityValue(isSelected ? "selected" : "")
+        .tabStripItemStyle(isSelected: isSelected)
         .overlay(alignment: .leading) {
             DropIndicator(visible: showDropIndicator)
         }
@@ -442,7 +475,16 @@ struct WindowTabBar: View {
     }
 
     private func windowTab(_ window: LocalTmuxWindow) -> some View {
-        let isSelected = window.id == selectedWindow.id && !isAnyFileViewActive
+        // A window on the right pane is "selected" when it's the currently-
+        // rendered right-side content. On the left (or in single mode) the
+        // existing rule applies: the tab is the active terminal and no
+        // file/browser/explorer is occupying the left pane.
+        let isSelected: Bool
+        if isWindowOnRight(window.id) {
+            isSelected = selectedRightWindowId == window.id
+        } else {
+            isSelected = window.id == selectedWindow.id && !isAnyFileViewActive
+        }
         let isHovered = hoveredWindowId == window.id
         let hasClaude = window.panes.contains { windowManager.paneStates[$0.paneId]?.claudeSession != nil }
         let windowName = windowTabLabel(windowName: window.windowName, windowIndex: window.windowIndex)
@@ -725,6 +767,12 @@ struct WindowTabBar: View {
 
         sessionTabs?.tabOrder = order
 
+        // If the drop crosses the split, also flip the source file/browser
+        // tab's side membership so it shows up in the pane the user dropped
+        // it into. Windows and the file explorer don't have a side concept,
+        // so this is a no-op for them.
+        adjustSplitSideIfNeeded(source: source, to: sectionOf(target))
+
         // Sync the per-kind subsequences out to the rest of the app so
         // anything still iterating the old arrays (keyboard nav, tmux's
         // own window indices) sees the new order.
@@ -772,8 +820,52 @@ struct WindowTabBar: View {
 
         order.insert(moved, at: min(insertIndex, order.count))
         sessionTabs?.tabOrder = order
+        adjustSplitSideIfNeeded(source: source, to: section)
         syncSubsequences(from: order)
         return true
+    }
+
+    /// Which section a unified-order entry currently lives in. Every kind
+    /// can land on either side now — windows render their terminal on the
+    /// right pane, the file explorer renders the file tree on the right.
+    private func sectionOf(_ ref: TabDragPayload) -> TabSection {
+        switch ref {
+        case let .window(id):
+            return isWindowOnRight(id) ? .right : (isSplit ? .left : .single)
+        case .fileExplorer:
+            return isFileExplorerOnRight ? .right : (isSplit ? .left : .single)
+        case let .file(id):
+            return isFileTabOnRight(id) ? .right : (isSplit ? .left : .single)
+        case let .browser(id):
+            return isBrowserTabOnRight(id) ? .right : (isSplit ? .left : .single)
+        }
+    }
+
+    /// Flips the source's split-side membership when it crossed sections
+    /// during the drag. Reuses the existing toggle callbacks so all the
+    /// side-effect bookkeeping (selection updates, right-pane reconciliation,
+    /// fileBrowserActiveWindowIds) runs through the same code path as the
+    /// split-toggle button on each tab.
+    private func adjustSplitSideIfNeeded(source: TabDragPayload, to section: TabSection) {
+        let shouldBeRight = (section == .right)
+        switch source {
+        case let .file(id):
+            if isFileTabOnRight(id) != shouldBeRight {
+                onToggleFileTabSplit(id)
+            }
+        case let .browser(id):
+            if isBrowserTabOnRight(id) != shouldBeRight {
+                onToggleBrowserTabSplit(id)
+            }
+        case let .window(id):
+            if isWindowOnRight(id) != shouldBeRight {
+                onToggleWindowSplit(id)
+            }
+        case .fileExplorer:
+            if isFileExplorerOnRight != shouldBeRight {
+                onToggleFileExplorerSplit()
+            }
+        }
     }
 
     /// Derives the windows / files / browsers subsequences from the unified
