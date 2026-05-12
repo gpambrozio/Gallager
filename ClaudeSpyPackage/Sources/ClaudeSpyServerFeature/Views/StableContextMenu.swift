@@ -14,6 +14,8 @@ enum ContextMenuItem {
     case submenu(
         title: String,
         image: NSImage? = nil,
+        isEnabled: Bool = true,
+        accessibilityLabel: String? = nil,
         items: [ContextMenuItem]
     )
     case divider
@@ -67,6 +69,11 @@ final private class StableContextMenuHostingView<Content: View>: NSHostingView<C
         return makeNSMenu(items: items)
     }
 
+    // `NSHostingView` declares `init(rootView:)` as `required`, and Swift
+    // does not consider the superclass-defined init "inherited" through the
+    // generic + stored-property layout here — the compiler errors with
+    // "required initializer 'init(rootView:)' must be provided by subclass"
+    // if this stub is removed.
     required init(rootView: Content) {
         super.init(rootView: rootView)
     }
@@ -83,13 +90,17 @@ final private class StableContextMenuHostingView<Content: View>: NSHostingView<C
 /// a `weak` reference — so the dispatcher must be strongly retained by
 /// the menu itself, which is what ``StableContextMenu`` (the menu
 /// subclass) does.
+///
+/// `@MainActor` because AppKit fires `@objc` menu actions on the main
+/// thread, and every caller (the `@MainActor` menu builder + the AppKit
+/// action selector) is already main-isolated.
+@MainActor
 final private class ContextMenuActionDispatcher: NSObject {
-    private var actions: [() -> Void] = []
+    private var actions: [@MainActor () -> Void] = []
 
-    @MainActor
     func registerAction(_ action: @escaping @MainActor () -> Void) -> Int {
         let tag = actions.count
-        actions.append { MainActor.assumeIsolated { action() } }
+        actions.append(action)
         return tag
     }
 
@@ -151,9 +162,13 @@ private func makeNSMenuItem(
             nsItem.setAccessibilityLabel(label)
         }
         return nsItem
-    case let .submenu(title, image, subitems):
+    case let .submenu(title, image, isEnabled, accessibilityLabel, subitems):
         let nsItem = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         nsItem.image = image
+        nsItem.isEnabled = isEnabled
+        if let label = accessibilityLabel {
+            nsItem.setAccessibilityLabel(label)
+        }
         let sub = NSMenu(title: title)
         sub.autoenablesItems = false
         for child in subitems {
