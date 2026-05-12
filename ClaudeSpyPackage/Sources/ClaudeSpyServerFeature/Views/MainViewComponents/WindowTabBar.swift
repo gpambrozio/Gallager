@@ -115,6 +115,119 @@ struct WindowTabBar: View {
         sessionTabs?.isBrowserTabOnRight(id) ?? false
     }
 
+    /// Source-of-truth ordering for the tab strip — reconciles the persisted
+    /// `sessionTabs.tabOrder` with the live windows / file tabs / browser tabs
+    /// so newly-discovered entries are slotted in and removed entries drop
+    /// out without rewriting the array elsewhere. The view body renders from
+    /// this and the `.onChange` below writes it back into `sessionTabs` so the
+    /// order survives session switches.
+    private var effectiveTabOrder: [TabDragPayload] {
+        let stored = sessionTabs?.tabOrder ?? []
+        let knownWindowIds = Set(session.windows.map(\.id))
+        let knownFileIds = Set(openFileTabs.map(\.id))
+        let knownBrowserIds = Set(openBrowserTabs.map(\.id))
+
+        // 1. Drop any stored entry whose underlying tab no longer exists.
+        var order: [TabDragPayload] = []
+        var sawFileExplorer = false
+        for ref in stored {
+            switch ref {
+            case let .window(id):
+                if knownWindowIds.contains(id) { order.append(ref) }
+            case .fileExplorer:
+                // Defensive dedupe — keep only the first .fileExplorer entry
+                if !sawFileExplorer {
+                    order.append(ref)
+                    sawFileExplorer = true
+                }
+            case let .file(id):
+                if knownFileIds.contains(id) { order.append(ref) }
+            case let .browser(id):
+                if knownBrowserIds.contains(id) { order.append(ref) }
+            }
+        }
+
+        // 2. Track which entries are already in the order after the filter.
+        var seenWindows: Set<String> = []
+        var seenFiles: Set<UUID> = []
+        var seenBrowsers: Set<UUID> = []
+        for ref in order {
+            switch ref {
+            case let .window(id): seenWindows.insert(id)
+            case let .file(id): seenFiles.insert(id)
+            case let .browser(id): seenBrowsers.insert(id)
+            case .fileExplorer: break
+            }
+        }
+
+        // 3. Slot any new windows in just before the file-explorer button
+        //    (so the default layout — windows, then folder, then files /
+        //    browsers — is preserved on first run and for late-joining
+        //    windows opened by tmux directly).
+        for window in session.windows where !seenWindows.contains(window.id) {
+            let insertAt = sawFileExplorer
+                ? (order.firstIndex(of: .fileExplorer) ?? order.count)
+                : order.count
+            order.insert(.window(window.id), at: insertAt)
+            seenWindows.insert(window.id)
+        }
+
+        // 4. Ensure exactly one file-explorer entry — slot it right after the
+        //    last window if missing entirely.
+        if !sawFileExplorer {
+            let insertAt: Int
+            if let lastWinIdx = order.lastIndex(where: { if case .window = $0 { true } else { false } }) {
+                insertAt = lastWinIdx + 1
+            } else {
+                insertAt = 0
+            }
+            order.insert(.fileExplorer, at: insertAt)
+        }
+
+        // 5. Append any new file tabs and browser tabs at the end.
+        for tab in openFileTabs where !seenFiles.contains(tab.id) {
+            order.append(.file(tab.id))
+        }
+        for tab in openBrowserTabs where !seenBrowsers.contains(tab.id) {
+            order.append(.browser(tab.id))
+        }
+
+        return order
+    }
+
+    /// Effective order restricted to entries visible on the left section in
+    /// split mode (everything except the file/browser tabs that have been
+    /// sent to the right pane).
+    private var leftSectionOrder: [TabDragPayload] {
+        effectiveTabOrder.filter { ref in
+            switch ref {
+            case .window,
+                 .fileExplorer:
+                return true
+            case let .file(id):
+                return !isFileTabOnRight(id)
+            case let .browser(id):
+                return !isBrowserTabOnRight(id)
+            }
+        }
+    }
+
+    /// Effective order restricted to entries visible on the right section in
+    /// split mode (file/browser tabs flipped to the right side).
+    private var rightSectionOrder: [TabDragPayload] {
+        effectiveTabOrder.filter { ref in
+            switch ref {
+            case let .file(id):
+                return isFileTabOnRight(id)
+            case let .browser(id):
+                return isBrowserTabOnRight(id)
+            case .window,
+                 .fileExplorer:
+                return false
+            }
+        }
+    }
+
     var body: some View {
         Group {
             if isSplit {
@@ -148,19 +261,29 @@ struct WindowTabBar: View {
                     }
             }
         }
+        // Persist the reconciled order so newly-appended windows / tabs and
+        // pruned entries survive view rebuilds and session switches. The
+        // computed value is idempotent (`reconcile(reconcile(x)) == reconcile(x)`)
+        // so this can't loop.
+        .onChange(of: effectiveTabOrder) { _, new in
+            if sessionTabs?.tabOrder != new {
+                sessionTabs?.tabOrder = new
+            }
+        }
+        .onAppear {
+            let computed = effectiveTabOrder
+            if sessionTabs?.tabOrder != computed {
+                sessionTabs?.tabOrder = computed
+            }
+        }
     }
 
     private var singleSection: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
                 newWindowButton
-                tmuxWindowTabsRow
-                fileBrowserButton
-                ForEach(openFileTabs) { tab in
-                    openFileTabView(tab)
-                }
-                ForEach(openBrowserTabs) { tab in
-                    openBrowserTabView(tab)
+                ForEach(effectiveTabOrder, id: \.self) { ref in
+                    tabView(for: ref)
                 }
                 if let suggestion = openSuggestionStore.suggestionsBySession[session.sessionName] {
                     openSuggestionBar(suggestion)
@@ -171,19 +294,14 @@ struct WindowTabBar: View {
         }
     }
 
-    /// Left section of the split-aware tab strip: window tabs, "+" button,
-    /// folder button, and every file/browser tab that lives on the left pane.
+    /// Left section of the split-aware tab strip: the "+" button plus every
+    /// entry in the unified order that hasn't been sent to the right pane.
     private var leftSection: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
                 newWindowButton
-                tmuxWindowTabsRow
-                fileBrowserButton
-                ForEach(openFileTabs.filter { !isFileTabOnRight($0.id) }) { tab in
-                    openFileTabView(tab)
-                }
-                ForEach(openBrowserTabs.filter { !isBrowserTabOnRight($0.id) }) { tab in
-                    openBrowserTabView(tab)
+                ForEach(leftSectionOrder, id: \.self) { ref in
+                    tabView(for: ref)
                 }
                 if let suggestion = openSuggestionStore.suggestionsBySession[session.sessionName] {
                     openSuggestionBar(suggestion)
@@ -194,16 +312,13 @@ struct WindowTabBar: View {
         }
     }
 
-    /// Right section of the split-aware tab strip: only the file/browser tabs
-    /// currently assigned to the right pane.
+    /// Right section of the split-aware tab strip: file / browser tabs that
+    /// have been flipped to the right pane, in their unified-order position.
     private var rightSection: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
-                ForEach(openFileTabs.filter { isFileTabOnRight($0.id) }) { tab in
-                    openFileTabView(tab)
-                }
-                ForEach(openBrowserTabs.filter { isBrowserTabOnRight($0.id) }) { tab in
-                    openBrowserTabView(tab)
+                ForEach(rightSectionOrder, id: \.self) { ref in
+                    tabView(for: ref)
                 }
                 Spacer()
             }
@@ -211,9 +326,26 @@ struct WindowTabBar: View {
         }
     }
 
-    private var tmuxWindowTabsRow: some View {
-        ForEach(session.windows) { window in
-            windowTab(window)
+    /// Dispatches a unified-order entry to the right view. Returns `EmptyView`
+    /// for entries whose underlying data has gone away between reconciliation
+    /// and this render pass (extremely rare; the next body cycle prunes it).
+    @ViewBuilder
+    private func tabView(for ref: TabDragPayload) -> some View {
+        switch ref {
+        case let .window(id):
+            if let window = session.windows.first(where: { $0.id == id }) {
+                windowTab(window)
+            }
+        case .fileExplorer:
+            fileBrowserButton
+        case let .file(id):
+            if let tab = openFileTabs.first(where: { $0.id == id }) {
+                openFileTabView(tab)
+            }
+        case let .browser(id):
+            if let tab = openBrowserTabs.first(where: { $0.id == id }) {
+                openBrowserTabView(tab)
+            }
         }
     }
 
@@ -246,7 +378,8 @@ struct WindowTabBar: View {
     }
 
     private var fileBrowserButton: some View {
-        Button(action: onSelectFileBrowser) {
+        let showDropIndicator = dropIndicator == .fileExplorer
+        return Button(action: onSelectFileBrowser) {
             Symbols.folderFill.image
                 .font(.caption)
                 .padding(.horizontal, 12)
@@ -258,6 +391,17 @@ struct WindowTabBar: View {
         .accessibilityLabel("Files")
         .accessibilityValue(isFileBrowserSelected ? "selected" : "")
         .tabStripItemStyle(isSelected: isFileBrowserSelected)
+        .overlay(alignment: .leading) {
+            DropIndicator(visible: showDropIndicator)
+        }
+        .draggable(TabDragPayload.fileExplorer) {
+            TabDragPreview(label: "Files", symbol: .folderFill)
+        }
+        .dropDestination(for: TabDragPayload.self) { payloads, _ in
+            handleDrop(payloads: payloads, target: .fileExplorer)
+        } isTargeted: { isTargeted in
+            updateDropIndicator(target: isTargeted ? .fileExplorer : nil, for: .fileExplorer)
+        }
     }
 
     private func windowTab(_ window: LocalTmuxWindow) -> some View {
@@ -513,71 +657,82 @@ struct WindowTabBar: View {
         }
     }
 
-    /// Translates a drop event into a reorder callback. Only same-kind drags
-    /// are honoured — dragging a file tab onto a window tab is a no-op so the
-    /// tmux index space stays consistent. `payloads` always contains exactly
-    /// one entry because `.draggable(_:)` produces a single value.
+    /// Translates a drop event into a reorder of the unified `tabOrder`. Any
+    /// kind can target any other kind (window onto browser, file-explorer
+    /// onto window, etc.) — the entry simply moves to the target's position
+    /// using Slack-style asymmetric insertion (right→left drops land at the
+    /// target's slot; left→right drops land after it). When the window
+    /// subsequence changes, the new order is also pushed to tmux via
+    /// `move-window`; when the file or browser subsequences change, the
+    /// corresponding `openFileTabs` / `openBrowserTabs` arrays are updated
+    /// so other consumers see the same order.
     private func handleDrop(payloads: [TabDragPayload], target: TabDragPayload) -> Bool {
         defer { dropIndicator = nil }
         guard let source = payloads.first, source != target else { return false }
-        switch (source, target) {
-        case let (.window(sourceId), .window(targetId)):
-            let ids = session.windows.map(\.id)
-            guard
-                let sourceIndex = ids.firstIndex(of: sourceId),
-                let targetIndex = ids.firstIndex(of: targetId),
-                sourceIndex != targetIndex
-            else { return false }
-            var reordered = ids
-            let moved = reordered.remove(at: sourceIndex)
-            reordered.insert(moved, at: targetIndex)
-            onReorderWindows(reordered)
-            return true
-        case let (.file(sourceId), .file(targetId)):
-            return reorder(
-                ids: openFileTabs.map(\.id),
-                sourceId: sourceId,
-                targetId: targetId,
-                apply: onReorderFileTabs
-            )
-        case let (.browser(sourceId), .browser(targetId)):
-            return reorder(
-                ids: openBrowserTabs.map(\.id),
-                sourceId: sourceId,
-                targetId: targetId,
-                apply: onReorderBrowserTabs
-            )
-        default:
-            return false
-        }
-    }
 
-    private func reorder<ID: Equatable>(
-        ids: [ID],
-        sourceId: ID,
-        targetId: ID,
-        apply: ([ID]) -> Void
-    ) -> Bool {
+        var order = effectiveTabOrder
         guard
-            let sourceIndex = ids.firstIndex(of: sourceId),
-            let targetIndex = ids.firstIndex(of: targetId),
+            let sourceIndex = order.firstIndex(of: source),
+            let targetIndex = order.firstIndex(of: target),
             sourceIndex != targetIndex
         else { return false }
-        var reordered = ids
-        let moved = reordered.remove(at: sourceIndex)
-        reordered.insert(moved, at: targetIndex)
-        apply(reordered)
+
+        let moved = order.remove(at: sourceIndex)
+        // After removal: if source was before target, target's index shifted
+        // down by one — inserting at the original `targetIndex` now places
+        // source *after* the target. If source was after target, target's
+        // index is unchanged — inserting at `targetIndex` places source
+        // *before* it. Same asymmetric (Slack-like) semantics as the
+        // existing scenario test (drag winC onto winA → winC,winA,winB).
+        order.insert(moved, at: targetIndex)
+
+        sessionTabs?.tabOrder = order
+
+        // Sync the per-kind subsequences out to the rest of the app so
+        // anything still iterating the old arrays (keyboard nav, tmux's
+        // own window indices) sees the new order.
+        syncSubsequences(from: order)
+
         return true
+    }
+
+    /// Derives the windows / files / browsers subsequences from the unified
+    /// `tabOrder` and pushes each one out to the matching reorder callback
+    /// when it differs from the live data. Idempotent — re-invoking with the
+    /// same order is a no-op.
+    private func syncSubsequences(from order: [TabDragPayload]) {
+        let windowIds: [String] = order.compactMap { ref in
+            if case let .window(id) = ref { return id } else { return nil }
+        }
+        let fileIds: [UUID] = order.compactMap { ref in
+            if case let .file(id) = ref { return id } else { return nil }
+        }
+        let browserIds: [UUID] = order.compactMap { ref in
+            if case let .browser(id) = ref { return id } else { return nil }
+        }
+
+        if windowIds != session.windows.map(\.id), !windowIds.isEmpty {
+            onReorderWindows(windowIds)
+        }
+        if fileIds != openFileTabs.map(\.id) {
+            onReorderFileTabs(fileIds)
+        }
+        if browserIds != openBrowserTabs.map(\.id) {
+            onReorderBrowserTabs(browserIds)
+        }
     }
 }
 
 // MARK: - Drag Payload
 
-/// Transferable payload used by the tab strip's drag-and-drop reorder. The
-/// enum cases preserve the kind of tab being moved so the drop handler can
-/// reject cross-kind drops (a terminal can't slot into the file-tab list).
-private enum TabDragPayload: Codable, Hashable, Transferable {
+/// Transferable identifier for every entry in the unified tab strip — tmux
+/// windows, the file-explorer button, open file tabs, and open browser tabs.
+/// Doubles as the storage element for `SessionFileTabsState.tabOrder`, so the
+/// session can persist a free-form ordering where the four kinds intermix in
+/// any sequence the user has dragged them into.
+enum TabDragPayload: Codable, Hashable, Transferable {
     case window(String)
+    case fileExplorer
     case file(UUID)
     case browser(UUID)
 
@@ -592,15 +747,17 @@ private enum TabDragPayload: Codable, Hashable, Transferable {
 /// separately while the drag is still moving.
 private enum TabDragKind: Hashable {
     case window(String)
+    case fileExplorer
     case file(UUID)
     case browser(UUID)
 
     /// Coarse kind for clearing the indicator when the cursor leaves a tab
-    /// of the same category. Without this, a hover from a window tab to a
-    /// file tab would briefly clear the window indicator before the file's
-    /// `isTargeted` callback fires, causing a single-frame flicker.
+    /// of one category and is about to enter another. Without this, an
+    /// out-of-order `isTargeted=false` from a peer can wipe out the
+    /// indicator that the new target just set.
     enum Discriminator {
         case window
+        case fileExplorer
         case file
         case browser
     }
@@ -608,6 +765,7 @@ private enum TabDragKind: Hashable {
     var discriminator: Discriminator {
         switch self {
         case .window: return .window
+        case .fileExplorer: return .fileExplorer
         case .file: return .file
         case .browser: return .browser
         }
@@ -654,11 +812,11 @@ private struct TabDragPreview: View {
 }
 
 extension UTType {
-    /// Custom UTI used for tab-strip drags. The payload never crosses process
-    /// boundaries — it only travels inside a single Gallager process — so we
-    /// use `importedAs:` to avoid the runtime warning that `exportedAs:`
-    /// produces when the identifier isn't declared in the app's Info.plist.
+    /// Custom UTI used for tab-strip drags. The identifier is declared in
+    /// `ClaudeSpyServer/Info.plist` under `UTExportedTypeDeclarations` so
+    /// the system can resolve it without a runtime warning and
+    /// `.dropDestination(for:)` accepts the payload reliably.
     static var gallagerTabDrag: UTType {
-        UTType(importedAs: "engineering.dx.gallager.tab-drag")
+        UTType(exportedAs: "engineering.dx.gallager.tab-drag")
     }
 }

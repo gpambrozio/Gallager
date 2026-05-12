@@ -217,6 +217,14 @@ final class SessionFileTabsState {
     /// this state.
     var splitRatio: CGFloat = 0.5
 
+    /// Unified order of every entry in the tab strip — tmux windows, the
+    /// file-explorer button, open file tabs, and open browser tabs — in the
+    /// sequence the user has dragged them into. Empty until the first time
+    /// `WindowTabBar` reconciles the live data, after which any drop or new
+    /// tab updates it. The four kinds may interleave in any order; the bar
+    /// renders by iterating this array and dispatching on the case.
+    var tabOrder: [TabDragPayload] = []
+
     /// True when at least one file or browser tab has been sent to the right
     /// pane. Drives the split content layout and the tab strip icons.
     var isSplit: Bool {
