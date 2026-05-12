@@ -40,7 +40,12 @@ public enum CloseFirstWindowAfterNavigationScenario {
         //    that blanks the surviving terminal produces a screenshot diff
         //    well above tolerance.
         TestStep.log("Stage 3: Tab-bar '+' to create window 1 and fill with text")
-        TestStep.macClickButton(titled: "New Window")
+        // The + button became a menu (issue #510) — click it and then pick
+        // the "New Terminal" entry from the popup to create a tmux window.
+        TestStep.macClickMenuItem(
+            menuButtonTitle: "New Tab",
+            itemTitle: "New Terminal"
+        )
         TestStep.wait(seconds: 1)
 
         TestStep.macWaitForElement(titled: "terminal 2", timeout: 5)

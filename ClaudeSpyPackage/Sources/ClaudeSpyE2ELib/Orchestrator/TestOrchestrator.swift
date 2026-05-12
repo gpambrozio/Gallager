@@ -698,6 +698,9 @@ public actor TestOrchestrator {
         case let .macDrag(fromX, fromY, toX, toY, instance):
             try await macDriver(for: instance).drag(fromX: fromX, fromY: fromY, toX: toX, toY: toY)
 
+        case let .macDragElement(fromQuery, toQuery, instance):
+            try await macDriver(for: instance).dragElement(from: fromQuery, to: toQuery)
+
         case let .macScreenshot(label, compare, tolerance, perPixelThreshold, instance):
             let numberedLabel = nextScreenshotLabel(label)
             let actualPath = screenshotPath(for: numberedLabel)

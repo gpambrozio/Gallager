@@ -128,6 +128,8 @@ public extension TestStep {
             return .macOS(instance: instance)
         case let .macDrag(_, _, _, _, instance):
             return .macOS(instance: instance)
+        case let .macDragElement(_, _, instance):
+            return .macOS(instance: instance)
         case let .macScreenshot(_, _, _, _, instance):
             return .macOS(instance: instance)
         case let .macSendHookEvent(_, _, _, instance):

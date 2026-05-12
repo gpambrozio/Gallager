@@ -309,6 +309,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         BrowserTabFromTerminalLinkScenario.scenario,
         FileTextSearchScenario.scenario,
         SplitTabScenario.scenario,
+        TabReorderScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {

@@ -97,6 +97,9 @@ public enum MultiWindowTabsMacViewerScenario {
 
         // ── Phase 5: Create 3rd window via "+" button ───────────
         TestStep.log("Phase 5: Create new window via + button")
+        // Viewer side uses `RemoteWindowTabBar`, which keeps the original
+        // "New Window" button instead of the host-side popover from issue
+        // #510 (remote sessions have no in-app browser tabs to offer).
         TestStep.macClickButton(titled: "New Window", instance: 1)
         TestStep.wait(seconds: 5)
 

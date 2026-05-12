@@ -191,7 +191,9 @@ public struct MainView: View {
         }
         .modifier(MenuCommandsModifier(
             onCloseCurrentTab: { handleCloseCurrentTab() },
-            onOpenContentSearch: { handleOpenContentSearch() }
+            onOpenContentSearch: { handleOpenContentSearch() },
+            onSelectPreviousTab: { selectAdjacentTab(direction: -1) },
+            onSelectNextTab: { selectAdjacentTab(direction: 1) }
         ))
         .modifier(EditorPickerDialogModifier(
             editorPickerPath: $editorPickerPath,
@@ -701,6 +703,9 @@ public struct MainView: View {
                                 }
                             }
                         },
+                        onNewBrowser: {
+                            openEmptyBrowserTab(sessionName: session.sessionName, windowId: window.id)
+                        },
                         onRenameWindow: { windowToRename, newName in
                             Task {
                                 try? await tmuxService.renameWindow(target: windowToRename.id, name: newName)
@@ -757,6 +762,15 @@ public struct MainView: View {
                                 windowId: window.id
                             )
                             markdownOpenSuggestionStore.dismiss(sessionName: session.sessionName)
+                        },
+                        onReorderWindows: { newOrder in
+                            reorderWindows(in: session.sessionName, to: newOrder)
+                        },
+                        onReorderFileTabs: { newOrder in
+                            reorderFileTabs(in: session.sessionName, to: newOrder)
+                        },
+                        onReorderBrowserTabs: { newOrder in
+                            reorderBrowserTabs(in: session.sessionName, to: newOrder)
                         }
                     )
                 }
@@ -1518,6 +1532,147 @@ public struct MainView: View {
         requestCloseWindow(window)
     }
 
+    /// Cmd-Shift-[ / Cmd-Shift-] handler. Walks the active session's tab
+    /// strip in visual order — tmux windows, then the Files button, then file
+    /// tabs, then browser tabs — and selects the entry `direction` steps away
+    /// from the current one, wrapping around the ends so the shortcut keeps
+    /// working at the boundaries. Remote sessions only have window tabs, so
+    /// the helper falls back to cycling those when no local session is
+    /// selected. No-op when there is exactly one tab in view.
+    private func selectAdjacentTab(direction: Int) {
+        if let remote = selectedRemoteSession {
+            cycleRemoteWindowTab(remote: remote, direction: direction)
+            return
+        }
+        guard let window = selectedWindow else { return }
+        guard
+            let session = tmuxService.sessions
+                .first(where: { $0.windows.contains(where: { $0.id == window.id }) })
+        else { return }
+        let sessionTabs = sessionFileTabsStates[session.sessionName]
+        let entries = tabStripEntries(
+            session: session,
+            sessionTabs: sessionTabs
+        )
+        guard entries.count > 1 else { return }
+        let currentIndex = currentTabIndex(
+            entries: entries,
+            window: window,
+            sessionTabs: sessionTabs
+        )
+        guard let currentIndex else { return }
+        let nextIndex = (currentIndex + direction + entries.count) % entries.count
+        applyTabSelection(
+            entry: entries[nextIndex],
+            session: session,
+            sessionTabs: sessionTabs,
+            currentWindow: window
+        )
+    }
+
+    /// Logical tab-strip entries used by `selectAdjacentTab`. The cases mirror
+    /// the order rendered by `WindowTabBar.singleSection` so cycling matches
+    /// the user's visual mental model.
+    private enum TabStripEntry: Equatable {
+        case window(LocalTmuxWindow)
+        case fileBrowser
+        case fileTab(UUID)
+        case browserTab(UUID)
+    }
+
+    private func tabStripEntries(
+        session: LocalTmuxSession,
+        sessionTabs: SessionFileTabsState?
+    ) -> [TabStripEntry] {
+        var entries: [TabStripEntry] = session.windows.map { .window($0) }
+        entries.append(.fileBrowser)
+        if let sessionTabs {
+            entries.append(contentsOf: sessionTabs.openFileTabs.map { .fileTab($0.id) })
+            entries.append(contentsOf: sessionTabs.openBrowserTabs.map { .browserTab($0.id) })
+        }
+        return entries
+    }
+
+    private func currentTabIndex(
+        entries: [TabStripEntry],
+        window: LocalTmuxWindow,
+        sessionTabs: SessionFileTabsState?
+    ) -> Int? {
+        // Browser tab > file tab > file browser > selected window. The first
+        // match wins so the user's actual visible tab is the cycling anchor.
+        if let selectedBrowserId = sessionTabs?.selectedBrowserTabId {
+            if let idx = entries.firstIndex(of: .browserTab(selectedBrowserId)) {
+                return idx
+            }
+        }
+        if let selectedFileId = sessionTabs?.selectedFileTabId {
+            if let idx = entries.firstIndex(of: .fileTab(selectedFileId)) {
+                return idx
+            }
+        }
+        if fileBrowserActiveWindowIds.contains(window.id) {
+            if let idx = entries.firstIndex(of: .fileBrowser) {
+                return idx
+            }
+        }
+        return entries.firstIndex(of: .window(window))
+    }
+
+    private func applyTabSelection(
+        entry: TabStripEntry,
+        session: LocalTmuxSession,
+        sessionTabs: SessionFileTabsState?,
+        currentWindow: LocalTmuxWindow
+    ) {
+        switch entry {
+        case let .window(window):
+            fileBrowserActiveWindowIds.remove(currentWindow.id)
+            sessionTabs?.selectedFileTabId = nil
+            sessionTabs?.selectedBrowserTabId = nil
+            selectedWindow = window
+            Task {
+                try? await tmuxService.selectWindow(window.id)
+            }
+        case .fileBrowser:
+            fileBrowserActiveWindowIds.insert(currentWindow.id)
+            if fileBrowserStates[session.sessionName] == nil {
+                fileBrowserStates[session.sessionName] = FileBrowserState()
+            }
+            if sessionFileTabsStates[session.sessionName] == nil {
+                sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
+            }
+            sessionFileTabsStates[session.sessionName]?.selectedFileTabId = nil
+            sessionFileTabsStates[session.sessionName]?.selectedBrowserTabId = nil
+        case let .fileTab(tabId):
+            selectFileTab(tabId, sessionName: session.sessionName, windowId: currentWindow.id)
+        case let .browserTab(tabId):
+            selectBrowserTab(tabId, sessionName: session.sessionName, windowId: currentWindow.id)
+        }
+    }
+
+    /// Remote sessions only render window tabs in the tab strip, so the
+    /// Cmd-Shift-[ / Cmd-Shift-] shortcut cycles through the window list
+    /// (sent as `SelectTmuxWindow` to the paired host so tmux follows along).
+    private func cycleRemoteWindowTab(remote: RemoteSessionSelection, direction: Int) {
+        let windows = selectedRemoteSessionWindows
+        guard windows.count > 1 else { return }
+        guard
+            let currentId = selectedRemoteWindowId ?? selectedRemoteWindow?.id,
+            let currentIndex = windows.firstIndex(where: { $0.id == currentId })
+        else { return }
+        let nextIndex = (currentIndex + direction + windows.count) % windows.count
+        let newWindow = windows[nextIndex]
+        selectedRemoteWindowId = newWindow.id
+        Task {
+            guard let manager = coordinator.viewerConnectionManager else { return }
+            _ = await manager.sendCommand(
+                SelectTmuxWindow(),
+                paneId: newWindow.id,
+                hostId: remote.hostId
+            )
+        }
+    }
+
     /// Cmd-Shift-F handler. Switches the currently-selected local session to
     /// the file explorer tab, flips its search mode to content, and asks the
     /// search field to take focus. Bails on remote sessions because remote
@@ -1829,6 +1984,79 @@ public struct MainView: View {
         tabs.selectedBrowserTabId = tabId
         tabs.selectedFileTabId = nil
         fileBrowserActiveWindowIds.remove(windowId)
+    }
+
+    /// Opens a fresh, empty browser tab with `about:blank` loaded. The tab is
+    /// appended at the end, selected, and the address bar is asked to take
+    /// keyboard focus so the user can start typing a URL immediately. Used by
+    /// the "+" menu's "New Browser" entry.
+    private func openEmptyBrowserTab(sessionName: String, windowId: String) {
+        if sessionFileTabsStates[sessionName] == nil {
+            sessionFileTabsStates[sessionName] = SessionFileTabsState()
+        }
+        guard let tabs = sessionFileTabsStates[sessionName] else { return }
+        // about:blank gives WKWebView a deterministic, offline starting page
+        // so the new tab doesn't briefly flash a network error before the
+        // user types a real URL.
+        guard let blank = URL(string: "about:blank") else { return }
+        let newTab = BrowserTab(url: blank)
+        let state = BrowserTabState(initialURL: blank)
+        // Clear the URL field text so the user sees an empty input rather
+        // than the literal "about:blank" placeholder when the field gains
+        // focus. The page itself still loads at the blank URL.
+        state.urlFieldText = ""
+        tabs.openBrowserTabs.append(newTab)
+        tabs.browserStates[newTab.id] = state
+        tabs.selectedBrowserTabId = newTab.id
+        tabs.selectedFileTabId = nil
+        fileBrowserActiveWindowIds.remove(windowId)
+        state.urlFieldFocusRequest += 1
+    }
+
+    /// Rewrites tmux's window order for `sessionName` to match `newOrder`.
+    /// `newOrder` lists every window id (e.g. `"sessionName:N"`) in the
+    /// desired visual order. The tmux service moves each window into its new
+    /// index and triggers a refresh so the in-memory window list mirrors the
+    /// new layout. Since window ids embed the tmux index ("session:N"), every
+    /// id changes after the move — the previously-selected window is
+    /// re-located by its post-move position in `newOrder` so the selection
+    /// follows the same logical window across the renumbering.
+    private func reorderWindows(in sessionName: String, to newOrder: [String]) {
+        let previouslySelectedId = selectedWindow?.id
+        let newSelectedIndex = previouslySelectedId.flatMap { newOrder.firstIndex(of: $0) }
+        Task {
+            do {
+                try await tmuxService.moveWindows(in: sessionName, to: newOrder)
+                if
+                    let newSelectedIndex,
+                    let refreshed = tmuxService.windows.first(where: {
+                        $0.sessionName == sessionName && $0.windowIndex == newSelectedIndex
+                    }) {
+                    selectedWindow = refreshed
+                }
+                await coordinator.connectedViewerManager?.pushSessionStateToAll()
+            } catch {
+                attachError = "Failed to reorder windows: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Reorders the open file tabs in `sessionName` to match `newOrder`.
+    private func reorderFileTabs(in sessionName: String, to newOrder: [UUID]) {
+        guard let tabs = sessionFileTabsStates[sessionName] else { return }
+        let indexed = Dictionary(uniqueKeysWithValues: tabs.openFileTabs.map { ($0.id, $0) })
+        let reordered: [OpenFileTab] = newOrder.compactMap { indexed[$0] }
+        guard reordered.count == tabs.openFileTabs.count else { return }
+        tabs.openFileTabs = reordered
+    }
+
+    /// Reorders the open browser tabs in `sessionName` to match `newOrder`.
+    private func reorderBrowserTabs(in sessionName: String, to newOrder: [UUID]) {
+        guard let tabs = sessionFileTabsStates[sessionName] else { return }
+        let indexed = Dictionary(uniqueKeysWithValues: tabs.openBrowserTabs.map { ($0.id, $0) })
+        let reordered: [BrowserTab] = newOrder.compactMap { indexed[$0] }
+        guard reordered.count == tabs.openBrowserTabs.count else { return }
+        tabs.openBrowserTabs = reordered
     }
 
     /// Updates the cached page title for a browser tab so the tab strip

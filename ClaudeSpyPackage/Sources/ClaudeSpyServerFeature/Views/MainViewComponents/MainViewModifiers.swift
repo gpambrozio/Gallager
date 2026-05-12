@@ -2,12 +2,14 @@ import ClaudeSpyCommon
 import Dependencies
 import SwiftUI
 
-/// Bundles the global menu-driven notifications (Cmd-W, Cmd-Shift-F) into a
-/// single modifier so the main `body` chain stays under the Swift type
-/// checker's complexity threshold.
+/// Bundles the global menu-driven notifications (Cmd-W, Cmd-Shift-F,
+/// Cmd-Shift-[, Cmd-Shift-]) into a single modifier so the main `body` chain
+/// stays under the Swift type checker's complexity threshold.
 struct MenuCommandsModifier: ViewModifier {
     let onCloseCurrentTab: () -> Void
     let onOpenContentSearch: () -> Void
+    let onSelectPreviousTab: () -> Void
+    let onSelectNextTab: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -16,6 +18,12 @@ struct MenuCommandsModifier: ViewModifier {
             }
             .onReceive(NotificationCenter.default.publisher(for: .openContentSearch)) { _ in
                 onOpenContentSearch()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .selectPreviousTab)) { _ in
+                onSelectPreviousTab()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .selectNextTab)) { _ in
+                onSelectNextTab()
             }
     }
 }
